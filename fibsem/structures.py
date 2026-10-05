@@ -2760,11 +2760,15 @@ class SystemInfo:
     # for a wheel install. default_factory, not a plain default, so the lookup
     # happens on first use rather than at import of this module.
     fibsem_revision: Optional[str] = field(default_factory=get_revision)
+    # The port the driver connects on. None uses the port its driver registers
+    # (``fibsem.microscopes.registry``): 7520 for ThermoFisher, 8300 for Tescan.
+    port: Optional[int] = None
 
     def to_dict(self):
         return {
             "name": self.name,
             "ip_address": self.ip_address,
+            "port": self.port,
             "manufacturer": self.manufacturer,
             "model": self.model,
             "serial_number": self.serial_number,
@@ -2780,6 +2784,7 @@ class SystemInfo:
         return SystemInfo(
             name=settings.get("name", "Unknown"),
             ip_address=settings.get("ip_address", "Unknown"),
+            port=settings.get("port"),
             # normalise on read: configs and old experiments carry "Thermo"/"TESCAN"
             # etc.; everything downstream compares against the canonical spellings
             manufacturer=normalize_manufacturer(

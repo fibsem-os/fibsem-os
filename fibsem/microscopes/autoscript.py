@@ -892,7 +892,7 @@ def match_application_file(
 DRIVER = DriverEntry(
     manufacturer=manufacturers.THERMOFISHER,
     microscope_class="fibsem.microscopes.autoscript:ThermoMicroscope",
-    config={"port": 7520},
+    config={"port": 7520, "ion-column-tilt": 52, "electron-column-tilt": 0},
 )
 
 

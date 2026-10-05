@@ -346,7 +346,7 @@ def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
 DRIVER = DriverEntry(
     manufacturer=manufacturers.TESCAN,
     microscope_class="fibsem.microscopes.tescan:TescanMicroscope",
-    config={"port": 8300},
+    config={"port": 8300, "ion-column-tilt": 55, "electron-column-tilt": 0},
 )
 
 

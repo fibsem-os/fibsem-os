@@ -9,6 +9,7 @@ import yaml
 
 import fibsem
 from fibsem import manufacturers
+from fibsem.microscopes import registry
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445
@@ -154,11 +155,6 @@ def load_yaml(fname):
     return config
 
 
-AVAILABLE_MANUFACTURERS = [
-    manufacturers.THERMOFISHER,
-    manufacturers.TESCAN,
-    manufacturers.DEMO,
-]
 DEFAULT_MANUFACTURER = manufacturers.THERMOFISHER
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 SUPPORTED_PLASMA_GASES = ["Argon", "Oxygen", "Nitrogen", "Xenon"]
@@ -270,21 +266,21 @@ def set_default_configuration(configuration_name: str):
         yaml.dump(USER_CONFIGURATIONS_YAML, f)
 
 
-# default configuration values
-DEFAULT_CONFIGURATION_VALUES = {
-    manufacturers.THERMOFISHER: {
-        "ion-column-tilt": 52,
-        "electron-column-tilt": 0,
-    },
-    "Tescan": {
-        "ion-column-tilt": 55,
-        "electron-column-tilt": 0,
-    },
-    "Demo": {
-        "ion-column-tilt": 52,
-        "electron-column-tilt": 0,
-    },
-}
+def __getattr__(name: str):
+    """``DEFAULT_CONFIGURATION_VALUES`` and ``AVAILABLE_MANUFACTURERS``, from the
+    driver registry (FIB-1123).
+
+    Read on each access rather than at import: reading a driver's record imports its
+    module, which imports this one, and a driver registered later is then included.
+    ``DEFAULT_CONFIGURATION_VALUES`` is each driver's config (column tilts, port);
+    ``AVAILABLE_MANUFACTURERS`` is the manufacturers that have one. Odemis has none,
+    so it is in neither.
+    """
+    if name == "DEFAULT_CONFIGURATION_VALUES":
+        return registry.default_configuration_values()
+    if name == "AVAILABLE_MANUFACTURERS":
+        return list(registry.default_configuration_values())
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # machine learning

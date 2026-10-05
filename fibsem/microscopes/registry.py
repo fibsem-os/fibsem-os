@@ -36,9 +36,13 @@ class DriverEntry:
     """The driver's ``FibsemMicroscope`` subclass, as ``"module:Class"``."""
 
     config: Mapping[str, Any] = field(default_factory=dict)
-    """The driver's own facts. ``port`` is the port ``connect_microscope`` connects
-    on; without one the driver is not connected by address at all (Odemis reaches its
-    instrument through its own back end, so it is constructed and nothing more)."""
+    """The driver's own facts, and the default configuration values for its
+    instruments. ``port`` is the port ``connect_microscope`` connects on (a
+    configuration's ``info.port`` overrides it); without either, the driver is not
+    connected by address at all (Odemis reaches its instrument through its own back
+    end, so it is constructed and nothing more). Column tilts (``ion-column-tilt``,
+    ``electron-column-tilt``) are what ``config.DEFAULT_CONFIGURATION_VALUES`` is
+    built from."""
 
     def load(self) -> Type["FibsemMicroscope"]:
         """Import and return the driver's class."""
@@ -93,12 +97,15 @@ def get_driver(manufacturer: Optional[str]) -> DriverEntry:
 def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":
     """The microscope ``system.info.manufacturer`` names, built and connected.
 
-    Connects to ``system.info.ip_address`` on the driver's ``port``. A driver with
-    no port is built and not connected.
+    Connects to ``system.info.ip_address`` on ``system.info.port`` when the
+    configuration names one, else on the driver's ``port``. With neither, the
+    microscope is built and not connected.
     """
     driver = get_driver(system.info.manufacturer)
     microscope = driver.load()(system)
-    port = driver.config.get("port")
+    port = system.info.port
+    if port is None:
+        port = driver.config.get("port")
     if port is not None:
         microscope.connect_to_microscope(ip_address=system.info.ip_address, port=port)
     return microscope
@@ -108,3 +115,13 @@ def registered_manufacturers() -> List[str]:
     """The manufacturers a driver is registered for: the built-ins, then the rest
     in registration order. Imports no driver."""
     return list(_BUILT_IN) + [m for m in _DRIVERS if m not in _BUILT_IN]
+
+
+def default_configuration_values() -> Dict[str, Dict[str, Any]]:
+    """Each manufacturer's driver config, for the drivers that have any: the
+    built-ins, then the rest in registration order.
+
+    Reads every built-in driver's record, so it imports their modules.
+    """
+    entries = [get_driver(m) for m in registered_manufacturers()]
+    return {entry.manufacturer: dict(entry.config) for entry in entries if entry.config}

@@ -133,7 +133,7 @@ def _unknown_key(key: str, beam_type: Optional[BeamType]) -> None:
 DRIVER = DriverEntry(
     manufacturer=manufacturers.DEMO,
     microscope_class="fibsem.microscopes.device_demo:DemoMicroscope",
-    config={"port": 7520},
+    config={"port": 7520, "ion-column-tilt": 52, "electron-column-tilt": 0},
 )
 
 
