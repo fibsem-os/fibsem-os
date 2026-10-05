@@ -1,26 +1,31 @@
-"""The AutoScript (Thermo Fisher) stage as a device, beside the untouched Thermo backend.
+"""The AutoScript (Thermo Fisher) stage and beams as devices, beside the untouched
+Thermo backend.
 
-``AutoscriptStage`` implements the ``Stage`` device with what ``ThermoMicroscope`` does
-today, moved as-is, so the old call and the device make the same SDK calls in the same
-order. ``AutoscriptCompustage`` is the same for a compustage (Arctis, Hydra). Nothing
-builds them yet: ``ThermoMicroscope`` still moves its stage itself, and pointing it at
-the device is a later step.
+``AutoscriptStage`` implements the ``Stage`` device with what ``ThermoMicroscope``
+does today, moved as-is, so the old call and the device make the same SDK calls in
+the same order. ``AutoscriptCompustage`` is the same for a compustage (Arctis,
+Hydra), and ``AutoscriptBeam`` for the beam keys. Nothing builds them yet:
+``ThermoMicroscope`` still answers its stage and beam keys itself, and pointing it at
+the devices is a later step.
 
 The vendor stage is ``microscope.stage``, which the Thermo backend sets at connect to
-``specimen.stage`` or ``specimen.compustage``. This module imports the SDK only through
-``fibsem.microscopes.autoscript``, which is where the guarded import lives.
+``specimen.stage`` or ``specimen.compustage``; the vendor beams are under
+``microscope.connection.beams``. This module imports the SDK only through
+``fibsem.microscopes.autoscript``, which is where the guarded import lives, apart from
+the SDK's ``Point`` inside a write, which the old branch imports there too.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Optional, Type
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
 
 import numpy as np
 
+from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
-from fibsem.structures import BeamType, FibsemStagePosition, RangeLimit
+from fibsem.structures import BeamType, FibsemStagePosition, Point, RangeLimit
 
 if TYPE_CHECKING:
     from fibsem.microscopes.autoscript import ThermoMicroscope
@@ -154,3 +159,194 @@ def bind_autoscript_stage(
 ) -> AutoscriptStage:
     """Build ``stage`` for a connected Thermo microscope."""
     return autoscript_stage_class(microscope)(microscope, resources).connect()
+
+
+class AutoscriptBeam(Beam):
+    """An AutoScript beam: ``connection.beams.electron_beam`` or ``.ion_beam``.
+
+    Each parameter is the matching branch of ``ThermoMicroscope._get``/``_set`` moved
+    as it is, so the old call and the device make the same SDK calls and log the same
+    messages. The choices are ``ThermoMicroscope.get_available_values``'s. Nothing
+    builds these yet: ``ThermoMicroscope`` still answers its beam keys itself.
+
+    Not here yet, so absent on the new API and still answered by the old branches:
+    the detector keys (they select the imaging channel first), the scan commands and
+    ``scanning_mode`` (there is no read of it today), and ``preset`` (Thermo has none).
+    """
+
+    def __init__(
+        self,
+        beam_type: BeamType,
+        parent: ThermoMicroscope,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(beam_type, parent=parent, resources=resources)
+
+    @property
+    def _beam(self) -> Any:
+        """The vendor beam, looked up on every call, as the old branches do."""
+        return self.parent._get_beam(self.beam_type)
+
+    def _set_log(self, what: str, value: Any, unit: str) -> None:
+        logging.info(f"{self.beam_type.name} {what} set to {value}{unit}.")
+
+    def read_on(self) -> bool:
+        return self._beam.is_on
+
+    def write_on(self, value: bool) -> None:
+        beam = self._beam
+        beam.turn_on() if value else beam.turn_off()
+        logging.info(f"{self.beam_type.name} beam turned {'on' if value else 'off'}.")
+
+    def read_blanked(self) -> bool:
+        return self._beam.is_blanked
+
+    def write_blanked(self, value: bool) -> None:
+        beam = self._beam
+        beam.blank() if value else beam.unblank()
+        logging.info(
+            f"{self.beam_type.name} beam {'blanked' if value else 'unblanked'}."
+        )
+
+    def read_working_distance(self) -> float:
+        return self._beam.working_distance.value
+
+    def write_working_distance(self, value: float) -> None:
+        self._beam.working_distance.value = value
+        self._set_log("working distance", value, " m")
+
+    def read_current(self) -> float:
+        return self._beam.beam_current.value
+
+    def write_current(self, value: float) -> None:
+        self._beam.beam_current.value = value
+        self._set_log("current", value, " A")
+
+    def metadata_current(self) -> ParameterMetadata:
+        beam = self._beam
+        if self.beam_type is BeamType.ION:
+            return ParameterMetadata(choices=list(beam.beam_current.available_values))
+        # the electron currents double from the minimum, as the microscope lists them
+        limits = beam.beam_current.limits
+        choices, current = [], limits.min
+        while current <= limits.max:
+            choices.append(current)
+            current *= 2.0
+        return ParameterMetadata(choices=choices)
+
+    def read_voltage(self) -> float:
+        return self._beam.high_voltage.value
+
+    def write_voltage(self, value: float) -> None:
+        self._beam.high_voltage.value = value
+        self._set_log("voltage", value, " V")
+
+    def metadata_voltage(self) -> ParameterMetadata:
+        from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES
+
+        limits = self._beam.high_voltage.limits
+        return ParameterMetadata(
+            choices=[
+                v
+                for v in THERMO_VOLTAGE_CHOICES[self.beam_type]
+                if limits.min <= v <= limits.max
+            ]
+        )
+
+    def read_hfw(self) -> float:
+        return self._beam.horizontal_field_width.value
+
+    def write_hfw(self, value: float) -> None:
+        # clipped just inside the vendor's maximum, as the old branch does
+        beam = self._beam
+        limits = beam.horizontal_field_width.limits
+        value = np.clip(value, limits.min, limits.max - 10e-6)
+        beam.horizontal_field_width.value = value
+        logging.info(f"{self.beam_type.name} HFW set to {value} m.")
+
+    def metadata_hfw(self) -> ParameterMetadata:
+        limits = self._beam.horizontal_field_width.limits
+        return ParameterMetadata(
+            limits=RangeLimit(min=limits.min, max=limits.max - 10e-6)
+        )
+
+    def read_dwell_time(self) -> float:
+        return self._beam.scanning.dwell_time.value
+
+    def write_dwell_time(self, value: float) -> None:
+        self._beam.scanning.dwell_time.value = value
+        self._set_log("dwell time", value, " s")
+
+    def read_scan_rotation(self) -> float:
+        return self._beam.scanning.rotation.value
+
+    def write_scan_rotation(self, value: float) -> None:
+        self._beam.scanning.rotation.value = value
+        self._set_log("scan rotation", value, " radians")
+
+    def read_shift(self) -> Point:
+        beam = self._beam
+        return Point(beam.beam_shift.value.x, beam.beam_shift.value.y)
+
+    def write_shift(self, value: Point) -> None:
+        from autoscript_sdb_microscope_client.structures import Point as ThermoPoint
+
+        self._beam.beam_shift.value = ThermoPoint(value.x, value.y)
+        self._set_log("shift", value, "")
+
+    def read_stigmation(self) -> Point:
+        beam = self._beam
+        return Point(beam.stigmator.value.x, beam.stigmator.value.y)
+
+    def write_stigmation(self, value: Point) -> None:
+        from autoscript_sdb_microscope_client.structures import Point as ThermoPoint
+
+        self._beam.stigmator.value = ThermoPoint(value.x, value.y)
+        self._set_log("stigmation", value, "")
+
+    def read_resolution(self) -> List[int]:
+        # a list, as the old get returns it
+        resolution = self._beam.scanning.resolution.value
+        return [int(resolution.split("x")[0]), int(resolution.split("x")[-1])]
+
+    def write_resolution(self, value: Tuple[int, int]) -> None:
+        self._beam.scanning.resolution.value = f"{value[0]}x{value[1]}"
+
+    # Only a plasma ion column has a gas.
+    def available_plasma_gas(self) -> bool:
+        return self.beam_type is BeamType.ION and bool(self.parent.system.ion.plasma)
+
+    def read_plasma_gas(self) -> str:
+        return self._beam.source.plasma_gas.value
+
+    def write_plasma_gas(self, value: str) -> None:
+        # An unlisted gas warns and is still set, as the old branch does.
+        gases = self._beam.source.plasma_gas.available_values
+        if value not in gases:
+            logging.warning(
+                f"Plasma gas {value} not available. Available values: {gases}"
+            )
+        logging.info(f"Setting plasma gas to {value}... this may take some time...")
+        self._beam.source.plasma_gas.value = value
+        logging.info(f"Plasma gas set to {value}.")
+
+    def metadata_plasma_gas(self) -> ParameterMetadata:
+        return ParameterMetadata(
+            choices=list(self._beam.source.plasma_gas.available_values)
+        )
+
+
+def bind_autoscript_beams(
+    microscope: ThermoMicroscope, resources: Optional[Resources] = None
+) -> Dict[BeamType, AutoscriptBeam]:
+    """Build ``beams[BeamType]`` for a connected Thermo microscope: one per enabled
+    column, so a disabled one is never touched."""
+    enabled = {
+        BeamType.ELECTRON: microscope.system.electron.enabled,
+        BeamType.ION: microscope.system.ion.enabled,
+    }
+    return {
+        beam_type: AutoscriptBeam(beam_type, microscope, resources).connect()
+        for beam_type, on in enabled.items()
+        if on
+    }
