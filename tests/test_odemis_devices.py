@@ -153,6 +153,7 @@ def make(cls, devices=True, ion=True):
         microscope.beams = MappingProxyType({})
         microscope._beam_routes = MappingProxyType({})
         microscope.stage = None
+        microscope.chamber_device = None
         microscope._device_routes = MappingProxyType({})
         microscope._command_routes = MappingProxyType({})
     return microscope
@@ -316,18 +317,54 @@ STAGE_CASES = (
     ("link", lambda m: m.link_stage()),
 )
 
-CASES = tuple(_beam_cases()) + STAGE_CASES
 
-# The one call the devices add: the home command reads back whether the stage is
-# homed, as ``home()`` always has, so a bare ``set("stage_home")`` asks once more.
-EXTRA_READS = {"set stage_home": [["is_homed", [], {}]]}
+def _chamber_state(name):
+    """The chamber state when the client names it *name*."""
+
+    def read(m):
+        READS["get_chamber_state"] = name
+        return m.get("chamber_state")
+
+    return read
+
+
+CHAMBER_CASES = tuple(
+    (f"get chamber_state {name}", _chamber_state(name))
+    for name in ("vacuum", "Pumped", "vented", "Vented", "pumping", "venting")
+    + ("vacuum_error",)
+) + (
+    ("get chamber_pressure", lambda m: m.get("chamber_pressure")),
+    ("pump", lambda m: m.pump()),
+    ("vent", lambda m: m.vent()),
+    ("set pump_chamber True", lambda m: m.set("pump_chamber", True)),
+    ("set pump_chamber False", lambda m: m.set("pump_chamber", False)),
+    ("set vent_chamber True", lambda m: m.set("vent_chamber", True)),
+    ("set vent_chamber False", lambda m: m.set("vent_chamber", False)),
+)
+
+CASES = tuple(_beam_cases()) + STAGE_CASES + CHAMBER_CASES
+
+# The calls the devices add, after the old call's first: the home command reads
+# back whether the stage is homed, as ``home()`` always has, so a bare
+# ``set("stage_home")`` asks once more; and the chamber's pump and vent read the
+# pressure back with the state.
+_PRESSURE = ["get_pressure", [], {}]
+EXTRA_READS = {
+    "set stage_home": [["is_homed", [], {}]],
+    "pump": [_PRESSURE],
+    "vent": [_PRESSURE],
+    "set pump_chamber True": [_PRESSURE, ["get_chamber_state", [], {}]],
+    "set vent_chamber True": [_PRESSURE, ["get_chamber_state", [], {}]],
+}
 
 
 @pytest.mark.parametrize("key,call", CASES, ids=[key for key, _ in CASES])
 def test_the_devices_make_the_same_odemis_calls_logs_and_results(odemis_cls, key, call):
     old = run(make(odemis_cls, devices=False), call)
     new = run(make(odemis_cls), call)
-    assert new == (old[0], old[1] + EXTRA_READS.get(key, []), old[2])
+    READS["get_chamber_state"] = "vacuum"
+    calls = old[1][:1] + EXTRA_READS.get(key, []) + old[1][1:]
+    assert new == (old[0], calls, old[2])
 
 
 def test_the_cases_make_odemis_calls(odemis_cls):
@@ -336,7 +373,7 @@ def test_the_cases_make_odemis_calls(odemis_cls):
 
 
 def test_creating_the_microscope_builds_the_beams_and_stage(odemis_cls):
-    from fibsem.devices.drivers.odemis import OdemisBeam, OdemisStage
+    from fibsem.devices.drivers.odemis import OdemisBeam, OdemisChamber, OdemisStage
 
     microscope = make(odemis_cls)
     assert set(microscope.beams) == {BeamType.ELECTRON, BeamType.ION}
@@ -352,6 +389,8 @@ def test_creating_the_microscope_builds_the_beams_and_stage(odemis_cls):
     assert sorted(electron.detector_type.choices) == ["ETD", "TLD"]
     assert sorted(microscope.stage.axes) == ["r", "t", "x", "y", "z"]
     assert microscope.stage.commands["link"].available
+    assert isinstance(microscope.chamber_device, OdemisChamber)
+    assert sorted(microscope.chamber_device.parameters) == ["pressure", "state"]
 
 
 def test_the_calls_go_through_the_devices(odemis_cls):
@@ -359,6 +398,7 @@ def test_the_calls_go_through_the_devices(odemis_cls):
     used = []
     for device, hooks in (
         (microscope.stage, ("_move_absolute", "_move_relative", "_home")),
+        (microscope.chamber_device, ("_pump", "_vent")),
     ):
         for hook in hooks:
             original = getattr(device, hook)
@@ -371,7 +411,9 @@ def test_the_calls_go_through_the_devices(odemis_cls):
     microscope.move_stage_absolute(FibsemStagePosition(x=0.0))
     microscope.move_stage_relative(FibsemStagePosition(x=1e-6))
     microscope.home()
-    assert used == ["_move_absolute", "_move_relative", "_home"]
+    microscope.pump()
+    microscope.vent()
+    assert used == ["_move_absolute", "_move_relative", "_home", "_pump", "_vent"]
     beam = microscope.beams[BeamType.ION]
     microscope.set("hfw", 50e-6, BeamType.ION)
     assert beam.hfw.cached == 50e-6
@@ -394,7 +436,8 @@ def test_a_device_that_cannot_be_built_leaves_the_old_code(odemis_cls, caplog):
     assert dict(microscope.beams) == {}
     assert microscope.stage is None
     assert microscope._route("stage_position", None) is None
-    assert "Could not build the beam and stage devices" in caplog.text
+    assert microscope.chamber_device is None
+    assert "Could not build the beam, stage and chamber devices" in caplog.text
     assert microscope.get("hfw", BeamType.ELECTRON) == 150e-6
 
 
@@ -405,3 +448,14 @@ def test_the_choices_are_the_old_available_values(odemis_cls, beam_type):
     for key in ("current", "voltage", "detector_type"):
         old = microscope.get_available_values(key, beam_type)
         assert sorted(beam.parameters[key].choices) == sorted(old), key
+
+
+def test_an_unlisted_chamber_state_reads_unknown(odemis_cls):
+    """The old key passed a state it did not know through as the client named it;
+    the device reads it as UNKNOWN, as the AutoScript chamber does."""
+    READS["get_chamber_state"] = "Prevac"
+    try:
+        assert make(odemis_cls, devices=False).get("chamber_state") == "Prevac"
+        assert make(odemis_cls).get("chamber_state") == "Unknown"
+    finally:
+        READS["get_chamber_state"] = "vacuum"
