@@ -866,10 +866,16 @@ def _completes_while_held(view, read):
 
 def _thermo_microscope_fm():
     """What a Thermo microscope builds its FM from."""
+    from types import SimpleNamespace
+
     import fibsem.microscopes.autoscript as A
+    from fibsem.structures import CameraImageTransform, FluorescenceSystemSettings
 
     microscope = object.__new__(A.ThermoMicroscope)
     microscope.connection = make_connection("Retracted", CameraFilterType.FLUORESCENCE)
+    microscope.system = SimpleNamespace(
+        fm=FluorescenceSystemSettings(mount_transform=CameraImageTransform.FLIP_Y)
+    )
     fm = microscope._connect_fluorescence_devices()
     group = fm.devices["fm"]
     return {
@@ -878,6 +884,7 @@ def _thermo_microscope_fm():
         "live_timeout": group.live_timeout,
         "shares_the_microscope_lock": group._channel.lock is microscope._threading_lock,
         "parent": fm.parent is microscope,
+        "mount_transform": fm.mount_transform.value,
     }
 
 

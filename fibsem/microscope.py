@@ -1090,6 +1090,12 @@ class FibsemMicroscope(ABC):
         fm = self.system.fm
         if fm.driver != FM_DRIVER_REMOTE or not self._fluorescence_is_configured():
             return None
+        if fm.mount_transform is not CameraImageTransform.NONE:
+            logging.warning(
+                "The configuration states the FM's mount_transform, but this FM is "
+                "remote: its server states its own (--mount-transform), and that "
+                "is what is used."
+            )
         if fm.address is None or fm.port is None:
             message = (
                 "The fluorescence microscope is configured as remote but has no "

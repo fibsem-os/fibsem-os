@@ -385,7 +385,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         from fibsem.devices.drivers.odemis_fm import bind_odemis_fm
         from fibsem.fm.odemis import DeviceOdemisFluorescenceMicroscope
 
-        devices = bind_odemis_fm(self)
+        devices = bind_odemis_fm(self, mount_transform=self.system.fm.mount_transform)
         # The FM API's own live view pulls every frame, so nothing needs to stop it
         # when no frame is asked for.
         devices["fm"].live_timeout = None
