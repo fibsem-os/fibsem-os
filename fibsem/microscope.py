@@ -3921,9 +3921,9 @@ class FibsemMicroscope(ABC):
         # every place-term answer is about somewhere its FM is not.
         if not self.stage_is_compustage and devices == DEFAULT_STAGE_DEVICES:
             logging.warning(
-                "A fluorescence microscope is enabled but no `stage.devices` block "
-                "is declared, so the FM defaults to the beams' origin. An offset "
-                "mount (METEOR, iFLM) must declare its traverse -- see "
+                "A fluorescence microscope is enabled but its device entry declares "
+                "no `origin`, so the FM defaults to the beams' origin. An offset "
+                "mount (METEOR, iFLM) must declare where it is -- see "
                 "sim-iflm-configuration.yaml."
             )
 
