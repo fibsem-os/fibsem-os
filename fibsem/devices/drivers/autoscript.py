@@ -693,15 +693,6 @@ class AutoscriptManipulator(Manipulator):
         return list(_MANIPULATOR_NAMES)
 
     @staticmethod
-    def _check_version() -> None:
-        from fibsem.microscopes import autoscript as A
-
-        if A.AUTOSCRIPT_VERSION < A.MINIMUM_AUTOSCRIPT_VERSION_4_7:
-            raise NotImplementedError(
-                "Manipulator saved positions not supported in this version. Please upgrade to 4.7 or higher"
-            )
-
-    @staticmethod
     def _saved(name: str) -> Any:
         from fibsem.microscopes.autoscript import ManipulatorSavedPosition
 
@@ -719,7 +710,6 @@ class AutoscriptManipulator(Manipulator):
 
         if name not in _MANIPULATOR_NAMES:
             raise ValueError(f"saved position {name} not supported.")
-        self._check_version()
         autoscript_position = self._needle.get_saved_position(
             self._saved(name),
             ManipulatorCoordinateSystem.STAGE,  # as the old method reads it
@@ -739,7 +729,6 @@ class AutoscriptManipulator(Manipulator):
 
         if name not in _MANIPULATOR_NAMES:
             raise ValueError(f"insert position {name} not supported.")
-        self._check_version()
         saved_position = self._saved(name)
         insert_position = self._needle.get_saved_position(
             saved_position, ManipulatorCoordinateSystem.RAW
@@ -755,7 +744,6 @@ class AutoscriptManipulator(Manipulator):
             ManipulatorSavedPosition,
         )
 
-        self._check_version()
         needle = self._needle
         park_position = needle.get_saved_position(
             ManipulatorSavedPosition.PARK, ManipulatorCoordinateSystem.RAW
