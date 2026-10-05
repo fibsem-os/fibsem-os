@@ -11,7 +11,11 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import CameraImageTransform, CameraSettings
-from fibsem.ui.fm.widgets.fm_limits import available_binnings
+from fibsem.ui.fm.widgets.fm_limits import (
+    available_binnings,
+    gain_scale,
+    show_native_units,
+)
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
@@ -75,6 +79,7 @@ class CameraWidget(QWidget):
             self.spinBox_gain.setToolTip("Camera gain is not supported on this system")
         else:
             self.spinBox_gain.setValue(gain * 100)  # Convert to percentage
+            show_native_units(self.spinBox_gain, gain_scale(self.fm))
 
         # Binning
         self.label_binning = QLabel("Binning", self)

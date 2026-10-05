@@ -103,3 +103,107 @@ def test_the_camera_offers_the_fms_binnings(qapp, fm):
     combo = widget.combobox_binning
 
     assert [combo.itemData(i) for i in range(combo.count())] == [1, 2]
+
+
+# -- power and gain in the hardware's units ------------------------------------------
+
+
+@pytest.fixture
+def fm_with_units(monkeypatch):
+    """An FM whose light reaches 0.4 W and whose camera gain goes to 16, as a METEOR's
+    driver reports them."""
+    from fibsem.devices.core import ParameterMetadata
+    from fibsem.devices.drivers import fm as drivers
+    from fibsem.structures import RangeLimit
+
+    fraction = RangeLimit(min=0.0, max=1.0)
+    monkeypatch.setattr(
+        drivers.FMLightSource,
+        "metadata_power",
+        lambda self: ParameterMetadata(
+            limits=fraction, native_max=0.4, native_unit="W"
+        ),
+    )
+    monkeypatch.setattr(
+        drivers.FMCamera,
+        "metadata_gain",
+        lambda self: ParameterMetadata(limits=fraction, native_max=16.0),
+    )
+    return DeviceFluorescenceMicroscope(
+        bind_fm_devices(fm_microscope.FluorescenceMicroscope())
+    )
+
+
+def _tooltip(spin, percent):
+    spin.setValue(percent)
+    return spin._native_units_tooltip.text(spin)
+
+
+def test_the_units_read_as_a_person_would_say_them():
+    assert fm_limits.in_native_units(50.0, (0.4, "W")) == "0.2 W"
+    assert fm_limits.in_native_units(25.0, (16.0, None)) == "4 of 16"
+
+
+def test_the_channel_settings_show_power_and_gain_in_hardware_units(
+    qapp, fm_with_units
+):
+    from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
+
+    widget = ChannelSettingsWidget(fm_with_units)
+
+    assert _tooltip(widget.power_spin, 50.0) == "Light source power (%): 0.2 W"
+    assert _tooltip(widget.gain_spin, 25.0) == "Detector gain (%): 4 of 16"
+
+
+def test_each_channel_row_shows_power_and_gain_in_hardware_units(qapp, fm_with_units):
+    from fibsem.ui.fm.widgets.channel_list_widget import ChannelListWidget
+
+    widget = ChannelListWidget(fm_with_units, [CHANNEL])
+    row = widget._list.itemWidget(widget._list.item(0))
+
+    assert _tooltip(row.power_spin, 10.0) == "Light source power (%): 0.04 W"
+    assert _tooltip(row.gain_spin, 50.0) == "Gain (%): 8 of 16"
+
+
+def test_the_camera_shows_gain_in_hardware_units(qapp, fm_with_units):
+    from fibsem.ui.fm.widgets.camera_widget import CameraWidget
+
+    widget = CameraWidget(fm_with_units)
+
+    assert _tooltip(widget.spinBox_gain, 100.0).endswith(": 16 of 16")
+
+
+def test_without_hardware_units_the_tooltips_stay_as_they_were(qapp):
+    from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
+
+    sim = DeviceFluorescenceMicroscope(
+        bind_fm_devices(fm_microscope.FluorescenceMicroscope())
+    )
+    widget = ChannelSettingsWidget(sim)
+
+    assert widget.power_spin.toolTip() == "Light source power (%)"
+    assert not hasattr(widget.power_spin, "_native_units_tooltip")
+
+
+def test_hovering_shows_the_value_it_has_now(qapp, fm_with_units):
+    """The box's value is often set with its signals blocked, so the tooltip is worked
+    out when it opens, not when the value changes."""
+    from PyQt5.QtCore import QEvent, QPoint
+    from PyQt5.QtGui import QHelpEvent
+    from PyQt5.QtWidgets import QToolTip
+
+    from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
+
+    widget = ChannelSettingsWidget(fm_with_units)
+    spin = widget.power_spin
+    widget.show()
+    spin.blockSignals(True)
+    spin.setValue(30.0)
+    spin.blockSignals(False)
+
+    qapp.sendEvent(
+        spin, QHelpEvent(QEvent.ToolTip, QPoint(5, 5), spin.mapToGlobal(QPoint(5, 5)))
+    )
+
+    assert QToolTip.text() == "Light source power (%): 0.12 W"
+    QToolTip.hideText()

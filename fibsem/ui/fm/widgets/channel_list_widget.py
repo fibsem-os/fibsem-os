@@ -47,8 +47,12 @@ from fibsem.ui.fm.widgets.emission_filter_combo import (
 from fibsem.ui.fm.widgets.fm_limits import (
     EXPOSURE_RANGE_MS,
     POWER_RANGE_PERCENT,
+    NativeScale,
     exposure_range_ms,
+    gain_scale,
     power_range_percent,
+    power_scale,
+    show_native_units,
 )
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.tokens import (
@@ -174,6 +178,8 @@ class ChannelRowWidget(QWidget):
         emission_lookup: Optional[FilterLookup] = None,
         exposure_range: Tuple[float, float] = EXPOSURE_RANGE_MS,
         power_range: Tuple[float, float] = POWER_RANGE_PERCENT,
+        power_units: Optional[NativeScale] = None,
+        gain_units: Optional[NativeScale] = None,
     ) -> None:
         super().__init__(parent)
         self.channel = channel
@@ -237,6 +243,7 @@ class ChannelRowWidget(QWidget):
         )
         self.gain_spin.setFixedWidth(_GAIN_FIXED_WIDTH)
         self.gain_spin.setToolTip("Gain (%)")
+        show_native_units(self.gain_spin, gain_units)
         self.gain_spin.setVisible(False)
         layout.addWidget(self.gain_spin)
 
@@ -249,6 +256,7 @@ class ChannelRowWidget(QWidget):
         )
         self.power_spin.setFixedWidth(_POWER_FIXED_WIDTH)
         self.power_spin.setToolTip("Light source power (%)")
+        show_native_units(self.power_spin, power_units)
         self.power_spin.setVisible(False)
         layout.addWidget(self.power_spin)
 
@@ -680,6 +688,8 @@ class ChannelListWidget(QWidget):
         )
         self._exposure_range = exposure_range_ms(fm)
         self._power_range = power_range_percent(fm)
+        self._power_units = power_scale(fm)
+        self._gain_units = gain_scale(fm)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -937,6 +947,8 @@ class ChannelListWidget(QWidget):
             emission_lookup=self._emission_lookup(),
             exposure_range=self._exposure_range,
             power_range=self._power_range,
+            power_units=self._power_units,
+            gain_units=self._gain_units,
         )
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, channel)
@@ -1173,6 +1185,8 @@ class ChannelListWidget(QWidget):
                 emission_lookup=self._emission_lookup(),
                 exposure_range=self._exposure_range,
                 power_range=self._power_range,
+                power_units=self._power_units,
+                gain_units=self._gain_units,
             )
             item.setSizeHint(self._row_item_size())
             self._list.setItemWidget(item, row)
