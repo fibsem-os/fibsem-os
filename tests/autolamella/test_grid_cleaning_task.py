@@ -8,6 +8,7 @@ cleaned field with a thumbnail by role.
 
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -149,9 +150,11 @@ class TestRun:
         assert entry.status is AutoLamellaTaskStatus.Completed
         assert set(entry.outputs) == {"cleaning_fib", "cleaning_fib_thumbnail"}
         (reference,) = grid_outputs(experiment, grid, "cleaning_fib")
-        assert reference.startswith(
-            str(tmp_path / "exp" / "grids" / "grid-aspen" / "cryo_clean" / "cleaned-")
+        # Compared as paths: the recorded part uses forward slashes on every OS.
+        assert Path(reference).parent == (
+            tmp_path / "exp" / "grids" / "grid-aspen" / "cryo_clean"
         )
+        assert Path(reference).name.startswith("cleaned-")
         image = FibsemImage.load(reference)
         assert image.metadata.image_settings.beam_type is BeamType.ION
         assert image.metadata.image_settings.hfw == pytest.approx(900e-6)
