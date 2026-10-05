@@ -24,6 +24,7 @@ from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 from skimage import transform
 
+from fibsem import manufacturers
 from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
@@ -39,6 +40,7 @@ from fibsem.microscopes._stage import (
     Stage,
     _slot_name,
 )
+from fibsem.microscopes.registry import DriverEntry
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamType,
@@ -880,6 +882,14 @@ def match_application_file(
         application_file = str(closest_match[0])
 
     return application_file
+
+
+# This driver, as the registry knows it (fibsem.microscopes.registry).
+DRIVER = DriverEntry(
+    manufacturer=manufacturers.THERMOFISHER,
+    microscope_class="fibsem.microscopes.autoscript:ThermoMicroscope",
+    config={"port": 7520},
+)
 
 
 class ThermoMicroscope(FibsemMicroscope):

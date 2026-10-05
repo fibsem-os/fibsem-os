@@ -18,6 +18,7 @@ from fibsem.microscope import (
     _records_beam_shift,
     _records_stage_move,
 )
+from fibsem.microscopes.registry import DriverEntry
 
 TESCAN_API_AVAILABLE = False
 # Read through this rather than importing tescanautomation yourself: the guarded
@@ -339,6 +340,14 @@ def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
     ):
         volume *= 0.66  # ccs is approx 2/3 of the volume of a rectangle
     return volume / (rate * current)
+
+
+# This driver, as the registry knows it (fibsem.microscopes.registry).
+DRIVER = DriverEntry(
+    manufacturer=manufacturers.TESCAN,
+    microscope_class="fibsem.microscopes.tescan:TescanMicroscope",
+    config={"port": 8300},
+)
 
 
 class TescanMicroscope(FibsemMicroscope):

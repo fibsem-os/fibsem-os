@@ -1,8 +1,8 @@
 """The driver registry: which class connects to each manufacturer, on which port.
 
 ``setup_session`` used to pick the class and port in an ``if manufacturer == ...``
-chain. These pin that the registry gives every built-in manufacturer the class and
-port the chain did, and that ``setup_session`` connects through it.
+chain. These pin that each built-in driver's ``DRIVER`` record gives the class and
+port the chain did, and that ``setup_session`` connects through the registry.
 """
 
 import pytest
@@ -42,7 +42,18 @@ def restore_registry():
 @pytest.mark.parametrize("manufacturer", list(BUILT_IN))
 def test_built_in_drivers_keep_their_class_and_port(manufacturer):
     entry = get_driver(manufacturer)
-    assert (entry.microscope_class, entry.port) == BUILT_IN[manufacturer]
+    assert entry.manufacturer == manufacturer
+    assert (entry.microscope_class, entry.config.get("port")) == BUILT_IN[manufacturer]
+
+
+@pytest.mark.parametrize("manufacturer", list(BUILT_IN))
+def test_each_built_in_record_is_its_driver_modules_own(manufacturer):
+    """The record lives beside the class, and the module imports without its SDK
+    (none of the vendor SDKs are installed here, odemis included)."""
+    import importlib
+
+    module = importlib.import_module(BUILT_IN[manufacturer][0].partition(":")[0])
+    assert get_driver(manufacturer) is module.DRIVER
 
 
 def test_only_the_built_in_drivers_are_registered():
@@ -110,7 +121,13 @@ def test_setup_session_connects_on_the_registered_port(
     restore_registry, port, expected
 ):
     _Recorder.connected = []
-    register_driver(DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", port))
+    register_driver(
+        DriverEntry(
+            manufacturers.DEMO,
+            f"{__name__}:_Recorder",
+            config={} if port is None else {"port": port},
+        )
+    )
     microscope, _ = utils.setup_session(
         manufacturer="Demo", ip_address="10.0.0.1", setup_logging=False
     )
@@ -119,7 +136,7 @@ def test_setup_session_connects_on_the_registered_port(
 
 
 def test_registering_under_an_alias_replaces_the_canonical_entry(restore_registry):
-    register_driver(DriverEntry("tescan", f"{__name__}:_Recorder", 1))
+    register_driver(DriverEntry("tescan", f"{__name__}:_Recorder", {"port": 1}))
     assert get_driver(manufacturers.TESCAN).microscope_class == f"{__name__}:_Recorder"
     assert registry.registered_manufacturers() == list(BUILT_IN)
 
@@ -128,7 +145,9 @@ def test_connect_microscope_builds_and_connects_the_registered_driver(
     restore_registry,
 ):
     _Recorder.connected = []
-    register_driver(DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", 1234))
+    register_driver(
+        DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", {"port": 1234})
+    )
     system = utils.load_microscope_configuration(None, None).system
     system.info.manufacturer = manufacturers.DEMO
     system.info.ip_address = "10.0.0.1"
