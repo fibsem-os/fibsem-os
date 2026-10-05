@@ -10,7 +10,9 @@ the same logged messages. A ``set`` case reads the key back after the write.
 Cases: every moved key on both beams, with and without a plasma column; the hfw
 clip; an unlisted plasma gas, which warns and is still set; the detector keys, which
 select the beam's channel first, and their refused values; the scan-mode methods,
-through the scan commands on one side and the old keys on the other; and ``preset``,
+through the scan commands on one side and the old keys on the other; the electron
+beam's angular correction, whose tilt correction could only be set before: it reads
+on the new API, and the old key's get still returns None; and ``preset``,
 which has not moved, so both sides still answer it with the old branches. The fake SDK has to be in place before ``fibsem.microscopes.autoscript`` is
 first imported, so the recording runs in its own interpreter
 (``tests/fixtures/autoscript_beam_parity.py``). Nothing here has run on an instrument.
@@ -44,6 +46,9 @@ MOVED = [
     "voltage",
     "working_distance",
 ]
+
+# The electron beam's only.
+ANGULAR_KEYS = ["angular_correction_angle", "angular_correction_tilt_correction"]
 
 
 @pytest.fixture(scope="module")
@@ -89,8 +94,11 @@ def test_routed_keys_make_the_same_sdk_calls_logs_and_results(recording):
 def test_the_moved_keys_are_the_ones_routed(recording, plasma, beam):
     facts = recording["facts"][f"plasma={plasma} {beam}"]
     gas = ["plasma_gas"] if plasma and beam == "ION" else []
-    assert facts["routed"] == sorted(MOVED + gas)
-    assert facts["parameters"] == sorted(MOVED + gas)
+    electron = beam == "ELECTRON"
+    keys = ANGULAR_KEYS if electron else []
+    parameters = ["angular_correction", "tilt_correction"] if electron else []
+    assert facts["routed"] == sorted(MOVED + gas + keys)
+    assert facts["parameters"] == sorted(MOVED + gas + parameters)
     assert facts["commands"] == [
         "acquire",
         "auto_focus",
@@ -221,3 +229,33 @@ def test_a_detector_read_selects_its_beams_channel_under_the_lock(recording):
     facts = recording["facts"]["detector_read"]
     assert facts["selected"] == [["ION", True]]
     assert facts["result"] == "ETD"
+
+
+def test_the_angular_correction_is_set_as_before(recording):
+    for value, call in ((True, "turn_on"), (False, "turn_off")):
+        key = f"plasma=False ELECTRON set angular_correction_tilt_correction {value!r}"
+        case = next(c for c in recording["cases"] if c["key"] == key)
+        assert case["new"][1] == [
+            [
+                "call",
+                f"connection.beams.electron_beam.angular_correction.tilt_correction.{call}",
+                [],
+                "{}",
+            ]
+        ]
+    key = "plasma=False ELECTRON set angular_correction_angle 0.2"
+    case = next(c for c in recording["cases"] if c["key"] == key)
+    assert case["new"][0] == [None, 0.2]
+    assert ["INFO", "Angular correction angle set to 0.2 radians."] in case["new"][2]
+
+
+def test_the_tilt_correction_reads_on_the_new_api_only(recording):
+    """The old key could only be set, and its get returned None. It still does; the
+    device's parameter reads the vendor's state."""
+    assert recording["facts"]["tilt_correction"] == {
+        "before": False,
+        "after": True,
+        "key": None,
+        "old": None,
+        "ion": None,
+    }

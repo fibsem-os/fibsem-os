@@ -53,7 +53,7 @@ def _install_fake_sdk():
     package = types.ModuleType("autoscript_sdb_microscope_client")
     package.SdbMicroscopeClient = type("SdbMicroscopeClient", (), {})
     build = types.ModuleType("autoscript_sdb_microscope_client.build_information")
-    build.INFO_VERSIONSHORT = "4.8.1"
+    build.INFO_VERSIONSHORT = "4.9.0"
     package.build_information = build
 
     proxies = types.ModuleType(

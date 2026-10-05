@@ -107,6 +107,8 @@ def metadata_payload(metadata: ParameterMetadata) -> Dict[str, Any]:
         "limits": _limits_to_dict(metadata.limits),
         "choices": _choices_to_wire(metadata.choices),
         "settable": metadata.settable,
+        "native_max": metadata.native_max,
+        "native_unit": metadata.native_unit,
     }
 
 
