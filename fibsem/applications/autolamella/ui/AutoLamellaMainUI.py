@@ -77,6 +77,10 @@ from fibsem.applications.autolamella.ui.review_tab_widget import (
     ReviewTabWidget,
     review_tab_icon,
 )
+from fibsem.applications.autolamella.ui.screen_grids_dialog import (
+    ScreenGridsDialog,
+    scan_in_progress,
+)
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     WorkflowPreflightDialog,
 )
@@ -1838,7 +1842,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._start_grid_run(task_names, grid_names, inventory_first=False)
 
     def _on_screen_all_grids(self) -> None:
-        """One click: inventory, every present grid, the ticked tasks (FIB-898)."""
+        """One click: read the magazine, scan and name the grids in one dialog,
+        then the ticked tasks on every grid it found (FIB-898, FIB-1138)."""
         ui = self.autolamella_ui
         if ui is None or ui.is_workflow_running or ui.experiment is None:
             return
@@ -1847,35 +1852,40 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = self.grid_workflow_widget.get_selected_task_names()
         if not task_names:
             return
-        known = [g.name for g in ui.experiment.grids]
-        dialog = GridRunPreflightDialog(
+        if scan_in_progress():
+            notification_service.show_toast(
+                "The magazine scan started from Screen all grids is still running.",
+                "warning",
+            )
+            return
+        # The run writes the experiment from its own thread, and Screen writes
+        # the grid records: land any edit still in the editors first.
+        self.lamella_widget.flush_pending_save()
+        dialog = ScreenGridsDialog(
+            ui.microscope._stage,
+            ui.experiment,
             task_names,
-            known,
-            self.grid_workflow_widget.exchanges_for(list(ui.experiment.grids)),
             str(ui.experiment.path),
-            screen_all=True,
             beams_off=self._beams_off(),
-            first_run=self._present_grids_not_run(),
             parent=self,
         )
-        if dialog.exec_() != QDialog.Accepted:
+        accepted = dialog.exec_() == QDialog.Accepted
+        # A scan or a Screen changes what the slots hold and which grids the
+        # experiment records, whether or not a run follows.
+        self._refresh_after_naming()
+        if not accepted or not dialog.grid_names:
             return
-        self._start_grid_run(task_names, None, inventory_first=True)
+        self._start_grid_run(task_names, dialog.grid_names, inventory_first=False)
 
-    def _present_grids_not_run(self) -> list:
-        """The grids Screen all grids will run for the first time, as far as the
-        last inventory knows: present, and nothing run on them yet. Read off
-        the stage's cached inventory; nothing here asks the hardware."""
-        ui = self.autolamella_ui
-        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
-        if ui is None or ui.experiment is None or stage is None:
-            return []
-        present = {e.name for e in stage.grid_inventory() if e.present}
-        return [
-            g.name
-            for g in ui.experiment.grids
-            if g.name in present and not grid_has_run(g)
-        ]
+    def _refresh_after_naming(self) -> None:
+        self.grids_tab.refresh()
+        self.grid_workflow_widget.refresh()
+        self._refresh_grid_context()
+        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        for panel in ("loader_widget", "holder_widget"):
+            widget = getattr(sample, panel, None)
+            if widget is not None:
+                widget.refresh()
 
     def _beams_off(self) -> list:
         """The beams that are off now, which the run will turn on: the preflight

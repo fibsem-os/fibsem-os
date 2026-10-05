@@ -12,7 +12,9 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
+    AutoLamellaTaskState,
     Experiment,
+    GridRecord,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus as Status
 from fibsem.applications.autolamella.workflows.tasks.grid import (
@@ -23,6 +25,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     GridTaskManager,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
+    GridNamingError,
+    name_and_record_grids,
     screen_grids,
     screening_plan,
 )
@@ -151,6 +155,45 @@ class TestOnTheAutoloader:
             Status.Failed,
             Status.Skipped,
         ]
+
+
+class TestNamingAtScreen:
+    """Screen all grids' one commit (FIB-1138): the names that differ go to the
+    slots, the grids are recorded under their final names, and a name the
+    Sample view would refuse is refused here too, before anything is written."""
+
+    def test_names_go_to_the_slots_and_new_grids_are_recorded_under_them(
+        self, arctis, experiment
+    ):
+        names = name_and_record_grids(
+            arctis._stage, experiment, {"Slot-01": "grid-oak", "Slot-04": "x"}
+        )
+        assert names == ["grid-oak", "Grid-02", "Grid-03"]
+        assert [g.name for g in experiment.grids] == names
+        assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "grid-oak"
+
+    def test_a_record_that_has_not_run_follows_its_grid(self, arctis, experiment):
+        record = experiment.add_grid(GridRecord(name="Grid-01"))
+        arctis._stage.ensure_loaded("Grid-01")
+        name_and_record_grids(arctis._stage, experiment, {"Slot-01": "grid-oak"})
+        assert record.name == "grid-oak"
+        assert [g.name for g in experiment.grids].count("grid-oak") == 1
+        # the loaded grid is the slot's own: the working slot is renamed too
+        assert arctis._stage.holder.find_slot_by_grid_name("grid-oak") is not None
+
+    def test_a_grid_that_has_run_is_refused_and_nothing_is_written(
+        self, arctis, experiment
+    ):
+        ran = experiment.add_grid(GridRecord(name="Grid-02"))
+        ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
+        with pytest.raises(GridNamingError, match="Grid-02 cannot be renamed"):
+            name_and_record_grids(
+                arctis._stage,
+                experiment,
+                {"Slot-01": "grid-oak", "Slot-02": "grid-elm"},
+            )
+        assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+        assert [g.name for g in experiment.grids] == ["Grid-02"]
 
 
 class TestOnAFixedHolder:

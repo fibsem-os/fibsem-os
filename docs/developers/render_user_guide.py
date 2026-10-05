@@ -2264,7 +2264,18 @@ def render_grid_workflow(h: Harness) -> None:
     summary_dialog.close()
     h.pump(300)
 
-    # Screen all grids: the dialog only; the run above already screened them
+    # Screen all grids: the dialog only, at its review (the simulated magazine
+    # is scanned); the run above already screened them
+    def screen_all(dialog):
+        dialog.show()
+        waited = 0
+        while dialog.stage_name == "reading" and waited < 10000:
+            h.pump(100)
+            waited += 100
+        preflight(dialog)
+        return QDialog.Rejected
+
+    main_module.ScreenGridsDialog.exec_ = screen_all
     gw.btn_screen_all.click()
     h.pump(500)
 
