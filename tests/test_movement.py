@@ -66,15 +66,17 @@ def test_a_simulated_stage_move_takes_time(monkeypatch):
     Asserted through `sim_sleep` rather than a wall clock, so the test neither sleeps
     nor becomes flaky on a loaded machine.
     """
+    from fibsem.devices.drivers import demo
     from fibsem.microscopes import simulator
     from fibsem.structures import FibsemStagePosition
 
+    # The Demo's stage is a device, and its driver takes the delay.
     slept = []
-    monkeypatch.setattr(simulator, "sim_sleep", lambda seconds: slept.append(seconds))
+    monkeypatch.setattr(demo, "sim_sleep", lambda seconds: slept.append(seconds))
 
     scope = _demo_microscope()
     base = scope.get_stage_position()
-    # Cleared here: reading the stage position has its own 0.1 s in the simulator, which
+    # Cleared here: reading the stage position has its own 0.1 s in the driver, which
     # predates this and would otherwise be counted as part of the move.
     slept.clear()
 
@@ -92,11 +94,13 @@ def test_a_simulated_stage_move_takes_time(monkeypatch):
 def test_a_relative_move_takes_time_too(monkeypatch):
     """`stable_move` and `vertical_move` both land here, so a delay only on the absolute
     path would leave the two gestures that drive coincidence instant."""
+    from fibsem.devices.drivers import demo
     from fibsem.microscopes import simulator
     from fibsem.structures import FibsemStagePosition
 
+    # The Demo's stage is a device, and its driver takes the delay.
     slept = []
-    monkeypatch.setattr(simulator, "sim_sleep", lambda seconds: slept.append(seconds))
+    monkeypatch.setattr(demo, "sim_sleep", lambda seconds: slept.append(seconds))
 
     scope = _demo_microscope()
     slept.clear()

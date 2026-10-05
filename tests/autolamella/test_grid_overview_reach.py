@@ -229,3 +229,44 @@ def test_the_warning_names_whole_rows_and_columns_or_a_few_tiles():
     assert say(scattered, one_slot=True) == (
         "7 of 16 tiles are past the stage's reach and will be skipped."
     )
+
+
+# ---------------------------------------------------------------------------
+# The shipped protocol's grid tasks (FIB-1145)
+# ---------------------------------------------------------------------------
+
+
+def test_the_shipped_grid_tasks_are_in_the_arctis_reach(microscope):
+    """The default protocol screens with an SEM and a FIB overview, each at its
+    own beam and orientation, and neither has a tile past the compustage's
+    travel. Two rows more of either would, so the check is not vacuous (the FIB
+    overview has room for one)."""
+    from copy import deepcopy
+
+    from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
+        overview_reach,
+    )
+
+    grid_tasks = AutoLamellaTaskProtocol.load(
+        cfg.AUTOLAMELLA_TASK_PROTOCOL_PATH
+    ).grid_tasks
+    # a misspelt task type is skipped with only a warning, so name both
+    assert grid_tasks.ordered_task_names == ["SEM Overview", "FIB Overview"]
+    expected = {
+        "SEM Overview": (BeamType.ELECTRON, "SEM", 3, 500e-6),
+        "FIB Overview": (BeamType.ION, "FIB", 5, 250e-6),
+    }
+    for name, (beam, orientation, tiles, hfw) in expected.items():
+        config = grid_tasks.task_config[name]
+        settings = config.settings
+        assert isinstance(config, BeamOverviewGridTaskConfig)
+        assert (config.beam_type, config.orientation) == (beam, orientation)
+        assert (settings.nrows, settings.ncols) == (tiles, tiles)
+        assert settings.image_settings.hfw == pytest.approx(hfw)
+        assert tuple(settings.image_settings.resolution) == (1536, 1024)
+        assert config.requires == []
+        assert overview_reach(microscope, config) == [], name
+
+        taller = deepcopy(config)
+        taller.settings.nrows += 2
+        assert overview_reach(microscope, taller) != [], name
