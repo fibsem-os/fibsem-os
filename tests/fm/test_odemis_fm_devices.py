@@ -523,6 +523,7 @@ def test_connecting_makes_the_old_calls_and_reads_the_limits(odemis):
         "stream.excitation.value",
         "stream.emission.value",
         "stream.power.range",
+        "stream.power.unit",  # the watts the power fraction is of, for display
         "stream.power.value",
         "ccd.exposureTime.value",
         "ccd.binning.value",

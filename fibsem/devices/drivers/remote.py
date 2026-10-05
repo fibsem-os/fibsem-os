@@ -110,6 +110,8 @@ def _metadata(payload: Dict[str, Any], type_: type) -> ParameterMetadata:
         limits=_limits(payload.get("limits")),
         choices=None if choices is None else [from_wire(type_, c) for c in choices],
         settable=payload.get("settable", True),
+        native_max=payload.get("native_max"),
+        native_unit=payload.get("native_unit"),
     )
 
 

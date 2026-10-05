@@ -188,6 +188,10 @@ class DeviceCamera(Camera):
         _param(self._device, "gain").write_through(value)
 
     @property
+    def gain_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
+        return _native_scale(self._device, "gain")
+
+    @property
     def offset(self) -> float:
         return _param(self._device, "offset").get_value()
 
@@ -202,6 +206,16 @@ class DeviceCamera(Camera):
     @property
     def resolution(self) -> Tuple[int, int]:
         return tuple(_param(self._device, "resolution").get_value())
+
+
+def _native_scale(device: Device, name: str) -> Optional[Tuple[float, Optional[str]]]:
+    """A fraction parameter's full scale in hardware units, when the driver gives it."""
+    if name not in device.parameters:
+        return None
+    metadata = _param(device, name).metadata
+    if metadata.native_max is None:
+        return None
+    return (metadata.native_max, metadata.native_unit)
 
 
 class DeviceLightSource(LightSource):
@@ -221,6 +235,10 @@ class DeviceLightSource(LightSource):
     def power_limits(self) -> Tuple[float, float]:
         limits = _param(self._device, "power").limits
         return (limits.min, limits.max)
+
+    @property
+    def power_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
+        return _native_scale(self._device, "power")
 
 
 def _old_emission_value(found: EmissionFilter) -> Optional[Union[float, str]]:
