@@ -134,11 +134,38 @@ class OdemisFMCamera(Camera):
     def available_gain(self) -> bool:
         return model.hasVA(self._camera, "gain")
 
+    # Gain is a fraction of the camera's maximum, as power is of the light's.
+    def _max_gain(self) -> Optional[float]:
+        """The top of the gain VA's range or choices; None when it gives neither."""
+        va = self._camera.gain
+        top = va.range[1] if getattr(va, "range", None) else None
+        if top is None and getattr(va, "choices", None):
+            top = max(va.choices)
+        return float(top) if top is not None and top > 0 else None
+
     def read_gain(self) -> float:
-        return self._camera.gain.value
+        max_gain = self._max_gain()
+        value = self._camera.gain.value
+        return value if max_gain is None else value / max_gain
 
     def write_gain(self, value: float) -> None:
-        self._camera.gain.value = value
+        max_gain = self._max_gain()
+        if max_gain is None:
+            self._camera.gain.value = value
+            return
+        if not 0.0 <= value <= 1.0:
+            logging.warning(f"Gain fraction {value} outside [0, 1], clipping.")
+            value = min(max(value, 0.0), 1.0)
+        raw = value * max_gain
+        choices = getattr(self._camera.gain, "choices", None)
+        if choices:
+            raw = min(choices, key=lambda c: abs(c - raw))
+        self._camera.gain.value = raw
+
+    def metadata_gain(self) -> ParameterMetadata:
+        if self._max_gain() is None:
+            return ParameterMetadata()
+        return ParameterMetadata(limits=RangeLimit(min=0.0, max=1.0))
 
     def read_offset(self) -> float:
         """The camera's MD_BASELINE, read at connect. Read-only, as on the old class."""

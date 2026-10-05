@@ -65,6 +65,8 @@ def test_metadata_comes_from_the_fm_classes(fm):
     )
     assert devices["light_source"].power.limits.max == 1.0
     assert devices["light_source"].power.set_value(1.5) == 1.0  # clipped
+    gain = devices["camera"].gain.limits
+    assert (gain.min, gain.max) == (0.0, 1.0)  # a fraction, as power is
 
 
 def test_the_objective_moves_only_through_commands(fm):
