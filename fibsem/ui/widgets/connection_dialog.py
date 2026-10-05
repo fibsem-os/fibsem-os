@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import NamedTuple, Optional, Tuple
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QEventLoop, Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
@@ -533,7 +533,9 @@ class ConnectionDialog(QDialog):
             self.microscope, self.settings = None, None
 
         try:
-            self.microscope, self.settings = utils.setup_session(config_path=path)
+            self.microscope, self.settings = utils.setup_session(
+                config_path=path, progress=lambda step: self._set_busy(True, step)
+            )
         except Exception as e:
             logging.warning(f"Could not connect to microscope at {address}: {e}")
             self.microscope, self.settings = None, None
@@ -549,10 +551,11 @@ class ConnectionDialog(QDialog):
     def _set_busy(self, busy: bool, message: str = "") -> None:
         """Say what is happening, then let Qt paint it before the call that blocks.
 
-        `setup_session` runs on this thread, so the window is frozen for its
-        duration -- the same as the Connection tab today. Painting first at least
-        means the frozen window says what it is waiting for. Doing it off-thread is
-        its own change.
+        `setup_session` runs on this thread, so the window cannot repaint by itself
+        until it is done; this is called before it and at each step it reports, so
+        the window says what it is waiting for -- a column turning on can take a
+        while (FIB-1153). User input is held back while it paints, so nothing can be
+        pressed, or the dialog closed, mid-connect.
         """
         for widget in (
             self.connect_button,
@@ -564,7 +567,7 @@ class ConnectionDialog(QDialog):
             widget.setEnabled(not busy)
         if busy:
             self._show_message(message, is_error=False)
-            QApplication.processEvents()
+            QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
 
     def _show_message(self, message: str, is_error: bool) -> None:
         colour = ERROR_COLOR if is_error else TEXT_MUTED_COLOR

@@ -473,10 +473,17 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                 notification_service.show_toast("Configuration not selected.", "error")
                 return
 
-            # connect
+            # connect. On this thread, on purpose: the window does not take input
+            # while it runs, so nothing can be started against a half-made session.
+            # Each step is painted as it starts, so a long one -- a ThermoFisher
+            # column turning on -- reads as waiting rather than hung (FIB-1153).
+            self._show_connecting(
+                f"Connecting with {os.path.basename(configuration_path)}…"
+            )
             try:
                 self.microscope, self.settings = utils.setup_session(
                     config_path=configuration_path,
+                    progress=self._show_connecting,
                 )
             except Exception as e:
                 # Reported, not raised. This runs as a Qt slot, and PyQt5 turns an
@@ -513,6 +520,22 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                     notification_service.show_toast(msg, "info")
 
         self.update_ui()
+
+    def _show_connecting(self, step: str) -> None:
+        """Say which step connecting is on, and paint it now.
+
+        Connecting runs on this thread, so the window cannot repaint by itself until
+        it is done. Painting here is what puts the step on screen. User input is held
+        back while it paints: nothing can be pressed mid-connect, as before.
+        """
+        self.pushButton_connect_to_microscope.setEnabled(False)
+        self.pushButton_connect_to_microscope.setText("Connecting…")
+        self._label_status_icon.setPixmap(
+            fibsem_icon("mdi:progress-clock", color=NEUTRAL_500).pixmap(20, 20)
+        )
+        self._label_status_title.setText("Connecting")
+        self._label_status_subtitle.setText(step)
+        QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
 
     def set_current_imaging(
         self, provider: Optional[Callable[[], ImageSettings]]
@@ -578,6 +601,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         else:
             self.pushButton_connect_to_microscope.setVisible(True)
             self.pushButton_connect_to_microscope.setText("Connect to Microscope")
+            self.pushButton_connect_to_microscope.setEnabled(True)
             self.pushButton_connect_to_microscope.setStyleSheet(
                 stylesheets.PRIMARY_BUTTON_STYLESHEET
             )
