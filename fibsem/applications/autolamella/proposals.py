@@ -31,7 +31,7 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Union
 
-from fibsem.applications.autolamella.poses import LamellaPoses
+from fibsem.applications.autolamella.poses import MILLING_POSE, LamellaPoses
 from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
@@ -282,6 +282,8 @@ def _positions_to_dict(value: Any) -> Any:
             "fluorescence": (
                 p.fluorescence.to_dict() if p.fluorescence is not None else None
             ),
+            # which of the two was marked: the lamella made from this records it
+            "observed": p.observed,
         }
         if isinstance(p, LamellaPoses)
         else p
@@ -302,6 +304,7 @@ def _positions_from_dict(value: Any) -> Any:
             LamellaPoses(
                 milling=MicroscopeState.from_dict(p["milling"]),
                 fluorescence=MicroscopeState.from_dict(fm) if fm else None,
+                observed=p.get("observed") or MILLING_POSE,
             )
         )
     return out
@@ -489,6 +492,7 @@ def _prepare_positions(experiment: Any, item: Any, value: Any) -> PreparedWrite:
                 task_config=deepcopy(getattr(protocol, "task_config", None)) or {},
                 fluorescence_pose=entry.fluorescence,
                 grid_id=grid_id,
+                pose_provenance=entry.provenance,
             )
             made.append(experiment.positions[-1])
         if made:

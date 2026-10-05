@@ -180,3 +180,132 @@ def test_mill_coincident_requires_objective_position(
     )
     with pytest.raises(ValueError, match="objective position"):
         task._run()
+
+
+# ── what a task's re-record says about where the pose came from ─────────────
+
+
+def _marked(microscope: FibsemMicroscope, tmp_path: Path, orientation: str) -> Lamella:
+    """A lamella marked the way the app marks one, from a position in *orientation*."""
+    from copy import deepcopy
+
+    from fibsem.applications.autolamella.poses import build_lamella_poses
+
+    pose = microscope.get_orientation(orientation)
+    position = deepcopy(microscope.get_stage_position())
+    position.x, position.y, position.r, position.t = 100e-6, 50e-6, pose.r, pose.t
+    lamella = Lamella(path=tmp_path / orientation, number=0, petname=orientation)
+    build_lamella_poses(microscope, position=position).write_to(lamella)
+    return lamella
+
+
+def _moved(position: FibsemStagePosition, dx: float) -> FibsemStagePosition:
+    from copy import deepcopy
+
+    moved = deepcopy(position)
+    moved.x += dx
+    return moved
+
+
+def test_acquiring_leaves_a_derived_pose_derived(
+    fm_microscope: FibsemMicroscope, tmp_path: Path, monkeypatch
+) -> None:
+    """The acquire task drives to the pose and re-reads the stage. Nobody looked, so a
+    derived pose is still a guess -- and still follows when its milling pose moves.
+
+    It used to be recorded as observed, after which the move kept it, pointing at where
+    the lamella had been (FIB-954).
+    """
+    import fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence as af
+    from fibsem.applications.autolamella.poses import (
+        FLUORESCENCE_POSE,
+        MILLING_POSE,
+        Followed,
+        PoseProvenance,
+        move_pose,
+    )
+
+    lamella = _marked(fm_microscope, tmp_path, "MILLING")
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.DERIVED
+    task = _acquire_task(fm_microscope, lamella)
+    monkeypatch.setattr(task, "_run_autofocus", lambda: None)
+    monkeypatch.setattr(af, "acquire_image", lambda **kwargs: None)
+
+    task._run()
+
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.DERIVED
+
+    moved = _moved(lamella.milling_pose.stage_position, 20e-6)
+    followed = move_pose(fm_microscope, lamella, MILLING_POSE, position=moved)
+
+    assert followed is Followed.DERIVED
+    assert lamella.fluorescence_pose.stage_position.x == pytest.approx(moved.x)
+
+
+def test_acquiring_leaves_an_observed_pose_observed(
+    fm_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    from fibsem.applications.autolamella.poses import FLUORESCENCE_POSE, PoseProvenance
+
+    lamella = _marked(fm_microscope, tmp_path, "FM")
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.OBSERVED
+    task = _acquire_task(fm_microscope, lamella)
+
+    task._update_fluorescence_pose()
+
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.OBSERVED
+
+
+def test_a_pose_a_person_confirmed_is_observed_and_its_milling_pose_follows(
+    fm_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """Select Fluorescence Position, supervised: the operator can re-centre while the
+    task waits, so what it records is an observation. A milling pose derived from the
+    old place follows it there, as any other move of the fluorescence pose does."""
+    from fibsem.applications.autolamella.poses import (
+        FLUORESCENCE_POSE,
+        MILLING_POSE,
+        PoseProvenance,
+    )
+
+    lamella = _marked(fm_microscope, tmp_path, "FM")
+    assert lamella.provenance_of(MILLING_POSE) is PoseProvenance.DERIVED
+    recentred = _moved(lamella.fluorescence_pose.stage_position, 20e-6)
+    fm_microscope.move_stage_absolute(recentred)
+    task = _acquire_task(fm_microscope, lamella)
+
+    task._update_fluorescence_pose(observed=True)
+
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.OBSERVED
+    assert lamella.fluorescence_pose.objective_position is not None
+    assert lamella.milling_pose.stage_position.x == pytest.approx(recentred.x)
+    assert lamella.provenance_of(MILLING_POSE) is PoseProvenance.DERIVED
+
+
+@pytest.mark.parametrize("supervised", [False, True])
+def test_select_fluorescence_position_records_what_it_saw(
+    fm_microscope: FibsemMicroscope, tmp_path: Path, monkeypatch, supervised: bool
+) -> None:
+    """The task itself: unattended it keeps a derived pose derived; supervised, the
+    operator had the chance to centre it, so it is observed."""
+    from fibsem.applications.autolamella.poses import FLUORESCENCE_POSE, PoseProvenance
+    from fibsem.applications.autolamella.workflows.tasks.select_fluorescence_position import (
+        SelectFluorescencePositionConfig,
+        SelectFluorescencePositionTask,
+    )
+
+    monkeypatch.setattr(
+        SelectFluorescencePositionTask, "validate", property(lambda self: supervised)
+    )
+    lamella = _marked(fm_microscope, tmp_path, "MILLING")
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is PoseProvenance.DERIVED
+    task = SelectFluorescencePositionTask(
+        microscope=fm_microscope,
+        config=SelectFluorescencePositionConfig(),
+        lamella=lamella,
+    )
+
+    task._run()
+
+    expected = PoseProvenance.OBSERVED if supervised else PoseProvenance.DERIVED
+    assert lamella.provenance_of(FLUORESCENCE_POSE) is expected

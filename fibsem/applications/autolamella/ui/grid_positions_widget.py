@@ -33,8 +33,12 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_POSE,
-    build_lamella_poses,
-    sync_fluorescence_pose,
+    MILLING_POSE,
+    Followed,
+    check_fluorescence_position,
+    followed_note,
+    move_consequence,
+    move_pose,
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
@@ -429,9 +433,9 @@ class GridPositionsWidget(QWidget):
 
     def _on_move_requested(self, name: str, position) -> None:
         """Move a marked lamella, the way the Overview tab of the shown view
-        would: on a beam view the milling pose moves and the fluorescence one
-        follows; on the FM view both are derived from the new point, after
-        asking, since the milling pose moving is not visible from here."""
+        would: the pose of the shown view moves, and the other does what the rule
+        in `poses.move_pose` says. The FM view asks first, since what happens to
+        the milling pose is not visible from there."""
         experiment = self._experiment
         lamella = self._lamella_named(name)
         microscope = self.microscope
@@ -448,41 +452,31 @@ class GridPositionsWidget(QWidget):
                     f"{name} has no milling pose to move.", "warning"
                 )
                 return
+            moved = FLUORESCENCE_POSE
             try:
-                poses = build_lamella_poses(
-                    microscope=microscope,
-                    position=position,
-                    state=lamella.milling_pose,
-                    observed=FLUORESCENCE_POSE,
-                )
-            except Exception as e:  # noqa: BLE001 - said to the user, not raised
+                check_fluorescence_position(microscope, position)
+            except ValueError as e:
+                logger.error(f"Could not move {name} on the FM view: {e}")
                 notification_service.show_toast(str(e), "error")
                 return
             if not self._confirm(
                 f"Move {name}?",
-                f"Move {name} to {poses.fluorescence.stage_position.pretty_string}?"
-                "\n\nThis moves the milling pose with it, to "
-                f"{poses.milling.stage_position.pretty_string}.",
+                f"Move {name} to {position.pretty_string}?"
+                f"\n\n{move_consequence(lamella, moved)}",
             ):
                 return
-            lamella.stage_position = poses.milling.stage_position
-            lamella.update_milling_angle(microscope)
-            if lamella.fluorescence_pose is None:
-                lamella.fluorescence_pose = poses.fluorescence
-            else:
-                lamella.fluorescence_pose.stage_position = (
-                    poses.fluorescence.stage_position
-                )
         else:
-            lamella.stage_position = position
-            lamella.update_milling_angle(microscope)
-            sync_fluorescence_pose(microscope, lamella)
+            moved = MILLING_POSE
+        followed = move_pose(microscope, lamella, moved, position=position)
         experiment.save()
         # A pose written in place emits nothing on its own; the window re-marks
         # the Overview tabs off this.
         experiment.positions.events.changed.emit()
         self.refresh()
-        notification_service.show_toast(f"Moved {name}.", "info")
+        level = "warning" if followed is Followed.FAILED else "info"
+        notification_service.show_toast(
+            f"Moved {name}. {followed_note(moved, followed)}".strip(), level
+        )
 
     def _on_remove_requested(self, lamella) -> None:
         """The row asked first; this does not ask twice."""
