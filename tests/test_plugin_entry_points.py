@@ -1,14 +1,14 @@
 """The plugin entry point contract.
 
-fibsem exposes three extension points -- ``fibsem.patterns``,
-``fibsem.strategies`` and ``fibsem.tasks`` -- and for patterns and strategies a
+fibsem exposes extension points -- ``fibsem.patterns``, ``fibsem.strategies``,
+``fibsem.tasks`` and ``fibsem.drivers`` -- and for patterns and strategies a
 packaged plugin is the *only* way in. Nothing in the test suite exercised that
 path, so a refactor could break every third-party plugin in existence without a
 single test failing; the breakage would surface months later on a user's
 microscope, as a class that silently fails to appear.
 
 These tests close that gap. ``tests/fixtures/plugin`` is a package that
-declares all three groups the way a real plugin does; CI installs it before
+declares every group the way a real plugin does; CI installs it before
 running the suite, and the tests assert it resolves through fibsem's own
 registries -- not merely that it imports.
 
@@ -35,6 +35,8 @@ STRATEGY_NAME = "Fixture Strategy"
 TASK_TYPE = "FIXTURE_TASK"
 CLASHING_PATTERN_NAME = "Rectangle"  # a built-in name the fixture claims on purpose
 FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")  # declared to fail
+DRIVER_MANUFACTURER = "Fixture Microscopes"
+
 
 def _fixture_installed() -> bool:
     """Detect the fixture without importing it.
@@ -58,7 +60,9 @@ def _fixture_installed() -> bool:
     else:
         from importlib.metadata import entry_points
 
-    return any(ep.name == "fixture_pattern" for ep in entry_points(group="fibsem.patterns"))
+    return any(
+        ep.name == "fixture_pattern" for ep in entry_points(group="fibsem.patterns")
+    )
 
 
 _INSTALLED = _fixture_installed()
@@ -245,7 +249,9 @@ def test_load_records_carry_the_providing_distribution():
     """Which install a plugin came from, for a machine with several envs."""
     from fibsem.applications.autolamella.workflows.tasks import get_task_plugin_records
 
-    record = next(r for r in get_task_plugin_records() if r.entry_point == "fixture_task")
+    record = next(
+        r for r in get_task_plugin_records() if r.entry_point == "fixture_task"
+    )
     assert record.distribution == "fibsem-test-plugin"
     assert record.version == "0.0.0"
 
@@ -320,3 +326,43 @@ def test_report_lists_the_fixture_across_all_three_groups():
         groups, show_builtins=True
     )
     assert any(e.source is ExtensionSource.BUILTIN for e in groups[0].extensions)
+
+
+# ---------------------------------------------------------------------------
+# fibsem.drivers
+# ---------------------------------------------------------------------------
+
+
+def test_driver_plugin_resolves_through_the_registry():
+    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.microscopes.registry import default_configuration_values, get_driver
+
+    entry = get_driver(DRIVER_MANUFACTURER)
+    assert entry.load() is DemoMicroscope
+    assert default_configuration_values()[DRIVER_MANUFACTURER]["ion-column-tilt"] == 54
+
+
+def test_driver_plugin_connects_through_setup_session():
+    """The whole path a plugin driver is for: a configuration naming its manufacturer."""
+    from fibsem import utils
+    from fibsem.microscopes.device_demo import DemoMicroscope
+
+    microscope, _ = utils.setup_session(
+        manufacturer=DRIVER_MANUFACTURER, setup_logging=False
+    )
+    assert type(microscope) is DemoMicroscope
+
+
+def test_driver_plugins_record_what_they_could_not_register():
+    from fibsem import manufacturers
+    from fibsem.microscopes.registry import get_driver, load_driver_plugins
+
+    records = {r.entry_point: r for r in load_driver_plugins()}
+
+    assert records["fixture_driver"].registered
+    assert records["fixture_driver"].distribution == "fibsem-test-plugin"
+    assert "built-in" in records["clashing_driver"].error
+    assert records["not_a_record"].error == "returned str, not a DriverEntry"
+    assert get_driver(manufacturers.DEMO).microscope_class == (
+        "fibsem.microscopes.device_demo:DemoMicroscope"
+    )

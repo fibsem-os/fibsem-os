@@ -22,3 +22,5 @@ CLASHING_PATTERN_NAME = "Rectangle"
 # Entry points that fail on purpose, one per failure shape: a class that is not
 # a task, and a module that does not exist. See the pyproject.
 FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")
+
+DRIVER_MANUFACTURER = "Fixture Microscopes"
