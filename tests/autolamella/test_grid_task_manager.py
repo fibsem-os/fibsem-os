@@ -30,6 +30,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
+    REFERENCE_AT_LOAD_ROLE,
     SKIP_GRID_NOT_FOUND,
     SKIP_GRID_NOT_LOADED,
     SKIP_NOTHING_TO_RUN,
@@ -40,7 +41,12 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
 )
 from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatusEvent
 from fibsem.cancellation import OperationCancelledError
-from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    ImageSettings,
+    OverviewAcquisitionSettings,
+)
 
 GRIDS = ["Grid-01", "Grid-02", "Grid-03"]  # what the sim magazine holds
 
@@ -199,6 +205,43 @@ class TestOrderAndLoading:
             assert entry.end_timestamp is not None
         # the last grid is left loaded; nothing unloads at the end of a run
         assert microscope._stage.loaded_grids[0].name == "Grid-02"
+
+    def test_an_exchange_records_the_stage_position_and_a_reference_frame(
+        self, manager, experiment, microscope
+    ):
+        run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
+        for name in ("Grid-01", "Grid-02"):
+            grid = experiment.get_grid_by_name(name)
+            (entry,) = load_entries(grid)
+            assert entry.stage_position is not None
+            assert set(entry.stage_position) >= {"x", "y", "z", "r", "t"}
+            (relpath,) = entry.outputs[REFERENCE_AT_LOAD_ROLE]
+            assert relpath.startswith(f"{LOAD_ENTRY_NAME}/")
+            path = experiment.grid_path(grid) / relpath
+            assert path.is_file()
+            image = FibsemImage.load(str(path))
+            assert image.data.shape == (512, 768)
+            assert image.metadata.image_settings.beam_type is BeamType.ELECTRON
+        # read back from disk: the position survives the save
+        reloaded = Experiment.load(os.path.join(experiment.path, "experiment.yaml"))
+        (entry,) = load_entries(reloaded.get_grid_by_name("Grid-02"))
+        assert entry.stage_position == (
+            load_entries(experiment.get_grid_by_name("Grid-02"))[0].stage_position
+        )
+
+    def test_a_reference_that_cannot_be_taken_does_not_fail_the_load(
+        self, manager, experiment, microscope, monkeypatch
+    ):
+        def refuse(*args, **kwargs):
+            raise RuntimeError("beam is off")
+
+        monkeypatch.setattr(manager_module.acquire, "acquire_image", refuse)
+        executed = run_with_stub(manager, ["overview_sem"], ["Grid-01"])
+        assert executed == [("Grid-01", "overview_sem")]
+        (entry,) = load_entries(experiment.get_grid_by_name("Grid-01"))
+        assert entry.status is Status.Completed
+        assert entry.stage_position is not None
+        assert REFERENCE_AT_LOAD_ROLE not in entry.outputs
 
     def test_a_grid_already_in_the_beam_is_not_loaded_again(
         self, manager, experiment, microscope
