@@ -231,7 +231,7 @@ class FakeDetector:
     def __init__(self, objective, filter_mode):
         self._settings = FakeCameraSettings(filter_mode)
         self._state = objective
-        self.contrast = Setting("detector.contrast", 0.3)
+        self.contrast = Setting("detector.contrast", 0.3, limits=(0.0, 1.0))
         self.brightness = Setting("detector.brightness", 0.2, limits=(0.0, 1.0))
 
     @property
@@ -424,6 +424,14 @@ def _new_live(devices, channel, frames):
     return out[-1].data
 
 
+def _old_contrast_limits(fm):
+    """The old class has no gain limits: its gain is the detector's contrast, read as
+    every old FM read is, on the FM view."""
+    with fm.active_channel():
+        limits = fm.connection.detector.contrast.limits
+        return [limits.min, limits.max]
+
+
 def cases():
     out = []
     for view in (BEAM_VIEW, FM_VIEW):
@@ -502,6 +510,11 @@ def _cases(add):
         lambda d: cam(d).metadata_binning().choices,
     )
     add("camera get gain", lambda fm: fm.camera.gain, lambda d: cam(d).gain.get_value())
+    add(
+        "camera gain limits",
+        _old_contrast_limits,
+        lambda d: cam(d).metadata_gain().limits,
+    )
     add(
         "camera set gain",
         lambda fm: setattr(fm.camera, "gain", 0.7),
