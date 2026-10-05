@@ -20,15 +20,14 @@ naming a function that returns its ``DriverEntry``::
 Built-ins in code, plugins in packages, as in fibsem's other plugin groups. A record
 rather than the class, so the format survives the microscope classes becoming device
 builders (FIB-1160): the entry is what changes, not the contract. The entry points
-are read once, on the first ``get_driver`` (so on connect), or by
-``load_driver_plugins``. A built-in driver keeps its manufacturer: a plugin that
-claims one is recorded and not registered.
+are read once, by ``fibsem.plugins.loader``, the first time a driver is looked up or
+listed. When two drivers claim one manufacturer, the same order decides as for
+patterns, strategies and tasks: built-in, then registered at runtime, then plugin.
 """
 
 from __future__ import annotations
 
 import importlib
-import logging
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Type
 
@@ -36,6 +35,7 @@ from fibsem import manufacturers
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.plugins.loader import PluginRecord
     from fibsem.structures import SystemSettings
 
 
@@ -63,38 +63,7 @@ class DriverEntry:
         return _import(self.microscope_class)
 
 
-@dataclass(frozen=True)
-class DriverPlugin:
-    """One ``fibsem.drivers`` entry point, and what became of it.
-
-    Kept whether or not it registered, so a plugin that failed or was refused can
-    be reported rather than only logged.
-    """
-
-    entry_point: str
-    """The entry point's own name, as written in the plugin's pyproject."""
-
-    value: str
-    """The declared target, e.g. ``"fibsem_jeol.registry:driver"``."""
-
-    distribution: Optional[str] = None
-    version: Optional[str] = None
-
-    entry: Optional[DriverEntry] = None
-    """The record it returned, or ``None`` if it returned none."""
-
-    error: Optional[str] = None
-    """Why it is not the registered driver, or ``None`` if it is."""
-
-    @property
-    def registered(self) -> bool:
-        return self.error is None
-
-
 DRIVER_ENTRY_POINT_GROUP = "fibsem.drivers"
-
-# None until the entry points have been read.
-_PLUGINS: Optional[Tuple[DriverPlugin, ...]] = None
 
 
 def _import(target: str) -> Any:
@@ -111,34 +80,38 @@ _BUILT_IN: Dict[str, str] = {
     manufacturers.DEMO: "fibsem.microscopes.device_demo:DRIVER",
 }
 
-# Drivers registered at runtime. One for a built-in manufacturer replaces it.
+# Drivers registered at runtime. A built-in manufacturer's is never used.
 _DRIVERS: Dict[str, DriverEntry] = {}
 
 
 def register_driver(entry: DriverEntry) -> None:
-    """Make *entry* the driver for its manufacturer.
+    """Make *entry* the driver for its manufacturer, unless a built-in has it.
 
-    Registering a manufacturer again replaces its driver, built-in or not. The name
-    is normalised, so an entry registered as "Thermo" is the ThermoFisher driver.
+    Registering a manufacturer again replaces its registered driver. The name is
+    normalised, so an entry registered as "jeol" and one as "JEOL" are one driver
+    if ``fibsem.manufacturers`` knows them as one.
     """
+    entry = _canonical(entry)
+    _DRIVERS[entry.manufacturer] = entry
+
+
+def _canonical(entry: DriverEntry) -> DriverEntry:
     manufacturer = manufacturers.normalize_manufacturer(entry.manufacturer)
     if manufacturer != entry.manufacturer:
         entry = replace(entry, manufacturer=manufacturer)
-    _DRIVERS[manufacturer] = entry
+    return entry
 
 
 def get_driver(manufacturer: Optional[str]) -> DriverEntry:
     """The driver for *manufacturer*, in any known spelling.
 
     Raises ``NotImplementedError`` for a manufacturer no driver answers to, with the
-    message ``setup_session`` has always given. Reads the ``fibsem.drivers`` entry
-    points first, the first time it is called.
+    message ``setup_session`` has always given.
     """
-    load_driver_plugins()
     canonical = manufacturers.normalize_manufacturer(manufacturer)
-    entry = _DRIVERS.get(canonical)
-    if entry is None and canonical in _BUILT_IN:
-        entry = _import(_BUILT_IN[canonical])
+    if canonical in _BUILT_IN:
+        return _import(_BUILT_IN[canonical])
+    entry = _DRIVERS.get(canonical) or _plugin_drivers().get(canonical)
     if entry is None:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
     return entry
@@ -162,85 +135,48 @@ def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":
 
 
 def registered_manufacturers() -> List[str]:
-    """The manufacturers a driver is registered for: the built-ins, then the rest
-    in registration order. Imports no driver, and does not read the entry points,
-    so plugin drivers appear once something has (``get_driver``)."""
-    return list(_BUILT_IN) + [m for m in _DRIVERS if m not in _BUILT_IN]
+    """The manufacturers a driver is registered for: the built-ins, then those
+    registered at runtime, then the plugins'. Imports no built-in driver."""
+    names = list(_BUILT_IN)
+    for manufacturer in [*_DRIVERS, *_plugin_drivers()]:
+        if manufacturer not in names:
+            names.append(manufacturer)
+    return names
 
 
 def default_configuration_values() -> Dict[str, Dict[str, Any]]:
-    """Each manufacturer's driver config, for the drivers that have any: the
-    built-ins, then the rest in registration order.
-
-    Reads every built-in driver's record, so it imports their modules, and reads
-    the entry points first.
-    """
-    load_driver_plugins()
+    """Each manufacturer's driver config, for the drivers that have any, in
+    ``registered_manufacturers`` order. Imports every built-in driver's module."""
     entries = [get_driver(m) for m in registered_manufacturers()]
     return {entry.manufacturer: dict(entry.config) for entry in entries if entry.config}
 
 
-def load_driver_plugins() -> Tuple[DriverPlugin, ...]:
-    """Read the ``fibsem.drivers`` entry points, once, registering what they return.
+def get_driver_plugin_records() -> Tuple["PluginRecord", ...]:
+    """Every ``fibsem.drivers`` entry point and what became of it, read once.
 
-    Never raises: a plugin that fails to load is recorded and logged, because a
-    third-party package must not stop fibsem from connecting to anything else. A
-    plugin claiming a built-in driver's manufacturer is refused; when two plugins
-    claim the same one, the later one is the driver, as in the other plugin groups.
+    Includes the plugins that failed. One whose manufacturer a built-in or a
+    runtime registration also claims loads, and is not the driver used.
     """
-    global _PLUGINS
-    if _PLUGINS is not None:
-        return _PLUGINS
-    # Set before loading, so a plugin that asks for a driver while it loads does not
-    # start a second read.
-    _PLUGINS = ()
+    from fibsem.plugins.loader import load_entry_point_group
 
-    from fibsem.plugins.loader import _distribution_of, _entry_points
+    return load_entry_point_group(
+        group=DRIVER_ENTRY_POINT_GROUP, kind="driver", resolve=_resolve_driver
+    )
 
-    records: List[DriverPlugin] = []
-    claimed: Dict[str, int] = {}  # manufacturer -> index of the plugin holding it
-    for entry_point in _entry_points(DRIVER_ENTRY_POINT_GROUP):
-        distribution, version = _distribution_of(entry_point)
-        record = DriverPlugin(
-            entry_point=entry_point.name,
-            value=entry_point.value,
-            distribution=distribution,
-            version=version,
-        )
-        try:
-            entry = entry_point.load()()
-        except Exception as exc:
-            logging.error(
-                "Could not load the driver plugin '%s'",
-                entry_point.value,
-                exc_info=True,
-            )
-            records.append(replace(record, error=f"{type(exc).__name__}: {exc}"))
-            continue
 
-        if not isinstance(entry, DriverEntry):
-            reason = f"returned {type(entry).__name__}, not a DriverEntry"
-            logging.warning("Invalid driver plugin '%s': %s", entry_point.value, reason)
-            records.append(replace(record, error=reason))
-            continue
+def _resolve_driver(function: Any) -> Tuple[str, DriverEntry]:
+    """A ``fibsem.drivers`` entry point names a function returning the record."""
+    from fibsem.plugins.loader import PluginRejected
 
-        manufacturer = manufacturers.normalize_manufacturer(entry.manufacturer)
-        if manufacturer in _BUILT_IN:
-            reason = f"{manufacturer} has a built-in driver - the built-in is used"
-            logging.warning("Driver plugin '%s' refused: %s", entry_point.value, reason)
-            records.append(replace(record, entry=entry, error=reason))
-            continue
+    entry = function()
+    if not isinstance(entry, DriverEntry):
+        raise PluginRejected(f"returned {type(entry).__name__}, not a DriverEntry")
+    entry = _canonical(entry)
+    return entry.manufacturer, entry
 
-        if manufacturer in claimed:
-            earlier = claimed[manufacturer]
-            records[earlier] = replace(
-                records[earlier],
-                error=f"{manufacturer} was taken by '{entry_point.value}'",
-            )
-        register_driver(entry)
-        claimed[manufacturer] = len(records)
-        records.append(replace(record, entry=entry))
-        logging.info("Loaded the %s driver from '%s'", manufacturer, entry_point.value)
 
-    _PLUGINS = tuple(records)
-    return _PLUGINS
+def _plugin_drivers() -> Dict[str, DriverEntry]:
+    """The plugin drivers that loaded, by manufacturer; the later one wins a clash."""
+    from fibsem.plugins.loader import plugin_classes
+
+    return plugin_classes(get_driver_plugin_records())
