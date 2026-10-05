@@ -1,0 +1,124 @@
+"""The driver registry: which class connects to each manufacturer, on which port.
+
+``setup_session`` used to pick the class and port in an ``if manufacturer == ...``
+chain. These pin that the registry gives every built-in manufacturer the class and
+port the chain did, and that ``setup_session`` connects through it.
+"""
+
+import pytest
+
+from fibsem import manufacturers, utils
+from fibsem.microscopes import registry
+from fibsem.microscopes.registry import DriverEntry, get_driver, register_driver
+
+# What the old chain in setup_session did, per manufacturer.
+BUILT_IN = {
+    manufacturers.THERMOFISHER: (
+        "fibsem.microscopes.autoscript:ThermoMicroscope",
+        7520,
+    ),
+    manufacturers.TESCAN: ("fibsem.microscopes.tescan:TescanMicroscope", 8300),
+    manufacturers.ODEMIS: (
+        "fibsem.microscopes.odemis_microscope:OdemisThermoMicroscope",
+        None,
+    ),
+    manufacturers.DEMO: ("fibsem.microscopes.device_demo:DemoMicroscope", 7520),
+}
+
+
+@pytest.fixture
+def restore_registry():
+    """Put back the registry, and the milling-time model setup_session installs."""
+    from fibsem.milling import base
+
+    saved = dict(registry._DRIVERS)
+    estimator = base._milling_time_estimator
+    yield
+    registry._DRIVERS.clear()
+    registry._DRIVERS.update(saved)
+    base.set_milling_time_estimator(estimator)
+
+
+@pytest.mark.parametrize("manufacturer", list(BUILT_IN))
+def test_built_in_drivers_keep_their_class_and_port(manufacturer):
+    entry = get_driver(manufacturer)
+    assert (entry.microscope_class, entry.port) == BUILT_IN[manufacturer]
+
+
+def test_only_the_built_in_drivers_are_registered():
+    assert registry.registered_manufacturers() == list(BUILT_IN)
+
+
+def test_listing_the_drivers_imports_no_driver():
+    """Importing a driver module may import its vendor SDK."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "import fibsem.microscopes.registry as r\n"
+        "r.registered_manufacturers()\n"
+        "loaded = [m for m in ('fibsem.microscopes.autoscript', "
+        "'fibsem.microscopes.tescan', 'fibsem.microscopes.odemis_microscope', "
+        "'fibsem.microscopes.device_demo') if m in sys.modules]\n"
+        "assert not loaded, loaded\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+@pytest.mark.parametrize("spelling", ["Thermo", "thermo fisher", "ThermoFisher"])
+def test_any_known_spelling_finds_the_driver(spelling):
+    assert get_driver(spelling).manufacturer == manufacturers.THERMOFISHER
+
+
+def test_the_demo_driver_loads_its_class():
+    from fibsem.microscopes.device_demo import DemoMicroscope
+
+    assert get_driver(manufacturers.DEMO).load() is DemoMicroscope
+
+
+def test_an_unknown_manufacturer_is_refused_as_before():
+    with pytest.raises(NotImplementedError, match="Manufacturer Zeiss not supported."):
+        utils.setup_session(manufacturer="Zeiss", setup_logging=False)
+
+
+def test_setup_session_connects_through_the_registry():
+    from fibsem.microscopes.device_demo import DemoMicroscope
+
+    microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
+    assert type(microscope) is DemoMicroscope
+
+
+class _Recorder:
+    """Stands in for a driver class, recording how setup_session connects it."""
+
+    connected = []
+
+    def __init__(self, system):
+        self.system = system
+
+    def connect_to_microscope(self, ip_address, port):
+        _Recorder.connected.append((ip_address, port))
+
+    @staticmethod
+    def estimate_stage_milling_time(*args, **kwargs):
+        return 0.0
+
+
+@pytest.mark.parametrize("port,expected", [(1234, [("10.0.0.1", 1234)]), (None, [])])
+def test_setup_session_connects_on_the_registered_port(
+    restore_registry, port, expected
+):
+    _Recorder.connected = []
+    register_driver(DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", port))
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo", ip_address="10.0.0.1", setup_logging=False
+    )
+    assert isinstance(microscope, _Recorder)
+    assert _Recorder.connected == expected
+
+
+def test_registering_under_an_alias_replaces_the_canonical_entry(restore_registry):
+    register_driver(DriverEntry("tescan", f"{__name__}:_Recorder", 1))
+    assert get_driver(manufacturers.TESCAN).microscope_class == f"{__name__}:_Recorder"
+    assert registry.registered_manufacturers() == list(BUILT_IN)

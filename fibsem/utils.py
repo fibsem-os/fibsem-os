@@ -481,30 +481,12 @@ def setup_session(
     ip_address = settings.system.info.ip_address
     _report(progress, f"Connecting to {ip_address}…")
 
-    if manufacturer == manufacturers.THERMOFISHER:
-        from fibsem.microscopes.autoscript import ThermoMicroscope
+    from fibsem.microscopes.registry import get_driver
 
-        microscope = ThermoMicroscope(settings.system)
-        microscope.connect_to_microscope(ip_address=ip_address, port=7520)
-
-    elif manufacturer == manufacturers.TESCAN:
-        from fibsem.microscopes.tescan import TescanMicroscope
-
-        microscope = TescanMicroscope(settings.system)
-        microscope.connect_to_microscope(ip_address=ip_address, port=8300)
-    elif manufacturer == manufacturers.ODEMIS:
-        from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
-
-        microscope = OdemisThermoMicroscope(settings.system)
-
-    elif manufacturer == manufacturers.DEMO:
-        from fibsem.microscopes.device_demo import DemoMicroscope
-
-        microscope = DemoMicroscope(settings.system)
-        microscope.connect_to_microscope(ip_address, port=7520)
-
-    else:
-        raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
+    driver = get_driver(manufacturer)
+    microscope = driver.load()(settings.system)
+    if driver.port is not None:
+        microscope.connect_to_microscope(ip_address=ip_address, port=driver.port)
 
     # The planning stack estimates milling time without a microscope in scope, so
     # the driver's model is installed for the session here, on connect.
