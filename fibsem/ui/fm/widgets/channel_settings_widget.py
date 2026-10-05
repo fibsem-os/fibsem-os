@@ -22,7 +22,13 @@ from fibsem.ui.fm.widgets.emission_filter_combo import (
     FilterLookup,
     emission_lookup_for,
 )
-from fibsem.ui.fm.widgets.fm_limits import exposure_range_ms, power_range_percent
+from fibsem.ui.fm.widgets.fm_limits import (
+    exposure_range_ms,
+    gain_scale,
+    power_range_percent,
+    power_scale,
+    show_native_units,
+)
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
 
 _MS_TO_S = 1e-3
@@ -118,6 +124,7 @@ class ChannelSettingsWidget(QWidget):
             decimals=1,
         )
         self.power_spin.setToolTip("Light source power (%)")
+        show_native_units(self.power_spin, power_scale(self._fm))
         form.addRow("Power", self.power_spin)
 
         self.gain_spin = ValueSpinBox(
@@ -128,6 +135,7 @@ class ChannelSettingsWidget(QWidget):
             decimals=1,
         )
         self.gain_spin.setToolTip("Detector gain (%)")
+        show_native_units(self.gain_spin, gain_scale(self._fm))
         form.addRow("Gain", self.gain_spin)
 
         self._panel = TitledPanel("Channel", content=form_widget)
