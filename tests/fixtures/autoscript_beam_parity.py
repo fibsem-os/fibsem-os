@@ -24,7 +24,7 @@ logging.disable(logging.NOTSET)
 
 from fibsem.devices.beam import BEAM_ROUTES  # noqa: E402
 from fibsem.devices.drivers.autoscript import bind_autoscript_beams  # noqa: E402
-from fibsem.structures import BeamType, Point  # noqa: E402
+from fibsem.structures import BeamType, FibsemRectangle, Point  # noqa: E402
 
 A, LOG, STRUCTS, Node = S.A, S.LOG, S.STRUCTS, S.Node
 
@@ -69,6 +69,7 @@ def _fake_beam(beam, beam_type):
         "scanning.dwell_time.value": 1e-6,
         "scanning.rotation.value": 0.0,
         "scanning.resolution.value": "1536x1024",
+        "scanning.mode.value": "FullFrame",
         "beam_shift.value": STRUCTS.Point(x=1e-7, y=-2e-7),
         "stigmator.value": STRUCTS.Point(x=0.01, y=-0.02),
         "source.plasma_gas.value": "Xenon",
@@ -88,7 +89,15 @@ def make(plasma, ion=True):
     _fake_beam(connection.beams.electron_beam, BeamType.ELECTRON)
     _fake_beam(connection.beams.ion_beam, BeamType.ION)
     _preset(connection, "detector.type.value", "ETD")
+    _preset(connection, "detector.type.available_values", ["ETD", "TLD", "ICE"])
+    _preset(connection, "detector.mode.value", "SecondaryElectrons")
+    _preset(
+        connection,
+        "detector.mode.available_values",
+        ["SecondaryElectrons", "BackscatterElectrons"],
+    )
     _preset(connection, "detector.brightness.value", 0.5)
+    _preset(connection, "detector.contrast.value", 0.6)
     return microscope
 
 
@@ -131,8 +140,11 @@ GETS = (
     "stigmation",
     "resolution",
     "plasma_gas",
-    # not moved: still the old branches on both sides
     "detector_type",
+    "detector_mode",
+    "detector_brightness",
+    "detector_contrast",
+    # not moved: still the old branches on both sides
     "preset",
 )
 
@@ -155,9 +167,29 @@ SETS = (
     ("resolution", [768, 512]),
     ("plasma_gas", "Argon"),
     ("plasma_gas", "Unobtainium"),  # warns and is still set
+    ("detector_type", "TLD"),
+    ("detector_type", "Unobtainium"),  # warns, not set
+    ("detector_mode", "BackscatterElectrons"),
+    ("detector_mode", "Unobtainium"),  # warns, not set
+    ("detector_brightness", 0.3),
+    ("detector_brightness", 0.0),  # warns, not set
+    ("detector_contrast", 0.7),
+    ("detector_contrast", 1.5),  # warns, not set
     # not moved: still the old branches on both sides
-    ("detector_brightness", 0.5),
     ("preset", "anything"),
+)
+
+# The scan-mode methods, through the scan commands on one side and the old keys on
+# the other. Nothing read the scan mode before, so these are not read back.
+SCANS = (
+    ("spot", lambda m, b: m.set_spot_scanning_mode(Point(0.25, 0.75), b)),
+    (
+        "reduced_area",
+        lambda m, b: m.set_reduced_area_scanning_mode(
+            FibsemRectangle(0.1, 0.2, 0.3, 0.4), b
+        ),
+    ),
+    ("full_frame", lambda m, b: m.set_full_frame_scanning_mode(b)),
 )
 
 
@@ -188,7 +220,12 @@ def cases():
                         m.get(k, b),
                     ),
                 )
+            for name, scan in SCANS:
+                add(f"scan {name}", lambda m, s=scan, b=beam_type: s(m, b))
     return out
+
+
+CHOICE_KEYS = ("voltage", "current", "plasma_gas", "detector_type", "detector_mode")
 
 
 def _choices(beam, name):
@@ -208,13 +245,10 @@ def facts():
                 "commands": sorted(
                     name for name, info in beam.commands.items() if info.available
                 ),
-                "choices": {
-                    name: _choices(beam, name)
-                    for name in ("voltage", "current", "plasma_gas")
-                },
+                "choices": {name: _choices(beam, name) for name in CHOICE_KEYS},
                 "old_choices": {
                     name: S._plain(microscope.get_available_values(name, beam_type))
-                    for name in ("voltage", "current", "plasma_gas")
+                    for name in CHOICE_KEYS
                 },
                 "hfw_limits": S._plain([beam.hfw.limits.min, beam.hfw.limits.max]),
             }
@@ -255,6 +289,27 @@ def facts():
     except ValueError as e:
         refused = str(e)
     out["voltage_off_the_list"] = {"refused": refused, "calls": copy.deepcopy(LOG)}
+
+    # the scan mode, which nothing read before, and one with no ScanMode
+    microscope = routed(plasma=False)
+    vendor = microscope.connection.beams.electron_beam.scanning.mode
+    scan = {"full_frame": microscope.get("scanning_mode", BeamType.ELECTRON)}
+    _preset(vendor, "value", "Line")
+    scan["line"] = run(lambda: microscope.get("scanning_mode", BeamType.ELECTRON))
+    out["scanning_mode"] = scan
+
+    # a detector read selects its beam's channel under the imaging channel's lock
+    microscope = routed(plasma=False)
+    selected = []
+    set_channel = microscope.set_channel
+
+    def set_channel_recording(beam_type):
+        selected.append([beam_type.name, microscope._threading_lock._is_owned()])
+        set_channel(beam_type)
+
+    microscope.set_channel = set_channel_recording
+    result = run(lambda: microscope.get("detector_type", BeamType.ION))
+    out["detector_read"] = {"selected": selected, "result": result[0]}
 
     # a disabled column is never built, and connect never touches it
     microscope = make(plasma=False, ion=False)

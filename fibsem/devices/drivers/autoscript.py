@@ -24,7 +24,14 @@ import numpy as np
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
-from fibsem.structures import BeamType, FibsemStagePosition, Point, RangeLimit
+from fibsem.structures import (
+    BeamType,
+    FibsemRectangle,
+    FibsemStagePosition,
+    Point,
+    RangeLimit,
+    ScanMode,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscopes.autoscript import ThermoMicroscope
@@ -167,10 +174,19 @@ class AutoscriptBeam(Beam):
     as it is, so the old call and the device make the same SDK calls and log the same
     messages. The choices are ``ThermoMicroscope.get_available_values``'s.
 
-    Not here yet, so absent on the new API and still answered by the old branches:
-    the detector keys (they select the imaging channel first), the scan commands and
-    ``scanning_mode`` (there is no read of it today), and ``preset`` (Thermo has none).
+    The detector is the active device's, so the detector parameters claim the imaging
+    channel and select this beam's (``needs_channel``), as the old branches do under
+    the lock. The scan commands are the old ``spot_mode``/``reduced_area``/
+    ``full_frame`` keys; ``scanning_mode`` reads the vendor's scan mode, which nothing
+    read before.
+
+    Not here, so absent on the new API and still answered by the old branches:
+    ``preset`` (Thermo has none).
     """
+
+    needs_channel = frozenset(
+        {"detector_type", "detector_mode", "detector_brightness", "detector_contrast"}
+    )
 
     def __init__(
         self,
@@ -179,6 +195,7 @@ class AutoscriptBeam(Beam):
         resources: Optional[Resources] = None,
     ):
         super().__init__(beam_type, parent=parent, resources=resources)
+        self.bind_channel(lambda: parent.set_channel(beam_type))
 
     @property
     def _beam(self) -> Any:
@@ -310,6 +327,95 @@ class AutoscriptBeam(Beam):
     def write_resolution(self, value: Tuple[int, int]) -> None:
         self._beam.scanning.resolution.value = f"{value[0]}x{value[1]}"
 
+    # The detector: the active device's, so these run with this beam's channel
+    # selected (needs_channel). The writes check as the old branches do.
+
+    @property
+    def _detector(self) -> Any:
+        return self.parent.connection.detector
+
+    def read_detector_type(self) -> str:
+        return self._detector.type.value
+
+    def write_detector_type(self, value: str) -> None:
+        detector = self._detector
+        if value in detector.type.available_values:
+            detector.type.value = value
+            logging.info(f"Detector type set to {value}.")
+        else:
+            logging.warning(f"Detector type {value} not available.")
+
+    def metadata_detector_type(self) -> ParameterMetadata:
+        # read outside a parameter's claim, so it selects the channel itself
+        with self.parent._threading_lock:
+            self.parent.set_channel(self.beam_type)
+            return ParameterMetadata(choices=list(self._detector.type.available_values))
+
+    # No choices for the mode: they are the detector type's, which can change.
+    def read_detector_mode(self) -> str:
+        return self._detector.mode.value
+
+    def write_detector_mode(self, value: str) -> None:
+        detector = self._detector
+        if value in detector.mode.available_values:
+            detector.mode.value = value
+            logging.info(f"Detector mode set to {value}.")
+        else:
+            logging.warning(f"Detector mode {value} not available.")
+
+    def read_detector_brightness(self) -> float:
+        return self._detector.brightness.value
+
+    def write_detector_brightness(self, value: float) -> None:
+        if 0 < value <= 1:
+            self._detector.brightness.value = value
+            logging.info(f"Detector brightness set to {value}.")
+        else:
+            logging.warning(
+                f"Detector brightness {value} not available, must be between 0 and 1."
+            )
+
+    def read_detector_contrast(self) -> float:
+        return self._detector.contrast.value
+
+    def write_detector_contrast(self, value: float) -> None:
+        if 0 < value <= 1:
+            self._detector.contrast.value = value
+            logging.info(f"Detector contrast set to {value}.")
+        else:
+            logging.warning(
+                f"Detector contrast {value} not available, mut be between 0 and 1."
+            )
+
+    # The scan area: the old spot_mode, reduced_area and full_frame keys.
+
+    def read_scanning_mode(self) -> Optional[ScanMode]:
+        # New: nothing read the vendor's scan mode before. A mode with no ScanMode
+        # (line, external) or a failed read warns and reads None, so a scan command
+        # that has already been made does not fail on its read-back.
+        try:
+            mode = str(self._beam.scanning.mode.value)
+        except Exception as e:
+            logging.warning(f"{self.beam_type.name} scan mode could not be read: {e}")
+            return None
+        found = _SCAN_MODES.get(mode.replace("_", "").replace(" ", "").lower())
+        if found is None:
+            logging.warning(
+                f"{self.beam_type.name} scan mode {mode} is not one of ours."
+            )
+        return found
+
+    def _spot(self, point: Point) -> None:
+        self._beam.scanning.mode.set_spot(x=point.x, y=point.y)
+
+    def _reduced_area(self, area: FibsemRectangle) -> None:
+        self._beam.scanning.mode.set_reduced_area(
+            left=area.left, top=area.top, width=area.width, height=area.height
+        )
+
+    def _full_frame(self) -> None:
+        self._beam.scanning.mode.set_full_frame()
+
     # Only a plasma ion column has a gas.
     def available_plasma_gas(self) -> bool:
         return self.beam_type is BeamType.ION and bool(self.parent.system.ion.plasma)
@@ -332,6 +438,14 @@ class AutoscriptBeam(Beam):
         return ParameterMetadata(
             choices=list(self._beam.source.plasma_gas.available_values)
         )
+
+
+# The vendor's scan mode names (FullFrame, ReducedArea, Spot), lower-cased.
+_SCAN_MODES: Dict[str, ScanMode] = {
+    "fullframe": ScanMode.FULL_FRAME,
+    "reducedarea": ScanMode.REDUCED_AREA,
+    "spot": ScanMode.SPOT,
+}
 
 
 def bind_autoscript_beams(

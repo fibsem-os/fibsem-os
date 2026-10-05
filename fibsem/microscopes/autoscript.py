@@ -1151,7 +1151,7 @@ class ThermoMicroscope(FibsemMicroscope):
     def _build_beams(self) -> None:
         """Build the beam devices and route the beam keys that have moved to them.
 
-        The other beam keys (the detector keys, the scan modes, ``preset``) are still
+        The scan-mode methods then use the beam's scan commands. ``preset`` is still
         answered by ``_get``/``_set``. A disabled column gets no device, so its keys
         stay with the old branches too.
         """
