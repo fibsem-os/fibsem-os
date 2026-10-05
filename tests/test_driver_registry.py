@@ -2,8 +2,8 @@
 the configuration values a new configuration for it starts from.
 
 ``setup_session`` used to pick the class and port in an ``if manufacturer == ...``
-chain. These pin that the registry gives every built-in manufacturer the class and
-port the chain did, and that ``setup_session`` connects through it.
+chain. These pin that each built-in driver's ``DRIVER`` record gives the class and
+port the chain did, and that ``setup_session`` connects through the registry.
 """
 
 import pytest
@@ -52,12 +52,48 @@ def restore_registry():
 @pytest.mark.parametrize("manufacturer", list(BUILT_IN))
 def test_built_in_drivers_keep_their_class_and_port(manufacturer):
     entry = get_driver(manufacturer)
-    assert (entry.microscope_class, entry.port) == BUILT_IN[manufacturer]
+    assert entry.manufacturer == manufacturer
+    assert (entry.microscope_class, entry.config.get("port")) == BUILT_IN[manufacturer]
+
+
+@pytest.mark.parametrize("manufacturer", list(BUILT_IN))
+def test_each_built_in_record_is_its_driver_modules_own(manufacturer):
+    """The record lives beside the class, and the module imports without its SDK
+    (none of the vendor SDKs are installed here, odemis included)."""
+    import importlib
+
+    module = importlib.import_module(BUILT_IN[manufacturer][0].partition(":")[0])
+    assert get_driver(manufacturer) is module.DRIVER
+
+
+def _tilts(values):
+    return {
+        manufacturer: {k: v for k, v in config.items() if k.endswith("column-tilt")}
+        for manufacturer, config in values.items()
+    }
 
 
 def test_the_default_configuration_values_come_from_the_registry():
-    assert cfg.DEFAULT_CONFIGURATION_VALUES == COLUMN_TILTS
-    assert registry.default_configuration_values() == COLUMN_TILTS
+    """The tilts are what the constant listed; each driver's port rides along."""
+    assert _tilts(cfg.DEFAULT_CONFIGURATION_VALUES) == COLUMN_TILTS
+    assert _tilts(registry.default_configuration_values()) == COLUMN_TILTS
+    assert cfg.DEFAULT_CONFIGURATION_VALUES[manufacturers.TESCAN]["port"] == 8300
+
+
+def test_the_configuration_constants_import_no_driver():
+    """config.py is imported by the driver modules, so it can't import them back."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "import fibsem.config\n"
+        "loaded = [m for m in ('fibsem.microscopes.autoscript', "
+        "'fibsem.microscopes.tescan', 'fibsem.microscopes.odemis_microscope', "
+        "'fibsem.microscopes.device_demo') if m in sys.modules]\n"
+        "assert not loaded, loaded\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_the_available_manufacturers_are_the_drivers_with_defaults():
@@ -67,7 +103,7 @@ def test_the_available_manufacturers_are_the_drivers_with_defaults():
 
 def test_a_registered_driver_brings_its_defaults(restore_registry):
     register_driver(
-        DriverEntry("Zeiss", f"{__name__}:_Recorder", 1, config={"ion-column-tilt": 54})
+        DriverEntry("Zeiss", f"{__name__}:_Recorder", {"ion-column-tilt": 54})
     )
     assert registry.default_configuration_values()["Zeiss"] == {"ion-column-tilt": 54}
 
@@ -137,7 +173,13 @@ def test_setup_session_connects_on_the_registered_port(
     restore_registry, port, expected
 ):
     _Recorder.connected = []
-    register_driver(DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", port))
+    register_driver(
+        DriverEntry(
+            manufacturers.DEMO,
+            f"{__name__}:_Recorder",
+            config={} if port is None else {"port": port},
+        )
+    )
     microscope, _ = utils.setup_session(
         manufacturer="Demo", ip_address="10.0.0.1", setup_logging=False
     )
@@ -146,7 +188,7 @@ def test_setup_session_connects_on_the_registered_port(
 
 
 def test_registering_under_an_alias_replaces_the_canonical_entry(restore_registry):
-    register_driver(DriverEntry("tescan", f"{__name__}:_Recorder", 1))
+    register_driver(DriverEntry("tescan", f"{__name__}:_Recorder", {"port": 1}))
     assert get_driver(manufacturers.TESCAN).microscope_class == f"{__name__}:_Recorder"
     assert registry.registered_manufacturers() == list(BUILT_IN)
 
@@ -162,7 +204,9 @@ def test_the_configurations_port_overrides_the_registered_one(
     path.write_text(yaml.safe_dump(config))
 
     _Recorder.connected = []
-    register_driver(DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", 1234))
+    register_driver(
+        DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", {"port": 1234})
+    )
     microscope, _ = utils.setup_session(
         config_path=path,
         manufacturer="Demo",
@@ -177,7 +221,9 @@ def test_connect_microscope_builds_and_connects_the_registered_driver(
     restore_registry,
 ):
     _Recorder.connected = []
-    register_driver(DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", 1234))
+    register_driver(
+        DriverEntry(manufacturers.DEMO, f"{__name__}:_Recorder", {"port": 1234})
+    )
     system = utils.load_microscope_configuration(None, None).system
     system.info.manufacturer = manufacturers.DEMO
     system.info.ip_address = "10.0.0.1"
