@@ -2990,6 +2990,10 @@ class ThermoMicroscope(FibsemMicroscope):
         if key == "stage_homed":
             return self.stage.is_homed
         if key == "stage_linked":
+            # A compustage can't link (`set("stage_link")` refuses, and
+            # `AutoscriptCompustage` has no `linked`), so it is never linked.
+            if self.stage_is_compustage:
+                return False
             return self.stage.is_linked
 
         # chamber properties
