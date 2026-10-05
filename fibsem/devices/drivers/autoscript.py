@@ -1,12 +1,11 @@
-"""The AutoScript (Thermo Fisher) stage and beams as devices, beside the untouched
-Thermo backend.
+"""The AutoScript (Thermo Fisher) stage and beams as devices.
 
 ``AutoscriptStage`` implements the ``Stage`` device with what ``ThermoMicroscope``
 does today, moved as-is, so the old call and the device make the same SDK calls in
 the same order. ``AutoscriptCompustage`` is the same for a compustage (Arctis,
-Hydra), and ``AutoscriptBeam`` for the beam keys. Nothing builds them yet:
-``ThermoMicroscope`` still answers its stage and beam keys itself, and pointing it at
-the devices is a later step.
+Hydra), and ``AutoscriptBeam`` for the beam keys. ``ThermoMicroscope`` builds them at
+connect and routes its stage keys, moves and moved beam keys to them; its old
+branches stay until a session on an instrument confirms the devices.
 
 The vendor stage is ``microscope.stage``, which the Thermo backend sets at connect to
 ``specimen.stage`` or ``specimen.compustage``; the vendor beams are under
@@ -166,8 +165,7 @@ class AutoscriptBeam(Beam):
 
     Each parameter is the matching branch of ``ThermoMicroscope._get``/``_set`` moved
     as it is, so the old call and the device make the same SDK calls and log the same
-    messages. The choices are ``ThermoMicroscope.get_available_values``'s. Nothing
-    builds these yet: ``ThermoMicroscope`` still answers its beam keys itself.
+    messages. The choices are ``ThermoMicroscope.get_available_values``'s.
 
     Not here yet, so absent on the new API and still answered by the old branches:
     the detector keys (they select the imaging channel first), the scan commands and

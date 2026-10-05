@@ -286,12 +286,19 @@ def run(fn):
 
 
 def pair(compustage, fm_inserted, old, new):
-    """Run *old* on one fresh microscope and *new* on its driver over another."""
+    """Run *old* on one fresh microscope, *new* on its driver over another, and *old*
+    again on a third whose stage keys and moves are routed as connect routes them."""
     m_old = make(compustage, fm_inserted)
     m_new = make(compustage, fm_inserted)
+    m_routed = make(compustage, fm_inserted)
     LOG.clear()
     stage = bind_autoscript_stage(m_new)  # connect's calls are not part of the case
-    return {"old": run(lambda: old(m_old)), "new": run(lambda: new(stage, m_new))}
+    m_routed._build_stage()
+    return {
+        "old": run(lambda: old(m_old)),
+        "new": run(lambda: new(stage, m_new)),
+        "routed": run(lambda: old(m_routed)),
+    }
 
 
 def positions(compustage):
@@ -372,6 +379,17 @@ def cases():
                 lambda s, m: s.linked.get_value(),
             )
             add("link", lambda m: m.set("stage_link", True), lambda s, m: s._link())
+            add(
+                "link_stage",
+                lambda m: m.link_stage(),
+                lambda s, m: (s._link(), s.linked.get_value())[1],
+            )
+        add("home()", lambda m: m.home(), lambda s, m: (s._home(), True)[1])
+        add(
+            "unlink",
+            lambda m: m.set("stage_link", False),
+            lambda s, m: m.set("stage_link", False),  # no device unlink: the old path
+        )
 
         for i, position in enumerate(positions(compustage)):
             add(

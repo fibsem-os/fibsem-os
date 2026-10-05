@@ -24,7 +24,7 @@ from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 from skimage import transform
 
-from fibsem.devices.beam import BEAM_ROUTES
+from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
@@ -1104,6 +1104,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # set default coordinate system
         self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
+        self._build_stage()
         # TODO: set default move settings, is this dependent on the stage type?
         self.set_application_file(self.get_default_application_file(), default=True)
 
@@ -1157,6 +1158,23 @@ class ThermoMicroscope(FibsemMicroscope):
 
         self.beams = MappingProxyType(bind_autoscript_beams(self))
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
+
+    def _build_stage(self) -> None:
+        """Build the stage device and route the stage keys to it.
+
+        The moves, ``home`` and ``link_stage`` then go through the device. A
+        ``stage_link`` set stays with ``_set``: a false value unlinks there, and the
+        device's ``link`` command only links.
+        """
+        from fibsem.devices.drivers.autoscript import bind_autoscript_stage
+
+        self.stage_device = bind_autoscript_stage(self)
+        self._device_routes = MappingProxyType(
+            {key: ("stage_device", name) for key, name in STAGE_ROUTES.items()}
+        )
+        self._command_routes = MappingProxyType(
+            {"stage_home": ("stage_device", "home")}
+        )
 
     def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
         """The AutoScript autoloader, when the microscope has one.
@@ -1653,6 +1671,11 @@ class ThermoMicroscope(FibsemMicroscope):
             FibsemStagePosition: The stage position after movement.
         """
 
+        # through the stage device once connect has built it; the code below stays
+        # until a session on an instrument confirms the device's moves
+        if self.stage_device is not None:
+            return super().move_stage_absolute(position)
+
         # get current working distance, to be restored later
         wd = self.get_working_distance(BeamType.ELECTRON)
 
@@ -1686,6 +1709,11 @@ class ThermoMicroscope(FibsemMicroscope):
         Args:
             position: the relative stage position to move by.
         """
+
+        # through the stage device once connect has built it; the code below stays
+        # until a session on an instrument confirms the device's moves
+        if self.stage_device is not None:
+            return super().move_stage_relative(position)
 
         logging.info(f"Moving stage by {position}.")
 

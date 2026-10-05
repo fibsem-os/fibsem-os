@@ -2,8 +2,8 @@
 
 ``AutoscriptBeam`` is ``ThermoMicroscope``'s beam branches moved onto the ``Beam``
 device. Each case runs an old ``get``/``set`` on one microscope, and the same call on
-another whose beam keys are routed to the drivers (as ``ThermoMicroscope`` will be
-once it builds them), both over a fake AutoScript client that records every SDK call
+another whose beam keys are routed to the drivers as ``ThermoMicroscope``'s connect
+routes them, both over a fake AutoScript client that records every SDK call
 and write. Each case requires the same result, the same calls in the same order, and
 the same logged messages. A ``set`` case reads the key back after the write.
 
