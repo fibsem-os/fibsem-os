@@ -35,8 +35,12 @@ def test_the_fm_is_a_group_and_four_parts(fm):
         "light_source",
         "objective",
     ]
-    assert devices["fm"].parameters == {}
-    assert "acquire_channel" in devices["fm"].commands
+    # Its one parameter is where a running sequence is; the hardware is the parts'.
+    assert list(devices["fm"].parameters) == ["progress"]
+    assert not devices["fm"].progress.settable
+    assert {"acquire_channel", "acquire_z_stack", "cancel"} <= set(
+        devices["fm"].commands
+    )
 
 
 def test_parameters_read_and_write_the_fm_classes(fm):
@@ -61,6 +65,8 @@ def test_metadata_comes_from_the_fm_classes(fm):
     )
     assert devices["light_source"].power.limits.max == 1.0
     assert devices["light_source"].power.set_value(1.5) == 1.0  # clipped
+    gain = devices["camera"].gain.limits
+    assert (gain.min, gain.max) == (0.0, 1.0)  # a fraction, as power is
 
 
 def test_the_objective_moves_only_through_commands(fm):
@@ -330,3 +336,13 @@ def test_live_view_keeps_going_while_frames_are_asked_for(fm):
         assert group.is_live
     finally:
         group.stop_live()
+
+
+def test_the_simulator_has_no_hardware_units_for_power_or_gain(fm):
+    """Its power and gain are fractions already, so there is nothing more to show."""
+    from fibsem.fm.api import DeviceFluorescenceMicroscope
+
+    api = DeviceFluorescenceMicroscope(fm[1])
+    assert api.light_source.power_native_scale is None
+    assert api.camera.gain_native_scale is None
+    assert "native_max" not in fm[1]["light_source"].describe()["power"]

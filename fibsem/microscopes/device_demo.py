@@ -12,8 +12,8 @@ compares them call by call against the legacy one, so the two can't drift.
 Devices, from ``fibsem.devices.drivers.demo``: the beams (``DemoBeam``), the stage
 (``DemoStage``), the chamber (``DemoChamber``), the manipulator
 (``DemoManipulator``) and the gas injection system (``DemoGasInjector``), as
-``beams``, ``stage_device``, ``chamber_device``, ``manipulator_device`` and
-``gis_device`` (temporary names until the stage redesign settles them). They are
+``beams``, ``stage``, ``chamber_device``, ``manipulator_device`` and
+``gis_device``. They are
 built at construction from the parts a demo starts with (``initial_demo_parts``),
 and each keeps its own simulated part. Every key and method that reads or changes a
 part goes to its device:
@@ -166,19 +166,19 @@ class DemoMicroscope(
         """Build the devices from the starting parts and route their keys to them."""
         self.beams = MappingProxyType(bind_demo_beams(self, start=parts))
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
-        self.stage_device = bind_demo_stage(self, start=parts)
+        self.stage = bind_demo_stage(self, start=parts)
         self.chamber_device = bind_demo_chamber(self, start=parts)
         self.manipulator_device = bind_demo_manipulator(self, start=parts)
         self._device_routes = MappingProxyType(
             {
-                **_routes("stage_device", STAGE_ROUTES),
+                **_routes("stage", STAGE_ROUTES),
                 **_routes("chamber_device", CHAMBER_ROUTES),
                 **_routes("manipulator_device", MANIPULATOR_ROUTES),
             }
         )
         self._command_routes = MappingProxyType(
             {
-                **_routes("stage_device", STAGE_COMMAND_ROUTES),
+                **_routes("stage", STAGE_COMMAND_ROUTES),
                 **_routes("chamber_device", CHAMBER_COMMAND_ROUTES),
             }
         )
@@ -262,7 +262,7 @@ class DemoMicroscope(
         _needs_beam_type(key, beam_type)
         # A compustage has no link; nothing changes the stage's own flag there.
         if key == "stage_linked":
-            return self.stage_device.sim_linked
+            return self.stage.sim_linked
         return _unknown_key(key, beam_type)
 
     def move_manipulator_corrected(

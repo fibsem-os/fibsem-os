@@ -229,3 +229,81 @@ def test_the_locked_region_stays_narrow(thermo):
             f"the block at line {block.lineno} holds the process-wide lock across "
             f"{widened}, which blocks every other caller for longer than the frame"
         )
+
+
+# The detector property pairs (FIB-544). `_get` and `_set` set the channel and then
+# reach for `connection.detector.…`, which resolves against the active device, so a
+# channel taken in between reads, or writes, the other column's detector.
+# `get_detector_settings` is four of these, and `get_microscope_state` reads it per
+# beam from GUI-thread polls. Attribute accesses rather than calls, so these key on
+# `self.connection.detector.…`.
+
+
+def _attr_chain(node: ast.AST) -> list:
+    """`self.connection.detector.type.value` -> the parts, outermost last."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    return list(reversed(parts))
+
+
+def _detector_accesses(node: ast.AST) -> list:
+    """Every `self.connection.detector.<something>` access under `node`, one per line
+    (walking a chain also yields each of its prefixes)."""
+    lines = {}
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Attribute):
+            continue
+        chain = _attr_chain(child)
+        if chain[:3] == ["self", "connection", "detector"] and len(chain) > 3:
+            lines[child.lineno] = child
+    return list(lines.values())
+
+
+def test_every_detector_access_is_locked(thermo):
+    accesses = _detector_accesses(thermo)
+    assert accesses, "no connection.detector access found -- the probe missed"
+
+    locked = {
+        access.lineno
+        for block in _locked_blocks(thermo)
+        for access in _detector_accesses(block)
+    }
+    unlocked = sorted({a.lineno for a in accesses} - locked)
+    assert unlocked == [], (
+        f"connection.detector is reached without the lock at line(s) {unlocked}: "
+        f"whatever took the channel after set_channel is the detector this reaches"
+    )
+
+
+def test_the_detector_pairs_set_the_channel_in_the_same_block(thermo):
+    """A lock around the access alone guards nothing; the pair has to be together."""
+    for block in _locked_blocks(thermo):
+        if not _detector_accesses(block):
+            continue
+        assert _calls_named(block, "set_channel"), (
+            f"the block at line {block.lineno} locks a detector access but not the "
+            f"set_channel before it"
+        )
+
+
+def test_get_detector_settings_holds_the_lock_across_the_group(thermo):
+    """Four locked pairs still let the channel move between them, so the four values
+    could describe two states. The lock is re-entrant, so the pairs inside cost
+    nothing more."""
+    override = next(
+        (
+            node
+            for node in thermo.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "get_detector_settings"
+        ),
+        None,
+    )
+    assert override is not None, (
+        "ThermoMicroscope no longer overrides get_detector_settings"
+    )
+    assert _locked_blocks(override)
