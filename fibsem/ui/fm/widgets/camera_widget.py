@@ -1,4 +1,3 @@
-
 import logging
 from typing import TYPE_CHECKING, Optional
 
@@ -12,6 +11,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import CameraImageTransform, CameraSettings
+from fibsem.ui.fm.widgets.fm_limits import available_binnings
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
@@ -28,8 +28,7 @@ CAMERA_CONFIG = {
         "tooltip": "Camera gain in percentage (0 to 100)",
     },
     "binning": {
-        "available_values": [1, 2, 4, 8],
-        "tooltip": "Pixel binning (1x1, 2x2, 4x4, 8x8)",
+        "tooltip": "Pixel binning",
     },
     "transform": {
         "tooltip": "Image transformation (flip/rotate)",
@@ -52,7 +51,7 @@ class CameraWidget(QWidget):
 
     settings_changed = pyqtSignal(CameraSettings)
 
-    def __init__(self, fm: 'FluorescenceMicroscope', parent: Optional[QWidget] = None):
+    def __init__(self, fm: "FluorescenceMicroscope", parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.fm = fm
         self.parent_widget = parent
@@ -80,7 +79,7 @@ class CameraWidget(QWidget):
         # Binning
         self.label_binning = QLabel("Binning", self)
         self.combobox_binning = ValueComboBox(parent=self)
-        for b in CAMERA_CONFIG["binning"]["available_values"]:
+        for b in available_binnings(self.fm):
             self.combobox_binning.addItem(f"{b}x{b}", b)
         self.combobox_binning.setToolTip(CAMERA_CONFIG["binning"]["tooltip"])
 
@@ -146,7 +145,7 @@ class CameraWidget(QWidget):
         return CameraSettings(
             gain=self.spinBox_gain.value() / 100,  # Convert percentage to fraction
             binning=self.combobox_binning.currentData(),
-            transform=self.comboBox_transform.currentData()
+            transform=self.comboBox_transform.currentData(),
         )
 
     @camera_settings.setter

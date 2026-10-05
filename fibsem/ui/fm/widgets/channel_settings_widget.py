@@ -22,6 +22,7 @@ from fibsem.ui.fm.widgets.emission_filter_combo import (
     FilterLookup,
     emission_lookup_for,
 )
+from fibsem.ui.fm.widgets.fm_limits import exposure_range_ms, power_range_percent
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
 
 _MS_TO_S = 1e-3
@@ -97,20 +98,22 @@ class ChannelSettingsWidget(QWidget):
         )
         form.addRow("Emission", self.emission_combo)
 
+        exposure_min, exposure_max = exposure_range_ms(self._fm)
         self.exposure_spin = ValueSpinBox(
             suffix="ms",
-            minimum=1.0,
-            maximum=10000.0,
+            minimum=exposure_min,
+            maximum=exposure_max,
             step=1.0,
             decimals=1,
         )
         self.exposure_spin.setToolTip("Exposure time (ms)")
         form.addRow("Exposure", self.exposure_spin)
 
+        power_min, power_max = power_range_percent(self._fm)
         self.power_spin = ValueSpinBox(
             suffix="%",
-            minimum=0.0,
-            maximum=100.0,
+            minimum=power_min,
+            maximum=power_max,
             step=1.0,
             decimals=1,
         )
