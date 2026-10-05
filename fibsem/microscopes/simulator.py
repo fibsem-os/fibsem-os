@@ -276,6 +276,14 @@ FM_ACTIVE_DEVICE = 3
 CHAMBER_ACTIVE_VIEW = 4
 CHAMBER_ACTIVE_DEVICE = 3
 
+# The detector keys, which read and write whichever detector is on the active device.
+DETECTOR_KEYS = (
+    "detector_type",
+    "detector_mode",
+    "detector_brightness",
+    "detector_contrast",
+)
+
 
 def render_fm_scene(
     fm: FluorescenceMicroscope,
@@ -1937,14 +1945,22 @@ class LegacyDemoMicroscope(
             return self.stage_system.is_linked
 
         # detector properties
-        if key == "detector_type":
-            return detector.type
-        if key == "detector_mode":
-            return detector.mode
-        if key == "detector_brightness":
-            return detector.brightness
-        if key == "detector_contrast":
-            return detector.contrast
+        #
+        # Set, then read against the shared channel, as on hardware, where
+        # `connection.detector` resolves against the active device: a read whose channel
+        # has moved answers from the other column's detector, silently. Warned here
+        # rather than answered wrongly (FIB-544).
+        if key in DETECTOR_KEYS:
+            self.set_channel(beam_type)
+            self._warn_if_channel_moved(beam_type, f"reading {key}")
+            if key == "detector_type":
+                return detector.type
+            if key == "detector_mode":
+                return detector.mode
+            if key == "detector_brightness":
+                return detector.brightness
+            if key == "detector_contrast":
+                return detector.contrast
 
         # manipulator properties
         if key == "manipulator_position":
@@ -2027,19 +2043,23 @@ class LegacyDemoMicroscope(
                 self._burn_into_sample_scene(beam_type)
             return
 
-        # detector
-        if key == "detector_type":
-            detector.type = value
-            return
-        if key == "detector_mode":
-            detector.mode = value
-            return
-        if key == "detector_contrast":
-            detector.contrast = value
-            return
-        if key == "detector_brightness":
-            detector.brightness = value
-            return
+        # detector: the write half of the same pair, which on hardware would land on
+        # the other column's detector and stay there (FIB-544)
+        if key in DETECTOR_KEYS:
+            self.set_channel(beam_type)
+            self._warn_if_channel_moved(beam_type, f"writing {key}")
+            if key == "detector_type":
+                detector.type = value
+                return
+            if key == "detector_mode":
+                detector.mode = value
+                return
+            if key == "detector_contrast":
+                detector.contrast = value
+                return
+            if key == "detector_brightness":
+                detector.brightness = value
+                return
 
         if beam_type is BeamType.ION:
             if key == "plasma_gas":

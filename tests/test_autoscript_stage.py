@@ -4,6 +4,9 @@
 ``Stage`` device. Each case runs an old ``ThermoMicroscope`` call on one microscope and
 the matching driver call on another, both over a fake AutoScript client that records
 every SDK call and write, and requires the same calls, arguments, order and result.
+It also runs the old call on a third microscope routed as connect routes it (stage
+keys and moves through the device), which must return the same and make the same
+moves and writes.
 Cases: the limits read at connect, position/homed/linked reads, home and link, and
 absolute and relative moves over the orientations, partial poses, and the compustage
 axis restrictions with and without an inserted objective.
@@ -61,8 +64,45 @@ def test_no_old_call_raised(recording):
 
 
 def test_driver_makes_the_same_sdk_calls_and_returns_the_same(recording):
-    different = [c for c in recording["cases"] if c["old"] != c["new"]]
+    # home(): the old API reads homed back; the driver's _home alone does not
+    different = [
+        c
+        for c in recording["cases"]
+        if c["old"] != c["new"] and not c["key"].endswith(" home()")
+    ]
     assert different == [], json.dumps(different[:3], indent=1)
+
+
+def _actions(log):
+    """The SDK calls and writes, without the position reads (a read selects the
+    coordinate system first)."""
+    return [
+        call
+        for call in log
+        if call[0] != "get" and not call[1].endswith("set_default_coordinate_system")
+    ]
+
+
+def test_routed_thermo_makes_the_same_moves_and_returns_the_same(recording):
+    """ThermoMicroscope as connect leaves it: stage keys and moves through the
+    device. It returns the same and makes the same moves and writes; it reads the
+    position back twice after a move (the device's read-back, then the old API's
+    return), and reads homed after a home."""
+    different = [
+        c["key"]
+        for c in recording["cases"]
+        if c["routed"][0] != c["old"][0]
+        or _actions(c["routed"][1]) != _actions(c["old"][1])
+    ]
+    assert different == []
+
+
+def test_routed_thermo_unlinks_as_before(recording):
+    """``stage_link`` stays with ``_set``, where a false value unlinks."""
+    case = next(c for c in recording["cases"] if c["key"].endswith(" unlink"))
+    assert any(
+        call[:2] == ["call", "specimen.stage.unlink"] for call in case["routed"][1]
+    )
 
 
 def test_compustage_axis_restriction_is_exercised(recording):

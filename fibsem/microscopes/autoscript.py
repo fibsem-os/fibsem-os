@@ -24,6 +24,7 @@ from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 from skimage import transform
 
+from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
@@ -45,6 +46,7 @@ from fibsem.structures import (
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,
+    FibsemDetectorSettings,
     FibsemExperimentRef,
     FibsemGasInjectionSettings,
     FibsemImage,
@@ -1083,6 +1085,8 @@ class ThermoMicroscope(FibsemMicroscope):
             f"Autoscript Server: {self.connection.service.autoscript.server.version}"
         )
 
+        self._build_beams()
+
         if reset_beam_shift:
             self.reset_beam_shifts()
 
@@ -1102,6 +1106,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # set default coordinate system
         self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
+        self._build_stage()
         # TODO: set default move settings, is this dependent on the stage type?
         self.set_application_file(self.get_default_application_file(), default=True)
 
@@ -1143,6 +1148,35 @@ class ThermoMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.warning(f"Could not create sample stage: {e}")
 
+    def _build_beams(self) -> None:
+        """Build the beam devices and route the beam keys that have moved to them.
+
+        The scan-mode methods then use the beam's scan commands. ``preset`` is still
+        answered by ``_get``/``_set``. A disabled column gets no device, so its keys
+        stay with the old branches too.
+        """
+        from fibsem.devices.drivers.autoscript import bind_autoscript_beams
+
+        self.beams = MappingProxyType(bind_autoscript_beams(self))
+        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
+
+    def _build_stage(self) -> None:
+        """Build the stage device and route the stage keys to it.
+
+        The moves, ``home`` and ``link_stage`` then go through the device. A
+        ``stage_link`` set stays with ``_set``: a false value unlinks there, and the
+        device's ``link`` command only links.
+        """
+        from fibsem.devices.drivers.autoscript import bind_autoscript_stage
+
+        self.stage_device = bind_autoscript_stage(self)
+        self._device_routes = MappingProxyType(
+            {key: ("stage_device", name) for key, name in STAGE_ROUTES.items()}
+        )
+        self._command_routes = MappingProxyType(
+            {"stage_home": ("stage_device", "home")}
+        )
+
     def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
         """The FM API over the Thermo FM devices, sharing this microscope's
         connection and its imaging channel lock with the beams.
@@ -1170,6 +1204,15 @@ class ThermoMicroscope(FibsemMicroscope):
             )
             return None
         return loader
+
+    def get_detector_settings(
+        self, beam_type: BeamType = BeamType.ELECTRON
+    ) -> FibsemDetectorSettings:
+        """The four detector reads under one hold of the imaging channel, so they
+        describe one detector and claim the channel once against other callers
+        (FIB-544). The lock is re-entrant, so the reads inside take it freely."""
+        with self._threading_lock:
+            return super().get_detector_settings(beam_type)
 
     def set_channel(self, channel: BeamType) -> None:
         """
@@ -1652,6 +1695,11 @@ class ThermoMicroscope(FibsemMicroscope):
             FibsemStagePosition: The stage position after movement.
         """
 
+        # through the stage device once connect has built it; the code below stays
+        # until a session on an instrument confirms the device's moves
+        if self.stage_device is not None:
+            return super().move_stage_absolute(position)
+
         # get current working distance, to be restored later
         wd = self.get_working_distance(BeamType.ELECTRON)
 
@@ -1685,6 +1733,11 @@ class ThermoMicroscope(FibsemMicroscope):
         Args:
             position: the relative stage position to move by.
         """
+
+        # through the stage device once connect has built it; the code below stays
+        # until a session on an instrument confirms the device's moves
+        if self.stage_device is not None:
+            return super().move_stage_relative(position)
 
         logging.info(f"Moving stage by {position}.")
 
@@ -2884,11 +2937,16 @@ class ThermoMicroscope(FibsemMicroscope):
             ]
             return values
 
-        if key == "detector_type":
-            values = self.connection.detector.type.available_values
-
-        if key == "detector_mode":
-            values = self.connection.detector.mode.available_values
+        # the detector's values are the active device's, so the channel is claimed
+        # for the read (FIB-544)
+        if key in ("detector_type", "detector_mode"):
+            with self._threading_lock:
+                if beam_type is not None:
+                    self.set_channel(beam_type)
+                if key == "detector_type":
+                    values = self.connection.detector.type.available_values
+                else:
+                    values = self.connection.detector.mode.available_values
 
         if key == "scan_direction":
             TFS_SCAN_DIRECTIONS = [
@@ -3026,17 +3084,19 @@ class ThermoMicroscope(FibsemMicroscope):
             "detector_brightness",
             "detector_contrast",
         ]:
-            # set beam active view and device
-            self.set_channel(beam_type)
+            # `connection.detector` resolves against the active device, so the channel
+            # is set and read under the lock, as for a grab (FIB-544)
+            with self._threading_lock:
+                self.set_channel(beam_type)
 
-            if key == "detector_type":
-                return self.connection.detector.type.value
-            if key == "detector_mode":
-                return self.connection.detector.mode.value
-            if key == "detector_brightness":
-                return self.connection.detector.brightness.value
-            if key == "detector_contrast":
-                return self.connection.detector.contrast.value
+                if key == "detector_type":
+                    return self.connection.detector.type.value
+                if key == "detector_mode":
+                    return self.connection.detector.mode.value
+                if key == "detector_brightness":
+                    return self.connection.detector.brightness.value
+                if key == "detector_contrast":
+                    return self.connection.detector.contrast.value
 
         # manipulator properties
         if key == "manipulator_position":
@@ -3150,40 +3210,43 @@ class ThermoMicroscope(FibsemMicroscope):
             "detector_brightness",
             "detector_contrast",
         ]:
-            self.set_channel(beam_type)
+            # the write half: with the channel moved it would land on the other
+            # column's detector and stay there (FIB-544)
+            with self._threading_lock:
+                self.set_channel(beam_type)
 
-            if key == "detector_mode":
-                if value in self.connection.detector.mode.available_values:
-                    self.connection.detector.mode.value = value
-                    logging.info(f"Detector mode set to {value}.")
-                else:
-                    logging.warning(f"Detector mode {value} not available.")
-                return
-            if key == "detector_type":
-                if value in self.connection.detector.type.available_values:
-                    self.connection.detector.type.value = value
-                    logging.info(f"Detector type set to {value}.")
-                else:
-                    logging.warning(f"Detector type {value} not available.")
-                return
-            if key == "detector_brightness":
-                if 0 < value <= 1:
-                    self.connection.detector.brightness.value = value
-                    logging.info(f"Detector brightness set to {value}.")
-                else:
-                    logging.warning(
-                        f"Detector brightness {value} not available, must be between 0 and 1."
-                    )
-                return
-            if key == "detector_contrast":
-                if 0 < value <= 1:
-                    self.connection.detector.contrast.value = value
-                    logging.info(f"Detector contrast set to {value}.")
-                else:
-                    logging.warning(
-                        f"Detector contrast {value} not available, mut be between 0 and 1."
-                    )
-                return
+                if key == "detector_mode":
+                    if value in self.connection.detector.mode.available_values:
+                        self.connection.detector.mode.value = value
+                        logging.info(f"Detector mode set to {value}.")
+                    else:
+                        logging.warning(f"Detector mode {value} not available.")
+                    return
+                if key == "detector_type":
+                    if value in self.connection.detector.type.available_values:
+                        self.connection.detector.type.value = value
+                        logging.info(f"Detector type set to {value}.")
+                    else:
+                        logging.warning(f"Detector type {value} not available.")
+                    return
+                if key == "detector_brightness":
+                    if 0 < value <= 1:
+                        self.connection.detector.brightness.value = value
+                        logging.info(f"Detector brightness set to {value}.")
+                    else:
+                        logging.warning(
+                            f"Detector brightness {value} not available, must be between 0 and 1."
+                        )
+                    return
+                if key == "detector_contrast":
+                    if 0 < value <= 1:
+                        self.connection.detector.contrast.value = value
+                        logging.info(f"Detector contrast set to {value}.")
+                    else:
+                        logging.warning(
+                            f"Detector contrast {value} not available, mut be between 0 and 1."
+                        )
+                    return
 
         # electron beam properties
         if beam_type is BeamType.ELECTRON:
