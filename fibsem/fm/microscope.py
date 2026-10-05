@@ -1184,6 +1184,11 @@ class FluorescenceMicroscope(ABC):
 
         return img
 
+    def frame_metadata_of(self, data: np.ndarray) -> Optional[dict]:
+        """What the driver stamped on a frame at exposure time, in the keys
+        ``_construct_image`` takes, or None when it stamps nothing."""
+        return None
+
     def _metadata_for_frame(
         self, frame_metadata: Optional[dict]
     ) -> FluorescenceImageMetadata:

@@ -218,10 +218,13 @@ class FMGroup(FM):
     def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
         if channel is None:
             # The current settings: the camera's own frame, as the FM API over devices
-            # took it before (``camera.acquire``), with the parts' state beside it.
+            # took it before (``camera.acquire``), with the parts' state beside it and
+            # what the driver stamped on the frame itself (odemis) over that.
             acquisition_date = datetime.now().isoformat()
             data = self.parts["camera"].acquire()
             metadata = {"acquisition_date": acquisition_date, **self._frame_metadata()}
+            stamped = self._fm.frame_metadata_of(data) or {}
+            metadata.update({key: to_wire(value) for key, value in stamped.items()})
             return Frame(data, metadata)
         image = self._acquire_image(channel)
         # The FM class already stamped what the frame was taken with, including what
@@ -250,6 +253,24 @@ class FMGroup(FM):
             )
         metadata = {key: value for key, value in metadata.items() if value is not None}
         return Frame(image.data, metadata)
+
+    def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
+        from fibsem.fm.structures import ChannelSettings
+
+        settings = ChannelSettings.from_dict(channel) if channel is not None else None
+        if hasattr(self._fm.camera, "_start_fast_acquisition"):
+            # The FM class's own live view (odemis: the stream active, light on), so
+            # each pulled frame is the camera's next one, not a whole acquisition.
+            self._fm.start_acquisition(settings)
+        elif settings is not None:
+            self._fm.set_channel(settings)
+        if settings is not None:
+            for part in self.channel_parts:
+                for param in part.parameters.values():
+                    param.get_value()
+
+    def _stop_live(self) -> None:
+        self._fm.stop_acquisition()
 
     def _acquire_image(self, channel: Dict[str, Any]) -> FluorescenceImage:
         from fibsem.fm.structures import ChannelSettings

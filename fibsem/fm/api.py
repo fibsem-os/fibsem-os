@@ -22,6 +22,7 @@ saved focus position, the channel name and colour, and the image transform.
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Sequence, Tuple, Union
@@ -309,6 +310,26 @@ class DeviceFluorescenceMicroscope(FluorescenceMicroscope):
                 channel = channel_settings.to_dict()
             frame = self.devices["fm"].acquire_frame(channel)
             return self._construct_image(frame.data, frame.metadata)
+
+    def _acquisition_worker(
+        self, channel_settings: Optional[ChannelSettings] = None
+    ) -> None:
+        """Live view, pulled: the ``fm`` group keeps the hardware acquiring, and each
+        frame is one `acquire_image` with the current settings. Stopping, or this
+        process going away, ends it; the group stops by itself if no frame is asked
+        for in its ``live_timeout``."""
+        group = self.devices["fm"]
+        try:
+            if channel_settings is not None:
+                self.set_channel(channel_settings)
+            group.start_live()
+            try:
+                while not self._stop_acquisition_event.is_set():
+                    self.acquire_image()
+            finally:
+                group.stop_live()
+        except Exception as e:
+            logging.error(f"Error in acquisition worker: {e}")
 
     def _metadata_for_frame(
         self, frame_metadata: Optional[dict]

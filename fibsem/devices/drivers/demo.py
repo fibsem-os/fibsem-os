@@ -840,6 +840,14 @@ class DemoFM(FM):
         self.parts = parts
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
+        self._apply_channel(channel)
+        return self.parts["camera"].acquire()
+
+    def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
+        # The simulated camera renders a frame when asked: nothing runs between.
+        self._apply_channel(channel)
+
+    def _apply_channel(self, channel: Optional[Dict[str, Any]]) -> None:
         if channel is not None:
             settings = ChannelSettings.from_dict(channel)
             filters = self.parts["filter_set"]
@@ -854,7 +862,6 @@ class DemoFM(FM):
             camera.exposure_time.write_through(settings.exposure_time)
             if settings.gain is not None:
                 camera.gain.write_through(settings.gain)
-        return self.parts["camera"].acquire()
 
 
 def bind_demo_fm(

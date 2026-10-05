@@ -483,6 +483,20 @@ class RemoteObjective(RemoteDevice, Objective):
 class RemoteFM(RemoteDevice, FM):
     """Channel acquisition runs on the FM's computer, in one call."""
 
+    # The server's FM watches live view; a second watchdog here would only stop it
+    # when this process stops asking, which the server notices anyway.
+    live_timeout = None
+
+    def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
+        # A server from before live view: frames are still pulled, each one a whole
+        # acquisition, as before.
+        if "start_live" in self.server_commands:
+            self.call_command("start_live", channel=channel)
+
+    def _stop_live(self) -> None:
+        if "stop_live" in self.server_commands:
+            self.call_command("stop_live")
+
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         return self.call_command("acquire_channel", channel=channel)
 

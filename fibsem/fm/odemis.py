@@ -967,5 +967,8 @@ class OdemisFluorescenceMicroscope(FluorescenceMicroscope):
         if settings change during live view.
         """
         if frame_metadata is None:
-            frame_metadata = _frame_metadata_from_data(data)
+            frame_metadata = self.frame_metadata_of(data)
         return super()._construct_image(data, frame_metadata=frame_metadata)
+
+    def frame_metadata_of(self, data: np.ndarray) -> Optional[dict]:
+        return _frame_metadata_from_data(data)
