@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 import sys
@@ -8,6 +10,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 from psygnal import Signal
 
+from fibsem import manufacturers
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
@@ -15,6 +18,7 @@ from fibsem.microscope import (
     _records_stage_move,
 )
 from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES
+from fibsem.microscopes.registry import DriverEntry
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
@@ -79,8 +83,16 @@ def add_odemis_path(config_path: str = "/etc/odemis.conf"):
 
 add_odemis_path()
 
-from odemis import model
-from odemis.util.dataio import open_acquisition
+# Guarded like the other drivers' SDKs, so the registry can read DRIVER below on a
+# computer without odemis.
+try:
+    from odemis import model
+    from odemis.util.dataio import open_acquisition
+
+    ODEMIS_API_AVAILABLE = True
+except ImportError as e:
+    ODEMIS_API_AVAILABLE = False
+    logging.debug(f"Odemis not installed. {e}")
 
 if TYPE_CHECKING:
     from odemis.driver.autoscript_client import SEM as OdemisAutoscriptClient
@@ -258,6 +270,14 @@ ODEMIS_CHAMBER_STATES = {
 # TODO: load default system settings?
 
 
+# This driver, as the registry knows it (fibsem.microscopes.registry). No port:
+# Odemis reaches the instrument through its own back end.
+DRIVER = DriverEntry(
+    manufacturer=manufacturers.ODEMIS,
+    microscope_class="fibsem.microscopes.odemis_microscope:OdemisThermoMicroscope",
+)
+
+
 class OdemisThermoMicroscope(FibsemMicroscope):
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
@@ -278,6 +298,8 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
     def __init__(self, system_settings: SystemSettings):
+        if not ODEMIS_API_AVAILABLE:
+            raise ImportError("Odemis is not installed, so its driver cannot connect.")
         self.system: SystemSettings = system_settings
 
         self.connection: OdemisAutoscriptClient = model.getComponent(role="fibsem")

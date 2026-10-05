@@ -51,6 +51,7 @@ import logging
 from types import MappingProxyType
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+from fibsem import manufacturers
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
@@ -66,6 +67,7 @@ from fibsem.devices.drivers.demo import (
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.fm.api import DeviceFluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
+from fibsem.microscopes.registry import DriverEntry
 from fibsem.microscopes.simulator import (
     SIMULATOR_KNOWN_UNKNOWN_KEYS,
     DemoConfiguration,
@@ -125,6 +127,14 @@ def _unknown_key(key: str, beam_type: Optional[BeamType]) -> None:
         logging.debug(f"Skipping unknown key: {key} for {beam_type}")
         return
     logging.warning(f"Unknown key: {key} ({beam_type})")
+
+
+# This driver, as the registry knows it (fibsem.microscopes.registry).
+DRIVER = DriverEntry(
+    manufacturer=manufacturers.DEMO,
+    microscope_class="fibsem.microscopes.device_demo:DemoMicroscope",
+    config={"port": 7520},
+)
 
 
 class DemoMicroscope(
