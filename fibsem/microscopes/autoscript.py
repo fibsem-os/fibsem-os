@@ -1094,11 +1094,11 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # assign stage
         if self.connection.specimen.compustage.is_installed:
-            self.stage = self.connection.specimen.compustage
+            self._vendor_stage = self.connection.specimen.compustage
             self.stage_is_compustage = True
             self._default_stage_coordinate_system = CoordinateSystem.SPECIMEN
         elif self.connection.specimen.stage.is_installed:
-            self.stage = self.connection.specimen.stage
+            self._vendor_stage = self.connection.specimen.stage
             self.stage_is_compustage = False
             self._default_stage_coordinate_system = CoordinateSystem.RAW
         else:
@@ -1107,7 +1107,9 @@ class ThermoMicroscope(FibsemMicroscope):
             )
 
         # set default coordinate system
-        self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
+        self._vendor_stage.set_default_coordinate_system(
+            self._default_stage_coordinate_system
+        )
         self._build_stage()
         # TODO: set default move settings, is this dependent on the stage type?
         self.set_application_file(self.get_default_application_file(), default=True)
@@ -1174,13 +1176,11 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         from fibsem.devices.drivers.autoscript import bind_autoscript_stage
 
-        self.stage_device = bind_autoscript_stage(self)
+        self.stage = bind_autoscript_stage(self)
         self._device_routes = MappingProxyType(
-            {key: ("stage_device", name) for key, name in STAGE_ROUTES.items()}
+            {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
         )
-        self._command_routes = MappingProxyType(
-            {"stage_home": ("stage_device", "home")}
-        )
+        self._command_routes = MappingProxyType({"stage_home": ("stage", "home")})
 
     def _build_parts(self) -> None:
         """Build the chamber, and the manipulator and gas injectors that are fitted,
@@ -1748,7 +1748,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # through the stage device once connect has built it; the code below stays
         # until a session on an instrument confirms the device's moves
-        if self.stage_device is not None:
+        if self.stage is not None:
             return super().move_stage_absolute(position)
 
         # get current working distance, to be restored later
@@ -1764,7 +1764,7 @@ class ThermoMicroscope(FibsemMicroscope):
             autoscript_position.r = None
 
         logging.info(f"Moving stage to {position}.")
-        self.stage.absolute_move(
+        self._vendor_stage.absolute_move(
             autoscript_position, MoveSettings(rotate_compucentric=True)
         )  # TODO: This needs at least an optional safe move to prevent collision?
 
@@ -1787,7 +1787,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # through the stage device once connect has built it; the code below stays
         # until a session on an instrument confirms the device's moves
-        if self.stage_device is not None:
+        if self.stage is not None:
             return super().move_stage_relative(position)
 
         logging.info(f"Moving stage by {position}.")
@@ -1798,7 +1798,7 @@ class ThermoMicroscope(FibsemMicroscope):
         )
 
         # move stage
-        self.stage.relative_move(thermo_position)
+        self._vendor_stage.relative_move(thermo_position)
 
         logging.debug({"msg": "move_stage_relative", "position": position.to_dict()})
 
@@ -1868,12 +1868,12 @@ class ThermoMicroscope(FibsemMicroscope):
         if self.stage_is_compustage:
             return STAGE_LIMITS_COMPUSTAGE
 
-        if not hasattr(self.stage, "get_axis_limits"):
+        if not hasattr(self._vendor_stage, "get_axis_limits"):
             return STAGE_LIMITS_DEFAULT
 
         limits: Dict[str, RangeLimit] = {}
         for axis in ["x", "y", "z", "t"]:
-            axis_limit = self.stage.get_axis_limits(axis)
+            axis_limit = self._vendor_stage.get_axis_limits(axis)
             # t is in radians -> degrees
             if axis == "t":
                 limits[axis] = RangeLimit(
@@ -3131,22 +3131,22 @@ class ThermoMicroscope(FibsemMicroscope):
         # stage properties
         if key == "stage_position":
             # get stage position in raw coordinates
-            self.stage.set_default_coordinate_system(
+            self._vendor_stage.set_default_coordinate_system(
                 self._default_stage_coordinate_system
             )  # TODO: remove this once testing is done
             stage_position = stage_position_from_autoscript(
-                self.stage.current_position
+                self._vendor_stage.current_position
             )  # TODO: apply compucentric/raw coordinate system conversion here
             return stage_position
 
         if key == "stage_homed":
-            return self.stage.is_homed
+            return self._vendor_stage.is_homed
         if key == "stage_linked":
             # A compustage can't link (`set("stage_link")` refuses, and
             # `AutoscriptCompustage` has no `linked`), so it is never linked.
             if self.stage_is_compustage:
                 return False
-            return self.stage.is_linked
+            return self._vendor_stage.is_linked
 
         # chamber properties
         if key == "chamber_state":
@@ -3359,7 +3359,7 @@ class ThermoMicroscope(FibsemMicroscope):
         # stage properties
         if key == "stage_home":
             logging.info("Homing stage...")
-            self.stage.home()
+            self._vendor_stage.home()
             logging.info("Stage homed.")
             return
 
@@ -3369,7 +3369,7 @@ class ThermoMicroscope(FibsemMicroscope):
                 return
 
             logging.info("Linking stage...")
-            self.stage.link() if value else self.stage.unlink()
+            self._vendor_stage.link() if value else self._vendor_stage.unlink()
             logging.info(f"Stage {'linked' if value else 'unlinked'}.")
             return
 
@@ -3444,20 +3444,24 @@ class ThermoMicroscope(FibsemMicroscope):
             return FibsemStagePosition(x=0, y=0)
 
         # get stage position in speciemn coordinates
-        self.stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
+        self._vendor_stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
         specimen_stage_position = stage_position_from_autoscript(
-            self.stage.current_position
+            self._vendor_stage.current_position
         )
 
         # get stage position in raw coordinates
-        self.stage.set_default_coordinate_system(CoordinateSystem.RAW)
-        raw_stage_position = stage_position_from_autoscript(self.stage.current_position)
+        self._vendor_stage.set_default_coordinate_system(CoordinateSystem.RAW)
+        raw_stage_position = stage_position_from_autoscript(
+            self._vendor_stage.current_position
+        )
 
         # calculate the offset
         offset = specimen_stage_position - raw_stage_position  # XY only
 
         # restore stage coordinate system
-        self.stage.set_default_coordinate_system(self._default_stage_coordinate_system)
+        self._vendor_stage.set_default_coordinate_system(
+            self._default_stage_coordinate_system
+        )
 
         return offset
 

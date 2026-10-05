@@ -8,9 +8,10 @@ on an instrument confirms the devices.
 
 The odemis client (``microscope.connection``, the ``fibsem`` component) takes the
 channel on every call, so nothing here selects an imaging channel first. The vendor
-stage is ``microscope.stage`` (the ``stage-bare`` component). This module imports
-odemis only through ``fibsem.microscopes.odemis_microscope``, inside the methods, so
-it loads where odemis is not installed.
+stage is ``microscope._vendor_stage`` (the ``stage-bare`` component);
+``microscope.stage`` is the stage device. This module imports odemis only through
+``fibsem.microscopes.odemis_microscope``, inside the methods, so it loads where odemis
+is not installed.
 """
 
 from __future__ import annotations
@@ -267,7 +268,7 @@ class OdemisStage(Stage):
     @property
     def _stage(self) -> Any:
         """The vendor stage, looked up on each call as the old methods do."""
-        return self.parent.stage
+        return self.parent._vendor_stage
 
     def read_position(self) -> FibsemStagePosition:
         return FibsemStagePosition.from_odemis_dict(self._stage.position.value)

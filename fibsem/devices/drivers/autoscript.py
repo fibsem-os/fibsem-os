@@ -9,8 +9,9 @@ Hydra), ``AutoscriptBeam`` for the beam keys, and ``AutoscriptChamber``,
 the GIS. ``ThermoMicroscope`` builds them at connect and routes its keys and moves to
 them; its old code stays until a session on an instrument confirms the devices.
 
-The vendor stage is ``microscope.stage``, which the Thermo backend sets at connect to
-``specimen.stage`` or ``specimen.compustage``; the vendor beams are under
+The vendor stage is ``microscope._vendor_stage``, which the Thermo backend sets at
+connect to ``specimen.stage`` or ``specimen.compustage`` (``microscope.stage`` is the
+stage device); the vendor beams are under
 ``microscope.connection.beams``. This module imports the SDK only through
 ``fibsem.microscopes.autoscript``, which is where the guarded import lives, apart from
 the SDK's ``Point`` inside a write, which the old branch imports there too.
@@ -74,7 +75,7 @@ class AutoscriptStage(Stage):
     @property
     def _stage(self):
         """The vendor stage, looked up on each call as the old methods do."""
-        return self.parent.stage
+        return self.parent._vendor_stage
 
     def _to_autoscript(self, position: FibsemStagePosition):
         from fibsem.microscopes.autoscript import stage_position_to_autoscript
