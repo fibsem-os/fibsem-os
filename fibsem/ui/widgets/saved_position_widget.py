@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import logging
-import os
 from copy import deepcopy
 from typing import List, Optional
 
-import yaml
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -20,7 +18,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import config as cfg
+from fibsem.saved_positions import load_saved_positions, save_saved_positions
+from fibsem.session_state import session_state_for
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
@@ -201,32 +200,27 @@ class SavedPositionListWidget(QWidget):
 
         self.setToolTip(
             "Saved Positions — store named stage positions for quick recall.\n"
-            f"Positions are automatically saved to:\n{cfg.POSITION_PATH}"
+            "They are saved with this microscope configuration."
         )
 
         if self.microscope is None:
             self._header.btn_add.setEnabled(False)
 
     def _load_default_positions(self) -> None:
-        path = cfg.POSITION_PATH
-        if path and os.path.exists(path):
-            self._load_positions_from_path(path)
-
-    def _load_positions_from_path(self, path: str) -> None:
-        try:
-            with open(path, "r") as f:
-                data = yaml.safe_load(f)
-            if data:
-                positions = [FibsemStagePosition.from_dict(d) for d in data]
-                self.set_positions(positions)
-        except Exception as e:
-            logging.warning(f"Failed to load positions from {path}: {e}")
+        """The positions saved with this microscope configuration, if connected."""
+        if self.microscope is None:
+            return
+        positions = load_saved_positions(session_state_for(self.microscope))
+        if positions:
+            self.set_positions(positions)
 
     def _autosave(self) -> None:
+        if self.microscope is None:
+            return
         try:
-            data = [p.to_dict() for p in self.positions]
-            with open(cfg.POSITION_PATH, "w") as f:
-                yaml.safe_dump(data, f)
+            save_saved_positions(
+                self.positions, session_state_for(self.microscope, writable=True)
+            )
         except Exception as e:
             logging.warning(f"Failed to autosave positions: {e}")
 

@@ -10,6 +10,7 @@ import numpy as np
 from fibsem import constants
 from fibsem.applications.autolamella.poses import sync_fluorescence_pose
 from fibsem.applications.autolamella.proposals import (
+    ALIGNMENT_AREA,
     DETECTION,
     POINT_OF_INTEREST,
     STATE,
@@ -81,6 +82,15 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
             "stage is not already there. Off, the task tilts on its own.",
         ),
     )
+    confirm_alignment_area: bool = field(
+        default=True,
+        metadata=field_meta(
+            label="Confirm Alignment Area",
+            tooltip="Ask you to check the alignment area on the last FIB image "
+            "before the alignment reference is taken in it. Off, the area is "
+            "used as it stands.",
+        ),
+    )
     sync_fluorescence_pose: bool = field(
         default=False,
         metadata=field_meta(
@@ -137,11 +147,11 @@ class SelectMillingPositionTask(AutoLamellaTask):
     # What needs a person while it runs, when supervised. The position is
     # confirmed before the point is picked, and the tilt to the milling angle
     # before it is made (both ``state``, each with a switch of its own); the
-    # coincidence walk asks a detection when it is on. The point and the
-    # alignment area are dragged on the canvas today (sessions), until they
-    # move to ``ask``.
-    questions = (STATE, DETECTION)
-    sessions = ("the point of interest", "the alignment area")
+    # coincidence walk asks a detection when it is on; the alignment area is
+    # checked before the reference is taken in it. The point is dragged on
+    # the canvas today (a session), until it moves to ``ask``.
+    questions = (STATE, DETECTION, ALIGNMENT_AREA)
+    sessions = ("the point of interest",)
 
     @classmethod
     def questions_for(cls, config) -> Tuple[str, ...]:
@@ -149,6 +159,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
             STATE: getattr(config, "confirm_position", True)
             or getattr(config, "confirm_tilt", True),
             DETECTION: getattr(config, "auto_milling_alignment", False),
+            ALIGNMENT_AREA: getattr(config, "confirm_alignment_area", True),
         }
         return tuple(k for k in cls.questions if asked.get(k, True))
 
@@ -305,7 +316,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 )
 
         # validate alignment area
-        self._validate_alignment_area()
+        self._validate_alignment_area(enabled=self.config.confirm_alignment_area)
 
         # acquire alignment reference image
         self._acquire_alignment_reference_image(
@@ -329,22 +340,8 @@ class SelectMillingPositionTask(AutoLamellaTask):
         if self.config.sync_fluorescence_pose:
             sync_fluorescence_pose(self.microscope, self.lamella)
 
-    @property
-    def _asks_on_the_record(self) -> bool:
-        """Whether the task's confirmations go through ``ask``: the review
-        preference is on. Off, the prompts run as they always have."""
-        return bool(getattr(self.task_manager, "review_enabled", False))
-
     def _stage_position_now(self) -> Dict[str, Any]:
         return {"stage_position": self.microscope.get_stage_position()}
-
-    def _last_fib_image_file(self) -> str:
-        """The last FIB reference image, relative to the lamella's folder, for
-        a question to sit on; empty when none has been saved yet."""
-        image = self._last_fib_image
-        if image is None or image.filepath is None:
-            return ""
-        return os.path.relpath(image.filepath, self.lamella.path)
 
     def _align_coincident_for_milling(
         self, milling_angle: float, is_close: bool

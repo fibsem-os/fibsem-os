@@ -22,6 +22,7 @@ from PyQt5.QtTest import QTest  # noqa: E402
 from fibsem.acting import OPERATOR  # noqa: E402
 from fibsem.applications.autolamella.event_recording import EventRecorder  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
+    AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
     Experiment,
 )
@@ -413,31 +414,60 @@ def test_adding_a_task_records_it_on_the_protocol_and_each_lamella(
     assert {e["item"]["name"]: e["after"] for e in lamellae} == added
 
 
-def test_removing_a_task_records_what_the_protocol_had(
-    protocol_editor, experiment, edits, monkeypatch
+def test_removing_a_task_records_the_protocol_the_workflow_and_each_lamella(
+    window, protocol_editor, experiment, edits, monkeypatch
 ):
     monkeypatch.setattr(
         protocol_editor_module.QMessageBox,
         "question",
         lambda *a, **k: protocol_editor_module.QMessageBox.Yes,
     )
+    workflow = experiment.task_protocol.workflow_config
+    workflow.tasks = [AutoLamellaTaskDescription(name=TASK)]
     had = experiment.task_protocol.task_config[TASK].to_dict()
+    workflow_had = workflow.to_dict()
+    lamellae_had = {p.name: p.task_config[TASK].to_dict() for p in experiment.positions}
 
     protocol_editor._on_remove_task_clicked()
     QTest.qWait(SETTLE_MS + 250)
 
-    ((event),) = edits()
-    payload = event["payload"]
-    assert (payload["item"], payload["task"], payload["target"]) == (
+    protocol, workflow_edit, *lamellae = (e["payload"] for e in edits())
+    assert (protocol["item"], protocol["target"], protocol["before"]) == (
         None,
-        TASK,
         "protocol.task_config",
-    )
-    assert (payload["via"], payload["before"], payload["after"]) == (
-        "remove task",
         had,
-        None,
     )
+    assert (workflow_edit["item"], workflow_edit["target"]) == (
+        None,
+        "protocol.workflow_config",
+    )
+    assert workflow_edit["before"] == workflow_had
+    assert workflow_edit["after"]["tasks"] == []
+    assert {e["item"]["name"]: e["before"] for e in lamellae} == lamellae_had
+    for e in (protocol, workflow_edit, *lamellae):
+        assert (e["task"], e["via"]) == (TASK, "remove task")
+    for e in (protocol, *lamellae):
+        assert e["after"] is None
+
+
+def test_removing_a_task_takes_it_off_the_lamella_editor(
+    window, protocol_editor, experiment, edits, monkeypatch
+):
+    """Left listed, the lamella editor would edit a config its lamella no longer
+    has: a KeyError on a parameter edit, or the task written back by another."""
+    monkeypatch.setattr(
+        protocol_editor_module.QMessageBox,
+        "question",
+        lambda *a, **k: protocol_editor_module.QMessageBox.Yes,
+    )
+    tasks = window.lamella_widget.listWidget_selected_task
+    assert tasks.selected_task == TASK
+
+    protocol_editor._on_remove_task_clicked()
+    QTest.qWait(SETTLE_MS + 250)  # its edits settle here, not in the next test
+
+    assert tasks._list.count() == 0
+    assert tasks.selected_task == ""
 
 
 def test_the_protocol_s_spot_burn_points_are_recorded(
@@ -636,8 +666,8 @@ def test_the_replay_shows_a_correlation_before_the_point_it_moved(
     assert correlation.summary == (
         "Correlation: point of interest x=2.0 µm, y=-3.0 µm — RMS 30 nm over 4"
         " fiducials, check fit, refractive index ×1.30 before the fit"
-        " — by the operator"
     )
+    assert correlation.actor == "operator"
     assert edits
     assert {(e.kind, e.item, e.data["via"]) for e in edits} == {
         (EventKind.EDIT, lamella.name, "correlation")
@@ -817,11 +847,11 @@ def test_the_replay_shows_each_edit_on_the_lamella_edited(
         (second.name, TASK),
     ]
     assert [e.summary for e in rows] == [
-        f"milling.{KEY}: stages.0.pattern.depth {start:.4g} → 3e-06"
-        " — by the operator (lamella editor)",
+        f"milling.{KEY}: stages.0.pattern.depth {start:.4g} → 3e-06 (lamella editor)",
         f"task_config: milling.{KEY}.stages.0.pattern.depth {other_start:.4g}"
-        " → 2.5e-06 — by the agent (agent patch)",
+        " → 2.5e-06 (agent patch)",
     ]
+    assert [e.actor for e in rows] == ["operator", "agent"]
 
     widget = ExperimentReplayWidget.from_directory(record)
     try:

@@ -29,6 +29,7 @@ from skimage.transform import resize
 from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
+    find_overviews,
 )
 from fibsem.applications.autolamella.tools.data import (
     format_pretty_dataframes,
@@ -222,6 +223,31 @@ REPORT_SECTIONS = (
 )
 
 
+def _add_overview_section(pdf: PDFReportGenerator, experiment: Experiment) -> None:
+    """A page of the experiment's overviews, each with the lamellae marked on it.
+
+    One overview at a time. A single try around the loop meant one unreadable file --
+    an interrupted copy, say -- lost every overview after it, and the page kept its
+    heading with nothing under it. A failure is said on the page too, so an absent
+    overview reads as one rather than as one never taken.
+    """
+    filenames = [str(p) for p in find_overviews(experiment.path)]
+    if not filenames:
+        return
+    pdf.add_page_break()
+    pdf.add_heading("Overview (Positions)")
+    for filename in filenames:
+        try:
+            image = FibsemImage.load(filename)
+            fig = generate_final_overview_image(exp=experiment, image=image)
+            pdf.add_mpl_figure(fig, width=4.5 * inch, height=4.5 * inch)
+        except Exception as e:
+            logging.warning(f"Could not draw the overview {filename}: {e}")
+            pdf.add_paragraph(
+                f"Could not draw the overview {os.path.basename(filename)}: {e}"
+            )
+
+
 def _add_lamella_section(
     pdf: PDFReportGenerator,
     lamella: Lamella,
@@ -371,17 +397,7 @@ def generate_report2(
 
     # Overview image with positions
     if sections["overview"]:
-        try:
-            filenames = glob.glob(os.path.join(experiment.path, "*overview*.tif"))
-            if len(filenames) > 0:
-                pdf.add_page_break()
-                pdf.add_heading("Overview (Positions)")
-                for filename in filenames:
-                    image = FibsemImage.load(filename)
-                    fig = generate_final_overview_image(exp=experiment, image=image)
-                    pdf.add_mpl_figure(fig, width=4.5 * inch, height=4.5 * inch)
-        except Exception as e:
-            logging.warning(f"Error generating overview image: {e}")
+        _add_overview_section(pdf, experiment)
 
     # Task history
     if sections["task_history"]:

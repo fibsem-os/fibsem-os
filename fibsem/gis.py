@@ -4,15 +4,25 @@ from typing import Optional
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemGasInjectionSettings
 
+
+def _saved_position(microscope: FibsemMicroscope, name: str):
+    """A saved position by name, from the same list the widgets offer."""
+    from fibsem.saved_positions import get_saved_position
+    from fibsem.session_state import session_state_for
+
+    return get_saved_position(name, session_state_for(microscope))
+
+
 gis_protocol = {
     "application_file": "cryo_Pt_dep",
     "gas": "Pt cryo",
     "position": "cryo",
-    "hfw": 3.0e-05 ,
+    "hfw": 3.0e-05,
     "length": 7.0e-06,
     "beam_current": 1.0e-8,
     "time": 30.0,
 }
+
 
 def deposit_platinum(
     microscope: FibsemMicroscope,
@@ -38,13 +48,14 @@ def deposit_platinum(
     hfw = protocol["hfw"]
     line_pattern_length = protocol["length"]
     sputter_time = protocol["time"]
-            
 
     # Setup
     microscope.setup_sputter(protocol=protocol)
 
     # Create sputtering pattern
-    sputter_pattern = microscope.draw_sputter_pattern(hfw=hfw, line_pattern_length=line_pattern_length, sputter_time=sputter_time)
+    sputter_pattern = microscope.draw_sputter_pattern(
+        hfw=hfw, line_pattern_length=line_pattern_length, sputter_time=sputter_time
+    )
 
     # Run sputtering
     microscope.run_sputter(sputter_time=sputter_time, sputter_pattern=sputter_pattern)
@@ -53,27 +64,29 @@ def deposit_platinum(
     microscope.finish_sputter(application_file=default_application_file)
 
 
-def cryo_deposition(microscope: FibsemMicroscope, protocol: Optional[dict] = None, name: Optional[str] = None):
+def cryo_deposition(
+    microscope: FibsemMicroscope,
+    protocol: Optional[dict] = None,
+    name: Optional[str] = None,
+):
 
     # get current position
     position = microscope.get_microscope_state().stage_position
 
     # move to deposition position
     if name is not None:
-        
         # move to position
-        from fibsem import utils
-        deposition_position = utils._get_position(name)
-        
+        deposition_position = _saved_position(microscope, name)
+
         if deposition_position is None:
             raise RuntimeError(f"Position {name} requested but not found")
-        
+
         logging.info(f"Moving to depositon position: {name}")
         microscope.safe_absolute_stage_movement(deposition_position)
 
-
     # move down
     from fibsem.structures import FibsemStagePosition
+
     microscope.move_stage_relative(FibsemStagePosition(z=-1e-3))
 
     # sputter
@@ -82,20 +95,21 @@ def cryo_deposition(microscope: FibsemMicroscope, protocol: Optional[dict] = Non
     # return to previous position
     microscope.safe_absolute_stage_movement(position)
 
-def cryo_deposition_v2(microscope: FibsemMicroscope,
-                       gis_settings: FibsemGasInjectionSettings,
-                       name: Optional[str] = None,
-                       move_down: bool = True):
+
+def cryo_deposition_v2(
+    microscope: FibsemMicroscope,
+    gis_settings: FibsemGasInjectionSettings,
+    name: Optional[str] = None,
+    move_down: bool = True,
+):
 
     # get current position
     position = microscope.get_microscope_state().stage_position
 
     # move to deposition position
     if name is not None:
-
         # move to position
-        from fibsem import utils
-        deposition_position = utils._get_position(name)
+        deposition_position = _saved_position(microscope, name)
 
         if deposition_position is None:
             raise RuntimeError(f"Position {name} requested but not found")
@@ -103,9 +117,10 @@ def cryo_deposition_v2(microscope: FibsemMicroscope,
         logging.info(f"Moving to depositon position: {name}")
         microscope.safe_absolute_stage_movement(deposition_position)
 
-    # move down 
+    # move down
     if move_down:
         from fibsem.structures import FibsemStagePosition
+
         microscope.move_stage_relative(FibsemStagePosition(z=-1e-3))
 
     # cryo deposition
@@ -113,6 +128,7 @@ def cryo_deposition_v2(microscope: FibsemMicroscope,
 
     # return to previous position
     microscope.safe_absolute_stage_movement(position)
+
 
 # # multi-chem dep
 # # move the stage to deposition position

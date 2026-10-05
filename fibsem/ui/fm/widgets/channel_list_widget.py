@@ -6,6 +6,7 @@ following the MillingStageListWidget pattern. All controls are visible per row.
 Exposes the same public interface as ChannelSettingsWidget so it can be swapped
 in without changes to callers.
 """
+
 from __future__ import annotations
 
 from copy import deepcopy
@@ -30,10 +31,19 @@ from PyQt5.QtWidgets import (
     QWidgetAction,
 )
 
-from fibsem.fm.config import load_recent_channels, remove_recent_channel
+from fibsem.fm.config import (
+    fm_session_state,
+    load_recent_channels,
+    remove_recent_channel,
+)
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui import stylesheets
+from fibsem.ui.fm.widgets.emission_filter_combo import (
+    EmissionFilterComboBox,
+    FilterLookup,
+    emission_lookup_for,
+)
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -45,7 +55,7 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, Valu
 
 _NAME_MIN_WIDTH = 130
 _EXCITATION_FIXED_WIDTH = 90
-_EMISSION_FIXED_WIDTH = 120
+_EMISSION_FIXED_WIDTH = 135  # fits "Multi-band" beside the band swatch
 _EXPOSURE_FIXED_WIDTH = 120
 _GAIN_FIXED_WIDTH = 100
 _POWER_FIXED_WIDTH = 90
@@ -84,6 +94,7 @@ def _unique_name(name: str, existing: set) -> str:
 # ---------------------------------------------------------------------------
 # Draggable list
 # ---------------------------------------------------------------------------
+
 
 class _DraggableChannelList(QListWidget):
     """QListWidget with InternalMove drag-and-drop that emits the new channel
@@ -137,12 +148,15 @@ class _DraggableChannelList(QListWidget):
 # Row widget
 # ---------------------------------------------------------------------------
 
+
 class ChannelRowWidget(QWidget):
-    enabled_changed = pyqtSignal(object, bool)         # ChannelSettings, enabled
-    remove_clicked = pyqtSignal(object)                # ChannelSettings
-    row_clicked = pyqtSignal(object)                   # ChannelSettings
-    channel_changed = pyqtSignal(object)               # ChannelSettings after inline mutation
-    channel_field_changed = pyqtSignal(object, str, object)  # ChannelSettings, field, value
+    enabled_changed = pyqtSignal(object, bool)  # ChannelSettings, enabled
+    remove_clicked = pyqtSignal(object)  # ChannelSettings
+    row_clicked = pyqtSignal(object)  # ChannelSettings
+    channel_changed = pyqtSignal(object)  # ChannelSettings after inline mutation
+    channel_field_changed = pyqtSignal(
+        object, str, object
+    )  # ChannelSettings, field, value
 
     def __init__(
         self,
@@ -151,6 +165,7 @@ class ChannelRowWidget(QWidget):
         excitation_items: List[float],
         enabled: bool = True,
         parent: Optional[QWidget] = None,
+        emission_lookup: Optional[FilterLookup] = None,
     ) -> None:
         super().__init__(parent)
         self.channel = channel
@@ -186,19 +201,11 @@ class ChannelRowWidget(QWidget):
         self.excitation_combo.setToolTip("Excitation wavelength (nm)")
         layout.addWidget(self.excitation_combo)
 
-        def _fmt_emission(w) -> str:
-            if w is None:
-                return "Reflection"
-            if isinstance(w, str):
-                return w
-            return f"{int(w)} nm"
-
-        self.emission_combo = ValueComboBox(
+        self.emission_combo = EmissionFilterComboBox(
             items=emission_items,
-            format_fn=_fmt_emission,
+            lookup=emission_lookup,
         )
         self.emission_combo.setFixedWidth(_EMISSION_FIXED_WIDTH)
-        self.emission_combo.setToolTip("Emission wavelength")
         layout.addWidget(self.emission_combo)
 
         self.exposure_spin = ValueSpinBox(
@@ -244,7 +251,9 @@ class ChannelRowWidget(QWidget):
         layout.addWidget(self.btn_color)
 
         self.btn_remove = IconToolButton(
-            icon="mdi:trash-can-outline", tooltip="Remove channel", size=_BTN_SIZE.width()
+            icon="mdi:trash-can-outline",
+            tooltip="Remove channel",
+            size=_BTN_SIZE.width(),
         )
         layout.addWidget(self.btn_remove)
 
@@ -261,7 +270,14 @@ class ChannelRowWidget(QWidget):
         self.btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.channel))
         self.btn_color.clicked.connect(self._on_color_clicked)
 
-        for w in (self.name_edit, self.excitation_combo, self.emission_combo, self.exposure_spin, self.gain_spin, self.power_spin):
+        for w in (
+            self.name_edit,
+            self.excitation_combo,
+            self.emission_combo,
+            self.exposure_spin,
+            self.gain_spin,
+            self.power_spin,
+        ):
             w.installEventFilter(self)
 
         self._connect_signals()
@@ -299,8 +315,14 @@ class ChannelRowWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _block_controls(self, block: bool) -> None:
-        for w in (self.name_edit, self.excitation_combo, self.emission_combo,
-                  self.exposure_spin, self.gain_spin, self.power_spin):
+        for w in (
+            self.name_edit,
+            self.excitation_combo,
+            self.emission_combo,
+            self.exposure_spin,
+            self.gain_spin,
+            self.power_spin,
+        ):
             w.blockSignals(block)
 
     def set_detail_controls_visible(self, visible: bool) -> None:
@@ -325,7 +347,9 @@ class ChannelRowWidget(QWidget):
         self.excitation_combo.set_value(self.channel.excitation_wavelength)
 
         # Emission
-        self.emission_combo.setCurrentIndex(self._emission_index(self.channel.emission_wavelength))
+        self.emission_combo.setCurrentIndex(
+            self._emission_index(self.channel.emission_wavelength)
+        )
 
         # Exposure time: stored as seconds, show as ms
         self.exposure_spin.setValue(self.channel.exposure_time * _S_TO_MS)
@@ -405,7 +429,9 @@ class ChannelRowWidget(QWidget):
 
     def _on_color_clicked(self) -> None:
         menu = QMenu(self)
-        current = self.channel.color if self.channel.color in AVAILABLE_COLORS else "gray"
+        current = (
+            self.channel.color if self.channel.color in AVAILABLE_COLORS else "gray"
+        )
         for color in AVAILABLE_COLORS:
             action = QAction(_make_color_icon(color), color.capitalize(), menu)
             action.setData(color)
@@ -413,7 +439,9 @@ class ChannelRowWidget(QWidget):
                 action.setCheckable(True)
                 action.setChecked(True)
             menu.addAction(action)
-        chosen = menu.exec_(self.btn_color.mapToGlobal(self.btn_color.rect().bottomLeft()))
+        chosen = menu.exec_(
+            self.btn_color.mapToGlobal(self.btn_color.rect().bottomLeft())
+        )
         if chosen is None:
             return
         new_color = chosen.data()
@@ -488,7 +516,7 @@ class _RecentChannelRow(_MenuRow):
     set) are greyed out and cannot be selected, but can still be removed.
     """
 
-    removed = pyqtSignal(object)   # ChannelSettings
+    removed = pyqtSignal(object)  # ChannelSettings
 
     def __init__(
         self,
@@ -528,6 +556,7 @@ class _RecentChannelRow(_MenuRow):
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
+
 
 class _ChannelListHeader(QWidget):
     select_all_changed = pyqtSignal(bool)
@@ -595,6 +624,7 @@ class _ChannelListHeader(QWidget):
 # Main widget
 # ---------------------------------------------------------------------------
 
+
 class ChannelListWidget(QWidget):
     """Compact list-style channel settings widget.
 
@@ -602,14 +632,16 @@ class ChannelListWidget(QWidget):
     following the MillingStageListWidget pattern.
     """
 
-    settings_changed = pyqtSignal(list)          # List[ChannelSettings]
-    channel_selected = pyqtSignal(object)        # ChannelSettings (selection changed)
-    channel_added = pyqtSignal(object)           # ChannelSettings
-    channel_removed = pyqtSignal(object)         # ChannelSettings
-    channel_changed = pyqtSignal(object)         # ChannelSettings (inline field edit)
-    channel_field_changed = pyqtSignal(object, str, object)  # ChannelSettings, field, value
-    enabled_changed = pyqtSignal(list)           # List[ChannelSettings] (enabled only)
-    order_changed = pyqtSignal(list)             # List[ChannelSettings] in new order
+    settings_changed = pyqtSignal(list)  # List[ChannelSettings]
+    channel_selected = pyqtSignal(object)  # ChannelSettings (selection changed)
+    channel_added = pyqtSignal(object)  # ChannelSettings
+    channel_removed = pyqtSignal(object)  # ChannelSettings
+    channel_changed = pyqtSignal(object)  # ChannelSettings (inline field edit)
+    channel_field_changed = pyqtSignal(
+        object, str, object
+    )  # ChannelSettings, field, value
+    enabled_changed = pyqtSignal(list)  # List[ChannelSettings] (enabled only)
+    order_changed = pyqtSignal(list)  # List[ChannelSettings] in new order
 
     MAX_CHANNELS = 6
 
@@ -630,8 +662,14 @@ class ChannelListWidget(QWidget):
             channel_settings = [channel_settings]
         self._channel_list: List[ChannelSettings] = list(channel_settings)
 
-        self._emission_items = list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
-        self._excitation_items = list(fm.filter_set.available_excitation_wavelengths) if fm is not None else []
+        self._emission_items = (
+            list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+        )
+        self._excitation_items = (
+            list(fm.filter_set.available_excitation_wavelengths)
+            if fm is not None
+            else []
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -656,12 +694,16 @@ class ChannelListWidget(QWidget):
         layout.addWidget(self._list)
 
         self._empty_label = QLabel("No channels. Click + to add one.")
-        self._empty_label.setStyleSheet(f"color: {NEUTRAL_700}; font-style: italic; padding: 12px;")
+        self._empty_label.setStyleSheet(
+            f"color: {NEUTRAL_700}; font-style: italic; padding: 12px;"
+        )
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._empty_label)
 
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet(f"color: {ORANGE_COLOR}; font-style: italic; padding: 2px 12px;")
+        self._status_label.setStyleSheet(
+            f"color: {ORANGE_COLOR}; font-style: italic; padding: 2px 12px;"
+        )
         self._status_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self._status_label.setVisible(False)
         layout.addWidget(self._status_label)
@@ -702,12 +744,20 @@ class ChannelListWidget(QWidget):
         """
         self.fm = fm
         self._list.set_fm(fm)
-        self._emission_items = list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
-        self._excitation_items = list(fm.filter_set.available_excitation_wavelengths) if fm is not None else []
+        self._emission_items = (
+            list(fm.filter_set.available_emission_wavelengths) if fm is not None else []
+        )
+        self._excitation_items = (
+            list(fm.filter_set.available_excitation_wavelengths)
+            if fm is not None
+            else []
+        )
         self.channel_settings = list(self._channel_list)
 
     @channel_settings.setter
-    def channel_settings(self, value: Union[ChannelSettings, List[ChannelSettings]]) -> None:
+    def channel_settings(
+        self, value: Union[ChannelSettings, List[ChannelSettings]]
+    ) -> None:
         if isinstance(value, ChannelSettings):
             value = [value]
         self._list.clear()
@@ -737,8 +787,12 @@ class ChannelListWidget(QWidget):
                 channel = deepcopy(source)
             else:
                 channel = ChannelSettings(
-                    excitation_wavelength=self._excitation_items[0] if self._excitation_items else 550.0,
-                    emission_wavelength=self._emission_items[0] if self._emission_items else None,
+                    excitation_wavelength=self._excitation_items[0]
+                    if self._excitation_items
+                    else 550.0,
+                    emission_wavelength=self._emission_items[0]
+                    if self._emission_items
+                    else None,
                 )
             existing = {self._row(i).channel.name for i in range(self._list.count())}
             channel.name = _unique_name(f"Channel-{count + 1:02d}", existing)
@@ -858,12 +912,19 @@ class ChannelListWidget(QWidget):
         """
         return QSize(max(0, self._list.viewport().width()), _ROW_HEIGHT)
 
-    def _add_row(self, channel: ChannelSettings, enabled: bool = True) -> ChannelRowWidget:
+    def _emission_lookup(self) -> Optional[FilterLookup]:
+        """Name emission values through the FM's filter set, which knows their bands."""
+        return emission_lookup_for(self.fm)
+
+    def _add_row(
+        self, channel: ChannelSettings, enabled: bool = True
+    ) -> ChannelRowWidget:
         row = ChannelRowWidget(
             channel=channel,
             emission_items=self._emission_items,
             excitation_items=self._excitation_items,
             enabled=enabled,
+            emission_lookup=self._emission_lookup(),
         )
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, channel)
@@ -880,7 +941,9 @@ class ChannelListWidget(QWidget):
         row.enabled_changed.connect(self._on_enabled_changed)
         row.remove_clicked.connect(self._on_remove_clicked)
         row.row_clicked.connect(self._on_row_clicked)
-        row.channel_changed.connect(self._on_row_channel_changed, type=Qt.QueuedConnection)
+        row.channel_changed.connect(
+            self._on_row_channel_changed, type=Qt.QueuedConnection
+        )
         row.channel_field_changed.connect(self.channel_field_changed)
 
     def _row(self, i: int) -> ChannelRowWidget:
@@ -915,11 +978,17 @@ class ChannelListWidget(QWidget):
         at_limit = self._list.count() >= self.MAX_CHANNELS
         self._header.btn_add.setEnabled(not at_limit)
         self._header.btn_add.setToolTip(
-            f"Maximum {self.MAX_CHANNELS} channels reached" if at_limit else "Add channel"
+            f"Maximum {self.MAX_CHANNELS} channels reached"
+            if at_limit
+            else "Add channel"
         )
 
     def _is_name_available(self, name: str, row: ChannelRowWidget) -> bool:
-        existing = {self._row(i).channel.name for i in range(self._list.count()) if self._row(i) is not row}
+        existing = {
+            self._row(i).channel.name
+            for i in range(self._list.count())
+            if self._row(i) is not row
+        }
         return name not in existing
 
     def _show_name_error(self, name: str) -> None:
@@ -938,7 +1007,7 @@ class ChannelListWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_add_channel(self) -> None:
-        recents = load_recent_channels()
+        recents = load_recent_channels(fm_session_state(self.fm))
         if not recents:
             self.add_channel()
             return
@@ -983,7 +1052,7 @@ class ChannelListWidget(QWidget):
     def _on_recent_removed(
         self, menu: QMenu, action: QWidgetAction, channel: ChannelSettings
     ) -> None:
-        remove_recent_channel(channel)
+        remove_recent_channel(channel, fm_session_state(self.fm, writable=True))
         menu.removeAction(action)
         has_recents = any(
             isinstance(a, QWidgetAction)
@@ -995,7 +1064,10 @@ class ChannelListWidget(QWidget):
 
     def _channel_available(self, channel: ChannelSettings) -> bool:
         """Whether the channel's wavelengths exist on the current filter set."""
-        if self._excitation_items and channel.excitation_wavelength not in self._excitation_items:
+        if (
+            self._excitation_items
+            and channel.excitation_wavelength not in self._excitation_items
+        ):
             return False
         if (
             channel.emission_wavelength is not None
@@ -1006,8 +1078,14 @@ class ChannelListWidget(QWidget):
         return True
 
     def _on_remove_clicked(self, channel: ChannelSettings) -> None:
-        if self.fm is not None and self.fm.is_streaming and channel is self._selected_channel:
-            self._show_status_warning("Cannot remove the active channel during live acquisition.")
+        if (
+            self.fm is not None
+            and self.fm.is_streaming
+            and channel is self._selected_channel
+        ):
+            self._show_status_warning(
+                "Cannot remove the active channel during live acquisition."
+            )
             return
         for i in range(self._list.count()):
             if self._row(i).channel is channel:
@@ -1015,8 +1093,14 @@ class ChannelListWidget(QWidget):
                 return
 
     def _on_row_clicked(self, channel: ChannelSettings) -> None:
-        if self.fm is not None and self.fm.is_streaming and channel is not self._selected_channel:
-            self._show_status_warning("Cannot change channel selection during live acquisition.")
+        if (
+            self.fm is not None
+            and self.fm.is_streaming
+            and channel is not self._selected_channel
+        ):
+            self._show_status_warning(
+                "Cannot change channel selection during live acquisition."
+            )
             return
         self._set_selected(channel)
 
@@ -1038,10 +1122,13 @@ class ChannelListWidget(QWidget):
     def _on_enabled_changed(self, channel: ChannelSettings, enabled: bool) -> None:
         self._checkbox_states[id(channel)] = enabled
         self._sync_select_all()
-        self.enabled_changed.emit([
-            self._row(i).channel for i in range(self._list.count())
-            if self._row(i).checkbox.isChecked()
-        ])
+        self.enabled_changed.emit(
+            [
+                self._row(i).channel
+                for i in range(self._list.count())
+                if self._row(i).checkbox.isChecked()
+            ]
+        )
 
     def _sync_select_all(self) -> None:
         count = self._list.count()
@@ -1071,6 +1158,7 @@ class ChannelListWidget(QWidget):
                 emission_items=self._emission_items,
                 excitation_items=self._excitation_items,
                 enabled=enabled,
+                emission_lookup=self._emission_lookup(),
             )
             item.setSizeHint(self._row_item_size())
             self._list.setItemWidget(item, row)

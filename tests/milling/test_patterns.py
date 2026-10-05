@@ -22,6 +22,7 @@ from fibsem.milling.patterning.patterns2 import (
     FiducialPattern,
     LinePattern,
     RectanglePattern,
+    RulerPattern,
     TrenchPattern,
 )
 from fibsem.structures import (
@@ -769,6 +770,39 @@ class TestFiducialPattern:
         # Second rectangle should be rotated 90 degrees more
         assert shapes[1].rotation == (45 + 90) * (np.pi / 180)
 
+    def test_define_at_zero_rotation_emits_no_rotated_shapes(self):
+        """A cross at 0 degrees is two axis-aligned bars, not two rotated ones.
+
+        Some vendors' scripting APIs (JEOL) cannot rotate a milling shape at all,
+        so a right-angle turn has to arrive as swapped dimensions or the second
+        bar lands on top of the first and mills a single line.
+        """
+        fiducial = FiducialPattern(
+            width=1.0, height=10.0, depth=1.0, rotation=0, point=Point(5.0, 15.0)
+        )
+
+        vertical, horizontal = fiducial.define()
+
+        assert vertical.rotation == 0.0
+        assert horizontal.rotation == 0.0
+        assert (vertical.width, vertical.height) == (1.0, 10.0)
+        assert (horizontal.width, horizontal.height) == (10.0, 1.0)
+        # the two bars must cross, not coincide
+        assert vertical.centre_x == horizontal.centre_x == 5.0
+        assert vertical.centre_y == horizontal.centre_y == 15.0
+
+    def test_define_leaves_non_right_angles_rotated(self):
+        """45 degrees genuinely needs rotation -- squaring it off would mill the
+        wrong figure, so the dimension swap must not touch it."""
+        fiducial = FiducialPattern(width=1.0, height=10.0, depth=1.0, rotation=45)
+
+        shapes = fiducial.define()
+
+        assert shapes[0].rotation == pytest.approx(np.deg2rad(45))
+        assert shapes[1].rotation == pytest.approx(np.deg2rad(135))
+        for shape in shapes:
+            assert (shape.width, shape.height) == (1.0, 10.0)
+
     def test_to_dict(self):
         fiducial = FiducialPattern(
             width=10.0,
@@ -820,6 +854,102 @@ class TestFiducialPattern:
         assert fiducial.cross_section == CrossSectionPattern.Rectangle
         assert fiducial.point.x == 0.0
         assert fiducial.point.y == 0.0
+
+
+class TestRulerPattern:
+    """A graduated scale milled into the front face and read in fluorescence.
+
+    The geometry that matters is not the notch shape -- it is where the ruler
+    anchors. `point` is the origin, the left end of the first notch, because that
+    is the thing lined up with the surface edge; if it drifted as the tick count or
+    lengths changed, "three notches down" would stop converting into a depth.
+    """
+
+    def test_init(self):
+        ruler = RulerPattern()
+
+        assert ruler.name == "Ruler"
+        assert ruler.major_every == 5
+        assert ruler.shapes is None
+
+    def test_the_first_notch_starts_at_the_origin(self):
+        """The anchor. Tick 0's left end is `point` itself, not its centre."""
+        ruler = RulerPattern(point=Point(5.0, 15.0), tick_length=2.0, major_every=0)
+
+        first = ruler.define()[0]
+
+        assert first.centre_x - first.width / 2 == 5.0
+        assert first.centre_y == 15.0
+
+    def test_notches_run_downwards_at_the_given_pitch(self):
+        """Downwards: the ruler measures depth below the surface, and +y is up."""
+        ruler = RulerPattern(point=Point(0.0, 0.0), n_ticks=4, pitch=3.0)
+
+        ys = [s.centre_y for s in ruler.define()]
+
+        assert ys == [0.0, -3.0, -6.0, -9.0]
+
+    def test_every_notch_is_left_aligned(self):
+        """One-sided: major notches are longer, but they grow to the right."""
+        ruler = RulerPattern(
+            point=Point(7.0, 0.0),
+            n_ticks=6,
+            tick_length=2.0,
+            major_length=5.0,
+            major_every=3,
+        )
+
+        lefts = {s.centre_x - s.width / 2 for s in ruler.define()}
+
+        assert lefts == {7.0}
+
+    def test_major_notches_land_every_nth(self):
+        ruler = RulerPattern(
+            n_ticks=7, tick_length=2.0, major_length=5.0, major_every=3
+        )
+
+        lengths = [s.width for s in ruler.define()]
+
+        assert lengths == [5.0, 2.0, 2.0, 5.0, 2.0, 2.0, 5.0]
+
+    def test_major_every_zero_is_a_uniform_comb(self):
+        """The escape hatch, in case the real ruler turns out not to be graduated."""
+        ruler = RulerPattern(
+            n_ticks=6, tick_length=2.0, major_length=5.0, major_every=0
+        )
+
+        assert {s.width for s in ruler.define()} == {2.0}
+
+    def test_notch_count_and_shape(self):
+        ruler = RulerPattern(n_ticks=12, tick_thickness=0.4, depth=1.5)
+
+        shapes = ruler.define()
+
+        assert len(shapes) == 12
+        for shape in shapes:
+            assert isinstance(shape, FibsemRectangleSettings)
+            assert shape.height == 0.4
+            assert shape.depth == 1.5
+
+    def test_round_trip_through_a_protocol(self):
+        ruler = RulerPattern(
+            point=Point(1.0, 2.0),
+            n_ticks=9,
+            pitch=3.0,
+            tick_length=2.0,
+            major_length=6.0,
+            major_every=4,
+            tick_thickness=0.4,
+            depth=1.5,
+        )
+
+        restored = RulerPattern.from_dict(ruler.to_dict())
+
+        assert restored.to_dict() == ruler.to_dict()
+        assert restored == ruler
+
+    def test_it_is_registered(self):
+        assert get_pattern("Ruler") is not None
 
 
 class TestGetPattern:

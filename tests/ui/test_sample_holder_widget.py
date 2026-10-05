@@ -137,8 +137,11 @@ def test_unhosted_widget_moves_the_stage_itself(qapp, microscope):
     assert abs(microscope.get_stage_position().x + 5e-3) < 1e-9
 
 
-def test_naming_persists_to_the_occupancy_file_not_the_calibration(qapp, microscope):
+def test_naming_persists_to_the_session_state_not_the_calibration(qapp, microscope):
+    from pathlib import Path
+
     import fibsem.config as cfg
+    from fibsem.session_state import session_state_for
 
     holder = microscope._stage.holder
     widget = SampleHolderWidget(microscope=microscope)
@@ -146,9 +149,9 @@ def test_naming_persists_to_the_occupancy_file_not_the_calibration(qapp, microsc
     row = widget._row_widget(0)
     row.name_edit.setText("grid-aspen")
     row.name_edit.editingFinished.emit()
-    from pathlib import Path
 
-    assert Path(cfg.SAMPLE_HOLDER_OCCUPANCY_PATH).exists()
+    recorded = session_state_for(microscope).load_section("holder_occupancy")
+    assert recorded["Slot-01"]["name"] == "grid-aspen"
     assert "grid-aspen" not in Path(cfg.SAMPLE_HOLDER_CONFIGURATION_PATH).read_text()
 
 
@@ -178,10 +181,42 @@ def test_calibrate_opens_the_wizard_non_modal(qapp, microscope):
 
 
 def test_without_a_microscope_nothing_moves_or_calibrates(qapp):
-    holder = SampleHolder(name="h", capacity=1)
+    holder = SampleHolder(pre_tilt=0.0, name="h", capacity=1)
     holder._ensure_slots()
     _calibrate(holder.slots["Slot-01"])
     widget = SampleHolderWidget(microscope=None)
     widget.set_holder(holder)
     assert not widget.btn_calibrate.isEnabled()
     assert not widget._row_widget(0).btn_move.isEnabled()
+
+
+def test_a_rename_is_announced_and_a_new_or_cleared_grid_is_not(qapp, microscope):
+    holder = microscope._stage.holder
+    widget = SampleHolderWidget(microscope=microscope)
+    widget.set_holder(holder)
+    renamed = []
+    widget.grid_renamed.connect(lambda old, new: renamed.append((old, new)))
+    row = widget._row_widget(1)
+    row.name_edit.setText("grid-birch")  # a grid declared in an empty slot
+    row.name_edit.editingFinished.emit()
+    row.name_edit.setText("grid-cedar")  # that grid renamed
+    row.name_edit.editingFinished.emit()
+    row.name_edit.setText("")  # and taken out
+    row.name_edit.editingFinished.emit()
+    assert renamed == [("grid-birch", "grid-cedar")]
+
+
+def test_the_host_can_refuse_a_rename_on_a_fixed_holder(qapp, microscope):
+    holder = microscope._stage.holder
+    holder.slots["Slot-01"].loaded_grid = SampleGrid(name="grid-aspen")
+    widget = SampleHolderWidget(microscope=microscope)
+    widget.set_holder(holder)
+    widget.set_rename_check(lambda old, new: f"{old} cannot be renamed.")
+    changed = []
+    widget.holder_changed.connect(changed.append)
+    row = widget._row_widget(0)
+    row.name_edit.setText("grid-birch")
+    row.name_edit.editingFinished.emit()
+    assert holder.slots["Slot-01"].loaded_grid.name == "grid-aspen"
+    assert widget._row_widget(0).name_edit.text() == "grid-aspen"
+    assert changed == []

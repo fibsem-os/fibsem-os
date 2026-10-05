@@ -1632,9 +1632,9 @@ class TestTheHolderIsDrawnOnEveryStage:
     grid circle -- and travel limits have nothing to do with grids.
 
     And the boundary was one circle at the stage origin, which is a compustage's
-    holder: a single grid, at zero. The shipped `default-sample-holder.yaml` is a
-    2-slot 35-degree shuttle with grids at x = -5 mm and +5 mm, where a circle at the
-    origin marks a place no grid is. A grid is 1 mm in radius whatever holds it, so
+    holder: a single grid, at zero. A 2-slot shuttle has grids either side of it -- at
+    x = -5 mm and +5 mm once calibrated -- where a circle at the origin marks a place
+    no grid is. A grid is 1 mm in radius whatever holds it, so
     what the boundary needs is where the grids are, and the holder already says.
     """
 
@@ -1686,11 +1686,10 @@ class TestTheHolderIsDrawnOnEveryStage:
         )
 
     def test_a_slot_with_no_rotation_still_draws(self, widget, monkeypatch):
-        """The defect the boundary work walked into. `default-sample-holder.yaml` gives
-        each slot three numbers -- x, y, z -- so `SampleHolder.load` leaves `r` and `t`
-        as None, and `frame.to_canvas` raises `TypeError` on them. `_slot_shapes` caught
-        that and moved on, so the shipped two-slot shuttle drew **no slot markers at
-        all**, silently. Only the simulator's holder escaped it, because `_ensure_slots`
+        """The defect the boundary work walked into. A holder file states three numbers
+        per slot -- x, y, z -- so `SampleHolder.load` leaves `r` and `t` as None, and
+        `frame.to_canvas` raises `TypeError` on them. `_slot_shapes` caught that and
+        moved on, so a two-slot shuttle drew **no slot markers at all**, silently. Only the simulator's holder escaped it, because `_ensure_slots`
         invents its slot with r=0.
         """
         slots = self._two_slots(widget, monkeypatch)
@@ -2916,6 +2915,109 @@ class TestARunDoesNotReFrameTheCanvas:
         assert (tuple(ax.get_xlim()), tuple(ax.get_ylim())) != framing, (
             "a bigger plan did not re-frame a canvas nobody has framed by hand"
         )
+
+
+class TestTheFramingFindsThePlan:
+    """Opening the tab and "reset view" frame the planned grid wherever the stage is.
+
+    The declared working area used to be a square about the grid centre, so with the
+    stage 5 mm out both framed empty space at 0, 0 and the grid and the stage marker had
+    to be dragged into view by hand.
+    """
+
+    @staticmethod
+    def _plan_in_view(widget) -> bool:
+        canvas = widget.canvas
+        x, y = canvas.metres_to_canvas(
+            *widget._frame().offset(widget._plan_on_the_map())
+        )
+        (x0, x1), (y0, y1) = canvas._ax.get_xlim(), canvas._ax.get_ylim()
+        return min(x0, x1) <= x <= max(x0, x1) and min(y0, y1) <= y <= max(y0, y1)
+
+    def test_a_stage_far_from_the_grid_centre_is_framed(self, widget, microscope):
+        widget._on_stage_moved(_at(microscope.get_stage_position(), dx=5e-3))
+        assert self._plan_in_view(widget), "the tab opened on empty space"
+
+        widget.canvas._view_moved_by_user()
+        widget.canvas._ax.set_xlim(1e6, 1e6 + 10)
+        widget.canvas.reset_view()
+        assert self._plan_in_view(widget), "reset view framed empty space"
+
+    def test_the_grid_boundary_is_still_framed_alongside(self, widget, microscope):
+        """The union, not the plan alone: the sample is what the plan is placed on."""
+        _show_holder_overlays(widget)
+        widget._on_stage_moved(_at(microscope.get_stage_position(), dx=5e-3))
+        width, _, _, _ = widget.canvas.world_extent
+        assert width > 5e-3
+
+    def test_a_boundary_that_is_switched_off_is_not_framed(self, widget, microscope):
+        """It used to be framed on any compustage whether drawn or not, which zoomed
+        the view out over empty space."""
+        widget.overlay_controls.set_visible("boundaries", False)
+        widget._on_stage_moved(_at(microscope.get_stage_position(), dx=5e-3))
+        width, _, _, _ = widget.canvas.world_extent
+        assert width < 5e-3
+        assert self._plan_in_view(widget)
+
+    def test_only_the_boundary_nearest_the_plan_is_framed(
+        self, widget, microscope, monkeypatch
+    ):
+        """A shuttle with grids at +/-5 mm: the one the stage is on is framed whole, the
+        other is left a pan away rather than shrinking the plan into a 12 mm view."""
+        from fibsem.microscopes._stage import GridSlot
+
+        holder = widget.microscope._stage.holder
+        monkeypatch.setattr(
+            holder,
+            "slots",
+            {
+                name: GridSlot(
+                    name=name,
+                    index=0,
+                    position=FibsemStagePosition(name=name, x=x, y=0.0, z=0.0),
+                )
+                for name, x in (("Slot-01", -5e-3), ("Slot-02", 5e-3))
+            },
+        )
+        _show_holder_overlays(widget)
+        widget._on_stage_moved(_at(microscope.get_stage_position(), dx=5e-3))
+
+        canvas = widget.canvas
+        (x0, x1), (y0, y1) = canvas._ax.get_xlim(), canvas._ax.get_ylim()
+
+        def framed(shape):
+            rx, ry = shape.width / 2, shape.height / 2
+            return (
+                min(x0, x1) <= shape.cx - rx
+                and shape.cx + rx <= max(x0, x1)
+                and min(y0, y1) <= shape.cy - ry
+                and shape.cy + ry <= max(y0, y1)
+            )
+
+        boundaries = [
+            s
+            for s in widget.context_overlay._specs
+            if s.kind == "ellipse" and s.label == "Grid Boundary"
+        ]
+        assert len(boundaries) == 2
+        assert [framed(s) for s in boundaries].count(True) == 1, (
+            "not exactly one grid framed"
+        )
+        assert self._plan_in_view(widget)
+
+    def test_reset_view_finds_a_dragged_grid(self, widget, microscope):
+        canvas = widget.canvas
+        x, y = canvas.metres_to_canvas(*widget._frame().offset(widget._grid_centre()))
+        framing = (tuple(canvas._ax.get_xlim()), tuple(canvas._ax.get_ylim()))
+        widget._on_grid_moved(x + 3e-3 / canvas._reference_pixel_size, y)
+        widget.tile_grid_overlay.drag_finished.emit()
+
+        assert (
+            tuple(canvas._ax.get_xlim()),
+            tuple(canvas._ax.get_ylim()),
+        ) == framing, "ending a drag moved the camera"
+        canvas.reset_view()
+        assert self._plan_in_view(widget), "reset view framed where the grid was"
 
 
 class TestARunNeedsTiles:
@@ -4990,3 +5092,20 @@ class TestWhichOverviewAClickIsOn:
         widget._request_add_at(x, y, target)
         widget._request_add_at(*widget.canvas.metres_to_canvas(cx + 5e-3, cy), target)
         assert [rid for _, rid in seen] == [record_id, None]
+
+
+def test_the_tile_grid_panel_goes_when_the_tab_does(qapp, widget):
+    """FIB-1110. The panel is a top-level tool window, so hiding the widget it
+    belongs to -- switching tab -- left it floating over the next tab. The button
+    is unchecked with it, so the next click opens it rather than doing nothing."""
+    widget.show()
+    qapp.processEvents()
+    widget.btn_tile_grid.click()
+    qapp.processEvents()
+    assert widget.tile_grid_panel.isVisible()
+
+    widget.hide()
+    qapp.processEvents()
+
+    assert not widget.tile_grid_panel.isVisible()
+    assert not widget.btn_tile_grid.isChecked()

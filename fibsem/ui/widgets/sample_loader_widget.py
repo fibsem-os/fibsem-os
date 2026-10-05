@@ -229,11 +229,16 @@ class SampleLoaderWidget(QWidget):
     tracks an exchange or scan in flight. ``set_controls_enabled(False)`` is the
     host's lockout while a workflow owns the loader.
 
+    A grid is named here on the hardware, but a host may keep records under that
+    name: ``set_rename_check`` lets it refuse a rename, with a reason, and
+    ``grid_renamed`` tells it one happened, before ``loader_changed``.
+
     ``synchronous`` runs the hardware calls on the calling thread, for tests.
     """
 
     loader_changed = pyqtSignal()
     busy_changed = pyqtSignal(bool)
+    grid_renamed = pyqtSignal(str, str)  # old name, new name
 
     def __init__(self, microscope=None, parent=None, synchronous: bool = False):
         super().__init__(parent)
@@ -245,8 +250,14 @@ class SampleLoaderWidget(QWidget):
         self._scanned_at: Optional[datetime] = None
         self._read_at: Optional[datetime] = None
         self._worker = None
+        self._rename_check: Optional[Callable[[str, str], str]] = None
         self._setup_ui()
         self.refresh()
+
+    def set_rename_check(self, check: Optional[Callable[[str, str], str]]) -> None:
+        """``check(old, new)`` says why the grid named *old* may not become *new*,
+        or returns "" to allow it. None, the default, allows every rename."""
+        self._rename_check = check
 
     # -- layout ----------------------------------------------------------------
 
@@ -389,15 +400,28 @@ class SampleLoaderWidget(QWidget):
     # -- edits -----------------------------------------------------------------
 
     def _on_grid_named(self, slot: GridSlot, name: str) -> None:
-        grid = slot.loaded_grid
-        if grid is None or self._microscope is None:
+        current = slot.loaded_grid
+        if current is None or self._microscope is None:
             return
-        grid = SampleGrid(name=name, description=grid.description, radius=grid.radius)
+        refusal = self._rename_check(current.name, name) if self._rename_check else ""
+        if refusal:
+            self._say(refusal, error=True)
+            self.refresh()  # puts the old name back in the field
+            return
+        grid = SampleGrid(
+            name=name, description=current.description, radius=current.radius
+        )
         try:
-            self._microscope._stage.assign_grid(slot.name, grid)
-        except Exception as e:  # noqa: BLE001 - keep the in-memory change, say so
+            self._microscope._stage.assign_grid(slot.name, grid, persist=True)
+        except Exception as e:  # noqa: BLE001 - the hardware kept the old name; say so
             logging.warning(f"Could not write the name of {slot.name}: {e}")
-            slot.loaded_grid = grid
+            # The next read would bring the old name back anyway, so keep it now
+            # rather than show a name the hardware does not hold.
+            slot.loaded_grid = current
+            self._say(f"Could not name the grid in {slot.name}: {e}", error=True)
+            self.refresh()
+            return
+        self.grid_renamed.emit(current.name, name)
         self.refresh()
         self.loader_changed.emit()
 

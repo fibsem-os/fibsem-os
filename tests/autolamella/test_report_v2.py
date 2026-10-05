@@ -1,0 +1,627 @@
+"""Report v2, the page built from ``events.jsonl`` (FIB-1036).
+
+The first tests write the report of a real run through ``run_tasks`` on Demo.
+The rest render records written here in the recorder's shape, for what a
+headless Demo run cannot produce: time spent waiting, idle gaps, failed and
+retried runs.
+"""
+
+import base64
+import html
+import io
+import os
+import re
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import numpy as np
+import pytest
+import tifffile
+from PIL import Image
+from psygnal.containers import EventedDict
+
+import fibsem.config as cfg
+from fibsem import utils
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskDescription,
+    AutoLamellaTaskProtocol,
+    AutoLamellaWorkflowConfig,
+    Experiment,
+)
+from fibsem.applications.autolamella.tools.event_tables import event_tables
+from fibsem.applications.autolamella.tools.report_v2 import (
+    REPORT_DIRNAME,
+    REPORT_FILENAME,
+    _thumbnail,
+    render_report,
+    summarise,
+    write_report,
+)
+from fibsem.applications.autolamella.workflows.tasks.manager import run_tasks
+from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskConfig
+from fibsem.applications.autolamella.workflows.tasks.select_position import (
+    SelectMillingPositionTaskConfig,
+)
+
+SETUP = "Setup Lamella Position"
+ROUGH = "Rough Milling"
+CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+
+
+@pytest.fixture(scope="module")
+def microscope():
+    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
+    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
+    yield microscope
+    microscope.disconnect()
+
+
+@pytest.fixture
+def experiment(microscope, tmp_path):
+    exp = Experiment(path=tmp_path, name="report")
+    os.makedirs(exp.path, exist_ok=True)
+    exp.task_protocol = AutoLamellaTaskProtocol(
+        workflow_config=AutoLamellaWorkflowConfig(
+            tasks=[
+                AutoLamellaTaskDescription(name=SETUP, required=True),
+                AutoLamellaTaskDescription(name=ROUGH, required=True),
+            ]
+        )
+    )
+    for _ in range(2):
+        exp.add_new_lamella(
+            microscope.get_microscope_state(),
+            EventedDict(
+                {
+                    SETUP: SelectMillingPositionTaskConfig(
+                        task_name=SETUP, use_autofocus=False
+                    ),
+                    ROUGH: MillRoughTaskConfig(task_name=ROUGH),
+                }
+            ),
+        )
+    for lamella in exp.positions:
+        lamella.path.mkdir(parents=True, exist_ok=True)
+        lamella.milling_pose = microscope.get_microscope_state()
+    return exp
+
+
+def _count(page, pattern):
+    return len(re.findall(pattern, page))
+
+
+# ── a real run ───────────────────────────────────────────────────────────────
+
+
+def test_the_report_of_a_run_is_written_beside_its_record(microscope, experiment):
+    run_tasks(microscope, experiment, [SETUP, ROUGH])
+
+    path = write_report(experiment)
+
+    assert path == Path(experiment.path) / REPORT_DIRNAME / REPORT_FILENAME
+    page = path.read_text(encoding="utf-8")
+    first, second = (p.name for p in experiment.positions)
+    for name in (experiment.name, first, second, SETUP, ROUGH):
+        assert name in page
+    # every lamella finished every task: four runs, each a completed cell and a bar
+    assert _count(page, r'class="cell completed"') == 4
+    assert _count(page, r'class="run"') == 4
+    assert "2 of 2" in page
+    # each lamella's final SEM and FIB images, embedded
+    thumbnails = re.findall(r'<img src="data:image/jpeg;base64,([^"]+)"', page)
+    assert len(thumbnails) == 4
+    for encoded in thumbnails:
+        jpeg = base64.b64decode(encoded)
+        assert Image.open(io.BytesIO(jpeg)).size[0] <= 360 and len(jpeg) < 80_000
+    # one file, with nothing to fetch
+    assert not re.search(r"(src|href)=\"(https?:)?//", page)
+    assert "<script src" not in page and "<link" not in page
+
+
+def test_an_experiment_recorded_before_the_event_stream_has_no_v2_report(tmp_path):
+    experiment = Experiment(path=tmp_path, name="older")
+    os.makedirs(experiment.path, exist_ok=True)
+
+    with pytest.raises(FileNotFoundError, match="recorded before the event stream"):
+        write_report(experiment)
+    assert not (Path(experiment.path) / REPORT_DIRNAME).exists()
+
+
+# ── records the recorder writes ──────────────────────────────────────────────
+
+T0 = datetime(2026, 9, 24, 9, 0, 0)
+A, B, C = "01-lamella", "02-lamella", "03-lamella"
+
+
+def _record(kind, second, item, task, run, payload=None, actor="task"):
+    return {
+        "session": "s1",
+        "actor": actor,
+        "kind": kind,
+        "t": (T0 + timedelta(seconds=second)).isoformat() + "+10:00",
+        "item": {"id": item, "name": item},
+        "task": {"id": run, "name": task},
+        "payload": payload or {},
+    }
+
+
+def _run(item, task, start, end, ending="task_completed", error=None, wait=None):
+    run = f"{item}/{task}/{start}"
+    records = [
+        _record("task_started", start, item, task, run),
+        _record("task_step", start, item, task, run, {"step": "MILL_LAMELLA"}),
+    ]
+    if wait is not None:  # a prompt raised at wait[0], answered at wait[1]
+        nonce = f"{run}/prompt"
+        records += [
+            _record("prompt_raised", wait[0], item, task, run, {"nonce": nonce}),
+            _record("prompt_answered", wait[1], item, task, run, {"nonce": nonce}),
+        ]
+    if ending:
+        payload = {"error": error} if error else {}
+        records.append(_record(ending, end, item, task, run, payload))
+    return records
+
+
+def _render(records, items=(A, B, C), tasks=(SETUP, ROUGH), name="session"):
+    tables = event_tables(records)
+    page = render_report(
+        tables, name=name, items=items, tasks=tasks, generated=T0 + timedelta(hours=9)
+    )
+    return tables, page
+
+
+def test_where_the_time_went():
+    """Two runs with a gap of two minutes between them, the first waiting 10 s
+    for an answer: 190 s machine, 10 s waiting, 120 s idle, of 320 s."""
+    records = _run(A, SETUP, 0, 100, wait=(20, 30)) + _run(A, ROUGH, 220, 320)
+
+    tables, page = _render(records, items=(A,))
+
+    summary = summarise(tables, [A], [SETUP, ROUGH])
+    assert (summary.span, summary.machine, summary.waiting, summary.idle) == (
+        320.0,
+        190.0,
+        10.0,
+        120.0,
+    )
+    assert summary.idle_gaps == [
+        (T0 + timedelta(seconds=100), T0 + timedelta(seconds=220))
+    ]
+    assert summary.finished == [A]
+    assert summary.throughput == pytest.approx(1 / (320 / 3600))
+    for shown in ("59%", "3 min", "3%", "10 s", "38%", "2 min, nothing running"):
+        assert shown in page
+    assert "idle 2 min" in page  # the gap, labelled on the timeline
+    # a minute apart, across the five minutes
+    ticks = re.findall(r'text-anchor="middle">(\d\d:\d\d)</text>', page)
+    assert ticks == ["09:00", "09:01", "09:02", "09:03", "09:04", "09:05"]
+    assert _count(page, r'class="wait"') == 1
+
+
+def test_a_gap_that_is_the_queue_moving_on_is_not_idle_time_worth_showing():
+    records = _run(A, SETUP, 0, 100) + _run(A, ROUGH, 120, 220)
+
+    tables, page = _render(records, items=(A,))
+
+    assert summarise(tables, [A], [SETUP, ROUGH]).idle_gaps == []
+    assert 'text-anchor="middle">idle' not in page
+
+
+def test_each_lamella_s_outcome():
+    records = (
+        _run(A, SETUP, 0, 60)
+        + _run(A, ROUGH, 60, 245, "task_failed", "Alignment failed")
+        + _run(A, ROUGH, 300, 900)
+        + _run(B, SETUP, 900, 960)
+        + _run(B, ROUGH, 960, 1168, "task_cancelled", "Workflow aborted by user.")
+    )
+
+    _, page = _render(records)
+
+    assert "10:00 · after 1 failed" in page  # the retry, and how the first went
+    assert "cancelled at 3:28" in page
+    assert 'title="Rough Milling: cancelled — Workflow aborted by user."' in page
+    # C never ran, and B never finished
+    assert _count(page, r'class="cell none">not run') == 2
+    assert "1 of 3" in page
+    # the failed run is on the timeline, and so is its key
+    assert "Alignment failed" in page
+    assert _count(page, r"<i style=\"background:#E24B4A\"></i>failed") == 1
+
+
+def test_the_key_names_only_what_happened():
+    _, page = _render(_run(A, SETUP, 0, 60))
+
+    assert "</i>failed" not in page and "</i>cancelled" not in page
+    assert "</i>waiting for an answer" not in page
+
+
+def test_a_run_that_never_ended_is_drawn_to_where_it_was_last_heard_from():
+    records = _run(A, SETUP, 0, 60) + _run(A, ROUGH, 60, None, ending=None)
+    records.append(
+        _record("task_step", 400, A, ROUGH, f"{A}/{ROUGH}/60", {"step": "MILL"})
+    )
+
+    tables, page = _render(records, items=(A,))
+
+    assert summarise(tables, [A], [SETUP, ROUGH]).span == 400.0
+    assert re.search(r'class="cell unfinished"[^>]*>unfinished</td>', page)
+    assert _count(page, r'class="run unfinished"') == 1
+
+
+def test_a_lamella_or_task_outside_the_workflow_is_still_shown():
+    records = _run("99-extra", "Spot Burn Fiducial", 0, 60)
+
+    _, page = _render(records, items=(A,), tasks=(SETUP,))
+
+    assert "99-extra" in page and "Spot Burn Fiducial" in page
+
+
+def test_names_are_escaped():
+    records = _run("<b>lamella</b>", SETUP, 0, 60)
+
+    _, page = _render(records, items=(), name='grid "A" & <co>')
+
+    assert "<b>lamella</b>" not in page
+    assert "&lt;b&gt;lamella&lt;/b&gt;" in page
+    assert "grid &quot;A&quot; &amp; &lt;co&gt;" in page
+
+
+def test_nothing_ran():
+    _, page = _render([])
+
+    assert "No task runs were recorded." in page
+    assert "0 of 3" in page
+
+
+def _fm(second, item, planes=1, overview=None, started=None):
+    return {
+        "session": "s1",
+        "actor": "task" if item else "operator",
+        "kind": "fm_image_acquired",
+        "t": (T0 + timedelta(seconds=second)).isoformat() + "+10:00",
+        "item": {"id": item, "name": item} if item else None,
+        "task": {"id": "fm", "name": "Acquire Fluorescence"} if item else None,
+        "payload": {
+            "acquired_at": (
+                (T0 + timedelta(seconds=started)).isoformat()
+                if started is not None
+                else None
+            ),
+            "channels": [{"name": "GFP"}],
+            "z_positions": [0.0] * planes if planes > 1 else None,
+            "overview": overview,
+        },
+    }
+
+
+def test_fluorescence_acquisitions_are_counted_and_marked():
+    """Two z-stacks on two lamellae during the runs, and an overview on no
+    lamella made before the first run: the timeline reaches back to it."""
+    records = (
+        [_fm(0, None, overview={"rows": 2, "cols": 2}, started=-180)]
+        + _run(A, SETUP, 0, 300)
+        + [_fm(200, A, planes=11, started=160)]
+        + _run(B, SETUP, 300, 600)
+        + [_fm(550, B, planes=11, started=500)]
+    )
+
+    _, page = _render(records, items=(A, B))
+
+    assert "3 acquisitions" in page and "on 2 lamellae" in page
+    assert _count(page, r'class="fm"') == 3
+    assert "(no lamella)" in page  # the overview's row
+    assert "FM z-stack, 11 planes, GFP (Acquire Fluorescence) · 0:40" in page
+    assert "FM overview, 2×2 tiles, GFP · 3:00" in page
+    assert "</i>FM acquisition" in page
+    ticks = re.findall(r'text-anchor="middle">(\d\d:\d\d)</text>', page)
+    assert ticks[0] == "08:58"  # before the first run, at 09:00
+
+
+def test_no_fluorescence_no_tile_and_no_key():
+    _, page = _render(_run(A, SETUP, 0, 60))
+
+    assert "Fluorescence" not in page and "</i>FM acquisition" not in page
+
+
+def test_an_acquisition_on_no_lamella_is_not_a_lamella():
+    records = _run(A, SETUP, 0, 60) + [_fm(30, None)]
+
+    _, page = _render(records, items=(A,))
+
+    assert "(no lamella)" in page  # its row on the timeline
+    assert "1 lamellae" in page and "0 of 1" in page
+    assert _count(page, r"<th>\(no lamella\)</th>") == 0  # no outcome row
+
+
+# ── worth a look, and where the operator stepped in ──────────────────────────
+
+
+def _question(second, item, kind, proposed, decided, outcome="Confirmed", **fields):
+    """A question asked at ``second - wait`` and decided at ``second``."""
+    wait = fields.pop("wait", None)
+    actor = fields.pop("actor", "operator")
+    proposal = f"{item}/{kind}/{second}"
+    records = []
+    if wait is not None:
+        records.append(
+            _record(
+                "proposal_asked",
+                second - wait,
+                item,
+                SETUP,
+                f"{item}/{SETUP}/0",
+                {"proposal_id": proposal, "kind": kind},
+            )
+        )
+    payload = {
+        "item": {"id": item, "name": item},
+        "task": SETUP,
+        "proposal_id": proposal,
+        "decision": 0,
+        "kind": kind,
+        "proposed": proposed,
+        "decided": decided,
+        "outcome": outcome,
+        **fields,
+    }
+    records.append(
+        _record("proposal_decided", second, item, SETUP, None, payload, actor)
+    )
+    return records
+
+
+def _edit(second, item, via, target="task_config", actor="operator", task=ROUGH):
+    payload = {
+        "item": {"id": item, "name": item},
+        "task": task,
+        "target": target,
+        "via": via,
+        "before": {"fov": 80e-6},
+        "after": {"fov": 100e-6},
+    }
+    return _record("edit", second, item, task, None, payload, actor)
+
+
+def _notes(page):
+    return [
+        (level, html.unescape(text))
+        for level, text in re.findall(r'<li class="note (\w+)">([^<]*)</li>', page)
+    ]
+
+
+def test_what_is_worth_a_look_most_serious_first():
+    stage = {"name": "Rough 02", "milling": {}, "pattern": {}}
+    records = (
+        _run(A, SETUP, 0, 60)
+        + _run(A, ROUGH, 60, 245, "task_failed", "Alignment failed")
+        + _run(A, ROUGH, 300, 900)
+        + [
+            _record(
+                "milling_stage_started",
+                400,
+                A,
+                ROUGH,
+                f"{A}/{ROUGH}/300",
+                {"task_id": "m1", "task_name": ROUGH, "stage": stage},
+            )
+        ]
+        + _run(B, SETUP, 900, 1500, wait=(960, 1320))  # six minutes
+        + _run(B, ROUGH, 2700, 2908, "task_cancelled", "Workflow aborted by user.")
+        + _question(2750, C, "point_of_interest", {}, {}, "Rejected", reason="cracked.")
+        + [_edit(2800, x, "global edit") for x in (A, B, C)]
+    )
+
+    _, page = _render(records)
+
+    assert _notes(page) == [
+        (
+            "failed",
+            f"{A}: Rough Milling failed after 3:05: Alignment failed. "
+            "It was run again and completed.",
+        ),
+        ("warning", f"{A}: Rough Milling stage Rough 02 did not finish."),
+        (
+            "warning",
+            f"{B}: Rough Milling was cancelled at 3:28: Workflow aborted by user.",
+        ),
+        ("warning", f"{C}: Point of interest rejected by the operator: cracked."),
+        (
+            "notice",
+            f"{B}: Setup Lamella Position waited 6 min for an answer, from 09:16.",
+        ),
+        ("notice", "Nothing ran from 09:25 to 09:45 (20 min)."),
+        (
+            "info",
+            "Rough Milling's task_config changed on 3 lamellae at 09:46 "
+            f"(global edit by the operator), while Rough Milling was running on {B}.",
+        ),
+    ]
+
+
+def test_a_quiet_session_has_nothing_worth_a_look():
+    """A 30 s wait, and five minutes with nothing running: shaded on the
+    timeline, but not worth a note."""
+    records = _run(A, SETUP, 0, 60, wait=(10, 40)) + _run(A, ROUGH, 360, 700)
+
+    _, page = _render(records)
+
+    assert "Nothing stood out." in page and _notes(page) == []
+    assert 'class="idle"' in page
+
+
+def _cells(page, first):
+    """The cells of the row that starts with ``first``."""
+    row = re.search(rf"<tr><td>{re.escape(first)}</td>(.*?)</tr>", page)
+    return re.findall(r"<td[^>]*>([^<]*)</td>", row.group(1))
+
+
+def test_where_the_operator_stepped_in():
+    poi = "point_of_interest"
+    origin = {"poi": {"x": 0.0, "y": 0.0}}
+    records = (
+        _run(A, SETUP, 0, 600)
+        # moved 5 µm, after 60 s; confirmed as it stood, after 120 s
+        + _question(100, A, poi, origin, {"poi": {"x": 3e-6, "y": 4e-6}}, wait=60)
+        + _question(200, B, poi, origin, dict(origin), wait=120)
+        + _question(300, C, poi, origin, {}, "Rejected", wait=30)
+        + _question(400, A, poi, origin, dict(origin), "Unreviewed", actor="task")
+        # a detection moved 6 px, by an agent
+        + _question(
+            500,
+            A,
+            "detection",
+            {"features": [{"name": "LamellaCentre", "px": {"x": 10, "y": 10}}]},
+            {"features": [{"name": "LamellaCentre", "px": {"x": 16, "y": 10}}]},
+            actor="agent",
+            wait=20,
+        )
+        + [_edit(50, A, "lamella editor", "milling.mill_rough")]
+        + [_edit(60, B, "lamella editor", "parameters.depth")]
+        + [_edit(70, x, "global edit") for x in (A, B, C)]
+    )
+
+    _, page = _render(records)
+
+    # decisions, asked, as proposed, changed, rejected, unreviewed, wait, move
+    assert _cells(page, "Point of interest") == [
+        "4",
+        "3",
+        "1",
+        "1",
+        "1",
+        "1",
+        "1:10",
+        "5.0 µm",
+    ]
+    assert _cells(page, "Detection") == ["1", "1", "0", "1", "0", "0", "0:20", "6.0 px"]
+    assert "Decided by operator 3 · task 1 · agent 1." in page
+    assert "made by nobody" in page
+    assert _cells(page, "lamella editor") == [
+        "operator",
+        "2",
+        "2",
+        "milling.mill_rough, parameters.depth",
+    ]
+    assert _cells(page, "global edit") == ["operator", "3", "3", "task_config"]
+
+
+def test_nobody_stepped_in():
+    _, page = _render(_run(A, SETUP, 0, 60))
+
+    assert "Nobody was asked anything, and the plan was not edited." in page
+
+
+# ── lamella cards ────────────────────────────────────────────────────────────
+
+
+def _pixels(uri):
+    data = base64.b64decode(uri.split(",", 1)[1])
+    return np.asarray(Image.open(io.BytesIO(data)))
+
+
+def test_a_stack_s_thumbnail_is_its_maximum_projection(tmp_path):
+    """Two channels by three planes: a spot bright in one plane of one
+    channel shows in the thumbnail."""
+    stack = np.full((2, 3, 64, 64), 100, dtype=np.uint16)
+    stack[1, 2, 10:14, 50:54] = 4000
+    path = tmp_path / "stack.ome.tiff"
+    tifffile.imwrite(str(path), stack)
+
+    pixels = _pixels(_thumbnail(path))
+
+    assert pixels.shape == (64, 64)
+    assert pixels[12, 52] > 200 and pixels[40, 20] < 50
+
+
+def test_an_image_that_cannot_be_read_has_no_thumbnail(tmp_path):
+    broken = tmp_path / "broken.tif"
+    broken.write_bytes(b"not a tiff")
+
+    assert _thumbnail(broken) is None
+    assert _thumbnail(tmp_path / "missing.tif") is None
+
+
+def test_an_fm_stack_is_found_in_the_lamella_s_folder_after_a_move(tmp_path):
+    """The record names where the stack was written; the experiment has been
+    copied off the microscope since, so it is found by name in its folder."""
+    folder = tmp_path / "copied" / A
+    (folder / "fm").mkdir(parents=True)
+    tifffile.imwrite(
+        str(folder / "fm" / "zstack.ome.tiff"), np.ones((3, 32, 32), np.uint16)
+    )
+    acquisition = _fm(200, A, planes=3, started=160)
+    acquisition["payload"]["path"] = (
+        "D:/microscope/experiment/01-lamella/fm/zstack.ome.tiff"
+    )
+    records = _run(A, SETUP, 0, 300) + [acquisition]
+
+    tables = event_tables(records)
+    page = render_report(tables, "s", [A], [SETUP], folders={A: folder})
+
+    assert "last FM, max projection" in page
+    assert _count(page, r'<img src="data:image/jpeg') == 1
+
+
+def test_a_lamella_s_card():
+    stage = {
+        "name": "Rough 01",
+        "milling": {"milling_current": 7.4e-10},
+        "pattern": {"depth": 6.5e-7},
+    }
+    records = (
+        _run(A, SETUP, 0, 200, wait=(20, 80))
+        + _run(A, ROUGH, 200, 400, "task_failed", "Alignment failed")
+        + [
+            _record(
+                "milling_stage_started",
+                250,
+                A,
+                ROUGH,
+                f"{A}/{ROUGH}/200",
+                {"task_id": "m1", "task_name": ROUGH, "stage": stage},
+            ),
+            _record(
+                "milling_progress",
+                310,
+                A,
+                ROUGH,
+                f"{A}/{ROUGH}/200",
+                {"task_id": "m1", "stage_name": "Rough 01", "status": "stage-finished"},
+            ),
+        ]
+        + _question(
+            150,
+            A,
+            "point_of_interest",
+            {"poi": {"x": 0.0, "y": 0.0}},
+            {"poi": {"x": 3e-6, "y": 4e-6}},
+            wait=30,
+        )
+        + [_edit(180, A, "lamella editor", "milling.mill_rough")]
+        + [_fm(390, A, planes=5, started=350)]
+    )
+
+    _, page = _render(records, items=(A, B))
+
+    card = re.search(r'<div class="card">(.*?)</div></div>', page, re.S)
+    assert card is not None
+    head = re.search(
+        r'<div class="card-head"><b>([^<]*)</b><span class="muted">([^<]*)', page
+    )
+    assert head.groups() == (
+        A,
+        "failed in Rough Milling · 6 min run · 1 min waiting · 1 decision changed "
+        "· 1 edit · 1 FM",
+    )
+    assert "<td>Rough Milling: Rough 01</td><td>740 pA</td><td>0.65 µm</td>" in page
+    assert "<td>confirmed (changed)</td><td>operator</td><td>5.0 µm</td>" in page
+    assert (
+        "<td>milling.mill_rough.fov</td><td>lamella editor</td><td>operator</td>"
+        in page
+    )
+    assert "FM z-stack, 5 planes, GFP (Acquire Fluorescence)" in page
+    # B never ran: a card that says so, and no thumbnails without folders
+    assert re.search(rf"<b>{B}</b><span class=\"muted\">not run</span>", page)
+    assert "<img" not in page

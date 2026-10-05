@@ -6,7 +6,7 @@ its own metadata says, because the two instruments looked at the sample from dif
 sides and the metadata gets it close, not right. So the image carries a placement --
 centre, turn, and the view's squash and mirror -- and is drawn through it, and the
 gesture in :class:`~fibsem.ui.widgets.canvas.overlays.transform_overlay.TransformGestureOverlay`
-moves and turns it.
+moves and turns it, and scales it from its corners.
 
 Drawn the way the milling overlay draws a rotated bitmap: an ``AxesImage`` on the unit
 square, mapped onto the canvas through a transform, so the pixels are never resampled
@@ -87,6 +87,12 @@ class ImageOverlay(TransformGestureOverlay):
             raise ValueError(
                 f"expected an (H, W, 3|4) RGB(A) image, got shape {data.shape}"
             )
+        if data.shape[2] == 3:
+            # Always with an alpha channel: a turned image is resampled into an
+            # axis-aligned buffer, and without alpha matplotlib fills the corners
+            # outside the footprint with opaque black. With it they are clear.
+            opaque = 255 if data.dtype == np.uint8 else 1.0
+            data = np.dstack([data, np.full(data.shape[:2], opaque, dtype=data.dtype)])
         self._data = data
         self._width = float(width)
         self._height = float(height)
@@ -112,10 +118,18 @@ class ImageOverlay(TransformGestureOverlay):
 
     def corners(self):
         """The footprint's four corners on the canvas, top-left first, clockwise."""
+        return [self.to_canvas(u, v) for u, v in self._footprint_corners()]
+
+    def _footprint_corners(self):
         w, h = self._width / 2.0, self._height / 2.0
-        return [self.to_canvas(u, v) for u, v in ((-w, -h), (w, -h), (w, h), (-w, h))]
+        return [(-w, -h), (w, -h), (w, h), (-w, h)]
 
     # ── the body ──────────────────────────────────────────────────────────
+
+    def _scale_corners(self):
+        # An image's size is its pixel size, and the metadata's can be off -- a
+        # camera's binning, or a file from another microscope that gave none.
+        return self._footprint_corners() if self._data is not None else []
 
     def _body_contains(self, x: float, y: float) -> bool:
         if self._data is None:

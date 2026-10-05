@@ -913,7 +913,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         reply = QMessageBox.question(
             self,
             "Confirm Removal",
-            f"Are you sure you want to remove the task '{selected_task_name}'?\n\nThis action cannot be undone.",
+            f"Are you sure you want to remove the task '{selected_task_name}'?\n\n"
+            "It is removed from the protocol, the workflow and every lamella, "
+            "including any changes made to a lamella's copy. Task history is kept.\n\n"
+            "This action cannot be undone.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -921,8 +924,19 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         if reply == QMessageBox.Yes:
             # Remove from experiment
             if selected_task_name in self.experiment.task_protocol.task_config:
-                self._touch_protocol(selected_task_name, "remove task")
-                del self.experiment.task_protocol.task_config[selected_task_name]
+                via = "remove task"
+                self._touch_protocol(selected_task_name, via)
+                self._edits.touch(
+                    None,
+                    selected_task_name,
+                    "protocol.workflow_config",
+                    lambda: self.experiment.task_protocol.workflow_config,
+                    via,
+                )
+                self._edits.touch_task_configs(
+                    self.experiment.positions, [selected_task_name], via
+                )
+                self.experiment.remove_task(selected_task_name)
 
                 # Save experiment
                 self._save_experiment()
@@ -950,16 +964,12 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                     self.experiment.positions, selected_task_names, via
                 )
 
-            # Apply changes to all tasks
-            updated_count = dialog.apply_changes()
-
-            # apply to existing lamella if selected
-            if update_lamella:
-                all_lamella_names = [p.name for p in self.experiment.positions]
-                self.experiment.apply_lamella_config(
-                    lamella_names=all_lamella_names,
-                    task_names=selected_task_names,
-                )
+            # The same two settings on each lamella, when asked: not the
+            # protocol's whole config, which would reset everything else a
+            # lamella was tuned to (FIB-1071).
+            updated_count = dialog.apply_changes(
+                self.experiment.positions if update_lamella else ()
+            )
 
             # Save the experiment
             self._save_experiment()

@@ -368,8 +368,9 @@ class FMOverviewWidget(QWidget):
         """The saved FM configuration if there is one, otherwise a single channel."""
         try:
             from fibsem.fm.config import load_fm_configuration
+            from fibsem.session_state import session_state_for
 
-            config = load_fm_configuration()
+            config = load_fm_configuration(session_state_for(self.microscope))
             if config is not None and config.channel_settings:
                 return list(config.channel_settings)
         except Exception as e:
@@ -963,7 +964,7 @@ class FMOverviewWidget(QWidget):
         """
         record = self._record_for(image)
         if self._origin is None:
-            self._origin = self._position_of(image)
+            self._origin = self._device_origin()
         self.canvas.set_composite_key(record.id)
         self.canvas.set_placement(self._offset_of(image))
         self.canvas.set_fm_image(image)
@@ -1341,11 +1342,9 @@ class FMOverviewWidget(QWidget):
         """Anchor the canvas frame at *position*, or None to go back to automatic.
 
         The origin decides only where canvas zero sits -- everything is drawn relative
-        to it, so any stage position serves. Left alone it is fixed to wherever the
-        stage was the first time anything was drawn, which is right for a widget opened
-        where the work is and wrong for one that should always describe the same place:
-        an FM canvas anchored at the offset mount while a FIB/SEM canvas is anchored at
-        the column, 48 mm away, each correctly framed (FIB-418).
+        to it, so any stage position serves. Left alone it is the FM device's origin
+        (`_device_origin`): the place the objective looks at, configured rather than
+        wherever the stage happened to be standing when the canvas first drew.
 
         Raises:
             ValueError: if anything has been placed. Images are positioned relative to
@@ -1428,12 +1427,50 @@ class FMOverviewWidget(QWidget):
         if projection is None:
             return None
 
-        origin = self._origin or self._current_stage_position()
+        origin = self._origin or self._device_origin()
         if origin is None:
             return None
         self._origin = origin  # fix it now, so later drawing shares this frame
 
         return StageFrame(self.canvas.canvas, self._posed(origin), projection)
+
+    def _device_origin(self) -> Optional[FibsemStagePosition]:
+        """Where canvas zero goes when nothing has said: the FM device's origin.
+
+        This canvas is the FM's view of the sample, so its zero is the place the
+        objective looks at when the stage is at the FM -- `stage.devices.FM.origin`,
+        which is configured, and the same every session. It used to be wherever the
+        stage was standing the first time anything drew, which on an offset mount is
+        almost always the beams: canvas zero then sat 48.8 mm from every marker,
+        image and overlay the canvas would ever show, and its red marker pointed at
+        nothing. On a compustage the device origin is the chamber origin, so this is
+        the same picture with a fixed zero.
+
+        Only a *place*. The configuration declares x, and may declare y and z; an
+        axis it leaves out reads as 0. The pose is not part of the anchor at all --
+        `_posed` restates it from the stage on every draw, which is what keeps a
+        click after Move to FM resolving through the FIB tilt rather than the one the
+        stage had when the tab was built.
+
+        Falls back to the stage's position for a microscope with no FM device
+        declared, which is how widget tests built on a bare FM arrive here.
+        """
+        current = self._current_stage_position()
+        try:
+            origin = self.microscope.system.stage.devices["FM"].origin
+        except (AttributeError, KeyError, TypeError):
+            return current
+        if current is None:
+            return None
+        return FibsemStagePosition(
+            name="FM",
+            x=origin.x or 0.0,
+            y=origin.y or 0.0,
+            z=origin.z or 0.0,
+            r=current.r,
+            t=current.t,
+            coordinate_system=current.coordinate_system,
+        )
 
     def _posed(self, origin: FibsemStagePosition) -> FibsemStagePosition:
         """The origin, re-stated in the pose the stage is actually in.
@@ -1502,6 +1539,9 @@ class FMOverviewWidget(QWidget):
                     stage_context.OVERLAY_BOUNDARIES
                 ),
                 slots=self.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS),
+                # This canvas is the FM's view: its markers are fluorescence poses,
+                # so the holder's places are drawn where the FM sees them too.
+                device="FM",
             )
         )
 
@@ -2993,6 +3033,23 @@ class FMOverviewWidget(QWidget):
             self.progress_tiles.show()
 
     # ── lifecycle ────────────────────────────────────────────────────────
+
+    def hideEvent(self, event) -> None:
+        # The tile grid panel is a top-level window, so it does not go with this
+        # widget on its own: switching tab left it floating over the next one
+        # (FIB-1110). The button is unchecked with it, so one click opens it again.
+        # Reached from C++ during teardown too, where raising is fatal under PyQt5,
+        # so looked up tolerantly and never raises.
+        super().hideEvent(event)
+        panel = self.__dict__.get("tile_grid_panel")
+        button = self.__dict__.get("btn_tile_grid")
+        try:
+            if panel is not None:
+                panel.hide()
+            if button is not None:
+                button.setChecked(False)
+        except RuntimeError:  # wrapped C/C++ object already deleted
+            pass
 
     def closeEvent(self, event) -> None:
         if self.is_acquiring:

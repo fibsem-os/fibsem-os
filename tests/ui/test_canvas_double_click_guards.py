@@ -306,6 +306,7 @@ def test_the_guard_finds_the_real_milling_widget_on_a_real_host(qapp):
         assert dispatched == [], "the stage was moved during a mill"
     finally:
         ui.movement_widget._teardown_connections()
+        ui.close()  # and with it the event recorder
         ui.microscope.disconnect()
         ui.deleteLater()
 

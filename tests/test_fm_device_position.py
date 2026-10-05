@@ -22,6 +22,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.microscope import DeviceImagingState
 from fibsem.structures import (
     DEFAULT_DEVICE_RANGE,
     DEFAULT_STAGE_DEVICES,
@@ -79,7 +80,10 @@ def test_a_configuration_that_says_nothing_gets_the_objective_under_the_grid():
     """
     default, _ = utils.setup_session(config_path=cfg.MICROSCOPE_CONFIGURATION_PATH)
 
-    assert "devices" not in utils.load_yaml(cfg.MICROSCOPE_CONFIGURATION_PATH)["stage"]
+    assert (
+        "devices"
+        not in utils.load_yaml(cfg.MICROSCOPE_CONFIGURATION_PATH)["hardware"]["stage"]
+    )
     assert default.system.stage.devices == DEFAULT_STAGE_DEVICES
     assert default.system.stage.device_range == DEFAULT_DEVICE_RANGE
 
@@ -273,7 +277,7 @@ def test_a_configuration_that_says_nothing_can_still_see_the_sample():
     """
     microscope = _microscope(ARCTIS_CONFIG)
 
-    assert "devices" not in utils.load_yaml(ARCTIS_CONFIG)["stage"]
+    assert "devices" not in utils.load_yaml(ARCTIS_CONFIG)["hardware"]["stage"]
     assert microscope.system.stage.devices["FM"].acquisition_orientations == ["FM"]
 
 
@@ -625,6 +629,63 @@ def test_devices_are_allowed_to_overlap():
 
     assert microscope.is_at_device("FIBSEM") is True
     assert microscope.is_at_device("FM") is True
+
+
+def _arctis_at(orientation: str, x: float):
+    microscope = _microscope(ARCTIS_CONFIG)
+    position = deepcopy(microscope.get_orientation(orientation))
+    position.x, position.y, position.z = x, 0.0, 0.0
+    return microscope, position
+
+
+@pytest.mark.parametrize("x_mm", [25.0, -30.0])
+def test_with_one_place_the_range_does_not_decide_the_device(x_mm):
+    """Where every device shares an origin, the stage is at all of them, anywhere.
+
+    `device_range` tells places apart. An Arctis has one, so reading its 20 mm
+    literally said a lamella 25 mm along the grid "needs travel" -- to where it
+    already was -- which refused FM acquisition there and gave it no conversion.
+    """
+    microscope, position = _arctis_at("FM", x_mm * 1e-3)
+
+    assert microscope.is_at_device("FM", position) is True
+    assert microscope.is_at_device("FIBSEM", position) is True
+    assert (
+        microscope.get_device_imaging_state("FM", position) is DeviceImagingState.READY
+    )
+
+    milling = microscope.to_device(position, "FIBSEM", "MILLING")
+    assert milling.x == pytest.approx(position.x)
+    assert microscope.get_stage_orientation(milling) == "MILLING"
+
+
+@pytest.mark.parametrize("x_mm", [25.0, -30.0])
+def test_with_one_place_a_beam_position_far_along_converts_to_the_fm(x_mm):
+    microscope, position = _arctis_at("SEM", x_mm * 1e-3)
+
+    fm = microscope.to_device(position, "FM")
+
+    assert fm.x == pytest.approx(position.x)
+    assert microscope.get_stage_orientation(fm) == "FM"
+
+
+def test_with_one_place_the_pose_still_decides():
+    """The place stops deciding; the pose does not. SEM is still a re-pose away."""
+    microscope, position = _arctis_at("SEM", 25e-3)
+
+    assert (
+        microscope.get_device_imaging_state("FM", position)
+        is DeviceImagingState.NEEDS_REPOSE
+    )
+
+
+def test_with_two_places_the_range_still_decides():
+    """The offset mount is unchanged: past the beams' window is mid-traverse."""
+    microscope = _microscope()
+    stranded = FibsemStagePosition(x=IN_THE_GAP_MM * 1e-3, y=0.0, z=0.0)
+
+    assert microscope.is_at_device("FIBSEM", stranded) is False
+    assert microscope.is_at_device("FM", stranded) is False
 
 
 # ── what the traverse does not do ────────────────────────────────────

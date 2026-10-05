@@ -138,3 +138,135 @@ def test_the_rim_rings_each_grid(microscope):
     assert rim[(r > grid.radius) & (r < grid.radius + scene.grid_rim_width)].all()
     assert beyond[r > grid.radius + scene.grid_rim_width].all()
     assert not beyond[r < grid.radius].any()
+
+
+# ---------------------------------------------------------------------------
+# The Arctis working slot (FIB-1144): the autoloader puts a grid off the origin
+# ---------------------------------------------------------------------------
+
+ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+GRID_POSITION = (200e-6, 100e-6, 0.0)  # m: where the loader puts a grid
+
+
+def _arctis(grid_position=GRID_POSITION, captured=None):
+    """The Arctis simulator with its loader putting grids at *grid_position*
+    and, if given, a captured working-slot position in its configuration."""
+    from fibsem.microscopes._stage import (
+        COMPUSTAGE_HOLDER_NAME,
+        GridSlot,
+        SampleHolder,
+        SlotCalibration,
+        _create_sample_stage,
+    )
+
+    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=ARCTIS_CONFIG)
+    sim = microscope.system.sim
+    microscope.system.sim = dict(
+        sim, loader=dict(sim.get("loader") or {}, grid_position=list(grid_position))
+    )
+    microscope.system.sim["coincidence_projection"] = True
+    stage_settings = microscope.system.stage
+    if captured is not None:
+        slot = GridSlot(
+            name="Slot-01",
+            index=0,
+            position=captured,
+            calibration=SlotCalibration(
+                orientation="SEM",
+                pre_tilt=float(stage_settings.shuttle_pre_tilt),
+                rotation_reference=float(stage_settings.rotation_reference),
+                captured_at="2026-10-02T12:00:00",
+                fibsem_version="test",
+            ),
+        )
+        stage_settings.holders = {
+            COMPUSTAGE_HOLDER_NAME: SampleHolder(
+                pre_tilt=float(stage_settings.shuttle_pre_tilt),
+                name=COMPUSTAGE_HOLDER_NAME,
+                capacity=1,
+                slots={"Slot-01": slot},
+            )
+        }
+    microscope._stage = _create_sample_stage(microscope)
+    microscope._setup_sample_scene()
+    scene = microscope._sample_scene
+    scene.fiducial = True
+    scene.cell_type = "none"
+    scene.contamination_density = 0.0
+    scene.ice_density = 0.0
+    scene.rip_fraction = 0.0
+    scene.noise_sigma = 0.0
+    scene.noise_fraction = 0.0
+    scene.features = []
+    scene.__post_init__()
+    scene.grids_from_holder = True
+    microscope._stage.get_inventory()
+    microscope._stage.ensure_loaded("Grid-01")
+    return microscope
+
+
+def _image_at(microscope, orientation: str, beam: BeamType) -> np.ndarray:
+    slot = microscope._stage.holder.slots["Slot-01"]
+    target = microscope.get_target_position(slot.position, orientation)
+    microscope.safe_absolute_stage_movement(target)
+    settings = _settings()
+    settings.beam_type = beam
+    return microscope.acquire_image(settings).data
+
+
+def _fiducial_at(frame: np.ndarray):
+    """Where the grid's centre cross is in the frame, in pixels from the frame
+    centre (x, y), or None when it is not in the frame."""
+    ys, xs = np.nonzero(frame > float(np.median(frame)) + 60)
+    if len(xs) == 0:
+        return None
+    h, w = frame.shape
+    return (float(np.median(xs)) - w / 2, float(np.median(ys)) - h / 2)
+
+
+def _fiducials(microscope):
+    try:
+        return {
+            "SEM": _fiducial_at(_image_at(microscope, "SEM", BeamType.ELECTRON)),
+            "FIB": _fiducial_at(_image_at(microscope, "FIB", BeamType.ION)),
+        }
+    finally:
+        microscope.disconnect()
+
+
+def _close(a, b, px=3.0):
+    return (
+        a is not None and b is not None and all(abs(u - v) <= px for u, v in zip(a, b))
+    )
+
+
+def _sem_pose():
+    probe, _ = utils.setup_session(manufacturer="Demo", config_path=ARCTIS_CONFIG)
+    try:
+        return probe.get_orientation("SEM")
+    finally:
+        probe.disconnect()
+
+
+def test_a_working_slot_off_the_grid_misses_it_and_a_captured_one_finds_it():
+    """The reference is the grid at the origin with the built-in slot: the sim
+    starts out of coincidence, so the cross is not dead centre even there. A
+    grid the loader puts 200 um off is missed by the built-in slot, and found
+    exactly as the reference was, in both beams, once the slot is captured."""
+    reference = _fiducials(_arctis(grid_position=(0.0, 0.0, 0.0)))
+    assert reference["SEM"] is not None and reference["FIB"] is not None
+
+    missed = _arctis()
+    assert missed._stage.holder.slots["Slot-01"].calibration.is_builtin
+    assert not _close(_fiducials(missed)["SEM"], reference["SEM"])
+
+    at = _sem_pose()
+    x, y, z = GRID_POSITION
+    captured = _arctis(
+        captured=FibsemStagePosition(name="Slot-01", x=x, y=y, z=z, r=at.r, t=at.t)
+    )
+    slot = captured._stage.holder.slots["Slot-01"]
+    assert not slot.calibration.is_builtin
+    found = _fiducials(captured)
+    assert _close(found["SEM"], reference["SEM"])
+    assert _close(found["FIB"], reference["FIB"])

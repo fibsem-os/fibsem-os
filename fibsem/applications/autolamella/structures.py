@@ -253,13 +253,24 @@ class AutoLamellaTaskConfig(ABC):
                 kwargs[f.name] = ddict[f.name]
 
         # unroll the parameters dictionary
-        if "parameters" in ddict and ddict["parameters"] is not None:
-            for key, value in ddict["parameters"].items():
-                if key in cls.__annotations__:
-                    kwargs[key] = value
-                else:
-                    logging.warning(f"Unknown parameter '{key}' in task configuration.")
+        params = ddict.get("parameters") or {}
+        cls._warn_unknown_parameters(params)
+        known = {f.name for f in fields(cls)}
+        kwargs.update({k: v for k, v in params.items() if k in known})
 
+        kwargs.update(cls._load_core(ddict))
+        return cls(**kwargs)
+
+    @classmethod
+    def _load_core(cls, ddict: Dict[str, Any]) -> Dict[str, Any]:
+        """The fields every task shares, as constructor kwargs; ``parameters`` is untouched.
+
+        For a subclass that reads its own parameters: calling the base ``from_dict``
+        instead would check them against the base's fields and warn for each one.
+        """
+        kwargs: Dict[str, Any] = {}
+        if "task_name" in ddict:
+            kwargs["task_name"] = ddict["task_name"]
         if "milling" in ddict:
             kwargs["milling"] = {
                 k: FibsemMillingTaskConfig.from_dict(v)
@@ -269,8 +280,18 @@ class AutoLamellaTaskConfig(ABC):
             kwargs["reference_imaging"] = ReferenceImageParameters.from_dict(
                 ddict["reference_imaging"]
             )
+        return kwargs
 
-        return cls(**kwargs)
+    @classmethod
+    def _warn_unknown_parameters(cls, params: Dict[str, Any]) -> None:
+        """Warn for each key in ``params`` that is not a field of this task config."""
+        known = {f.name for f in fields(cls)}
+        for key in params:
+            if key not in known:
+                logging.warning(
+                    f"Unknown parameter '{key}' in "
+                    f"{getattr(cls, 'task_type', cls.__name__)} task configuration."
+                )
 
     @property
     def estimated_time(self) -> float:
@@ -1642,6 +1663,23 @@ class Lamella:
         return synced_tasks, moves
 
 
+def _plain(value: Any) -> Any:
+    """*value* with every numpy scalar and array made a plain Python one, all the
+    way down: the YAML writer cannot represent numpy types, and a record carries
+    dicts filled from a canvas and a composite."""
+    import numpy as np  # this module imports numpy for annotations only
+
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return _plain(value.tolist())
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
 @evented
 @dataclass
 class OverlayRecord:
@@ -1662,6 +1700,8 @@ class OverlayRecord:
     dy: float = 0.0
     rotation: float = 0.0  # degrees, clockwise on screen
     scale: float = 1.0
+    # An image mirrored left to right by the user, about its own axis.
+    mirrored: bool = False
     # Grid bars: the lattice's pitch and bar width, in metres.
     pitch: Optional[float] = None
     bar_width: Optional[float] = None
@@ -1673,6 +1713,9 @@ class OverlayRecord:
     view: Optional[str] = None
     # How it was placed by a fit, when it was: the point pairs and the residual.
     fit: Dict[str, Any] = field(default_factory=dict)
+    # An image: how it is shown -- opacity, signal only, and per channel its colour,
+    # visibility, opacity, gamma and contrast. Empty means as loaded.
+    display: Dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: float = field(
         default_factory=lambda: datetime.timestamp(datetime.now())
@@ -1688,12 +1731,14 @@ class OverlayRecord:
             "dy": float(self.dy),
             "rotation": float(self.rotation),
             "scale": float(self.scale),
+            "mirrored": bool(self.mirrored),
             "pitch": None if self.pitch is None else float(self.pitch),
             "bar_width": None if self.bar_width is None else float(self.bar_width),
             "source": self.source,
             "reference": self.reference,
             "view": self.view,
-            "fit": dict(self.fit),
+            "fit": _plain(self.fit),
+            "display": _plain(self.display),
             "id": self.id,
             "created_at": self.created_at,
         }
@@ -1706,12 +1751,14 @@ class OverlayRecord:
             dy=float(data.get("dy", 0.0) or 0.0),
             rotation=float(data.get("rotation", 0.0) or 0.0),
             scale=float(data.get("scale", 1.0) or 1.0),
+            mirrored=bool(data.get("mirrored", False)),
             pitch=data.get("pitch"),
             bar_width=data.get("bar_width"),
             source=data.get("source"),
             reference=data.get("reference"),
             view=data.get("view"),
             fit=dict(data.get("fit") or {}),
+            display=dict(data.get("display") or {}),
             id=data.get("id") or str(uuid.uuid4()),
             created_at=data.get("created_at", datetime.timestamp(datetime.now())),
         )
@@ -1921,6 +1968,23 @@ def _emit_on_main_thread(signal, *args) -> None:
     ensure_main_thread(await_return=False)(signal.emit)(*args)
 
 
+def find_overviews(root: Union[str, Path]) -> List[Path]:
+    """The stitched beam overviews an experiment keeps, oldest first.
+
+    Grid overviews live under ``grids/<grid>/<task>/``; older experiments keep
+    ``overview-image-*.tif`` at the root. Fluorescence overviews
+    (``*.ome.tiff``) are not included.
+
+    Oldest first by modification time, then by name so that files copied with
+    the same time still come out in a fixed order. The last is the most recent.
+    """
+    root = Path(root)
+    found = list(root.glob("overview*.tif")) + list(
+        root.glob("grids/*/*/overview*.tif")
+    )
+    return sorted(found, key=lambda p: (p.stat().st_mtime, p.name))
+
+
 @evented
 @dataclass
 class Experiment:
@@ -2088,6 +2152,19 @@ class Experiment:
         named on the experiment (or the OS account when nobody was)."""
         user = self._declared_user() or FibsemUser.from_environment()
         return human_author(user.name)
+
+    def sign_verdict(self, item: Union["Lamella", GridRecord]) -> None:
+        """Name the operator on *item*'s verdict, when whatever set it could not.
+
+        A verdict set from a lamella's menu is written by a widget that has no
+        experiment to ask who is at the instrument; the code that saves the change
+        does, and calls this first. A verdict that already names someone -- an agent,
+        a review decision -- is left as it is, and so is one nobody has given.
+        """
+        record = getattr(item, "defect", None) or getattr(item, "quality", None)
+        if record is None or record.author or record.verdict is Verdict.UNASSESSED:
+            return
+        record.author = str(self.author())
 
     def decide(
         self, item_id: str, task_name: str, decision: Decision
@@ -3032,6 +3109,28 @@ class Experiment:
 
         return updated_count
 
+    def remove_task(self, task_name: str) -> None:
+        """Remove a task from the experiment: from the protocol, from the
+        workflow, and from every lamella's config (FIB-1109).
+
+        All three together, so the workflow never lists a task the protocol no
+        longer has, and no lamella runs a stale copy of one. A task that listed
+        it as a requirement no longer does. Task history is left alone: it is
+        the record of what ran.
+        """
+        self.task_protocol.task_config.pop(task_name, None)
+
+        workflow = self.task_protocol.workflow_config
+        workflow.tasks = [t for t in workflow.tasks if t.name != task_name]
+        for task in workflow.tasks:
+            if task_name in task.requires:
+                task.requires = [r for r in task.requires if r != task_name]
+
+        for lamella in self.positions:
+            lamella.task_config.pop(task_name, None)
+
+        logging.info(f"Removed task {task_name} from experiment {self.name}")
+
     def at_failure(self) -> List[Lamella]:
         """Return a list of lamellas that have failed"""
         return [lamella for lamella in self.positions if lamella.is_failure]
@@ -3156,7 +3255,47 @@ class Experiment:
         # exists, so in a real run this always writes. A caller driving an
         # in-memory experiment is not asking this method to give it a directory.
         if os.path.exists(os.path.join(self.path, "experiment.yaml")):
+            self._snapshot_configuration(microscope)
             self.save()
+
+    CONFIGURATION_FILENAME = "configuration.yaml"
+
+    def _snapshot_configuration(self, microscope: "FibsemMicroscope") -> None:
+        """Copy the microscope configuration this session runs with into the experiment.
+
+        The experiment already keeps its own copy of the protocol (`protocol.yaml`)
+        and records which instrument and software ran it (`session`). What it did not
+        keep was the configuration: the calibration (holder slots, objective limits,
+        pre-tilt) and the defaults in effect. Those get edited -- a holder is
+        recalibrated, a limit changed -- and afterwards nothing could say what an
+        earlier run used. A copy, not a reference, for that reason.
+
+        The live record rather than the file on disk: `microscope.system` is what the
+        session actually ran with, including anything applied after loading. A later
+        session overwrites it, so it is the configuration of the latest session --
+        the same rule `session` follows. An unchanged configuration writes nothing.
+
+        Never fails registration: a copy that could not be written is logged.
+        """
+        from fibsem.structures import CONFIGURATION_VERSION
+        from fibsem.utils import _plain, _write_configuration_file, load_yaml
+
+        path = os.path.join(self.path, self.CONFIGURATION_FILENAME)
+        try:
+            snapshot = _plain(
+                {"version": CONFIGURATION_VERSION, **microscope.system.to_dict()}
+            )
+            if os.path.exists(path):
+                try:
+                    if load_yaml(path) == snapshot:
+                        return
+                except Exception:
+                    pass  # unreadable: overwrite it
+            _write_configuration_file(path, snapshot)
+        except Exception as e:
+            logging.warning(
+                f"Could not copy the microscope configuration into {path}: {e}"
+            )
 
     def _declared_user(self) -> Optional[FibsemUser]:
         """The operator named when the experiment was created, if anyone was.

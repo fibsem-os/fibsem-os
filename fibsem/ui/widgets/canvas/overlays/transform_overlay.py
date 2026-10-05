@@ -1,9 +1,11 @@
-"""A body on the canvas you can drag and turn: the gesture, without the body.
+"""A body on the canvas you can drag, turn and scale: the gesture, without the body.
 
 Two things on the Overview tab want placing by hand against the picture underneath:
 the grid's bars (FIB-608) and, later, a fluorescence overview (FIB-1030). The body is
 different, the gesture is the same -- press inside it and drag to move, take the handle
-and drag to rotate -- so the gesture lives here once and the body is a subclass.
+and drag to rotate -- so the gesture lives here once and the body is a subclass. A body
+that names its corners can be scaled from them too; one whose size is known (the bars'
+spacing is in metres) names none, and has no corners to take.
 
 The body is described in its *own* frame, and drawn through a linear map onto the
 canvas: a rotation, and then a squash along canvas y. The squash is the view's, not
@@ -43,6 +45,9 @@ HANDLE_DISTANCE_PX = 60.0
 HANDLE_RADIUS_PX = 9.0
 # A press has to travel this far on screen before it is a move rather than a click.
 MOVE_DRAG_THRESHOLD_PX = 4.0
+# A corner dragged inwards stops this far from the centre on screen, so the body
+# cannot shrink past being taken hold of again, or turn inside out through its centre.
+MIN_CORNER_REACH_PX = 20.0
 
 _HANDLE_COLOUR = "#4dd0e1"
 
@@ -57,6 +62,10 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
 
     moved = pyqtSignal(float, float)  # the body's new centre, canvas coordinates
     rotated = pyqtSignal(float)  # the body's new rotation, degrees, clockwise on screen
+    # How many times its present size the body should be, about its centre. Measured
+    # against the corner where it is drawn now, so a host that re-places on each
+    # emission (as the move and turn already need) keeps the corner under the pointer.
+    scaled = pyqtSignal(float)
     # A move or rotate gesture has ended. For work a host wants to do once, at the end,
     # rather than on every motion event -- anything that repaints the whole canvas
     # belongs here, because during the drag the body is blitted over a held background
@@ -89,6 +98,9 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         # A press on the handle: (angle at press, rotation at press).
         self._rotate_start: Optional[Tuple[float, float]] = None
         self._rotate_active: bool = False
+        # A press on a corner: its index in `_scale_corners`.
+        self._scale_start: Optional[int] = None
+        self._scale_active: bool = False
         self._cursor_set: bool = False
         self._handles_drawn: bool = False
         # The canvas without the body on it, captured once when a drag starts; see
@@ -112,6 +124,8 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         self._move_active = False
         self._rotate_start = None
         self._rotate_active = False
+        self._scale_start = None
+        self._scale_active = False
         self._blit_bg = None
         if self._canvas is not None:
             for cid in self._cids:
@@ -185,8 +199,8 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
 
     @property
     def is_dragging(self) -> bool:
-        """True while a move or a rotate is in flight."""
-        return self._move_active or self._rotate_active
+        """True while a move, a rotate or a scale is in flight."""
+        return self._move_active or self._rotate_active or self._scale_active
 
     def is_editable(self) -> bool:
         """Whether this overlay owns input: the canvas has made it the active one.
@@ -264,6 +278,13 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
     def _body_contains(self, x: float, y: float) -> bool:
         """Whether a canvas point is inside the body. The whole canvas by default."""
         return True
+
+    def _scale_corners(self) -> List[Tuple[float, float]]:
+        """The body's corners in its own frame, each a handle that scales it.
+
+        None by default: a body whose size is known is not the user's to scale.
+        """
+        return []
 
     # ── drawing ───────────────────────────────────────────────────────────
 
@@ -418,6 +439,20 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
             animated=animated,
         )
         artists.append(knob)
+        corners = [self.to_canvas(u, v) for u, v in self._scale_corners()]
+        if corners:
+            xs, ys = zip(*corners)
+            (grips,) = self._ax.plot(
+                xs,
+                ys,
+                marker="s",
+                markersize=2 * HANDLE_RADIUS_PX * 0.7 * points,
+                color=_HANDLE_COLOUR,
+                linestyle="none",
+                zorder=31,
+                animated=animated,
+            )
+            artists.append(grips)
         return artists
 
     # ── blitting, as the tile grid does it ────────────────────────────────
@@ -482,6 +517,18 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         radius = HANDLE_RADIUS_PX / per_unit
         return math.hypot(x - handle[0], y - handle[1]) <= radius
 
+    def _corner_at(self, x: float, y: float) -> Optional[int]:
+        """The index of the corner handle under a canvas point, if there is one."""
+        per_unit = self._pixels_per_unit()
+        if per_unit <= 0:
+            return None
+        radius = HANDLE_RADIUS_PX / per_unit
+        for index, (u, v) in enumerate(self._scale_corners()):
+            cx, cy = self.to_canvas(u, v)
+            if math.hypot(x - cx, y - cy) <= radius:
+                return index
+        return None
+
     def _angle_at(self, x: float, y: float) -> float:
         """The pointer's angle about the centre, in the body's unsquashed frame."""
         cx, cy = self._centre
@@ -505,6 +552,11 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
             )
             self._claim()
             return
+        corner = self._corner_at(event.xdata, event.ydata)
+        if corner is not None:
+            self._scale_start = corner
+            self._claim()
+            return
         if not self._body_contains(event.xdata, event.ydata):
             return
         self._move_start = (
@@ -520,6 +572,9 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
     def _on_motion(self, event) -> None:
         if self._rotate_start is not None:
             self._drag_rotate(event)
+            return
+        if self._scale_start is not None:
+            self._drag_scale(event)
             return
         if self._move_start is not None:
             self._drag_move(event)
@@ -550,12 +605,37 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         delta = (delta + 180.0) % 360.0 - 180.0
         self.rotated.emit(rotation0 + delta)
 
+    def _drag_scale(self, event) -> None:
+        if event.inaxes is not self._ax or event.xdata is None or event.ydata is None:
+            return
+        corners = self._scale_corners()
+        if self._centre is None or self._scale_start >= len(corners):
+            return
+        cu, cv = corners[self._scale_start]
+        reach = math.hypot(cu, cv)
+        per_unit = self._pixels_per_unit()
+        if reach == 0 or per_unit <= 0:
+            return
+        # The pointer read in the body's own frame, along the corner's diagonal: the
+        # size follows how far out the pointer is, and a sideways wander changes
+        # nothing. Uniform, because a similarity has one scale.
+        u, v = self.from_canvas(event.xdata, event.ydata)
+        factor = (u * cu + v * cv) / (reach * reach)
+        floor = MIN_CORNER_REACH_PX / (reach * per_unit)
+        # Never below the floor, but a body already smaller than it is not grown by
+        # taking hold of a corner.
+        factor = max(factor, min(1.0, floor))
+        self._scale_active = True
+        self.scaled.emit(factor)
+
     def _on_release(self, event) -> None:
-        was_dragged = self._move_active or self._rotate_active
+        was_dragged = self._move_active or self._rotate_active or self._scale_active
         self._move_start = None
         self._move_active = False
         self._rotate_start = None
         self._rotate_active = False
+        self._scale_start = None
+        self._scale_active = False
         # Before anything below can redraw: `_end_blit` reads `is_dragging`, and it is
         # that transition it exists to catch.
         self._end_blit()
@@ -574,8 +654,11 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
             and event.inaxes is self._ax
             and event.xdata is not None
         ):
+            corner = self._corner_at(event.xdata, event.ydata)
             if self._near_handle(event.xdata, event.ydata):
                 cursor = Qt.CrossCursor
+            elif corner is not None:
+                cursor = self._corner_cursor(corner)
             elif self._body_contains(event.xdata, event.ydata):
                 cursor = Qt.SizeAllCursor
         if cursor is not None:
@@ -584,3 +667,17 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         elif self._cursor_set:
             self._canvas.unsetCursor()
             self._cursor_set = False
+
+    def _corner_cursor(self, index: int):
+        """The diagonal resize cursor that points the way the corner lies on screen."""
+        u, v = self._scale_corners()[index]
+        try:
+            (x0, y0), (x1, y1) = self._ax.transData.transform(
+                [self._centre, self.to_canvas(u, v)]
+            )
+        except Exception as e:
+            logger.debug(f"Could not orient the cursor: {e}")
+            return Qt.SizeFDiagCursor
+        # Display y runs up: a corner up and to the left of the centre, or down and
+        # to the right, lies on the diagonal Qt's forward cursor points along.
+        return Qt.SizeFDiagCursor if (x1 - x0) * (y1 - y0) < 0 else Qt.SizeBDiagCursor

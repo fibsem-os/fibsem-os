@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional, Sequence
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -61,7 +61,9 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         milling_fov_layout.setContentsMargins(0, 0, 0, 0)
 
         self.label_milling_fov = QLabel("Field of View")
-        self.label_milling_fov.setToolTip("Field of view for all milling tasks (in microns)")
+        self.label_milling_fov.setToolTip(
+            "Field of view for all milling tasks (in microns)"
+        )
 
         self.spinbox_milling_fov = ValueSpinBox()
         self.spinbox_milling_fov.setRange(0.001, 10000)
@@ -69,13 +71,17 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         self.spinbox_milling_fov.setSingleStep(5.0)
         self.spinbox_milling_fov.setValue(150.0)
         self.spinbox_milling_fov.setSuffix(" μm")
-        self.spinbox_milling_fov.setToolTip("Field of view for all milling tasks (in microns)")
+        self.spinbox_milling_fov.setToolTip(
+            "Field of view for all milling tasks (in microns)"
+        )
         self.spinbox_milling_fov.setKeyboardTracking(False)
 
         milling_fov_layout.addWidget(self.label_milling_fov, 0, 0)
         milling_fov_layout.addWidget(self.spinbox_milling_fov, 0, 1)
 
-        self.milling_fov_group = TitledPanel("Milling", content=milling_content, collapsible=False)
+        self.milling_fov_group = TitledPanel(
+            "Milling", content=milling_content, collapsible=False
+        )
 
         # Task selection panel
         task_content = QWidget()
@@ -111,7 +117,9 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         tasks_buttons_layout.addWidget(self.pushButton_deselect_all)
         task_selection_layout.addLayout(tasks_buttons_layout)
 
-        self.task_selection_group = TitledPanel("Apply Changes To", content=task_content, collapsible=False)
+        self.task_selection_group = TitledPanel(
+            "Apply Changes To", content=task_content, collapsible=False
+        )
 
         # Info label
         self.label_info = QLabel()
@@ -119,7 +127,9 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         self.label_info.setWordWrap(True)
 
         # Checkbox for updating existing lamella configurations
-        self.checkbox_update_existing = QCheckBox("Also update existing lamella configurations")
+        self.checkbox_update_existing = QCheckBox(
+            "Also update existing lamella configurations"
+        )
         self.checkbox_update_existing.setToolTip(
             "When enabled, applies these settings to existing lamella positions that have already been created. "
             "This will update the task configurations for all positions in the experiment."
@@ -143,7 +153,9 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         self.pushButton_apply.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_apply.setAutoDefault(False)  # Prevent Enter key from triggering
         self.pushButton_cancel = QPushButton("Cancel")
-        self.pushButton_cancel.setAutoDefault(False)  # Prevent Enter key from triggering
+        self.pushButton_cancel.setAutoDefault(
+            False
+        )  # Prevent Enter key from triggering
 
         self.button_box.addButton(self.pushButton_apply, QDialogButtonBox.AcceptRole)
         self.button_box.addButton(self.pushButton_cancel, QDialogButtonBox.RejectRole)
@@ -204,11 +216,15 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         for task_config in self.experiment.task_protocol.task_config.values():
             if task_config.milling:
                 # Set reference imaging parameters
-                self.ref_image_params_widget.update_from_settings(task_config.reference_imaging)
+                self.ref_image_params_widget.update_from_settings(
+                    task_config.reference_imaging
+                )
 
                 # Set milling FoV from first milling task
                 first_milling_key = list(task_config.milling.keys())[0]
-                milling_fov_um = task_config.milling[first_milling_key].field_of_view * SI_TO_MICRO
+                milling_fov_um = (
+                    task_config.milling[first_milling_key].field_of_view * SI_TO_MICRO
+                )
                 self.spinbox_milling_fov.setValue(milling_fov_um)
                 initialized = True
                 break
@@ -216,7 +232,9 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         # Fallback: if no milling tasks, just use first task for reference imaging
         if not initialized and self.experiment.task_protocol.task_config:
             first_task = next(iter(self.experiment.task_protocol.task_config.values()))
-            self.ref_image_params_widget.update_from_settings(first_task.reference_imaging)
+            self.ref_image_params_widget.update_from_settings(
+                first_task.reference_imaging
+            )
 
     def _on_settings_changed(self, settings: ReferenceImageParameters):
         """Handle changes to reference imaging settings."""
@@ -261,7 +279,9 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         info_parts = []
 
         if not selected_tasks:
-            self.label_info.setText("No tasks selected - please select at least one task")
+            self.label_info.setText(
+                "No tasks selected - please select at least one task"
+            )
             self.label_info.setStyleSheet("color: orange; font-style: italic;")
             self.pushButton_apply.setEnabled(False)
             return
@@ -274,20 +294,28 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
 
         # Milling FoV info (applies only to selected tasks with milling)
         if selected_tasks_with_milling:
-            milling_task_list = ", ".join(f"'{name}'" for name in selected_tasks_with_milling)
+            milling_task_list = ", ".join(
+                f"'{name}'" for name in selected_tasks_with_milling
+            )
             info_parts.append(
                 f"Milling FoV will be updated for {len(selected_tasks_with_milling)} task(s) with milling: {milling_task_list}"
             )
         else:
-            info_parts.append("No selected tasks have milling configurations - only reference imaging will be updated.")
+            info_parts.append(
+                "No selected tasks have milling configurations - only reference imaging will be updated."
+            )
 
         # Combine messages
         self.label_info.setText("\n".join(info_parts))
         self.label_info.setStyleSheet("color: gray; font-style: italic;")
         self.pushButton_apply.setEnabled(True)
 
-    def apply_changes(self):
-        """Apply the changes to selected milling task configs."""
+    def apply_changes(self, lamellae: Sequence[Any] = ()) -> int:
+        """Set the reference imaging and milling field of view on the selected
+        tasks: the protocol's, and those of each of *lamellae* that has the
+        task. Only these two settings: a lamella keeps everything else it was
+        tuned to (FIB-1071). Returns how many of the protocol's selected tasks
+        have milling."""
         # Get selected tasks
         selected_tasks = self.get_selected_tasks()
 
@@ -297,7 +325,9 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
 
         # Get the new values
         new_ref_imaging = self.ref_image_params_widget.get_settings()
-        new_milling_fov = self.spinbox_milling_fov.value() * MICRO_TO_SI  # Convert to SI units
+        new_milling_fov = (
+            self.spinbox_milling_fov.value() * MICRO_TO_SI
+        )  # Convert to SI units
 
         # Apply to selected task configs
         updated_count = 0
@@ -305,16 +335,12 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
             task_config = self.experiment.task_protocol.task_config.get(task_name)
             if not task_config:
                 continue
-
-            # Update reference imaging for selected tasks
-            task_config.reference_imaging = copy.deepcopy(new_ref_imaging)
-
-            # Update milling FoV if task has milling
-            if task_config.milling:
-                for milling_config in task_config.milling.values():
-                    milling_config.field_of_view = new_milling_fov
+            if _set_imaging(task_config, new_ref_imaging, new_milling_fov):
                 updated_count += 1
-
+            for lamella in lamellae:
+                lamella_config = lamella.task_config.get(task_name)
+                if lamella_config is not None:
+                    _set_imaging(lamella_config, new_ref_imaging, new_milling_fov)
 
         return updated_count
 
@@ -326,3 +352,14 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
             event.ignore()
         else:
             super().keyPressEvent(event)
+
+
+def _set_imaging(
+    task_config: Any, reference_imaging: ReferenceImageParameters, milling_fov: float
+) -> bool:
+    """Set a task's reference imaging, and each milling config's field of view;
+    whether it has milling."""
+    task_config.reference_imaging = copy.deepcopy(reference_imaging)
+    for milling_config in (task_config.milling or {}).values():
+        milling_config.field_of_view = milling_fov
+    return bool(task_config.milling)

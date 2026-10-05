@@ -275,6 +275,48 @@ def test_a_task_that_has_finished_still_says_which_task_it_was(tmp_path, microsc
     assert record["actor"] == "task"
 
 
+def test_how_a_run_ends_is_the_task_s_and_its_start_is_whoever_started_it(
+    tmp_path, microscope
+):
+    """Workflow events name no task and fire outside any task's mark. The
+    ending is the run's own, so the task's (FIB-1079); the start is whoever
+    started the run: here the operator (unmarked, in the app), and the agent
+    through the server."""
+    from fibsem.acting import AGENT, OPERATOR, acting
+    from fibsem.hooks import HookContext, HookEvent, HookManager
+
+    recorder = EventRecorder(
+        microscope, experiment_path=tmp_path, default_actor=OPERATOR
+    )
+    manager = HookManager()
+    manager.register(recorder.lifecycle_hook)
+    ends = (
+        HookEvent.WORKFLOW_COMPLETED,
+        HookEvent.WORKFLOW_CANCELLED,
+        HookEvent.WORKFLOW_STALLED,
+        HookEvent.EXPERIMENT_COMPLETED,
+    )
+    try:
+        manager.fire(HookContext(event=HookEvent.WORKFLOW_STARTED.value))
+        for event in ends:
+            manager.fire(HookContext(event=event.value))
+        with acting(AGENT):  # a run the agent started, and stopped
+            manager.fire(HookContext(event=HookEvent.WORKFLOW_STARTED.value))
+            manager.fire(HookContext(event=HookEvent.WORKFLOW_CANCELLED.value))
+    finally:
+        recorder.close()
+    actors = [(r["kind"], r["actor"]) for r in _written(tmp_path / EVENTS_FILENAME)]
+    assert actors == [
+        ("workflow_started", "operator"),
+        ("workflow_completed", "task"),
+        ("workflow_cancelled", "task"),
+        ("workflow_stalled", "task"),
+        ("experiment_completed", "task"),
+        ("workflow_started", "agent"),
+        ("workflow_cancelled", "task"),
+    ]
+
+
 def test_a_thread_s_mark_says_who_acted_and_unmarked_is_the_default(
     tmp_path, microscope
 ):

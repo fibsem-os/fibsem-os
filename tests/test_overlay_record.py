@@ -51,6 +51,31 @@ class TestTheRecordRoundTrips:
             record.scale,
         )
 
+    def test_an_image_record_keeps_how_it_is_shown(self):
+        display = {
+            "opacity": 0.4,
+            "signal_only": False,
+            "channels": [
+                {
+                    "name": "GFP",
+                    "color": "magenta",
+                    "visible": True,
+                    "opacity": 1.0,
+                    "gamma": 0.8,
+                    "autocontrast": False,
+                    "clim": [10.0, 3000.0],
+                }
+            ],
+        }
+        record = OverlayRecord(kind="image", source="fm.ome.tiff", display=display)
+        back = OverlayRecord.from_dict(yaml.safe_load(yaml.safe_dump(record.to_dict())))
+        assert back.display == display
+
+    def test_an_image_record_from_before_the_display_loads_as_loaded(self):
+        data = OverlayRecord(kind="image", source="fm.ome.tiff").to_dict()
+        del data["display"]
+        assert OverlayRecord.from_dict(data).display == {}
+
     def test_a_grid_saved_before_the_field_existed_still_loads(self):
         legacy = GridRecord(name="grid-oak").to_dict()
         del legacy["overlays"]
@@ -108,8 +133,22 @@ class TestTheExperimentCarriesIt:
         assert all(
             type(v) is float
             for v in yaml.safe_load(text).values()
-            if v is not None and not isinstance(v, (str, dict))
+            if v is not None and not isinstance(v, (str, dict, bool))
         )
+
+    def test_numpy_values_anywhere_in_the_display_still_write(self):
+        record = OverlayRecord(
+            kind="image",
+            display={
+                "opacity": np.float64(0.5),
+                "channels": [{"clim": np.array([1.0, 2.0]), "gamma": np.float32(0.5)}],
+            },
+            fit={"residuals": [np.float64(0.1)]},
+        )
+        text = yaml.safe_dump(record.to_dict())
+        loaded = yaml.safe_load(text)
+        assert loaded["display"]["channels"][0]["clim"] == [1.0, 2.0]
+        assert loaded["fit"]["residuals"] == [pytest.approx(0.1)]
 
     def test_a_save_that_cannot_be_written_leaves_the_file_intact(self, tmp_path):
         experiment = Experiment(path=tmp_path, name="overlay-record-test")
@@ -127,3 +166,15 @@ class TestTheExperimentCarriesIt:
 
         with open(path) as f:
             assert f.read() == before
+
+
+class TestAMirroredImageIsKeptMirrored:
+    def test_the_mirror_survives_the_dict_form(self):
+        record = OverlayRecord(kind="image", source="fm.ome.tiff", mirrored=True)
+        back = OverlayRecord.from_dict(yaml.safe_load(yaml.safe_dump(record.to_dict())))
+        assert back.mirrored is True
+
+    def test_a_record_from_before_the_mirror_is_not_mirrored(self):
+        data = OverlayRecord(kind="image", source="fm.ome.tiff").to_dict()
+        del data["mirrored"]
+        assert OverlayRecord.from_dict(data).mirrored is False

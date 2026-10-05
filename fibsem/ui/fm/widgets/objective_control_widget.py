@@ -724,6 +724,49 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_focus_position.setValue(current_position_um)
         self.fm.objective.focus_position = self.fm.objective.position
 
+    def save_calibration(self) -> None:
+        """Write the objective's focus position and insertion limit to the configuration.
+
+        Session-only until pressed: moving a spin box moves the objective and nothing
+        else, so a nudge to focus cannot rewrite a safety limit. Pressing this is
+        the calibration action, and the configuration file is the only thing it
+        writes.
+        """
+        if self.microscope is None:
+            notification_service.show_toast(
+                "No microscope to save the calibration for.", "warning"
+            )
+            return
+        path = getattr(self.microscope, "configuration_path", None)
+        if not path:
+            notification_service.show_toast(
+                "This session was not started from a configuration file, so there is "
+                "nowhere to save the calibration.",
+                "warning",
+            )
+            return
+        from fibsem import utils
+
+        fm = self.microscope.system.fm
+        fm.focus_position = self.fm.objective.focus_position
+        fm.limit_position = self.fm.objective.limit_position
+        try:
+            utils.write_objective_calibration(
+                path, fm.focus_position, fm.limit_position
+            )
+        except Exception as e:
+            logging.error(f"Could not save the objective calibration: {e}")
+            notification_service.show_toast(
+                f"Could not save the objective calibration: {e}", "error"
+            )
+            return
+        logging.info(
+            f"Objective calibration saved to {path}: focus "
+            f"{(fm.focus_position or 0) * METRE_TO_MICRON:.1f} µm, limit "
+            f"{(fm.limit_position or 0) * METRE_TO_MICRON:.1f} µm"
+        )
+        notification_service.show_toast("Objective calibration saved.", "info")
+
     def _set_focus_position(self, position: float):
         """Set the focus position programmatically.
         Args:

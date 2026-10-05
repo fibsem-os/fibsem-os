@@ -7,6 +7,7 @@ what it refuses to evaluate, how it finds an image in a copied experiment,
 what it does when a later image overwrote an earlier one.
 """
 
+import math
 from datetime import datetime, timedelta
 
 import pytest
@@ -19,6 +20,7 @@ from fibsem.applications.autolamella.tools.replay import (
     EventKind,
     load_replay,
     parse_record,
+    proposal_marks,
     read_log_records,
 )
 from fibsem.milling.base import FibsemMillingStage
@@ -332,6 +334,7 @@ def test_a_prompt_answer_says_who_answered(tmp_path):
         "answered_by": "agent",
         "adjusted": True,
     }
+    assert event.actor == "agent"  # the log's one record of who acted
 
 
 def test_a_grid_workflow_item_is_a_grid(tmp_path):
@@ -553,7 +556,10 @@ def test_a_cancelled_spot_burn_replays_only_the_points_it_reached(tmp_path):
     }
     _write_events(
         tmp_path,
-        _record("2026-09-21T14:00:00.000+10:00", "spot_burn_started", start),
+        dict(
+            _record("2026-09-21T14:00:00.000+10:00", "spot_burn_started", start),
+            actor="operator",
+        ),
         _record(
             "2026-09-21T14:00:12.000+10:00",
             "spot_burn_progress",
@@ -569,6 +575,7 @@ def test_a_cancelled_spot_burn_replays_only_the_points_it_reached(tmp_path):
     assert [e.data["spot"] for e in spots] == [(0.1, 0.5), (0.5, 0.5)]
     assert spots[1].time - spots[0].time == timedelta(seconds=10)
     assert all(e.data["field_of_view"] == 1e-4 for e in spots)
+    assert all(e.actor == "operator" for e in spots)  # who started the burn
 
 
 def test_a_prompt_is_replayed_from_when_it_was_asked(tmp_path):
@@ -587,7 +594,7 @@ def test_a_prompt_is_replayed_from_when_it_was_asked(tmp_path):
     )
     asked, answered = load_replay(tmp_path).events
     assert asked.summary == "PickPOI asked: Pick the point of interest"
-    assert answered.summary == "PickPOI answered Yes by the operator"
+    assert (answered.summary, answered.actor) == ("PickPOI answered Yes", "operator")
     assert answered.time - asked.time == timedelta(minutes=2)
 
 
@@ -802,18 +809,27 @@ def test_a_recorded_fm_image_is_placed_when_it_started_and_where_its_record_says
     unrecorded = _fm_file(tmp_path / "01-test" / "saved-by-hand.ome.tiff")
     _write_events(
         tmp_path,
-        _record(
-            _at(30),
-            "fm_image_acquired",
-            {
-                "path": "D:\\old-name\\01-test\\zstack.ome.tiff",
-                "acquired_at": "2026-09-21T14:00:10",
-                "channels": [{"name": "GFP"}],
-                "z_positions": [0.0, 1e-6],
-                "stage_position": {"x": 0.0, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.0},
-            },
-            item="01-test",
-            task="Acquire FM",
+        dict(
+            _record(
+                _at(30),
+                "fm_image_acquired",
+                {
+                    "path": "D:\\old-name\\01-test\\zstack.ome.tiff",
+                    "acquired_at": "2026-09-21T14:00:10",
+                    "channels": [{"name": "GFP"}],
+                    "z_positions": [0.0, 1e-6],
+                    "stage_position": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "r": 0.0,
+                        "t": 0.0,
+                    },
+                },
+                item="01-test",
+                task="Acquire FM",
+            ),
+            actor="task",
         ),
     )
     replay = load_replay(tmp_path)
@@ -826,6 +842,9 @@ def test_a_recorded_fm_image_is_placed_when_it_started_and_where_its_record_says
     assert from_record.time == datetime(2026, 9, 21, 14, 0, 10)  # when it started
     assert (from_record.item, from_record.task) == ("01-test", "Acquire FM")
     assert from_record.summary == "FM z-stack, 2 planes, GFP — zstack.ome.tiff"
+    assert from_record.actor == "task"
+    (from_disk,) = [e for e in fm if e.image_path == unrecorded]
+    assert from_disk.actor is None  # nothing recorded who saved it
 
 
 def test_an_fm_file_written_twice_shows_only_for_its_last_write(tmp_path):
@@ -957,11 +976,13 @@ def test_an_edit_says_what_changed_who_made_it_and_from_where(tmp_path):
         " stages.0.pattern.passes (none) → 2,"
         " acquisition.imaging.path /data/an-experiment/02-bear"
         " → …9-22/an-experiment/01-solid-cow"
-        " — by the operator (apply to other lamellae)",
+        " (apply to other lamellae)",
         "protocol.parameters.sync_to_poi: True → False (protocol editor)",
         "parameters.coordinates: 0.y 0.2 → 0.25, 1 (none) → {'x': 0.3, 'y': 0.4},"
-        " 2 (none) → {'x': 0.5, 'y': 0.6}, 1 more — by the agent (agent patch)",
+        " 2 (none) → {'x': 0.5, 'y': 0.6}, 1 more (agent patch)",
     ]
+    # who made each is the row's author, not its text
+    assert [e.actor for e in edits] == ["operator", None, "agent"]
 
 
 def test_an_edit_leaves_out_rounding_and_names_a_config_added_or_removed(tmp_path):
@@ -1007,13 +1028,238 @@ def test_an_edit_leaves_out_rounding_and_names_a_config_added_or_removed(tmp_pat
     )
     assert [e.summary for e in load_replay(tmp_path).events] == [
         "protocol.milling.mill_rough: stages.0.pattern.depth 6.5e-07 → 1.3e-06"
-        " — by the operator (protocol editor)",
-        "protocol.milling.mill_rough: rounding only — by the operator (protocol editor)",
+        " (protocol editor)",
+        "protocol.milling.mill_rough: rounding only (protocol editor)",
         "protocol.milling.mill_rough: field_of_view 0.000100001 → 0.000100002"
-        " — by the operator (protocol editor)",
-        "task_config: added — by the operator (add task)",
-        "protocol.task_config: removed — by the operator (remove task)",
+        " (protocol editor)",
+        "task_config: added (add task)",
+        "protocol.task_config: removed (remove task)",
     ]
+
+
+def _proposal(t, event, actor, proposal, **payload):
+    """A question or a decision, as the recorder writes it: on lamella 01's
+    Setup, which need not be where the run is."""
+    record = _record(
+        _at(t),
+        event,
+        {
+            "item": {"id": "L1", "name": "01"},
+            "task": "Setup Lamella Position",
+            "proposal_id": proposal,
+            **payload,
+        },
+        item="02",
+        task="Rough Milling",
+    )
+    record["actor"] = actor
+    return record
+
+
+def test_a_decision_says_what_was_decided_by_whom_and_what_they_changed(tmp_path):
+    """A confirmation "as it stands" is one row, with the move the operator
+    made before it once the task fills that in. A point or a position moved is
+    a move in µm and degrees."""
+    here = {"x": 1e-3, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.2, "name": "p"}
+    moved = dict(here, x=1.002e-3, t=0.2 + math.radians(1.0))
+    poi = {"x": 0.0, "y": 0.0}
+    state = {"kind": "state", "proposed": {"stage_position": here}}
+    confirmed = {"outcome": "Confirmed", "author": "human:op", "via": "workflow"}
+    _write_events(
+        tmp_path,
+        _proposal(0, "proposal_asked", "task", "P1", **state, message="Tilt"),
+        _proposal(
+            1,
+            "proposal_decided",
+            "operator",
+            "P1",
+            **state,
+            **confirmed,
+            decision=0,
+            decided={},
+        ),
+        _proposal(
+            2,
+            "proposal_decided",
+            "operator",
+            "P1",
+            **state,
+            **confirmed,
+            decision=0,
+            decided={"stage_position": moved},
+            filled_in=True,
+        ),
+        _proposal(
+            3,
+            "proposal_decided",
+            "operator",
+            "P2",
+            kind="point_of_interest",
+            proposed={"poi": poi},
+            outcome="Confirmed",
+            author="human:op",
+            via="review",
+            decision=0,
+            decided={"poi": {"x": 2e-6, "y": -1e-6}},
+        ),
+        _proposal(
+            4,
+            "proposal_decided",
+            "agent",
+            "P3",
+            kind="point_of_interest",
+            proposed={"poi": poi},
+            outcome="Confirmed",
+            author="agent:m",
+            via="server",
+            decision=0,
+            decided={"poi": poi},
+        ),
+        _proposal(
+            5,
+            "proposal_decided",
+            "task",
+            "P4",
+            kind="point_of_interest",
+            proposed={"poi": poi},
+            outcome="Unreviewed",
+            author="auto:poi",
+            via="workflow",
+            reason="Rough Milling started",
+            decision=0,
+            decided={"poi": poi},
+        ),
+        _proposal(
+            6,
+            "proposal_decided",
+            "task",
+            "P5",
+            kind="state",
+            proposed={},
+            outcome="Withdrawn",
+            author="auto:workflow",
+            via="workflow",
+            reason="the run stopped",
+            decision=0,
+            decided={},
+        ),
+        _proposal(
+            7,
+            "proposal_decided",
+            "operator",
+            "P6",
+            kind="task_result",
+            proposed={},
+            outcome="Confirmed",
+            author="human:op",
+            via="review",
+            decision=1,
+            decided={},
+        ),
+    )
+    events = load_replay(tmp_path).events
+    assert [(e.kind, e.item, e.task) for e in events] == [
+        (EventKind.PROMPT, "01", "Setup Lamella Position")
+    ] + [(EventKind.DECISION, "01", "Setup Lamella Position")] * 6
+    assert [e.summary for e in events] == [
+        "Position asked: Tilt",
+        "Position confirmed: moved x +2.0 µm, t +1.0° (workflow)",
+        "Point of interest confirmed: moved x +2.0 µm, y -1.0 µm (review)",
+        "Point of interest confirmed, as proposed (server)",
+        "Point of interest used as proposed, unreviewed: Rough Milling started"
+        " (workflow)",
+        "Position withdrawn: the run stopped (workflow)",
+        "Result confirmed (review)",
+    ]
+    assert [e.actor for e in events] == [
+        "task",
+        "operator",
+        "operator",
+        "agent",
+        "task",
+        "task",
+        "operator",
+    ]
+    assert events[1].time == events[0].time + timedelta(seconds=1), (
+        "the row is when it was confirmed, not when the position was read"
+    )
+    assert events[1].data["filled_in"] is True
+
+
+def test_a_decision_is_shown_on_the_image_its_values_sit_on(tmp_path):
+    """Decided in the Review tab after another lamella's images were taken:
+    the scene shows the image the point was placed on, with both points."""
+    for name in ("ref_final_ib.tif", "ref_other_ib.tif"):
+        folder = tmp_path / ("01" if "final" in name else "02")
+        folder.mkdir(exist_ok=True)
+        (folder / name).write_bytes(b"")
+
+    def image(t, item, name):
+        path = f"D:\\data\\exp\\{item}\\{name}"
+        return _record(_at(t), "image_acquired", {"path": path, "beam_type": "ION"})
+
+    poi = {"kind": "point_of_interest", "proposed": {"poi": {"x": 0.0, "y": 0.0}}}
+    decided = {"outcome": "Confirmed", "author": "human:op", "via": "review"}
+    _write_events(
+        tmp_path,
+        image(0, "01", "ref_final_ib.tif"),
+        image(1, "02", "ref_other_ib.tif"),
+        _proposal(
+            2,
+            "proposal_decided",
+            "operator",
+            "P1",
+            **poi,
+            **decided,
+            decision=0,
+            image="ref_final_ib.tif",
+            decided={"poi": {"x": 2e-6, "y": -1e-6}},
+        ),
+        _proposal(
+            3,
+            "proposal_decided",
+            "operator",
+            "P2",
+            **poi,
+            **decided,
+            decision=0,
+            image="not_on_disk_ib.tif",
+            decided={},
+        ),
+    )
+    replay = load_replay(tmp_path)
+    first, other, on_disk, missing = range(4)
+
+    scene = replay.scene(on_disk)
+    assert scene.fib is replay.events[first], "the image the point sits on"
+    assert scene.proposal is replay.events[on_disk]
+    assert proposal_marks(scene.proposal.data) == (
+        "m",
+        [(0.0, 0.0)],
+        [(2e-6, -1e-6)],
+    )
+
+    scene = replay.scene(missing)
+    assert scene.fib is replay.events[other], "the latest, as for any row"
+    assert scene.proposal is None
+
+
+def test_the_marks_of_each_kind_of_value():
+    features = [{"name": "LamellaCentre", "px": {"x": 10.0, "y": 20.0}}]
+    moved = [{"name": "LamellaCentre", "px": {"x": 12.0, "y": 20.0}}]
+    assert proposal_marks(
+        {"proposed": {"features": features}, "decided": {"features": moved}}
+    ) == ("px", [(10.0, 20.0)], [(12.0, 20.0)])
+    assert proposal_marks({"proposed": {"poi": {"x": 1e-6, "y": 0.0}}}) == (
+        "m",
+        [(1e-6, 0.0)],
+        [],
+    )
+    area = {"left": 0.25, "top": 0.25, "width": 0.5, "height": 0.25}
+    assert proposal_marks(
+        {"proposed": {"alignment_area": area}, "decided": {"alignment_area": area}}
+    ) == ("rect", [(0.25, 0.25, 0.5, 0.25)], [(0.25, 0.25, 0.5, 0.25)])
+    assert proposal_marks({"proposed": {"stage_position": {"x": 0.0}}}) is None
 
 
 def test_a_correlation_says_where_it_put_the_point_and_how_well_it_fits(tmp_path):
@@ -1065,8 +1311,7 @@ def test_a_correlation_says_where_it_put_the_point_and_how_well_it_fits(tmp_path
     ]
     assert [e.summary for e in rows] == [
         "Correlation: point of interest x=6.0 µm, y=-4.9 µm — RMS 201 nm over 9"
-        " fiducials, good fit, refractive index ×1.30 before the fit"
-        " — by the operator",
+        " fiducials, good fit, refractive index ×1.30 before the fit",
         "Correlation: point of interest x=1.0 µm, y=2.0 µm — RMS 4.0 px over 6"
         " fiducials, unseeded, refractive index ×1.25 after the fit",
         "Correlation: point of interest x=? µm, y=? µm",

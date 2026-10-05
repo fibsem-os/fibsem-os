@@ -38,8 +38,7 @@ from superqt import ensure_main_thread
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
-    DefectState,
-    DefectType,
+    Verdict,
 )
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
@@ -69,24 +68,17 @@ def _lamella_status_text(lamella) -> tuple[str, str]:
 
 
 def _lamella_defect_icon(lamella) -> tuple[str, str, str]:
-    """Return (icon_name, icon_color, tooltip) for the defect indicator.
+    """Return (icon_name, icon_color, tooltip) for the verdict indicator.
 
     Gracefully handles objects without defect field.
     """
+    from fibsem.applications.autolamella.ui.lamella_list_widget import VERDICT_LOOK
+
     defect = getattr(lamella, "defect", None)
     if defect is None:
-        return "mdi:check-circle", stylesheets.GREEN_COLOR, "No defect"
-    if defect.state == DefectType.REWORK:
-        desc = f": {defect.description}" if defect.description else ""
-        return (
-            "mdi:refresh-circle",
-            stylesheets.DEFECT_ORANGE_COLOR,
-            f"Rework required{desc}",
-        )
-    if defect.state == DefectType.FAILURE:
-        desc = f": {defect.description}" if defect.description else ""
-        return "mdi:close-circle", stylesheets.DEFECT_RED_COLOR, f"Failure{desc}"
-    return "mdi:check-circle", stylesheets.GREEN_COLOR, "No defect"
+        return VERDICT_LOOK[Verdict.UNASSESSED]
+    icon, colour, text = VERDICT_LOOK[defect.verdict]
+    return icon, colour, f"{text}{': ' + defect.reason if defect.reason else ''}"
 
 
 class _LamellaRow(QWidget):
@@ -132,7 +124,8 @@ class _LamellaRow(QWidget):
             add_defect_menu,
         )
 
-        # Only drawn once there is a defect. Clicking it opens the defect menu.
+        # Only drawn once someone has judged the lamella. Clicking it opens the
+        # verdict menu.
         self.btn_defect = QToolButton()
         self.btn_defect.setFixedSize(_LAMELLA_BTN_SIZE)
         self.btn_defect.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
@@ -244,7 +237,7 @@ class _LamellaRow(QWidget):
         self.btn_defect.setVisible(
             self.defect_menu.menuAction().isVisible()
             and defect is not None
-            and defect.state != DefectType.NONE
+            and defect.verdict is not Verdict.UNASSESSED
         )
         # Moving to or re-recording a lamella whose grid is in the magazine would
         # act on whatever grid *is* on the stage: withheld, with the reason.

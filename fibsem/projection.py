@@ -306,7 +306,9 @@ class BeamStageProjection:
     def to_plane(
         self, position: FibsemStagePosition, base: FibsemStagePosition
     ) -> Tuple[float, float]:
-        position = self._compucentric_corrected(position, base)
+        position = self._compucentric_corrected(
+            position, base, self.geometry.rotation_centre
+        )
         delta = position - base
         dx = -delta.x if self.is_tescan else delta.x
         expected_y = self._expected_y(delta.y or 0.0, delta.z or 0.0, base)
@@ -355,7 +357,9 @@ class BeamStageProjection:
 
     @staticmethod
     def _compucentric_corrected(
-        position: FibsemStagePosition, base: FibsemStagePosition
+        position: FibsemStagePosition,
+        base: FibsemStagePosition,
+        rotation_centre: Optional[Tuple[float, float]] = None,
     ) -> FibsemStagePosition:
         """Flip a position recorded half a turn away from the view it is drawn on.
 
@@ -372,10 +376,10 @@ class BeamStageProjection:
 
         Deferred to `tiling.reprojection._transform_position` rather than reimplemented,
         so the two cannot drift: it is what the tab being replaced uses, and matching it
-        exactly is what makes the swap a swap. Note that it carries hardcoded
-        per-instrument calibration (a specimen offset to 15 decimal places, plus 50 um
-        and 25 um "compucentric rotation error" terms) — a pre-existing wart, tracked
-        separately, and deliberately not something this class quietly re-derives.
+        exactly is what makes the swap a swap. The half turn is centred on
+        ``rotation_centre``, which the caller takes from the geometry the image was
+        acquired under; None is the legacy ThermoFisher calibration it used to
+        hardcode (FIB-1081).
 
         Not applied in :meth:`from_plane`: a click resolves to a position *at the
         overview's own orientation*, which is what `project_stable_move` returns too.
@@ -387,7 +391,9 @@ class BeamStageProjection:
         dr = abs(np.rad2deg(base.r - position.r))
         if not np.isclose(dr, 180, atol=2):
             return position
-        return _transform_position(deepcopy(position))
+        if rotation_centre is None:
+            return _transform_position(deepcopy(position))
+        return _transform_position(deepcopy(position), rotation_centre)
 
     def _view_tilt(self) -> float:
         """How far this beam's axis is tilted from the electron column, in radians.

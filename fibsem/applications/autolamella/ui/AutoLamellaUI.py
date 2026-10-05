@@ -98,6 +98,9 @@ from fibsem.applications.autolamella.ui.autolamella_load_experiment_widget impor
 from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget import (
     load_task_protocol_dialog,
 )
+from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
+    create_overview_image_widget,
+)
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
 from fibsem.ui.fm.widgets import MinimapPlotWidget
@@ -127,13 +130,13 @@ warnings.filterwarnings(
     module=r"napari\.layers\.shapes\._shapes_utils",
 )
 
+# The PDF report needs the `reporting` extra (reportlab). The overview plot does not --
+# it is matplotlib and Qt -- so it is imported with the other dialogs above rather than
+# here, where a missing reportlab used to take it down too.
 REPORTING_AVAILABLE: bool = False
 try:
     from fibsem.applications.autolamella.ui.autolamella_generate_report_widget import (
         generate_report_dialog,
-    )
-    from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
-        create_overview_image_widget,
     )
 
     REPORTING_AVAILABLE = True
@@ -665,7 +668,7 @@ class AutoLamellaUI(QMainWindow):
         # getattr: the adoption tests drive this method on a stand-in window.
         recorder = getattr(self, "_event_recorder", None)
         if recorder is not None:
-            recorder.set_experiment(experiment.path)
+            recorder.set_experiment(experiment.path, experiment)
 
         # Setup experiment connections and update UI
         self._setup_experiment_connections()
@@ -723,6 +726,7 @@ class AutoLamellaUI(QMainWindow):
                 experiment_path=self.experiment.path if self.experiment else None,
                 # tasks and the agent mark their own calls; the rest are the UI's
                 default_actor=OPERATOR,
+                experiment=self.experiment,
             )
         except Exception:
             logging.exception("event stream failed to start; continuing without it")
@@ -732,6 +736,14 @@ class AutoLamellaUI(QMainWindow):
         if self._event_recorder is not None:
             self._event_recorder.close()
             self._event_recorder = None
+
+    def closeEvent(self, event) -> None:
+        """Closed on its own, as tests and scripts use it, the window closes its
+        recorder, whose writer thread would otherwise run until the process
+        ends. Embedded, it is never closed: the main window's closeEvent does
+        this instead."""
+        self._stop_event_recorder()
+        super().closeEvent(event)
 
     def _start_agent_server(self) -> None:
         """Host the agent server over this session, if the preference asks for it.
@@ -823,6 +835,11 @@ class AutoLamellaUI(QMainWindow):
                 parent=self,
             )
 
+            # The defaults' "Read from Acquire Tab" reads this tab.
+            self.system_widget.set_current_imaging(
+                self.image_widget._get_image_settings_from_ui
+            )
+
             # add widgets to tabs
             self.tabWidget.addTab(self.image_widget, "Image")
             self.tabWidget.addTab(self.movement_widget, "Movement")
@@ -873,17 +890,6 @@ class AutoLamellaUI(QMainWindow):
                 self.tabWidget.indexOf(self.spot_burn_widget), False
             )
 
-            try:
-                from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
-
-                if isinstance(self.microscope, OdemisThermoMicroscope):
-                    logging.info(
-                        "OdemisThermoMicroscope detected, enabling Odemis specific features."
-                    )
-
-            except Exception as e:
-                logging.debug(f"OdemisThermoMicroscope not available: {e}")
-
             self.image_widget.acquisition_progress_signal.connect(
                 self.handle_acquisition_update
             )
@@ -931,6 +937,7 @@ class AutoLamellaUI(QMainWindow):
                 )
                 self.image_widget.deleteLater()
                 self.image_widget = None
+                self.system_widget.set_current_imaging(None)
 
     def import_fm_configuration(self) -> None:
         """Load a fluorescence microscope configuration via the control widget."""
@@ -970,18 +977,20 @@ class AutoLamellaUI(QMainWindow):
         if self.experiment is None:
             return
 
+        if not REPORTING_AVAILABLE:
+            notification_service.show_toast(
+                "Reporting tools are not available. "
+                'Install the reporting extra: pip install "fibsem[reporting]"',
+                "warning",
+            )
+            return
+
         generate_report_dialog(self.experiment, parent=self)
         return
 
     def action_generate_overview_plot(self) -> None:
         """Generate an plot with the lamella position on an overview image."""
         if self.experiment is None:
-            return
-
-        if not REPORTING_AVAILABLE:
-            notification_service.show_toast(
-                "Reporting tools are not available.", "warning"
-            )
             return
 
         dialog = create_overview_image_widget(experiment=self.experiment, parent=self)
@@ -2068,14 +2077,11 @@ class AutoLamellaUI(QMainWindow):
         preferences = fibsem_cfg.load_user_preferences()
         manager = build_hook_manager(preferences.hooks)
 
-        # The event stream's lifecycle feed. Registered here, per run, because this
-        # manager is rebuilt each run — a once-at-startup registration would go
-        # silently deaf after the first workflow (the trap events.py documents).
-        # The agent server shares the recorder's hook; one of its own (a host
-        # started without a recorder) is registered as before, never both.
+        # The event stream's lifecycle feed is registered by the task manager for
+        # its run, the same path a run without the GUI takes (FIB-1044). The agent
+        # server shares the recorder's hook; one of its own (a host started
+        # without a recorder) is registered here, per run, as before.
         recorder = self._event_recorder
-        if recorder is not None:
-            manager.register(recorder.lifecycle_hook)
         host = self._agent_server_host
         if (
             host is not None
@@ -2267,27 +2273,6 @@ class AutoLamellaUI(QMainWindow):
 
         logging.info(f"Moving to position of {lamella.name}.")
         self.movement_widget.move_to_position(stage_position)
-
-    def _add_lamella_from_odemis(self):
-        if self.experiment is None:
-            return
-
-        filename = fui.open_existing_directory_dialog(
-            msg="Select Odemis Project Directory",
-            path=str(self.experiment.path),
-            parent=self,
-        )
-        if filename == "":
-            return
-
-        from fibsem.applications.autolamella.compat.odemis import (
-            _add_features_from_odemis,
-        )
-
-        stage_positions = _add_features_from_odemis(filename)
-
-        for pos in stage_positions:
-            self.add_new_lamella(pos)
 
     def _grid_id_for_new_lamella(
         self, position: Optional[FibsemStagePosition]

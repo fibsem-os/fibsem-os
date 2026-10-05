@@ -1,4 +1,5 @@
 import datetime
+import functools
 import glob
 import json
 import logging
@@ -7,7 +8,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
 
 import yaml
 from PIL import Image
@@ -424,6 +425,8 @@ def setup_session(
     ip_address: str = None,
     manufacturer: str = None,
     debug: bool = False,
+    apply_defaults: Optional[bool] = None,
+    beams_on: Optional[bool] = None,
 ) -> Tuple["FibsemMicroscope", "MicroscopeSettings"]:
     """Setup microscope session
 
@@ -431,6 +434,11 @@ def setup_session(
         session_path (Path): path to logging directory
         config_path (Path): path to config directory
         protocol_path (Path): path to protocol file
+        apply_defaults (bool, optional): set the columns to the configured defaults
+            once connected. None (the default) does what the configuration's
+            `defaults.apply_on_connect` says.
+        beams_on (bool, optional): turn the beams on once connected. None (the
+            default) does what `defaults.beams_on_at_connect` says.
 
     Returns:
         tuple: microscope, settings
@@ -485,7 +493,13 @@ def setup_session(
         microscope = OdemisThermoMicroscope(settings.system)
 
     elif manufacturer == manufacturers.DEMO:
-        from fibsem.microscopes.simulator import DemoMicroscope
+        if settings.system.sim.get("devices"):
+            # The Demo backend rebuilt from devices, while the migration grows it.
+            from fibsem.microscopes.device_demo import (
+                DeviceDemoMicroscope as DemoMicroscope,
+            )
+        else:
+            from fibsem.microscopes.simulator import DemoMicroscope
 
         microscope = DemoMicroscope(settings.system)
         microscope.connect_to_microscope(ip_address, port=7520)
@@ -493,12 +507,57 @@ def setup_session(
     else:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
 
+    # The planning stack estimates milling time without a microscope in scope, so
+    # the driver's model is installed for the session here, on connect.
+    from fibsem.milling.base import set_milling_time_estimator
+
+    set_milling_time_estimator(type(microscope).estimate_stage_milling_time)
+
     # set default image_settings path
     settings.image.path = session_path
+
+    # Remembered so a calibration action can write back to the file it came from.
+    microscope.configuration_path = str(
+        config_path if config_path is not None else cfg.DEFAULT_CONFIGURATION_PATH
+    )
+    # The stage was built during the connect, before the configuration was known,
+    # so the session state it restores from could not be found yet.
+    stage = getattr(microscope, "_stage", None)
+    if stage is not None:
+        stage.restore_occupancy()
+
+    # What connecting did beyond connecting, as the file (or the caller) asked:
+    # {"beams_on": worked, "defaults": worked}, for each one asked for. A failure
+    # does not fail the connection -- the microscope is connected, only a column was
+    # not set -- so it is recorded for the caller to report rather than raised.
+    if beams_on is None:
+        beams_on = settings.system.beams_on_at_connect
+    if apply_defaults is None:
+        apply_defaults = settings.system.apply_defaults_on_connect
+    microscope.connect_actions = {}
+    # The beams first, so the defaults are set on a live column.
+    if beams_on:
+        microscope.connect_actions["beams_on"] = _at_connect(
+            "turn the beams on", microscope.turn_beams_on
+        )
+    if apply_defaults:
+        microscope.connect_actions["defaults"] = _at_connect(
+            "apply the configured defaults", microscope.apply_defaults
+        )
 
     logging.info(f"Finished setup for session: {session}")
 
     return microscope, settings
+
+
+def _at_connect(what: str, action) -> bool:
+    """Run one of the things a configuration asks for at connect; whether it worked."""
+    try:
+        action()
+        return True
+    except Exception as e:
+        logging.error(f"Could not {what} at connect: {e}")
+        return False
 
 
 def load_microscope_configuration(
@@ -521,13 +580,300 @@ def load_microscope_configuration(
     # load config
     config = load_yaml(os.path.join(config_path))
 
+    report_unrecognised_configuration_keys(config, source=str(config_path))
+
     # load protocol
     protocol = load_protocol(protocol_path)
 
     # create settings
     settings = MicroscopeSettings.from_dict(config, protocol=protocol)
 
+    # The FM working state for this configuration: session state, read-only here
+    # (a script reads what the operator left; only the application writes it).
+    from fibsem.fm.config import load_fm_configuration
+    from fibsem.session_state import SessionState
+
+    settings.fm = load_fm_configuration(SessionState(config_path))
+
     return settings
+
+
+# Keys a configuration may carry that this version reads for migration and never
+# writes back. When a key moves house -- `stage.shuttle_pre_tilt` onto
+# the holder, the beam defaults into their own block -- the old spelling is still read
+# so existing files load, and is listed here so it is not reported as unrecognised.
+LEGACY_CONFIGURATION_KEYS: Set[str] = {
+    # `plasma: bool` was folded into `plasma_gas`: a column with a gas is a plasma
+    # column. Still read, so `plasma: false` in an old file wins over a stray gas.
+    "ion.plasma",
+}
+
+# Old block spellings that are still read. A key under one of these is legal if it
+# is legal under the block it moved to: `imaging.hfw` was the acquire tab's opening
+# state and now lives at `defaults.imaging.hfw`; `electron.voltage` was mixed in
+# with the column's hardware and now lives at `defaults.electron.voltage`. A mapping
+# of old home to new, not a second copy of the schema.
+LEGACY_CONFIGURATION_BLOCKS: Dict[str, Tuple[str, ...]] = {
+    "stage": ("hardware.stage", "calibration"),
+    "electron": ("hardware.electron", "defaults.electron"),
+    "ion": ("hardware.ion", "defaults.ion"),
+    "fm": ("hardware.fm",),
+    "imaging": ("defaults.imaging",),
+}
+
+# Blocks accepted wholesale. `sim:` is a plain dict the simulator reads with `.get()`
+# rather than a dataclass, and `protocol:` is the application's; policing either would
+# invent warnings every time a backend gains a key. `calibration.holders` is keyed by
+# holder name, so its keys are whatever a site called its shuttles.
+OPEN_CONFIGURATION_BLOCKS = ("sim", "protocol", "calibration.holders")
+
+# The sections, policed one level deeper: `hardware.electron` is a block of keys, and
+# a typo in it should be reported the way a typo in the old flat `electron:` is.
+SECTION_BLOCKS = ("hardware", "calibration", "defaults")
+
+
+@functools.lru_cache(maxsize=1)
+def written_configuration_keys() -> Set[str]:
+    """Every dotted path `MicroscopeSettings.to_dict` writes.
+
+    This *is* the schema. There is no hand-written table of known keys, because a
+    table is a second copy of what the writer does and the two drift: the first
+    attempt at one was written from the shipped YAML files and rejected 23 keys that
+    `to_dict` writes on every save. Derived from the writer, the set of keys that will
+    be saved back is by construction the set of keys that are saved back.
+
+    One level deep, blocks and their keys -- two for the `SECTION_BLOCKS`. A value
+    that is itself a dict below that (`stage.devices`) is accepted wholesale under
+    its key.
+    """
+    written = MicroscopeSettings.from_dict({}).to_dict()
+    keys: Set[str] = set()
+    for block, value in written.items():
+        keys.add(block)
+        if not isinstance(value, dict):
+            continue
+        for key, sub in value.items():
+            path = f"{block}.{key}"
+            keys.add(path)
+            if (
+                block in SECTION_BLOCKS
+                and isinstance(sub, dict)
+                and path not in OPEN_CONFIGURATION_BLOCKS
+            ):
+                keys.update(f"{path}.{k}" for k in sub)
+    return keys
+
+
+def unrecognised_configuration_keys(config: dict) -> List[str]:
+    """Dotted paths in *config* that this version will not write back.
+
+    A configuration may hold others -- one written before a key was removed, or
+    hand-edited with a guess -- and those are ignored, which is the contract that
+    lets old files keep working. But ignored *silently* is how
+    `imaging.imaging_current` came to be a setting a user could type, save, reload
+    and never see again: `ImageSettings` has no such field, so it was dropped on load
+    and nothing said so. One line at load is the difference between "my setting
+    vanished" and "my setting is not supported".
+    """
+    known = written_configuration_keys() | LEGACY_CONFIGURATION_KEYS
+
+    def is_known(path: str) -> bool:
+        if path in known:
+            return True
+        block, _, rest = path.partition(".")
+        return any(
+            (f"{alias}.{rest}" if rest else alias) in known
+            for alias in LEGACY_CONFIGURATION_BLOCKS.get(block, ())
+        )
+
+    unknown: List[str] = []
+    for block, value in (config or {}).items():
+        if block in OPEN_CONFIGURATION_BLOCKS:
+            continue
+        if not is_known(block):
+            unknown.append(block)
+            continue
+        if not isinstance(value, dict):
+            continue
+        for key, sub in value.items():
+            path = f"{block}.{key}"
+            if path in OPEN_CONFIGURATION_BLOCKS:
+                continue
+            if not is_known(path):
+                unknown.append(path)
+            elif block in SECTION_BLOCKS and isinstance(sub, dict):
+                unknown.extend(
+                    f"{path}.{k}" for k in sub if not is_known(f"{path}.{k}")
+                )
+    return sorted(unknown)
+
+
+def report_unrecognised_configuration_keys(config: dict, source: str = "") -> List[str]:
+    """Log the keys this version ignores, once, and return them."""
+    unknown = unrecognised_configuration_keys(config)
+    if unknown:
+        where = f" in {source}" if source else ""
+        logging.info(
+            f"Configuration{where} contains {len(unknown)} key(s) this version does "
+            f"not read and will not save back: {', '.join(unknown)}"
+        )
+    return unknown
+
+
+def _deep_update(target: dict, updates: dict) -> dict:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _deep_update(target[key], value)
+        else:
+            target[key] = value
+    return target
+
+
+def write_configuration(path: Union[str, Path], updates: dict) -> None:
+    """Write *updates* into the configuration file at *path*, and nothing else.
+
+    The file is read, the nested keys in *updates* are set (a dict merges into the
+    block it names; anything else replaces the value there), and it is written back.
+    The rest of the file -- including whatever a person wrote there by hand -- is
+    preserved at the parsed level. This is the one writer of the file from the
+    application: a calibration action writes `calibration.*`, the defaults panel
+    writes `defaults.*`, and neither can disturb the other's section.
+    """
+    config = load_yaml(os.path.join(path)) or {}
+    if "version" not in config:
+        _keep_the_file_as_it_was(path)
+    _deep_update(config, updates)
+    _retire_legacy_duplicates(config)
+    _write_configuration_file(path, config)
+
+
+def configuration_backup_path(path: Union[str, Path]) -> Path:
+    """Where a configuration written before the sections existed is kept."""
+    return Path(f"{path}.before-v1")
+
+
+def _keep_the_file_as_it_was(path: Union[str, Path]) -> None:
+    """Copy a file written before the sections existed, once, before it is changed.
+
+    The first write can move keys out of the old flat blocks (see
+    `_retire_legacy_duplicates`), and a version from before the sections cannot read
+    the result. The copy is what a site going back to that version restores. Made
+    once: a second write must not replace the original with a half-converted file.
+    """
+    backup = configuration_backup_path(path)
+    if backup.exists() or not os.path.exists(path):
+        return
+    import shutil
+
+    shutil.copy2(path, backup)
+    logging.info(
+        f"Kept a copy of {path} as {backup} before changing it; a version of "
+        "fibsem-os from before configuration v1 can read the copy."
+    )
+
+
+def _retire_legacy_duplicates(config: dict) -> None:
+    """Drop a key from an old flat block once its new home states it.
+
+    A file written before the sections existed keeps its flat blocks, and the
+    reader accepts them. Writing `defaults.electron.voltage` into such a file
+    would otherwise leave `electron.voltage` beside it -- two homes for one value,
+    the reader silently preferring the new one, and the warning suppressed by the
+    legacy alias. Here the old copy goes, and an emptied block goes with it.
+    """
+    for block, aliases in LEGACY_CONFIGURATION_BLOCKS.items():
+        old = config.get(block)
+        if not isinstance(old, dict):
+            continue
+        for alias in aliases:
+            new_home = config
+            for part in alias.split("."):
+                new_home = new_home.get(part) if isinstance(new_home, dict) else None
+                if new_home is None:
+                    break
+            if not isinstance(new_home, dict):
+                continue
+            for key in list(old):
+                if key in new_home:
+                    del old[key]
+        if not old:
+            del config[block]
+
+
+def write_objective_calibration(
+    path: Union[str, Path],
+    focus_position: Optional[float],
+    limit_position: Optional[float],
+) -> None:
+    """Record the objective's calibration in the configuration file at *path*."""
+    write_configuration(
+        path,
+        {
+            "calibration": {
+                "objective": {
+                    "focus_position": focus_position,
+                    "limit_position": limit_position,
+                }
+            }
+        },
+    )
+
+
+def write_holder_calibration(
+    path: Union[str, Path], holders: Dict[str, dict], active_holder: str
+) -> None:
+    """Record the sample holders and which one is fitted in the configuration at *path*.
+
+    `calibration.holders` is replaced whole rather than merged: a holder renamed in
+    the wizard must not leave its old entry behind, and the entries are the
+    holders the session knows, which include every one the file had.
+    """
+    config = load_yaml(os.path.join(path)) or {}
+    if "version" not in config:
+        _keep_the_file_as_it_was(path)
+    calibration = config.get("calibration")
+    if not isinstance(calibration, dict):
+        calibration = config["calibration"] = {}
+    calibration["holders"] = holders
+    calibration["active_holder"] = active_holder
+    _retire_legacy_duplicates(config)
+    _write_configuration_file(path, config)
+
+
+def _plain(value):
+    """*value* with numpy scalars, tuples and numpy arrays as YAML-native types.
+
+    `yaml.safe_load` refuses a document that `yaml.dump` wrote a numpy scalar into
+    -- it comes out as a `!!python/object/apply:numpy...` tag -- so one instrument
+    value of the wrong type would leave a site with a configuration that no longer
+    loads. Everything written to the file goes through here first.
+    """
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if hasattr(value, "tolist"):  # numpy scalar or array
+        return _plain(value.tolist())
+    if isinstance(value, (bool, int, float, str)) or value is None:
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def _write_configuration_file(path: Union[str, Path], config: dict) -> None:
+    """Write a configuration dict to exactly *path*.
+
+    Not `save_yaml`: that forces a `.yaml` suffix, so a site whose file is
+    `site.yml` would get a sibling `site.yaml` written and its own file left
+    untouched; it sorts keys, which turns the sections into alphabetical order;
+    and it uses the unsafe dumper, which writes numpy scalars as tags that
+    `safe_load` cannot read back.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        yaml.safe_dump(_plain(config), f, sort_keys=False, indent=4)
 
 
 def load_protocol(protocol_path: Path = None) -> dict:
@@ -606,37 +952,13 @@ def get_params(main_str: str) -> list:
     return cats
 
 
-def _get_position(name: str):
-
-    import os
-
-    from fibsem import config as cfg
-    from fibsem.structures import FibsemStagePosition
-
-    ddict = load_yaml(fname=os.path.join(cfg.CONFIG_PATH, "positions.yaml"))
-    # get position from save positions?
-    for d in ddict:
-        if d["name"] == name:
-            return FibsemStagePosition.from_dict(d)
-    return None
-
-
-def _get_positions(fname: str = None) -> List[str]:
-
-    import os
-
-    from fibsem import config as cfg
-
-    if fname is None:
-        fname = os.path.join(cfg.CONFIG_PATH, "positions.yaml")
-
-    ddict = load_yaml(fname=fname)
-
-    return [d["name"] for d in ddict]
-
-
 def save_positions(positions: list, path: str = None, overwrite: bool = False) -> None:
-    """save the list of positions to file"""
+    """Save a list of positions to a YAML file.
+
+    Not where the application keeps its saved positions any more: those are session
+    state (`fibsem.saved_positions`). A file written here is only imported if the
+    configuration's session state has no saved positions yet.
+    """
 
     from fibsem import config as cfg
 

@@ -12,7 +12,7 @@ from fibsem.microscope import (
     _records_beam_shift,
     _records_stage_move,
 )
-from fibsem.microscopes.autoscript import ThermoMicroscope
+from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES, ThermoMicroscope
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
@@ -237,12 +237,37 @@ beam_type_to_odemis = {
     BeamType.ION: "ion",
 }
 
+# Pattern settings the Delmic AutoScript adapter (xtadapter 1.16.0) does not pass on.
+ODEMIS_DROPPED_PATTERN_SETTINGS = ("is_exclusion", "passes", "time")
+
+# xT's vacuum states, as the odemis client documents them, by the names
+# ThermoMicroscope reports. A state not listed here is passed through.
+ODEMIS_CHAMBER_STATES = {
+    "vacuum": "Pumped",
+    "pumped": "Pumped",
+    "vented": "Vented",
+    "pumping": "Pumping",
+    "venting": "Venting",
+    "vacuum_error": "Error",
+}
+
 # TODO: load default system settings?
 
 
 class OdemisThermoMicroscope(FibsemMicroscope):
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
+
+    #: An Odemis system has no manipulator, and no GIS reachable from here: the Delmic
+    #: AutoScript adapter exposes no gas injection, so the GIS and sputter methods are
+    #: the base class's, which raise. Nothing here can ask the instrument, so this is
+    #: the backend's own answer.
+    DEFAULT_FITTED = {
+        "manipulator": False,
+        "gis": False,
+        "gis_multichem": False,
+        "gis_sputter_coater": False,
+    }
 
     milling_progress_signal = Signal(MillingProgress)
     _last_imaging_settings: ImageSettings
@@ -283,11 +308,18 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         try:
             from fibsem.fm.odemis import OdemisFluorescenceMicroscope
 
-            self.fm = OdemisFluorescenceMicroscope(self)
+            if (
+                self._fluorescence_is_configured()
+                and self._fluorescence_uses_own_driver()
+            ):
+                self.fm = OdemisFluorescenceMicroscope(self)
         except (ImportError, AttributeError) as e:
             logging.info(f"Fluorescence support is not available: {e}")
         except Exception as e:
             logging.warning(f"Failed to initialize fluorescence microscope: {e}")
+        if self.fm is None:
+            self.fm = self._connect_remote_fluorescence()
+        self._apply_fluorescence_calibration()
 
         try:
             self._create_sample_stage()
@@ -349,7 +381,20 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def acquire_chamber_image(self) -> FibsemImage:
         pass
 
-    def acquire_image(self, image_settings: ImageSettings) -> FibsemImage:
+    def acquire_image(
+        self,
+        image_settings: Optional[ImageSettings] = None,
+        beam_type: Optional[BeamType] = None,
+    ) -> FibsemImage:
+        """Acquire an image with `image_settings`, or with the current settings of
+        `beam_type` when that is given instead."""
+        if beam_type is not None:
+            return self._acquire_current_image(beam_type)
+        if image_settings is None:
+            raise ValueError(
+                "Must provide image_settings to acquire a new image if beam_type is not specified."
+            )
+
         # TODO: migrate to updated api that allows acquiring without setting the imaging settings first
         beam_type = image_settings.beam_type
         channel = beam_type_to_odemis[beam_type]
@@ -394,7 +439,42 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         if tmp_resolution is not None:
             image_settings.resolution = tmp_resolution
 
-        # create metadata
+        # store last imaging settings
+        self._last_imaging_settings = image_settings
+
+        return self._construct_image(image, image_settings)
+
+    def _acquire_current_image(self, beam_type: BeamType) -> FibsemImage:
+        """A frame with the beam's current settings, as ThermoMicroscope.acquire_image3."""
+        image, _md = self.connection.acquire_image(
+            channel=beam_type_to_odemis[beam_type], frame_settings=None
+        )
+        return self._construct_image(
+            image, self._current_image_settings(beam_type, image)
+        )
+
+    def last_image(self, beam_type: BeamType) -> FibsemImage:
+        image = self.connection.get_last_image(channel=beam_type_to_odemis[beam_type])
+        # The client is annotated as returning (image, metadata), but the AutoScript
+        # adapter (1.16.0) returns the bare array.
+        if isinstance(image, tuple):
+            image = image[0]
+        return self._construct_image(
+            image, self._current_image_settings(beam_type, image)
+        )
+
+    def _current_image_settings(
+        self, beam_type: BeamType, image: np.ndarray
+    ) -> ImageSettings:
+        """The beam's current imaging settings, at the resolution of the frame it gave."""
+        image_settings = self.get_imaging_settings(beam_type)
+        image_settings.resolution = [image.shape[1], image.shape[0]]
+        return image_settings
+
+    def _construct_image(
+        self, data: np.ndarray, image_settings: ImageSettings
+    ) -> FibsemImage:
+        """A FibsemImage with the microscope's metadata, as every backend stamps it."""
         # TODO: retrieve the full image metadata from image md, rather than reconstruct
         pixel_size = image_settings.hfw / image_settings.resolution[0]
         md = FibsemImageMetadata(
@@ -403,18 +483,10 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             microscope_state=self.get_microscope_state(
                 beam_type=image_settings.beam_type
             ),
-            user=self.user,
-            experiment=self.experiment,
-            system=self.system,
         )
-
-        # store last imaging settings
-        self._last_imaging_settings = image_settings
-
-        return FibsemImage(image, md)
-
-    def last_image(self, beam_type: BeamType) -> FibsemImage:
-        pass
+        image = FibsemImage(data, md)
+        self._set_additional_metadata(image)
+        return image
 
     def autocontrast(
         self, beam_type: BeamType, reduced_area: FibsemRectangle = None
@@ -431,7 +503,23 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
-        self.connection.run_auto_focus(beam_type_to_odemis[beam_type])
+        """An image-based working-distance sweep, at the beam's current field of view.
+
+        The odemis client exposes no autofocus call (the AutoScript adapter has one,
+        but odemis does not forward it), so the microscope's own focus routine is out
+        of reach from here.
+        """
+        from fibsem.autofunctions.autofocus import AutoFocusSettings, run_auto_focus
+
+        # TODO: restore the beam's imaging settings afterwards. acquire_image writes
+        # resolution, dwell time and field of view to the beam, so the sweep leaves it
+        # at its probe settings.
+        run_auto_focus(
+            self,
+            beam_type=beam_type,
+            hfw=self.get_field_of_view(beam_type),
+            settings=AutoFocusSettings(reduced_area=reduced_area),
+        )
 
     @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
@@ -444,6 +532,10 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         current_shift = self.get_beam_shift(beam_type=beam_type)
         new_shift = Point(x=current_shift.x + dx, y=current_shift.y + dy)
         self.set_beam_shift(new_shift, beam_type=beam_type)
+
+    def _fluorescence_default(self) -> bool:
+        """The Odemis stack drives its own FM, and has always built one unasked."""
+        return True
 
     def _get(self, key: str, beam_type: BeamType = None) -> str:
         if beam_type is not None:
@@ -482,23 +574,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             width, height = self.connection.get_resolution(channel)
             return [width, height]
 
-        # system properties
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.eucentric_height
-            elif beam_type is BeamType.ION:
-                return self.system.ion.eucentric_height
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.column_tilt
-            elif beam_type is BeamType.ION:
-                return self.system.ion.column_tilt
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
         # ion beam properties
         if key == "plasma":
             if beam_type is BeamType.ION:
@@ -524,10 +599,14 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
         # chamber properties
         if key == "chamber_state":
-            return self.connection.vacuum.chamber_state
+            state = self.connection.get_chamber_state()
+            # The AutoScript adapter passes AutoScript's names through ("Pumped",
+            # "Vented"); the odemis client documents the xT names ("vacuum",
+            # "vented"). Both read the way ThermoMicroscope reports them.
+            return ODEMIS_CHAMBER_STATES.get(str(state).lower(), state)
 
         if key == "chamber_pressure":
-            return self.connection.vacuum.chamber_pressure.value
+            return self.connection.get_pressure()
 
         # detector mode and type
         if key == "detector_type":
@@ -544,18 +623,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             raise NotImplementedError()
         if key == "manipulator_state":
             raise NotImplementedError()
-
-        # manufacturer properties
-        if key == "manufacturer":
-            return self.system.info.manufacturer
-        if key == "model":
-            return self.system.info.model
-        if key == "serial_number":
-            return self.system.info.serial_number
-        if key == "software_version":
-            return self.system.info.software_version
-        if key == "hardware_version":
-            return self.system.info.hardware_version
 
         if key in ["preset"]:
             return None
@@ -677,43 +744,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         if key == "full_frame":
             self.connection.set_full_frame_scan_mode(channel)
             return
-        # system properties
-        if key == "beam_enabled":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.beam.enabled = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.beam.enabled = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-            return
-
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.eucentric_height = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.eucentric_height = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                self.system.electron.column_tilt = value
-                return
-            elif beam_type is BeamType.ION:
-                self.system.ion.column_tilt = value
-                return
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        # ion beam properties
-        if key == "plasma":
-            if beam_type is BeamType.ION:
-                self.system.ion.plasma = value
-                return
 
         # ion beam properties
         if beam_type is BeamType.ION:
@@ -805,13 +835,23 @@ class OdemisThermoMicroscope(FibsemMicroscope):
                 "choices"
             ]
         if key == "current":
-            values = self.connection.beam_current_info(beam_type_to_odemis[beam_type])[
-                "choices"
-            ]
-            # xenon
-            # values = [1.0e-12, 3.0e-12, 10e-12, 30e-12, 0.1e-9, 0.3e-9, 1e-9, 4e-9, 15e-9, 60e-9]
-            # argon
-            # values = [1.0e-12, 6.0e-12, 20e-12, 60e-12, 0.2e-9, 0.74e-9, 2.0e-9, 7.4e-9, 28.0e-9, 120.0e-9]
+            # The adapter gives the ion beam's currents as choices and the electron
+            # beam's as a range; a range is stepped by doubling, as ThermoMicroscope
+            # does, to match the choices the microscope offers.
+            info = self.connection.beam_current_info(beam_type_to_odemis[beam_type])
+            if "choices" in info:
+                values = list(info["choices"])
+            else:
+                low, high = info["range"]
+                current = low
+                while current <= high:
+                    values.append(current)
+                    current *= 2.0
+        if key == "voltage":
+            low, high = self.connection.high_voltage_info(
+                beam_type_to_odemis[beam_type]
+            )["range"]
+            values = [v for v in THERMO_VOLTAGE_CHOICES[beam_type] if low <= v <= high]
         if key == "plasma_gas":
             values = ["Argon", "Oxygen", "Xenon"]
 
@@ -857,37 +897,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         f.result()
         return self.get_stage_position()
 
-    def stable_move(
-        self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope.stable_move(
-            self, dx=dx, dy=dy, beam_type=beam_type, static_wd=static_wd
-        )
-
-    def vertical_move(
-        self,
-        dy: float,
-        dx: float = 0.0,
-        beam_type: BeamType = BeamType.ION,
-        relaxation: float = 1.0,
-    ) -> FibsemStagePosition:
-        """Restore the coincidence point from an offset measured in one beam view."""
-        return ThermoMicroscope.vertical_move(self, dy, dx, beam_type, relaxation)
-
-    def _vertical_move_from_fib(
-        self, dy: float, dx: float = 0.0, relaxation: float = 1.0
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_fib(
-            self, dy=dy, dx=dx, relaxation=relaxation
-        )
-
-    def _vertical_move_from_sem(
-        self, dx: float, dy: float, relaxation: float = 1.0
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope._vertical_move_from_sem(
-            self, dx=dx, dy=dy, relaxation=relaxation
-        )
-
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.
 
@@ -895,42 +904,42 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
 
-    def _y_corrected_stage_movement(
-        self, expected_y: float, beam_type: BeamType
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope._y_corrected_stage_movement(self, expected_y, beam_type)
-
-    def _inverse_y_corrected_stage_movement(
-        self, dy: float, dz: float, beam_type: BeamType = BeamType.ELECTRON
-    ) -> float:
-        return ThermoMicroscope._inverse_y_corrected_stage_movement(
-            self, dy=dy, dz=dz, beam_type=beam_type
-        )
-
-    def project_stable_move(
-        self,
-        dx: float,
-        dy: float,
-        beam_type: BeamType,
-        base_position: FibsemStagePosition,
-    ) -> FibsemStagePosition:
-        return ThermoMicroscope.project_stable_move(
-            self, dx=dx, dy=dy, beam_type=beam_type, base_position=base_position
-        )
-
-    def _safe_rotation_movement(self, stage_position: FibsemStagePosition) -> None:
-        return ThermoMicroscope._safe_rotation_movement(self, stage_position)
-
-    def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
-        return ThermoMicroscope.safe_absolute_stage_movement(self, position)
-
+    # Raised rather than skipped. Drawing nothing left a stage with no patterns, which
+    # never leaves IDLE, so the milling run waited on it indefinitely; raising inside
+    # the milling task fails the task with this message and still restores the beams.
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
-        pass
+        raise NotImplementedError(
+            f"{type(self).__name__} cannot draw bitmap patterns: the Delmic "
+            "AutoScript adapter has no bitmap patterning."
+        )
 
-    def draw_polygon(self, pattern_settings: FibsemPolygonSettings):
-        pass
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
+        raise NotImplementedError(
+            f"{type(self).__name__} cannot draw polygon patterns: the Delmic "
+            "AutoScript adapter has no polygon patterning."
+        )
+
+    def _warn_dropped_pattern_settings(self, pattern_settings) -> None:
+        """Warn about the settings the Delmic adapter ignores (xtadapter 1.16.0).
+
+        It creates each pattern from its geometry and depth only: a pattern meant as
+        an exclusion zone is milled like any other, and a pass count or milling time
+        is replaced by the microscope's own.
+        """
+        dropped = [
+            name
+            for name in ODEMIS_DROPPED_PATTERN_SETTINGS
+            if getattr(pattern_settings, name, None)
+        ]
+        if dropped:
+            logging.warning(
+                f"{type(self).__name__} cannot apply {', '.join(dropped)} to "
+                f"{type(pattern_settings).__name__}: the Delmic AutoScript adapter "
+                "ignores them, and the pattern is drawn without."
+            )
 
     def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):
+        self._warn_dropped_pattern_settings(pattern_settings)
         pdict = pattern_settings.to_dict()
 
         pdict["center_x"] = pdict.pop("centre_x")
@@ -978,9 +987,16 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         )
 
     def draw_circle(self, pattern_settings: FibsemCircleSettings):
+        self._warn_dropped_pattern_settings(pattern_settings)
         pdict = pattern_settings.to_dict()
         pdict["outer_diameter"] = 2 * pattern_settings.radius
+        # an annulus, as ThermoMicroscope draws one: the adapter takes the inner
+        # diameter, but this sent 0 and milled the whole disc
         pdict["inner_diameter"] = 0
+        if pattern_settings.thickness != 0:
+            pdict["inner_diameter"] = (
+                pdict["outer_diameter"] - 2 * pattern_settings.thickness
+            )
         pdict["center_x"] = pattern_settings.centre_x
         pdict["center_y"] = pattern_settings.centre_y
 
@@ -997,21 +1013,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
                 "pinfo": pinfo,
             }
         )
-
-    def setup_sputter(self):
-        pass
-
-    def draw_sputter_pattern(self):
-        pass
-
-    def run_sputter(self, *args, **kwargs):
-        pass
-
-    def finish_sputter(self):
-        pass
-
-    def cryo_deposition_v2(self):
-        pass
 
     def setup_milling(self, mill_settings: FibsemMillingSettings):
         self._default_application_file = mill_settings.application_file
@@ -1031,11 +1032,29 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
         ThermoMicroscope.finish_milling(self, imaging_current, imaging_voltage)
 
+    def set_patterning_mode(self, mode: str) -> str:
+        """Set the patterning mode, "Serial" or "Parallel", as ThermoMicroscope does.
+
+        Called by the borrowed `ThermoMicroscope.finish_milling`; without it every
+        milling task raised in its cleanup.
+        """
+        if mode not in ("Serial", "Parallel"):
+            raise ValueError(
+                f"Patterning mode {mode} not supported. Supported modes: Serial, Parallel"
+            )
+        self.connection.set_patterning_mode(mode)
+        logging.debug({"msg": "set_patterning_mode", "mode": mode})
+        return mode
+
     def clear_patterns(self) -> None:
         self.connection.clear_patterns()
 
     def get_milling_state(self):
-        return MillingState[self.connection.get_patterning_state().upper()]
+        # The patterning state is that of the active view, so the milling channel is
+        # selected first, under the same lock as ThermoMicroscope.get_milling_state.
+        with self._threading_lock:
+            self.set_channel(self.milling_channel)
+            return MillingState[self.connection.get_patterning_state().upper()]
 
     def start_milling(self) -> None:
         """Start the milling process."""

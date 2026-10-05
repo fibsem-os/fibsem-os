@@ -20,7 +20,7 @@ import math
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, Generic, List, Optional, TypeVar
+from typing import Callable, Dict, Generic, List, Optional, Tuple, TypeVar
 
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QKeySequence
@@ -45,17 +45,20 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem import conversions
 from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME
+from fibsem.applications.autolamella.structures import find_overviews
 from fibsem.applications.autolamella.tools.replay import (
     EventKind,
     ExperimentReplay,
     ReplayEvent,
     ReplayScene,
     load_replay,
+    proposal_marks,
 )
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.structures import FibsemImage, FibsemStagePosition
+from fibsem.structures import FibsemImage, FibsemStagePosition, Point
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
@@ -64,6 +67,7 @@ from fibsem.ui.tokens import (
     BORDER_COLOR,
     CAPTION_STYLE,
     CONTROL_STYLE,
+    CURRENT_POSITION_COLOUR,
     DRAFT_POSITION_COLOUR,
     ERROR_COLOR,
     NUMBER_STYLE,
@@ -85,6 +89,10 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays.milling_overlay import MillingPatternOverlay
+from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+    MinimapShapesOverlay,
+    ShapeSpec,
+)
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointsOverlay
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip
 from fibsem.ui.widgets.stored_overview_canvas import StoredOverviewCanvas
@@ -102,6 +110,7 @@ _MAX_STEP_MS = 1500
 _KIND_LABEL = {
     EventKind.TASK: "Task",
     EventKind.PROMPT: "Prompt",
+    EventKind.DECISION: "Decision",
     EventKind.IMAGE: "Image",
     EventKind.FLUORESCENCE: "FM",
     EventKind.STAGE: "Stage",
@@ -114,6 +123,7 @@ _KIND_LABEL = {
 _KIND_COLOUR = {
     EventKind.TASK: ACCENT_COLOR,
     EventKind.PROMPT: DRAFT_POSITION_COLOUR,
+    EventKind.DECISION: CURRENT_POSITION_COLOUR,
     EventKind.IMAGE: OK_COLOR,
     EventKind.FLUORESCENCE: SAVED_POSITION_COLOUR,
     EventKind.STAGE: WARN_COLOR,
@@ -132,7 +142,13 @@ _IMAGE_CACHE_SIZE = 24
 _FM_CACHE_SIZE = 3  # a z-stack is ~100 MB
 
 # Columns of the event table. The task is in the header and the row's tooltip.
-_COL_TIME, _COL_ITEM, _COL_KIND, _COL_SUMMARY = range(4)
+_COL_TIME, _COL_ITEM, _COL_KIND, _COL_BY, _COL_SUMMARY = range(5)
+# Who acted, as the event stream records it. A person or an agent stands out;
+# the task, which does most of a run, does not.
+_ACTOR_LABEL = {"operator": "Operator", "agent": "Agent", "task": "Task"}
+_ACTOR_COLOUR = {"operator": TEXT_STRONG_COLOR, "agent": TEXT_STRONG_COLOR}
+_ANYONE = "Anyone"
+_NOT_RECORDED = "Not recorded"
 
 _TABLE_STYLE = f"""
 QTableWidget {{
@@ -199,6 +215,37 @@ def _stage_position(pos: Optional[dict]) -> Optional[FibsemStagePosition]:
         return None
 
 
+def _pixel(
+    unit: str, point: Tuple[float, ...], image: FibsemImage
+) -> Optional[Tuple[float, float]]:
+    """A question's or decision's point as the pixel it falls on (see
+    ``proposal_marks`` for the units). A point in metres is placed as the
+    Review tab places the point of interest; None without a pixel size."""
+    if unit != "m":
+        return (point[0], point[1])
+    pixel_size = _pixel_size(image)
+    if not pixel_size:
+        return None
+    px = conversions.microscope_image_to_image_coordinates(
+        Point(*point), image.data.shape[:2], pixel_size
+    )
+    return (px.x, px.y)
+
+
+def _area(rect: Tuple[float, ...], image: FibsemImage, colour: str) -> ShapeSpec:
+    """An alignment area, fractions of the image, as its rectangle in pixels."""
+    height, width = image.data.shape[:2]
+    left, top, w, h = rect
+    return ShapeSpec(
+        "rect",
+        (left + w / 2) * width,
+        (top + h / 2) * height,
+        colour,
+        width=w * width,
+        height=h * height,
+    )
+
+
 def _pixel_size(image: Optional[FibsemImage]) -> Optional[float]:
     try:
         return float(image.metadata.pixel_size.x)
@@ -260,19 +307,6 @@ def _clear_layout(layout) -> None:
         if w is not None:
             w.hide()
             w.deleteLater()
-
-
-def find_overviews(root: Path) -> List[Path]:
-    """The stitched beam overviews an experiment keeps, oldest first.
-
-    Grid overviews live under ``grids/<grid>/<task>/``; older experiments keep
-    ``overview-image-*.tif`` at the root. Fluorescence overviews
-    (``*.ome.tiff``) are not included.
-    """
-    found = list(root.glob("overview*.tif")) + list(
-        root.glob("grids/*/*/overview*.tif")
-    )
-    return sorted(found, key=lambda p: p.stat().st_mtime)
 
 
 class ExperimentReplayWidget(QWidget):
@@ -348,6 +382,21 @@ class ExperimentReplayWidget(QWidget):
         self.fib_canvas.add_overlay(self.milling_overlay)
         self.spot_overlay = PointsOverlay(color=ORANGE_COLOR, marker="o", size=6)
         self.fib_canvas.add_overlay(self.spot_overlay)
+        # A question's or decision's values, on whichever image they sit on:
+        # proposed in orange, decided in magenta, as the Review tab draws them.
+        # Points are markers of a fixed size on screen, an x for the proposed
+        # one so it shows over the canvas's own centre cross; an alignment area
+        # is its rectangle.
+        self.proposal_overlays = {}
+        for key, canvas in (("sem", self.sem_canvas), ("fib", self.fib_canvas)):
+            overlays = (
+                PointsOverlay(color=ORANGE_COLOR, marker="x", size=12),
+                PointsOverlay(color=DRAFT_POSITION_COLOUR, marker="+", size=16),
+                MinimapShapesOverlay(),
+            )
+            for overlay in overlays:
+                canvas.add_overlay(overlay)
+            self.proposal_overlays[key] = overlays
         self.fm_widget = FMCanvasWidget()
 
         self.stage_view = StoredOverviewCanvas()
@@ -450,9 +499,22 @@ class ExperimentReplayWidget(QWidget):
         if any(e.item is None for e in self.replay.events):
             self.item_combo.addItem(_NO_ITEM, _NO_ITEM)
         self.item_combo.currentIndexChanged.connect(self._on_filter_changed)
+        # Who acted: the ones this run has, in a fixed order.
+        self.actor_combo = QComboBox()
+        self.actor_combo.setStyleSheet(CONTROL_STYLE)
+        self.actor_combo.setToolTip("Only what one of them did")
+        self.actor_combo.addItem(_ANYONE, None)
+        actors = {e.actor for e in self.replay.events}
+        for actor, label in _ACTOR_LABEL.items():
+            if actor in actors:
+                self.actor_combo.addItem(label, actor)
+        if None in actors and len(actors) > 1:
+            self.actor_combo.addItem(_NOT_RECORDED, _NOT_RECORDED)
+        self.actor_combo.currentIndexChanged.connect(self._on_filter_changed)
         show_row = QHBoxLayout()
         show_row.addWidget(caption)
         show_row.addWidget(self.item_combo)
+        show_row.addWidget(self.actor_combo)
         show_row.addStretch(1)
 
         filters = QGridLayout()
@@ -467,8 +529,8 @@ class ExperimentReplayWidget(QWidget):
             self.filter_boxes[kind] = box
             filters.addWidget(box, n // 4, n % 4)
 
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Time", "Item", "Kind", "Action"])
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["Time", "Item", "Kind", "By", "Action"])
         self.table.setStyleSheet(_TABLE_STYLE)
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
@@ -479,7 +541,12 @@ class ExperimentReplayWidget(QWidget):
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         head = self.table.horizontalHeader()
-        for col, width in ((_COL_TIME, 78), (_COL_ITEM, 110), (_COL_KIND, 80)):
+        for col, width in (
+            (_COL_TIME, 78),
+            (_COL_ITEM, 110),
+            (_COL_KIND, 80),
+            (_COL_BY, 70),
+        ):
             head.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
             self.table.setColumnWidth(col, width)
         head.setSectionResizeMode(_COL_SUMMARY, QHeaderView.ResizeMode.Stretch)
@@ -556,6 +623,7 @@ class ExperimentReplayWidget(QWidget):
                 e.time.strftime("%H:%M:%S"),
                 e.item or "",
                 _KIND_LABEL.get(e.kind, e.kind),
+                _ACTOR_LABEL.get(e.actor, e.actor or ""),
                 e.summary,
             )
             for col, text in enumerate(cells):
@@ -563,6 +631,10 @@ class ExperimentReplayWidget(QWidget):
                 if col == _COL_KIND:
                     item.setForeground(
                         QColor(_KIND_COLOUR.get(e.kind, TEXT_MUTED_COLOR))
+                    )
+                if col == _COL_BY:
+                    item.setForeground(
+                        QColor(_ACTOR_COLOUR.get(e.actor, TEXT_MUTED_COLOR))
                     )
                 if e.kind == EventKind.MESSAGE and e.data.get("level") in (
                     "ERROR",
@@ -671,6 +743,14 @@ class ExperimentReplayWidget(QWidget):
         else:
             self.seek(self._index)  # the panes follow the item, too
 
+    def _of_selected_actor(self, event: ReplayEvent) -> bool:
+        selected = self.actor_combo.currentData()
+        if selected is None:
+            return True
+        if selected == _NOT_RECORDED:
+            return event.actor is None
+        return event.actor == selected
+
     def _of_selected_item(self, event: ReplayEvent) -> bool:
         selected = self.item_combo.currentData()
         if selected is None:
@@ -680,23 +760,26 @@ class ExperimentReplayWidget(QWidget):
         return event.item == selected
 
     def _apply_filter(self) -> None:
-        """Show the chosen lamella's actions of the chosen kinds.
+        """Show the chosen lamella's actions of the chosen kinds, by whoever
+        was chosen.
 
         With an item chosen, the panes show only its images too (see
         ``ExperimentReplay.scene``); otherwise a lamella's first steps would
-        show the frame the previous lamella left on screen.
+        show the frame the previous lamella left on screen. Who acted scopes
+        only the list: the instrument is the same whoever drove it.
         """
         kinds = {k for k, box in self.filter_boxes.items() if box.isChecked()}
-        of_item = [self._of_selected_item(e) for e in self.replay.events]
+        shown = [
+            self._of_selected_item(e) and self._of_selected_actor(e)
+            for e in self.replay.events
+        ]
         self._visible = [
-            i
-            for i, e in enumerate(self.replay.events)
-            if of_item[i] and e.kind in kinds
+            i for i, e in enumerate(self.replay.events) if shown[i] and e.kind in kinds
         ]
         for row, e in enumerate(self.replay.events):
-            self.table.setRowHidden(row, not (of_item[row] and e.kind in kinds))
+            self.table.setRowHidden(row, not (shown[row] and e.kind in kinds))
         counts = {k: 0 for k in EventKind.ALL}
-        for e, keep in zip(self.replay.events, of_item):
+        for e, keep in zip(self.replay.events, shown):
             if keep:
                 counts[e.kind] = counts.get(e.kind, 0) + 1
         for kind, box in self.filter_boxes.items():
@@ -723,6 +806,7 @@ class ExperimentReplayWidget(QWidget):
         )
         self._show_fm(scene.fm, item)
         self._show_milling(scene)
+        self._show_proposal(scene)
         self._show_stage(scene)
         self._flash(scene.event)
         self._sync_transport()
@@ -767,6 +851,13 @@ class ExperimentReplayWidget(QWidget):
                 _KIND_COLOUR.get(e.kind, TEXT_MUTED_COLOR),
             )
         )
+        if e.actor:
+            self.event_kind_chip.addWidget(
+                chip(
+                    _ACTOR_LABEL.get(e.actor, e.actor),
+                    _ACTOR_COLOUR.get(e.actor, TEXT_MUTED_COLOR),
+                )
+            )
         self.event_label.setText(e.summary)
 
     def _show_image(
@@ -879,6 +970,32 @@ class ExperimentReplayWidget(QWidget):
             )
         else:
             self.spot_overlay.set_points([])
+
+    def _show_proposal(self, scene: ReplayScene) -> None:
+        """The proposed and decided values of the question or decision shown, on
+        the image they sit on: a crosshair for a point, a rectangle for an
+        alignment area. Nothing is drawn for a kind with nothing to draw, or
+        when that image cannot be read."""
+        shown_on = scene.proposal.shown_on if scene.proposal is not None else None
+        marks = proposal_marks(scene.proposal.data) if shown_on is not None else None
+        image = self._images.get(shown_on.image_path) if marks else None
+        drawn = {key: ([], [], []) for key in self.proposal_overlays}
+        if image is not None:
+            unit, proposed, decided = marks
+            points, points_decided, areas = drawn[
+                "sem" if shown_on.beam == "ELECTRON" else "fib"
+            ]
+            if unit == "rect":
+                areas.extend(_area(r, image, ORANGE_COLOR) for r in proposed)
+                areas.extend(_area(r, image, DRAFT_POSITION_COLOUR) for r in decided)
+            else:
+                points.extend(_pixel(unit, p, image) for p in proposed)
+                points_decided.extend(_pixel(unit, p, image) for p in decided)
+        for key, (proposed, decided, areas) in self.proposal_overlays.items():
+            points, points_decided, shapes = drawn[key]
+            proposed.set_points([p for p in points if p is not None])
+            decided.set_points([p for p in points_decided if p is not None])
+            areas.set_shapes(shapes)
 
     def _milling_stages(self, scene: ReplayScene) -> List[FibsemMillingStage]:
         key = scene.milling.data.get("milling_task_id") if scene.milling else None

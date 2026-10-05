@@ -9,6 +9,7 @@ This is the guard for FIB-481, which replaces the embedded `SystemSettings` with
 compact geometry record. Every value asserted here is one the reprojection path reads.
 """
 
+import copy
 import json
 import os
 from typing import Any, Dict
@@ -85,7 +86,9 @@ def test_reprojection_geometry_is_readable(name: str) -> None:
 
 
 @pytest.mark.parametrize("name,model,compustage,via", FIXTURES)
-def test_compustage_detection(name: str, model: str, compustage: bool, via: str) -> None:
+def test_compustage_detection(
+    name: str, model: str, compustage: bool, via: str
+) -> None:
     """The migration guard: v6 records compustage, v5-and-earlier had it inferred.
 
     The answer must not change. `via` records which arm of the old expression fired --
@@ -168,23 +171,57 @@ def test_compustage_angles_are_recovered_as_zero_not_absent() -> None:
     ) == (35.0, 110, 290)
 
 
-@pytest.mark.parametrize("missing", ["stage", "electron", "ion", "manipulator", "gis", "info"])
-def test_system_settings_from_dict_is_not_a_safe_migration_path(missing: str) -> None:
-    """`SystemSettings.from_dict` is bracket-indexed throughout, so it raises rather
-    than degrading when a key is absent.
+@pytest.mark.parametrize(
+    "missing", ["stage", "electron", "ion", "manipulator", "gis", "info"]
+)
+def test_a_partial_legacy_blob_recovers_the_same_geometry_either_way(
+    missing: str,
+) -> None:
+    """The two ways of reading an old `system` blob must not disagree.
 
-    Recorded as a test because it constrains how the geometry record is derived: read
-    the raw dict with `.get()` chains instead of constructing a full `SystemSettings`
-    first, or the migration inherits this on exactly the old files it exists to
-    protect. See FIB-481.
+    This test used to assert the opposite. `SystemSettings.from_dict` was
+    bracket-indexed, so a blob missing any block raised `KeyError`, and that was the
+    stated reason `_geometry_from_legacy_system` reads the raw dict with `.get()`
+    chains instead: a migration written through the constructor would have broken
+    loudly on exactly the old files it exists to load. See FIB-481.
+
+    The readers now default rather than raise -- FIB-834 needed that before any key
+    could be removed from a shipped file -- which took the loud failure away and left
+    a quiet one. It was real: a blob with no `ion:` block recovered a FIB column tilt
+    of 52 degrees through the geometry record and 0 through `SystemSettings`, because
+    the two declared the constant separately. Zero is not a plausible reading for a
+    dual-beam, and nothing would have said so.
+
+    So the constraint is now that the defaults agree, which is a property of the code
+    rather than of one call site, and this pins it in the direction that matters: both
+    routes, every block, same answer.
     """
     from fibsem.structures import SystemSettings
 
-    full = load("thermo_arctis_compustage_v3.json")["system"]
+    full = load("thermo_aquilos_v3.json")["system"]
     partial = {k: v for k, v in full.items() if k != missing}
 
-    with pytest.raises(KeyError):
-        SystemSettings.from_dict(partial)
+    geometry = FibsemImageMetadata._geometry_from_legacy_system(partial)
+    system = SystemSettings.from_dict(copy.deepcopy(partial))
+
+    assert geometry.shuttle_pre_tilt == system.stage.shuttle_pre_tilt
+    assert geometry.rotation_reference == system.stage.rotation_reference
+    assert geometry.rotation_180 == system.stage.rotation_180
+    assert geometry.column_tilt == system.electron.column_tilt
+    assert geometry.fib_column_tilt == system.ion.column_tilt
+
+
+def test_an_absent_ion_block_does_not_flatten_the_fib_column() -> None:
+    """The specific value the agreement test exists to protect.
+
+    52 degrees, not 0 -- the angle between the columns is what every SEM-to-FIB
+    reprojection turns on, so a default of 0 is not a conservative fallback, it is a
+    wrong instrument.
+    """
+    from fibsem.structures import DEFAULT_FIB_COLUMN_TILT, SystemSettings
+
+    assert SystemSettings.from_dict({}).ion.column_tilt == DEFAULT_FIB_COLUMN_TILT
+    assert SystemSettings.from_dict({}).electron.column_tilt == 0.0
 
 
 def test_an_acquired_image_snapshots_the_instrument_rather_than_aliasing_it() -> None:

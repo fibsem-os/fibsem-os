@@ -7,10 +7,15 @@ An :class:`EventRecorder` is created when a microscope connects, whether or not
 any server runs, and owns:
 
 * the buffer, with every event stamped with where in the run it happened;
-* the taps feeding it: the microscope's signals, the prompt events, and the
-  task lifecycle hook (which ``setup_hooks`` registers on every run);
+* the taps feeding it: the microscope's signals, the prompt events, the
+  open experiment's questions and decisions, and the task lifecycle hook
+  (which ``setup_hooks`` registers on every run);
 * an :class:`EventFileWriter` recording every event to ``events.jsonl`` beside
   the experiment's ``logfile.log``.
+
+A workflow run records through the same recorder: the task manager finds the
+microscope's with :func:`recorder_for`, or makes one for the run when nothing
+keeps one -- a run without the GUI (FIB-1044).
 
 The agent server, when it runs, reads the same buffer.
 
@@ -25,10 +30,12 @@ import logging
 import queue
 import threading
 import uuid
+import weakref
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
-from fibsem.acting import TASK, current_actor
+from fibsem.acting import AGENT, OPERATOR, TASK, acting, current_actor
+from fibsem.applications.autolamella.proposals import _encode_values
 from fibsem.applications.autolamella.server.events import (
     EventBuffer,
     attach_microscope_taps,
@@ -43,6 +50,24 @@ _QUEUE_LIMIT = 50_000
 _CLOSE_TIMEOUT_S = 2.0
 
 _PATH, _RECORD, _STOP = "path", "record", "stop"
+
+# The open recorder for each microscope, by id: the one a workflow run records
+# through. A second recorder on the same microscope would tap the same signals
+# and write every event twice. Weak: whatever made a recorder keeps it (the app
+# its window, a run its own), and the registry must not keep it, or the window
+# its disposers reach, alive after that is gone.
+_RECORDERS: "weakref.WeakValueDictionary[int, EventRecorder]" = (
+    weakref.WeakValueDictionary()
+)
+
+
+def recorder_for(microscope: Any) -> Optional["EventRecorder"]:
+    """The open recorder for *microscope*, if something keeps one: the app does,
+    from the moment a microscope connects."""
+    recorder = _RECORDERS.get(id(microscope))
+    return (
+        recorder if recorder is not None and recorder.microscope is microscope else None
+    )
 
 
 class EventFileWriter:
@@ -171,6 +196,27 @@ def _lifecycle_events() -> frozenset:
 _LIFECYCLE_EVENTS = _lifecycle_events()
 
 
+def _workflow_ends() -> frozenset:
+    from fibsem.hooks import HookEvent
+
+    return frozenset(
+        event.value
+        for event in (
+            HookEvent.WORKFLOW_COMPLETED,
+            HookEvent.WORKFLOW_CANCELLED,
+            HookEvent.WORKFLOW_STALLED,
+            HookEvent.EXPERIMENT_COMPLETED,
+        )
+    )
+
+
+# How a run ends, which the run itself reports: the task's, though they name no
+# task and fire outside any task's mark (FIB-1079). Its start is whoever
+# started it -- the operator's Run button, or the agent through the server --
+# so workflow_started is left to the thread's mark.
+_WORKFLOW_ENDS = _workflow_ends()
+
+
 class _HookRef:
     """A lifecycle event's own context, read like ``microscope.experiment``."""
 
@@ -200,35 +246,66 @@ class EventRecorder:
         responder=None,
         experiment_path: Optional[Path] = None,
         default_actor: Optional[str] = None,
+        experiment: Any = None,
     ) -> None:
         self.session_id = uuid.uuid4().hex
         self._microscope = microscope
         self.default_actor = default_actor
         self.buffer = EventBuffer(stamp=self._stamp)
+        self._proposals: Optional[ProposalTap] = None
         self.writer = EventFileWriter()
         self._disposers: List[Callable[[], None]] = [
             self.buffer.subscribe(self.writer.write)
         ]
-        self._disposers += attach_microscope_taps(self.buffer, microscope)
-        if responder is not None:
-            self._disposers.append(responder.add_question_observer(self.buffer.append))
-        # Registered by setup_hooks on every run: the app rebuilds its hook set
-        # per run, so this object is handed over again each time.
-        self.lifecycle_hook = make_lifecycle_hook(self.buffer)
-        self.set_experiment(experiment_path)
+        try:
+            self._disposers += attach_microscope_taps(self.buffer, microscope)
+            if responder is not None:
+                self._disposers.append(
+                    responder.add_question_observer(self.buffer.append)
+                )
+            # Registered for each run by the task manager that runs it
+            # (FIB-1044), so this object is handed over again every time.
+            self.lifecycle_hook = make_lifecycle_hook(self.buffer)
+            self.set_experiment(experiment_path, experiment)
+        except BaseException:
+            # A recorder that could not be made must not leave its writer
+            # running: nothing holds it to close it.
+            self.close()
+            raise
+        # The first one open for a microscope is the one a run finds.
+        if recorder_for(microscope) is None:
+            _RECORDERS[id(microscope)] = self
 
     @property
     def microscope(self):
         return self._microscope
 
-    def set_experiment(self, experiment_path: Optional[Path]) -> None:
-        """Record to this experiment's directory from now on (None: record nothing)."""
+    def set_experiment(
+        self, experiment_path: Optional[Path], experiment: Any = None
+    ) -> None:
+        """Record to this experiment's directory from now on (None: record nothing),
+        and the questions and decisions on *experiment*, when given."""
         self.writer.set_path(
             Path(experiment_path) / EVENTS_FILENAME if experiment_path else None
         )
+        if self._proposals is not None:
+            self._proposals.dispose()
+            self._proposals = None
+        if experiment is not None:
+            try:
+                self._proposals = ProposalTap(self.buffer, experiment)
+            except Exception:  # noqa: BLE001 - recording must not cost the experiment
+                logging.debug(
+                    "could not watch the experiment's decisions", exc_info=True
+                )
 
     def close(self) -> None:
         """Detach every tap, write what is queued, and stop the writer."""
+        if _RECORDERS.get(id(self._microscope)) is self:
+            del _RECORDERS[id(self._microscope)]
+        if self._proposals is not None:
+            self._proposals.dispose()
+            self._proposals = None
         for dispose in self._disposers:
             try:
                 dispose()
@@ -253,7 +330,9 @@ class EventRecorder:
         the app's, not the thread's, so reading it would make a move the operator
         made during a run the task's. Unmarked, it is ``default_actor``. A task's
         own lifecycle event is the task's whichever thread fired it (a skip fires
-        from the task manager), and an answer says who answered.
+        from the task manager), and so is the way a run ends -- completed,
+        cancelled, stalled, the experiment completed -- which the run reports,
+        not whoever started it. An answer says who answered.
         """
         ref = getattr(self._microscope, "experiment", None)
         if kind in _LIFECYCLE_EVENTS and isinstance(payload, dict):
@@ -270,6 +349,8 @@ class EventRecorder:
             actor = payload.get("answered_by")
         elif kind in _LIFECYCLE_EVENTS and task is not None:
             actor = TASK
+        elif kind in _WORKFLOW_ENDS:
+            actor = TASK
         else:
             actor = current_actor() or self.default_actor
         return {
@@ -279,3 +360,121 @@ class EventRecorder:
             "item": item,
             "task": task,
         }
+
+
+# Who made a decision, as the stream names who acted: a person is the operator,
+# a connected agent the agent, and a decision nobody made -- the producer
+# confirming its own proposal, the record expiring or withdrawing one -- the
+# task's.
+_ACTOR_OF_AUTHOR = {"human": OPERATOR, "agent": AGENT, "auto": TASK}
+
+
+class ProposalTap:
+    """The questions a run asks, and every decision on a proposal, from the
+    experiment's own ``asked`` and ``decided`` signals (FIB-1034).
+
+    Every way a decision reaches the record fires ``decided``: the Review tab,
+    the prompt bar and an agent over the server through ``Experiment.decide``,
+    and the record itself expiring, withdrawing or noting an unasked one. So
+    this is the one place they are recorded, whoever made them. Each decision
+    is one ``proposal_decided`` event, with the values proposed and the values
+    decided, whole: the reader compares them. A confirmation whose values the
+    task fills in afterwards (a position "as it stands") is recorded again when
+    they arrive, marked ``filled_in``.
+
+    The signals name only the item and the task, so what is new is found by
+    what has been seen: whatever the experiment holds when it is watched counts
+    as seen. Nothing here raises: a decision that cannot be recorded has still
+    been made.
+    """
+
+    def __init__(self, buffer: EventBuffer, experiment: Any) -> None:
+        self._buffer = buffer
+        self._experiment = experiment
+        self._asked = set()
+        # (proposal id, decision index) -> whether it was recorded with values
+        self._decided: Dict[Tuple[str, int], bool] = {}
+        for item in _items(experiment):
+            for proposals in list(item.proposals.values()):
+                for proposal in list(proposals):
+                    if proposal.asking:
+                        self._asked.add(proposal.id)
+                    for index, decision in enumerate(list(proposal.decisions)):
+                        self._decided[(proposal.id, index)] = bool(decision.values)
+        experiment.asked.connect(self._on_asked)
+        experiment.decided.connect(self._on_decided)
+
+    def dispose(self) -> None:
+        for signal, slot in (
+            (self._experiment.asked, self._on_asked),
+            (self._experiment.decided, self._on_decided),
+        ):
+            try:
+                signal.disconnect(slot)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _on_asked(self, item_id: str, task_name: str) -> None:
+        try:
+            item = self._experiment.get_item_by_id(item_id)
+            for proposal in list(item.proposals.get(task_name) or []):
+                if proposal.asking and proposal.id not in self._asked:
+                    self._asked.add(proposal.id)
+                    payload = _proposal_payload(item, task_name, proposal)
+                    payload["message"] = proposal.provenance.get("message", "")
+                    with acting(TASK):  # the task asked it
+                        self._buffer.append("proposal_asked", payload)
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug(f"could not record the {task_name} question", exc_info=True)
+
+    def _on_decided(self, item_id: str, task_name: str) -> None:
+        try:
+            item = self._experiment.get_item_by_id(item_id)
+            for proposal in list(item.proposals.get(task_name) or []):
+                for index, decision in enumerate(list(proposal.decisions)):
+                    seen = self._decided.get((proposal.id, index))
+                    if seen is None or (seen is False and decision.values):
+                        self._decided[(proposal.id, index)] = bool(decision.values)
+                        self._record(item, task_name, proposal, index, decision, seen)
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug(f"could not record a {task_name} decision", exc_info=True)
+
+    def _record(self, item, task_name, proposal, index, decision, seen) -> None:
+        record = decision.to_dict()
+        payload = _proposal_payload(item, task_name, proposal)
+        payload.update(
+            decision=index,
+            outcome=record["outcome"],
+            author=record["author"],
+            via=record["via"],
+            reason=record["reason"],
+            decided=record["values"],
+        )
+        if seen is False:  # recorded before its values were filled in
+            payload["filled_in"] = True
+        with acting(_ACTOR_OF_AUTHOR.get(decision.author.kind.value)):
+            self._buffer.append("proposal_decided", payload)
+
+
+def _items(experiment: Any) -> List[Any]:
+    """The lamellae and grids: the items a proposal can sit on."""
+    return list(experiment.positions) + list(getattr(experiment, "grids", None) or [])
+
+
+def _proposal_payload(item: Any, task_name: str, proposal: Any) -> Dict[str, Any]:
+    payload = {
+        "item": {"id": item.id, "name": item.name},
+        "task": task_name,
+        "proposal_id": proposal.id,
+        "kind": proposal.kind,
+        "proposed": _encode_values(proposal.values),
+        # the saved image the values sit on, relative to the item's folder: a
+        # point only means something on the image it was placed on
+        "image": proposal.provenance.get("reference_image") or None,
+    }
+    # The model a detection came from: a correction only means something
+    # against the checkpoint that made the prediction (FIB-1066).
+    checkpoint = proposal.provenance.get("checkpoint")
+    if checkpoint:
+        payload["checkpoint"] = checkpoint
+    return payload

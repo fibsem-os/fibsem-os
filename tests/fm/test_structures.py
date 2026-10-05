@@ -2564,3 +2564,25 @@ class TestCombiningImagesKeepsTheirMetadata:
         for metadata in (stack.metadata, combined.metadata):
             assert metadata.description == "carried through"
             assert metadata.pixel_size_x == 1e-7
+
+
+def test_an_emission_filter_keeps_its_bands_through_a_dict():
+    from fibsem.fm.structures import EmissionFilter
+
+    dual = EmissionFilter("GFP / mCherry", bands=[(600.0, 650.0), (505.0, 535.0)])
+    assert dual.bands == ((505.0, 535.0), (600.0, 650.0))  # lowest first
+    assert EmissionFilter.from_dict(dual.to_dict()) == dual
+    # the single low/high form the first version sent still loads
+    old = EmissionFilter.from_dict({"name": "GFP", "low": 510.0, "high": 560.0})
+    assert old == EmissionFilter("GFP", low=510.0, high=560.0)
+    assert (old.low, old.high, old.centre) == (510.0, 560.0, 535.0)
+
+
+def test_only_a_multi_band_filter_of_unknown_bands_shows_as_multi_band():
+    from fibsem.fm.structures import REFLECTION, emission_filter_for
+
+    assert emission_filter_for("Fluorescence", {}).label == "Multi-band"
+    assert emission_filter_for("Fluorescence", {}).name == "Fluorescence"
+    assert emission_filter_for("Quad GFP/RFP", {}).label == "Quad GFP/RFP"
+    assert REFLECTION.label == "Reflection"
+    assert emission_filter_for(510.0, {510.0: (510.0, 560.0)}).label == "510–560 nm"

@@ -251,6 +251,7 @@ class TestADragIsKeptOnTheSample:
 
         record.overlay.moved.emit(np.float64(cx + 3.0), np.float64(cy + 2.0))
         record.overlay.rotated.emit(np.float64(record.base_rotation + 1.0))
+        record.overlay.scaled.emit(np.float64(1.1))
 
         assert all(type(v) is float for v in record.placement)
 
@@ -273,6 +274,30 @@ class TestADragIsKeptOnTheSample:
 
         assert record.rotation == pytest.approx(7.5)
         assert record.overlay.rotation == pytest.approx(base + 7.5)
+
+    def test_a_corner_scales_the_pixel_size_about_the_centre(self, widget, microscope):
+        """The factor multiplies what is kept, not the file's pixel size: two drags
+        compound, the centre stays put, and Reset still has the file's to go back to."""
+        frame = _show(widget, SQUARE)
+        key = widget.add_aligned_image(
+            _fm_image(microscope, _fm_at(microscope), size=64, pixel_size=1e-6), "fm"
+        )
+        record = widget.aligned_images.get(key)
+        centre = record.overlay.centre
+        seen = []
+        widget.image_placement_changed.connect(seen.append)
+
+        record.overlay.scaled.emit(1.25)
+        record.overlay.scaled.emit(1.2)
+        record.overlay.drag_finished.emit()
+
+        assert record.scale == pytest.approx(1.5)
+        assert record.pixel_size == 1e-6
+        assert record.overlay.footprint == pytest.approx(
+            (frame.length(1.5 * 64e-6), frame.length(1.5 * 64e-6))
+        )
+        assert record.overlay.centre == pytest.approx(centre)
+        assert seen == [key]
 
     def test_the_same_placement_draws_in_every_view(self, widget, microscope):
         _show(widget, SQUARE)
@@ -297,7 +322,7 @@ class TestADragIsKeptOnTheSample:
         seen = []
         widget.image_placement_changed.connect(seen.append)
 
-        widget.aligned_images.set_placement(key, 1e-6, 2e-6, 3.0)
+        widget.aligned_images.set_placement(key, 1e-6, 2e-6, 3.0, 2.0)
         assert seen == []
 
         widget.aligned_image_panel.btn_reset.click()
@@ -355,3 +380,196 @@ class TestTheControls:
         )
         record.overlay.drag_finished.emit()
         assert "Moved" in widget.aligned_image_panel.label_placement.text()
+        assert "pixel" not in widget.aligned_image_panel.label_placement.text()
+
+        record.overlay.scaled.emit(1.25)
+        record.overlay.drag_finished.emit()
+        assert "pixel 1.25 um (×1.250)" in (
+            widget.aligned_image_panel.label_placement.text()
+        )
+
+
+class TestFitFromPoints:
+    """Three pairs place the image (FIB-1030). Ground truth comes from the placement
+    itself: put the image somewhere by `set_placement`, read where three of its
+    pixels land, put it back, and the fit from those pairs must find the same four
+    numbers -- in a tilted view as well as looking straight down."""
+
+    PIXELS = [(10.0, 10.0), (50.0, 12.0), (30.0, 55.0)]
+
+    def _targets_for(self, widget, key, dx, dy, rotation, scale=1.0):
+        widget.aligned_images.set_placement(key, dx, dy, rotation, scale)
+        targets = [widget.aligned_images.pixel_to_canvas(key, *p) for p in self.PIXELS]
+        widget.aligned_images.set_placement(key, 0.0, 0.0, 0.0, 1.0)
+        return targets
+
+    def test_the_fit_recovers_a_known_placement(self, widget, microscope):
+        _show(widget, SQUARE)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        targets = self._targets_for(widget, key, 20e-6, -15e-6, 12.0, 1.1)
+        seen = []
+        widget.image_placement_changed.connect(seen.append)
+
+        fit = widget.aligned_images.fit_to_points(key, self.PIXELS, targets)
+
+        record = widget.aligned_images.get(key)
+        assert record.placement == pytest.approx((20e-6, -15e-6, 12.0, 1.1), rel=1e-6)
+        assert fit.rms == pytest.approx(0.0, abs=1e-6)
+        for pixel, target in zip(self.PIXELS, targets):
+            assert widget.aligned_images.pixel_to_canvas(key, *pixel) == pytest.approx(
+                target, abs=1e-6
+            )
+        assert seen == [key]
+        assert len(record.fit["pairs"]) == 3 and record.fit["rms"] == pytest.approx(0.0)
+
+    def test_in_a_tilted_view_the_fit_is_made_on_the_sample(self, widget, microscope):
+        """The pairs are clicked on a squashed canvas; a similarity there is not a
+        similarity on the sample. Unsquashed first, the fit asks for the same
+        correction it would looking straight down."""
+        _show(widget, FORESHORTENED)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        targets = self._targets_for(widget, key, 20e-6, 30e-6, 15.0)
+
+        widget.aligned_images.fit_to_points(key, self.PIXELS, targets)
+
+        record = widget.aligned_images.get(key)
+        assert record.placement == pytest.approx((20e-6, 30e-6, 15.0, 1.0), rel=1e-6)
+        for pixel, target in zip(self.PIXELS, targets):
+            assert widget.aligned_images.pixel_to_canvas(key, *pixel) == pytest.approx(
+                target, abs=1e-6
+            )
+
+    def test_a_locked_scale_stays_at_one(self, widget, microscope):
+        _show(widget, SQUARE)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        targets = self._targets_for(widget, key, 5e-6, 5e-6, 3.0, 1.2)
+
+        fit = widget.aligned_images.fit_to_points(
+            key, self.PIXELS, targets, fix_scale=True
+        )
+
+        assert fit.scale == 1.0
+        assert widget.aligned_images.get(key).scale == 1.0
+        assert widget.aligned_images.get(key).fit["fix_scale"] is True
+
+    @pytest.mark.parametrize("gesture", ["move", "scale"])
+    def test_a_drag_afterwards_forgets_the_fit(self, widget, microscope, gesture):
+        _show(widget, SQUARE)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        targets = self._targets_for(widget, key, 5e-6, 5e-6, 3.0)
+        widget.aligned_images.fit_to_points(key, self.PIXELS, targets)
+        record = widget.aligned_images.get(key)
+        assert record.fit
+
+        cx, cy = record.overlay.centre
+        if gesture == "move":
+            record.overlay.moved.emit(cx + 1.0, cy)
+        else:
+            record.overlay.scaled.emit(1.1)
+
+        assert record.fit == {}
+
+
+class TestTheOverviewUnderTheImage:
+    def test_the_reference_is_the_overview_holding_the_images_centre(
+        self, widget, microscope
+    ):
+        _show(widget, SQUARE)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        reference = widget._reference_tile_for_fit(key)
+        assert reference is not None
+        canvas_key, tile = reference
+        # Its corners are the placed extent's corners.
+        (cx, cy), (w, h) = widget._extents[canvas_key]
+        top_left = widget.canvas.metres_to_canvas(cx - w / 2, cy - h / 2)
+        got = widget._tile_pixel_to_canvas(canvas_key, tile, -0.5, -0.5)
+        assert got == pytest.approx(top_left, abs=1e-6)
+        height, width = tile.grey.shape[:2]
+        bottom_right = widget.canvas.metres_to_canvas(cx + w / 2, cy + h / 2)
+        got = widget._tile_pixel_to_canvas(canvas_key, tile, width - 0.5, height - 0.5)
+        assert got == pytest.approx(bottom_right, abs=1e-6)
+
+    def test_with_nothing_placed_there_is_no_reference(self, widget, microscope):
+        assert widget._reference_tile_for_fit("no-such-key") is None
+
+
+class TestTargetingThroughTheAlignedImage:
+    """The alignment is a targeting input, not a picture (FIB-1030): a double-click on
+    a fluorescent spot moves the stage to where that spot is on the sample, and a
+    right-click there offers a lamella. Nothing new is wired for it -- clicks resolve
+    through the view's frame and the overlay takes none outside Align mode -- so this
+    pins that it stays true."""
+
+    def _spot(self, widget, microscope, dx=0.0, dy=0.0, rotation=0.0):
+        _show(widget, SQUARE)
+        position = _fm_at(microscope, dx=40e-6, dy=-25e-6)
+        image = _fm_image(microscope, position, size=64, pixel_size=1e-6)
+        key = widget.add_aligned_image(image, "fm")
+        widget.aligned_images.set_placement(key, dx, dy, rotation)
+        pixel = (50.0, 12.0)
+        canvas_xy = widget.aligned_images.pixel_to_canvas(key, *pixel)
+        return image, key, pixel, canvas_xy
+
+    def test_a_double_click_on_the_image_names_the_spots_own_stage_position(
+        self, widget, microscope
+    ):
+        """With no correction the image sits where its metadata says, so the stage
+        position a click resolves to is the one the FM image's own projection gives
+        for that pixel -- the two answers come from different code and must agree."""
+        from fibsem.projection import FMStageProjection
+
+        image, key, (px, py), (x, y) = self._spot(widget, microscope)
+
+        target = widget._stage_position_at(x, y)
+        assert target is not None, "the click was refused"
+
+        projection = FMStageProjection.from_image(image)
+        height, width = 64, 64
+        own = projection.from_plane(
+            (px + 0.5 - width / 2) * 1e-6,
+            (py + 0.5 - height / 2) * 1e-6,
+            image.metadata.stage_position,
+        )
+        assert (target.x, target.y) == pytest.approx((own.x, own.y), abs=2e-7)
+
+    def test_a_correction_moves_the_target_with_the_image(self, widget, microscope):
+        """Drag the image 10 um along the surface and a click on the same spot names a
+        stage position 10 um over -- the correction is what a click acts on."""
+        image, key, pixel, before = self._spot(widget, microscope)
+        first = widget._stage_position_at(*before)
+        widget.aligned_images.set_placement(key, 10e-6, 0.0, 0.0)
+        after = widget.aligned_images.pixel_to_canvas(key, *pixel)
+
+        second = widget._stage_position_at(*after)
+
+        assert second.x - first.x == pytest.approx(10e-6, abs=2e-7)
+        assert second.y - first.y == pytest.approx(0.0, abs=2e-7)
+
+    def test_a_right_click_on_the_image_offers_a_lamella_there(
+        self, widget, microscope
+    ):
+        image, key, pixel, (x, y) = self._spot(widget, microscope)
+        target = widget._stage_position_at(x, y)
+
+        menu = widget._position_menu(x, y)
+
+        assert menu is not None
+        labels = [action.label for action in menu.actions]
+        assert "Add New Position Here" in labels
+        requested = []
+        widget.position_add_requested.connect(lambda pos, rec: requested.append(pos))
+        menu.actions[labels.index("Add New Position Here")].callback()
+        assert requested and (requested[0].x, requested[0].y) == pytest.approx(
+            (target.x, target.y), abs=1e-9
+        )
+
+    def test_in_align_mode_a_click_belongs_to_the_image_not_the_stage(
+        self, widget, microscope
+    ):
+        """Align hands the canvas to the overlay: the canvas's own click signals stand
+        down, so dragging the image cannot also drive the stage."""
+        self._spot(widget, microscope)
+        widget.aligned_image_panel.btn_align.setChecked(True)
+        assert widget.canvas.active_overlay is not None
+        assert not widget.canvas._overlay_input_allowed(None)
+        widget.aligned_image_panel.btn_align.setChecked(False)

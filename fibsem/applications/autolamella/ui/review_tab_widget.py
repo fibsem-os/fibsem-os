@@ -55,6 +55,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import conversions
 from fibsem.applications.autolamella.proposals import (
+    ALIGNMENT_AREA,
     DETECTION,
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
@@ -75,7 +76,13 @@ from fibsem.applications.autolamella.structures import (
     standing,
 )
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, Point
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    FibsemRectangle,
+    FibsemStagePosition,
+    Point,
+)
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -904,6 +911,79 @@ class StateReviewRenderer(TaskResultReviewRenderer):
             self.no_image.setText(
                 "Asked before an image was taken: the position is the proposal."
             )
+
+
+@register_review_renderer(ALIGNMENT_AREA)
+class AlignmentAreaReviewRenderer(TaskResultReviewRenderer):
+    """The reduced area the alignment reference will be taken in, as a
+    rectangle on the last FIB image, for the operator to check before the
+    task acquires with it (FIB-1053). Drag it to correct it; Confirm hands
+    the area back and the task carries on, Reject fails the task. The canvas
+    alignment overlay is the one the Microscope tab edits with, so the drag
+    is the same."""
+
+    PENDING_HINT = "Enter — the area is right; drag the rectangle to correct it first"
+    CONFIRM_LABEL = "Confirm"
+
+    def _state_words(self) -> tuple:
+        return "Used", self._task_name
+
+    def _area(self) -> Optional[FibsemRectangle]:
+        proposal = self._proposal
+        area = proposal.values.get("alignment_area") if proposal else None
+        return area if isinstance(area, FibsemRectangle) else None
+
+    def _draw_values(self) -> None:
+        if self._image is None:
+            return
+        area = self._area()
+        editable = self._decided is None and self._applied is None
+        self._controller.set_alignment_edit(BeamType.ION, area, editing=editable)
+        if not editable:
+            self._controller.set_alignment_display(BeamType.ION, area, True)
+
+    def _draw_confirmed(self, decision: Decision) -> None:
+        """The decided area, read-only. The proposed one is in the fact line;
+        one alignment overlay per canvas is what the canvas has."""
+        if self._image is None:
+            return
+        area = decision.values.get("alignment_area")
+        if not isinstance(area, FibsemRectangle):
+            area = self._area()
+        self._controller.set_alignment_edit(BeamType.ION, None, editing=False)
+        self._controller.set_alignment_display(BeamType.ION, area, True)
+
+    def current_values(self) -> Dict[str, Any]:
+        """The rectangle wherever it has been dragged to; as proposed when
+        there was no image to drag it on."""
+        proposal = self._proposal
+        if proposal is None:
+            return {}
+        if self._image is None:
+            return dict(proposal.values)
+        area = self._controller.alignment_area(BeamType.ION)
+        if not isinstance(area, FibsemRectangle):
+            return dict(proposal.values)
+        return {
+            "alignment_area": FibsemRectangle(
+                left=float(area.left),
+                top=float(area.top),
+                width=float(area.width),
+                height=float(area.height),
+            )
+        }
+
+    def _fact(self) -> str:
+        proposal = self._proposal
+        if proposal is None:
+            return ""
+        area = self._area()
+        where = os.path.basename(str(proposal.provenance.get("reference_image") or ""))
+        said = f" {area.pretty_string}" if area is not None else ""
+        return (
+            f"{self._task_name} asked at {clock(proposal.created_at)}: the alignment "
+            f"area{said}{f' on {where}' if where else ''}."
+        )
 
 
 @register_review_renderer(DETECTION)

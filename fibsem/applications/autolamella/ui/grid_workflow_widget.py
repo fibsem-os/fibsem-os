@@ -14,6 +14,7 @@ grid, the ticked tasks.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
@@ -738,6 +739,11 @@ class GridWorkflowWidget(QWidget):
         for row in self._grid_rows.values():
             if row.is_present:
                 row.checkbox.setChecked(checked)
+        # The window clears the ticks too (a run starting, an add); the header
+        # follows, so its next click selects all rather than doing nothing.
+        self.grid_header.select_all.blockSignals(True)
+        self.grid_header.select_all.setChecked(checked)
+        self.grid_header.select_all.blockSignals(False)
 
     def set_all_tasks_selected(self, checked: bool) -> None:
         for row in self._task_rows.values():
@@ -892,11 +898,14 @@ class GridRunPreflightDialog(QDialog):
         screen_all: bool = False,
         adding: bool = False,
         beams_off: Sequence[BeamType] = (),
+        first_run: Sequence[str] = (),
         parent: Optional[QWidget] = None,
     ) -> None:
         """``adding``: the same plan, going onto the end of a running queue
         rather than starting one. ``beams_off``: beams that are off now; the
-        run turns them on when it starts, and the dialog says so first."""
+        run turns them on when it starts, and the dialog says so first.
+        ``first_run``: grids in the plan that have never run, whose names this
+        run will fix."""
         super().__init__(parent)
         self.setWindowTitle(
             "Add to the queue"
@@ -973,6 +982,22 @@ class GridRunPreflightDialog(QDialog):
                 )
             )
 
+        # A grid's name is fixed once it has run: its folder and images carry it.
+        # This is the last point to change it, so the grids about to run for the
+        # first time are named, and nothing is said when there are none.
+        if first_run:
+            first = ", ".join(
+                f"{n} (default name)" if is_default_grid_name(n) else n
+                for n in first_run
+            )
+            more = ", and any grid the inventory adds" if screen_all else ""
+            layout.addWidget(
+                warning_label(
+                    f"Names are fixed once a grid has run. Running for the first "
+                    f"time: {first}{more}. Rename on the Grids tab first if needed."
+                )
+            )
+
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         self.btn_cancel = QPushButton("Cancel")
@@ -985,6 +1010,15 @@ class GridRunPreflightDialog(QDialog):
         buttons.addWidget(self.btn_cancel)
         buttons.addWidget(self.btn_run)
         layout.addLayout(buttons)
+
+
+# What the autoloader reads for a slot with no description, and what the
+# simulator names its grids: the name a grid has when nobody has named it.
+_DEFAULT_GRID_NAME = re.compile(r"Grid-\d+")
+
+
+def is_default_grid_name(name: str) -> bool:
+    return _DEFAULT_GRID_NAME.fullmatch(name) is not None
 
 
 def beam_name(beam: BeamType) -> str:

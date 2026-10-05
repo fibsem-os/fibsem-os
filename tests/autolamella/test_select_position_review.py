@@ -16,6 +16,7 @@ from psygnal.containers import EventedDict
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.proposals import (
+    ALIGNMENT_AREA,
     POINT_OF_INTEREST,
     STATE,
     AuthorKind,
@@ -264,7 +265,7 @@ def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_p
     assert proposal.pending, "open"
     assert proposal.values == {"poi": Point(0.0, 0.0)}, "the proposal is untouched"
     assert lamella.poi == Point(0.0, 0.0), "live as proposed"
-    assert heard == [STATE, STATE], (
+    assert heard == [STATE, STATE, ALIGNMENT_AREA], (
         "the tilt and the position went on the record unasked; the point is undecided"
     )
     assert task.task_manager._defer_reason(lamella, ROUGH) is None, "nothing waits"
@@ -272,8 +273,9 @@ def test_automated_the_value_is_open_until_its_consumer_starts(microscope, tmp_p
     assert [p.kind for _i, _t, p in exp.proposals_to_check()] == [
         STATE,
         STATE,
+        ALIGNMENT_AREA,
         POINT_OF_INTEREST,
-    ], "all three to check: the two confirmations nobody was asked, and the point"
+    ], "all four to check: the three questions nobody was asked, and the point"
 
     # A correction before the consumer starts is a plain confirm with values.
     moved = exp.decide(

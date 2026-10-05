@@ -30,22 +30,24 @@ def generate_configuration(user_config: dict) -> dict:
     config["info"]["ip_address"] = user_config["ip_address"]
     config["info"]["manufacturer"] = user_config["manufacturer"]
 
+    hardware = config["hardware"]
+
     # stage
-    config["stage"]["rotation_reference"] = user_config["rotation-reference"]
-    config["stage"].pop("rotation_180", None)  # derived from the reference (FIB-834)
-    config["stage"]["shuttle_pre_tilt"] = user_config["shuttle-pre-tilt"]
+    hardware["stage"]["rotation_reference"] = user_config["rotation-reference"]
+    hardware["stage"].pop("rotation_180", None)  # derived from the reference (FIB-834)
+    config["calibration"]["shuttle_pre_tilt"] = user_config["shuttle-pre-tilt"]
 
     # electron
-    config["electron"]["eucentric_height"] = user_config[
+    hardware["electron"]["eucentric_height"] = user_config[
         "electron-beam-eucentric-height"
     ]
-    config["electron"]["column_tilt"] = get_column_tilt(
+    hardware["electron"]["column_tilt"] = get_column_tilt(
         config["info"]["manufacturer"], "electron"
     )
 
     # ion
-    config["ion"]["eucentric_height"] = user_config["ion-beam-eucentric-height"]
-    config["ion"]["column_tilt"] = get_column_tilt(
+    hardware["ion"]["eucentric_height"] = user_config["ion-beam-eucentric-height"]
+    hardware["ion"]["column_tilt"] = get_column_tilt(
         config["info"]["manufacturer"], "ion"
     )
 

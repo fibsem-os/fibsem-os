@@ -14,7 +14,7 @@ rotation come from the system configuration and are shown as facts, not as input
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -115,8 +116,9 @@ def calibration_tooltip(slot: GridSlot) -> str:
     record = slot.calibration
     if record.is_builtin:
         return (
-            f"{slot.name}: {status}.\nThe working slot: at the stage origin by "
-            f"construction, no capture needed.\n{slot.position.pretty}"
+            f"{slot.name}: {status}.\nThe working slot, at the stage origin until "
+            "calibrated. If a loaded grid sits off it, calibrate it with the pencil."
+            f"\n{slot.position.pretty}"
         )
     return (
         f"{slot.name}: {status}.\nCalibrated {_captured_when(slot)}\n"
@@ -234,12 +236,18 @@ class SampleHolderWidget(QWidget):
 
     ``holder_changed`` fires after a grid was named or cleared here and after the
     wizard saved a calibration, for hosts that draw the holder. Nothing is saved
-    from here: the wizard writes the calibration file, and naming a grid goes
-    through ``Stage.assign_grid``, which writes the occupancy file (or, with a
-    loader, the hardware). ``set_holder`` swaps which holder is shown.
+    from here: the wizard writes the holder into the configuration, and naming a
+    grid goes through ``Stage.assign_grid``, which records the occupancy in the
+    session state (or, with a loader, writes the hardware). ``set_holder`` swaps
+    which holder is shown.
+
+    A host that keeps records under the grids' names can refuse a rename with
+    ``set_rename_check``, and hears of one through ``grid_renamed``, before
+    ``holder_changed``. Naming an empty slot or clearing one is not a rename.
     """
 
     holder_changed = pyqtSignal(object)  # SampleHolder
+    grid_renamed = pyqtSignal(str, str)  # old name, new name
     # A request to drive to a calibrated slot. The host (the Movement widget) routes
     # it through its own move path, so the position readout and the post-move
     # images follow, exactly as for a saved position. Unhosted, `move_directly`
@@ -255,8 +263,14 @@ class SampleHolderWidget(QWidget):
         self._holder: Optional[SampleHolder] = None
         self._calibration_dialog = None
         self._rows: List[_SlotRow] = []
+        self._rename_check: Optional[Callable[[str, str], str]] = None
         self._setup_ui()
         self.setEnabled(False)
+
+    def set_rename_check(self, check: Optional[Callable[[str, str], str]]) -> None:
+        """``check(old, new)`` says why the grid named *old* may not become *new*,
+        or returns "" to allow it. None, the default, allows every rename."""
+        self._rename_check = check
 
     # -- layout ----------------------------------------------------------------
 
@@ -377,8 +391,16 @@ class SampleHolderWidget(QWidget):
 
     def _on_grid_named(self, slot: GridSlot, name: str) -> None:
         """Record the grid in a slot. Through the stage when there is one, so the
-        occupancy file is written and a restart still knows what is in the shuttle."""
+        occupancy is saved and a restart still knows what is in the shuttle."""
         if self._holder is None:
+            return
+        old = slot.loaded_grid.name if slot.loaded_grid is not None else ""
+        renaming = bool(old and name)
+        refusal = (
+            self._rename_check(old, name) if renaming and self._rename_check else ""
+        )
+        if refusal:
+            self._refuse(slot, refusal)
             return
         grid: Optional[SampleGrid]
         if not name:
@@ -390,13 +412,27 @@ class SampleHolderWidget(QWidget):
             grid = SampleGrid(name=name)
         if self._microscope is not None:
             try:
-                self._microscope._stage.assign_grid(slot.name, grid)
+                self._microscope._stage.assign_grid(slot.name, grid, persist=True)
             except Exception as e:  # noqa: BLE001 - keep the in-memory change, say so
                 logging.warning(f"Could not record the grid in {slot.name}: {e}")
                 slot.loaded_grid = grid
         else:
             slot.loaded_grid = grid
+        if renaming:
+            self.grid_renamed.emit(old, name)
         self.holder_changed.emit(self._holder)
+
+    def _refuse(self, slot: GridSlot, reason: str) -> None:
+        """Put the slot's name back and say why, beside the field: this view has
+        no status line of its own."""
+        for row in self._rows:
+            if row.slot is slot:
+                row.refresh()
+                field = row.name_edit
+                QToolTip.showText(
+                    field.mapToGlobal(field.rect().bottomLeft()), reason, field
+                )
+        logging.info(f"Rename of {slot.name} refused: {reason}")
 
     def _on_move_slot(self, slot: GridSlot) -> None:
         if self._microscope is None or slot.position is None:

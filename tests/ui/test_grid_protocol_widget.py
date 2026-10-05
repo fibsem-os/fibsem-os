@@ -313,3 +313,69 @@ def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
     assert editor.task_parameters_config_widget.isVisibleTo(editor)
     # the Grids tab no longer carries a protocol view
     assert not hasattr(main_ui.grids_tab, "protocol_widget")
+
+
+# ---------------------------------------------------------------------------
+# The reach warning (FIB-1152)
+# ---------------------------------------------------------------------------
+
+
+def _arctis():
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+    )
+    return microscope
+
+
+def _size(widget, rows, cols, hfw):
+    """An edit in the form, as the operator makes it."""
+    editor = widget.editor_panel.editor_for(BEAM)
+    settings = editor.settings.get_settings()
+    settings.nrows, settings.ncols = rows, cols
+    settings.image_settings.hfw = hfw
+    editor.settings.update_from_settings(settings)
+    widget._on_editor_changed()
+
+
+def test_an_overview_past_the_stage_is_warned_about_as_it_is_sized(widget):
+    """On the Arctis the y travel is +/-377.8 um: a 4 x 4 of 500 um tiles at the
+    default 1536 x 1024 puts rows 0 and 3 at +/-450 um."""
+    microscope = _arctis()
+    try:
+        widget.set_microscope(microscope)
+        widget.add_task(BEAM, "overview_sem")
+        label = widget.editor_panel.reach_label
+        _size(widget, 3, 3, 500e-6)
+        assert label.isHidden()
+        _size(widget, 4, 4, 500e-6)
+        assert not label.isHidden()
+        assert label.text() == (
+            "8 of 16 tiles are past the stage's reach and will be skipped "
+            "(rows 0 and 3)."
+        )
+        _size(widget, 3, 3, 500e-6)  # sized back down
+        assert label.isHidden()
+    finally:
+        microscope.disconnect()
+
+
+def test_a_fluorescence_overview_past_the_stage_is_warned_about(widget):
+    microscope = _arctis()
+    try:
+        widget.set_microscope(microscope)
+        widget.add_task(FM, "overview_fm")
+        config = widget.selected_config()
+        config.overview.rows = config.overview.cols = 15
+        widget._show_selected()
+        assert widget.editor_panel.reach_label.text().startswith(
+            "90 of 225 tiles are past the stage's reach"
+        )
+    finally:
+        microscope.disconnect()
+
+
+def test_without_a_microscope_there_is_no_warning(widget):
+    widget.add_task(BEAM, "overview_sem")
+    _size(widget, 6, 6, 1e-3)
+    assert widget.editor_panel.reach_label.isHidden()

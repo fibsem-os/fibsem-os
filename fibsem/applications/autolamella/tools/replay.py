@@ -39,6 +39,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
+from fibsem.applications.autolamella.proposals import kind_label
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ class EventKind:
 
     TASK = "task"
     PROMPT = "prompt"
+    DECISION = "decision"  # a decision on a proposal: event stream only
     IMAGE = "image"
     FLUORESCENCE = "fluorescence"
     STAGE = "stage"
@@ -91,6 +93,7 @@ class EventKind:
     ALL = (
         TASK,
         PROMPT,
+        DECISION,
         IMAGE,
         FLUORESCENCE,
         STAGE,
@@ -281,6 +284,12 @@ class ReplayEvent:
     # STAGE, and IMAGE (where the stage was when it was taken)
     position: Optional[Dict[str, Any]] = None
     item_type: Optional[str] = None  # "lamella" or "grid"
+    # A question or a decision: the acquisition of the image its values sit on
+    shown_on: Optional["ReplayEvent"] = None
+    # Who acted: "task", "agent" or "operator", as the event stream records
+    # every action; None when it did not know, and for the log, which records
+    # only who answered a prompt.
+    actor: Optional[str] = None
 
     @property
     def image_on_disk(self) -> bool:
@@ -339,6 +348,10 @@ class ReplayScene:
     # centre of the field (+y down), so they land right on an image taken at
     # another field width. Empty when that frame's field width is unknown.
     spots: List[Tuple[float, float]] = field(default_factory=list)
+    # The question or decision shown, when its values sit on a saved image:
+    # ``sem`` or ``fib`` is then that image, whenever it was taken, so its
+    # proposed and decided points (``proposal_marks``) land on it.
+    proposal: Optional[ReplayEvent] = None
 
 
 @dataclass
@@ -482,6 +495,13 @@ class ExperimentReplay:
                     spots.append(((spot[0] - 0.5) * w, (spot[1] - 0.5) * h))
 
         fib = at("fib_full") if (milling is not None or spots) else at("fib")
+        sem = at("sem")
+        proposal = event if event.shown_on is not None else None
+        if proposal is not None:
+            if proposal.shown_on.beam == "ELECTRON":
+                sem = proposal.shown_on
+            else:
+                fib = proposal.shown_on
 
         if event.kind == EventKind.STAGE and event.position is not None:
             position = event.position
@@ -490,7 +510,7 @@ class ExperimentReplay:
         return ReplayScene(
             index=index,
             event=event,
-            sem=at("sem"),
+            sem=sem,
             fib=fib,
             fm=at("fm"),
             sem_unsaved_since=idx["sem_n"][index],
@@ -499,6 +519,7 @@ class ExperimentReplay:
             milling=milling,
             milling_stages=stages,
             spots=spots,
+            proposal=proposal,
         )
 
     def counts(self) -> Dict[str, int]:
@@ -672,9 +693,10 @@ def _spot_event(record: LogRecord) -> Optional[ReplayEvent]:
     )
 
 
-def _answer_summary(kind: Any, response: Any, by: Any, adjusted: bool) -> str:
+def _answer_summary(kind: Any, response: Any, adjusted: bool) -> str:
+    """A prompt's answer. Who answered is the event's actor, not the text."""
     answer = {True: "Yes", False: "No"}.get(response, response)
-    summary = f"{kind} answered {answer} by the {by}"
+    summary = f"{kind} answered {answer}"
     if adjusted:
         summary += ", after adjusting it"
     return summary
@@ -686,7 +708,7 @@ def _task_summary(task: Any, step: Any) -> str:
 
 def _prompt_event(record: LogRecord, m: "re.Match", item, task, step) -> ReplayEvent:
     kind, response, by, adjusted = m.groups()
-    summary = _answer_summary(kind, response == "True", by, adjusted == "True")
+    summary = _answer_summary(kind, response == "True", adjusted == "True")
     return ReplayEvent(
         record.time,
         EventKind.PROMPT,
@@ -700,6 +722,7 @@ def _prompt_event(record: LogRecord, m: "re.Match", item, task, step) -> ReplayE
             "answered_by": by,
             "adjusted": adjusted == "True",
         },
+        actor=by,  # the one thing the log says about who acted
     )
 
 
@@ -1122,29 +1145,33 @@ _EDIT_VALUE_CHARS = 32
 _ABSENT = object()  # a value one side of an edit does not have
 
 
-def _edit_summary(payload: Dict[str, Any], actor: Any) -> str:
-    """What an edit changed, from what to what, and who made it from where.
+def _edit_summary(payload: Dict[str, Any]) -> str:
+    """What an edit changed, from what to what, and from where. Who made it is
+    the event's actor.
 
     ``before`` and ``after`` are the whole object edited, so the values that
     differ are found by walking both.
     """
-    changes = _changed_values(payload.get("before"), payload.get("after"))
+    changes = changed_values(payload.get("before"), payload.get("after"))
     shown = [_edit_change(*change) for change in changes[:_EDIT_CHANGES_SHOWN]]
     if len(changes) > _EDIT_CHANGES_SHOWN:
         shown.append(f"{len(changes) - _EDIT_CHANGES_SHOWN} more")
     # Recorded, so something differs: a float a widget's units round-tripped.
     text = f"{payload.get('target')}: {', '.join(shown) or 'rounding only'}"
-    if actor:
-        text += f" — by the {actor}"
     if payload.get("via"):
         text += f" ({payload['via']})"
     return text
 
 
-def _changed_values(
+def changed_values(
     before: Any, after: Any, path: str = ""
 ) -> List[Tuple[str, Any, Any]]:
-    """``(path, before, after)`` for each value that differs, in order."""
+    """``(path, before, after)`` for each value that differs, in order.
+
+    Floats that differ only by rounding are the same value (``_same_value``);
+    a key or item one side lacks differs. Report v2's tables read edits and
+    decisions with it too (``tools/event_tables.py``).
+    """
     if isinstance(before, dict) and isinstance(after, dict):
         keys = list(before) + [k for k in after if k not in before]
         pairs = [(k, before.get(k, _ABSENT), after.get(k, _ABSENT)) for k in keys]
@@ -1162,11 +1189,143 @@ def _changed_values(
     return [
         change
         for key, old, new in pairs
-        for change in _changed_values(old, new, f"{path}.{key}" if path else str(key))
+        for change in changed_values(old, new, f"{path}.{key}" if path else str(key))
     ]
 
 
-def _correlation_summary(payload: Dict[str, Any], actor: Any) -> str:
+# The rows a question or decision is shown as.
+_PROPOSAL_KINDS = (EventKind.PROMPT, EventKind.DECISION)
+# What each outcome is called on a row. Unreviewed is never agreement: the
+# value was used because nobody looked in time, or nobody was asked.
+_OUTCOME_WORDS = {
+    "Confirmed": "confirmed",
+    "Rejected": "rejected",
+    "Withdrawn": "withdrawn",
+    "Unreviewed": "used as proposed, unreviewed",
+}
+# The axes a position moves along, and how a move along each reads.
+_LENGTH_AXES, _ANGLE_AXES = ("x", "y", "z"), ("r", "t")
+
+
+def _asked_summary(payload: Dict[str, Any]) -> str:
+    """A question a run parked on, as a prompt row reads."""
+    label = kind_label(str(payload.get("kind") or ""))
+    message = payload.get("message")
+    return f"{label} asked: {message}" if message else f"{label} asked"
+
+
+def _decision_summary(payload: Dict[str, Any]) -> str:
+    """A decision on a proposal: what it was, what the decider changed, and
+    where it was decided; who decided it is the event's actor. A confirmation
+    that carries no values -- a look, or one still to be filled in -- says only
+    that it was confirmed."""
+    label = kind_label(str(payload.get("kind") or ""))
+    outcome = str(payload.get("outcome") or "")
+    text = f"{label} {_OUTCOME_WORDS.get(outcome, outcome.lower() or 'decided')}"
+    decided = payload.get("decided") or {}
+    if outcome == "Confirmed" and decided:
+        changes = _decision_changes(payload.get("proposed") or {}, decided)
+        text += f": {changes}" if changes else ", as proposed"
+    elif outcome != "Confirmed" and payload.get("reason"):
+        text += f": {payload['reason']}"
+    if payload.get("via"):
+        text += f" ({payload['via']})"
+    return text
+
+
+def proposal_marks(
+    data: Dict[str, Any],
+) -> Optional[Tuple[str, List[Tuple[float, ...]], List[Tuple[float, ...]]]]:
+    """Where a question's or decision's values sit on its image, as
+    ``(unit, proposed, decided)``:
+
+    * ``"m"``: a point of interest, ``(x, y)`` in metres from the image centre
+      with +y up (microscope image coordinates)
+    * ``"px"``: detected features, ``(x, y)`` in pixels
+    * ``"rect"``: an alignment area, ``(left, top, width, height)`` as fractions
+      of the image
+
+    ``decided`` is empty until there are decided values. None for a kind with
+    nothing to draw."""
+    proposed, decided = data.get("proposed") or {}, data.get("decided") or {}
+    if "poi" in proposed or "poi" in decided:
+        return "m", _points([proposed.get("poi")]), _points([decided.get("poi")])
+    if "features" in proposed or "features" in decided:
+        return (
+            "px",
+            _points(f.get("px") for f in proposed.get("features") or []),
+            _points(f.get("px") for f in decided.get("features") or []),
+        )
+    if "alignment_area" in proposed or "alignment_area" in decided:
+        return (
+            "rect",
+            _rects([proposed.get("alignment_area")]),
+            _rects([decided.get("alignment_area")]),
+        )
+    return None
+
+
+def _points(values: Any) -> List[Tuple[float, ...]]:
+    return _numbers(values, ("x", "y"))
+
+
+def _rects(values: Any) -> List[Tuple[float, ...]]:
+    return _numbers(values, ("left", "top", "width", "height"))
+
+
+def _numbers(values: Any, keys: Tuple[str, ...]) -> List[Tuple[float, ...]]:
+    return [
+        tuple(float(v[k]) for k in keys)
+        for v in values
+        if isinstance(v, dict) and all(_is_number(v.get(k)) for k in keys)
+    ]
+
+
+def _decision_changes(proposed: Dict[str, Any], decided: Dict[str, Any]) -> str:
+    """How the decided values differ from the proposed ones. A position or a
+    point is a move, in µm and degrees; anything else is its changed values,
+    as an edit row names them. A kind carries one value, so its name is left
+    out when it is the only one."""
+    parts = []
+    for name, new in decided.items():
+        old = proposed.get(name, _ABSENT)
+        prefix = f"{name} " if len(decided) > 1 else ""
+        moved = _moved(old, new)
+        if moved is not None:
+            if moved:
+                parts.append(f"{prefix}moved {moved}")
+            continue
+        changes = changed_values(old, new, name if len(decided) > 1 else "")
+        shown = [_edit_change(*c) for c in changes[:_EDIT_CHANGES_SHOWN]]
+        if len(changes) > _EDIT_CHANGES_SHOWN:
+            shown.append(f"{len(changes) - _EDIT_CHANGES_SHOWN} more")
+        parts.extend(shown)
+    return ", ".join(parts)
+
+
+def _moved(old: Any, new: Any) -> Optional[str]:
+    """How far a point or a position moved ("x +2.0 µm, t -1.0°"); "" when it
+    did not. None when the two are not points or positions."""
+    if not (isinstance(old, dict) and isinstance(new, dict)):
+        return None
+    axes = [a for a in _LENGTH_AXES + _ANGLE_AXES if a in old and a in new]
+    if "x" not in axes or "y" not in axes:
+        return None
+    parts = []
+    for axis in axes:
+        if not (_is_number(old[axis]) and _is_number(new[axis])):
+            return None
+        if _same_value(old[axis], new[axis]):
+            continue
+        change = new[axis] - old[axis]
+        if axis in _LENGTH_AXES:
+            parts.append(f"{axis} {change * 1e6:+.1f} µm")
+        else:
+            parts.append(f"{axis} {math.degrees(change):+.1f}°")
+    return ", ".join(parts)
+
+
+def _correlation_summary(payload: Dict[str, Any]) -> str:
     """An accepted correlation: the point of interest it gave, and how well it fits."""
     poi = payload.get("poi") or {}
     text = (
@@ -1194,8 +1353,6 @@ def _correlation_summary(payload: Dict[str, Any], actor: Any) -> str:
         fit.append(f"refractive index ×{factor} {when} the fit")
     if fit:
         text += " — " + ", ".join(fit)
-    if actor:
-        text += f" — by the {actor}"
     return text
 
 
@@ -1303,6 +1460,7 @@ def _spot_events(burn: Dict[str, Any], burned: int) -> List[ReplayEvent]:
                     "milling_current": current,
                 },
                 duration=exposure,
+                actor=burn.get("actor"),
             )
         )
     return events
@@ -1318,8 +1476,9 @@ def _load_from_events(root: Path) -> ExperimentReplay:
 
     A stage move is one row however many moves it was made of, and shows where
     it ended; a position read is only the stage track. An edit to a lamella's
-    plan, and an accepted correlation, are on the lamella and task they were
-    about. Live view is not recorded. An
+    plan, an accepted correlation, and a question and its decision are on the
+    lamella and task they were about; a confirmation filled in afterwards is
+    its decision's row. Live view is not recorded. An
     FM file the stream did not record is found on disk and placed by its own
     metadata, as the log's reader places every FM image.
     """
@@ -1339,6 +1498,9 @@ def _load_from_events(root: Path) -> ExperimentReplay:
     recorded_fm: List[ReplayEvent] = []
     burn: Optional[Dict[str, Any]] = None
     burned = 0
+    # (proposal id, decision index) -> its row, for the values a confirmation
+    # "as it stands" is filled in with afterwards
+    decisions: Dict[Tuple[Any, Any], ReplayEvent] = {}
 
     for record in records:
         time = _record_time(record)
@@ -1403,6 +1565,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
         elif kind == "fm_image_acquired":
             fm = _recorded_fluorescence(time, payload, resolver)
             fm.item, fm.task = item, task
+            fm.actor = record.get("actor")
             fm.step = steps.get(task_id) if task_id is not None else None
             recorded_fm.append(fm)
         elif kind == "fm_autofocus":
@@ -1452,6 +1615,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                 "field_of_view": payload.get("field_of_view"),
                 "exposure_time": payload.get("exposure_time"),
                 "milling_current": payload.get("milling_current"),
+                "actor": record.get("actor"),
             }
             burned = 0
         elif kind == "spot_burn_progress" and burn is not None:
@@ -1468,21 +1632,35 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             # ones a workflow was running when it was made.
             item = (payload.get("item") or {}).get("name")
             task, task_id = payload.get("task"), None
-            actor = record.get("actor")
             if kind == "edit":
-                summary = _edit_summary(payload, actor)
+                summary = _edit_summary(payload)
                 event = ReplayEvent(time, EventKind.EDIT, summary, data=payload)
             else:
-                summary = _correlation_summary(payload, actor)
+                summary = _correlation_summary(payload)
                 event = ReplayEvent(time, EventKind.CORRELATION, summary, data=payload)
+        elif kind in ("proposal_asked", "proposal_decided"):
+            # On the item and task it was about, as an edit is.
+            item = (payload.get("item") or {}).get("name")
+            task, task_id = payload.get("task"), None
+            if kind == "proposal_asked":
+                summary = _asked_summary(payload)
+                event = ReplayEvent(time, EventKind.PROMPT, summary, data=payload)
+            else:
+                key = (payload.get("proposal_id"), payload.get("decision"))
+                summary = _decision_summary(payload)
+                earlier = decisions.get(key)
+                if payload.get("filled_in") and earlier is not None:
+                    # The same decision, now with the values it was confirmed
+                    # at: its row says so, rather than a second row.
+                    earlier.summary, earlier.data = summary, payload
+                else:
+                    event = ReplayEvent(time, EventKind.DECISION, summary, data=payload)
+                    decisions[key] = event
         elif kind in ("prompt_raised", "prompt_answered", "prompt_cancelled"):
             prompt = payload.get("type", "Prompt")
             if kind == "prompt_answered":
                 summary = _answer_summary(
-                    prompt,
-                    payload.get("response"),
-                    payload.get("answered_by"),
-                    bool(payload.get("adjusted")),
+                    prompt, payload.get("response"), bool(payload.get("adjusted"))
                 )
             elif kind == "prompt_raised":
                 message = payload.get("message")
@@ -1494,6 +1672,10 @@ def _load_from_events(root: Path) -> ExperimentReplay:
         if event is not None:
             event.item, event.task = item, task
             event.step = steps.get(task_id) if task_id is not None else None
+            # A file from before actors were recorded still says who answered.
+            event.actor = record.get("actor") or (
+                payload.get("answered_by") if kind == "prompt_answered" else None
+            )
             events.append(event)
         if kind in _TASK_END_STEPS:
             steps.pop(task_id, None)
@@ -1540,6 +1722,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             e.item_type = item_types.get(e.item)
     track.sort(key=lambda p: p[0])
     _attach_images(events, resolver)
+    _attach_proposal_images(events, resolver)
     return ExperimentReplay(
         root,
         events,
@@ -1548,3 +1731,23 @@ def _load_from_events(root: Path) -> ExperimentReplay:
         records_unreadable=lines - len(records),
         source=EVENTS_FILENAME,
     )
+
+
+def _attach_proposal_images(
+    events: List[ReplayEvent], resolver: _ImageResolver
+) -> None:
+    """Point each question and decision at the acquisition of the image its
+    values sit on, recorded relative to its item's folder (the item's name
+    under the experiment): its scene shows that image, not whatever was taken
+    last."""
+    acquired = {
+        e.image_path.resolve(): e
+        for e in events
+        if e.kind == EventKind.IMAGE and e.image_path is not None
+    }
+    for e in events:
+        image = e.data.get("image") if e.kind in _PROPOSAL_KINDS else None
+        if not image or not e.item:
+            continue
+        path = resolver.root / e.item / str(image)
+        e.shown_on = acquired.get(path.resolve()) if path.is_file() else None

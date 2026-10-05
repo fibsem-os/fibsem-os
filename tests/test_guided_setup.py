@@ -64,9 +64,9 @@ def test_every_model_carries_both_stage_values():
     from fibsem import utils
 
     for model in wizard.MICROSCOPE_MODELS:
-        stage = utils.load_yaml(model.path).get("stage", {})
-        assert "rotation_reference" in stage, model.label
-        assert "shuttle_pre_tilt" in stage, model.label
+        config = utils.load_yaml(model.path)
+        assert "rotation_reference" in config["hardware"]["stage"], model.label
+        assert "shuttle_pre_tilt" in config["calibration"], model.label
 
 
 def test_unknown_keys_fall_back_rather_than_raising():
@@ -143,7 +143,7 @@ def test_no_model_writes_a_rotation_180():
     """
     for model in wizard.MICROSCOPE_MODELS:
         config = wizard.build_configuration(wizard.SetupChoices(model_key=model.key))
-        assert "rotation_180" not in config["stage"], model.key
+        assert "rotation_180" not in config["hardware"]["stage"], model.key
 
 
 def test_the_derived_opposite_matches_what_each_model_needs():
@@ -157,7 +157,7 @@ def test_the_derived_opposite_matches_what_each_model_needs():
     expected = {"tfs-hydra": 180.0, "tfs-aquilos2": 180.0, "tescan": 0.0}
     for key, opposite in expected.items():
         config = wizard.build_configuration(wizard.SetupChoices(model_key=key))
-        stage = StageSystemSettings.from_dict(config["stage"])
+        stage = StageSystemSettings.from_dict(config["hardware"]["stage"])
         assert stage.rotation is True, key
         assert stage.rotation_180 == opposite, key
 
@@ -277,8 +277,8 @@ def test_the_wizard_writes_no_stage_capability():
         config = wizard.build_configuration(
             wizard.SetupChoices(model_key=model.key, name="Bay 2")
         )
-        assert "rotation" not in config["stage"], model.key
-        assert "tilt" not in config["stage"], model.key
+        assert "rotation" not in config["hardware"]["stage"], model.key
+        assert "tilt" not in config["hardware"]["stage"], model.key
 
 
 def test_the_compustage_models_are_still_marked_as_such():
@@ -308,8 +308,10 @@ def test_a_supplied_rotation_reference_derives_its_opposite():
             model_key="tfs-other", rotation_reference=250.0, name="Bench"
         )
     )
-    assert config["stage"]["rotation_reference"] == 250.0
-    assert StageSystemSettings.from_dict(config["stage"]).rotation_180 == 70.0
+    assert config["hardware"]["stage"]["rotation_reference"] == 250.0
+    assert (
+        StageSystemSettings.from_dict(config["hardware"]["stage"]).rotation_180 == 70.0
+    )
 
 
 def test_the_name_becomes_the_configurations_name():
@@ -393,18 +395,20 @@ def test_every_shipped_file_already_agrees_with_its_manufacturers_column_tilts()
                 manufacturer_key=model.manufacturer_key, model_key=model.key
             )
         )
-        assert built["ion"]["column_tilt"] == defaults["ion-column-tilt"], model.key
+        assert built["hardware"]["ion"]["column_tilt"] == defaults["ion-column-tilt"], (
+            model.key
+        )
         # The generic base is the one file deliberately allowed to differ, because it
         # is a Demo configuration standing in for someone else's instrument.
         if model.filename != "microscope-configuration.yaml":
-            assert shipped["ion"]["column_tilt"] == defaults["ion-column-tilt"], (
-                model.key
-            )
+            assert (
+                shipped["hardware"]["ion"]["column_tilt"] == defaults["ion-column-tilt"]
+            ), model.key
 
 
 def test_a_recognised_model_keeps_its_own_column_tilt():
     config = wizard.build_configuration(wizard.SetupChoices(model_key="tfs-hydra"))
-    assert config["ion"]["column_tilt"] == 52
+    assert config["hardware"]["ion"]["column_tilt"] == 52
 
 
 # ---------------------------------------------------------------------------

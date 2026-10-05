@@ -83,7 +83,9 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
         overview = FibsemOverviewWidget(microscope)
         overview.gridbar_placement_changed.connect(self._save_gridbar_placement)
         overview.image_placement_changed.connect(self._save_image_placement)
+        overview.image_display_changed.connect(self._save_image_display)
         overview.image_removed.connect(self._forget_image)
+        overview.aligned_image_folder = self._aligned_image_folder
         return overview
 
     def _can_build(self, microscope) -> bool:
@@ -169,6 +171,16 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
 
     ALIGNED_IMAGES_DIR = "Aligned Images"
 
+    def _aligned_image_folder(self) -> Optional[str]:
+        """Where an imported image's copy is written: the folder of the grid under
+        the stage, so its record needs no second copy. None without a grid."""
+        grid = self.current_grid
+        if grid is None or self.experiment is None:
+            return None
+        return os.path.join(
+            str(self.experiment.grid_path(grid)), self.ALIGNED_IMAGES_DIR
+        )
+
     def _image_source(self, grid, aligned) -> Optional[str]:
         """The image's file, relative to the grid's folder -- copied in if it is
         elsewhere, so the experiment stays self-contained."""
@@ -186,21 +198,22 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
         aligned.path = copied
         return os.path.relpath(copied, root)
 
-    def _save_image_placement(self, key: str) -> None:
-        """The user placed an aligned image: keep it on the grid they are over."""
+    def _keep_image(self, key: str):
+        """Write an aligned image's record on the grid under the stage -- where it
+        is and how it is shown -- and save. The grid and the record, or None."""
         grid = self.current_grid
         aligned = self.overview.aligned_images.get(key) if self.overview else None
         if grid is None or aligned is None:
-            logger.debug("No grid under the stage to keep the image placement on.")
-            return
+            logger.debug("No grid under the stage to keep the image on.")
+            return None
         try:
             source = self._image_source(grid, aligned)
         except Exception as e:  # noqa: BLE001 - a copy that failed is said
             logger.error(f"Could not copy {aligned.label} into the grid folder: {e}")
-            return
+            return None
         if source is None:
             logger.debug(f"{aligned.label} has no file to keep; not recorded.")
-            return
+            return None
         dx, dy, rotation, scale = aligned.placement
         record = OverlayRecord(
             kind="image",
@@ -209,6 +222,9 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
             dy=dy,
             rotation=rotation,
             scale=scale,
+            mirrored=aligned.mirrored,
+            fit=dict(aligned.fit),
+            display=self.overview.aligned_images.display_state(key),
         )
         if aligned.record_id:
             record.id = aligned.record_id
@@ -216,8 +232,42 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
         grid.set_overlay(record)
         try:
             self.experiment.save()
-        except Exception as e:  # noqa: BLE001 - the placement is on screen either way
-            logger.error(f"Could not save the image placement: {e}")
+        except Exception as e:  # noqa: BLE001 - the image is on screen either way
+            logger.error(f"Could not save {aligned.label} on grid {grid.name}: {e}")
+            return None
+        return grid, record
+
+    def _save_image_placement(self, key: str) -> None:
+        """The user placed an aligned image: keep it on the grid they are over."""
+        kept = self._keep_image(key)
+        if kept is None:
+            return
+        grid, record = kept
+        aligned = self.overview.aligned_images.get(key)
+        logger.info(
+            f"Kept {aligned.label} on grid {grid.name}: dx={record.dx:.3e} m"
+            f" dy={record.dy:.3e} m rotation={record.rotation:.2f} deg"
+            f" scale={record.scale:.4f}{' (from a fit)' if record.fit else ''};"
+            f" source {record.source}"
+        )
+
+    def _save_image_display(self, key: str) -> None:
+        """The user changed how an aligned image is shown: keep that too."""
+        kept = self._keep_image(key)
+        if kept is None:
+            return
+        grid, record = kept
+        display = record.display
+        shown = [
+            f"{c['name']} {c['color']}{'' if c['visible'] else ' (hidden)'}"
+            for c in display.get("channels", [])
+        ]
+        logger.info(
+            f"Kept how {self.overview.aligned_images.get(key).label} is shown on grid"
+            f" {grid.name}: opacity {display.get('opacity', 0):.2f},"
+            f" {'signal only' if display.get('signal_only') else 'whole frame'},"
+            f" channels {', '.join(shown) or 'none'}"
+        )
 
     def _forget_image(self, _key: str, record_id: str) -> None:
         grid = self.current_grid
@@ -247,9 +297,16 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
                 continue
             aligned = self.overview.aligned_images.get(key)
             aligned.record_id = record.id
-            self.overview.aligned_images.set_placement(
-                key, record.dx, record.dy, record.rotation, record.scale
+            self.overview.set_aligned_image_placement(
+                key,
+                record.dx,
+                record.dy,
+                record.rotation,
+                record.scale,
+                mirrored=record.mirrored,
             )
+            if record.display:
+                self.overview.set_aligned_image_display(key, record.display)
 
     def _restore_overlays(self) -> None:
         """Put the grid bars and the aligned images where this grid's records say.
@@ -304,6 +361,7 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
         experiment = self.experiment
         if experiment is None:
             return
+        experiment.sign_verdict(lamella)
         experiment.save()
         self.refresh_positions()
 

@@ -6,15 +6,22 @@ fixed holder the inventory is the holder itself and every present grid is in the
 beam. Nothing here is cached: every answer is re-derived from the slots.
 """
 
+import logging
+
 import pytest
 
 from fibsem import utils
+from fibsem.microscopes import _stage as stage_module
 from fibsem.microscopes._stage import (
+    COMPUSTAGE_HOLDER_NAME,
     DemoSampleLoader,
     GridExchangeError,
     GridSlot,
+    GridSlotState,
     SampleGrid,
     SampleGridLoader,
+    SampleHolder,
+    SlotCalibration,
     _create_sample_stage,
 )
 from fibsem.structures import FibsemStagePosition
@@ -233,6 +240,68 @@ class TestInventoryWithLoader:
         assert _entry(microscope, "Slot-05").loaded is True
 
 
+class TestUnscannedMagazine:
+    """A magazine as the Arctis reads one after it has been undocked: every slot
+    unknown and no grid in any, until a scan finds them."""
+
+    @staticmethod
+    def _unscanned(microscope, scan_delay=0.0) -> DemoSampleLoader:
+        loader = DemoSampleLoader(
+            microscope,
+            capacity=12,
+            occupied=(1, 2, 5),
+            names={2: "grid-elm"},
+            start_unscanned=True,
+            scan_delay=scan_delay,
+        )
+        microscope._stage.loader = loader
+        return loader
+
+    def test_every_slot_reads_unknown_with_no_grid(self):
+        microscope = _compustage_demo()
+        self._unscanned(microscope)
+        rows = microscope._stage.grid_inventory()
+        assert {r.state for r in rows} == {GridSlotState.UNKNOWN}
+        assert not any(r.present or r.name for r in rows)
+
+    def test_a_read_does_not_scan(self):
+        microscope = _compustage_demo()
+        loader = self._unscanned(microscope)
+        rows = microscope._stage.get_inventory()
+        assert {r.state for r in rows} == {GridSlotState.UNKNOWN}
+        assert loader.loaded_magazine_slots == []
+
+    def test_a_scan_finds_the_grids_under_their_names(self):
+        microscope = _compustage_demo()
+        self._unscanned(microscope)
+        rows = microscope._stage.run_inventory()
+        assert [(r.slot_name, r.name) for r in rows if r.present] == [
+            ("Slot-01", "Grid-01"),
+            ("Slot-02", "grid-elm"),
+            ("Slot-05", "Grid-05"),
+        ]
+        assert _entry(microscope, "Slot-03").state is GridSlotState.EMPTY
+
+    def test_a_grid_cannot_be_loaded_before_the_scan(self):
+        microscope = _compustage_demo()
+        self._unscanned(microscope)
+        with pytest.raises(GridExchangeError, match="not in the magazine"):
+            microscope._stage.ensure_loaded("Grid-01")
+        microscope._stage.run_inventory()
+        microscope._stage.ensure_loaded("Grid-01")
+        assert _entry(microscope, "Slot-01").loaded
+
+    def test_the_scan_waits_through_sim_sleep(self, monkeypatch):
+        slept = []
+        monkeypatch.setattr(stage_module, "sim_sleep", slept.append)
+        microscope = _compustage_demo()
+        self._unscanned(microscope, scan_delay=10.0)
+        microscope._stage.get_inventory()
+        assert slept == []  # a read is instant
+        microscope._stage.run_inventory()
+        assert slept == [10.0]
+
+
 class TestInventoryOnFixedHolder:
     def test_rows_are_holder_slots_and_present_means_in_beam(self):
         microscope = _fixed_demo()
@@ -268,6 +337,84 @@ class TestCreateSampleStage:
             "Grid-01",
             "grid-elm",
         ]
+
+    def test_compustage_demo_can_start_unscanned(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = True
+        microscope.system.sim = dict(
+            microscope.system.sim,
+            loader={"occupied": [1, 4], "start_unscanned": True, "scan_delay": 10.0},
+        )
+        stage = _create_sample_stage(microscope)
+        assert stage.loader.scan_delay == 10.0
+        assert stage.loader.loaded_magazine_slots == []
+        stage.run_inventory()
+        assert [s.loaded_grid.name for s in stage.loader.loaded_magazine_slots] == [
+            "Grid-01",
+            "Grid-04",
+        ]
+
+    @staticmethod
+    def _captured_working_slot(microscope, x=150e-6, pre_tilt=None):
+        """A CompuStage Holder in the configuration, its slot captured at x."""
+        stage = microscope.system.stage
+        slot = GridSlot(
+            name="Slot-01",
+            index=0,
+            position=FibsemStagePosition(name="Slot-01", x=x, y=-50e-6, z=20e-6),
+            calibration=SlotCalibration(
+                orientation="SEM",
+                pre_tilt=float(
+                    stage.shuttle_pre_tilt if pre_tilt is None else pre_tilt
+                ),
+                rotation_reference=float(stage.rotation_reference),
+                captured_at="2026-10-02T12:00:00",
+                fibsem_version="test",
+            ),
+        )
+        stage.holders = {
+            COMPUSTAGE_HOLDER_NAME: SampleHolder(
+                pre_tilt=float(stage.shuttle_pre_tilt),
+                name=COMPUSTAGE_HOLDER_NAME,
+                capacity=1,
+                slots={"Slot-01": slot},
+            )
+        }
+
+    def test_compustage_working_slot_is_the_origin_until_calibrated(self):
+        microscope = _compustage_demo()
+        slot = microscope._stage.holder.slots["Slot-01"]
+        assert (slot.position.x, slot.position.y, slot.position.z) == (0.0, 0.0, 0.0)
+        assert slot.calibration.is_builtin
+
+    def test_compustage_uses_a_captured_working_slot(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = True
+        self._captured_working_slot(microscope)
+        stage = _create_sample_stage(microscope)
+        (slot,) = stage.holder.slots.values()
+        assert stage.holder.name == COMPUSTAGE_HOLDER_NAME
+        assert (slot.position.x, slot.position.y, slot.position.z) == (
+            150e-6,
+            -50e-6,
+            20e-6,
+        )
+        assert not slot.calibration.is_builtin
+        assert slot.loaded_grid is None  # occupancy is the session's, not copied
+
+    def test_compustage_drops_a_working_slot_captured_at_another_pre_tilt(self, caplog):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = True
+        self._captured_working_slot(microscope, pre_tilt=12.0)
+        # setup_session configures the root logger; listen after it has
+        logging.getLogger().addHandler(caplog.handler)
+        try:
+            stage = _create_sample_stage(microscope)
+        finally:
+            logging.getLogger().removeHandler(caplog.handler)
+        slot = stage.holder.slots["Slot-01"]
+        assert slot.position.x == 0.0 and slot.calibration.is_builtin
+        assert "Using the stage origin" in caplog.text
 
     def test_compustage_demo_without_loader_block_has_an_empty_magazine(self):
         microscope = _compustage_demo()
@@ -390,37 +537,30 @@ class TestAssignGrid:
         assert loader.slots["Slot-03"].loaded_grid.name == "grid-cedar"
         assert _entry(microscope, "Slot-03").present is True
 
-    def test_on_fixed_holder_names_the_slot_and_saves_the_occupancy(
-        self, tmp_path, monkeypatch
-    ):
-        import fibsem.microscopes._stage as stage_module
-
-        path = tmp_path / "occupancy.yaml"
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(path))
+    def test_on_fixed_holder_names_the_slot_and_saves_the_occupancy(self):
         microscope = _fixed_demo()
-        microscope._stage.assign_grid("Slot-02", SampleGrid(name="grid-birch"))
+        microscope._stage.assign_grid(
+            "Slot-02", SampleGrid(name="grid-birch"), persist=True
+        )
         assert _entry(microscope, "Slot-02").name == "grid-birch"
         # the next session's holder picks it up; the calibration file is untouched
         again = _fixed_demo()
         assert again._stage.holder.slots["Slot-02"].loaded_grid.name == "grid-birch"
 
-    def test_on_fixed_holder_can_skip_persisting(self, tmp_path, monkeypatch):
-        import fibsem.microscopes._stage as stage_module
+    def test_on_fixed_holder_a_script_does_not_persist(self):
+        """Persisting is the application's to ask for; a script names a grid for
+        its own run and leaves what the operator declared alone."""
+        from fibsem.session_state import session_state_for
 
-        path = tmp_path / "occupancy.yaml"
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(path))
-        microscope = _fixed_demo()
-        microscope._stage.assign_grid("Slot-01", SampleGrid(name="g"), persist=False)
-        assert not path.exists()
-
-    def test_on_fixed_holder_clearing_persists_too(self, tmp_path, monkeypatch):
-        import fibsem.microscopes._stage as stage_module
-
-        path = tmp_path / "occupancy.yaml"
-        monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_OCCUPANCY_PATH", str(path))
         microscope = _fixed_demo()
         microscope._stage.assign_grid("Slot-01", SampleGrid(name="g"))
-        microscope._stage.assign_grid("Slot-01", None)
+        assert not session_state_for(microscope).path.exists()
+        assert _fixed_demo()._stage.holder.slots["Slot-01"].loaded_grid is None
+
+    def test_on_fixed_holder_clearing_persists_too(self):
+        microscope = _fixed_demo()
+        microscope._stage.assign_grid("Slot-01", SampleGrid(name="g"), persist=True)
+        microscope._stage.assign_grid("Slot-01", None, persist=True)
         assert _fixed_demo()._stage.holder.slots["Slot-01"].loaded_grid is None
 
     def test_unknown_holder_slot_raises(self):

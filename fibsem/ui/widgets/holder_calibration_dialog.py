@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from dataclasses import replace
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -29,7 +30,7 @@ from typing import Dict, List, Optional
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
 
-from fibsem import config as cfg
+from fibsem import utils
 from fibsem.microscopes._stage import GRID_RADIUS, SampleHolder, SlotCalibration
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
@@ -112,6 +113,9 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
     """Walk the operator through capturing every slot centre at one orientation.
 
     ``holder_saved`` carries the holder after the configuration file is written.
+    The holder is saved into the microscope configuration -- `calibration.holders`,
+    selected as `calibration.active_holder` -- so it is part of what every experiment
+    keeps a copy of, and the next connect uses it rather than `sample-holder.yaml`.
     The holder object is the live one; its slots are only modified on Save, so
     Cancel leaves it exactly as it was.
     """
@@ -126,7 +130,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         microscope,
         holder: SampleHolder,
         parent=None,
-        save_path: Optional[str] = None,
+        configuration_path: Optional[str] = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Calibrate sample holder")
@@ -137,7 +141,15 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
 
         self._microscope = microscope
         self._holder = holder
-        self._save_path = save_path or cfg.SAMPLE_HOLDER_CONFIGURATION_PATH
+        # The compustage's holder is the autoloader's one working slot: its name
+        # and capacity are not the operator's to change, and its position is where
+        # a loaded grid sits, height included (FIB-1144).
+        self._compustage = bool(getattr(microscope, "stage_is_compustage", False))
+        # The configuration the microscope was connected with; tests point it
+        # elsewhere. None when the session was not started from a file.
+        self._configuration_path: Optional[str] = configuration_path or getattr(
+            microscope, "configuration_path", None
+        )
         # The working set: captured this session, applied to the holder on Save.
         self._captured: Dict[str, FibsemStagePosition] = {}
         self._capacity = max(1, int(holder.capacity))
@@ -263,6 +275,12 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         )
         self.capacity_spin.setValue(float(self._capacity))
         self.capacity_spin.valueChanged.connect(self._on_capacity_changed)
+        if self._compustage:
+            self.name_edit.setReadOnly(True)
+            self.capacity_spin.setEnabled(False)
+            fixed = "The autoloader's one working slot, where it puts every grid"
+            self.name_edit.setToolTip(fixed)
+            self.capacity_spin.setToolTip(fixed)
         stage = getattr(self._microscope.system, "stage", None)
         pre_tilt = getattr(stage, "shuttle_pre_tilt", 0.0)
         rotation = getattr(stage, "rotation_reference", 0.0)
@@ -390,8 +408,12 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
             self._stack.setCurrentIndex(0)
             self._title.setText("Sample holder")
             self._subtitle.setText(
-                "Name the holder and say how many grid slots it has. Pre-tilt and "
-                "reference rotation come from the system configuration."
+                "The compustage has one working slot, where the autoloader puts "
+                "every grid. It is the stage origin until it is calibrated here. "
+                "Pre-tilt and reference rotation come from the system configuration."
+                if self._compustage
+                else "Name the holder and say how many grid slots it has. Pre-tilt "
+                "and reference rotation come from the system configuration."
             )
         elif index == STEP_ORIENTATION:
             self._stack.setCurrentIndex(1)
@@ -405,12 +427,23 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         elif slot is not None:
             self._stack.setCurrentIndex(2)
             number = index - 1
-            self._title.setText(f"Slot {number}: drive to the centre of the grid")
-            self._subtitle.setText(
-                "Use the stage controls, or click on the image, to move until the "
-                f"centre of the grid in {slot} is under the electron beam. Then press "
-                "Capture. Move to slot drives back to what was captured, to check it."
-            )
+            if self._compustage:
+                self._title.setText("Working slot: drive to the centre of the grid")
+                self._subtitle.setText(
+                    "With a grid loaded, use the stage controls, or click on the "
+                    "image, to move until the centre of the grid is under the "
+                    "electron beam, with the beams in coincidence there: the height "
+                    "is captured too. Then press Capture. Move to slot drives back to "
+                    "what was captured, to check it."
+                )
+            else:
+                self._title.setText(f"Slot {number}: drive to the centre of the grid")
+                self._subtitle.setText(
+                    "Use the stage controls, or click on the image, to move until the "
+                    f"centre of the grid in {slot} is under the electron beam. Then "
+                    "press Capture. Move to slot drives back to what was captured, to "
+                    "check it."
+                )
             self._refresh_slot_page()
         else:
             self._stack.setCurrentIndex(3)
@@ -660,6 +693,8 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         return notes
 
     def can_save(self) -> bool:
+        if not self._configuration_path:
+            return False
         return not any(
             "outside" in note
             for notes in self.review_notes().values()
@@ -685,7 +720,14 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         self.review_table.resizeColumnsToContents()
 
         captured = len(self._captured)
-        if not self.can_save():
+        if not self._configuration_path:
+            self._set_status(
+                self.review_summary,
+                "This session was not started from a configuration file, so there "
+                "is nowhere to save the calibration.",
+                ERROR_COLOR,
+            )
+        elif not self.can_save():
             self._set_status(
                 self.review_summary,
                 "A slot is outside the stage limits. Go back and capture it again.",
@@ -702,7 +744,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
             self._set_status(
                 self.review_summary,
                 f"{captured} of {len(names)} slots captured this session. Save writes "
-                f"{self._save_path}.",
+                f"the holder into {os.path.basename(self._configuration_path)}.",
                 TEXT_COLOR,
             )
         self.button_next.setEnabled(self.can_save())
@@ -728,14 +770,29 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         for name, position in self._captured.items():
             holder.slots[name].position = position
             holder.slots[name].calibration = replace(record)
+        # The session's holders, with this one under its (possibly new) name and
+        # selected: what the configuration records, and what a later save of it
+        # or an experiment's copy of it will carry.
+        holders = getattr(stage_settings, "holders", None)
+        if holders is not None:
+            for key in [k for k, h in holders.items() if h is holder]:
+                del holders[key]
+            holders[holder.name] = holder
+            stage_settings.active_holder = holder.name
+        else:
+            holders = {holder.name: holder}
         try:
-            holder.save(self._save_path)
+            utils.write_holder_calibration(
+                self._configuration_path,
+                {name: h.to_dict() for name, h in holders.items()},
+                holder.name,
+            )
         except Exception as e:  # noqa: BLE001 - surfaced on the review page
             self._set_status(self.review_summary, f"Save failed: {e}", ERROR_COLOR)
             return
         logging.info(
             f"Saved sample holder '{holder.name}' with {len(self._captured)} "
-            f"recalibrated slot(s) to {self._save_path}."
+            f"recalibrated slot(s) to {self._configuration_path}."
         )
         self.holder_saved.emit(holder)
         self.accept()

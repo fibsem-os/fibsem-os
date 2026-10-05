@@ -90,8 +90,8 @@ def test_setups_settings_turn_its_questions_off():
     assert with_all.present == (
         "the position",
         "detection",
-        "the point of interest",
         "the alignment area",
+        "the point of interest",
     )
     fewer = attendance(
         SelectMillingPositionTask, off, Attention.supervised, waiters=[ROUGH]
@@ -167,8 +167,8 @@ def test_the_protocol_names_the_type_the_attention_and_who_waits():
     assert setup.waiters == (ROUGH,)
     assert setup.present == (
         "the position",
-        "the point of interest",
         "the alignment area",
+        "the point of interest",
     )
     rough = attendance_for(protocol, ROUGH)
     assert rough.attention is Attention.automated and rough.waiters == ()

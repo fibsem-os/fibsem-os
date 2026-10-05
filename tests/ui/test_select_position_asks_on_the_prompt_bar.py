@@ -24,6 +24,7 @@ from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
 
 from fibsem.applications.autolamella.proposals import (
+    ALIGNMENT_AREA,
     POINT_OF_INTEREST,
     STATE,
     AuthorKind,
@@ -44,7 +45,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.status import HoldKind
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemRectangle, FibsemStagePosition
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
@@ -202,26 +203,38 @@ def test_the_tilt_and_the_position_are_confirmed_on_the_prompt_bar(window, qapp)
 
     ui.pushButton_yes.click()
 
-    # 3. the alignment area, the drag it has always been
-    assert _pump(qapp, lambda: _prompt_says(ui, "Alignment Area")), (
-        ui.label_instructions.text(),
-        seen,
-    )
+    # 3. the alignment area, a question in the Review tab (FIB-1053)
+    def _area_asked():
+        # asked on the task thread; fronted by the window once the signal
+        # has crossed to the GUI thread, so wait for both
+        area = lamella.proposal(SETUP, ALIGNMENT_AREA)
+        return (
+            area is not None
+            and area.asking
+            and window.tab_widget.currentWidget() is window.review_tab
+        )
+
+    assert _pump(qapp, _area_asked), (ui.label_instructions.text(), seen)
     pose = position.current.values["stage_position"]
     assert isinstance(pose, FibsemStagePosition), "filled in by the task"
-    assert ui.hold is not None and ui.hold.kind is HoldKind.question, (
-        "the responder's own hold, not a decision on the record"
-    )
-    assert lamella.proposal(SETUP, STATE) is position, "nothing new recorded"
-
-    ui.pushButton_yes.click()
+    area = lamella.proposal(SETUP, ALIGNMENT_AREA)
+    assert ui.hold is not None and ui.hold.kind is HoldKind.decision
+    assert window.tab_widget.currentWidget() is window.review_tab, "fronted"
+    assert area.provenance["reference_image"].endswith("_post_tilt_ib.tif")
+    assert isinstance(area.values["alignment_area"], FibsemRectangle)
+    assert window.review_tab.select(lamella.id, SETUP)
+    window.review_tab.confirm_current()
 
     # 4. the point of interest waits for afterwards
     assert _pump(qapp, lambda: not thread.is_alive()), "the task went on"
-    assert "error" not in seen
+    assert "error" not in seen, seen
+    assert area.current.outcome is DecisionOutcome.Confirmed
+    assert area.current.values["alignment_area"] == area.values["alignment_area"]
+    assert lamella.alignment_area == area.values["alignment_area"]
     assert [p.kind for p in lamella.proposals[SETUP]] == [
         STATE,
         STATE,
+        ALIGNMENT_AREA,
         POINT_OF_INTEREST,
     ]
     assert lamella.proposal(SETUP, POINT_OF_INTEREST).pending

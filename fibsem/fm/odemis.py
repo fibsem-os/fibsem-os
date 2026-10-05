@@ -1,7 +1,7 @@
 import logging
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 
@@ -683,6 +683,14 @@ class OdemisLightSource(LightSource):
 # QUERY: should excitiation be a property of the filter set or the light source?
 
 
+def _odemis_bands_nm(choice: Any) -> Tuple[Tuple[float, float], ...]:
+    """The bands of an Odemis emission choice in nm, lowest first. A single band is
+    a tuple of edges in metres (2 or 5 values: its first and last are the edges); a
+    multi-band filter is a tuple of such bands."""
+    bands = choice if isinstance(choice[0], (tuple, list)) else (choice,)
+    return tuple(sorted((band[0] * 1e9, band[-1] * 1e9) for band in bands))
+
+
 class OdemisFilterSet(FilterSet):
     """Odemis filter set implementation for fluorescence microscopy.
 
@@ -738,8 +746,18 @@ class OdemisFilterSet(FilterSet):
             if isinstance(c, str) and c == model.BAND_PASS_THROUGH:
                 mapping[None] = c
                 continue
-            mapping[c[0] * 1e9] = c  # convert from m to nm
+            mapping[_odemis_bands_nm(c)[0][0]] = c
         return mapping
+
+    @property
+    def emission_bands(self) -> Dict[float, Tuple[Tuple[float, float], ...]]:
+        """Each emission filter's bands in nm, lowest first, keyed by its bottom edge
+        (the value ``emission_wavelength`` uses). A multi-band filter has several."""
+        return {
+            nm: _odemis_bands_nm(c)
+            for nm, c in self._emission_choices_by_nm.items()
+            if nm is not None
+        }
 
     @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
@@ -818,7 +836,7 @@ class OdemisFilterSet(FilterSet):
         value = self._stream.emission.value
         if isinstance(value, str) and value == model.BAND_PASS_THROUGH:
             return None  # pass-through means reflection, so we return None
-        return self._stream.emission.value[0] * 1e9  # convert from m to nm
+        return _odemis_bands_nm(value)[0][0]
 
     @emission_wavelength.setter
     def emission_wavelength(self, value: Optional[float]) -> None:

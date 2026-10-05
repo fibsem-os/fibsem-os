@@ -74,6 +74,8 @@ def fibsem_icon(key: str, color: Optional[str] = None, **kwargs) -> QIcon:
 # Reference these instead of hardcoding "mdi:..." so the same action reads the same
 # everywhere (moving to / updating a saved stage/objective position).
 ICON_MOVE_TO_POSITION = "mdi:crosshairs-gps"  # go to a saved/target position
+ICON_READ_FROM_MICROSCOPE = "mdi:download"  # take the instrument's live values
+ICON_READ_FROM_ACQUIRE_TAB = "mdi:image-move"  # take the acquire tab's settings
 ICON_UPDATE_POSITION = (
     "mdi:map-marker-check"  # overwrite a saved position with the current one
 )

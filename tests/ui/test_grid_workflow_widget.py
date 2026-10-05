@@ -17,6 +17,7 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskProtocol,
+    AutoLamellaTaskState,
     AutoLamellaTaskStatus,
     Experiment,
     GridRecord,
@@ -116,6 +117,14 @@ class TestSelection:
             "Grid-03",
         ]
         assert view.summary_label.text() == "3 grids, 2 tasks selected · 3 exchanges"
+
+    def test_clearing_from_the_window_unticks_the_header_too(self, view):
+        view.grid_header.select_all.setChecked(True)
+        view.set_all_grids_selected(False)  # as a run starting does
+        assert view.get_selected_grids() == []
+        assert not view.grid_header.select_all.isChecked()
+        view.grid_header.select_all.setChecked(True)  # one click selects all again
+        assert len(view.get_selected_grids()) == 3
 
     def test_a_grid_in_the_beam_costs_no_exchange(self, view, arctis):
         arctis._stage.ensure_loaded("Grid-02")
@@ -364,6 +373,36 @@ def test_the_preflight_says_what_a_run_does(qapp):
     assert dialog.windowTitle() == "Screen all grids"
 
 
+def test_the_preflight_names_the_grids_whose_names_it_will_fix(qapp):
+    """A grid's name is fixed once it has run, so the run that does it says so,
+    marking a default name; nothing is said when every grid has run before."""
+    dialog = GridRunPreflightDialog(["overview_sem"], ["Grid-01"], 1, "/exp")
+    labels = [w.text() for w in dialog.findChildren(QLabel)]
+    assert not any("Names are fixed" in t for t in labels)
+
+    dialog = GridRunPreflightDialog(
+        ["overview_sem"],
+        ["Grid-01", "grid-aspen"],
+        2,
+        "/exp",
+        first_run=["Grid-01", "grid-aspen"],
+    )
+    labels = [w.text() for w in dialog.findChildren(QLabel)]
+    assert (
+        "Names are fixed once a grid has run. Running for the first time: "
+        "Grid-01 (default name), grid-aspen. Rename on the Grids tab first if "
+        "needed."
+    ) in labels
+
+    dialog = GridRunPreflightDialog(
+        ["overview_sem"], [], 0, "/exp", screen_all=True, first_run=["Grid-02"]
+    )
+    labels = [w.text() for w in dialog.findChildren(QLabel)]
+    assert any(
+        "Grid-02 (default name), and any grid the inventory adds" in t for t in labels
+    )
+
+
 def test_the_preflight_says_which_beams_are_off(qapp):
     """Screening starts on an empty stage, so the beams are off more often than
     not. The run turns them on; the dialog says so first, so it is no surprise
@@ -558,6 +597,13 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     _wait_for_run(ui)
     QTest.qWait(200)  # let the finished signal land
 
+    # The start cleared the grid ticks, header too, so an Add to Queue mid-run
+    # could not queue grid-aspen again; the task ticks stay for the next add.
+    # Checked after the run: a failure mid-run would leave its worker going.
+    assert view.get_selected_grids() == []
+    assert not view.grid_header.select_all.isChecked()
+    assert view.get_selected_task_names() == ["overview_sem"]
+
     grid = exp.get_grid_by_name("grid-aspen")
     # a fixed holder: the grid was loaded already, so no load entry
     assert [t.name for t in grid.task_history] == ["overview_sem"]
@@ -647,3 +693,55 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     main_ui._on_workflow_selection_changed()
     assert own() and add.toolTip().startswith("Add to the end of the queue")
     ui._task_manager = None
+
+
+def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
+    main_ui, tmp_path, monkeypatch
+):
+    """The window hands the confirmation the grids that have never run: the
+    ticked ones for Run, the present ones for Screen all grids."""
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    microscope = ui.microscope
+    microscope.stage_is_compustage = False
+    microscope._stage = _create_sample_stage(microscope)
+    for i, name in enumerate(["grid-aspen", "grid-birch"]):
+        slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
+        slot.position = FibsemStagePosition(
+            name=slot.name, x=-4e-3 + i * 8e-3, y=1e-3, z=4e-3, r=0, t=0.61
+        )
+        slot.calibration = SlotCalibration("SEM", 35.0, 0.0, "2026-09-02T11:24:09", "t")
+        slot.loaded_grid = SampleGrid(name=name)
+    main_ui._refresh_grids_tab_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    exp.grid_protocol.add(
+        BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
+    )
+    exp.sync_grids_from_inventory(microscope._stage)
+    # grid-aspen has run once; grid-birch has not
+    ran = exp.get_grid_by_name("grid-aspen")
+    ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
+    ui.experiment = exp
+    main_ui.grid_workflow_widget.set_experiment(exp)
+    main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)
+
+    shown = []
+
+    class _Capture:
+        def __init__(self, *args, **kwargs):
+            shown.append(kwargs.get("first_run"))
+
+        def exec_(self):
+            return QDialog.Rejected  # look, do not run
+
+    monkeypatch.setattr(module, "GridRunPreflightDialog", _Capture)
+    view = main_ui.grid_workflow_widget
+    view.grid_header.select_all.setChecked(True)
+    main_ui._run_grid_workflow()
+    assert shown == [["grid-birch"]]
+    assert main_ui._present_grids_not_run() == ["grid-birch"]
+    assert not ui.is_workflow_running

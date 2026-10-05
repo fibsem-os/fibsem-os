@@ -8,6 +8,7 @@ runs real overview tasks end to end.
 """
 
 import os
+from copy import deepcopy
 from typing import List
 
 import pytest
@@ -24,10 +25,15 @@ from fibsem.applications.autolamella.task_outputs import grid_outputs
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
 )
+from fibsem.applications.autolamella.workflows.tasks.grid import (
+    manager as manager_module,
+)
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
     SKIP_GRID_NOT_FOUND,
     SKIP_GRID_NOT_LOADED,
+    SKIP_NOTHING_TO_RUN,
+    SKIP_TASK_REMOVED,
     GridTaskManager,
     plan_grid_run,
     run_grid_tasks,
@@ -313,6 +319,119 @@ class TestFailureIsolation:
         assert {r.skip_reason for r in skipped} == {SKIP_GRID_NOT_FOUND}
 
 
+class TestProtocolEditedMidRun:
+    """A task taken out of the protocol on the Protocol tab while the run goes."""
+
+    def test_a_removed_task_is_skipped_on_the_grids_still_to_run(
+        self, manager, experiment
+    ):
+        def on_task(task_name, grid):
+            if (grid.name, task_name) == ("Grid-01", "overview_sem"):
+                experiment.grid_protocol.remove("overview_fib")
+
+        executed = run_with_stub(
+            manager, ["overview_sem", "overview_fib"], ["Grid-01", "Grid-02"], on_task
+        )
+        assert executed == [("Grid-01", "overview_sem"), ("Grid-02", "overview_sem")]
+        statuses = [(i.item_name, i.task_name, i.status) for i in manager.queue.items]
+        assert statuses == [
+            ("Grid-01", LOAD_ENTRY_NAME, Status.Completed),
+            ("Grid-01", "overview_sem", Status.Completed),
+            ("Grid-01", "overview_fib", Status.Skipped),
+            ("Grid-02", LOAD_ENTRY_NAME, Status.Completed),
+            ("Grid-02", "overview_sem", Status.Completed),
+            ("Grid-02", "overview_fib", Status.Skipped),
+        ]
+        skipped = [r for r in manager.parent_ui.reports if r.status is Status.Skipped]
+        assert {r.skip_reason for r in skipped} == {SKIP_TASK_REMOVED}
+
+    def test_a_grid_left_with_nothing_to_run_is_not_loaded(
+        self, manager, experiment, microscope
+    ):
+        attempts = []
+        stage = microscope._stage
+        original = stage.ensure_loaded
+
+        def counting(name):
+            attempts.append(name)
+            return original(name)
+
+        stage.ensure_loaded = counting
+
+        def on_task(task_name, grid):
+            experiment.grid_protocol.remove("overview_sem")
+
+        executed = run_with_stub(
+            manager, ["overview_sem"], ["Grid-01", "Grid-02"], on_task
+        )
+        assert executed == [("Grid-01", "overview_sem")]
+        assert "Grid-02" not in attempts  # no exchange for it
+        assert load_entries(experiment.get_grid_by_name("Grid-02")) == []
+        skipped = {
+            (r.item_name, r.task_name): r.skip_reason
+            for r in manager.parent_ui.reports
+            if r.status is Status.Skipped
+        }
+        assert skipped == {
+            ("Grid-02", LOAD_ENTRY_NAME): SKIP_NOTHING_TO_RUN,
+            ("Grid-02", "overview_sem"): SKIP_TASK_REMOVED,
+        }
+
+    def test_a_task_removed_during_the_exchange_is_skipped_once_the_grid_is_in(
+        self, manager, experiment, microscope
+    ):
+        stage = microscope._stage
+        original = stage.ensure_loaded
+
+        def removing(name):
+            slot = original(name)
+            if name == "Grid-02":
+                experiment.grid_protocol.remove("overview_sem")
+            return slot
+
+        stage.ensure_loaded = removing
+        executed = run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
+        assert executed == [("Grid-01", "overview_sem")]
+        (entry,) = load_entries(experiment.get_grid_by_name("Grid-02"))
+        assert entry.status is Status.Completed
+        assert manager.queue.items[-1].status is Status.Skipped
+
+    def test_a_task_that_fails_before_it_exists_leaves_one_history_entry(
+        self, manager, experiment, monkeypatch
+    ):
+        def unregistered(*args, **kwargs):
+            raise KeyError("Grid task type 'NOT_A_TYPE' is not registered.")
+
+        monkeypatch.setattr(manager_module, "run_grid_task", unregistered)
+        manager.parent_ui._task_manager = manager
+        manager.run(["overview_sem"], ["Grid-01"])
+
+        grid = experiment.get_grid_by_name("Grid-01")
+        (entry,) = [t for t in grid.task_history if t.name == "overview_sem"]
+        assert entry.status is Status.Failed
+        assert "not registered" in entry.status_message
+        assert entry.task_type == "BEAM_OVERVIEW_GRID"
+        assert entry.end_timestamp is not None
+
+    def test_a_task_that_records_its_own_failure_is_not_recorded_twice(
+        self, manager, experiment, monkeypatch
+    ):
+        def fails_after_recording(microscope, task_name, experiment, grid, **kwargs):
+            grid.task_state.name = task_name
+            grid.task_state.status = Status.Failed
+            grid.task_history.append(deepcopy(grid.task_state))
+            raise RuntimeError("beam off")
+
+        monkeypatch.setattr(manager_module, "run_grid_task", fails_after_recording)
+        manager.parent_ui._task_manager = manager
+        manager.run(["overview_sem"], ["Grid-01"])
+
+        grid = experiment.get_grid_by_name("Grid-01")
+        assert [t.name for t in grid.task_history if t.name == "overview_sem"] == [
+            "overview_sem"
+        ]
+
+
 class TestStopAndStatus:
     def test_stop_ends_the_run_at_the_next_task_boundary(self, manager):
         def on_task(task_name, grid):
@@ -363,6 +482,33 @@ class TestStopAndStatus:
         assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled by user."
         # Cancelled is not "could not be loaded": nothing refused the grid.
         assert "Grid-02" not in manager._not_loaded
+
+    def test_stop_during_the_load_lets_the_grid_in_and_runs_nothing_on_it(
+        self, manager, experiment, microscope
+    ):
+        """The autoloader's load blocks and cannot be interrupted, so a Stop that
+        lands during it is honoured once the grid is in: the load is recorded as
+        it happened, and the run ends before any task starts on that grid."""
+        stage = microscope._stage
+        loader = stage.loader
+        real_load = loader._do_load
+
+        def load_then_stop(slot):
+            real_load(slot)
+            manager.stop()  # the click lands while the grid is travelling
+
+        loader._do_load = load_then_stop
+        executed = run_with_stub(manager, ["overview_sem"], ["Grid-02"])
+
+        assert executed == []
+        assert [g.name for g in stage.loaded_grids] == ["Grid-02"]
+        (entry,) = load_entries(experiment.get_grid_by_name("Grid-02"))
+        assert entry.status is Status.Completed
+        assert entry.status_message == "Loaded into Slot-01."
+        load_item, task_item = manager.queue.items
+        assert load_item.status is Status.Completed
+        assert task_item.status is Status.NotStarted
+        assert manager.parent_ui.workflow_info[-1] == "Grid workflow cancelled by user."
 
     def test_stop_before_the_exchange_loads_nothing(
         self, manager, experiment, microscope

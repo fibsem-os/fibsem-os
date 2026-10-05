@@ -22,6 +22,7 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.canvas_base import ContentRect
 from fibsem.ui.widgets.canvas.overlays.image_overlay import ImageOverlay
+from fibsem.ui.widgets.canvas.overlays.transform_overlay import MIN_CORNER_REACH_PX
 
 W, H = 200.0, 100.0
 
@@ -122,6 +123,55 @@ class TestTheImageIsDrawnThroughTheBodyMap:
         top_row = fig.bbox.height - overlay._ax.transData.transform((400.0, 350.0))[1]
         assert abs(rows.mean() - top_row) < abs(rows.mean() - centre_row)
 
+    def test_a_turned_image_has_clear_corners(self, qapp):
+        """Rotated, the image is resampled into an axis-aligned buffer; without an
+        alpha channel matplotlib painted the corners outside the footprint black."""
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        overlay = build(rotation=30.0, active=False)
+        overlay.set_opacity(1.0)
+        fig = overlay._ax.figure
+        fig.patch.set_facecolor("white")
+        overlay._ax.set_facecolor("white")
+        agg = FigureCanvasAgg(fig)
+        agg.draw()
+        buffer = np.asarray(agg.buffer_rgba())
+        # The top-left corner of the footprint's *bounding box* lies outside the
+        # turned footprint: it must show the white axes, not black.
+        xs = [c[0] for c in overlay.corners()]
+        ys = [c[1] for c in overlay.corners()]
+        corner = overlay._ax.transData.transform((min(xs) + 2.0, min(ys) + 2.0))
+        row, col = int(fig.bbox.height - corner[1]), int(corner[0])
+        assert buffer[row, col, :3].min() > 200, buffer[row, col]
+
+    @pytest.mark.parametrize("opacity", [1.0, 0.6])
+    def test_a_clear_pixel_stays_clear_at_any_opacity(self, qapp, opacity):
+        """The opacity multiplies an RGBA image's own alpha rather than replacing
+        it -- what lets a fluorescence image be drawn signal only, dark as clear."""
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        overlay = build(active=False)
+        data = np.zeros((10, 20, 4), dtype=np.uint8)
+        data[:5, :, 1] = 255  # the top half green and solid
+        data[:5, :, 3] = 255  # the bottom half clear
+        overlay.set_image(data, W, H)
+        overlay.set_opacity(opacity)
+        fig = overlay._ax.figure
+        fig.patch.set_facecolor("white")
+        overlay._ax.set_facecolor("white")
+        agg = FigureCanvasAgg(fig)
+        agg.draw()
+        buffer = np.asarray(agg.buffer_rgba())
+
+        def pixel(x, y):
+            px, py = overlay._ax.transData.transform((x, y))
+            return buffer[int(fig.bbox.height - py), int(px)]
+
+        assert pixel(400.0, 430.0)[:3].min() == 255  # clear: the white axes
+        green = pixel(400.0, 370.0)
+        assert green[1] == 255
+        assert green[0] == pytest.approx(255 * (1 - opacity), abs=2)
+
     def test_the_drawn_corners_are_the_corners_the_overlay_reports(self, qapp):
         overlay = build(rotation=33.0, squash=0.7)
         drawn = [
@@ -164,7 +214,8 @@ class TestTheImageIsDrawnThroughTheBodyMap:
         assert overlay.centre == (400.0, 400.0)
 
     def test_the_outline_is_drawn_only_while_active(self, qapp):
-        assert len(build(active=True)._artists) == 1 + 1 + 3  # image, outline, handles
+        # The image, its outline, the rotate handle's three and the corners' one.
+        assert len(build(active=True)._artists) == 1 + 1 + 3 + 1
         assert len(build(active=False)._artists) == 1
 
 
@@ -198,3 +249,97 @@ class TestTheGestureReachesTheImage:
         # Half a height below the centre on the *sample* is a quarter on the canvas.
         assert overlay._body_contains(400.0, 400.0 + H * 0.25 - 1)
         assert not overlay._body_contains(400.0, 400.0 + H * 0.25 + 1)
+
+
+class TestTheCornersScaleTheImage:
+    """A corner is taken to change the image's size -- its pixel size, in effect --
+    uniformly and about its centre. What the overlay emits is a factor on the size it
+    is drawn at now; the host multiplies and re-places."""
+
+    @staticmethod
+    def _event(overlay, x, y, px=0.0, py=0.0):
+        return SimpleNamespace(
+            button=1, inaxes=overlay._ax, xdata=x, ydata=y, x=px, y=py
+        )
+
+    def _drag_corner(self, overlay, corner, to):
+        seen = []
+        overlay.scaled.connect(seen.append)
+        overlay._on_press(self._event(overlay, *overlay.corners()[corner]))
+        overlay._on_motion(self._event(overlay, *to, px=40.0, py=40.0))
+        return seen
+
+    def test_a_corner_dragged_out_scales_by_how_far_out_it_went(self, qapp):
+        overlay = build()
+        # The bottom-right corner is (500, 450); half as far out again is (550, 475).
+        assert self._drag_corner(overlay, 2, (550.0, 475.0)) == [pytest.approx(1.5)]
+
+    def test_a_sideways_wander_does_not_change_the_size(self, qapp):
+        overlay = build()
+        # Across the corner's diagonal (100, 50), not along it.
+        assert self._drag_corner(overlay, 2, (490.0, 470.0)) == [pytest.approx(1.0)]
+
+    @pytest.mark.parametrize("corner", [0, 1, 2, 3])
+    def test_every_corner_is_read_through_the_turn_squash_and_mirror(
+        self, qapp, corner
+    ):
+        overlay = build(rotation=30.0, squash=0.5, mirror=True)
+        u, v = overlay._footprint_corners()[corner]
+        to = overlay.to_canvas(1.2 * u, 1.2 * v)
+        assert self._drag_corner(overlay, corner, to) == [pytest.approx(1.2)]
+
+    def test_a_corner_dragged_through_the_centre_stops_short_of_it(self, qapp):
+        overlay = build()
+        seen = self._drag_corner(overlay, 2, (300.0, 350.0))
+        reach = math.hypot(W / 2.0, H / 2.0) * overlay._pixels_per_unit()
+        assert seen == [pytest.approx(MIN_CORNER_REACH_PX / reach)]
+        assert 0.0 < seen[0] < 1.0
+
+    def test_an_image_already_below_the_floor_is_not_grown_by_taking_a_corner(
+        self, qapp
+    ):
+        overlay = build()
+        overlay.set_image(_rgb(), 20.0, 10.0)
+        reach = math.hypot(10.0, 5.0) * overlay._pixels_per_unit()
+        assert reach < MIN_CORNER_REACH_PX, "not small enough to test the floor"
+        # Halfway in from the bottom-right corner at (410, 405).
+        assert self._drag_corner(overlay, 2, (405.0, 402.5)) == [pytest.approx(1.0)]
+
+    def test_a_press_on_a_corner_is_a_scale_and_not_a_move(self, qapp):
+        overlay = build()
+        moved, finished = [], []
+        overlay.moved.connect(lambda x, y: moved.append((x, y)))
+        overlay.drag_finished.connect(lambda: finished.append(True))
+        seen = self._drag_corner(overlay, 0, (280.0, 330.0))
+        assert overlay._canvas._overlay_consuming_event
+        assert overlay.is_dragging
+        overlay._on_release(self._event(overlay, 280.0, 330.0))
+        assert moved == []
+        assert finished == [True]
+        assert not overlay.is_dragging
+
+        # Released, the pointer moving on scales nothing.
+        overlay._on_motion(self._event(overlay, 200.0, 300.0))
+        assert len(seen) == 1
+
+    def test_the_corners_are_offered_only_while_active(self, qapp):
+        overlay = build(active=False)
+        seen = self._drag_corner(overlay, 2, (550.0, 475.0))
+        assert seen == []
+
+    @pytest.mark.parametrize(
+        "rotation, corner, cursor",
+        [
+            (0.0, 0, "SizeFDiagCursor"),  # top left: the "\" diagonal
+            (0.0, 1, "SizeBDiagCursor"),  # top right: the "/" diagonal
+            (0.0, 2, "SizeFDiagCursor"),
+            (90.0, 0, "SizeBDiagCursor"),  # a quarter turn swaps them
+        ],
+    )
+    def test_the_cursor_points_the_way_the_corner_lies(
+        self, qapp, rotation, corner, cursor
+    ):
+        from PyQt5.QtCore import Qt
+
+        overlay = build(rotation=rotation)
+        assert overlay._corner_cursor(corner) == getattr(Qt, cursor)

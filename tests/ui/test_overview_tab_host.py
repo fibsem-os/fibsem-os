@@ -950,6 +950,38 @@ class TestAnAlignedImageIsKeptOnTheGrid:
         finally:
             stage.unload()
 
+    def test_a_fit_is_kept_on_the_record(self, tab, microscope, tmp_path):
+        """How the image was placed is part of the record: the pairs and the RMS
+        go with the placement, and a later hand drag clears them."""
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            key = tab.overview.load_aligned_image(elsewhere)
+            images = tab.overview.aligned_images
+            pixels = [(4.0, 4.0), (20.0, 5.0), (10.0, 24.0)]
+            images.set_placement(key, 3e-6, 2e-6, 4.0)
+            targets = [images.pixel_to_canvas(key, *p) for p in pixels]
+            images.set_placement(key, 0.0, 0.0, 0.0)
+
+            images.fit_to_points(key, pixels, targets)
+
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert len(record.fit["pairs"]) == 3
+            assert record.fit["rms"] == pytest.approx(0.0, abs=1e-6)
+            assert (record.dx, record.dy, record.rotation) == pytest.approx(
+                (3e-6, 2e-6, 4.0), rel=1e-6
+            )
+
+            aligned = images.get(key)
+            aligned.overlay.moved.emit(*aligned.overlay.centre)
+            aligned.overlay.drag_finished.emit()
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert record.fit == {}
+        finally:
+            stage.unload()
+
     def test_removing_the_image_forgets_its_record(self, tab, microscope, tmp_path):
         stage = microscope._stage
         grid = self._load_a_grid(tab, microscope)
@@ -984,4 +1016,83 @@ class TestAnAlignedImageIsKeptOnTheGrid:
             assert saves == []
         finally:
             tab.experiment.save = real
+            stage.unload()
+
+    def test_how_it_is_shown_is_kept_and_laid_back(self, tab, microscope, tmp_path):
+        """Opacity, signal only and a channel's colour go on the record once an
+        edit settles, and come back with the image -- without being written back."""
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            overview = tab.overview
+            key = overview.load_aligned_image(elsewhere)
+            overview.aligned_image_panel.check_signal_only.setChecked(False)
+            overview.aligned_image_panel.slider_opacity.setValue(35)
+            overview.aligned_images.get(key).layers[0].color = "magenta"
+            overview._channels_key = key
+            overview._recomposite_shown_channels()
+            overview._flush_display_changes()  # as the settle timer would
+
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert record.display["signal_only"] is False
+            assert record.display["opacity"] == pytest.approx(0.35)
+            assert [c["color"] for c in record.display["channels"]] == ["magenta"]
+            # Kept without a drag, so the file came in with it.
+            assert record.source == os.path.join(
+                "Aligned Images", "fm-overview.ome.tiff"
+            )
+
+            reopened = Experiment.load(
+                os.path.join(str(tab.experiment.path), "experiment.yaml")
+            )
+            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again.refresh_microscope()
+            saves = []
+            real = reopened.save
+            reopened.save = lambda *a, **k: saves.append(True) or real(*a, **k)
+            try:
+                self._show(again, microscope)
+                (back_key,) = again.overview.aligned_images.keys()
+                back = again.overview.aligned_images.get(back_key)
+                assert not back.signal_only
+                assert back.overlay.opacity == pytest.approx(0.35)
+                assert back.layers[0].color == "magenta"
+                panel = again.overview.aligned_image_panel
+                assert panel.slider_opacity.value() == 35
+                assert not panel.check_signal_only.isChecked()
+                again.overview._flush_display_changes()
+                assert saves == []
+            finally:
+                reopened.save = real
+                again._drop_overview()
+        finally:
+            stage.unload()
+
+    def test_a_mirror_is_kept_and_laid_back(self, tab, microscope, tmp_path):
+        stage = microscope._stage
+        grid = self._load_a_grid(tab, microscope)
+        elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
+        try:
+            self._show(tab, microscope)
+            key = tab.overview.load_aligned_image(elsewhere)
+            tab.overview.aligned_image_panel.btn_mirror.click()
+
+            record = next(o for o in grid.overlays if o.kind == "image")
+            assert record.mirrored is True
+
+            reopened = Experiment.load(
+                os.path.join(str(tab.experiment.path), "experiment.yaml")
+            )
+            again = AutoLamellaOverviewTab(_StubWindow(microscope, reopened))
+            again.refresh_microscope()
+            try:
+                self._show(again, microscope)
+                (back_key,) = again.overview.aligned_images.keys()
+                assert again.overview.aligned_images.get(back_key).mirrored
+                assert again.overview.aligned_image_panel.btn_mirror.isChecked()
+            finally:
+                again._drop_overview()
+        finally:
             stage.unload()

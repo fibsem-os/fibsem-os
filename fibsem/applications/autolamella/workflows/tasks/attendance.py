@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple, Type
 
 from fibsem.applications.autolamella.proposals import (
+    ALIGNMENT_AREA,
     DETECTION,
     OVERVIEW_POSITIONS,
     POINT_OF_INTEREST,
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 KIND_LABELS = {
     DETECTION: "detection",
     STATE: "the position",
+    ALIGNMENT_AREA: "the alignment area",
     POINT_OF_INTEREST: "the point of interest",
     TASK_RESULT: "its result",
     OVERVIEW_POSITIONS: "the lamella positions",

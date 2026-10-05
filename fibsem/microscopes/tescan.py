@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -25,6 +26,10 @@ TESCAN_API_AVAILABLE = False
 TESCAN_API_VERSION: Optional[str] = None
 TESCAN_BEAM_READY_TIMEOUT = 60  # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
 TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE = True  # Restore rotation/FOV/shift across preset changes, if false, use the values stored in the preset
+# Seconds to wait before an ion image that directly follows an electron image. The
+# reference pair has always paused here (3 s, then 1 s since #341); why was never
+# recorded, so the pause is kept as it was rather than replaced by a status wait.
+TESCAN_ELECTRON_TO_ION_SETTLE_TIME = 1
 SPOT_BURN_POLL_INTERVAL = (
     1  # Seconds between DrawBeam status polls while a spot is exposing
 )
@@ -62,7 +67,7 @@ from fibsem.imaging.spot import (
     SpotBurnSettings,
     SpotBurnStatus,
 )
-from fibsem.milling.base import set_preset_driven_estimation
+from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
@@ -288,6 +293,54 @@ LIMITS = {
 }
 
 
+# A current token inside a free-form TESCAN preset name, e.g. "30 keV; 100 pA" or
+# "30 keV; 2nA; my cool preset". Only prefixed units (pA/nA/uA/µA): a bare "A" in an
+# arbitrary name (e.g. "slot 2A") is far more likely noise than a beam current.
+_PRESET_CURRENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([pnuµ])A(?![a-zA-Z])")
+_SI_CURRENT_PREFIX = {"p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6}
+
+
+def parse_current_from_preset(preset: Optional[str]) -> Optional[float]:
+    """Parse the beam current (in A) out of a TESCAN preset name, or None.
+
+    Preset names are free-form on the instrument, but conventionally embed the
+    beam conditions ("30 keV; 100 pA"). The first current-looking token wins.
+    """
+    if not preset:
+        return None
+    match = _PRESET_CURRENT_RE.search(preset)
+    if match is None:
+        return None
+    return float(match.group(1)) * _SI_CURRENT_PREFIX[match.group(2)]
+
+
+def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
+    """Dose-model estimate t = volume / (rate × current) for a preset-driven stage.
+
+    The same inputs DrawBeam computes the real exposure from: the stage's own
+    (per-material) etch rate and the current embedded in the preset name. The
+    shared sputter-rate table is a silicon calibration keyed on a current field
+    TESCAN milling ignores. Returns None (the caller falls back to the table)
+    when the preset carries no parseable current or the rate is unusable.
+    """
+    pattern_time = getattr(stage.pattern, "time", 0)
+    if pattern_time:
+        return pattern_time
+
+    current = parse_current_from_preset(stage.milling.preset)
+    rate = stage.milling.rate  # m³/A/s
+    if current is None or current <= 0 or not rate or rate <= 0:
+        return None
+
+    volume = stage.pattern.volume  # m³
+    if (
+        hasattr(stage.pattern, "cross_section")
+        and stage.pattern.cross_section is CrossSectionPattern.CleaningCrossSection
+    ):
+        volume *= 0.66  # ccs is approx 2/3 of the volume of a rectangle
+    return volume / (rate * current)
+
+
 class TescanMicroscope(FibsemMicroscope):
     """
     A class representing a TESCAN FIB-SEM microscope.
@@ -298,6 +351,16 @@ class TescanMicroscope(FibsemMicroscope):
     """
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+
+    # The beam of the last requested (non-live) acquisition, for the settle before an
+    # ion image that follows an electron one.
+    _last_requested_beam_type: Optional[BeamType] = None
+
+    @staticmethod
+    def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
+        # TESCAN milling is preset-driven: the dose model (stage rate x preset
+        # current), not the shared table keyed on the unused milling_current.
+        return estimate_preset_milling_time(stage)
 
     def __init__(self, system_settings: SystemSettings):
         if not TESCAN_API_AVAILABLE:
@@ -345,12 +408,6 @@ class TescanMicroscope(FibsemMicroscope):
             BeamType.ION: BeamSettings(BeamType.ION),
         }
 
-        # TESCAN milling is preset-driven, so milling time estimates must come from
-        # the dose model (stage rate x preset current), not the legacy current-keyed
-        # table. Registered here because the planning stack estimates without a
-        # microscope in scope; disconnect() hands the legacy model back.
-        set_preset_driven_estimation(True)
-
         # logging
         logging.debug(
             {
@@ -364,8 +421,6 @@ class TescanMicroscope(FibsemMicroscope):
             self.connection.Disconnect()
         del self.connection
         self.connection = None
-        # hand milling time estimation back to the legacy model (see __init__)
-        set_preset_driven_estimation(False)
 
     def connect_to_microscope(
         self,
@@ -479,6 +534,9 @@ class TescanMicroscope(FibsemMicroscope):
             )
 
         logging.info(f"acquiring new {effective_beam_type.name} image.")
+
+        if image_settings is not None:
+            self._settle_after_electron_image(effective_beam_type)
 
         # prepare the beam (turn on, stop scanning)
         beam: Union[Automation.SEM, Automation.FIB]
@@ -1061,23 +1119,6 @@ class TescanMicroscope(FibsemMicroscope):
         """
 
         return False
-        # manipulator_positions = cfg.load_tescan_manipulator_calibration()
-
-        # if not manipulator_positions["calibrated"]:
-        #     logging.warning("Manipulator positions not calibrated, cannot get state")
-        #     return False
-
-        # retracted_position_x = manipulator_positions["parking"]["x"]*constants.METRE_TO_MILLIMETRE
-        # retracted_position_y = manipulator_positions["parking"]["y"]*constants.METRE_TO_MILLIMETRE
-        # retracted_position_z = manipulator_positions["parking"]["z"]*constants.METRE_TO_MILLIMETRE
-
-        # current_position = self.get_manipulator_position()
-
-        # current_position_array = [current_position.x*constants.METRE_TO_MILLIMETRE, current_position.y*constants.METRE_TO_MILLIMETRE, current_position.z*constants.METRE_TO_MILLIMETRE]
-
-        # check_compare = np.isclose(current_position_array, [retracted_position_x, retracted_position_y, retracted_position_z], atol=0.1)
-
-        # return True if False in check_compare else False
 
     def get_manipulator_position(self) -> FibsemManipulatorPosition:
         index = 0
@@ -1094,7 +1135,21 @@ class TescanMicroscope(FibsemMicroscope):
 
         return FibsemManipulatorPosition(x=x, y=y, z=z, r=r)
 
-    def insert_manipulator(self, name: str = "Standby"):
+    def _read_hardware_capabilities(self) -> None:
+        super()._read_hardware_capabilities()
+        # The Nanomanipulator moves take a rotation (`MoveTo(..., Rot=)`).
+        self.set_available("manipulator_rotation", True)
+
+    def manipulator_named_positions(self) -> List[str]:
+        return ["Parking", "Standby", "Working"]
+
+    def move_manipulator_to_named_position(
+        self, name: str
+    ) -> FibsemManipulatorPosition:
+        # Tescan's named positions are presets the instrument moves to itself.
+        return self.insert_manipulator(name=name)
+
+    def insert_manipulator(self, name: str = "Standby") -> FibsemManipulatorPosition:
         preset_positions = [
             "Parking",
             "Standby",
@@ -1121,6 +1176,7 @@ class TescanMicroscope(FibsemMicroscope):
             self.connection.Nanomanipulator.MoveToPosition(
                 Index=index, Position=insert_position
             )
+        return self.get_manipulator_position()
 
     def _check_manipulator_limits(self, x, y, z, r):
 
@@ -1149,17 +1205,18 @@ class TescanMicroscope(FibsemMicroscope):
             f"R position {r} is outside of manipulator limits {rmin} to {rmax}"
         )
 
-    def retract_manipulator(self):
+    def retract_manipulator(self) -> FibsemManipulatorPosition:
         retract_position = getattr(self.connection.Nanomanipulator.Position, "Parking")
         index = 0
         with self._connection_lock:
             self.connection.Nanomanipulator.MoveToPosition(
                 Index=index, Position=retract_position
             )
+        return self.get_manipulator_position()
 
     def move_manipulator_relative(
         self, position: FibsemManipulatorPosition, name: str = None
-    ):
+    ) -> FibsemManipulatorPosition:
 
         with self._connection_lock:
             if self.connection.Nanomanipulator.IsCalibrated(0) is False:
@@ -1184,11 +1241,12 @@ class TescanMicroscope(FibsemMicroscope):
                 )
         except Exception as e:
             logging.error(e)
-            return e
+            raise
+        return self.get_manipulator_position()
 
     def move_manipulator_absolute(
         self, position: FibsemManipulatorPosition, name: str = None
-    ):
+    ) -> FibsemManipulatorPosition:
 
         with self._connection_lock:
             if self.connection.Nanomanipulator.IsCalibrated(0) is False:
@@ -1207,6 +1265,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         with self._connection_lock:
             self.connection.Nanomanipulator.MoveTo(Index=index, X=x, Y=y, Z=z, Rot=r)
+        return self.get_manipulator_position()
 
     def calibrate_manipulator(self):
         logging.info("Calibrating manipulator")
@@ -1262,7 +1321,7 @@ class TescanMicroscope(FibsemMicroscope):
         dx: float = 0,
         dy: float = 0,
         beam_type: BeamType = BeamType.ELECTRON,
-    ) -> None:
+    ) -> FibsemManipulatorPosition:
         """Calculate the required corrected needle movements based on the BeamType to move in the desired image coordinates.
         Then move the needle relatively.
 
@@ -1295,9 +1354,9 @@ class TescanMicroscope(FibsemMicroscope):
 
         # move needle (relative)
         # self.connection.Nanomanipulator.MoveTo(Index=0, X=x_move.x, Y=yz_move.y, Z=yz_move.z)
-        self.move_manipulator_relative(FibsemManipulatorPosition(x=dx, y=dy, z=0))
-
-        return
+        return self.move_manipulator_relative(
+            FibsemManipulatorPosition(x=dx, y=dy, z=0)
+        )
 
     def move_manipulator_to_position_offset(
         self, offset: FibsemManipulatorPosition, name: str = None
@@ -1996,6 +2055,19 @@ class TescanMicroscope(FibsemMicroscope):
         if beam_type is BeamType.ION:
             return self.connection.FIB
 
+    def _settle_after_electron_image(self, beam_type: BeamType) -> None:
+        """Pause before an ion image that directly follows an electron image.
+
+        Requested acquisitions only: the live re-acquire loop passes a beam type, not
+        image settings, and does not reach this. The pause used to sit in the shared
+        `acquire.take_reference_images` behind a Tescan check; it is the driver's
+        business, and here it also covers any other electron-then-ion pair.
+        """
+        previous = self._last_requested_beam_type
+        self._last_requested_beam_type = beam_type
+        if previous is BeamType.ELECTRON and beam_type is BeamType.ION:
+            time.sleep(TESCAN_ELECTRON_TO_ION_SETTLE_TIME)
+
     def _wait_for_beam_ready(
         self,
         beam: Union["Automation.SEM", "Automation.FIB"],
@@ -2037,6 +2109,11 @@ class TescanMicroscope(FibsemMicroscope):
         self._wait_for_beam_ready(beam, beam_type, operation="preparation")
 
         return beam
+
+    def beam_uses_presets(self, beam_type: BeamType) -> bool:
+        """The ion column is set by preset: setting its voltage or current directly
+        is refused by the Tescan API."""
+        return beam_type is BeamType.ION
 
     def _get_presets(self, beam_type: BeamType) -> List[str]:
         with self._connection_lock:
@@ -2160,23 +2237,6 @@ class TescanMicroscope(FibsemMicroscope):
         if key == "preset":
             return self._beam_parameters[beam_type].preset
 
-        # system properties
-        if key == "eucentric_height":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.eucentric_height
-            elif beam_type is BeamType.ION:
-                return self.system.ion.eucentric_height
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-        if key == "column_tilt":
-            if beam_type is BeamType.ELECTRON:
-                return self.system.electron.column_tilt
-            elif beam_type is BeamType.ION:
-                return self.system.ion.column_tilt
-            else:
-                raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
         # ion beam properties
         if key == "plasma":
             if beam_type is BeamType.ION:
@@ -2227,18 +2287,6 @@ class TescanMicroscope(FibsemMicroscope):
 
         if key == "presets":
             return self._get_presets(beam_type=beam_type)
-
-        # manufacturer properties
-        if key == "manufacturer":
-            return self.system.info.manufacturer
-        if key == "model":
-            return self.system.info.model
-        if key == "software_version":
-            return self.system.info.software_version
-        if key == "serial_number":
-            return self.system.info.serial_number
-        if key == "hardware_version":
-            return self.system.info.hardware_version
 
         NOT_SUPPORTED_KEYS = [
             "resolution",
@@ -2452,9 +2500,9 @@ class TescanMicroscope(FibsemMicroscope):
     def check_available_values(self, key: str, beam_type: BeamType = None) -> bool:
         return False
 
-    def home(self) -> None:
+    def home(self) -> bool:
         logging.warning("No homing available, please use native UI.")
-        return
+        return False
 
     # def fromTescanFile(
     #     cls,
