@@ -66,6 +66,11 @@ def recording(recorded):
 
 
 @pytest.fixture(scope="module")
+def api(recorded):
+    return recorded["api"]
+
+
+@pytest.fixture(scope="module")
 def facts(recorded):
     return recorded["facts"]
 
@@ -258,3 +263,107 @@ def test_a_read_on_the_fm_view_does_not_wait_for_the_lock(facts):
     already has the view, which is what keeps the objective movable while live."""
     assert facts["reads_on_the_fm_view_without_the_lock"]
     assert facts["reads_on_the_beam_view_wait_for_the_lock"]
+
+
+# -- the FM API: today's Thermo class against the FM API over the devices -----------
+
+# Limits and choices are read once, when the devices connect, and cached, as for every
+# device; today's class reads them again on each use.
+CACHED_AT_CONNECT = (
+    "detector.brightness.limits",
+    "detector.camera_settings.binning.available_values",
+    "detector.camera_settings.exposure_time.limits",
+    "detector.camera_settings.focus.limits",
+)
+
+
+def _restores(log):
+    """How many times the view was handed back from the FM."""
+    return sum(
+        1
+        for entry in log
+        if entry[1] == "imaging.set_active_view" and entry[2] != [FM_VIEW]
+    )
+
+
+def test_the_api_cases_cover_acquisitions_and_live_view(api):
+    names = {_name(case) for case in api}
+    assert {
+        "acquire_image fluorescence",
+        "acquire_z_stack by channel",
+        "acquire_z_stack by z level",
+        "tileset",
+        "live 3 frames",
+        "objective moves",
+        "set_channel fluorescence",
+    } <= names
+    assert len(api) > 150
+
+
+def test_the_api_returns_the_same(api):
+    differ = [
+        (case["key"], case["old"][0], case["new"][0])
+        for case in api
+        if case["old"][0] != case["new"][0]
+    ]
+    assert differ == []
+
+
+def test_live_view_through_the_api_stops(api):
+    live = [case for case in api if _name(case).startswith("live")]
+    assert live and all(case["new"][0] is True for case in live)
+
+
+def test_the_api_makes_the_same_changes_in_the_same_order(api):
+    differ = [
+        case["key"]
+        for case in api
+        if _changes(case["old"][1]) != _changes(case["new"][1])
+    ]
+    assert differ == []
+
+
+def test_the_api_reads_the_same_settings_but_limits_once(api):
+    differ = []
+    for case in api:
+        old, new = set(_reads(case["old"][1])), set(_reads(case["new"][1]))
+        if not new <= old or not (old - new) <= set(CACHED_AT_CONNECT):
+            differ.append((case["key"], sorted(old ^ new)))
+    assert differ == []
+
+
+def test_the_api_makes_every_fm_call_on_the_fm_view(api):
+    off_view = [
+        (case["key"], side, entry)
+        for case in api
+        for side in ("old", "new")
+        for entry in _without_channel(case[side][1])
+        if entry[3] != FM_VIEW
+    ]
+    assert off_view == []
+
+
+def test_the_api_leaves_the_view_where_it_did_and_never_hands_it_back_more(api):
+    assert [c["key"] for c in api if c["old"][2] != c["new"][2]] == []
+    more = [
+        (case["key"], _restores(case["old"][1]), _restores(case["new"][1]))
+        for case in api
+        if _restores(case["new"][1]) > _restores(case["old"][1])
+    ]
+    assert more == []
+    # A tileset holds the FM's view for the whole run: one hand-back at the end.
+    tilesets = [
+        c for c in api if _name(c) == "tileset" and c["key"].startswith("view=1")
+    ]
+    assert tilesets and all(_restores(c["new"][1]) == 1 for c in tilesets)
+
+
+def test_a_thermo_microscope_builds_its_fm_from_the_devices(facts):
+    assert facts["thermo_microscope"] == {
+        "fm": "DeviceThermoFisherFluorescenceMicroscope",
+        "devices": ["camera", "filter_set", "fm", "light_source", "objective"],
+        # Its own worker pulls live view, so nothing needs to stop it by itself.
+        "live_timeout": None,
+        "shares_the_microscope_lock": True,
+        "parent": True,
+    }

@@ -419,19 +419,21 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
     def _move_relative(self, delta: float) -> None:
         self._move_absolute(self.position.get_value() + delta)
 
-    def _insert(self) -> None:
+    def _insert(self) -> bool:
         with self._channel.scope():
             if self.state.get_value() is InsertableDeviceState.INSERTED:
                 logging.warning("Objective lens is already inserted.")
-                return
+                return False
             self._channel.connection.detector.insert()
+            return True
 
-    def _retract(self) -> None:
+    def _retract(self) -> bool:
         with self._channel.scope():
             if self.state.get_value() is InsertableDeviceState.RETRACTED:
                 logging.warning("Objective lens is already retracted.")
-                return
+                return False
             self._channel.connection.detector.retract()
+            return True
 
 
 class AutoscriptFM(FM):
