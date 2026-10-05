@@ -2,9 +2,10 @@
 
 One entry per driver: the canonical manufacturer it answers to (as spelled in
 ``fibsem.manufacturers``), its ``FibsemMicroscope`` class, the port it connects on,
-and the configuration values a new configuration for it starts from. ``utils.setup_session`` reads it instead of an ``if manufacturer == ...`` chain,
-so adding a driver is one ``register_driver`` call rather than an edit to the
-connect code.
+and the configuration values a new configuration for it starts from.
+``utils.setup_session`` reads it instead of an ``if manufacturer == ...`` chain, so
+adding a driver is one ``register_driver`` call rather than an edit to the connect
+code.
 
 The class is named as ``"module:Class"`` and imported only when that driver is
 asked for. Importing a driver module may import its vendor SDK, which is slow and
