@@ -8,7 +8,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import yaml
 from PIL import Image
@@ -427,6 +427,7 @@ def setup_session(
     debug: bool = False,
     apply_defaults: Optional[bool] = None,
     beams_on: Optional[bool] = None,
+    progress: Optional[Callable[[str], None]] = None,
 ) -> Tuple["FibsemMicroscope", "MicroscopeSettings"]:
     """Setup microscope session
 
@@ -439,6 +440,9 @@ def setup_session(
             `defaults.apply_on_connect` says.
         beams_on (bool, optional): turn the beams on once connected. None (the
             default) does what `defaults.beams_on_at_connect` says.
+        progress (callable, optional): called with a short description of each
+            step as it starts ("Turning the beams on…"), for a caller that shows
+            it. Called on the thread this runs on.
 
     Returns:
         tuple: microscope, settings
@@ -475,6 +479,7 @@ def setup_session(
 
     manufacturer = settings.system.info.manufacturer
     ip_address = settings.system.info.ip_address
+    _report(progress, f"Connecting to {ip_address}…")
 
     if manufacturer == manufacturers.THERMOFISHER:
         from fibsem.microscopes.autoscript import ThermoMicroscope
@@ -537,10 +542,12 @@ def setup_session(
     microscope.connect_actions = {}
     # The beams first, so the defaults are set on a live column.
     if beams_on:
+        _report(progress, "Turning the beams on…")
         microscope.connect_actions["beams_on"] = _at_connect(
             "turn the beams on", microscope.turn_beams_on
         )
     if apply_defaults:
+        _report(progress, "Applying the defaults…")
         microscope.connect_actions["defaults"] = _at_connect(
             "apply the configured defaults", microscope.apply_defaults
         )
@@ -548,6 +555,16 @@ def setup_session(
     logging.info(f"Finished setup for session: {session}")
 
     return microscope, settings
+
+
+def _report(progress: Optional[Callable[[str], None]], step: str) -> None:
+    """Tell *progress* which step is starting. Never fails the connection."""
+    if progress is None:
+        return
+    try:
+        progress(step)
+    except Exception as e:
+        logging.debug(f"Progress callback failed on {step!r}: {e}")
 
 
 def _at_connect(what: str, action) -> bool:
