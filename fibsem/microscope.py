@@ -38,6 +38,11 @@ from fibsem.geometry.movement import (
     undo_scan_rotation,
     vertical_move_delta,
 )
+from fibsem.geometry.orientation import (
+    classify_orientation,
+    orientation_poses,
+    stage_milling_angle,
+)
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
 from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.milling.progress import MillingProgress
@@ -2679,73 +2684,20 @@ class FibsemMicroscope(ABC):
         Args:
             stage_position (FibsemStagePosition, optional): stage position to use. If None, uses current stage position.
         Returns:
-            str: current stage orientation ("SEM", "FIB", "MILLING", "NONE")
+            str: current stage orientation ("SEM", "FIB", "MILLING", "FM", "NONE")
         """
         # TODO: update this to an enum
 
         # current stage position
         if stage_position is None:
             stage_position = self.get_stage_position()
-        if stage_position.r is None or stage_position.t is None:
-            raise ValueError(
-                "Stage position must have both rotation (r) and tilt (t) defined."
-            )
-        stage_rotation = stage_position.r % (2 * np.pi)
-        stage_tilt = stage_position.t
 
-        from fibsem import movement
-        # TODO: also check xyz ranges?
-
-        sem = self.get_orientation("SEM")
-        fib = self.get_orientation("FIB")
-        milling = self.get_orientation("MILLING")
-        # FM is an orientation only on a compustage -- see `_update_orientations`. On
-        # an offset mount there is no FM pose to classify against, and there never
-        # effectively was: the deleted copy was byte-identical to FIB, which matches
-        # first, so no position ever classified as FM off a compustage.
-        fm = self.orientations.get("FM")
-        if sem is None or fib is None or milling is None:
-            raise ValueError(
-                "SEM, FIB or MILLING orientation not defined in the system."
-            )
-        if (
-            sem.r is None
-            or sem.t is None
-            or fib.r is None
-            or fib.t is None
-            or milling.r is None
-            or milling.t is None
-        ):
-            raise ValueError(
-                "SEM, FIB or MILLING orientation must have both rotation (r) and tilt (t) defined."
-            )
-
-        is_sem_rotation = movement.rotation_angle_is_smaller(
-            stage_rotation, sem.r, atol=5
-        )  # query: do we need rotation_angle_is_smaller, since we % 2pi the rotation?
-        is_fib_rotation = movement.rotation_angle_is_smaller(
-            stage_rotation, fib.r, atol=5
-        )
-        is_fm_rotation = fm is not None and movement.rotation_angle_is_smaller(
-            stage_rotation, fm.r, atol=5
-        )
-
-        is_sem_tilt = np.isclose(stage_tilt, sem.t, atol=0.1)
-        is_fib_tilt = np.isclose(stage_tilt, fib.t, atol=0.1)
-
-        is_milling_tilt = np.radians(-45) < stage_tilt and not is_sem_tilt
-        is_fm_tilt = fm is not None and np.isclose(stage_tilt, fm.t, atol=0.1)
-
-        if is_sem_rotation and is_sem_tilt:
-            return "SEM"
-        if is_sem_rotation and is_milling_tilt:
-            return "MILLING"
-        if is_fib_rotation and is_fib_tilt:
-            return "FIB"
-        if is_fm_rotation and is_fm_tilt:
-            return "FM"
-
-        return "NONE"
+        # Against the table a move to a named orientation reads, so the two agree on
+        # where an orientation is. The rule itself is microscope-free, and is the one
+        # a saved image is classified with (`fibsem.geometry.orientation`).
+        if not hasattr(self, "orientations"):
+            self._update_orientations()
+        return classify_orientation(stage_position, self.orientations)
 
     def get_orientation(self, orientation: str) -> FibsemStagePosition:
         """Get the orientation (r,t) for the given orientation string."""
@@ -2762,47 +2714,10 @@ class FibsemMicroscope(ABC):
     def _update_orientations(self) -> None:
         """Update the stage orientations based on the current system settings."""
 
-        stage_settings = self.system.stage
-        shuttle_pre_tilt = stage_settings.shuttle_pre_tilt  # deg
-        milling_angle = stage_settings.milling_angle  # deg
-
-        # needs to be dynmaically updated as it can change.
-        milling_stage_tilt = get_stage_tilt_from_milling_angle(
-            self, np.radians(milling_angle)
+        # needs to be dynmaically updated as the milling angle can change.
+        self.orientations = orientation_poses(
+            self.hardware_geometry(), milling_angle=self.system.stage.milling_angle
         )
-
-        self.orientations = {
-            "SEM": FibsemStagePosition(
-                r=np.radians(stage_settings.rotation_reference),
-                t=np.radians(shuttle_pre_tilt),
-            ),
-            "FIB": FibsemStagePosition(
-                r=np.radians(stage_settings.rotation_180),
-                t=np.radians(self.system.ion.column_tilt - shuttle_pre_tilt),
-            ),
-            "MILLING": FibsemStagePosition(
-                r=np.radians(stage_settings.rotation_reference), t=milling_stage_tilt
-            ),
-        }
-
-        # FM is an orientation only where reaching the FM *is* a re-pose: on a
-        # compustage the objective is under the grid and the stage turns over to face
-        # it. On an offset mount the FM is a place, not a pose -- the stage travels
-        # there holding whatever orientation it was in -- so there is no FM entry to
-        # derive. (There used to be: a `deepcopy` of the FIB pose, a second name for
-        # a pose that already had one. The classifier matched FM last, so the copy
-        # was never returned, and deleting it changes no classification -- it only
-        # stops `get_orientation("FM")` naming a pose that does not exist.)
-        if self.stage_is_compustage:
-            self.orientations["FIB"].r = np.radians(
-                0
-            )  # Compustage is always at 0 rotation
-            self.orientations["FIB"].t -= np.radians(180)
-
-            self.orientations["FM"] = FibsemStagePosition(
-                r=np.radians(0),
-                t=np.radians(-180),
-            )
 
     def set_milling_angle(self, milling_angle: float) -> None:
         """Set the 'stored' milling angle in the system settings."""
@@ -2814,33 +2729,14 @@ class FibsemMicroscope(ABC):
     ) -> float:
         """Get the current milling angle in degrees based on the current stage tilt."""
 
-        from fibsem.transformations import convert_stage_tilt_to_milling_angle
-
         if stage_position is None:
             stage_position = self.get_stage_position()
 
-        # NOTE: this is only valid for sem orientation
-        if self.get_stage_orientation(stage_position=stage_position) == "FIB":
-            return 90  # stage-tilt + pre-tilt + 90 - column-tilt
-
-        stage_tilt = stage_position.t
-
-        if stage_tilt is None:
-            raise ValueError(
-                "Stage tilt is not available. Cannot calculate milling angle."
-            )
-
-        if self.stage_is_compustage and stage_tilt < np.radians(-90):
-            # Compustage stage tilt is inverted, so we need to adjust the angle
-            stage_tilt += np.radians(180)
-
-        # Calculate the milling angle from the stage tilt
-        milling_angle = convert_stage_tilt_to_milling_angle(
-            stage_tilt=stage_tilt,
-            pretilt=np.radians(self.system.stage.shuttle_pre_tilt),
-            column_tilt=np.radians(self.system.ion.column_tilt),
+        return stage_milling_angle(
+            stage_position,
+            self.hardware_geometry(),
+            orientation=self.get_stage_orientation(stage_position=stage_position),
         )
-        return float(np.degrees(milling_angle))
 
     def is_close_to_milling_angle(
         self, milling_angle: float, atol: float = 2.0

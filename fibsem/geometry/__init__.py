@@ -4,6 +4,9 @@ Where an image displacement lands on the stage, and where a stage position shows
 a view. Everything here takes the instrument geometry and the stage pose as arguments,
 so the same answer serves a live move and a saved image.
 
+``orientation`` names the view a stage pose is in (SEM, FIB, MILLING, FM) and its
+milling angle, for the live stage and a saved image alike.
+
 ``movement`` turns image displacements into stage movements. The projection it builds on
 is still in ``fibsem.transformations``, and the views in ``fibsem.projection``; both are
 to move here, with their old modules kept as re-exports.
