@@ -1665,10 +1665,10 @@ class SampleScene:
         `coincidence_offset` does, so the same correction path restores it.
         """
         from fibsem.alignment.coincidence import tilt_swing
-        from fibsem.transformations import _projection_terms
+        from fibsem.geometry.frames import StageModel
 
-        _, pretilt, _ = _projection_terms(
-            projection.geometry, stage_position.r or 0.0, stage_position.t or 0.0
+        pretilt = StageModel.from_geometry(projection.geometry).surface_slope(
+            stage_position.r or 0.0
         )
         # the apex - where the offset vector is vertical - is the SEM
         # orientation: tilt = shuttle pre-tilt (0 on a compustage)
