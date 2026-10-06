@@ -111,6 +111,7 @@ def test_the_old_methods_go_through_the_service(microscope):
     microscope.pause_milling()
     assert microscope.milling.state.get_value() is MillingState.PAUSED
     microscope.resume_milling()
+    microscope.get_milling_state()
     microscope.stop_milling()
     assert microscope.get_milling_state() is MillingState.IDLE
     assert seen == [
@@ -143,3 +144,22 @@ def test_restore_goes_through_the_beam_device(microscope):
 def test_the_service_needs_its_hooks():
     for hook in ("_setup", "_draw", "_start", "_estimate", "_clear"):
         assert getattr(DemoMilling, hook) is not getattr(Milling, hook), hook
+
+
+def test_without_an_ion_beam_the_demo_mills_with_its_own_code(microscope):
+    """A configuration with the ion column off builds no ion beam, so no milling
+    service; the milling methods fall through to the shared demo code."""
+    from copy import deepcopy
+
+    from fibsem.microscopes.device_demo import DemoMicroscope
+
+    system = deepcopy(microscope.system)
+    system.ion.enabled = False
+    electron_only = DemoMicroscope(system)
+    assert BeamType.ION not in electron_only.beams
+    assert electron_only.milling is None
+    electron_only.draw_patterns([_rectangle()])
+    assert len(electron_only.milling_system.patterns) == 1
+    assert electron_only.get_milling_state() is MillingState.IDLE
+    electron_only.clear_patterns()
+    assert electron_only.milling_system.patterns == []

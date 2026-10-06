@@ -13,7 +13,7 @@ import logging
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 from fibsem.microscopes.simulator import DemoMilling as DemoMillingCode
-from fibsem.services.milling import Milling
+from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
     BeamType,
     FibsemBitmapSettings,
@@ -78,11 +78,6 @@ class DemoMilling(Milling):
         DemoMillingCode.clear_patterns(self.parent)
 
 
-def bind_demo_milling(microscope: DemoMicroscope) -> DemoMilling:
+def bind_demo_milling(microscope: DemoMicroscope) -> Optional[DemoMilling]:
     """Build ``milling`` for a Demo microscope whose beams are built."""
-    beams = microscope.beams
-    milling = DemoMilling(parent=microscope)
-    milling.fill_roles(ion=beams[BeamType.ION])
-    if BeamType.ELECTRON in beams:
-        milling.fill_roles(electron=beams[BeamType.ELECTRON])
-    return milling.connect()
+    return bind_milling(DemoMilling, microscope)
