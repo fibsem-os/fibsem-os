@@ -65,10 +65,9 @@ class TescanBeam(Beam):
     (set by preset), and the resolution, dwell time and stigmation, which are read
     from the last image.
 
-    Not here, so absent on the new API and still answered by ``_get``/``_set``: the ion
-    column's working distance (the old read warns of an unknown key),
-    ``detector_mode`` (not in the API), ``blanked``, ``plasma_gas`` and the scan
-    modes.
+    Not here, because the Tescan API does not have them: the ion column's working
+    distance and ``detector_mode`` (``TescanMicroscope``'s wrappers return None for
+    them), ``blanked``, ``plasma_gas`` and the scan modes.
     """
 
     def __init__(
