@@ -62,8 +62,7 @@ class FakeTescan:
             return [30000.0]
         return []
 
-    def get(self, key, beam_type=None):
-        assert key == "preset"
+    def get_preset(self, beam_type):
         return self.current_preset
 
     def set_preset(self, preset, beam_type):

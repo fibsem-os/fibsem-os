@@ -149,9 +149,19 @@ class DeviceObjectiveLens(ObjectiveLens):
 
 
 class DeviceCamera(Camera):
+    """A camera without a gain control (a driver that offers no ``gain``) reads its
+    gain as None and ignores a write, warning once."""
+
     def __init__(self, device: Device, parent: Optional[FluorescenceMicroscope] = None):
         super().__init__(parent=parent)
         self._device = device
+        self._gain_warning_logged = False
+
+    def _has_no_gain(self) -> bool:
+        # An offline remote camera has no parameters yet; reading it fails closed.
+        return getattr(self._device, "online", True) and (
+            "gain" not in self._device.parameters
+        )
 
     def acquire_image(self) -> np.ndarray:
         return self._device.acquire()
@@ -182,11 +192,18 @@ class DeviceCamera(Camera):
         return (limits.min, limits.max)
 
     @property
-    def gain(self) -> float:
+    def gain(self) -> Optional[float]:
+        if self._has_no_gain():
+            return None
         return _param(self._device, "gain").get_value()
 
     @gain.setter
     def gain(self, value: float) -> None:
+        if self._has_no_gain():
+            if not self._gain_warning_logged:
+                logging.warning("Camera has no gain control; ignoring gain settings.")
+                self._gain_warning_logged = True
+            return
         _param(self._device, "gain").write_through(value)
 
     @property

@@ -1794,14 +1794,11 @@ class ThermoMicroscope(FibsemMicroscope):
         # get current working distance, to be restored later
         wd = self.get_working_distance(BeamType.ELECTRON)
 
-        # convert to autoscript position
+        # convert to autoscript position, leaving alone the axes the microscope
+        # would refuse (the objective inserted, or entering the FM pose)
         autoscript_position = stage_position_to_autoscript(
-            position, compustage=self.stage_is_compustage
+            self._without_blocked_axes(position), compustage=self.stage_is_compustage
         )  # TODO: apply compucentric/raw coordinate offset here?
-
-        if self._axis_restrictions_apply(position):  # ONLY when restrictions are on
-            autoscript_position.z = None
-            autoscript_position.r = None
 
         logging.info(f"Moving stage to {position}.")
         self._vendor_stage.absolute_move(

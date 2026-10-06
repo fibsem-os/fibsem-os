@@ -399,7 +399,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
     def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
         """The FM as the FM API over the Odemis FM devices, which make the odemis
-        calls ``OdemisFluorescenceMicroscope`` made, on the same components and
+        calls the old ``OdemisFluorescenceMicroscope`` made, on the same components and
         stream. ``fm_devices`` are those devices."""
         from fibsem.devices.drivers.odemis_fm import bind_odemis_fm
         from fibsem.fm.odemis import DeviceOdemisFluorescenceMicroscope

@@ -1,20 +1,10 @@
-"""Which stage types drop z and rotation from an absolute move.
+"""Which stage axes an absolute move leaves alone, and on which stages.
 
-`ThermoMicroscope.move_stage_absolute` blanks two axes when it believes the
-microscope will refuse them. That guard has only ever run on a compustage, because
-`microscope.fm` is None on every other system -- and opening the connection gate is
-what makes it reachable elsewhere.
-
-It is not safe to let that happen. The axes are not equivalent across stage types:
-`stage_position_to_autoscript` returns a `CompustagePosition(x, y, z, a)` with no `r`
-field at all, so dropping `r` there has never done anything, while on an offset mount
-it would drop a real rotation axis. Every absolute move would silently half-succeed --
-land at x and y, no z, no rotation.
-
-So the objective half is compustage-gated **temporarily**, and FIB-640 owns removing
-it. That issue is explicit that the branch should *not* stay gated once it is correct
--- an iFLM has an objective too -- and it is also where the axis pair gets settled: it
-measured z and t, not z and r.
+`ThermoMicroscope.move_stage_absolute` blanks the axes it believes the microscope
+will refuse. The objective half used to be compustage-gated, because it dropped z and
+r, and r is a real rotation axis on an offset mount. FIB-640 measured the inserted
+objective blocking z and t, and that pair was settled (2026-10-05), so the half now
+applies on every mount and names z and t (`ObjectiveLens.blocked_axes`).
 
 The predicate is tested rather than the move: AutoScript is not installed in CI, so
 `ThermoMicroscope.move_stage_absolute` cannot be executed at all.
@@ -38,11 +28,12 @@ def _microscope(config_path: str):
 
 
 def test_a_compustage_with_the_objective_in_still_restricts():
-    """Unchanged. This is the only place the guard has ever run."""
     microscope = _microscope(ARCTIS_CONFIG)
+    microscope.move_to_orientation("SEM")
     microscope.fm.objective.insert()
 
     assert microscope._axis_restrictions_apply() is True
+    assert microscope._blocked_axes() == ("z", "t")
 
 
 def test_a_compustage_with_the_objective_out_does_not():
@@ -53,17 +44,38 @@ def test_a_compustage_with_the_objective_out_does_not():
     assert microscope._axis_restrictions_apply() is False
 
 
-def test_an_offset_mount_with_the_objective_in_does_not_restrict():
-    """The gate. Without it, every absolute move on an offset system with an FM would
-    silently lose its z and its rotation -- behaviour that has executed on no
-    instrument. Remove this with FIB-640, once the axis pair is settled on hardware."""
+def test_an_offset_mount_with_the_objective_in_blocks_z_and_t():
+    """An iFLM has an objective too. It blocks z and t, and leaves the rotation, which
+    is a real axis here, to the move."""
     microscope = _microscope(IFLM_CONFIG)
     microscope.move_to_orientation("FIB")
     microscope.fm.objective.insert()
 
     assert microscope.stage_is_compustage is False
-    assert microscope.fm.objective.state == "Inserted"
-    assert microscope._axis_restrictions_apply() is False
+    assert microscope._blocked_axes() == ("z", "t")
+
+
+def test_a_move_leaves_the_blocked_axes_alone():
+    microscope = _microscope(IFLM_CONFIG)
+    microscope.move_to_orientation("FIB")
+    microscope.fm.objective.insert()
+    target = FibsemStagePosition(
+        x=1e-3, y=2e-3, z=3e-3, r=0.5, t=0.2, coordinate_system="RAW"
+    )
+
+    sent = microscope._without_blocked_axes(target)
+
+    assert (sent.x, sent.y, sent.z, sent.r, sent.t) == (1e-3, 2e-3, None, 0.5, None)
+    assert target.z == 3e-3, "the caller's position is not changed"
+
+
+def test_with_the_objective_out_nothing_is_blocked():
+    microscope = _microscope(IFLM_CONFIG)
+    microscope.move_to_orientation("FIB")
+    microscope.fm.objective.retract()
+    target = FibsemStagePosition(x=1e-3, z=3e-3, t=0.2, coordinate_system="RAW")
+
+    assert microscope._without_blocked_axes(target) is target
 
 
 def test_a_system_with_no_fluorescence_microscope_does_not_restrict():
@@ -102,7 +114,7 @@ def test_the_predicate_reads_the_microscope_rather_than_being_told(config_path: 
     after = microscope._axis_restrictions_apply()
 
     assert before is False
-    assert after is microscope.stage_is_compustage
+    assert after is True
 
 
 def _at_fm_pose(microscope, z: float = 5.0e-3) -> None:

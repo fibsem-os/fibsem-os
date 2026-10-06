@@ -315,14 +315,14 @@ class FibsemBeamSettingsWidget(QWidget):
     def _on_preset_failed(self, preset: str, exc: Exception) -> None:
         """Toast the failure and put the combo back on the preset the microscope reports.
 
-        On Tescan ``get("preset")`` is served from the cached beam parameters, so the
+        On Tescan ``get_preset`` is served from the cached beam parameters, so the
         revert makes no SDK call. If nothing was ever activated, clear the selection --
         leaving the refused preset displayed would show state the microscope is not in.
         """
         notification_service.show_toast(
             f"Failed to activate preset {preset}: {exc}", "error"
         )
-        current = self.microscope.get("preset", self.beam_type)
+        current = self.microscope.get_preset(self.beam_type)
         self.preset_combo.blockSignals(True)
         idx = self.preset_combo.findData(current) if current is not None else -1
         self.preset_combo.setCurrentIndex(idx)
@@ -472,7 +472,7 @@ class FibsemBeamSettingsWidget(QWidget):
         if presets:
             for preset in presets:
                 self.preset_combo.addItem(str(preset), str(preset))
-            current = self.microscope.get("preset", self.beam_type)
+            current = self.microscope.get_preset(self.beam_type)
             if current is not None:
                 idx = self.preset_combo.findData(current)
                 if idx != -1:

@@ -93,6 +93,27 @@ def test_devices_say_who_reported_them(microscope):
     assert rows["Fluorescence"] == (True, "Configuration")
 
 
+@pytest.mark.parametrize(
+    "configuration, detail",
+    [
+        ("sim-iflm-configuration.yaml", ""),
+        ("sim-arctis-configuration.yaml", "No rotation"),
+    ],
+    ids=["rotating-stage", "compustage"],
+)
+def test_the_stage_row_says_when_the_stage_does_not_rotate(configuration, detail):
+    """Read from the stage's axes at connect, not from the stage type."""
+    path = os.path.join(cfg.CONFIG_PATH, configuration)
+    microscope, _ = utils.setup_session(
+        config_path=path, manufacturer="Demo", setup_logging=False
+    )
+    try:
+        rows = {row[0]: row[3] for row in devices_rows(microscope)}
+        assert rows["Stage"] == detail
+    finally:
+        microscope.disconnect()
+
+
 def _fake_calibrated_slot(microscope):
     from fibsem.structures import FibsemStagePosition, SlotCalibration
 
