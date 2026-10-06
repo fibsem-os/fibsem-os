@@ -1633,34 +1633,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
             return ["ZigZag", "Flyback", "RLE", "SpiralInsideOut", "SpiralOutsideIn"]
         return []
 
-    def _get(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> Union[
-        float, str, List[str], Tuple[int, int], Point, FibsemStagePosition, None
-    ]:
-        """Get a property of the microscope (serialised on the connection lock)."""
-        with self._connection_lock:
-            return self._get_impl(key, beam_type)
-
-    def _get_impl(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> Union[
-        float, str, List[str], Tuple[int, int], Point, FibsemStagePosition, None
-    ]:
-        """Get a property of the microscope.
-
-        The keys the beam and stage devices answer are not here (FIB-1161). fibsem
-        does not drive the Tescan chamber (its support was removed), so its keys are
-        unknown here.
-        """
-        # stage properties
-        if key == "stage_position":
-            # only reached without a stage device: an enabled stage answers it
-            raise ValueError("Stage is not enabled.")
-
-        logging.warning(f"Unknown key: {key} ({beam_type})")
-        return None
-
     def _activate_preset(
         self,
         beam: Union["Automation.SEM", "Automation.FIB"],
@@ -1731,26 +1703,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
                     )
                 except Exception as restore_error:
                     logging.error(f"Failed to restore beam settings: {restore_error}")
-
-    def _set(self, key: str, value, beam_type: BeamType = None) -> None:
-        """Set a property of the microscope (serialised on the connection lock)."""
-        with self._connection_lock:
-            self._set_impl(key, value, beam_type)
-
-    def _set_impl(self, key: str, value, beam_type: BeamType = None) -> None:
-        """Set a property of the microscope.
-
-        The keys the beam devices answer are not here (FIB-1161), and nothing else is
-        left: the ion column's working distance and the detector mode, which the Tescan
-        API does not have, are answered by their wrappers (``set_working_distance``,
-        ``set_detector_mode``) without a key.
-        """
-        if beam_type is not None:
-            self._get_beam(beam_type)  # refuses an unknown beam type
-            self._prepare_beam(beam_type)
-
-        logging.warning(f"Unknown key: {key}, value: {value} ({beam_type})")
-        return
 
     def home(self) -> bool:
         logging.warning("No homing available, please use native UI.")

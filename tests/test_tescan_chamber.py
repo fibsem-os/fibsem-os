@@ -1,7 +1,7 @@
 """Tescan has no chamber.
 
 fibsem no longer drives the Tescan chamber: no chamber device is built, and the
-chamber keys are unknown to ``_get``/``_set``, so reading them, pumping or venting
+chamber keys are unsupported (they read None), so reading them, pumping or venting
 never reaches the instrument.
 
 No hardware or Tescan SDK required: the microscope is connected over the fake SDK
@@ -33,8 +33,8 @@ def test_it_has_no_chamber_device(connected):
 @pytest.mark.parametrize(
     "call",
     [
-        lambda m: m._get_impl("chamber_state"),
-        lambda m: m._get_impl("chamber_pressure"),
+        lambda m: m.get("chamber_state"),
+        lambda m: m.get("chamber_pressure"),
         lambda m: m.pump(),
         lambda m: m.vent(),
     ],

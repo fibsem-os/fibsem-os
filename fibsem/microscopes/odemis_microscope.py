@@ -734,24 +734,6 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
         """The Odemis stack drives its own FM, and has always built one unasked."""
         return True
 
-    def _get(self, key: str, beam_type: BeamType = None) -> str:
-        # The devices read every key Odemis has. A beam key the beam does not have
-        # (preset, plasma_gas) is unsupported, and reads None.
-        if key in BEAM_ROUTES and beam_type is not None:
-            return None
-
-        logging.warning(f"Unknown key: {key} ({beam_type})")
-        return None
-
-    def _set(self, key: str, value: str, beam_type: BeamType = None) -> None:
-        # The devices write every key Odemis has. A beam key the beam does not have
-        # (preset, plasma_gas) is unsupported, and is not written.
-        if key in BEAM_ROUTES and beam_type is not None:
-            logging.debug(f"{key} is not supported on the {beam_type.name} beam.")
-            return
-
-        logging.warning(f"Unknown key: {key} ({beam_type})")
-
     def _get_available_values(self, key: str, beam_type: BeamType = None) -> list:
         """The values of the keys the beam devices don't answer: application_file,
         scan_direction, detector_mode (the detector type's, which can change) and

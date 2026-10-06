@@ -3,8 +3,8 @@
 The FIB has no working distance in the Tescan API and neither column has a detector
 mode. State restores call ``set_working_distance`` and ``set_detector_mode`` every time,
 so ``TescanMicroscope`` answers them itself: None, nothing sent to the instrument, and
-nothing logged above debug. The old ``_get``/``_set`` branches for them are deleted, so
-the string keys are unknown.
+nothing logged above debug. The string keys are unsupported too: the beam devices
+do not have them, so they read None and a write does nothing.
 
 No hardware or Tescan SDK required: the microscope is connected over the fake SDK
 (``tests/fixtures/tescan_sdk.py``).
@@ -60,10 +60,10 @@ def test_the_electron_working_distance_still_reaches_the_column(connected):
     "key, beam_type",
     [("detector_mode", E), ("detector_mode", I), ("working_distance", I)],
 )
-def test_the_keys_are_unknown(connected, key, beam_type, caplog):
-    microscope, _ = connected
-    with caplog.at_level(logging.WARNING):
-        microscope._set_impl(key, None, beam_type)
-    assert [r.getMessage() for r in caplog.records] == [
-        f"Unknown key: {key}, value: None ({beam_type})"
-    ]
+def test_the_keys_are_unsupported(connected, key, beam_type, caplog):
+    microscope, fake = connected
+    with caplog.at_level(logging.INFO):
+        microscope.set(key, None, beam_type)
+        assert microscope.get(key, beam_type) is None
+    assert fake.log == []
+    assert caplog.records == []

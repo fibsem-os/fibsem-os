@@ -161,5 +161,6 @@ def test_the_stage_has_position_and_linked_and_every_axis_unlimited(monkeypatch)
 def test_a_disabled_stage_gets_no_device(monkeypatch):
     microscope, _ = connect(monkeypatch, _system(stage=False))
     assert microscope.stage is None and bind_tescan_stage(microscope) is None
-    with pytest.raises(ValueError, match="Stage is not enabled"):
-        microscope.get("stage_position")
+    assert microscope.get("stage_position") is None
+    with pytest.raises(TypeError):
+        microscope.get_stage_position()
