@@ -187,7 +187,7 @@ def _to_milling(
     # offset mount a fluorescence position already classifies as MILLING -- so the
     # conversion returns early, unchanged, and the caller gets its own position back as
     # somewhere to mill. The precondition is about the *system*, so ask the system.
-    if not microscope.stage_is_compustage:
+    if not microscope._fm_is_a_pose():
         raise ValueError(
             "Cannot mark a lamella from the fluorescence view on this system: there is "
             "no transform between the fluorescence and beam positions on an offset "

@@ -174,6 +174,9 @@ class AutoscriptCompustage(AutoscriptStage):
     def available_linked(self) -> bool:
         return False
 
+    def has_builtin_shuttle(self) -> bool:
+        return True
+
     def poses(
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
     ) -> Dict[str, FibsemStagePosition]:

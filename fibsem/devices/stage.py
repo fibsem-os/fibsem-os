@@ -289,6 +289,14 @@ class Stage(Device):
             rotates="r" in self.axes,
         )
 
+    def has_builtin_shuttle(self) -> bool:
+        """Whether the stage carries its own one-grid shuttle, so the sample holder is
+        built in rather than read from the configuration.
+
+        False by default. A compustage, which is the autoloader's stage, overrides it.
+        """
+        return False
+
     def turned_over(self, tilt: float) -> bool:
         """Whether the sample is turned over at this stage tilt, in radians.
 

@@ -1118,10 +1118,11 @@ class FibsemMicroscope(ABC):
     def _fluorescence_default(self) -> bool:
         """Whether this backend has an FM when the configuration does not say.
 
-        The answer each backend gave before the flag was read: a compustage has one.
-        An explicit `fm.enabled` overrides it either way.
+        The answer each backend gave before the flag was read: a stage that reaches
+        the FM by re-posing (a compustage) has one. An explicit `fm.enabled` overrides
+        it either way.
         """
-        return self.stage_is_compustage
+        return self._fm_is_a_pose()
 
     def _fluorescence_uses_own_driver(self) -> bool:
         """Whether the FM, if there is one, comes from this microscope's own driver.
@@ -2864,8 +2865,8 @@ class FibsemMicroscope(ABC):
         """Get the compucentric rotation position for the given stage position.
         Assumes 180deg rotation. TFS only"""
 
-        # compustage does not support compucentric rotation
-        if self.stage_is_compustage:
+        # a stage with no rotation axis (a compustage) has no compucentric rotation
+        if not self.system.stage.rotation:
             return position
 
         # get the compucentric rotation offset
@@ -3205,6 +3206,8 @@ class FibsemMicroscope(ABC):
         )
         if self.stage_device is not None:
             return self.stage_device.poses(**geometry)
+        # Only the old Thermo paths' parity fixture builds a microscope with no stage
+        # device; this arm goes with those paths (#1301).
         if self.stage_is_compustage:
             return compustage_poses(**geometry)
         return rotating_stage_poses(**geometry, rotates=stage_settings.rotation)
@@ -3269,8 +3272,8 @@ class FibsemMicroscope(ABC):
                 "Stage tilt is not available. Cannot calculate milling angle."
             )
 
-        if self.stage_is_compustage and stage_tilt < np.radians(-90):
-            # Compustage stage tilt is inverted, so we need to adjust the angle
+        if self._stage_turned_over(stage_tilt):
+            # past vertical the sample faces the other way, so unwind the half turn
             stage_tilt += np.radians(180)
 
         # Calculate the milling angle from the stage tilt
@@ -3553,13 +3556,13 @@ class FibsemMicroscope(ABC):
         stamp the same terms onto an acquired image so it can be reprojected later
         without a live microscope to consult.
 
-        ``stage_is_compustage`` is the authority here -- ThermoFisher reads it from
-        ``connection.specimen.compustage.is_installed``. Recording it is what lets
-        the reprojection stop inferring it from the model name (FIB-481).
+        ``is_compustage`` is stamped from the stage device's poses: a stage that
+        reaches the FM by re-posing is a compustage. Recording it is what lets the
+        reprojection stop inferring it from the model name (FIB-481).
         """
         return FibsemHardwareGeometry.from_system_settings(
             self.system,
-            is_compustage=self.stage_is_compustage,
+            is_compustage=self._fm_is_a_pose(),
             rotation_centre=self.rotation_centre,
             poses=self._stage_poses(),
             stage_frame=self.stage_frame,
