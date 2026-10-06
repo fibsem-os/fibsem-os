@@ -24,6 +24,14 @@ hardware:                                                   # what the instrumen
         type: fm
         enabled: true
     #   config: /home/patrick/github/fibsem/fibsem/config/fm/fm-configuration-default.yaml
+      - name: sample_loader                                # the simulated autoloader magazine (a compustage has one)
+        type: sample_loader
+        capacity: 12
+        occupied: [1, 2, 3]                               # 1-based slot numbers holding a grid
+        names: {}                                         # slot number -> grid name; unnamed slots read as Grid-NN
+        exchange_delay: 5.0                               # seconds each load and each unload takes (a real Arctis is nearer two minutes); skipped under FIBSEM_SIM_NO_DELAY=1, as the tests run
+        start_unscanned: false                            # true: every slot reads unknown, with no grid, until Scan magazine (Microscope -> Sample), as a real magazine does after it is undocked
+        scan_delay: 10.0                                  # seconds a magazine scan takes (a real Arctis takes about ten minutes); skipped under FIBSEM_SIM_NO_DELAY=1
 calibration:                                                # measured at this instrument
     shuttle_pre_tilt:           0                        
 defaults:                                                   # what a session starts from
@@ -81,10 +89,3 @@ sim:
         beam_offset: {ion: [1.3e-6, 0.0]}                  # fixed per-beam misalignment (m): the coincidence measurement's dx
         current_offset_scale: 1.5e-6                       # sigma (m) of a seeded per-beam-current offset; 0 = off
     is_compustage: true
-    loader:                                               # the simulated autoloader magazine
-        capacity: 12
-        occupied: [1, 2, 3]                               # 1-based slot numbers holding a grid
-        names: {}                                         # slot number -> grid name; unnamed slots read as Grid-NN
-        exchange_delay: 5.0                               # seconds each load and each unload takes (a real Arctis is nearer two minutes); skipped under FIBSEM_SIM_NO_DELAY=1, as the tests run
-        start_unscanned: false                            # true: every slot reads unknown, with no grid, until Scan magazine (Microscope -> Sample), as a real magazine does after it is undocked
-        scan_delay: 10.0                                  # seconds a magazine scan takes (a real Arctis takes about ten minutes); skipped under FIBSEM_SIM_NO_DELAY=1

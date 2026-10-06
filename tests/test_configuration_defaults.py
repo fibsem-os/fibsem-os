@@ -21,6 +21,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.structures import (
+    CONFIGURED_DEVICES,
     BeamSettings,
     BeamType,
     FibsemStagePosition,
@@ -61,10 +62,17 @@ def test_the_split_changed_no_configuration_s_meaning(filename: str):
     split = _load(filename)
     flat = copy.deepcopy(split)
     # The device list back to one block per device, as files were before the split.
+    # A device no block was ever for (a sample loader) stays in the list.
+    others = []
     for entry in flat.pop("hardware")["devices"]:
+        if entry["name"] not in CONFIGURED_DEVICES:
+            others.append(entry)
+            continue
         flat[entry["name"]] = {
             k: v for k, v in entry.items() if k not in ("name", "type")
         }
+    if others:
+        flat["hardware"] = {"devices": others}
     calibration = flat.pop("calibration")
     flat["stage"].update(calibration)
     defaults = flat.pop("defaults")
