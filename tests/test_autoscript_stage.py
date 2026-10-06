@@ -106,13 +106,16 @@ def test_routed_thermo_unlinks_as_before(recording):
 
 
 def test_compustage_axis_restriction_is_exercised(recording):
-    """An inserted objective drops z from an absolute move, on both sides."""
+    """An inserted objective drops z and tilt (the compustage's ``a``) from an
+    absolute move, on both sides (FIB-640)."""
     dropped = [
         c
         for c in recording["cases"]
         if "fm=True absolute" in c["key"]
         and any(
-            call[1].endswith("absolute_move") and call[2][0]["z"] is None
+            call[1].endswith("absolute_move")
+            and call[2][0]["z"] is None
+            and call[2][0]["a"] is None
             for call in c["new"][1]
         )
     ]

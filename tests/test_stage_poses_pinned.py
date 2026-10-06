@@ -23,7 +23,8 @@ Readers measured, with the stage at each declared pose:
 - `vertical_move`, which reverses dy once the stage is tilted past -90 degrees (a
   compustage at its FIB and FM poses; FIB-1124 step 2);
 - the geometry stamped onto images (`hardware_geometry`);
-- `transformations._projection_terms`, the pre-tilt sign of the view-corrected move;
+- the view-corrected move's terms: the surface slope it slides along, and whether
+  the image is mirrored in the SEM and FIB views (`transformations._image_y_flip`);
 - `coincidence.geometry_from_images`, whether it warns about the flipped side;
 - `correlation.geometry._complete_fm_pose`, the FM pose for a position without r or t.
 
@@ -133,7 +134,8 @@ def _warns_flipped_side(geometry, pose: FibsemStagePosition) -> bool:
 def _measure(stage_type: str) -> Dict[str, Any]:
     """Every pinned value for one stage type, flattened to "what: value"."""
     from fibsem.correlation.geometry import _complete_fm_pose
-    from fibsem.transformations import _projection_terms
+    from fibsem.geometry.frames import StageModel
+    from fibsem.transformations import _image_y_flip
 
     microscope = _microscope(stage_type)
     out: Dict[str, Any] = {}
@@ -177,9 +179,13 @@ def _measure(stage_type: str) -> Dict[str, Any]:
     out["stamped rotation_180"] = geometry.rotation_180
     out["stamped is_compustage"] = geometry.is_compustage
 
+    model = StageModel.from_geometry(geometry)
+    views = (0.0, np.radians(geometry.fib_column_tilt))
     for name, pose in orientations.items():
-        sign, pretilt, tilt = _projection_terms(geometry, pose.r, pose.t)
-        out[f"projection_terms {name}"] = (sign, _deg(pretilt), _deg(tilt))
+        out[f"surface slope {name}"] = _deg(model.surface_slope(pose.r))
+        out[f"mirrored {name}"] = tuple(
+            _image_y_flip(geometry, view, pose.r, pose.t) < 0 for view in views
+        )
         out[f"coincidence warns {name}"] = _warns_flipped_side(geometry, pose)
 
     fm_pose = _complete_fm_pose(FibsemStagePosition(x=0, y=0, z=0), geometry)
@@ -254,11 +260,14 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "vertical_move MILLING": (0.0, 0.263844, 1.241287),
         "stamped rotation_180": 180.0,
         "stamped is_compustage": False,
-        "projection_terms SEM": (1.0, 35.0, 35.0),
+        "surface slope SEM": 35.0,
+        "mirrored SEM": (False, False),
         "coincidence warns SEM": False,
-        "projection_terms FIB": (1.0, -35.0, 17.0),
+        "surface slope FIB": -35.0,
+        "mirrored FIB": (False, False),
         "coincidence warns FIB": True,
-        "projection_terms MILLING": (1.0, 35.0, 12.0),
+        "surface slope MILLING": 35.0,
+        "mirrored MILLING": (False, False),
         "coincidence warns MILLING": False,
         "complete_fm_pose.r": 180.0,
         "complete_fm_pose.t": 17.0,
@@ -303,11 +312,14 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "vertical_move MILLING": (0.0, -0.417529, 1.147153),
         "stamped rotation_180": 0.0,
         "stamped is_compustage": False,
-        "projection_terms SEM": (1.0, 0.0, 0.0),
+        "surface slope SEM": 0.0,
+        "mirrored SEM": (False, False),
         "coincidence warns SEM": False,
-        "projection_terms FIB": (1.0, 0.0, 55.0),
+        "surface slope FIB": 0.0,
+        "mirrored FIB": (False, False),
         "coincidence warns FIB": True,
-        "projection_terms MILLING": (1.0, 0.0, -20.0),
+        "surface slope MILLING": 0.0,
+        "mirrored MILLING": (False, False),
         "coincidence warns MILLING": False,
         "complete_fm_pose.r": 0.0,
         "complete_fm_pose.t": 55.0,
@@ -363,13 +375,18 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "vertical_move FM": (0.0, 0.0, 1.269018),
         "stamped rotation_180": 0.0,
         "stamped is_compustage": True,
-        "projection_terms SEM": (-1.0, 0.0, 180.0),
+        "surface slope SEM": 0.0,
+        "mirrored SEM": (False, False),
         "coincidence warns SEM": False,
-        "projection_terms FIB": (1.0, 0.0, 52.0),
+        "surface slope FIB": 0.0,
+        "mirrored FIB": (True, True),
         "coincidence warns FIB": False,
-        "projection_terms MILLING": (-1.0, 0.0, 157.0),
+        "surface slope MILLING": 0.0,
+        "mirrored MILLING": (False, False),
         "coincidence warns MILLING": False,
-        "projection_terms FM": (-1.0, 0.0, 0.0),
+        "surface slope FM": 0.0,
+        # Both beams see the back of the grid at FM (FIB-1101).
+        "mirrored FM": (True, True),
         "coincidence warns FM": False,
         "complete_fm_pose.r": 0.0,
         "complete_fm_pose.t": -180.0,

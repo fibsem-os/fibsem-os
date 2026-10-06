@@ -1,12 +1,14 @@
-"""The Odemis FM drivers make the odemis calls the Odemis FM class makes.
+"""The Odemis FM drivers make the odemis calls the old Odemis FM class made.
 
-``fibsem.devices.drivers.odemis_fm`` is ``OdemisFluorescenceMicroscope``'s parts moved
-onto the FM devices. Each case runs an old call on one FM and the matching device call
-on another, each over its own stub odemis (``_odemis_stubs``) whose components and
-stream record every read, write and call. Cases: every camera, light source, filter set
-and objective parameter and command, a channel acquisition (each emission kind, with and
-without a gain control) and live view, with the objective in and out and the stream idle
-and running.
+``fibsem.devices.drivers.odemis_fm`` is the old ``OdemisFluorescenceMicroscope``'s
+parts moved onto the FM devices. Each case runs a device call over a stub odemis
+(``_odemis_stubs``) whose components and stream record every read, write and call, and
+compares it with the pin of the matching old call: its result and its odemis calls,
+recorded from the old class over the same stubs before it was removed
+(``tests/fixtures/odemis/old_fm_pins.json``). Cases: every camera, light source, filter
+set and objective parameter and command, a channel acquisition (each emission kind,
+with and without a gain control) and live view, with the objective in and out and the
+stream idle and running.
 
 What has to match:
 
@@ -23,8 +25,10 @@ What has to match:
 Nothing here has run on a METEOR.
 """
 
+import json
 import sys
 import time
+from pathlib import Path
 from typing import Any, Callable, List
 
 import numpy as np
@@ -32,6 +36,11 @@ import pytest
 
 from fibsem.fm.structures import REFLECTION, ChannelSettings
 from tests.fm import _odemis_stubs as stubs
+
+# What the old Odemis FM class did in each case, keyed as the cases are.
+PINS = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "odemis" / "old_fm_pins.json").read_text()
+)
 
 # -- recording ------------------------------------------------------------------------
 
@@ -61,6 +70,17 @@ def _plain(value: Any) -> Any:
     if callable(value):
         return getattr(value, "__name__", "callable")
     return value
+
+
+def _pin(value: Any) -> Any:
+    """*value* as the pins store it: plain JSON, a set as its sorted items."""
+
+    def default(v: Any) -> Any:
+        if isinstance(v, (set, frozenset)):
+            return sorted(repr(x) for x in v)
+        return repr(v)
+
+    return json.loads(json.dumps(_plain(value), default=default))
 
 
 def _unwrap(value: Any) -> Any:
@@ -144,15 +164,15 @@ def odemis():
     sys.modules["odemis.acq.stream"].FluoStream = _fluo_stream
     sys.modules["odemis.acq.acqmng"].acquire = _acquire
     import fibsem.devices.drivers.odemis_fm as drivers
-    import fibsem.fm.odemis as old
+    import fibsem.fm.odemis as fm_odemis
 
-    yield old, drivers
+    yield fm_odemis, drivers
 
     stubs.remove_odemis_stubs()
     sys.modules.update(saved)
 
 
-# -- the two FMs ----------------------------------------------------------------------
+# -- the FM -----------------------------------------------------------------------------
 
 
 def _components(state: str):
@@ -200,13 +220,11 @@ def _run(world, action):
     return result
 
 
-def _pair(odemis, state):
-    old_module, drivers = odemis
-    old_world, fm = _build(state, lambda: old_module.OdemisFluorescenceMicroscope(None))
-    new_world, devices = _build(state, lambda: drivers.bind_odemis_fm())
-    _prepare(old_world, fm._stream, state)
-    _prepare(new_world, devices["fm"]._stream, state)
-    return (old_world, fm), (new_world, devices)
+def _devices(odemis, state):
+    _, drivers = odemis
+    world, devices = _build(state, lambda: drivers.bind_odemis_fm())
+    _prepare(world, devices["fm"]._stream, state)
+    return world, devices
 
 
 def _emission_value(f):
@@ -253,11 +271,13 @@ def _moved_if_it_moved(objective):
 
 
 def _part_cases():
-    """(name, old action, new action, how to compare the results, skip-in-states)."""
+    """(name, device action, how to compare the result with the old one's,
+    skip-in-states). ``old`` is the old class's call the pin recorded, kept as the
+    record of what each pin is."""
     cases = []
 
     def add(name, old, new, to_old=lambda r: r, states=STATES):
-        cases.append((name, old, new, to_old, states))
+        cases.append((name, new, to_old, states))
 
     # camera
     add(
@@ -423,9 +443,9 @@ PART_CASES = _part_cases()
 
 def _cases(states=STATES + ("no-favourites",)):
     for state in states:
-        for name, old, new, to_old, only in PART_CASES:
+        for name, new, to_old, only in PART_CASES:
             if state in only or state == "no-favourites" and "objective" in name:
-                yield pytest.param(state, name, old, new, to_old, id=f"{state}: {name}")
+                yield pytest.param(state, name, new, to_old, id=f"{state}: {name}")
 
 
 CACHED_AT_CONNECT = {
@@ -470,21 +490,21 @@ def _without_reads_of(log, paths):
     return [e for e in log if not (e[0] == "get" and e[1] in paths)]
 
 
-@pytest.mark.parametrize("state, name, old, new, to_old", list(_cases()))
-def test_each_part_makes_the_old_calls(odemis, state, name, old, new, to_old):
-    (old_world, fm), (new_world, devices) = _pair(odemis, state)
+@pytest.mark.parametrize("state, name, new, to_old", list(_cases()))
+def test_each_part_makes_the_old_calls(odemis, state, name, new, to_old):
+    pinned = PINS["parts"][f"{state}: {name}"]
+    world, devices = _devices(odemis, state)
 
-    old_result = _run(old_world, lambda: old(fm))
-    new_result = _run(new_world, lambda: new(devices))
+    new_result = _run(world, lambda: new(devices))
 
     if not (isinstance(new_result, str) and new_result.startswith("EXC")):
         new_result = to_old(new_result)
-    assert _same(_plain(old_result), _plain(new_result))
-    expected = old_world.log
-    found = new_world.log
+    assert _same(pinned["result"], _pin(new_result))
+    expected = pinned["log"]
+    found = _pin(world.log)
     readback = READBACKS.get(next((k for k in READBACKS if k in name), None))
     if readback:
-        assert found[-1][:2] == ("get", readback)
+        assert found[-1][:2] == ["get", readback]
         found = found[:-1]
     assert _without_reads_of(
         found, CACHED_AT_CONNECT | GAIN_RANGE_READS
@@ -493,33 +513,32 @@ def test_each_part_makes_the_old_calls(odemis, state, name, old, new, to_old):
 
 def test_every_part_case_ran(odemis):
     assert len(list(_cases())) > 200
+    assert {p.id for p in _cases()} == set(PINS["parts"])
 
 
-def test_the_recording_sees_the_calls(odemis):
-    """Guard against comparing two empty logs."""
-    (old_world, fm), _ = _pair(odemis, "inserted")
-    _run(old_world, lambda: fm.objective.move_absolute(4.0e-3))
-    assert [e[:2] for e in old_world.log] == [
-        ("get", "focus.axes"),
-        ("call", "focus.moveAbs"),
-        ("get", "focus.position.value"),
-        ("get", "focus.position.value"),
+def test_the_pins_hold_the_calls():
+    """Guard against comparing with empty logs."""
+    pinned = PINS["parts"]["inserted: objective move_absolute 0.004"]["log"]
+    assert [e[:2] for e in pinned] == [
+        ["get", "focus.axes"],
+        ["call", "focus.moveAbs"],
+        ["get", "focus.position.value"],
+        ["get", "focus.position.value"],
     ]
 
 
 def test_connecting_makes_the_old_calls_and_reads_the_limits(odemis):
-    old_module, drivers = odemis
-    old_world = _World(_components("retracted"))
-    new_world = _World(_components("retracted"))
-    _CURRENT.append(old_world)
-    old_module.OdemisFluorescenceMicroscope(None)
-    _CURRENT[-1] = new_world
+    _, drivers = odemis
+    old_log = PINS["connect"]["log"]
+    world = _World(_components("retracted"))
+    _CURRENT.append(world)
     drivers.bind_odemis_fm()
     _CURRENT.pop()
+    new_log = _pin(world.log)
 
-    assert _changes(new_world.log) == _changes(old_world.log)
-    assert _reads(old_world.log) <= _reads(new_world.log)
-    assert _reads(new_world.log) - _reads(old_world.log) <= CACHED_AT_CONNECT | {
+    assert _changes(new_log) == _changes(old_log)
+    assert _reads(old_log) <= _reads(new_log)
+    assert _reads(new_log) - _reads(old_log) <= CACHED_AT_CONNECT | {
         "stream.excitation.value",
         "stream.emission.value",
         "stream.power.range",
@@ -588,31 +607,21 @@ def _new_frame(frame):
 @pytest.mark.parametrize("state", ("retracted", "inserted", "reflection", "gain"))
 @pytest.mark.parametrize("channel", list(CHANNELS))
 def test_an_acquisition_makes_the_same_changes(odemis, state, channel):
-    (old_world, fm), (new_world, devices) = _pair(odemis, state)
+    pinned = PINS["acquisitions"][f"{state}: {channel}"]
+    old_log = pinned["log"]
+    world, devices = _devices(odemis, state)
     settings = CHANNELS[channel]
     as_dict = settings.to_dict() if settings is not None else None
 
-    old_result = _run(old_world, lambda: _old_frame(fm.acquire_image(settings)))
-    new_result = _run(
-        new_world, lambda: _new_frame(devices["fm"].acquire_frame(as_dict))
-    )
+    new_result = _run(world, lambda: _new_frame(devices["fm"].acquire_frame(as_dict)))
+    new_log = _pin(world.log)
 
-    assert _same(_plain(old_result), _plain(new_result))
-    assert [e[1] for e in _changes(old_world.log)].count("acquire") == 1
-    readback = [("get", "stream.excitation.value")]
-    assert _changes(new_world.log) == _changes(old_world.log)
-    assert _reads(new_world.log) - set(r[1] for r in readback) - GAIN_RANGE_READS <= (
-        _reads(old_world.log)
-    )
-    assert _reads(old_world.log) <= _reads(new_world.log)
-
-
-def _push_frames(fm, count):
-    camera = _unwrap(fm.camera._camera)
-    assert stubs_wait(lambda: camera.data.listeners)
-    for _ in range(count):
-        frame = stubs.FakeDataArray(np.zeros((4, 4), dtype=np.uint16))
-        camera.data.push(frame)
+    assert _same(pinned["result"], _pin(new_result))
+    assert [e[1] for e in _changes(old_log)].count("acquire") == 1
+    readback = {"stream.excitation.value"}
+    assert _changes(new_log) == _changes(old_log)
+    assert _reads(new_log) - readback - GAIN_RANGE_READS <= _reads(old_log)
+    assert _reads(old_log) <= _reads(new_log)
 
 
 def stubs_wait(condition, timeout=2.0):
@@ -626,15 +635,10 @@ def stubs_wait(condition, timeout=2.0):
 
 @pytest.mark.parametrize("channel", ["fluorescence", "current"])
 def test_live_view_runs_the_stream_as_the_old_live_view(odemis, channel):
-    (old_world, fm), (new_world, devices) = _pair(odemis, "inserted")
+    old_log = PINS["live"][channel]["log"]
+    new_world, devices = _devices(odemis, "inserted")
     settings = CHANNELS[channel]
     as_dict = settings.to_dict() if settings is not None else None
-
-    def old():
-        fm.start_acquisition(settings)
-        _push_frames(fm, 3)
-        fm.stop_acquisition()
-        return True
 
     def new():
         group = devices["fm"]
@@ -643,12 +647,11 @@ def test_live_view_runs_the_stream_as_the_old_live_view(odemis, channel):
         group.stop_live()
         return len(frames) == 3
 
-    assert _run(old_world, old) is True
     assert _run(new_world, new) is True
 
     pushed = {"ccd.data.subscribe", "ccd.data.unsubscribe"}
     pulled = {"ccd.data.get"}
-    assert _changes(new_world.log, drop=pulled) == _changes(old_world.log, drop=pushed)
+    assert _changes(_pin(new_world.log), drop=pulled) == _changes(old_log, drop=pushed)
     gets = [e for e in new_world.log if e[1] == "ccd.data.get"]
     assert len(gets) == 3 and all(e[3] == {"asap": False} for e in gets)
     actives = [
@@ -660,7 +663,7 @@ def test_live_view_runs_the_stream_as_the_old_live_view(odemis, channel):
 
 
 def test_live_view_stops_the_stream_when_nobody_pulls(odemis):
-    (_, _), (new_world, devices) = _pair(odemis, "inserted")
+    new_world, devices = _devices(odemis, "inserted")
     group = devices["fm"]
     group.live_timeout = 0.2
     _run(new_world, lambda: group.start_live(None))
@@ -752,24 +755,20 @@ def test_gain_without_a_range_stays_in_camera_units(odemis):
     assert camera.gain.limits is None
 
 
-# -- the FM API: today's Odemis class against the FM API over the devices -------------
+# -- the FM API over the devices, against the old Odemis class's pins ------------------
 
 
-def _api_pair(odemis, state):
-    old_module, drivers = odemis
+def _api_fm(odemis, state):
+    fm_odemis, drivers = odemis
 
     def new_fm():
         devices = drivers.bind_odemis_fm()
         devices["fm"].live_timeout = None
-        return old_module.DeviceOdemisFluorescenceMicroscope(devices)
+        return fm_odemis.DeviceOdemisFluorescenceMicroscope(devices)
 
-    old_world, old_fm = _build(
-        state, lambda: old_module.OdemisFluorescenceMicroscope(None)
-    )
-    new_world, new_fm = _build(state, new_fm)
-    _prepare(old_world, old_fm._stream, state)
-    _prepare(new_world, new_fm.devices["fm"]._stream, state)
-    return (old_world, old_fm), (new_world, new_fm)
+    world, fm = _build(state, new_fm)
+    _prepare(world, fm.devices["fm"]._stream, state)
+    return world, fm
 
 
 def _summary(value):
@@ -874,36 +873,33 @@ API_STATES = ("retracted", "inserted", "reflection", "gain", "no-favourites")
 @pytest.mark.parametrize("state", API_STATES)
 @pytest.mark.parametrize("name", list(API_CASES))
 def test_the_api_makes_the_old_changes(odemis, state, name):
-    (old_world, old_fm), (new_world, new_fm) = _api_pair(odemis, state)
+    pinned = PINS["api"][f"{state}: {name}"]
+    old_log = pinned["log"]
+    world, fm = _api_fm(odemis, state)
     action = API_CASES[name]
 
-    old_result = _run(old_world, lambda: _summary(action(old_fm)))
-    new_result = _run(new_world, lambda: _summary(action(new_fm)))
+    new_result = _pin(_run(world, lambda: _summary(action(fm))))
+    new_log = _pin(world.log)
 
-    assert _same(_plain(old_result), _plain(new_result)), (old_result, new_result)
-    assert _changes(new_world.log) == _changes(old_world.log)
+    assert _same(pinned["result"], new_result), (pinned["result"], new_result)
+    assert _changes(new_log) == _changes(old_log)
     readbacks = set(READBACKS.values())
-    assert _reads(new_world.log) - readbacks - GAIN_RANGE_READS <= _reads(old_world.log)
-    assert _reads(old_world.log) - CACHED_AT_CONNECT <= _reads(new_world.log)
+    assert _reads(new_log) - readbacks - GAIN_RANGE_READS <= _reads(old_log)
+    assert _reads(old_log) - CACHED_AT_CONNECT <= _reads(new_log)
 
 
-def test_the_api_cases_record_calls(odemis):
-    """Guard against comparing two empty logs: an acquisition calls odemis."""
-    (old_world, old_fm), _ = _api_pair(odemis, "inserted")
-    _run(old_world, lambda: old_fm.acquire_image(CHANNELS["fluorescence"]))
-    assert "acquire" in [e[1] for e in _changes(old_world.log)]
+def test_the_api_cases_are_pinned():
+    """Guard against comparing with empty logs: an acquisition called odemis."""
+    assert {f"{s}: {n}" for s in API_STATES for n in API_CASES} == set(PINS["api"])
+    pinned = PINS["api"]["inserted: acquire_image fluorescence"]["log"]
+    assert "acquire" in [e[1] for e in _changes(pinned)]
 
 
 @pytest.mark.parametrize("channel", ["fluorescence", "current"])
 def test_api_live_view_runs_the_stream_as_the_old_live_view(odemis, channel):
-    (old_world, old_fm), (new_world, new_fm) = _api_pair(odemis, "inserted")
+    old_log = PINS["live"][channel]["log"]
+    new_world, new_fm = _api_fm(odemis, "inserted")
     settings = CHANNELS[channel]
-
-    def old():
-        old_fm.start_acquisition(settings)
-        _push_frames(old_fm, 3)
-        old_fm.stop_acquisition()
-        return True
 
     def new():
         new_fm.start_acquisition(settings)
@@ -913,12 +909,11 @@ def test_api_live_view_runs_the_stream_as_the_old_live_view(odemis, channel):
         new_fm.stop_acquisition()
         return not new_fm.is_streaming
 
-    assert _run(old_world, old) is True
     assert _run(new_world, new) is True
 
     pushed = {"ccd.data.subscribe", "ccd.data.unsubscribe"}
     pulled = {"ccd.data.get"}
-    assert _changes(new_world.log, drop=pulled) == _changes(old_world.log, drop=pushed)
+    assert _changes(_pin(new_world.log), drop=pulled) == _changes(old_log, drop=pushed)
     stream = _unwrap(new_fm.devices["fm"]._stream)
     assert stream.is_active.value is False
 

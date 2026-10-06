@@ -86,7 +86,7 @@ class ObjectiveLens(ABC):
     # and lets an objective built without a parent announce its own moves.
     #
     # For displays only. Guards read the device, every time -- one of them suppresses z
-    # and r from a stage move while the objective is inserted, and a stale "Retracted"
+    # and t from a stage move while the objective is inserted, and a stale "Retracted"
     # there moves the stage with the objective in the chamber.
     #
     # Emitted from whichever thread made the move -- connect with `@ensure_main_thread`
@@ -103,6 +103,13 @@ class ObjectiveLens(ABC):
     Attributes:
         parent: Reference to the parent fluorescence microscope
     """
+
+    blocked_axes: Tuple[str, ...] = ("z", "t")
+    """The stage axes an absolute move leaves alone while this objective is inserted.
+
+    z and t, as measured on a compustage (FIB-640): with the objective in, the
+    microscope refuses a height or tilt change, and a move that sends them anyway
+    half-succeeds. A driver whose objective differs overrides this."""
 
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
         """Initialize the objective lens with default simulation parameters.

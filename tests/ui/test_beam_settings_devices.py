@@ -123,7 +123,10 @@ def test_advanced_controls_hide_outside_advanced_mode(monkeypatch):
 def test_tescan_without_beam_devices_keeps_the_manufacturer_rules(
     monkeypatch, beam_type
 ):
-    assert _state(_widget(_tescan(monkeypatch, devices=False), beam_type)) == {
+    # An enabled Tescan column always has its device, and the old get/set branches
+    # that read one without it are gone (FIB-1161), so the widget alone is shown none.
+    monkeypatch.setattr(FibsemBeamSettingsWidget, "_beam_device", lambda self: None)
+    assert _state(_widget(_tescan(monkeypatch), beam_type)) == {
         "current": "hidden",
         "voltage": "hidden",
         "stigmation": "hidden",

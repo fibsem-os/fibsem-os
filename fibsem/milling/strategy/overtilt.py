@@ -139,8 +139,10 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
                     imaging_voltage=microscope.system.ion.beam.voltage,
                 )
             except Exception as e:
-                logging.error(f"Failed to restore imaging conditions after {self.fullname}: {e}",
-                              exc_info=True)
+                logging.error(
+                    f"Failed to restore imaging conditions after {self.fullname}: {e}",
+                    exc_info=True,
+                )
             microscope.move_stage_absolute(initial_position)
 
     def _mill_overtilted_patterns(
@@ -155,9 +157,7 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         """Mill each pattern at an alternating over/under-tilt, realigning at each tilt."""
         for i, pattern in enumerate(stage.define_patterns()):
             # TODO: validate which direction to tilt, including when combined with scan rotation
-            scan_rotation = microscope.get(
-                "scan_rotation", stage.milling.milling_channel
-            )
+            scan_rotation = microscope.get_scan_rotation(stage.milling.milling_channel)
             # overtilt
             if i == 0:
                 t = -overtilt_in_radians
@@ -181,7 +181,9 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
             )
 
             # setup again to ensure we are milling at the correct current, cleared patterns
-            setup_milling(microscope=microscope, milling_stage=stage, stop_event=stop_event)
+            setup_milling(
+                microscope=microscope, milling_stage=stage, stop_event=stop_event
+            )
 
             # draw pattern
             microscope.draw_pattern(pattern=pattern)

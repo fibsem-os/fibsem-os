@@ -201,9 +201,7 @@ class TestEveryDriverAnnounces:
         assert set(classes) == {
             "fm/microscope.py:ObjectiveLens",
             "fm/api.py:DeviceObjectiveLens",
-            "fm/autoscript.py:ThermoFisherObjectiveLens",
             "fm/autoscript.py:DeviceThermoFisherObjectiveLens",
-            "fm/odemis.py:OdemisObjectiveLens",
             "fm/odemis.py:DeviceOdemisObjectiveLens",
         }, f"unexpected ObjectiveLens classes: {sorted(classes)}"
 
@@ -236,8 +234,8 @@ class TestTheGuardsStillReadTheDevice:
 
     `ObjectiveLens.position_changed` is for *displays*. Guards read the device, every time, because one
     of them is a collision guard: `ThermoMicroscope.move_stage_absolute` suppresses z and
-    r from a stage move while the objective is inserted -- the condition itself now lives
-    in `FibsemMicroscope._axis_restrictions_apply` -- and a stale `"Retracted"` there
+    t from a stage move while the objective is inserted -- the condition itself now lives
+    in `FibsemMicroscope._blocked_axes` -- and a stale `"Retracted"` there
     means the stage changes height and rotates with the objective in the chamber.
 
     That is affordable because the guards were never the polling load -- this one runs
@@ -268,13 +266,12 @@ class TestTheGuardsStillReadTheDevice:
     def test_the_guard_reads_the_objective_state_directly(self):
         """Wherever the predicate lives, it must ask the device.
 
-        It moved out of `move_stage_absolute` into `_axis_restrictions_apply` when the
-        objective half was compustage-gated, so that the condition could be tested at
-        all -- AutoScript is absent here, so the move itself cannot be executed. That
+        It moved out of `move_stage_absolute` into the microscope (now
+        `_blocked_axes`) so that the condition could be tested at all -- AutoScript is absent here, so the move itself cannot be executed. That
         is a relocation, not a weakening: the read is still live. The companion test
         below is what keeps the two connected.
         """
-        guard = self._method("FibsemMicroscope", "_axis_restrictions_apply")
+        guard = self._method("FibsemMicroscope", "_blocked_axes")
 
         reads = [
             node
@@ -286,9 +283,9 @@ class TestTheGuardsStillReadTheDevice:
         ]
 
         assert reads, (
-            "_axis_restrictions_apply no longer reads `objective.state` off the "
+            "_blocked_axes no longer reads `objective.state` off the "
             "device. If that is now a cached or pushed value, the collision guard can "
-            "be wrong: a stale 'Retracted' lets the stage move in z and rotate with "
+            "be wrong: a stale 'Retracted' lets the stage move in z and tilt with "
             "the objective inserted (FIB-534)"
         )
 
@@ -302,18 +299,18 @@ class TestTheGuardsStillReadTheDevice:
             for node in ast.walk(move)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "_axis_restrictions_apply"
+            and node.func.attr == "_without_blocked_axes"
         ]
 
         assert calls, (
-            "move_stage_absolute no longer calls `_axis_restrictions_apply`, so "
-            "nothing suppresses z and r while the objective is inserted (FIB-534)"
+            "move_stage_absolute no longer calls `_without_blocked_axes`, so "
+            "nothing suppresses z and t while the objective is inserted (FIB-534)"
         )
         # And it has to hand over the destination. Called bare, the predicate falls
         # back to the pose the stage is standing in -- which is the bug FIB-640 fixed:
         # a move out of the fluorescence pose losing its z to the pose it was leaving.
         assert all(call.args for call in calls), (
-            "move_stage_absolute calls `_axis_restrictions_apply` without the target "
+            "move_stage_absolute calls `_without_blocked_axes` without the target "
             "position, so the guard asks where the stage is instead of where it is "
             "going (FIB-640)"
         )

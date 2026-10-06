@@ -265,9 +265,9 @@ class ImagingSystem:
 
 
 # The FM's place on the shared imaging channel. The view number is the driver's
-# (`ThermoFisherFluorescenceMicroscope._active_view = 3`, quadrant 3 on an Arctis); all
-# that matters here is that it is neither beam's, so a beam operation can tell that the
-# FM took the channel out from under it.
+# (`FM_ACTIVE_VIEW = 3` in `fibsem.devices.drivers.autoscript_fm`, quadrant 3 on an
+# Arctis); all that matters here is that it is neither beam's, so a beam operation can
+# tell that the FM took the channel out from under it.
 FM_ACTIVE_VIEW = 3
 FM_ACTIVE_DEVICE = 3
 
@@ -360,9 +360,9 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
     of FIB-517/542/544/545. Every one of those was found on hardware instead, one of
     them by a workflow task stopping.
 
-    So this participates in `parent.imaging_system` the way
-    `ThermoFisherFluorescenceMicroscope` participates in the shared connection: same
-    depth count, same lock, same restore. Deliberately a mirror rather than an
+    So this participates in `parent.imaging_system` the way the Thermo FM devices'
+    channel (`AutoscriptFMChannel`) participates in the shared connection: same depth
+    count, same lock, same restore. Deliberately a mirror rather than an
     approximation, so a test written against the simulator says something about the
     hardware.
     """
@@ -388,7 +388,7 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
         The unscoped form, and the shape of the bug: a property getter that calls this
         and walks away leaves the microscope on the FM, and the next beam operation to
         read a buffer reads the FM's. Mirrors
-        `ThermoFisherFluorescenceMicroscope.set_active_channel`.
+        `AutoscriptFMChannel.set_active_channel`.
         """
         if self.parent is None:
             return
@@ -411,7 +411,7 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
         Depth counted, so a tileset that holds it for a whole run is not undone by each
         tile's acquisition restoring between frames; the lock covers the bookkeeping and
         never the body, since the body can be that whole run. Both rules are the
-        driver's -- see `ThermoFisherFluorescenceMicroscope.active_channel` for why.
+        driver's -- see `AutoscriptFMChannel.scope` for why.
 
         Restores the device alongside the view, where the driver restores the view
         alone. Not a divergence: on hardware `set_active_device` changes the device *in

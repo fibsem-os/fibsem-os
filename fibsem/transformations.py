@@ -1,9 +1,14 @@
 import logging
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
 
-from fibsem.movement import rotation_angle_is_smaller
+from fibsem.geometry.frames import (
+    StageModel,
+    image_y_shift,
+    in_plane_move,
+    views_back,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -108,75 +113,23 @@ def is_close_to_milling_angle(
 # which read as fluorescence-specific and was not.
 
 
-def _projection_terms(
+def _image_y_flip(
     geometry: "FibsemHardwareGeometry",
+    view_tilt: float,
     stage_rotation: float,
     stage_tilt: float,
-    is_fib_orientation: Optional[bool] = None,
-) -> Tuple[float, float, float]:
-    """The sign and angle terms both directions of the projection share.
+) -> float:
+    """-1 where the instrument mirrors the image, so image y runs against the geometry.
 
-    Factored out rather than written twice: the forward and the inverse differ only in
-    the arithmetic that follows, and a sign convention that drifts between them would
-    make a click land somewhere other than where the marker was drawn -- while each
-    direction on its own still looked self-consistent.
-
-    ``is_fib_orientation`` lets a caller that has already classified the pose say
-    whether a compustage is at its FIB orientation, instead of having it derived here.
-    The live stage move classifies it against the microscope's orientation table and
-    passes the answer in, so moving through this function changed nothing about where
-    it decides the FIB side is. Ignored off a compustage, which has no FIB flip.
-
-    Returns:
-        (compustage_sign, corrected_pretilt_angle, stage_tilt), where `stage_tilt` has
-        the compustage half-turn already folded in.
+    A compustage's instrument flips an image the beam takes of the back of the grid,
+    so it reads as if seen from the front (FIB-1101). Which side a view sees is the
+    model's (`fibsem.geometry.frames.views_back`); that the instrument mirrors it is
+    the compustage's. Other stages present the image as the beam sees it.
     """
-    sem_column_tilt = np.deg2rad(geometry.column_tilt)
-    stage_pretilt = np.deg2rad(geometry.shuttle_pre_tilt)
-    rotation_flat_to_eb = np.deg2rad(geometry.rotation_reference) % (2 * np.pi)
-    rotation_flat_to_ion = np.deg2rad(geometry.rotation_180) % (2 * np.pi)
-
-    stage_rotation = stage_rotation % (2 * np.pi)
-
-    # The forward flips expected_y once for a compustage and a second time at the FIB
-    # orientation, so the two cancel there. Unless the caller says, the orientation is
-    # derived from the pose rather than from a live microscope's `get_stage_orientation`.
-    #
-    # The rotation test is not redundant with the tilt test: a compustage cannot
-    # rotate, so `get_stage_orientation` reports FIB only at the reference rotation.
-    # Keying on tilt alone would call an unreachable pose FIB and flip the sign
-    # against the live path -- which is a disagreement no physical run can surface,
-    # and so exactly the kind that survives. `fibsem/imaging/tiling/reprojection.py`
-    # still keys on tilt alone; that is FIB-500, deliberately left for its own change
-    # because it moves a stage sign.
-    compustage_sign = 1.0
     if not geometry.is_compustage:
-        is_fib_orientation = False
-    else:
-        if is_fib_orientation is None:
-            fib_orientation_tilt = np.deg2rad(
-                geometry.fib_column_tilt - geometry.shuttle_pre_tilt - 180
-            )
-            is_fib_orientation = bool(
-                np.isclose(stage_tilt, fib_orientation_tilt, atol=0.1)
-                and rotation_angle_is_smaller(
-                    stage_rotation, rotation_flat_to_eb, atol=5
-                )
-            )
-        compustage_sign = 1.0 if is_fib_orientation else -1.0
-        stage_tilt = stage_tilt + np.pi
-
-    pretilt_sign = 1.0
-    if rotation_angle_is_smaller(stage_rotation, rotation_flat_to_eb, atol=5):
-        pretilt_sign = 1.0
-    if rotation_angle_is_smaller(stage_rotation, rotation_flat_to_ion, atol=5):
-        pretilt_sign = -1.0
-    if is_fib_orientation:
-        pretilt_sign = -1.0
-
-    corrected_pretilt_angle = pretilt_sign * (stage_pretilt + sem_column_tilt)
-
-    return compustage_sign, corrected_pretilt_angle, stage_tilt
+        return 1.0
+    model = StageModel.from_geometry(geometry)
+    return -1.0 if views_back(model, view_tilt, stage_rotation, stage_tilt) else 1.0
 
 
 def view_corrected_stage_movement(
@@ -185,7 +138,6 @@ def view_corrected_stage_movement(
     geometry: "FibsemHardwareGeometry",
     stage_rotation: float,
     stage_tilt: float,
-    is_fib_orientation: Optional[bool] = None,
 ) -> Tuple[float, float]:
     """Split an in-image y-displacement across the stage y- and z-axes.
 
@@ -200,25 +152,17 @@ def view_corrected_stage_movement(
         geometry: the geometry the image was captured under.
         stage_rotation: stage rotation at acquisition, in radians.
         stage_tilt: stage tilt at acquisition, in radians.
-        is_fib_orientation: whether a compustage is at its FIB orientation, when the
-            caller has classified the pose itself; None derives it from the pose.
 
     Returns:
         (dy, dz) stage movement, in metres.
     """
-    compustage_sign, corrected_pretilt_angle, stage_tilt = _projection_terms(
-        geometry, stage_rotation, stage_tilt, is_fib_orientation
-    )
-
-    if geometry.is_compustage:
-        expected_y = expected_y * compustage_sign
-
-    perspective_tilt_adjustment = -corrected_pretilt_angle - view_tilt
-    y_sample_move = expected_y / np.cos(stage_tilt + perspective_tilt_adjustment)
-
-    return (
-        float(y_sample_move * np.cos(corrected_pretilt_angle)),
-        float(-y_sample_move * np.sin(corrected_pretilt_angle)),
+    flip = _image_y_flip(geometry, view_tilt, stage_rotation, stage_tilt)
+    return in_plane_move(
+        StageModel.from_geometry(geometry),
+        flip * expected_y,
+        view_tilt,
+        stage_rotation,
+        stage_tilt,
     )
 
 
@@ -269,21 +213,6 @@ def inverse_view_corrected_dy(
     Returns:
         The in-image y-displacement produced by that stage movement, in metres.
     """
-    compustage_sign, corrected_pretilt_angle, stage_tilt = _projection_terms(
-        geometry, stage_rotation, stage_tilt
-    )
-
-    perspective_tilt_adjustment = -corrected_pretilt_angle - view_tilt
-    phi = stage_tilt + perspective_tilt_adjustment
-
-    cos_pretilt = np.cos(corrected_pretilt_angle)
-    sin_pretilt = np.sin(corrected_pretilt_angle)
-    in_plane = dy * cos_pretilt - dz * sin_pretilt
-    normal = dy * sin_pretilt + dz * cos_pretilt
-
-    expected_y = in_plane * np.cos(phi) - normal * np.sin(phi)
-
-    if geometry.is_compustage:
-        expected_y *= compustage_sign
-
-    return float(expected_y)
+    flip = _image_y_flip(geometry, view_tilt, stage_rotation, stage_tilt)
+    model = StageModel.from_geometry(geometry)
+    return flip * image_y_shift(model, dy, dz, view_tilt, stage_tilt)

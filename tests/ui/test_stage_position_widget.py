@@ -244,7 +244,7 @@ def test_the_rotation_range_is_the_stage_devices(flat_widget):
     [(FLAT_STAGE, True), (COMPUSTAGE, False)],
     ids=["flat-stage", "compustage"],
 )
-def test_without_a_stage_device_the_stage_kind_decides(
+def test_without_a_stage_device_the_stage_limits_decide(
     qapp, monkeypatch, configuration, rotates
 ):
     microscope = _microscope(configuration)

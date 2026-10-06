@@ -2772,9 +2772,9 @@ def render_correlation(h: Harness) -> None:
                     "reference_hfw": float(reference.metadata.image_settings.hfw),
                     "reference_px": float(reference.metadata.pixel_size.x),
                     "reference_shape": tuple(reference.data.shape),
-                    "beam_hfw": float(microscope.get("hfw", BeamType.ION)),
+                    "beam_hfw": float(microscope.get_field_of_view(BeamType.ION)),
                     "scan_rotation": float(
-                        microscope.get("scan_rotation", BeamType.ION) or 0.0
+                        microscope.get_scan_rotation(BeamType.ION) or 0.0
                     ),
                     "stage": str(microscope.get_stage_position()),
                 }
