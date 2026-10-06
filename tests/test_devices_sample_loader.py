@@ -74,12 +74,31 @@ class TestDevice:
 
     def test_load_puts_the_slots_grid_on_the_stage_and_unload_takes_it_back(self):
         device = _device(capacity=3, occupied=(2,), names={2: "grid-oak"})
-        magazine = device.load(2)
-        assert magazine.slot(2).state is MagazineSlotState.LOADED
-        assert device.on_stage.cached == StageSample(True, "grid-oak")
+        device.load(2)
+        assert device.magazine.get_value().slot(2).state is MagazineSlotState.LOADED
+        assert device.on_stage.get_value() == StageSample(True, "grid-oak")
         device.unload()
-        assert device.magazine.cached.slot(2).state is MagazineSlotState.OCCUPIED
-        assert device.on_stage.cached == StageSample(present=False)
+        assert device.magazine.get_value().slot(2).state is MagazineSlotState.OCCUPIED
+        assert device.on_stage.get_value() == StageSample(present=False)
+
+    def test_load_and_unload_read_nothing_back(self, monkeypatch):
+        """AutoScript before 4.14 reads the home slot of the grid on the stage as
+        empty, so a read straight after an exchange would lose that grid."""
+        device = DemoSampleLoaderDevice(capacity=3, occupied=(2,))
+        reads = []
+        for name in ("read_magazine", "read_on_stage"):
+            real = getattr(device, name)
+            monkeypatch.setattr(
+                device,
+                name,
+                lambda real=real, name=name: (reads.append(name), real())[1],
+            )
+        device.connect()
+        device.load(2)
+        device.unload()
+        assert reads == []
+        device.scan()  # a scan does read back
+        assert sorted(reads) == ["read_magazine", "read_on_stage"]
 
     def test_loading_an_empty_slot_or_onto_an_occupied_stage_is_refused(self):
         device = _device(capacity=3, occupied=(1, 2))

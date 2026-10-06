@@ -140,12 +140,6 @@ def _microscope_with(autoloader: FakeAutoloader):
     return microscope, loader
 
 
-def _exchanges(autoloader: FakeAutoloader) -> list:
-    """The calls that move a grid; the device also reads the magazine back after
-    each one."""
-    return [call for call in autoloader.calls if call[0] != "get_slots"]
-
-
 # ---------------------------------------------------------------------------
 # Inventory
 # ---------------------------------------------------------------------------
@@ -338,7 +332,7 @@ class TestExchange:
         loader.run_inventory()
         microscope._stage.ensure_loaded("a")
         microscope._stage.ensure_loaded("b")
-        assert _exchanges(hw)[-2:] == [("unload",), ("load", 2)]
+        assert hw.calls[-2:] == [("unload",), ("load", 2)]
         assert microscope._stage.loaded_grids[0].name == "b"
 
     def test_unload_calls_the_hardware(self):
@@ -347,7 +341,7 @@ class TestExchange:
         loader.run_inventory()
         microscope._stage.ensure_loaded("a")
         microscope._stage.unload()
-        assert _exchanges(hw)[-1] == ("unload",)
+        assert hw.calls[-1] == ("unload",)
         assert microscope._stage.loaded_grids == []
 
     def test_hardware_failure_becomes_a_grid_exchange_error(self):

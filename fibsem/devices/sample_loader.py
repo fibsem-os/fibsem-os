@@ -14,9 +14,14 @@ already knows. ``set_description`` writes a slot's description and reads it back
 A backend implements ``read_magazine``, ``read_capacity``, ``read_exchange_time`` and,
 when its hardware reports one, ``read_on_stage``; and the hooks ``_load``,
 ``_unload``, ``_scan`` and ``_set_description``. The base class claims the resources, keeps
-``busy`` and reads the magazine back after each command, which updates its cache and
-emits its change signal. A scan that answers with the magazine reports that
-instead of reading again.
+``busy``, and after a scan or a description write reads the magazine back, which
+updates its cache and emits its change signal (a scan that answers with the magazine
+reports that instead of reading again).
+
+A load or unload does not read anything back. AutoScript before 4.14 reports the
+home slot of the grid on the stage as empty, so a read straight after an exchange
+would say that grid is gone; the grid model keeps track of it instead, and reads
+the magazine only when asked (``get_inventory``, ``run_inventory``).
 """
 
 from __future__ import annotations
@@ -141,20 +146,16 @@ class SampleLoader(Device):
         self._busy = False
 
     @command
-    def load(self, slot: int) -> Magazine:
-        """Bring the grid in a magazine slot (1-based) onto the stage. Returns the
-        magazine afterwards."""
+    def load(self, slot: int) -> None:
+        """Bring the grid in a magazine slot (1-based) onto the stage."""
         with self._running(STAGE_RESOURCE):
             self._load(int(slot))
-        return self._read_back()
 
     @command
-    def unload(self) -> Magazine:
-        """Put the grid on the stage back in the magazine. Returns the magazine
-        afterwards."""
+    def unload(self) -> None:
+        """Put the grid on the stage back in the magazine."""
         with self._running(STAGE_RESOURCE):
             self._unload()
-        return self._read_back()
 
     @command
     def scan(self) -> Magazine:
