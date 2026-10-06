@@ -25,6 +25,7 @@ from fibsem.structures import (
     BeamType,
     FibsemDetectorSettings,
     FibsemImage,
+    FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
@@ -611,3 +612,35 @@ def test_setting_the_plasma_gas_reaches_the_not_implemented_write(odemis_cls):
     microscope.system.ion.plasma_gas = "Xenon"
     with pytest.raises(NotImplementedError):
         microscope.set("plasma_gas", "Argon", BeamType.ION)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda m: m.insert_manipulator(),
+        lambda m: m.retract_manipulator(),
+        lambda m: m.move_manipulator_relative(FibsemManipulatorPosition()),
+        lambda m: m.move_manipulator_absolute(FibsemManipulatorPosition()),
+        lambda m: m.move_manipulator_corrected(1e-6, 1e-6, BeamType.ION),
+        lambda m: m.move_manipulator_to_position_offset(
+            FibsemManipulatorPosition(), "EUCENTRIC"
+        ),
+        lambda m: m._get_saved_manipulator_position("PARK"),
+    ],
+    ids=[
+        "insert",
+        "retract",
+        "relative",
+        "absolute",
+        "corrected",
+        "offset",
+        "saved",
+    ],
+)
+def test_there_is_no_manipulator(odemis_cls, call):
+    """The base class's answer: the methods raise rather than silently do nothing."""
+    microscope = make(odemis_cls)
+    assert not microscope.is_available("manipulator")
+    assert microscope.manipulator_device is None
+    with pytest.raises(NotImplementedError, match="does not support"):
+        call(microscope)
