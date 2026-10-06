@@ -306,6 +306,31 @@ def facts():
         "gis_device": microscope.gis_device is None,
         "routed": microscope._route("manipulator_state", None) is not None,
     }
+
+    # hardware.devices entries: one switched off, and an added device no driver builds
+    from fibsem.devices.entries import DeviceBuildError
+    from fibsem.structures import DeviceEntry
+
+    def configured(*entries):
+        microscope = make(False)
+        microscope.system.other_devices = [DeviceEntry.from_dict(e) for e in entries]
+        microscope._build_parts()
+        return microscope
+
+    microscope = configured(
+        {"name": "manipulator", "enabled": False},
+        {"name": "laser", "type": "laser"},
+    )
+    out["configured"] = {
+        "devices": list(microscope.devices),
+        "manipulator": microscope.manipulator_device is None,
+        "routed": microscope._route("manipulator_state", None) is not None,
+    }
+    try:
+        configured({"name": "laser", "type": "laser", "required": True})
+        out["configured"]["required"] = None
+    except DeviceBuildError as e:
+        out["configured"]["required"] = str(e)
     return out
 
 
