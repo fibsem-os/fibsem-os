@@ -88,10 +88,6 @@ def test_the_demo_fm_takes_its_configuration_too():
     from fibsem.devices.drivers.demo import bind_demo_fm
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    devices = bind_demo_fm(
-        microscope,
-        SimulatedFluorescenceMicroscope(),
-        config={"mount_transform": "flip-x"},
-    )
+    devices = bind_demo_fm(microscope, config={"mount_transform": "flip-x"})
 
     assert devices["camera"].mount_transform.get_value() == "flip-x"
