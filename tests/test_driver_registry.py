@@ -398,7 +398,7 @@ def test_an_unset_port_is_left_out_of_the_saved_file():
 # Device builders
 # ---------------------------------------------------------------------------
 
-DEMO_DEVICE_TYPES = ("beam", "stage", "chamber", "manipulator", "gis")
+DEMO_DEVICE_TYPES = ("beam", "stage", "chamber", "manipulator")
 
 
 def test_a_driver_offers_a_builder_by_device_type():
@@ -447,14 +447,13 @@ def test_the_demo_builders_build_each_device_from_its_entry():
     assert isinstance(built["stage"], demo.DemoStage)
     assert isinstance(built["chamber"], demo.DemoChamber)
     assert isinstance(built["manipulator"], demo.DemoManipulator)
-    assert isinstance(built["gis"], demo.DemoGasInjector)
     # One connect's devices start from the same parts, as bind_demo_* do.
     resources, start = context.shared["Demo"]
     assert built["electron"].resources is built["ion"].resources is resources
-    # A device is named after its entry, so a second GIS is told apart.
-    gis = registry.device_builder(manufacturers.DEMO, "gis").load()
-    entry = DeviceEntry.from_dict({"name": "gis_pt", "type": "gis"})
-    assert gis(entry, context).name == "gis_pt"
+    # A device is named after its entry, so a second manipulator is told apart.
+    manipulator = registry.device_builder(manufacturers.DEMO, "manipulator").load()
+    entry = DeviceEntry.from_dict({"name": "manipulator_2", "type": "manipulator"})
+    assert manipulator(entry, context).name == "manipulator_2"
     with pytest.raises(ValueError, match="'electron' or 'ion'"):
         beam = registry.device_builder(manufacturers.DEMO, "beam").load()
         beam(DeviceEntry(name="third", type="beam"), context)

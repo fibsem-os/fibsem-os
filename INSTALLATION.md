@@ -225,16 +225,23 @@ To start the server with the computer rather than by hand, run step 4 as a
 service, for example with a systemd unit. It must run as a user in the `odemis`
 group, and after odemis has started.
 
-On the support PC, the microscope configuration names the FM as remote:
+On the support PC, the microscope configuration names the FM as remote, with an
+entry in its device list:
 
 ```yaml
 hardware:
-    fm:
+    devices:
+      # ... the beams and the stage ...
+      - name:       fm
         enabled:    true
         driver:     remote
         address:    192.168.0.20    # the METEOR PC
         port:       8765
 ```
+
+A configuration from before the device list, with an `fm:` block under
+`hardware:`, still loads and is saved in this form. See
+[Devices](docs/developers/devices.md#configuring-devices) for the other keys.
 
 Two things to know:
 
