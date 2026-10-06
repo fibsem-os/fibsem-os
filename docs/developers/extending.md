@@ -191,7 +191,9 @@ work unchanged.
   `hardware.devices` entries with `fibsem.devices.entries`
   (`resolve_system_devices`, then `build_device_entries`), as
   `DemoMicroscope._build_devices` does. A string key the backend's devices
-  cover is routed to them; do not add new keys to `_get`/`_set`.
+  cover is routed to them. A new backend needs no `_get`/`_set`: the base
+  class's read a key no device answers as None and do nothing for a write (the
+  Demo has none); do not add keys to them.
 
 - **Reference implementations.** `DemoMicroscope` in
   `fibsem/microscopes/device_demo.py` is the complete, hardware-free
