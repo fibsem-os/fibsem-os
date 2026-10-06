@@ -30,6 +30,7 @@ from psygnal import Signal
 
 import fibsem.constants as constants
 from fibsem import manufacturers
+from fibsem.devices.beam import BEAM_COMMAND_ROUTES
 from fibsem.devices.core import IMAGING_CHANNEL, Resources
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import (
@@ -1823,6 +1824,23 @@ class FibsemMicroscope(ABC):
             return None
         return getattr(device, command_route[1])
 
+    def _route_scan_command(
+        self, key: str, beam_type: Optional[BeamType]
+    ) -> Optional[Callable[[Any], None]]:
+        """The beam's scan command a scan-mode set key (``spot_mode``,
+        ``reduced_area``, ``full_frame``) has moved to, taking the key's value, if the
+        beam has it; None leaves the key to `_set`."""
+        name = BEAM_COMMAND_ROUTES.get(key)
+        if name is None or beam_type is None:
+            return None
+        beam = self._scan_beam(beam_type)
+        if beam is None:
+            return None
+        run = getattr(beam, name)
+        if name == "full_frame":
+            return lambda _value: run()  # the old key ignored its value
+        return run
+
     def _unsupported(self, method: str) -> NotImplementedError:
         """The error an optional method raises on a backend that does not have it.
 
@@ -1872,7 +1890,10 @@ class FibsemMicroscope(ABC):
         command = self._route_command(key)
         if key in _VERBS_THAT_NEED_TRUE and not value:
             command = None
-        if command is not None:
+        scan = self._route_scan_command(key, beam_type)
+        if scan is not None:
+            scan(value)
+        elif command is not None:
             command()
         elif param is not None:
             param.write_through(value)
