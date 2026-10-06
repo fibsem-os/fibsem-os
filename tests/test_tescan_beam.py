@@ -1,11 +1,12 @@
-"""The Tescan beam driver makes the SDK calls Tescan's beam keys make today.
+"""The Tescan beam driver makes the SDK calls Tescan's beam keys made before it.
 
-``TescanBeam`` is ``TescanMicroscope``'s beam branches moved onto the ``Beam`` device.
-Each case runs an old ``get``/``set`` on a microscope connected without devices, and the
-same call on one connected as the app connects it, whose beam keys are routed to the
-drivers, each over its own recording fake of the SDK (``tests/fixtures/tescan_sdk.py``).
-Each case requires the same result, the same SDK calls in the same order, and the same
-messages logged at info and above. A ``set`` case reads the key back after the write.
+``TescanBeam`` is ``TescanMicroscope``'s beam branches moved onto the ``Beam`` device
+(FIB-1161). Each case runs an old ``get``/``set`` on a microscope connected as the app
+connects it, whose beam keys are routed to the drivers, over a recording fake of the SDK
+(``tests/fixtures/tescan_sdk.py``). It must give the result, the SDK calls in order and
+the messages logged at info and above that the old branches gave, recorded in
+``tests/fixtures/tescan_beam_calls.json`` before they were deleted. A ``set`` case reads
+the key back after the write.
 
 Cases: every beam key on both columns, including the ones a column does not have (the
 old branches still answer them), the values the Tescan API refuses (the ion column's
@@ -13,6 +14,7 @@ current and voltage), the hfw clip, out-of-range detector levels, an unknown det
 and an unknown preset. Nothing here has run on an instrument.
 """
 
+import json
 import logging
 import os
 
@@ -22,11 +24,12 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.beam import BEAM_ROUTES
 from fibsem.devices.drivers.tescan import TescanBeam, bind_tescan_beams
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, Point
-from tests.fixtures.tescan_sdk import FakeTescan, connect
+from tests.fixtures.tescan_sdk import connect
 
 E, I = BeamType.ELECTRON, BeamType.ION
+
+RECORDED = os.path.join(os.path.dirname(__file__), "fixtures", "tescan_beam_calls.json")
 
 
 def _system(electron=True, ion=True):
@@ -38,27 +41,17 @@ def _system(electron=True, ion=True):
     return system
 
 
-def _old(monkeypatch, system=None):
-    """Connected as the app connected before the beams were devices."""
-    monkeypatch.setattr(TescanMicroscope, "_build_beams", lambda self: None)
-    microscope, fake = connect(monkeypatch, system or _system())
-    monkeypatch.undo()
+def _connected(monkeypatch):
+    microscope, fake = connect(monkeypatch, _system())
+    assert set(microscope.beams) == {E, I}
+    # what the last image reported: the API cannot read these
+    for beam_type in (E, I):
+        cache = microscope._beam_parameters[beam_type]
+        cache.resolution = [1536, 1024]
+        cache.dwell_time = 1e-6
+        cache.stigmation = Point(0.1, -0.2)
+        cache.preset = "30 keV; 1 nA" if beam_type is I else None
     return microscope, fake
-
-
-def _pair(monkeypatch):
-    old, old_fake = _old(monkeypatch)
-    new, new_fake = connect(monkeypatch, _system())
-    assert not old.beams and set(new.beams) == {E, I}
-    for microscope in (old, new):
-        # what the last image reported: the API cannot read these
-        for beam_type in (E, I):
-            cache = microscope._beam_parameters[beam_type]
-            cache.resolution = [1536, 1024]
-            cache.dwell_time = 1e-6
-            cache.stigmation = Point(0.1, -0.2)
-            cache.preset = "30 keV; 1 nA" if beam_type is I else None
-    return (old, old_fake), (new, new_fake)
 
 
 class _Messages(logging.Handler):
@@ -85,7 +78,9 @@ def _run(microscope, fake, call):
     finally:
         root.removeHandler(handler)
         root.setLevel(level)
-    return {"result": result, "sdk": list(fake.log), "log": handler.messages}
+    # as the recording stored it: JSON, with anything else as its repr
+    ran = {"result": result, "sdk": list(fake.log), "log": handler.messages}
+    return json.loads(json.dumps(ran, default=repr))
 
 
 GETS = sorted(BEAM_ROUTES)
@@ -132,20 +127,24 @@ def _cases():
 CASES = dict(_cases())
 
 
+with open(RECORDED) as f:
+    EXPECTED = json.load(f)
+
+
+def test_every_case_was_recorded():
+    assert sorted(CASES) == sorted(EXPECTED)
+
+
 @pytest.mark.parametrize("case", list(CASES))
 def test_a_routed_key_makes_the_same_calls_logs_and_result(monkeypatch, case):
-    (old, old_fake), (new, new_fake) = _pair(monkeypatch)
-    expected = _run(old, old_fake, CASES[case])
-    actual = _run(new, new_fake, CASES[case])
-    assert actual == expected
-    assert new_fake.unlocked == []
+    microscope, fake = _connected(monkeypatch)
+    assert _run(microscope, fake, CASES[case]) == EXPECTED[case]
+    assert fake.unlocked == []
 
 
-def test_the_parity_cases_make_sdk_calls(monkeypatch):
+def test_the_parity_cases_make_sdk_calls():
     """A guard on the guard: the cases above compare something."""
-    (old, old_fake), _ = _pair(monkeypatch)
-    calls = sum(len(_run(old, old_fake, call)["sdk"]) for call in CASES.values())
-    assert calls > 200
+    assert sum(len(case["sdk"]) for case in EXPECTED.values()) > 200
 
 
 @pytest.mark.parametrize(
@@ -258,10 +257,3 @@ def test_a_disabled_column_is_never_built_or_touched(monkeypatch):
     beams = bind_tescan_beams(microscope)
     assert set(beams) == {E}
     assert not [path for path, _, _ in fake.log if path.startswith("FIB.")]
-
-
-def test_the_old_connect_matches_the_fake():
-    """The old path still connects over the fake, so the parity cases mean something."""
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        microscope, fake = _old(monkeypatch)
-    assert isinstance(fake, FakeTescan) and not microscope.beams

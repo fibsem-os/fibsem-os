@@ -4,7 +4,7 @@
 column that is warming up or in transition read as "on", so `turn_beams_on` would
 skip turning it on.
 
-No hardware or Tescan SDK required: the microscope is created without __init__.
+No hardware or Tescan SDK required: the beam device reads a fake column.
 """
 
 import enum
@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fibsem.microscopes.tescan import TescanMicroscope
+from fibsem.devices.drivers.tescan import TescanBeam
 from fibsem.structures import BeamType
 
 
@@ -33,12 +33,10 @@ class FakeBeam:
         return self.status
 
 
-def make_microscope(status: FakeStatus) -> TescanMicroscope:
-    m = object.__new__(TescanMicroscope)
-    m._connection_lock = threading.RLock()
+def make_beam(status: FakeStatus) -> SimpleNamespace:
+    """What ``TescanBeam.read_on`` uses: the connection lock and the vendor column."""
     column = SimpleNamespace(Beam=FakeBeam(status))
-    m._get_beam = lambda beam_type: column
-    return m
+    return SimpleNamespace(_lock=threading.RLock(), _beam=column)
 
 
 @pytest.mark.parametrize(
@@ -51,6 +49,5 @@ def make_microscope(status: FakeStatus) -> TescanMicroscope:
 )
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
 def test_on_is_a_bool(status, expected, beam_type):
-    m = make_microscope(status)
-    on = m._get("on", beam_type)
+    on = TescanBeam.read_on(make_beam(status))
     assert on is expected
