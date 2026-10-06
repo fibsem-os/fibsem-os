@@ -35,6 +35,7 @@ from typing import (
     Optional,
     Sequence,
     Tuple,
+    TypeVar,
     Union,
 )
 
@@ -45,6 +46,7 @@ from fibsem.structures import RangeLimit
 IMAGING_CHANNEL = "imaging_channel"
 _SHARED = "shared"
 _UNSET = object()
+_C = TypeVar("_C", bound="_Controllable")
 
 
 class ParameterUnavailable(AttributeError):
@@ -137,7 +139,7 @@ class Parameter:
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
 
-    def __get__(self, device: Optional[Device], owner: type) -> Any:
+    def __get__(self, device: Optional[_Controllable], owner: type) -> Any:
         if device is None:
             return self
         try:
@@ -178,7 +180,7 @@ class Role:
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
 
-    def __get__(self, device: Optional[Device], owner: type) -> Any:
+    def __get__(self, device: Optional[_Controllable], owner: type) -> Any:
         if device is None:
             return self
         try:
@@ -209,7 +211,7 @@ class BoundParameter:
 
     def __init__(
         self,
-        device: Device,
+        device: _Controllable,
         spec: Parameter,
         read: Callable[[], Any],
         write: Optional[Callable[[Any], None]],
@@ -482,8 +484,14 @@ def resources_of(owner: Any) -> Resources:
     return resources if isinstance(resources, Resources) else Resources()
 
 
-class Device:
-    """One piece of hardware: named, with parameters and commands, and a parent."""
+class _Controllable:
+    """What a device and a service share: a name, a parent, parameters, commands,
+    roles, change events and the parent's resources.
+
+    Private: code names `Device` (a piece of hardware) or
+    `fibsem.services.Service` (a capability that uses devices over time, such as
+    milling), never this.
+    """
 
     changed = Signal(str, object)
     """(parameter name, value) for any parameter on the device."""
@@ -525,7 +533,7 @@ class Device:
                     found[name] = attr
         return found
 
-    def fill_roles(self, **devices: Device) -> Device:
+    def fill_roles(self: _C, **devices: Device) -> _C:
         """Put a device in each named role. A builder calls this before ``connect()``.
 
         A name the class doesn't declare, or a device that isn't the role's interface,
@@ -587,7 +595,7 @@ class Device:
         inherited = {
             name: param
             for base in cls.__bases__
-            if issubclass(base, Device)
+            if issubclass(base, _Controllable)
             for name, param in base.declared_parameters().items()
         }
         for name, attr in vars(cls).items():
@@ -615,7 +623,7 @@ class Device:
         if unknown:
             raise TypeError(f"{cls.__name__}.needs_channel names {sorted(unknown)}")
 
-    def connect(self) -> Device:
+    def connect(self: _C) -> _C:
         """Bind every parameter this class implements, reading its metadata once.
 
         A backend calls this after constructing its device. A parameter with no
@@ -723,6 +731,10 @@ class Device:
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} '{self.name}': {sorted(self._bound)}>"
+
+
+class Device(_Controllable):
+    """One piece of hardware: named, with parameters and commands, and a parent."""
 
 
 def _describe(p: BoundParameter) -> Dict[str, Any]:

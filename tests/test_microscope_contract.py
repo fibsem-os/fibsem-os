@@ -1224,6 +1224,34 @@ def test_acquire_image(microscope, beam_type):
     assert np.isclose(microscope.get("hfw", beam_type), 100e-6)
 
 
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_finish_milling_puts_the_beam_back(microscope, beam_type):
+    """What the first setup_milling found comes back, with an imaging current
+    given still winning; a second finish has nothing left to put back."""
+    from fibsem.structures import FibsemMillingSettings
+
+    def conditions():
+        return [microscope.get(key, beam_type) for key in ("voltage", "current", "hfw")]
+
+    before = conditions()
+    for current, hfw in ((7.6e-9, 80e-6), (2e-9, 50e-6)):
+        microscope.setup_milling(
+            FibsemMillingSettings(
+                milling_channel=beam_type, milling_current=current, hfw=hfw
+            )
+        )
+    assert conditions() != before
+    microscope.finish_milling()
+    assert np.allclose(conditions(), before)
+
+    microscope.setup_milling(FibsemMillingSettings(milling_channel=beam_type))
+    microscope.finish_milling(imaging_current=3e-10)
+    assert np.allclose(conditions(), [before[0], 3e-10, before[2]])
+    microscope.set("hfw", 40e-6, beam_type)
+    microscope.finish_milling()
+    assert microscope.get("hfw", beam_type) == 40e-6
+
+
 # ---------------------------------------------------------------------------
 # Differential check
 # ---------------------------------------------------------------------------

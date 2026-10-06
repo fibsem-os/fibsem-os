@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import cycle
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from skimage.transform import resize
@@ -1651,6 +1651,40 @@ class LegacyDemoMicroscope(
         self.ion_system = parts.ion_system
         self._setup_fluorescence()
         self._finish_session()
+
+    # The milling beam's conditions the first setup_milling found, until
+    # finish_milling puts them back: what the Demo's milling service does
+    # (`fibsem.services.milling.Milling`), by key.
+    _milling_saved: Optional[Tuple[BeamType, Dict[str, Any]]] = None
+
+    def setup_milling(self, mill_settings: FibsemMillingSettings):
+        if self._milling_saved is None:
+            channel = mill_settings.milling_channel
+            saved = {
+                key: self.get(key, channel) for key in ("voltage", "current", "hfw")
+            }
+            self._milling_saved = (channel, saved)
+        super().setup_milling(mill_settings)
+
+    def finish_milling(
+        self,
+        imaging_current: Optional[float] = None,
+        imaging_voltage: Optional[float] = None,
+    ) -> None:
+        self.clear_patterns()
+        if self._milling_saved is not None:
+            channel, saved = self._milling_saved
+            self._milling_saved = None
+            for key, value in saved.items():
+                self.set(key, value, channel)
+        if imaging_voltage is not None:
+            self.set_beam_voltage(
+                voltage=imaging_voltage, beam_type=self.milling_channel
+            )
+        if imaging_current is not None:
+            self.set_beam_current(
+                current=imaging_current, beam_type=self.milling_channel
+            )
 
     @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
