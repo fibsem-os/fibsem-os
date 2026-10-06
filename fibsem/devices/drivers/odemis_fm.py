@@ -471,17 +471,15 @@ class OdemisFM(FM):
     def __init__(
         self,
         stream: Any,
-        parts: Dict[str, Device],
         parent: Any = None,
         resources: Optional[Resources] = None,
     ):
         super().__init__(name="fm", parent=parent, resources=resources)
         self._stream = stream
-        self.parts = parts
 
     def check_health(self) -> Optional[str]:
         """Whether odemis answers: one live read, the camera's exposure time."""
-        self.parts["camera"].exposure_time.get_value()
+        self.camera.exposure_time.get_value()
         return None
 
     def _apply_channel(self, channel: Optional[Dict[str, Any]]) -> None:
@@ -491,7 +489,7 @@ class OdemisFM(FM):
         from fibsem.fm.api import emission_filter_named
 
         settings = ChannelSettings.from_dict(channel)
-        filters = self.parts["filter_set"]
+        filters = self.filter_set
         filters.excitation_wavelength.write_through(settings.excitation_wavelength)
         emission: Union[None, str, float] = settings.emission_wavelength
         if isinstance(emission, str):
@@ -500,15 +498,15 @@ class OdemisFM(FM):
             filters.emission_filter.write_through(
                 emission_filter_named(emission, filters.emission_filter.choices)
             )
-        self.parts["light_source"].power.write_through(settings.power)
-        camera = self.parts["camera"]
+        self.light_source.power.write_through(settings.power)
+        camera = self.camera
         camera.exposure_time.write_through(settings.exposure_time)
         if settings.gain is not None and "gain" in camera.parameters:
             camera.gain.write_through(settings.gain)
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         self._apply_channel(channel)
-        return self.parts["camera"].acquire()
+        return self.camera.acquire()
 
     def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
         acquisition_date = datetime.now().isoformat()
@@ -564,5 +562,5 @@ def bind_odemis_fm(
         "filter_set": OdemisFMFilterSet(stream, **common),
     }
     parts["camera"].configure(config)
-    group = OdemisFM(stream, parts, **common)
+    group = OdemisFM(stream, **common).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}

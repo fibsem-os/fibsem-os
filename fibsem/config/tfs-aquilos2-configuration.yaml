@@ -1,19 +1,23 @@
 # Please don't edit or delet this file, it is the default configuration for the microscope
 # configuration 
-version: 1                                                  # configuration schema version
+version: 2                                                  # configuration schema version
 info:
     name: tfs-aquilos2-configuration                        # a descriptive name for your configuration                     [SPECIFIED]
     ip_address: 192.168.0.1                                 # the ip address of the microscope PC                           [SPECIFIED]
     manufacturer: Thermo                                    # the microscope manufactuer                                    [SPECIFIED]        
 hardware:                                                   # what the instrument is; cannot be asked
-    stage:
+    devices:
+      - name: stage
+        type: stage
         enabled:                    true                        # the stage is enabled                                          [USER]
         rotation_reference:         0                           # the reference rotation value                                  [SPECIFIED] 
-    electron:                                              
+      - name: electron
+        type: beam
         enabled:                    true                        # the electron beam is enabled                                  [USER]
         column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufactuer]
         eucentric_height:           7.0e-3                      # the eucentric height of the electron beam                     [SPECIFIED]
-    ion:
+      - name: ion
+        type: beam
         enabled:                    true                        # the ion beam is enabled                                       [USER]
         column_tilt:                52                          # the column tilt of the electron beam                          [SPECIFIED]
         eucentric_height:           19.0e-3                     # the eucentric height of the ion beam                          [SPECIFIED]

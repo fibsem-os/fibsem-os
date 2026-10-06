@@ -118,8 +118,8 @@ def test_an_empty_configuration_loads():
 
 def test_a_missing_field_defaults_rather_than_raising():
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    del config["hardware"]["stage"]["rotation_reference"]
-    del config["hardware"]["ion"]["column_tilt"]
+    del utils.configuration_device(config, "stage")["rotation_reference"]
+    del utils.configuration_device(config, "ion")["column_tilt"]
 
     settings = MicroscopeSettings.from_dict(config)
     assert settings.system.stage.rotation_reference == 0.0
@@ -197,12 +197,12 @@ def test_unrecognised_keys_are_reported():
     could type, save, reload, and never see again -- `ImageSettings` has no such
     field, so it was dropped on load and nothing said so."""
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config["hardware"]["stage"]["nonsense"] = 1
+    utils.configuration_device(config, "stage")["nonsense"] = 1
     config["a_block_from_the_future"] = {"x": 1}
 
     unknown = utils.unrecognised_configuration_keys(config)
 
-    assert "hardware.stage.nonsense" in unknown
+    assert "hardware.devices.stage.nonsense" in unknown
     assert "a_block_from_the_future" in unknown
 
 
@@ -275,12 +275,12 @@ def test_reporting_is_logged_at_load(caplog):
     import logging
 
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config["hardware"]["stage"]["nonsense"] = 1
+    utils.configuration_device(config, "stage")["nonsense"] = 1
 
     with caplog.at_level(logging.INFO):
         utils.report_unrecognised_configuration_keys(config, source="test.yaml")
 
-    assert "hardware.stage.nonsense" in caplog.text
+    assert "hardware.devices.stage.nonsense" in caplog.text
     assert "test.yaml" in caplog.text
 
 
@@ -320,7 +320,7 @@ def test_a_plasma_column_is_one_with_a_gas():
 )
 def test_the_old_two_key_spelling_still_reads(block: dict, expected):
     config = copy.deepcopy(_load("microscope-configuration.yaml"))
-    config["hardware"]["ion"].pop("plasma_gas", None)
+    utils.configuration_device(config, "ion").pop("plasma_gas", None)
     # In the old flat spelling, which is where a file carrying the flag would have it.
     config["ion"] = block
     assert MicroscopeSettings.from_dict(config).system.ion.plasma_gas == expected

@@ -60,7 +60,11 @@ def test_the_split_changed_no_configuration_s_meaning(filename: str):
     """
     split = _load(filename)
     flat = copy.deepcopy(split)
-    flat.update(flat.pop("hardware"))
+    # The device list back to one block per device, as files were before the split.
+    for entry in flat.pop("hardware")["devices"]:
+        flat[entry["name"]] = {
+            k: v for k, v in entry.items() if k not in ("name", "type")
+        }
     calibration = flat.pop("calibration")
     flat["stage"].update(calibration)
     defaults = flat.pop("defaults")
@@ -81,7 +85,7 @@ def test_the_column_blocks_hold_only_hardware(filename: str):
     thing an operator picks for a session."""
     config = _load(filename)
     for block in ("electron", "ion"):
-        keys = set(config["hardware"][block])
+        keys = set(utils.configuration_device(config, block)) - {"name", "type"}
         assert not (keys & DEFAULT_KEYS), f"{block} still states session state"
         assert keys <= HARDWARE_KEYS, (
             f"{block} has an unexpected key: {keys - HARDWARE_KEYS}"

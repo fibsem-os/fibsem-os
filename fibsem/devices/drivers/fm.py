@@ -224,7 +224,7 @@ class FMGroup(FM):
             # took it before (``camera.acquire``), with the parts' state beside it and
             # what the driver stamped on the frame itself (odemis) over that.
             acquisition_date = datetime.now().isoformat()
-            data = self.parts["camera"].acquire()
+            data = self.camera.acquire()
             metadata = {"acquisition_date": acquisition_date, **self._frame_metadata()}
             stamped = self._fm.frame_metadata_of(data) or {}
             metadata.update({key: to_wire(value) for key, value in stamped.items()})
@@ -247,9 +247,7 @@ class FMGroup(FM):
                 binning=ch.binning,
                 power=ch.power,
                 excitation_wavelength=ch.excitation_wavelength,
-                emission_filter=to_wire(
-                    self.parts["filter_set"].emission_filter.get_value()
-                ),
+                emission_filter=to_wire(self.filter_set.emission_filter.get_value()),
                 objective_position=ch.objective_position,
                 objective_magnification=ch.objective_magnification,
                 objective_numerical_aperture=ch.objective_numerical_aperture,
@@ -305,5 +303,5 @@ def bind_fm_devices(
     ]
     objective = FMObjective(fm.objective, resources=resources)
     group.channel_parts = parts
-    group.parts = {part.name: part for part in [*parts, objective]}
+    group.fill_roles(**{part.name: part for part in [*parts, objective]})
     return {device.name: device.connect() for device in [group, *parts, objective]}

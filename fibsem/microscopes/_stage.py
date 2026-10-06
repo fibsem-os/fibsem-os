@@ -116,6 +116,13 @@ class SampleGridLoader:
         self.unknown_slots: set = set()
         self._ensure_slots()
 
+    @property
+    def exchange_seconds(self) -> float:
+        """How long one exchange takes, the unload and the load, in seconds: what a
+        run's time estimate charges per grid it brings in. Declared by each loader,
+        since it is the hardware's. Nothing for this in-memory one."""
+        return 0.0
+
     def _ensure_slots(self) -> None:
         """Ensure exactly ``capacity`` magazine slots exist, named like holder slots."""
         for i in range(self.capacity):
@@ -310,6 +317,11 @@ class DemoSampleLoader(SampleGridLoader):
                     self._unscanned[slot.name] = slot.loaded_grid
                     slot.loaded_grid = None
             self.unknown_slots = set(self.slots)
+
+    @property
+    def exchange_seconds(self) -> float:
+        """An unload and a load, each ``exchange_delay``."""
+        return 2 * self.exchange_delay
 
     def _scan_magazine(self) -> None:
         sim_sleep(self.scan_delay)

@@ -128,18 +128,18 @@ class Beam(Device):
             )
         return self._acquire(image_settings)
 
-    @command(available=lambda beam: _implements(beam, "_last_image"))
+    @command(available=lambda beam: implements(beam, "_last_image"))
     def last_image(self) -> FibsemImage:
         """The last image this beam acquired, read back from the instrument."""
         return self._last_image()
 
-    @command(available=lambda beam: _implements(beam, "_autocontrast"))
+    @command(available=lambda beam: implements(beam, "_autocontrast"))
     def autocontrast(self, reduced_area: Optional[FibsemRectangle] = None) -> None:
         """Run the instrument's brightness and contrast routine, optionally on a
         rectangle of the frame (0 to 1); the beam scans the full frame after."""
         self._autocontrast(reduced_area)
 
-    @command(available=lambda beam: _implements(beam, "_auto_focus"))
+    @command(available=lambda beam: implements(beam, "_auto_focus"))
     def auto_focus(self, reduced_area: Optional[FibsemRectangle] = None) -> None:
         """Run the instrument's autofocus routine, optionally on a rectangle of the
         frame (0 to 1); the beam scans the full frame after."""
@@ -165,7 +165,7 @@ class Beam(Device):
     # sets the event it is given. Frames are pushed, as the SEM and FIB viewers take
     # them today.
 
-    @command(available=lambda beam: _implements(beam, "_live"))
+    @command(available=lambda beam: implements(beam, "_live"))
     def start_live(self) -> None:
         """Acquire continuously with the current settings, each image on
         ``live_frame``, until `stop_live`. Warns and does nothing when already live."""
@@ -179,7 +179,7 @@ class Beam(Device):
             )
             self._live_thread.start()
 
-    @command(available=lambda beam: _implements(beam, "_live"))
+    @command(available=lambda beam: implements(beam, "_live"))
     def stop_live(self) -> None:
         """Stop live view, waiting briefly for its last frame. Safe when not live."""
         thread = self._live_thread
@@ -204,7 +204,7 @@ class Beam(Device):
         raise NotImplementedError
 
 
-def _implements(beam: Beam, hook: str) -> bool:
+def implements(beam: Beam, hook: str) -> bool:
     """Whether the beam's driver overrides *hook*."""
     return getattr(type(beam), hook) is not getattr(Beam, hook)
 

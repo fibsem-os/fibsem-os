@@ -12,6 +12,7 @@ from psygnal import Signal
 
 from fibsem import manufacturers
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
+from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
@@ -353,30 +354,48 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             logging.warning(f"Could not create sample stage: {e}")
 
     def _build_devices(self) -> None:
-        """Build the beam and stage devices and route the beam and stage keys to them.
+        """Build the beam, stage and chamber devices and route their keys to them.
 
-        The moves and ``home`` then go through the stage device. A ``stage_link`` set
-        stays with ``_set``: a false value unlinks there, and the device's ``link``
-        command only links. A failure leaves every key on the old code, as it was
-        before the devices, and says so.
+        The moves, ``home``, ``pump`` and ``vent`` then go through the devices. A
+        ``stage_link`` set stays with ``_set``: a false value unlinks there, and the
+        device's ``link`` command only links. A failure leaves every key on the old
+        code, as it was before the devices, and says so.
         """
-        from fibsem.devices.drivers.odemis import bind_odemis_beams, bind_odemis_stage
+        from fibsem.devices.drivers.odemis import (
+            bind_odemis_beams,
+            bind_odemis_chamber,
+            bind_odemis_stage,
+        )
 
         try:
             beams = bind_odemis_beams(self)
             stage = bind_odemis_stage(self)
+            chamber = bind_odemis_chamber(self)
         except Exception as e:
             logging.warning(
-                f"Could not build the beam and stage devices, using the old code: {e}"
+                f"Could not build the beam, stage and chamber devices, using the old "
+                f"code: {e}"
             )
             return
         self.beams = MappingProxyType(beams)
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
         self.stage = stage
+        self.chamber_device = chamber
         self._device_routes = MappingProxyType(
-            {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
+            {
+                **{key: ("stage", name) for key, name in STAGE_ROUTES.items()},
+                **{key: ("chamber_device", n) for key, n in CHAMBER_ROUTES.items()},
+            }
         )
-        self._command_routes = MappingProxyType({"stage_home": ("stage", "home")})
+        self._command_routes = MappingProxyType(
+            {
+                "stage_home": ("stage", "home"),
+                **{
+                    key: ("chamber_device", n)
+                    for key, n in CHAMBER_COMMAND_ROUTES.items()
+                },
+            }
+        )
 
     def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
         """The FM as the FM API over the Odemis FM devices, which make the odemis

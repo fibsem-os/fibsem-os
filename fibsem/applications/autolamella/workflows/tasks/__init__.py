@@ -9,7 +9,7 @@ import logging
 import typing
 from typing import TYPE_CHECKING, Any, Dict, Tuple, Type
 
-from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
+from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
 
 if TYPE_CHECKING:
     from psygnal.containers import EventedDict
@@ -95,8 +95,23 @@ BUILTIN_TASKS: Dict[str, Type[AutoLamellaTask]] = {
     MillCoincidentTaskConfig.task_type: MillCoincidentTask,
 }
 
+TASK_ENTRY_POINT_GROUP = "fibsem.tasks"
+
+# Built-ins, runtime registrations and the fibsem.tasks entry points. To add a
+# plugin task, add to your package's pyproject.toml:
+#
+#     [project.entry-points.'fibsem.tasks']
+#     my_task = "my_package.tasks:MyCustomTask"
+TASK_PLUGINS: PluginRegistry[Type[AutoLamellaTask]] = PluginRegistry(
+    group=TASK_ENTRY_POINT_GROUP,
+    kind="task",
+    # A task registers under its config's task_type, not its own name.
+    resolve=subclass_of(AutoLamellaTask, lambda cls: cls.config_cls.task_type),
+    builtins=BUILTIN_TASKS,
+)
+
 # Runtime registered tasks
-REGISTERED_TASKS: Dict[str, Type[AutoLamellaTask]] = {}
+REGISTERED_TASKS: Dict[str, Type[AutoLamellaTask]] = TASK_PLUGINS.registered
 
 
 def register_task(task_cls: Type[AutoLamellaTask]) -> None:
@@ -110,39 +125,12 @@ def register_task(task_cls: Type[AutoLamellaTask]) -> None:
         >>> from fibsem.applications.autolamella.workflows.tasks import register_task
         >>> register_task(CustomTask)
     """
-    global REGISTERED_TASKS
-    task_type = task_cls.config_cls.task_type
-    REGISTERED_TASKS[task_type] = task_cls
-    logging.info("Registered task '%s'", task_type)
-
-
-TASK_ENTRY_POINT_GROUP = "fibsem.tasks"
+    TASK_PLUGINS.register(task_cls.config_cls.task_type, task_cls)
 
 
 def get_task_plugin_records() -> Tuple[PluginRecord, ...]:
-    """Every ``fibsem.tasks`` entry point and what became of it.
-
-    Loading happens once per process, on the first call. Includes the plugins
-    that failed and the ones a built-in later shadows, neither of which
-    survives into :func:`get_tasks` -- see ``fibsem.plugins.report``.
-
-    To add a plugin task, add to your package's pyproject.toml:
-
-    [project.entry-points.'fibsem.tasks']
-    my_task = "my_package.tasks:MyCustomTask"
-    """
-    return load_entry_point_group(
-        group=TASK_ENTRY_POINT_GROUP,
-        base_cls=AutoLamellaTask,
-        # A task registers under its config's task_type, not its own name.
-        name_of=lambda cls: cls.config_cls.task_type,
-        kind="task",
-    )
-
-
-def _get_plugin_tasks() -> Dict[str, Type[AutoLamellaTask]]:
-    """Plugin tasks that loaded, as ``{task_type: class}``."""
-    return plugin_classes(get_task_plugin_records())
+    """Every ``fibsem.tasks`` entry point and what became of it."""
+    return TASK_PLUGINS.plugin_records()
 
 
 def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:
@@ -156,8 +144,7 @@ def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:
     Returns:
         Dictionary mapping task type strings to task classes
     """
-    # This order means that builtins > registered > plugins if there are any name clashes
-    return {**_get_plugin_tasks(), **REGISTERED_TASKS, **BUILTIN_TASKS}
+    return TASK_PLUGINS.all()
 
 
 def get_task_names() -> typing.List[str]:
