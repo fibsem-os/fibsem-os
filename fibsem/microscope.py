@@ -5,6 +5,7 @@ import datetime
 import functools
 import inspect
 import logging
+import sys
 import threading
 import time
 import warnings
@@ -118,6 +119,9 @@ _VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber"))
 # Keys only ever set: the old `_get` has no branch for them and returns None. A get
 # stays with `_get`, so it still returns None, rather than reading the device.
 _SET_ONLY_KEYS = frozenset(("angular_correction_tilt_correction",))
+# Modules that implement the old API, whose own get/set calls are not deprecated: the
+# named wrappers here, the backends, and the device router.
+_KEY_API_MODULES = ("fibsem.microscope", "fibsem.microscopes.", "fibsem.devices.")
 
 
 # Whether a stage move is being recorded on this thread. A move is often made of
@@ -1882,7 +1886,13 @@ class FibsemMicroscope(ABC):
     def get(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> Union[float, int, bool, str, list, tuple, Point]:
-        """Get wrapper for logging."""
+        """Get wrapper for logging.
+
+        Deprecated from outside the microscope classes: use the device
+        (``microscope.beams[beam_type].parameters[...]``, ``microscope.stage``, ...) or
+        the named wrapper (``get_working_distance``, ...).
+        """
+        self._warn_key_call("get", key, beam_type)
         param = None if key in _SET_ONLY_KEYS else self._route(key, beam_type)
         if param is not None:
             value = _old_key_value(key, param.get_value())
@@ -1904,7 +1914,11 @@ class FibsemMicroscope(ABC):
         value: Union[str, float, int, tuple, list, Point],
         beam_type: Optional[BeamType] = None,
     ) -> None:
-        """Set wrapper for logging"""
+        """Set wrapper for logging.
+
+        Deprecated from outside the microscope classes, as ``get`` is.
+        """
+        self._warn_key_call("set", key, beam_type)
         param = None if key in self._device_routes else self._route(key, beam_type)
         command = self._route_command(key)
         if key in _VERBS_THAT_NEED_TRUE and not value:
@@ -1923,6 +1937,31 @@ class FibsemMicroscope(ABC):
         beam_name = "None" if beam_type is None else beam_type.name
         logging.debug(
             {"msg": "set", "key": key, "beam_type": beam_name, "value": value}
+        )
+
+    def _warn_key_call(
+        self, method: str, key: str, beam_type: Optional[BeamType]
+    ) -> None:
+        """Warn that a string-key get/set from outside the microscope classes is
+        deprecated, naming the device parameter the key has moved to, if any."""
+        caller = sys._getframe(2).f_globals.get("__name__", "")
+        if caller == _KEY_API_MODULES[0] or caller.startswith(_KEY_API_MODULES[1:]):
+            return
+        if key in self._device_routes:
+            attribute, name = self._device_routes[key]
+            replacement = f'microscope.{attribute}.parameters["{name}"]'
+        elif key in self._beam_routes and beam_type is not None:
+            replacement = (
+                f"microscope.beams[BeamType.{beam_type.name}]"
+                f'.parameters["{self._beam_routes[key]}"]'
+            )
+        else:
+            replacement = "the device or the named microscope method"
+        warnings.warn(
+            f'microscope.{method}("{key}", ...) is deprecated and will be removed in '
+            f"the next minor release; use {replacement} instead.",
+            DeprecationWarning,
+            stacklevel=3,
         )
 
     @abstractmethod
