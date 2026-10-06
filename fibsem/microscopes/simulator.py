@@ -1623,7 +1623,7 @@ class DemoSession:
             and self._fluorescence_is_configured()
             and self._fluorescence_uses_own_driver()
         ):
-            self.fm = SimulatedFluorescenceMicroscope(self)
+            self.fm = self._local_fluorescence()
             # Bringing the FM up leaves the shared channel on it, as
             # `ThermoMicroscope.__init__` does; taking it back is the next beam
             # operation's job.
@@ -1635,6 +1635,11 @@ class DemoSession:
 
         self._apply_fluorescence_calibration()
         self._warn_on_fluorescence_geometry()
+
+    def _local_fluorescence(self) -> FluorescenceMicroscope:
+        """The FM this demo simulates itself: the simulated FM, sharing the imaging
+        channel with the beams."""
+        return SimulatedFluorescenceMicroscope(self)
 
     def _finish_session(self) -> None:
         # user, experiment metadata

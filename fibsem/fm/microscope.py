@@ -57,6 +57,7 @@ SIM_CAMERA_PIXEL_SIZE = (
     0.25 * 100e-9,
 )  # in meters (100 nm -> 0.25 um with 4x binning)
 SIM_CAMERA_RESOLUTION = (4 * 1024, 4 * 1024)  # default resolution
+SIM_LIGHT_SOURCE_POWER = 0.1  # a fraction of full power
 
 UINT16_MIN = np.iinfo(np.uint16).min  # 0 for uint16
 UINT16_MAX = np.iinfo(np.uint16).max  # 65535 for uint16
@@ -554,7 +555,7 @@ class LightSource(ABC):
             parent: Optional parent fluorescence microscope instance
         """
         self.parent = parent
-        self._power: float = 0.1  # W
+        self._power: float = SIM_LIGHT_SOURCE_POWER
         super().__init__()
 
     @property
