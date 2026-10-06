@@ -2714,11 +2714,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         if beam_type is not None:
             beam = self._get_beam(beam_type)
 
-        if key == "active_view":
-            return self.connection.imaging.get_active_view()
-        if key == "active_device":
-            return self.connection.imaging.get_active_device()
-
         # beam properties
         if key == "on":
             return beam.is_on
@@ -2736,10 +2731,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
             return beam.scanning.dwell_time.value
         if key == "scan_rotation":
             return beam.scanning.rotation.value
-        if key == "voltage_limits":
-            return beam.high_voltage.limits
-        if key == "voltage_controllable":
-            return beam.high_voltage.is_controllable
         if key == "shift":  # beam shift
             return Point(beam.beam_shift.value.x, beam.beam_shift.value.y)
         if key == "stigmation":
@@ -2758,12 +2749,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
                 return beam.angular_correction.angle.value
 
         # ion beam properties
-        if key == "plasma":
-            if beam_type is BeamType.ION:
-                return self.system.ion.plasma
-            else:
-                return False
-
         if key == "plasma_gas":
             if beam_type is BeamType.ION and self.system.ion.plasma:
                 return (
@@ -2844,15 +2829,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         # get beam
         if beam_type is not None:
             beam = self._get_beam(beam_type)
-
-        if key == "active_view":
-            self.connection.imaging.set_active_view(
-                value.value
-            )  # the beam type is the active view (in ui)
-            return
-        if key == "active_device":
-            self.connection.imaging.set_active_device(value.value)
-            return
 
         # beam properties
         if key == "working_distance":

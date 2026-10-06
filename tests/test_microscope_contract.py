@@ -423,7 +423,6 @@ GLOBAL_READ_KEYS: Dict[str, Callable[[Any], bool]] = {
     "stage_linked": lambda v: isinstance(v, bool),
     "manipulator_position": lambda v: isinstance(v, FibsemManipulatorPosition),
     "manipulator_state": lambda v: isinstance(v, bool),
-    "plasma": lambda v: isinstance(v, bool),
 }
 
 
@@ -656,13 +655,6 @@ def test_ion_currents_follow_the_plasma_gas(backend):
     assert microscope.get("plasma_gas", BeamType.ION) == "Argon"
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_plasma_is_the_configured_ion_column(backend):
-    microscope = _connect(backend, _plasma_configuration())
-    assert microscope.get("plasma", BeamType.ION) is True
-    assert microscope.get("plasma", BeamType.ELECTRON) is False
-
-
 def test_demo_reads_its_configuration_without_demo(monkeypatch):
     """The configured keys and capabilities read the configuration, not Demo."""
     from fibsem.microscopes.simulator import LegacyDemoMicroscope
@@ -673,13 +665,12 @@ def test_demo_reads_its_configuration_without_demo(monkeypatch):
     microscope = _connect("Demo", _plasma_configuration())
     monkeypatch.setattr(LegacyDemoMicroscope, "_get", refuse)
     monkeypatch.setattr(LegacyDemoMicroscope, "get_available_values", refuse)
-    assert microscope.get("plasma", BeamType.ION) is True
     for key in ("plasma_gas", "scan_direction"):
         assert microscope.get_available_values(key)
     assert microscope._get_axis_limits()
 
 
-def test_demo_sets_its_imaging_key_and_milling_recipe_without_demo(monkeypatch):
+def test_demo_sets_its_milling_recipe_without_demo(monkeypatch):
     from fibsem.microscopes.simulator import LegacyDemoMicroscope
 
     def refuse(self, key, value=None, beam_type=None):
@@ -696,12 +687,10 @@ def test_demo_sets_its_imaging_key_and_milling_recipe_without_demo(monkeypatch):
             patterning_mode="Parallel",
         )
     )
-    microscope.set("active_view", BeamType.ION)
     milling = microscope.milling_system
     assert milling.default_application_file == files[-1]
     assert milling.patterning_mode == "Parallel"
     assert milling.default_beam_type is BeamType.ELECTRON
-    assert microscope.imaging_system.active_view == BeamType.ION.value
 
 
 @pytest.mark.parametrize(
@@ -712,6 +701,22 @@ def test_the_milling_keys_are_gone(microscope, key, caplog):
     with caplog.at_level("WARNING"):
         microscope.set(key, "Parallel")
     assert f"Unknown key: {key}" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda m: m.set("active_view", BeamType.ION),
+        lambda m: m.set("active_device", BeamType.ION),
+        lambda m: m.get("plasma", BeamType.ION),
+    ],
+    ids=["active_view", "active_device", "plasma"],
+)
+def test_the_unused_keys_are_gone(call, caplog):
+    """Nothing called them; the channel is `set_channel`, the column `system.ion`."""
+    with caplog.at_level("WARNING"):
+        call(_connect("Demo"))
+    assert "Unknown key" in caplog.text
 
 
 def test_demo_is_not_built_on_the_legacy_demo():
@@ -905,7 +910,7 @@ def test_a_false_pump_or_vent_does_nothing(microscope, key):
 def test_keys_without_an_effect_here_are_not_unknown(microscope, call, caplog):
     """No plasma gas on a Ga column, and a false pump or vent: known keys that do
     nothing here, so they are not reported as unknown."""
-    assert not microscope.get("plasma", BeamType.ION)
+    assert not microscope.system.ion.plasma
     with caplog.at_level(logging.WARNING):
         call(microscope)
     assert not [r for r in caplog.records if "Unknown key" in r.getMessage()]

@@ -33,7 +33,7 @@ code, and ``finish_milling`` puts the milling beam back as ``setup_milling`` fou
 The run loop is still the shared demo code's.
 
 The shared code answers what the configuration alone does (the fitted parts, the
-stage's limits, the grid loader, ``plasma`` and the constant value lists), and runs
+stage's limits, the grid loader and the constant value lists), and runs
 imaging, the sample scene and milling, changing the beams only through
 ``get``/``set`` and so, here, through the beam devices.
 
@@ -252,8 +252,6 @@ class DemoMicroscope(
         return beam.sim_scanning_mode_value, beam.sim_beam
 
     def _set(self, key: str, value, beam_type: Optional[BeamType] = None) -> None:
-        if self._set_imaging_key(key, value):
-            return
         # The ion beam has a plasma gas only on a plasma column.
         if key == "plasma_gas" and beam_type is BeamType.ION:
             logging.debug("Plasma gas cannot be set on this microscope.")
@@ -285,8 +283,6 @@ class DemoMicroscope(
         return super().get_available_values(key, beam_type)
 
     def _get(self, key: str, beam_type: Optional[BeamType] = None) -> Any:
-        if key == "plasma":
-            return self._read_plasma(beam_type)
         # A beam has a plasma gas only on a plasma column.
         if key == "plasma_gas":
             return None
