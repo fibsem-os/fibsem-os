@@ -1,12 +1,12 @@
-"""The AutoScript stage drivers make the SDK calls Thermo's stage code makes today.
+"""The AutoScript stage drivers make the SDK calls Thermo's stage code made before them.
 
 ``AutoscriptStage`` and ``AutoscriptCompustage`` are Thermo's stage code moved onto the
-``Stage`` device. Each case runs an old ``ThermoMicroscope`` call on one microscope and
-the matching driver call on another, both over a fake AutoScript client that records
-every SDK call and write, and requires the same calls, arguments, order and result.
-It also runs the old call on a third microscope routed as connect routes it (stage
-keys and moves through the device), which must return the same and make the same
-moves and writes.
+``Stage`` device. Each case runs a driver call over a fake AutoScript client that
+records every SDK call and write, and requires the calls, arguments, order and result
+the matching old ``ThermoMicroscope`` call gave, recorded over the same fake in
+``tests/fixtures/autoscript_old_calls.json`` before it was deleted. It also runs the
+old call on a microscope routed as connect routes it (stage keys and moves through
+the device), which must return the same and make the same moves and writes.
 Cases: the limits read at connect, position/homed/linked reads, home and link, and
 absolute and relative moves over the orientations, partial poses, and the compustage
 axis restrictions with and without an inserted objective.
@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_stage_parity.py"
+RECORDED = Path(__file__).parent / "fixtures" / "autoscript_old_calls.json"
 
 
 @pytest.fixture(scope="module")
@@ -40,7 +41,13 @@ def recording(tmp_path_factory):
         timeout=300,
     )
     assert result.returncode == 0, result.stderr[-4000:]
-    return json.loads(out.read_text())
+    recording = json.loads(out.read_text())
+    # the old code's side, recorded before it was deleted
+    old = json.loads(RECORDED.read_text())["stage"]
+    assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
+    for case in recording["cases"]:
+        case["old"] = old[case["key"]]
+    return recording
 
 
 def test_the_recording_covers_both_stages_and_makes_sdk_calls(recording):

@@ -1,20 +1,21 @@
-"""The AutoScript beam driver makes the SDK calls Thermo's beam keys make today.
+"""The AutoScript beam driver makes the SDK calls Thermo's beam keys made before it.
 
 ``AutoscriptBeam`` is ``ThermoMicroscope``'s beam branches moved onto the ``Beam``
-device. Each case runs an old ``get``/``set`` on one microscope, and the same call on
-another whose beam keys are routed to the drivers as ``ThermoMicroscope``'s connect
-routes them, both over a fake AutoScript client that records every SDK call
-and write. Each case requires the same result, the same calls in the same order, and
-the same logged messages. A ``set`` case reads the key back after the write.
+device. Each case runs a ``get``/``set`` on a microscope whose beam keys are routed to
+the drivers as ``ThermoMicroscope``'s connect routes them, over a fake AutoScript
+client that records every SDK call and write. It must give the result, the calls in
+order and the logged messages the old branches gave, recorded over the same fake in
+``tests/fixtures/autoscript_old_calls.json`` before they were deleted. A ``set`` case
+reads the key back after the write.
 
 Cases: every moved key on both beams, with and without a plasma column; the hfw
 clip; an unlisted plasma gas, which warns and is still set; the detector keys, which
 select the beam's channel first, and their refused values; the scan-mode methods,
 through the scan commands on one side and the old keys on the other; the electron
 beam's angular correction, whose tilt correction could only be set before: it reads
-on the new API, and the old key's get still returns None; and ``preset``,
-which has not moved, so both sides still answer it with the old branches. The fake SDK has to be in place before ``fibsem.microscopes.autoscript`` is
-first imported, so the recording runs in its own interpreter
+on the new API, and the old key's get still returns None; and ``preset``, which
+Thermo does not have. The fake SDK has to be in place before
+``fibsem.microscopes.autoscript`` is first imported, so the recording runs in its own interpreter
 (``tests/fixtures/autoscript_beam_parity.py``). Nothing here has run on an instrument.
 """
 
@@ -28,6 +29,7 @@ import pytest
 
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_beam_parity.py"
 PINS = Path(__file__).parent / "fixtures" / "available_values_pins.json"
+RECORDED = Path(__file__).parent / "fixtures" / "autoscript_old_calls.json"
 
 MOVED = [
     "blanked",
@@ -64,7 +66,13 @@ def recording(tmp_path_factory):
         timeout=300,
     )
     assert result.returncode == 0, result.stderr[-4000:]
-    return json.loads(out.read_text())
+    recording = json.loads(out.read_text())
+    # the old code's side, recorded before it was deleted
+    old = json.loads(RECORDED.read_text())["beam"]
+    assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
+    for case in recording["cases"]:
+        case["old"] = old[case["key"]]
+    return recording
 
 
 def test_the_recording_covers_both_beams_and_makes_sdk_calls(recording):
@@ -266,6 +274,5 @@ def test_the_tilt_correction_reads_on_the_new_api_only(recording):
         "before": False,
         "after": True,
         "key": None,
-        "old": None,
         "ion": None,
     }

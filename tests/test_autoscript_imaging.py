@@ -2,12 +2,13 @@
 
 ``AutoscriptBeam``'s ``acquire``, ``last_image``, ``autocontrast`` and ``auto_focus``
 are ``ThermoMicroscope``'s methods moved onto the beam, and its ``start_live`` and
-``stop_live`` its live view worker, whose frames the old signals forward. Each case runs an old method
-on a microscope with no beam devices, and the same call on one whose beams are built
-as connect builds them, both over a fake AutoScript client that records every SDK
-call and write, and requires the same result, the same calls in the same order
-(channel selection, scan area, hfw, grab, image read, autofunction) and the same
-logged messages. The recording runs in its own interpreter
+``stop_live`` its live view worker, whose frames the old signals forward. Each case
+runs a method on a microscope whose beams are built as connect builds them, over a
+fake AutoScript client that records every SDK call and write, and requires the
+result, the calls in order (channel selection, scan area, hfw, grab, image read,
+autofunction) and the logged messages the old methods gave, recorded over the same
+fake in ``tests/fixtures/autoscript_old_calls.json`` before they were deleted. The
+recording runs in its own interpreter
 (``tests/fixtures/autoscript_imaging_parity.py``). Nothing here has run on an
 instrument.
 """
@@ -21,6 +22,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_imaging_parity.py"
+RECORDED = Path(__file__).parent / "fixtures" / "autoscript_old_calls.json"
 
 
 @pytest.fixture(scope="module")
@@ -35,7 +37,13 @@ def recording(tmp_path_factory):
         timeout=300,
     )
     assert result.returncode == 0, result.stderr[-4000:]
-    return json.loads(out.read_text())
+    recording = json.loads(out.read_text())
+    # the old code's side, recorded before it was deleted
+    old = json.loads(RECORDED.read_text())["imaging"]
+    assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
+    for case in recording["cases"]:
+        case["old"] = old[case["key"]]
+    return recording
 
 
 def test_the_recording_makes_sdk_calls_on_both_beams(recording):

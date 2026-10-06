@@ -1,10 +1,11 @@
 """Thermo's chamber and manipulator as devices make the SDK calls the old code makes.
 
 ``AutoscriptChamber`` and ``AutoscriptManipulator`` are ``ThermoMicroscope``'s chamber
-branches and manipulator methods moved onto the devices. Each case runs an old call on
-a microscope without the devices and on one that built them as connect does, both over
-a fake AutoScript client that records every SDK call and write, and requires the same
-result (or error), the same calls in the same order and the same logged messages.
+branches and manipulator methods moved onto the devices. Each case runs a call on a
+microscope that built them as connect does, over a fake AutoScript client that records
+every SDK call and write, and requires the result (or error), the calls in order and
+the logged messages the old code gave, recorded over the same fake in
+``tests/fixtures/autoscript_old_calls.json`` before it was deleted.
 
 Cases: the chamber keys, pump and vent; the manipulator keys, insert (each named
 position, and an unknown one), retract, the raw moves, the corrected and offset moves,
@@ -23,6 +24,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_parts_parity.py"
+RECORDED = Path(__file__).parent / "fixtures" / "autoscript_old_calls.json"
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +39,13 @@ def recording(tmp_path_factory):
         timeout=300,
     )
     assert result.returncode == 0, result.stderr[-4000:]
-    return json.loads(out.read_text())
+    recording = json.loads(out.read_text())
+    # the old code's side, recorded before it was deleted
+    old = json.loads(RECORDED.read_text())["parts"]
+    assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
+    for case in recording["cases"]:
+        case["old"] = old[case["key"]]
+    return recording
 
 
 def _case(recording, key):
@@ -92,7 +100,7 @@ def test_the_configuration_switches_parts_off(recording):
     fitted part off, so it is never built; a device no driver builds is left out with
     a warning."""
     facts = recording["facts"]["configured"]
-    assert facts["devices"] == ["chamber"]
+    assert facts["devices"] == ["stage", "chamber"]
     assert facts["manipulator"] is True
     assert facts["routed"] is False
 
