@@ -3,8 +3,8 @@
 The widget is cheap to build: a microscope and nothing else. No host, no view
 controller, no image widget. That is most of the point of extracting it, and it is what
 lets these tests do something ``tests/ui/test_stage_position_readout.py`` cannot --
-build the form against a *chosen* microscope configuration and pin both sides of the
-compustage branch, rather than branching on whichever configuration the machine
+build the form against a *chosen* microscope configuration and pin both kinds of
+stage, rather than branching on whichever configuration the machine
 happens to default to.
 
 Two configurations, both shipped in ``fibsem/config``:
@@ -217,6 +217,44 @@ def test_a_compustage_is_not_offered_rotation(compustage_widget):
 def test_any_other_stage_is(flat_widget):
     assert flat_widget.spinbox_rotation.isVisibleTo(flat_widget)
     assert flat_widget.label_rotation.isVisibleTo(flat_widget)
+
+
+# --- the stage device decides, not stage_is_compustage ----------------------
+
+
+def test_the_axes_shown_are_the_stage_devices(qapp, monkeypatch):
+    """The flag says compustage, the device still has r: the device wins."""
+    microscope = _microscope(FLAT_STAGE)
+    monkeypatch.setattr(microscope, "stage_is_compustage", True)
+    form = StagePositionWidget(microscope=microscope)
+    assert "r" in microscope.stage.axes
+    assert form.spinbox_rotation.isVisibleTo(form)
+    assert form.label_rotation.isVisibleTo(form)
+    form.deleteLater()
+
+
+def test_the_rotation_range_is_the_stage_devices(flat_widget):
+    r = flat_widget.microscope.stage.axes["r"].limits
+    assert flat_widget.spinbox_rotation.minimum() == pytest.approx(np.degrees(r.min))
+    assert flat_widget.spinbox_rotation.maximum() == pytest.approx(np.degrees(r.max))
+
+
+@pytest.mark.parametrize(
+    "configuration, rotates",
+    [(FLAT_STAGE, True), (COMPUSTAGE, False)],
+    ids=["flat-stage", "compustage"],
+)
+def test_without_a_stage_device_the_stage_kind_decides(
+    qapp, monkeypatch, configuration, rotates
+):
+    microscope = _microscope(configuration)
+    monkeypatch.setattr(microscope, "stage", None)
+    form = StagePositionWidget(microscope=microscope)
+    tilt = microscope._stage.limits["t"]
+    assert form.spinbox_rotation.isVisibleTo(form) is rotates
+    assert form.spinbox_tilt.minimum() == pytest.approx(tilt.min)
+    assert form.spinbox_tilt.maximum() == pytest.approx(tilt.max)
+    form.deleteLater()
 
 
 # --- the guards --------------------------------------------------------------
