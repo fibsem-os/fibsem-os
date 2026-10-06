@@ -51,8 +51,10 @@ def test_thermo_runs_the_base_milling_loop_and_finishes_through_its_service():
 
 
 def test_odemis_inherits_rather_than_borrows(odemis_cls):
+    from fibsem.services.milling import ServiceMilling
+
     assert _owner(odemis_cls, "run_milling") is FibsemMicroscope
-    assert _owner(odemis_cls, "finish_milling") is odemis_cls
+    assert _owner(odemis_cls, "finish_milling") is ServiceMilling
     assert _owner(odemis_cls, "get_orientation") is FibsemMicroscope
 
 

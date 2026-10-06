@@ -21,6 +21,7 @@ from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES
 from fibsem.microscopes.registry import DriverEntry
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.milling.progress import MillingProgress
+from fibsem.services.milling import ServiceMilling
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamSettings,
@@ -270,6 +271,193 @@ ODEMIS_CHAMBER_STATES = {
 # TODO: load default system settings?
 
 
+class OdemisPatterning:
+    """How an Odemis system mills: on the Delmic AutoScript adapter's patterning, with
+    the per-pattern application file and the Serial mode it resets after.
+    `fibsem.services.drivers.odemis.OdemisMilling` mills with this code; it is the
+    microscope's own milling code when there is no milling service."""
+
+    # Raised rather than skipped. Drawing nothing left a stage with no patterns, which
+    # never leaves IDLE, so the milling run waited on it indefinitely; raising inside
+    # the milling task fails the task with this message and still restores the beams.
+    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
+        raise NotImplementedError(
+            f"{type(self).__name__} cannot draw bitmap patterns: the Delmic "
+            "AutoScript adapter has no bitmap patterning."
+        )
+
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
+        raise NotImplementedError(
+            f"{type(self).__name__} cannot draw polygon patterns: the Delmic "
+            "AutoScript adapter has no polygon patterning."
+        )
+
+    def _warn_dropped_pattern_settings(self, pattern_settings) -> None:
+        """Warn about the settings the Delmic adapter ignores (xtadapter 1.16.0).
+
+        It creates each pattern from its geometry and depth only: a pattern meant as
+        an exclusion zone is milled like any other, and a pass count or milling time
+        is replaced by the microscope's own.
+        """
+        dropped = [
+            name
+            for name in ODEMIS_DROPPED_PATTERN_SETTINGS
+            if getattr(pattern_settings, name, None)
+        ]
+        if dropped:
+            logging.warning(
+                f"{type(self).__name__} cannot apply {', '.join(dropped)} to "
+                f"{type(pattern_settings).__name__}: the Delmic AutoScript adapter "
+                "ignores them, and the pattern is drawn without."
+            )
+
+    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):
+        self._warn_dropped_pattern_settings(pattern_settings)
+        pdict = pattern_settings.to_dict()
+
+        pdict["center_x"] = pdict.pop("centre_x")
+        pdict["center_y"] = pdict.pop("centre_y")
+
+        # select the correct pattern function
+        create_pattern_function = self.connection.create_rectangle
+        self.connection.set_default_application_file("Si")
+        if pattern_settings.cross_section is CrossSectionPattern.CleaningCrossSection:
+            create_pattern_function = self.connection.create_cleaning_cross_section
+            self.connection.set_default_application_file("Si-ccs")
+        if pattern_settings.cross_section is CrossSectionPattern.RegularCrossSection:
+            create_pattern_function = self.connection.create_regular_cross_section
+            self.connection.set_default_application_file("Si-multipass")
+
+        # create the pattern (draw)
+        pinfo = create_pattern_function(pdict)
+
+        # restore the default application file
+        self.connection.set_default_application_file(self._default_application_file)
+
+        logging.debug(
+            {
+                "msg": "draw_rectangle",
+                "pattern_settings": pattern_settings.to_dict(),
+                "pinfo": pinfo,
+            }
+        )
+
+    def draw_line(self, pattern_settings: FibsemLineSettings):
+        pdict = pattern_settings.to_dict()
+
+        self.connection.set_default_application_file("Si")
+
+        pinfo = self.connection.create_line(pdict)
+
+        self.connection.set_default_application_file(self._default_application_file)
+
+        logging.debug(
+            {
+                "msg": "draw_line",
+                "pattern_settings": pattern_settings.to_dict(),
+                "pinfo": pinfo,
+            }
+        )
+
+    def draw_circle(self, pattern_settings: FibsemCircleSettings):
+        self._warn_dropped_pattern_settings(pattern_settings)
+        pdict = pattern_settings.to_dict()
+        pdict["outer_diameter"] = 2 * pattern_settings.radius
+        # an annulus, as ThermoMicroscope draws one: the adapter takes the inner
+        # diameter, but this sent 0 and milled the whole disc
+        pdict["inner_diameter"] = 0
+        if pattern_settings.thickness != 0:
+            pdict["inner_diameter"] = (
+                pdict["outer_diameter"] - 2 * pattern_settings.thickness
+            )
+        pdict["center_x"] = pattern_settings.centre_x
+        pdict["center_y"] = pattern_settings.centre_y
+
+        self.connection.set_default_application_file("Si")
+
+        pinfo = self.connection.create_circle(pdict)
+
+        self.connection.set_default_application_file(self._default_application_file)
+
+        logging.debug(
+            {
+                "msg": "draw_circle",
+                "pattern_settings": pattern_settings.to_dict(),
+                "pinfo": pinfo,
+            }
+        )
+
+    def setup_milling(self, mill_settings: FibsemMillingSettings):
+        self._default_application_file = mill_settings.application_file
+        self.milling_channel = mill_settings.milling_channel
+        self.set_milling_settings(mill_settings)
+        self.clear_patterns()
+
+        logging.debug(
+            {"msg": "setup_milling", "mill_settings": mill_settings.to_dict()}
+        )
+
+    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
+        """Restore the imaging beam, then reset the patterning mode, as ThermoMicroscope
+        does: the mode persists in xT."""
+        super().finish_milling(imaging_current, imaging_voltage)
+        self.set_patterning_mode("Serial")
+
+    def set_patterning_mode(self, mode: str) -> str:
+        """Set the patterning mode, "Serial" or "Parallel", as ThermoMicroscope does.
+
+        Called by `finish_milling`; without it every milling task raised in its
+        cleanup.
+        """
+        if mode not in ("Serial", "Parallel"):
+            raise ValueError(
+                f"Patterning mode {mode} not supported. Supported modes: Serial, Parallel"
+            )
+        self.connection.set_patterning_mode(mode)
+        logging.debug({"msg": "set_patterning_mode", "mode": mode})
+        return mode
+
+    def clear_patterns(self) -> None:
+        self.connection.clear_patterns()
+
+    def get_milling_state(self):
+        # The patterning state is that of the active view, so the milling channel is
+        # selected first, under the same lock as ThermoMicroscope.get_milling_state.
+        with self._threading_lock:
+            self.set_channel(self.milling_channel)
+            return MillingState[self.connection.get_patterning_state().upper()]
+
+    def start_milling(self) -> None:
+        """Start the milling process."""
+        if self.get_milling_state() is MillingState.IDLE:
+            self.connection.start_milling()
+            logging.info("Starting milling...")
+
+    def stop_milling(self) -> None:
+        """Stop the milling process."""
+        if self.get_milling_state() in ACTIVE_MILLING_STATES:
+            logging.info("Stopping milling...")
+            self.connection.stop_milling()
+            logging.info("Milling stopped.")
+
+    def pause_milling(self) -> None:
+        """Pause the milling process."""
+        if self.get_milling_state() == MillingState.RUNNING:
+            logging.info("Pausing milling...")
+            self.connection.pause_milling()
+            logging.info("Milling paused.")
+
+    def resume_milling(self) -> None:
+        """Resume the milling process."""
+        if self.get_milling_state() == MillingState.PAUSED:
+            logging.info("Resuming milling...")
+            self.connection.resume_milling()
+            logging.info("Milling resumed.")
+
+    def estimate_milling_time(self) -> float:
+        return self.connection.estimate_milling_time()
+
+
 # This driver, as the registry knows it (fibsem.microscopes.registry). No port:
 # Odemis reaches the instrument through its own back end.
 DRIVER = DriverEntry(
@@ -278,7 +466,7 @@ DRIVER = DriverEntry(
 )
 
 
-class OdemisThermoMicroscope(FibsemMicroscope):
+class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope):
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
 
@@ -326,6 +514,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.experiment = FibsemExperimentRef()
 
         self._build_devices()
+        self._build_milling()
 
         self.fm = None
         try:
@@ -380,6 +569,13 @@ class OdemisThermoMicroscope(FibsemMicroscope):
                 },
             }
         )
+
+    def _build_milling(self) -> None:
+        """Build the milling service over the beams; the milling methods then go to it
+        (``ServiceMilling``). Without an ion beam there is none, and they stay here."""
+        from fibsem.services.drivers.odemis import bind_odemis_milling
+
+        self.milling = bind_odemis_milling(self)
 
     def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
         """The FM as the FM API over the Odemis FM devices, which make the odemis
@@ -678,186 +874,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         Deprecated: call ``vertical_move(dy, dx, beam_type=BeamType.ELECTRON)``.
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
-    # Raised rather than skipped. Drawing nothing left a stage with no patterns, which
-    # never leaves IDLE, so the milling run waited on it indefinitely; raising inside
-    # the milling task fails the task with this message and still restores the beams.
-    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
-        raise NotImplementedError(
-            f"{type(self).__name__} cannot draw bitmap patterns: the Delmic "
-            "AutoScript adapter has no bitmap patterning."
-        )
-
-    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
-        raise NotImplementedError(
-            f"{type(self).__name__} cannot draw polygon patterns: the Delmic "
-            "AutoScript adapter has no polygon patterning."
-        )
-
-    def _warn_dropped_pattern_settings(self, pattern_settings) -> None:
-        """Warn about the settings the Delmic adapter ignores (xtadapter 1.16.0).
-
-        It creates each pattern from its geometry and depth only: a pattern meant as
-        an exclusion zone is milled like any other, and a pass count or milling time
-        is replaced by the microscope's own.
-        """
-        dropped = [
-            name
-            for name in ODEMIS_DROPPED_PATTERN_SETTINGS
-            if getattr(pattern_settings, name, None)
-        ]
-        if dropped:
-            logging.warning(
-                f"{type(self).__name__} cannot apply {', '.join(dropped)} to "
-                f"{type(pattern_settings).__name__}: the Delmic AutoScript adapter "
-                "ignores them, and the pattern is drawn without."
-            )
-
-    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):
-        self._warn_dropped_pattern_settings(pattern_settings)
-        pdict = pattern_settings.to_dict()
-
-        pdict["center_x"] = pdict.pop("centre_x")
-        pdict["center_y"] = pdict.pop("centre_y")
-
-        # select the correct pattern function
-        create_pattern_function = self.connection.create_rectangle
-        self.connection.set_default_application_file("Si")
-        if pattern_settings.cross_section is CrossSectionPattern.CleaningCrossSection:
-            create_pattern_function = self.connection.create_cleaning_cross_section
-            self.connection.set_default_application_file("Si-ccs")
-        if pattern_settings.cross_section is CrossSectionPattern.RegularCrossSection:
-            create_pattern_function = self.connection.create_regular_cross_section
-            self.connection.set_default_application_file("Si-multipass")
-
-        # create the pattern (draw)
-        pinfo = create_pattern_function(pdict)
-
-        # restore the default application file
-        self.connection.set_default_application_file(self._default_application_file)
-
-        logging.debug(
-            {
-                "msg": "draw_rectangle",
-                "pattern_settings": pattern_settings.to_dict(),
-                "pinfo": pinfo,
-            }
-        )
-
-    def draw_line(self, pattern_settings: FibsemLineSettings):
-        pdict = pattern_settings.to_dict()
-
-        self.connection.set_default_application_file("Si")
-
-        pinfo = self.connection.create_line(pdict)
-
-        self.connection.set_default_application_file(self._default_application_file)
-
-        logging.debug(
-            {
-                "msg": "draw_line",
-                "pattern_settings": pattern_settings.to_dict(),
-                "pinfo": pinfo,
-            }
-        )
-
-    def draw_circle(self, pattern_settings: FibsemCircleSettings):
-        self._warn_dropped_pattern_settings(pattern_settings)
-        pdict = pattern_settings.to_dict()
-        pdict["outer_diameter"] = 2 * pattern_settings.radius
-        # an annulus, as ThermoMicroscope draws one: the adapter takes the inner
-        # diameter, but this sent 0 and milled the whole disc
-        pdict["inner_diameter"] = 0
-        if pattern_settings.thickness != 0:
-            pdict["inner_diameter"] = (
-                pdict["outer_diameter"] - 2 * pattern_settings.thickness
-            )
-        pdict["center_x"] = pattern_settings.centre_x
-        pdict["center_y"] = pattern_settings.centre_y
-
-        self.connection.set_default_application_file("Si")
-
-        pinfo = self.connection.create_circle(pdict)
-
-        self.connection.set_default_application_file(self._default_application_file)
-
-        logging.debug(
-            {
-                "msg": "draw_circle",
-                "pattern_settings": pattern_settings.to_dict(),
-                "pinfo": pinfo,
-            }
-        )
-
-    def setup_milling(self, mill_settings: FibsemMillingSettings):
-        self._default_application_file = mill_settings.application_file
-        self.milling_channel = mill_settings.milling_channel
-        self.set_milling_settings(mill_settings)
-        self.clear_patterns()
-
-        logging.debug(
-            {"msg": "setup_milling", "mill_settings": mill_settings.to_dict()}
-        )
-
-    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        """Restore the imaging beam, then reset the patterning mode, as ThermoMicroscope
-        does: the mode persists in xT."""
-        super().finish_milling(imaging_current, imaging_voltage)
-        self.set_patterning_mode("Serial")
-
-    def set_patterning_mode(self, mode: str) -> str:
-        """Set the patterning mode, "Serial" or "Parallel", as ThermoMicroscope does.
-
-        Called by `finish_milling`; without it every milling task raised in its
-        cleanup.
-        """
-        if mode not in ("Serial", "Parallel"):
-            raise ValueError(
-                f"Patterning mode {mode} not supported. Supported modes: Serial, Parallel"
-            )
-        self.connection.set_patterning_mode(mode)
-        logging.debug({"msg": "set_patterning_mode", "mode": mode})
-        return mode
-
-    def clear_patterns(self) -> None:
-        self.connection.clear_patterns()
-
-    def get_milling_state(self):
-        # The patterning state is that of the active view, so the milling channel is
-        # selected first, under the same lock as ThermoMicroscope.get_milling_state.
-        with self._threading_lock:
-            self.set_channel(self.milling_channel)
-            return MillingState[self.connection.get_patterning_state().upper()]
-
-    def start_milling(self) -> None:
-        """Start the milling process."""
-        if self.get_milling_state() is MillingState.IDLE:
-            self.connection.start_milling()
-            logging.info("Starting milling...")
-
-    def stop_milling(self) -> None:
-        """Stop the milling process."""
-        if self.get_milling_state() in ACTIVE_MILLING_STATES:
-            logging.info("Stopping milling...")
-            self.connection.stop_milling()
-            logging.info("Milling stopped.")
-
-    def pause_milling(self) -> None:
-        """Pause the milling process."""
-        if self.get_milling_state() == MillingState.RUNNING:
-            logging.info("Pausing milling...")
-            self.connection.pause_milling()
-            logging.info("Milling paused.")
-
-    def resume_milling(self) -> None:
-        """Resume the milling process."""
-        if self.get_milling_state() == MillingState.PAUSED:
-            logging.info("Resuming milling...")
-            self.connection.resume_milling()
-            logging.info("Milling resumed.")
-
-    def estimate_milling_time(self) -> float:
-        return self.connection.estimate_milling_time()
 
 
 class OdemisTescanMicroscope(TescanMicroscope):
