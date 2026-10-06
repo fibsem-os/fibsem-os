@@ -2943,9 +2943,10 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
                 if not self.system.ion.plasma:
                     logging.debug("Plasma gas cannot be set on this microscope.")
                     return
-                if value not in self.get_available_values("plasma_gas", beam_type):
+                gases = beam.source.plasma_gas.available_values
+                if value not in gases:
                     logging.warning(
-                        f"Plasma gas {value} not available. Available values: {self.get_available_values('plasma_gas', beam_type)}"
+                        f"Plasma gas {value} not available. Available values: {gases}"
                     )
 
                 logging.info(
