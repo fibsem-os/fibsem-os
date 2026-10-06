@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_beam_parity.py"
+PINS = Path(__file__).parent / "fixtures" / "available_values_pins.json"
 
 MOVED = [
     "blanked",
@@ -148,13 +149,20 @@ def test_an_unlisted_gas_warns_and_is_still_set(recording):
 @pytest.mark.parametrize("plasma", [False, True])
 @pytest.mark.parametrize("beam", ["ELECTRON", "ION"])
 def test_the_choices_are_get_available_values(recording, plasma, beam):
+    """The choices are what the old get_available_values answered, as pinned in
+    ``tests/fixtures/available_values_pins.json`` before it read them."""
     facts = recording["facts"][f"plasma={plasma} {beam}"]
+    pins = json.loads(PINS.read_text())
+    old = {
+        name: pins[f"thermo plasma={plasma} {beam} {name}"]
+        for name in ("voltage", "current", "detector_type", "plasma_gas")
+    }
     for name in ("voltage", "current", "detector_type"):
-        assert facts["choices"][name] == facts["old_choices"][name], name
+        assert facts["choices"][name] == old[name], name
     # the modes are the detector type's, which can change, so none are cached
     assert facts["choices"]["detector_mode"] is None
     if plasma and beam == "ION":
-        assert facts["choices"]["plasma_gas"] == facts["old_choices"]["plasma_gas"]
+        assert facts["choices"]["plasma_gas"] == old["plasma_gas"]
     else:
         assert facts["choices"]["plasma_gas"] is None  # no gas on this column
 

@@ -264,10 +264,6 @@ def facts():
                     name for name, info in beam.commands.items() if info.available
                 ),
                 "choices": {name: _choices(beam, name) for name in CHOICE_KEYS},
-                "old_choices": {
-                    name: S._plain(microscope.get_available_values(name, beam_type))
-                    for name in CHOICE_KEYS
-                },
                 "hfw_limits": S._plain([beam.hfw.limits.min, beam.hfw.limits.max]),
             }
 

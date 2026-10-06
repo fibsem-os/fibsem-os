@@ -197,7 +197,8 @@ class AutoscriptBeam(Beam):
 
     Each parameter is the matching branch of ``ThermoMicroscope._get``/``_set`` moved
     as it is, so the old call and the device make the same SDK calls and log the same
-    messages. The choices are ``ThermoMicroscope.get_available_values``'s.
+    messages. The choices are what ``ThermoMicroscope.get_available_values`` answers
+    for a beam key.
 
     The detector is the active device's, so the detector parameters claim the imaging
     channel and select this beam's (``needs_channel``), as the old branches do under

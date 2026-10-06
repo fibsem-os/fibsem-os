@@ -1625,40 +1625,13 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
                 return detector
         return None
 
-    def get_available_values(
+    def _get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[Union[str, float]]:
-        """Get a list of available values for a given key.
-        Keys: plasma_gas, current, detector_type
-        """
-        values = []
-
-        if key == "current":
-            if beam_type == BeamType.ELECTRON:
-                values = [1.0e-12]
-            elif beam_type == BeamType.ION:
-                values = [
-                    20e-12,
-                    60e-12,
-                    0.2e-9,
-                    0.74e-9,
-                    2.0e-9,
-                    7.6e-9,
-                    28.0e-9,
-                    120e-9,
-                ]
-
-        if key == "detector_type":
-            detectors = self._get_available_detectors(beam_type=beam_type)
-            values = [detector.name for detector in detectors]
-
-        if key == "preset":
-            values = self._get_presets(beam_type=beam_type)
-
+    ) -> List[str]:
+        """The values of the keys the beam devices don't answer: scan_direction."""
         if key == "scan_direction":
-            values = ["ZigZag", "Flyback", "RLE", "SpiralInsideOut", "SpiralOutsideIn"]
-
-        return values
+            return ["ZigZag", "Flyback", "RLE", "SpiralInsideOut", "SpiralOutsideIn"]
+        return []
 
     def _get(
         self, key: str, beam_type: Optional[BeamType] = None
