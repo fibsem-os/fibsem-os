@@ -66,11 +66,6 @@
    ]
   ]
  },
- "ELECTRON get detector_mode": {
-  "log": [],
-  "result": "None",
-  "sdk": []
- },
  "ELECTRON get detector_type": {
   "log": [],
   "result": "'SE'",
@@ -356,27 +351,6 @@
     {
      "Detector": "SE"
     }
-   ]
-  ]
- },
- "ELECTRON set detector_mode 'SE'": {
-  "log": [],
-  "result": "(None, None)",
-  "sdk": [
-   [
-    "SEM.Beam.GetStatus",
-    [],
-    {}
-   ],
-   [
-    "SEM.Scan.Stop",
-    [],
-    {}
-   ],
-   [
-    "SEM.IsBusy",
-    [],
-    {}
    ]
   ]
  },
@@ -1009,11 +983,6 @@
    ]
   ]
  },
- "ION get detector_mode": {
-  "log": [],
-  "result": "None",
-  "sdk": []
- },
  "ION get detector_type": {
   "log": [],
   "result": "'SE'",
@@ -1291,27 +1260,6 @@
     {
      "Detector": "SE"
     }
-   ]
-  ]
- },
- "ION set detector_mode 'SE'": {
-  "log": [],
-  "result": "(None, None)",
-  "sdk": [
-   [
-    "FIB.Beam.GetStatus",
-    [],
-    {}
-   ],
-   [
-    "FIB.Scan.Stop",
-    [],
-    {}
-   ],
-   [
-    "FIB.IsBusy",
-    [],
-    {}
    ]
   ]
  },
@@ -1876,36 +1824,6 @@
    ],
    [
     "FIB.Beam.GetVoltage",
-    [],
-    {}
-   ]
-  ]
- },
- "ION set working_distance 0.005": {
-  "log": [
-   [
-    "INFO",
-    "Setting working distance directly for BeamType.ION is not supported by Tescan API"
-   ],
-   [
-    "WARNING",
-    "Unknown key: working_distance (BeamType.ION)"
-   ]
-  ],
-  "result": "(None, None)",
-  "sdk": [
-   [
-    "FIB.Beam.GetStatus",
-    [],
-    {}
-   ],
-   [
-    "FIB.Scan.Stop",
-    [],
-    {}
-   ],
-   [
-    "FIB.IsBusy",
     [],
     {}
    ]

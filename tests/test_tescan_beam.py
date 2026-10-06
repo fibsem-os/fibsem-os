@@ -12,6 +12,10 @@ Cases: every beam key on both columns, including the ones a column does not have
 old branches still answer them), the values the Tescan API refuses (the ion column's
 current and voltage), the hfw clip, out-of-range detector levels, an unknown detector
 and an unknown preset. Nothing here has run on an instrument.
+
+Not cases any more: the keys whose old branches only logged, which were deleted, the
+ion column's working distance write and ``detector_mode``. The Tescan API has neither,
+and ``TescanMicroscope``'s wrappers answer for them (``tests/test_tescan_no_control.py``).
 """
 
 import json
@@ -83,6 +87,9 @@ def _run(microscope, fake, call):
     return json.loads(json.dumps(ran, default=repr))
 
 
+#: Writes whose old branches were deleted rather than moved: the API has no control.
+#: ``detector_mode`` reads go too; the ion working distance read never had a branch.
+DELETED = {(E, "detector_mode"), (I, "detector_mode"), (I, "working_distance")}
 GETS = sorted(BEAM_ROUTES)
 
 SETS = [
@@ -113,11 +120,15 @@ SETS = [
 def _cases():
     for beam_type in (E, I):
         for key in GETS:
+            if key == "detector_mode":
+                continue
             yield (
                 f"{beam_type.name} get {key}",
                 (lambda m, k=key, b=beam_type: m.get(k, b)),
             )
         for key, value in SETS:
+            if (beam_type, key) in DELETED:
+                continue
             yield (
                 f"{beam_type.name} set {key} {value!r}",
                 (lambda m, k=key, v=value, b=beam_type: (m.set(k, v, b), m.get(k, b))),
