@@ -916,7 +916,7 @@ class DemoConfiguration:
         if key == "current":
             # return values based on beam type, and plasma gas
             if beam_type is BeamType.ION:
-                plasma_gas = self.get("plasma_gas", beam_type)
+                plasma_gas = self._read_beam("plasma_gas", beam_type)
                 values = SIMULATOR_BEAM_CURRENTS[beam_type][plasma_gas]
             else:
                 values = SIMULATOR_BEAM_CURRENTS[beam_type]
@@ -948,8 +948,9 @@ class DemoConfiguration:
 class DemoImaging:
     """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
 
-    Shared by both demos. It reads and changes the beams only through
-    ``get``/``set``, so on the device-built Demo it images through the beam devices.
+    Shared by both demos. It reads and changes the beams only through the
+    microscope's beam methods, so on the device-built Demo it images through the beam
+    devices.
     Its own state is the imaging channel and last images (``imaging_system``), the
     image sequence and the sample scene, which the demo sets up at construction.
     """
@@ -1066,7 +1067,7 @@ class DemoImaging:
         # the beam at the field it imaged, so anything that follows in image
         # coordinates - a spot burn parked at a normalised point - lands where
         # the reference image says (FIB-954)
-        self.set("hfw", effective_image_settings.hfw, effective_beam_type)
+        self._write_beam("hfw", effective_image_settings.hfw, effective_beam_type)
 
         # get state for image metadata
         microscope_state = self.get_microscope_state(beam_type=effective_beam_type)
@@ -1104,7 +1105,7 @@ class DemoImaging:
             )
             shift = self.get_beam_shift(effective_beam_type)
             try:
-                current = float(self.get("current", effective_beam_type))
+                current = float(self.get_beam_current(effective_beam_type))
             except Exception:
                 current = None
             self._sample_scene.holder_slots = self._scene_holder_slots()
@@ -1439,7 +1440,9 @@ class DemoImaging:
                 self.set_reduced_area_scanning_mode(reduced_area, beam_type)
             # TODO: implement auto-focus
             logging.info(f"Auto-focusing {beam_type.name} beam.")
-            wd: float = self.get("eucentric_height", beam_type=beam_type)  # type: ignore
+            wd: float = self._beam_config(
+                "eucentric_height", beam_type
+            ).eucentric_height
             sim_sleep(
                 random.uniform(0.5, 1.0)
             )  # simulate time taken to calculate auto-focus
@@ -2512,7 +2515,7 @@ class LegacyDemoMicroscope(
 
     def home(self) -> bool:
         self.stage_system.is_homed = True
-        return self.get("stage_homed")
+        return self._stage_value("homed", "stage_homed")
 
 
 def __getattr__(name: str):

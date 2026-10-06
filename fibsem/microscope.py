@@ -31,7 +31,7 @@ from psygnal import Signal
 
 import fibsem.constants as constants
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_COMMAND_ROUTES
+from fibsem.devices.beam import BEAM_COMMAND_ROUTES, BEAM_ROUTES
 from fibsem.devices.core import IMAGING_CHANNEL, Resources
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import (
@@ -494,7 +494,7 @@ class FibsemMicroscope(ABC):
         if self.stage is not None:
             stage_position = self.stage.position.get_value()
         else:
-            stage_position = self.get("stage_position")
+            stage_position = self._get("stage_position")
 
         if not isinstance(stage_position, FibsemStagePosition):
             raise TypeError(f"Expected FibsemStagePosition, got {type(stage_position)}")
@@ -780,7 +780,7 @@ class FibsemMicroscope(ABC):
 
         # A linked stage's z moves the working distance with it, so put it back. An
         # unlinked stage (a compustage never links) leaves it where it was.
-        if self.get("stage_linked"):
+        if self._stage_value("linked", "stage_linked"):
             self.set_working_distance(wd, BeamType.ELECTRON)
 
         # logging
@@ -1254,13 +1254,13 @@ class FibsemMicroscope(ABC):
         if self.manipulator_device is not None:
             state = self.manipulator_device.state.get_value()
             return state is InsertableDeviceState.INSERTED
-        return self.get("manipulator_state")
+        return self._get("manipulator_state")
 
     def get_manipulator_position(self) -> FibsemManipulatorPosition:
         """Get the manipulator position."""
         if self.manipulator_device is not None:
             return self.manipulator_device.position.get_value()
-        return self.get("manipulator_position")
+        return self._get("manipulator_position")
 
     # Every manipulator move returns where the needle is afterwards, as the
     # Manipulator device's commands do. The raw moves go through the device when the
@@ -1946,7 +1946,7 @@ class FibsemMicroscope(ABC):
             stigmation=self.get_stigmation(beam_type),
             shift=self.get_beam_shift(beam_type),
             scan_rotation=self.get_scan_rotation(beam_type),
-            preset=self.get("preset", beam_type),
+            preset=self.get_preset(beam_type),
         )
         logging.debug(
             {
@@ -1983,7 +1983,7 @@ class FibsemMicroscope(ABC):
             if value is not None:
                 setter(value, beam_type)
         if beam_settings.preset is not None:
-            self.set("preset", beam_settings.preset, beam_type)
+            self.set_preset(beam_settings.preset, beam_type)
 
         logging.debug(
             {
@@ -1997,14 +1997,15 @@ class FibsemMicroscope(ABC):
     def get_beam_system_settings(self, beam_type: BeamType) -> BeamSystemSettings:
         """Get the current beam system settings for the specified beam type."""
         logging.debug(f"Getting {beam_type.name} beam system settings...")
+        config = self._beam_config("beam_enabled", beam_type)
         beam_system_settings = BeamSystemSettings(
             beam_type=beam_type,
-            enabled=self.get("beam_enabled", beam_type),
+            enabled=config.enabled,
             beam=self.get_beam_settings(beam_type),
             detector=self.get_detector_settings(beam_type),
-            eucentric_height=self.get("eucentric_height", beam_type),
-            column_tilt=self.get("column_tilt", beam_type),
-            plasma_gas=self.get("plasma_gas", beam_type),
+            eucentric_height=config.eucentric_height,
+            column_tilt=config.column_tilt,
+            plasma_gas=self._read_beam("plasma_gas", beam_type),
         )
 
         logging.debug(
@@ -2020,15 +2021,16 @@ class FibsemMicroscope(ABC):
         """Set the beam system settings for the specified beam type."""
         beam_type = settings.beam_type
         logging.debug(f"Setting {settings.beam_type.name} beam system settings...")
-        self.set("beam_enabled", settings.enabled, beam_type)
+        config = self._beam_config("beam_enabled", beam_type)
+        config.enabled = settings.enabled
         self._apply_beam_defaults(settings)
-        self.set("eucentric_height", settings.eucentric_height, beam_type)
-        self.set("column_tilt", settings.column_tilt, beam_type)
+        config.eucentric_height = settings.eucentric_height
+        config.column_tilt = settings.column_tilt
 
         # Only a plasma column has a gas to set; a None here means "no plasma source",
         # not "clear the gas".
         if beam_type is BeamType.ION and settings.plasma_gas is not None:
-            self.set("plasma_gas", settings.plasma_gas, beam_type)
+            self._write_beam("plasma_gas", settings.plasma_gas, beam_type)
 
         logging.debug(
             {
@@ -2206,13 +2208,9 @@ class FibsemMicroscope(ABC):
         self._set_default_patterning_beam_type(channel)
         self._set_default_application_file(mill_settings.application_file)
         self.set_patterning_mode(mill_settings.patterning_mode)
-        self.set("hfw", mill_settings.hfw, mill_settings.milling_channel)
-        self.set(
-            "current", mill_settings.milling_current, mill_settings.milling_channel
-        )
-        self.set(
-            "voltage", mill_settings.milling_voltage, mill_settings.milling_channel
-        )
+        self._write_beam("hfw", mill_settings.hfw, channel)
+        self._write_beam("current", mill_settings.milling_current, channel)
+        self._write_beam("voltage", mill_settings.milling_voltage, channel)
 
     def is_available(self, system: str) -> bool:
 
@@ -2314,61 +2312,90 @@ class FibsemMicroscope(ABC):
             {"msg": "apply_configuration", "system_settings": system_settings.to_dict()}
         )
 
+    def _stage_value(self, name: str, key: str) -> Any:
+        """The stage device's parameter `name`, or the backend's `_get` of the old
+        `key` where the backend builds no stage or the stage has no such parameter."""
+        param = None if self.stage is None else self.stage.parameters.get(name)
+        return self._get(key) if param is None else param.get_value()
+
     def home(self) -> bool:
         """Home the stage."""
         if self.stage is not None and self.stage.commands["home"].available:
             return self.stage.home()
-        self.set("stage_home", True)
-        return self.get("stage_homed")
+        self._set("stage_home", True)
+        return self._stage_value("homed", "stage_homed")
 
     def link_stage(self) -> bool:
         """Link the stage to the working distance"""
         if self.stage is not None and self.stage.commands["link"].available:
             return self.stage.link()
-        self.set("stage_link", True)
-        return self.get("stage_linked")
+        self._set("stage_link", True)
+        return self._stage_value("linked", "stage_linked")
 
     def pump(self) -> str:
         """ "Pump the chamber."""
         if self.chamber_device is not None:
             return _chamber_state_name(self.chamber_device.pump())
-        self.set("pump_chamber", True)
-        return self.get("chamber_state")
+        self._set("pump_chamber", True)
+        return self._get("chamber_state")
 
     def vent(self) -> str:
         """Vent the chamber."""
         if self.chamber_device is not None:
             return _chamber_state_name(self.chamber_device.vent())
-        self.set("vent_chamber", True)
-        return self.get("chamber_state")
+        self._set("vent_chamber", True)
+        return self._get("chamber_state")
+
+    def _beam_parameter(self, key: str, beam_type: BeamType) -> Optional[Any]:
+        """The beam device's parameter for an old beam key, or None when the backend
+        builds no such beam, or the beam has no such parameter."""
+        beam = self.beams.get(beam_type)
+        return None if beam is None else beam.parameters.get(BEAM_ROUTES[key])
+
+    def _read_beam(self, key: str, beam_type: BeamType) -> Any:
+        """A beam wrapper's read: the beam device's parameter, as the old key returns
+        it, or the backend's `_get` where there is no parameter."""
+        param = self._beam_parameter(key, beam_type)
+        if param is None:
+            return self._get(key, beam_type)
+        return _old_key_value(key, param.get_value())
+
+    def _write_beam(self, key: str, value: Any, beam_type: BeamType) -> None:
+        """A beam wrapper's write: to the beam device's parameter, as the old key
+        wrote it (no validation), or the backend's `_set` where there is none."""
+        param = self._beam_parameter(key, beam_type)
+        if param is None:
+            self._set(key, value, beam_type)
+        else:
+            param.write_through(value)
 
     def turn_on(self, beam_type: BeamType) -> bool:
         """Turn on the specified beam type."""
-        self.set("on", True, beam_type)
-        return self.get("on", beam_type)
+        self._write_beam("on", True, beam_type)
+        return self._read_beam("on", beam_type)
 
     def turn_off(self, beam_type: BeamType) -> bool:
         "Turn off the specified beam type."
-        self.set("on", False, beam_type)
-        return self.get("on", beam_type)
+        self._write_beam("on", False, beam_type)
+        return self._read_beam("on", beam_type)
 
     def is_on(self, beam_type: BeamType) -> bool:
         """Check if the specified beam type is on."""
-        return self.get("on", beam_type)
+        return self._read_beam("on", beam_type)
 
     def blank(self, beam_type: BeamType) -> bool:
         """Blank the specified beam type."""
-        self.set("blanked", True, beam_type)
-        return self.get("blanked", beam_type)
+        self._write_beam("blanked", True, beam_type)
+        return self._read_beam("blanked", beam_type)
 
     def unblank(self, beam_type: BeamType) -> bool:
         """Unblank the specified beam type."""
-        self.set("blanked", False, beam_type)
-        return self.get("blanked", beam_type)
+        self._write_beam("blanked", False, beam_type)
+        return self._read_beam("blanked", beam_type)
 
     def is_blanked(self, beam_type: BeamType) -> bool:
         """Check if the specified beam type is blanked."""
-        return self.get("blanked", beam_type)
+        return self._read_beam("blanked", beam_type)
 
     def get_available_beams(self) -> List[BeamType]:
         """Get the available beams for the microscope."""
@@ -2396,7 +2423,7 @@ class FibsemMicroscope(ABC):
         if beam is not None:
             beam.spot(point)
             return
-        self.set("spot_mode", point, beam_type)
+        self._set("spot_mode", point, beam_type)
         return
 
     def set_reduced_area_scanning_mode(
@@ -2407,7 +2434,7 @@ class FibsemMicroscope(ABC):
         if beam is not None:
             beam.reduced_area(reduced_area)
             return
-        self.set("reduced_area", reduced_area, beam_type)
+        self._set("reduced_area", reduced_area, beam_type)
         return
 
     def set_full_frame_scanning_mode(self, beam_type: BeamType) -> None:
@@ -2416,7 +2443,7 @@ class FibsemMicroscope(ABC):
         if beam is not None:
             beam.full_frame()
             return
-        self.set("full_frame", None, beam_type)
+        self._set("full_frame", None, beam_type)
         return
 
     def run_spot_burn(
@@ -2586,50 +2613,50 @@ class FibsemMicroscope(ABC):
 
     def get_beam_current(self, beam_type: BeamType) -> float:
         """Get the beam current for the specified beam type."""
-        return self.get("current", beam_type)
+        return self._read_beam("current", beam_type)
 
     def set_beam_current(self, current: float, beam_type: BeamType) -> float:
         """Set the beam current for the specified beam type."""
-        self.set("current", current, beam_type)
-        return self.get("current", beam_type)
+        self._write_beam("current", current, beam_type)
+        return self._read_beam("current", beam_type)
 
     def get_beam_voltage(self, beam_type: BeamType) -> float:
         """Get the beam voltage for the specified beam type."""
-        return self.get("voltage", beam_type)
+        return self._read_beam("voltage", beam_type)
 
     def set_beam_voltage(self, voltage: float, beam_type: BeamType) -> float:
         """Set the beam voltage for the specified beam type."""
-        self.set("voltage", voltage, beam_type)
-        return self.get("voltage", beam_type)
+        self._write_beam("voltage", voltage, beam_type)
+        return self._read_beam("voltage", beam_type)
 
     def set_resolution(
         self, resolution: Tuple[int, int], beam_type: BeamType
     ) -> List[int]:
         """Set the resolution for the specified beam type."""
-        self.set("resolution", resolution, beam_type)
-        return self.get("resolution", beam_type)
+        self._write_beam("resolution", resolution, beam_type)
+        return self._read_beam("resolution", beam_type)
 
     def get_resolution(self, beam_type: BeamType) -> Tuple[int, int]:
         """Get the resolution for the specified beam type."""
-        return self.get("resolution", beam_type)
+        return self._read_beam("resolution", beam_type)
 
     def get_field_of_view(self, beam_type: BeamType) -> float:
         """Get the field of view for the specified beam type."""
-        return self.get("hfw", beam_type)
+        return self._read_beam("hfw", beam_type)
 
     def set_field_of_view(self, hfw: float, beam_type: BeamType) -> float:
         """Set the field of view for the specified beam type."""
-        self.set("hfw", hfw, beam_type)
-        return self.get("hfw", beam_type)
+        self._write_beam("hfw", hfw, beam_type)
+        return self._read_beam("hfw", beam_type)
 
     def get_working_distance(self, beam_type: BeamType) -> float:
         """Get the working distance for the specified beam type."""
-        return self.get("working_distance", beam_type)
+        return self._read_beam("working_distance", beam_type)
 
     def set_working_distance(self, wd: float, beam_type: BeamType) -> float:
         """Set the working distance for the specified beam type."""
-        self.set("working_distance", wd, beam_type)
-        return self.get("working_distance", beam_type)
+        self._write_beam("working_distance", wd, beam_type)
+        return self._read_beam("working_distance", beam_type)
 
     def is_working_distance_settable(self, beam_type: BeamType) -> bool:
         """Whether set_working_distance actually reaches the hardware for this beam.
@@ -2643,84 +2670,84 @@ class FibsemMicroscope(ABC):
 
     def get_dwell_time(self, beam_type: BeamType) -> float:
         """Get the dwell time for the specified beam type."""
-        return self.get("dwell_time", beam_type)
+        return self._read_beam("dwell_time", beam_type)
 
     def set_dwell_time(self, dwell_time: float, beam_type: BeamType) -> float:
         """Set the dwell time for the specified beam type."""
-        self.set("dwell_time", dwell_time, beam_type)
-        return self.get("dwell_time", beam_type)
+        self._write_beam("dwell_time", dwell_time, beam_type)
+        return self._read_beam("dwell_time", beam_type)
 
     def get_stigmation(self, beam_type: BeamType) -> Point:
         """Get the stigmation for the specified beam type."""
-        return self.get("stigmation", beam_type)
+        return self._read_beam("stigmation", beam_type)
 
     def set_stigmation(self, stigmation: Point, beam_type: BeamType) -> Point:
         """Set the stigmation for the specified beam type."""
-        self.set("stigmation", stigmation, beam_type)
-        return self.get("stigmation", beam_type)
+        self._write_beam("stigmation", stigmation, beam_type)
+        return self._read_beam("stigmation", beam_type)
 
     def get_beam_shift(self, beam_type: BeamType) -> Point:
         """Get the beam shift for the specified beam type."""
-        return self.get("shift", beam_type)
+        return self._read_beam("shift", beam_type)
 
     def set_beam_shift(self, shift: Point, beam_type: BeamType) -> Point:
         """Set the beam shift for the specified beam type."""
-        self.set("shift", shift, beam_type)
-        return self.get("shift", beam_type)
+        self._write_beam("shift", shift, beam_type)
+        return self._read_beam("shift", beam_type)
 
     def get_scan_rotation(self, beam_type: BeamType) -> float:
         """Get the scan rotation for the specified beam type."""
-        return self.get("scan_rotation", beam_type)
+        return self._read_beam("scan_rotation", beam_type)
 
     def set_scan_rotation(self, rotation: float, beam_type: BeamType) -> float:
         """Set the scan rotation for the specified beam type."""
-        self.set("scan_rotation", rotation, beam_type)
-        return self.get("scan_rotation", beam_type)
+        self._write_beam("scan_rotation", rotation, beam_type)
+        return self._read_beam("scan_rotation", beam_type)
 
     def get_detector_type(self, beam_type: BeamType) -> str:
         """Get the detector type for the specified beam type."""
-        return self.get("detector_type", beam_type)
+        return self._read_beam("detector_type", beam_type)
 
     def set_detector_type(self, detector_type: str, beam_type: BeamType) -> str:
         """Set the detector type for the specified beam type."""
-        self.set("detector_type", detector_type, beam_type)
-        return self.get("detector_type", beam_type)
+        self._write_beam("detector_type", detector_type, beam_type)
+        return self._read_beam("detector_type", beam_type)
 
     def get_detector_mode(self, beam_type: BeamType) -> str:
         """Get the detector mode for the specified beam type."""
-        return self.get("detector_mode", beam_type)
+        return self._read_beam("detector_mode", beam_type)
 
     def set_detector_mode(self, mode: str, beam_type: BeamType) -> str:
         """Set the detector mode for the specified beam type."""
-        self.set("detector_mode", mode, beam_type)
-        return self.get("detector_mode", beam_type)
+        self._write_beam("detector_mode", mode, beam_type)
+        return self._read_beam("detector_mode", beam_type)
 
     def get_detector_contrast(self, beam_type: BeamType) -> float:
         """Get the detector contrast for the specified beam type."""
-        return self.get("detector_contrast", beam_type)
+        return self._read_beam("detector_contrast", beam_type)
 
     def set_detector_contrast(self, contrast: float, beam_type: BeamType) -> float:
         """Set the detector contrast for the specified beam type."""
-        self.set("detector_contrast", contrast, beam_type)
-        return self.get("detector_contrast", beam_type)
+        self._write_beam("detector_contrast", contrast, beam_type)
+        return self._read_beam("detector_contrast", beam_type)
 
     def get_detector_brightness(self, beam_type: BeamType) -> float:
         """Get the detector brightness for the specified beam type."""
-        return self.get("detector_brightness", beam_type)
+        return self._read_beam("detector_brightness", beam_type)
 
     def set_detector_brightness(self, brightness: float, beam_type: BeamType) -> float:
         """Set the detector brightness for the specified beam type."""
-        self.set("detector_brightness", brightness, beam_type)
-        return self.get("detector_brightness", beam_type)
+        self._write_beam("detector_brightness", brightness, beam_type)
+        return self._read_beam("detector_brightness", beam_type)
 
     def get_preset(self, beam_type: BeamType) -> Optional[str]:
         """Get the active preset for the specified beam type, or None if it has none."""
-        return self.get("preset", beam_type)
+        return self._read_beam("preset", beam_type)
 
     def set_preset(self, preset: str, beam_type: BeamType) -> str:
         """Set the preset for the specified beam type."""
-        self.set("preset", preset, beam_type)
-        return self.get("preset", beam_type)
+        self._write_beam("preset", preset, beam_type)
+        return self._read_beam("preset", beam_type)
 
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
         """Specimen minus raw coordinates: the offset a half turn is taken about.

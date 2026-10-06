@@ -106,7 +106,7 @@ def make_microscope(
     def fake_get(key, beam_type=None):
         return {"hfw": HFW, "resolution": resolution, "current": 1e-9}[key]
 
-    microscope.get = fake_get
+    microscope._get = fake_get
 
     # milling state follows the fake DrawBeam, consuming one poll per query so the
     # exposure loop terminates deterministically
