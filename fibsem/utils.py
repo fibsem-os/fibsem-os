@@ -663,6 +663,8 @@ def written_configuration_keys() -> Set[str]:
                     # where the stage travels for it (the beams' is never written).
                     keys.add(f"{device}.roles")
                     keys.update(f"{device}.{k}" for k in STAGE_POSITION_KEYS)
+                    if entry["name"] == "fm":
+                        keys.add(f"{device}.mount_transform")
                     keys.update(
                         f"{device}.{k}"
                         for k in entry

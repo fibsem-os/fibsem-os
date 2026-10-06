@@ -340,3 +340,56 @@ def test_the_version_1_key_left_empty_meant_any_orientation():
     fm = SystemSettings.from_dict(config).stage.devices["FM"]
     assert fm.available_orientations == ["SEM", "FIB", "MILLING", "FM"]
     assert fm.range.x == 20.0e-3, "a version 1 file keeps its 20 mm window"
+
+
+# ---------------------------------------------------------------------------
+# How the FM camera is mounted
+# ---------------------------------------------------------------------------
+
+
+def test_the_fm_entry_states_how_its_camera_is_mounted():
+    from fibsem.structures import CameraImageTransform
+
+    config = {"hardware": {"devices": [{"name": "fm", "mount_transform": "flip-x"}]}}
+
+    system = SystemSettings.from_dict(config)
+
+    assert system.fm.mount_transform is CameraImageTransform.FLIP_X
+    fm = utils.configuration_device(system.to_dict(), "fm")
+    assert fm["mount_transform"] == "flip-x"
+    assert utils.unrecognised_configuration_keys(config) == []
+
+
+def test_an_fm_entry_that_does_not_say_is_mounted_straight_and_saved_unchanged():
+    from fibsem.structures import CameraImageTransform
+
+    system = MicroscopeSettings.from_dict(_version_1()).system
+
+    assert system.fm.mount_transform is CameraImageTransform.NONE
+    assert "mount_transform" not in utils.configuration_device(system.to_dict(), "fm")
+
+
+def test_an_unknown_mount_says_where_it_is_and_what_it_could_be():
+    config = {"hardware": {"devices": [{"name": "fm", "mount_transform": "rotate"}]}}
+
+    with pytest.raises(ValueError, match="fm.*none, flip-x, flip-y, flip-xy"):
+        SystemSettings.from_dict(config)
+
+
+def test_the_demo_microscope_hands_the_fm_entry_to_its_fm(tmp_path):
+    """The configuration's fm entry reaches the FM's devices as the binder's config,
+    so the images come out the way round the mount says."""
+    from fibsem.structures import CameraImageTransform
+
+    config = utils.load_yaml(
+        os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    )
+    config = utils.upgrade_configuration(config)
+    utils.configuration_device(config, "fm", create=True)["mount_transform"] = "flip-xy"
+    path = tmp_path / "microscope-configuration.yaml"
+    path.write_text(yaml.safe_dump(config))
+
+    microscope, _ = utils.setup_session(config_path=str(path))
+
+    assert microscope.fm.devices["camera"].mount_transform.get_value() == "flip-xy"
+    assert microscope.fm.mount_transform is CameraImageTransform.FLIP_XY

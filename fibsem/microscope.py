@@ -867,13 +867,14 @@ class FibsemMicroscope(ABC):
         wd = self.get_working_distance(beam_type=BeamType.ELECTRON)
 
         scan_rotation = self.get_scan_rotation(beam_type=BeamType.ION)
+        stage_tilt = self.get_stage_position().t
         stage_position = vertical_move_delta(
             dx=dx,
             dy=dy,
             scan_rotation=scan_rotation,
             fib_column_tilt=self.system.ion.column_tilt,
-            stage_tilt=self.get_stage_position().t,
-            is_compustage=self.stage_is_compustage,
+            stage_tilt=stage_tilt,
+            turned_over=self._stage_turned_over(stage_tilt),
             relaxation=relaxation,
         )
         logging.info(f"Vertical movement: {stage_position}")
@@ -1101,6 +1102,12 @@ class FibsemMicroscope(ABC):
         fm = self.system.fm
         if fm.driver != FM_DRIVER_REMOTE or not self._fluorescence_is_configured():
             return None
+        if fm.mount_transform is not CameraImageTransform.NONE:
+            logging.warning(
+                "The configuration states the FM's mount_transform, but this FM is "
+                "remote: its server states its own (--mount-transform), and that "
+                "is what is used."
+            )
         if fm.address is None or fm.port is None:
             message = (
                 "The fluorescence microscope is configured as remote but has no "
@@ -3111,6 +3118,17 @@ class FibsemMicroscope(ABC):
             raise ValueError(f"Orientation {orientation} not supported.")
 
         return self.orientations[orientation]
+
+    def _stage_turned_over(self, tilt: float) -> bool:
+        """Whether the stage has the sample turned over at this tilt, in radians.
+
+        The stage device says (FIB-1124); a backend without one gets its default.
+        """
+        if self.stage_device is not None:
+            return self.stage_device.turned_over(tilt)
+        from fibsem.devices.stage import tilted_past_vertical
+
+        return tilted_past_vertical(tilt)
 
     def _stage_poses(self) -> Dict[str, FibsemStagePosition]:
         """The stage's pose for each orientation name, from the configured geometry.
