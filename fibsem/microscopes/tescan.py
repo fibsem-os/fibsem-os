@@ -8,19 +8,20 @@ import time
 from copy import deepcopy
 from queue import Queue
 from types import MappingProxyType
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
 import fibsem.constants as constants
 from fibsem import manufacturers
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
+from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
     _records_stage_move,
 )
-from fibsem.microscopes.registry import DriverEntry
+from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.services.milling import ServiceMilling
 
 TESCAN_API_AVAILABLE = False
@@ -80,6 +81,7 @@ from fibsem.structures import (  # noqa
     BeamSystemSettings,
     BeamType,
     CrossSectionPattern,
+    DeviceEntry,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
@@ -688,7 +690,19 @@ DRIVER = DriverEntry(
     manufacturer=manufacturers.TESCAN,
     microscope_class="fibsem.microscopes.tescan:TescanMicroscope",
     config={"port": 8300, "ion-column-tilt": 55, "electron-column-tilt": 0},
+    devices={
+        device_type: DeviceBuilder(
+            f"fibsem.devices.drivers.tescan:build_tescan_{device_type}"
+        )
+        for device_type in ("beam", "stage")
+    },
 )
+
+# The device types each connect step builds (``TescanMicroscope._build_devices``);
+# any other type a configuration adds is built last.
+_BEAM_TYPES = ("beam",)
+_STAGE_TYPES = ("stage",)
+_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES
 
 
 class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
@@ -798,6 +812,8 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         self._build_beams()
         self._build_stage()
         self._build_milling()
+        # whatever else the configuration adds, such as a device on its own PC
+        self._build_devices([], exclude_types=_OWN_TYPES)
 
         available_detectors = self._get_available_detectors(BeamType.ELECTRON)
         if self._default_detector_names[BeamType.ELECTRON] not in [
@@ -836,6 +852,23 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
             }
         )
 
+    def _build_devices(
+        self,
+        defaults: List[DeviceEntry],
+        types: Optional[Tuple[str, ...]] = None,
+        exclude_types: Tuple[str, ...] = (),
+    ) -> Dict[str, Any]:
+        """Build one connect step's devices: *defaults*, what the instrument has, with
+        the configuration's ``hardware.devices`` entries of *types* over them
+        (``fibsem.devices.entries``), and put them in ``devices``."""
+        resolved = resolve_system_devices(
+            self.system, defaults, types, exclude_types, manufacturers.TESCAN
+        )
+        built = build_device_entries(resolved, self)
+        for name, device in built.items():
+            self._set_device(name, device)
+        return built
+
     def _build_beams(self) -> None:
         """Build the beam devices and route the beam keys to them.
 
@@ -843,9 +876,13 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         ``detector_mode``) is still answered by ``_get``/``_set``,
         and so is every key of a disabled column, which gets no device.
         """
-        from fibsem.devices.drivers.tescan import bind_tescan_beams
-
-        self.beams = MappingProxyType(bind_tescan_beams(self))
+        self._build_devices(
+            [
+                DeviceEntry(name="electron", type="beam"),
+                DeviceEntry(name="ion", type="beam"),
+            ],
+            _BEAM_TYPES,
+        )
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
 
     def _build_milling(self) -> None:
@@ -863,9 +900,7 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         key still goes to ``_get``/``_set``. A disabled stage gets no device, and then
         the stage cannot be read or moved.
         """
-        from fibsem.devices.drivers.tescan import bind_tescan_stage
-
-        self.stage = bind_tescan_stage(self)
+        self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
         if self.stage is not None:
             self._device_routes = MappingProxyType(
                 {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
