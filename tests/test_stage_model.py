@@ -76,13 +76,10 @@ def _named_fib_pose_mirror(geometry, r, t) -> float:
     return -sign
 
 
-# The views each pose images with: the FM camera looks up from under the grid.
-VIEWS_USED = {
-    "SEM": ("SEM",),
-    "MILLING": ("FIB",),
-    "FIB": ("SEM", "FIB"),
-    "FM": ("FM",),
-}
+# Where mirroring back views parts from the named FIB-pose rule, at a declared pose: on
+# a compustage, the beams at the FM pose and the FM camera, which looks up from under
+# the grid, at the beam poses. No image is taken at any of them.
+MIRROR_DIFFERS_AT = {("SEM", "FM"), ("FIB", "FM"), ("FM", "SEM"), ("FM", "FIB")}
 
 
 def test_the_model_is_built_from_an_images_geometry(stage):
@@ -130,16 +127,19 @@ def test_a_stage_move_shows_in_the_image_as_today(stage):
                 )
 
 
-def test_the_mirror_is_the_named_one_wherever_a_view_images(stage):
-    """Mirroring back views changes nothing at a pose a view is used at."""
+def test_the_mirror_is_the_named_one_at_every_declared_pose(stage):
+    """Every view at every declared pose, apart from the pairs no image is taken at."""
     geometry, poses = stage
     model = StageModel.from_geometry(geometry)
     views = dict(_views(geometry), FM=np.pi)
-    for name, pose in poses.items():
-        for view in VIEWS_USED.get(name, ()):
-            assert _mirror(
-                geometry, model, views[view], pose.r, pose.t
-            ) == _named_fib_pose_mirror(geometry, pose.r, pose.t), f"{name}, {view}"
+    differs = {
+        (view, name)
+        for name, pose in poses.items()
+        for view, view_tilt in views.items()
+        if _mirror(geometry, model, view_tilt, pose.r, pose.t)
+        != _named_fib_pose_mirror(geometry, pose.r, pose.t)
+    }
+    assert differs == (MIRROR_DIFFERS_AT if geometry.is_compustage else set())
 
 
 def test_where_the_mirror_differs_from_the_named_one(stage):
