@@ -1162,8 +1162,7 @@ class _CoordinatesTab(QWidget):
         checks_layout.setSpacing(16)
         self._auto_rerun_check.setToolTip(
             "Run the correlation again when the points stop changing, rather "
-            "than waiting for Run.\nContinue still has to be pressed, and a "
-            "poor fit still refuses it."
+            "than waiting for Run.\nContinue still has to be pressed."
         )
         checks_layout.addWidget(self._show_diag_check)
         checks_layout.addWidget(self._auto_accept_check)
@@ -2651,7 +2650,7 @@ class CorrelationTabWidget(QWidget):
         """
         self._btn_continue.setEnabled(live)
         self._btn_continue.setVisible(live)
-        self._btn_continue.setToolTip("")  # a poor verdict sets its own, below
+        self._btn_continue.setToolTip("")
         self._btn_continue.setStyleSheet(
             stylesheets.PRIMARY_BUTTON_STYLESHEET
             if live
@@ -4184,7 +4183,6 @@ class CorrelationTabWidget(QWidget):
             parts.append(text)
         self._lbl_status.setText(" ".join(parts))
         self._lbl_result.setVisible(False)
-        self._gate_continue_on_verdict(v.tier)
         flagged = (
             {d.pairs[d.worst].index}
             if v.tier != "good" and d.worst is not None and d.pairs
@@ -4202,13 +4200,22 @@ class CorrelationTabWidget(QWidget):
                 notes[id(fm[p.index])] = (f"{p.loo_error_um:.1f} µm", tone)
         self._coords_tab.fm_list.set_notes(notes)
 
-    def _gate_continue_on_verdict(self, tier: str) -> None:
-        """A poor fit keeps Continue disabled even while the result is live."""
-        if tier == "bad":
-            self._btn_continue.setEnabled(False)
-            self._btn_continue.setToolTip(
-                "The fit is poor; fix the fiducials and run again."
-            )
+    @staticmethod
+    def _poor_fit_warning(result: CorrelationResult) -> Optional[str]:
+        """The verdict's case against a poor fit, for the Continue confirmation;
+        None unless the verdict is poor. The user may still take it (FIB-1172)."""
+        if not result.diagnostics:
+            return None
+        from fibsem.correlation.verdict import FitDiagnostics, verdict
+
+        d = FitDiagnostics.from_dict(result.diagnostics)
+        if verdict(d).tier != "bad":
+            return None
+        worst = ""
+        if d.worst is not None and d.pairs:
+            w = d.pairs[d.worst]
+            worst = f", worst fiducial FM {w.index + 1} {w.loo_error_um:.2f} µm off"
+        return f"The fit is poor (RMS {d.rms_um:.2f} µm{worst})."
 
     def _on_status_link(self, href: str) -> None:
         """A fiducial named in the verdict selects that pair on both canvases."""
@@ -4311,13 +4318,7 @@ class CorrelationTabWidget(QWidget):
         # marked the result stale and hid Continue. Apply records that surface on
         # the result, which can make it current again -- re-judge it, or Continue
         # stays hidden on a corrected result that is ready to commit.
-        live = result.matches_inputs(self.fit_data)
-        self._set_result_live(live)
-        if live and result.diagnostics:
-            from fibsem.correlation.verdict import FitDiagnostics, verdict
-
-            d = FitDiagnostics.from_dict(result.diagnostics)
-            self._gate_continue_on_verdict(verdict(d).tier)
+        self._set_result_live(result.matches_inputs(self.fit_data))
         factor = result.refractive_index_correction_factor
         shift = self._poi_shift_px(result)
         if factor is not None and shift is not None:
@@ -4507,10 +4508,15 @@ class CorrelationTabWidget(QWidget):
     def _on_continue_pressed(self) -> None:
         if self._result is None:
             return
+        # A poor fit no longer disables Continue; the warning is in front of the
+        # user when they decide, and the recorded event carries the verdict.
+        warning = self._poor_fit_warning(self._result)
         reply = QMessageBox.question(
             self,
             "Finish Correlation",
-            "Continue with correlation result and close?",
+            f"{warning}\n\nContinue anyway?"
+            if warning
+            else "Continue with correlation result and close?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
