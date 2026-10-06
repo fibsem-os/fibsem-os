@@ -106,8 +106,9 @@ Each group contributes one kind of object:
   `FibsemMicroscope` subclass, its manufacturer, its defaults, and how it
   builds each type of device. A configuration naming that manufacturer
   connects through it, and a `hardware.devices` entry naming it as its
-  `driver` is built by it. [Adding a driver](devices.md#adding-a-driver) shows
-  one that adds a device type.
+  `driver` is built by it. A driver can also build devices only, with no
+  microscope class, such as a manipulator on its own controller.
+  [Adding a driver](devices.md#adding-a-driver) shows one that adds a device type.
 
 When a built-in, a runtime registration and a plugin claim the same name, the
 built-in is used, then the runtime registration, then the plugin.

@@ -17,6 +17,10 @@ naming a function that returns its ``DriverEntry``::
     [project.entry-points."fibsem.drivers"]
     jeol = "fibsem_jeol.registry:driver"
 
+A driver that only builds devices (a manipulator on its own controller, configured as a
+``hardware.devices`` entry next to a vendor's microscope) registers the same way, with
+no ``microscope_class``; it is never offered as a manufacturer.
+
 Built-ins in code, plugins in packages, as in fibsem's other plugin groups. A record
 rather than the class, so the format survives the microscope classes becoming device
 builders (FIB-1160): the entry is what changes, not the contract. The entry points
@@ -57,10 +61,15 @@ class DriverEntry:
     """One driver, as the connect code needs to know it."""
 
     manufacturer: str
-    """The canonical manufacturer name, as ``SystemInfo.manufacturer`` carries it."""
+    """The canonical manufacturer name, as ``SystemInfo.manufacturer`` carries it.
+    For a driver that only builds devices, the name a device entry's ``driver:``
+    gives it."""
 
-    microscope_class: str
-    """The driver's ``FibsemMicroscope`` subclass, as ``"module:Class"``."""
+    microscope_class: Optional[str] = None
+    """The driver's ``FibsemMicroscope`` subclass, as ``"module:Class"``. ``None`` for
+    a driver that only builds devices (a manipulator on its own controller, say): it
+    is named on a ``hardware.devices`` entry, next to a vendor's microscope, and is
+    never a manufacturer."""
 
     config: Mapping[str, Any] = field(default_factory=dict)
     """The driver's own facts, and the default configuration values for its
@@ -76,8 +85,18 @@ class DriverEntry:
     ``stage``, ``chamber``, ...): what a ``hardware.devices`` entry naming this driver
     is built with. See :func:`device_builder`."""
 
+    @property
+    def builds_microscope(self) -> bool:
+        """Whether the driver connects a microscope, not only devices."""
+        return self.microscope_class is not None
+
     def load(self) -> Type["FibsemMicroscope"]:
         """Import and return the driver's class."""
+        if self.microscope_class is None:
+            raise NotImplementedError(
+                f"Driver {self.manufacturer} builds devices, not a microscope: name it "
+                "as the driver of a hardware.devices entry, not as the manufacturer."
+            )
         return _import(self.microscope_class)
 
 
@@ -179,8 +198,13 @@ DRIVER_PLUGINS: PluginRegistry[DriverEntry] = _DriverRegistry(
     kind="driver",
     resolve=_resolve_driver,
     builtins=_BuiltInDrivers(),
-    describe=lambda entry: entry.microscope_class,
+    describe=lambda entry: entry.microscope_class or _describe_devices(entry),
 )
+
+
+def _describe_devices(entry: DriverEntry) -> str:
+    """What a listing shows for a driver that only builds devices."""
+    return "devices: " + (", ".join(entry.devices) or "none")
 
 
 def register_driver(entry: DriverEntry) -> None:
@@ -207,10 +231,25 @@ def get_driver(manufacturer: Optional[str]) -> DriverEntry:
     Raises ``NotImplementedError`` for a manufacturer no driver answers to, with the
     message ``setup_session`` has always given.
     """
-    entry = DRIVER_PLUGINS.get(manufacturers.normalize_manufacturer(manufacturer))
+    name = manufacturers.normalize_manufacturer(manufacturer)
+    entry = DRIVER_PLUGINS.get(name)
+    if entry is None and isinstance(name, str):
+        entry = _get_ignoring_case(name)
     if entry is None:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
     return entry
+
+
+def _get_ignoring_case(name: str) -> Optional[DriverEntry]:
+    """A registered or plugin driver whose name differs from *name* only in case, so
+    ``driver: Oxford`` finds a plugin registered as ``oxford``. The built-ins need
+    none of this: ``fibsem.manufacturers`` already knows their spellings."""
+    wanted = name.strip().casefold()
+    for drivers in (DRIVER_PLUGINS.registered, DRIVER_PLUGINS.plugins()):
+        for key, entry in drivers.items():
+            if key.casefold() == wanted:
+                return entry
+    return None
 
 
 def device_builder(driver: Optional[str], type: str) -> Optional[DeviceBuilder]:
@@ -246,10 +285,12 @@ def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":
 
 def registered_manufacturers() -> List[str]:
     """The manufacturers a driver is registered for: the built-ins, then those
-    registered at runtime, then the plugins'. Imports no built-in driver."""
+    registered at runtime, then the plugins'. A driver that only builds devices is no
+    manufacturer, so it is left out. Imports no built-in driver."""
     names = list(_BUILT_IN)
-    for manufacturer in [*DRIVER_PLUGINS.registered, *DRIVER_PLUGINS.plugins()]:
-        if manufacturer not in names:
+    others = [*DRIVER_PLUGINS.registered.items(), *DRIVER_PLUGINS.plugins().items()]
+    for manufacturer, entry in others:
+        if manufacturer not in names and entry.builds_microscope:
             names.append(manufacturer)
     return names
 
