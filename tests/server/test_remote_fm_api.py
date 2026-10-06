@@ -204,16 +204,25 @@ def test_a_server_without_acquire_frame_still_acquires(served):
     assert image.metadata.channels[0].exposure_time == far.camera.exposure_time
 
 
+def _stop_live(fm) -> None:
+    """Stop live view and wait for its worker to end: `stop_acquisition` waits only
+    2 s, which a frame can outlast under `pytest -n`, and the worker sends the far
+    side's ``stop_live`` on its way out."""
+    fm.stop_acquisition()
+    if fm._acquisition_thread is not None:
+        fm._acquisition_thread.join(timeout=60)
+
+
 def test_live_acquisition_streams_frames(served):
     _, fm = served
     fm._rate_limit = 0
     images = []
     fm.acquisition_signal.connect(images.append)
     fm.start_acquisition()
-    end = time.monotonic() + 5
+    end = time.monotonic() + 30
     while len(images) < 3 and time.monotonic() < end:
         time.sleep(0.01)
-    fm.stop_acquisition()
+    _stop_live(fm)
     assert len(images) >= 3
 
 
@@ -226,10 +235,10 @@ def test_live_view_is_pulled_from_the_far_side(served):
     sent = _counting_requests(fm)
     channel = ChannelSettings(excitation_wavelength=450, power=0.3, exposure_time=0.01)
     fm.start_acquisition(channel)
-    end = time.monotonic() + 5
+    end = time.monotonic() + 30
     while len(images) < 3 and time.monotonic() < end:
         time.sleep(0.01)
-    fm.stop_acquisition()
+    _stop_live(fm)
     assert len(images) >= 3
     assert far.light_source.power == 0.3  # set up on the far side
     commands = [path.rsplit("/", 1)[-1] for _, path in sent if "/commands/" in path]
@@ -246,7 +255,7 @@ def test_far_side_live_view_stops_when_the_viewer_goes(served):
     far_group.live_timeout = 0.2
     group.start_live()
     assert far_group.is_live
-    deadline = time.monotonic() + 3
+    deadline = time.monotonic() + 30
     while far_group.is_live and time.monotonic() < deadline:
         time.sleep(0.05)
     assert not far_group.is_live
@@ -260,10 +269,10 @@ def test_a_server_without_live_view_is_still_pulled(served):
     images = []
     fm.acquisition_signal.connect(images.append)
     fm.start_acquisition()
-    end = time.monotonic() + 5
+    end = time.monotonic() + 30
     while len(images) < 2 and time.monotonic() < end:
         time.sleep(0.01)
-    fm.stop_acquisition()
+    _stop_live(fm)
     assert len(images) >= 2
     assert not _far_group(fm).is_live
 
@@ -365,7 +374,11 @@ def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
         local = {d.name: d for d in demo_fm_devices()}
         server = DeviceServer(local.values(), port=port).start()
 
-        assert _wait_for(lambda: fm.online and client.connected, timeout=5)
+        # On came_online too: the client marks itself connected and then emits
+        # `reconnected`, so `connected` can read True a moment before it fires.
+        assert _wait_for(
+            lambda: fm.online and client.connected and came_online, timeout=5
+        )
         assert came_online == [True]
         assert fm.objective.state == "Retracted"
         power = fm.devices["light_source"].power

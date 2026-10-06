@@ -66,7 +66,6 @@ from fibsem.microscopes._stage import SampleGridLoader
 from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.microscopes.simulator import (
     SIM_OBJECTIVE_FOCUS_POSITION,
-    SIMULATOR_KNOWN_UNKNOWN_KEYS,
     DemoConfiguration,
     DemoImaging,
     DemoMilling,
@@ -114,10 +113,6 @@ def _routes(device: str, routes: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
     return {key: (device, name) for key, name in routes.items()}
 
 
-# The beam keys Demo answers without a beam type: no plasma gas, and no preset.
-_BEAM_KEYS_WITHOUT_BEAM = ("plasma_gas", "preset")
-
-
 class DemoFluorescenceMicroscope(FluorescenceMicroscope):
     """The FM API over the Demo FM devices, sharing the imaging channel with the
     beams through the ``fm`` group's ``DemoFMChannel``, as the Thermo FM shares the
@@ -146,21 +141,6 @@ class DemoFluorescenceMicroscope(FluorescenceMicroscope):
     def active_channel(self):
         with self._channel.scope():
             yield
-
-
-def _needs_beam_type(key: str, beam_type: Optional[BeamType]) -> None:
-    """A beam key with no beam type raises, as the Demo's did before devices."""
-    if beam_type is None and key in BEAM_ROUTES and key not in _BEAM_KEYS_WITHOUT_BEAM:
-        raise ValueError(f"{key} needs a beam type")
-
-
-def _unknown_key(key: str, beam_type: Optional[BeamType]) -> None:
-    """Log a key no device or shared code answers, as the Demo did before devices;
-    it reads None."""
-    if key in SIMULATOR_KNOWN_UNKNOWN_KEYS:
-        logging.debug(f"Skipping unknown key: {key} for {beam_type}")
-        return
-    logging.warning(f"Unknown key: {key} ({beam_type})")
 
 
 # This driver, as the registry knows it (fibsem.microscopes.registry).
@@ -293,22 +273,6 @@ class DemoMicroscope(
         beam = self.beams[beam_type]
         return beam.sim_scanning_mode_value, beam.sim_beam
 
-    def _set(self, key: str, value, beam_type: Optional[BeamType] = None) -> None:
-        # The ion beam has a plasma gas only on a plasma column.
-        if key == "plasma_gas" and beam_type is BeamType.ION:
-            logging.debug("Plasma gas cannot be set on this microscope.")
-            return
-        _needs_beam_type(key, beam_type)
-        # A command its device doesn't run: log and do nothing, as the Demo did
-        # before devices.
-        if key == "stage_link":
-            logging.debug("Compustage does not support linking.")
-            return
-        if key in ("pump_chamber", "vent_chamber"):
-            logging.info(f"Invalid value for {key}: {value}")
-            return
-        _unknown_key(key, beam_type)
-
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Any]:
@@ -323,16 +287,6 @@ class DemoMicroscope(
         if configured is not None:
             return configured
         return super().get_available_values(key, beam_type)
-
-    def _get(self, key: str, beam_type: Optional[BeamType] = None) -> Any:
-        # A beam has a plasma gas only on a plasma column.
-        if key == "plasma_gas":
-            return None
-        _needs_beam_type(key, beam_type)
-        # A compustage has no link; nothing changes the stage's own flag there.
-        if key == "stage_linked":
-            return self.stage.sim_linked
-        return _unknown_key(key, beam_type)
 
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType
