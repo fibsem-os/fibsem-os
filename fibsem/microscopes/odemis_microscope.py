@@ -435,6 +435,17 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     ) -> FibsemImage:
         """Acquire an image with `image_settings`, or with the current settings of
         `beam_type` when that is given instead."""
+        # The beam's acquire command, when the beams were built; a beam_type takes
+        # precedence and means the current settings, as below.
+        target = (
+            beam_type
+            if beam_type is not None
+            else getattr(image_settings, "beam_type", None)
+        )
+        beam = self.beams.get(target) if target is not None else None
+        if beam is not None:
+            return beam.acquire(None if beam_type is not None else image_settings)
+
         if beam_type is not None:
             return self._acquire_current_image(beam_type)
         if image_settings is None:
@@ -501,6 +512,9 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         )
 
     def last_image(self, beam_type: BeamType) -> FibsemImage:
+        beam = self.beams.get(beam_type)
+        if beam is not None:
+            return beam.last_image()
         image = self.connection.get_last_image(channel=beam_type_to_odemis[beam_type])
         # The client is annotated as returning (image, metadata), but the AutoScript
         # adapter (1.16.0) returns the bare array.
@@ -538,6 +552,10 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def autocontrast(
         self, beam_type: BeamType, reduced_area: FibsemRectangle = None
     ) -> None:
+        beam = self.beams.get(beam_type)
+        if beam is not None:
+            beam.autocontrast(reduced_area)
+            return
         channel = beam_type_to_odemis[beam_type]
         if reduced_area is not None:
             self.connection.set_reduced_area_scan_mode(
