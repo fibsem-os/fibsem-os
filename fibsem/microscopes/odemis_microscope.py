@@ -13,12 +13,12 @@ from psygnal import Signal
 from fibsem import manufacturers
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
+from fibsem.devices.drivers.odemis import ODEMIS_VOLTAGE_CHOICES
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
 )
-from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES
 from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.milling.progress import MillingProgress
@@ -783,7 +783,7 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
             low, high = self.connection.high_voltage_info(
                 beam_type_to_odemis[beam_type]
             )["range"]
-            values = [v for v in THERMO_VOLTAGE_CHOICES[beam_type] if low <= v <= high]
+            values = [v for v in ODEMIS_VOLTAGE_CHOICES[beam_type] if low <= v <= high]
         if key == "plasma_gas":
             values = ["Argon", "Oxygen", "Xenon"]
 
@@ -801,8 +801,15 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
 
 class OdemisTescanMicroscope(TescanMicroscope):
     """Tescan integration through Odemis.
-    Currently wraps TescanMicroscope; will be extended
-    to support Odemis-specific features (e.g., MicroscopePostureManager)."""
+
+    Currently wraps TescanMicroscope; will be extended to support Odemis-specific
+    features (e.g., MicroscopePostureManager).
+
+    Kept for an external consumer that imports it by this name, although nothing in
+    fibsem uses it and the driver registry does not list it. It is the one place the
+    Odemis driver imports another driver (Tescan), so keep it when moving or removing
+    code here.
+    """
 
     def __init__(self, system_settings: SystemSettings):
         super().__init__(system_settings=system_settings)

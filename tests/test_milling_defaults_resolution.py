@@ -5,8 +5,9 @@ Odemis and Demo used to call ThermoMicroscope's `run_milling`, `finish_milling`,
 the borrowed body reaches something the borrower lacks (FIB-1154). The milling bodies
 use only base-class members, so they are base-class defaults now, and this pins which
 class each backend gets them from. Application files are a ThermoFisher setting, so
-their matching stays off the base class: it is `match_application_file`, which
-ThermoFisher and Demo (a simulated ThermoFisher system) both call.
+their matching stays off the base class: it is
+`fibsem.util.application_file.match_application_file`, which ThermoFisher and Demo (a
+simulated ThermoFisher system) both call.
 """
 
 import pytest
