@@ -31,7 +31,13 @@ from psygnal import Signal
 
 import fibsem.constants as constants
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_COMMAND_ROUTES, BEAM_ROUTES
+from fibsem.devices.beam import (
+    BEAM_COMMAND_ROUTES,
+    BEAM_ROUTES,
+    STAGE_COMMAND_ROUTES,
+    STAGE_ROUTES,
+)
+from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.core import IMAGING_CHANNEL, Resources
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import (
@@ -118,6 +124,23 @@ _VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber", "stage_link")
 # Keys only ever set: the old `_get` has no branch for them and returns None. A get
 # stays with `_get`, so it still returns None, rather than reading the device.
 _SET_ONLY_KEYS = frozenset(("angular_correction_tilt_correction",))
+# The old keys a device answers. A microscope whose device lacks the parameter or
+# command (or that has no such device) doesn't support the key: it reads None and a
+# write does nothing, quietly. Any other key is unknown, and says so.
+_DEVICE_KEYS = frozenset(
+    (
+        *BEAM_ROUTES,
+        *BEAM_COMMAND_ROUTES,
+        *STAGE_ROUTES,
+        *STAGE_COMMAND_ROUTES,
+        *CHAMBER_ROUTES,
+        *CHAMBER_COMMAND_ROUTES,
+        "manipulator_position",
+        "manipulator_state",
+    )
+)
+# The beam keys that may be asked without a beam type; any other needs one.
+_BEAM_KEYS_WITHOUT_BEAM = frozenset(("plasma_gas", "preset"))
 # Modules that implement the old API, whose own get/set calls are not deprecated: the
 # named wrappers here, the backends, and the device router.
 _KEY_API_MODULES = ("fibsem.microscope", "fibsem.microscopes.", "fibsem.devices.")
@@ -1887,20 +1910,37 @@ class FibsemMicroscope(ABC):
             stacklevel=3,
         )
 
-    @abstractmethod
     def _get(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> Union[float, int, bool, str, list]:
-        pass
+        """A key no device answered: None (see `_no_key`). A backend with keys of
+        its own answers them here first."""
+        self._no_key(key, beam_type)
+        return None
 
-    @abstractmethod
     def _set(
         self,
         key: str,
         value: Union[str, float, int, list, tuple, Point],
         beam_type: Optional[BeamType] = None,
     ) -> None:
-        pass
+        """A key no device answered: nothing to do (see `_no_key`)."""
+        self._no_key(key, beam_type)
+
+    def _no_key(self, key: str, beam_type: Optional[BeamType]) -> None:
+        """What a key no device answered means: a beam key with no beam type is an
+        error; a device's key the microscope's device doesn't have is unsupported,
+        quietly (absent = unsupported); anything else is unknown, with a warning."""
+        if (
+            beam_type is None
+            and key in BEAM_ROUTES
+            and key not in _BEAM_KEYS_WITHOUT_BEAM
+        ):
+            raise ValueError(f"{key} needs a beam type")
+        if key in _DEVICE_KEYS:
+            logging.debug(f"{key} is not supported here ({beam_type}).")
+            return
+        logging.warning(f"Unknown key: {key} ({beam_type})")
 
     # TODO: i dont think this is needed, you set the beam settings and detector settings separately
     # you can't set image settings, only when acquiring an image
