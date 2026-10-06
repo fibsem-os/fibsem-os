@@ -457,3 +457,61 @@ def test_the_demo_builders_build_each_device_from_its_entry():
     with pytest.raises(ValueError, match="'electron' or 'ion'"):
         beam = registry.device_builder(manufacturers.DEMO, "beam").load()
         beam(DeviceEntry(name="third", type="beam"), context)
+
+
+# ---------------------------------------------------------------------------
+# Drivers that only build devices
+# ---------------------------------------------------------------------------
+
+DEVICE_ONLY = DriverEntry(
+    "oxford",
+    devices={
+        "manipulator": registry.DeviceBuilder(
+            f"{__name__}:_build_laser", implements=("Manipulator",)
+        )
+    },
+)
+
+
+def test_a_plugin_can_build_devices_and_no_microscope(restore_registry, monkeypatch):
+    _install(monkeypatch, _EntryPoint("oxford", lambda: DEVICE_ONLY))
+
+    for spelling in ("oxford", "Oxford", " OXFORD "):
+        builder = registry.device_builder(spelling, "manipulator")
+        assert builder is DEVICE_ONLY.devices["manipulator"]
+    assert not DEVICE_ONLY.builds_microscope
+
+
+def test_a_device_only_driver_is_not_a_manufacturer(restore_registry, monkeypatch):
+    _install(monkeypatch, _EntryPoint("oxford", lambda: DEVICE_ONLY))
+
+    assert "oxford" not in registry.registered_manufacturers()
+    assert "oxford" not in registry.default_configuration_values()
+    system = utils.load_microscope_configuration(None, None).system
+    system.info.manufacturer = "oxford"
+    with pytest.raises(NotImplementedError, match="builds devices, not a microscope"):
+        registry.connect_microscope(system)
+
+
+def test_a_listing_shows_what_a_device_only_driver_builds(
+    restore_registry, monkeypatch
+):
+    _install(monkeypatch, _EntryPoint("oxford", lambda: DEVICE_ONLY))
+    assert registry.DRIVER_PLUGINS.describe(get_driver("oxford")) == (
+        "devices: manipulator"
+    )
+
+
+def test_a_device_only_driver_builds_an_added_entry(restore_registry):
+    """On the Demo, an entry naming the driver is built by it, next to the Demo's
+    own devices."""
+    from fibsem.devices.entries import build_device_entries, resolve_device_entries
+
+    register_driver(DEVICE_ONLY)
+    resolved = resolve_device_entries(
+        [DeviceEntry(name="stage", type="stage")],
+        {"needle": DeviceEntry(name="needle", type="manipulator", driver="Oxford")},
+        manufacturers.DEMO,
+    )
+    built = build_device_entries(resolved[1:], microscope=None)
+    assert built["needle"][0] == "needle"
