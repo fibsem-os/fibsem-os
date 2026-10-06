@@ -38,13 +38,16 @@ jobs:
         # codebase was previously untested on the platform that matters (FIB-704) --
         # but twelve jobs is more wall-clock than the coverage is worth, and the
         # oldest and newest catch what the middle would.
+        #
+        # A pull request runs a subset: Linux 3.8 and 3.13, Windows 3.8. The account
+        # gets about 20 concurrent hosted jobs and a full run takes 11 of them, so with
+        # many open pull requests pushing, jobs queued for 15 to 75 minutes before
+        # starting (2026-10-06). The subset keeps the 3.8 floor on both platforms and
+        # the newest version; the middle versions and Windows 3.13 still run on every
+        # push to main and release branches.
         os: [ubuntu-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
-        include:
-          - os: windows-latest
-            python-version: "3.8"
-          - os: windows-latest
-            python-version: "3.13"
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.8", "3.13"]' || '["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]') }}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"windows-latest","python-version":"3.8"}]' || '[{"os":"windows-latest","python-version":"3.8"}, {"os":"windows-latest","python-version":"3.13"}]') }}
 
     steps:
     - uses: actions/checkout@v7
