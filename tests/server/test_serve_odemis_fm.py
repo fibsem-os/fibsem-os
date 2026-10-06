@@ -110,3 +110,43 @@ def test_a_remote_fm_shows_power_and_gain_in_the_hardwares_units(odemis_stubs):
     finally:
         client.close()
         server.stop()
+
+
+def test_a_remote_fm_brings_how_its_camera_is_mounted(odemis_stubs):
+    """The METEOR's server states the mount; a client applies it to every frame
+    before the user's own transform, without being told it separately."""
+    pytest.importorskip("websockets")
+    import numpy as np
+
+    from fibsem.devices.drivers.remote import DeviceClient
+    from fibsem.fm.remote import RemoteFluorescenceMicroscope
+    from fibsem.fm.structures import CameraImageTransform
+    from fibsem.server.devices import DeviceServer
+
+    server = DeviceServer(odemis_fm_devices({"mount_transform": "flip-x"})).start()
+    client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
+    try:
+        fm = RemoteFluorescenceMicroscope.connect(
+            "127.0.0.1", server.port, client=client
+        )
+        assert fm.mount_transform is CameraImageTransform.FLIP_X
+        frame = np.arange(6).reshape(2, 3)
+        np.testing.assert_array_equal(fm._apply_image_transform(frame), frame[:, ::-1])
+    finally:
+        client.close()
+        server.stop()
+
+
+def test_the_command_line_names_the_mount(odemis_stubs, monkeypatch):
+    served = {}
+
+    def odemis_fm_devices(config):
+        served["config"] = config
+        return []
+
+    monkeypatch.setattr(server_devices, "odemis_fm_devices", odemis_fm_devices)
+    monkeypatch.setattr(server_devices.uvicorn, "run", lambda *a, **k: None)
+
+    server_devices.main(["--serve", "odemis-fm", "--mount-transform", "flip-y"])
+
+    assert served["config"] == {"mount_transform": "flip-y"}

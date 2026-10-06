@@ -240,6 +240,7 @@ def test_the_drivers_are_the_fm_devices(facts):
         "binning",
         "exposure_time",
         "gain",
+        "mount_transform",
         "offset",
         "pixel_size",
         "resolution",

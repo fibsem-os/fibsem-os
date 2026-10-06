@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import threading
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -937,9 +937,11 @@ def bind_demo_fm(
     microscope: DemoMicroscope,
     fm: FluorescenceMicroscope,
     resources: Optional[Resources] = None,
+    config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Device]:
     """Build the FM's parts and group for a connected Demo microscope, each starting
-    where the simulated FM ``fm``'s part is, by device name."""
+    where the simulated FM ``fm``'s part is, by device name. *config* is the fm
+    entry's own keys (``mount_transform``)."""
     resources = resources if resources is not None else resources_of(microscope)
     parts: Dict[str, Device] = {
         "camera": DemoCamera(fm.camera, microscope, resources),
@@ -947,5 +949,6 @@ def bind_demo_fm(
         "filter_set": DemoFilterSet(fm.filter_set, microscope, resources),
         "objective": DemoObjective(fm.objective, microscope, resources),
     }
+    parts["camera"].configure(config)
     group = DemoFM(microscope, resources).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}
