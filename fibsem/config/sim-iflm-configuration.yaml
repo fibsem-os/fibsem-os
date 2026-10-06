@@ -73,7 +73,6 @@ defaults:                                                   # what a session sta
         autocontrast:               false                       # use autocontrast                                              [USER]
         save:                       false                       # auto save images                                              [USER]
 sim:
-    has_gis_multichem: false                                # stand in for the hardware probe
     sem: null # "/path/to/sem/image/data"                   # the path to the SEM image data for simulation                 [USER]
     fib: null # "/path/to/fib/image/data"                   # the path to the FIB image data for simulation                 [USER]
     use_cycle: true                                         # infinitely cycle sem/fib dataset                              [USER]

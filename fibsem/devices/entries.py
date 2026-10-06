@@ -16,7 +16,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Collection,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+)
 
 from fibsem import manufacturers
 from fibsem.structures import DeviceEntry, read_device_entries
@@ -100,11 +109,28 @@ def resolve_device_entries(
 
 
 def resolve_system_devices(
-    system: "SystemSettings", defaults: Sequence[DeviceEntry]
+    system: "SystemSettings",
+    defaults: Sequence[DeviceEntry],
+    types: Optional[Collection[str]] = None,
+    exclude_types: Collection[str] = (),
+    driver: Optional[str] = None,
 ) -> List[ResolvedEntry]:
-    """`resolve_device_entries` for a connected system's configuration."""
+    """`resolve_device_entries` for a connected system's configuration.
+
+    An entry that names no driver is built by *driver*, the backend's own, else by
+    `info.manufacturer`'s.
+
+    A backend that builds its devices in steps (the beams, then the stage, ...)
+    resolves each step's *types* on its own; `exclude_types` leaves out the types
+    built elsewhere, for the step that builds whatever else the file adds.
+    """
+    configured = {
+        name: entry
+        for name, entry in configured_device_entries(system).items()
+        if (types is None or entry.type in types) and entry.type not in exclude_types
+    }
     return resolve_device_entries(
-        defaults, configured_device_entries(system), system.info.manufacturer
+        defaults, configured, driver or system.info.manufacturer
     )
 
 

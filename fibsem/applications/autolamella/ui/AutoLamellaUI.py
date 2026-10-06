@@ -47,7 +47,6 @@ from fibsem.structures import (
 )
 from fibsem.ui import (
     DETECTION_AVAILABLE,
-    FibsemCryoDepositionWidget,
     FibsemImageSettingsWidget,
     FibsemMovementWidget,
     FibsemSpotBurnWidget,
@@ -2775,13 +2774,6 @@ class AutoLamellaUI(QMainWindow):
         notification_service.show_toast(
             f"Saved Protocol to {os.path.basename(protocol_path)}", "info"
         )
-
-    #########
-    def cryo_deposition(self):
-        if self.microscope is None:
-            return
-        cryo_deposition_widget = FibsemCryoDepositionWidget(self.microscope)
-        cryo_deposition_widget.exec_()
 
     def set_instructions_msg(
         self,

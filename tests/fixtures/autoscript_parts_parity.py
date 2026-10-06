@@ -1,5 +1,5 @@
-"""Record the AutoScript calls of Thermo's chamber, manipulator and GIS code, old and
-routed through the devices.
+"""Record the AutoScript calls of Thermo's chamber and manipulator code, old and routed
+through the devices.
 
 Run as a script, in its own interpreter, for the same reason as
 ``autoscript_stage_parity.py``, whose fake SDK and recorder it reuses: the fake
@@ -24,16 +24,14 @@ import autoscript_stage_parity as S  # noqa: E402  (installs the fake SDK)
 
 logging.disable(logging.NOTSET)
 
-from fibsem.devices.drivers.autoscript import MULTICHEM  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
-    FibsemGasInjectionSettings,
     FibsemManipulatorPosition,
 )
 
 LOG, STRUCTS, Node = S.LOG, S.STRUCTS, S.Node
 
-# the waits (the needle's retract, the heater, the deposition) are logged, not slept
+# the waits (the needle's retract) are logged, not slept
 time.sleep = lambda seconds: LOG.append(["sleep", seconds])
 
 
@@ -106,42 +104,17 @@ class FakeNeedle(Node):
         object.__setattr__(self, "_position", moved)
 
 
-class FakeInjector(Node):
-    """A GIS port or the multichem: records calls; the heater is warm at once."""
-
-    def get_temperature(self, *gas):
-        LOG.append(["call", f"{self._path}.get_temperature", list(gas), "{}"])
-        return 350.0
-
-
-class FakeGas(Node):
-    def list_all_gis_ports(self):
-        return ["Pt dep", "Water"]
-
-    def list_all_multichem_ports(self):
-        return ["Pt cryo"]
-
-    def get_gis_port(self, port):
-        return FakeInjector(f"{self._path}.gis_port[{port}]")
-
-    def get_multichem(self):
-        return FakeInjector(f"{self._path}.multichem")
-
-
 def make(build):
     """A ThermoMicroscope over the fake SDK, with its parts built as connect builds
     them when *build*, else as before."""
     microscope = S.make(compustage=False)
     microscope.system.manipulator.enabled = True
-    microscope.system.gis.enabled = True
-    microscope.system.gis.multichem = True
     connection = microscope.connection
     object.__setattr__(connection.vacuum, "chamber_state", "Pumped")
     object.__setattr__(connection.vacuum.chamber_pressure, "value", 2.5e-4)
     object.__setattr__(
         connection.specimen, "manipulator", FakeNeedle("specimen.manipulator")
     )
-    object.__setattr__(connection, "gas", FakeGas("connection.gas"))
     if build:
         microscope._build_parts()
     return microscope
@@ -164,21 +137,6 @@ def _value(value):
 
 
 OFFSET = FibsemManipulatorPosition(x=1e-6, y=2e-6, z=3e-6)
-
-
-def _deposit(multichem):
-    def go(m):
-        m.system.gis.multichem = multichem
-        return m.cryo_deposition_v2(
-            FibsemGasInjectionSettings(
-                port="Pt dep",
-                gas="Pt cryo",
-                duration=2,
-                insert_position="ELECTRON_DEFAULT",
-            )
-        )
-
-    return go
 
 
 CALLS = (
@@ -216,8 +174,6 @@ CALLS = (
     ("saved PARK", lambda m: m._get_saved_manipulator_position("PARK")),
     ("saved BAD", lambda m: m._get_saved_manipulator_position("BAD")),
     ("named positions", lambda m: m.manipulator_named_positions()),
-    ("deposition on a GIS port", _deposit(multichem=False)),
-    ("deposition on the multichem", _deposit(multichem=True)),
 )
 
 
@@ -238,30 +194,9 @@ def facts():
     out["devices"] = {
         "chamber": type(microscope.chamber_device).__name__,
         "manipulator": type(microscope.manipulator_device).__name__,
-        "gis": sorted(microscope.gis_devices),
-        "gis_device": microscope.gis_device.port,
         "chamber_parameters": sorted(microscope.chamber_device.parameters),
         "manipulator_parameters": sorted(microscope.manipulator_device.parameters),
-        "gis_parameters": sorted(microscope.gis_devices["Pt dep"].parameters),
     }
-
-    # the gas injector reports what its own commands did
-    gis = microscope.gis_devices[MULTICHEM]
-    before = [
-        gis.state.get_value().value,
-        gis.heated.get_value(),
-        gis.opened.get_value(),
-    ]
-    gis.insert("ELECTRON_DEFAULT")
-    gis.heater_on("Pt cryo")
-    gis.open()
-    during = [
-        gis.state.get_value().value,
-        gis.heated.get_value(),
-        gis.opened.get_value(),
-        gis.gas.get_value(),
-    ]
-    out["gis_state"] = {"before": before, "during": during}
 
     # the routed calls go through the devices' hooks
     microscope = make(True)
@@ -272,8 +207,6 @@ def facts():
             microscope.manipulator_device,
             ("_insert", "_retract", "_move_relative", "_move_absolute"),
         ),
-        (microscope.gis_devices["Pt dep"], ("_insert", "_heater_on", "_retract")),
-        (microscope.gis_devices[MULTICHEM], ("_insert", "_heater_on", "_retract")),
     ):
         for hook in hooks:
             original = getattr(device, hook)
@@ -289,23 +222,41 @@ def facts():
     microscope.move_manipulator_corrected(1e-6, 2e-6, BeamType.ELECTRON)
     microscope.move_manipulator_to_position_offset(OFFSET, "EUCENTRIC")
     microscope.retract_manipulator()
-    _deposit(multichem=False)(microscope)
-    _deposit(multichem=True)(microscope)
     out["through_devices"] = used
 
     # without a manipulator, none is built and its keys stay with the old branches
     microscope = S.make(compustage=False)
     microscope.system.manipulator.enabled = False
-    microscope.system.gis.enabled = False
-    microscope.system.gis.multichem = False
-    object.__setattr__(microscope.connection, "gas", FakeGas("connection.gas"))
     microscope._build_parts()
     out["none_fitted"] = {
         "manipulator": microscope.manipulator_device is None,
-        "gis": sorted(microscope.gis_devices),
-        "gis_device": microscope.gis_device is None,
         "routed": microscope._route("manipulator_state", None) is not None,
     }
+
+    # hardware.devices entries: one switched off, and an added device no driver builds
+    from fibsem.devices.entries import DeviceBuildError
+    from fibsem.structures import DeviceEntry
+
+    def configured(*entries):
+        microscope = make(False)
+        microscope.system.other_devices = [DeviceEntry.from_dict(e) for e in entries]
+        microscope._build_parts()
+        return microscope
+
+    microscope = configured(
+        {"name": "manipulator", "enabled": False},
+        {"name": "laser", "type": "laser"},
+    )
+    out["configured"] = {
+        "devices": list(microscope.devices),
+        "manipulator": microscope.manipulator_device is None,
+        "routed": microscope._route("manipulator_state", None) is not None,
+    }
+    try:
+        configured({"name": "laser", "type": "laser", "required": True})
+        out["configured"]["required"] = None
+    except DeviceBuildError as e:
+        out["configured"]["required"] = str(e)
     return out
 
 

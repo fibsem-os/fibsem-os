@@ -73,8 +73,8 @@ class DriverEntry:
 
     devices: Mapping[str, "DeviceBuilder"] = field(default_factory=dict)
     """How this driver builds a device, by the device entry's ``type`` (``beam``,
-    ``stage``, ``gis``, ...): what a ``hardware.devices`` entry naming this driver is
-    built with. See :func:`device_builder`."""
+    ``stage``, ``chamber``, ...): what a ``hardware.devices`` entry naming this driver
+    is built with. See :func:`device_builder`."""
 
     def load(self) -> Type["FibsemMicroscope"]:
         """Import and return the driver's class."""

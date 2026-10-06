@@ -7,6 +7,7 @@ device, load unchanged, and are converted the first time anything saves them.
 """
 
 import copy
+import logging
 import os
 
 import pytest
@@ -88,7 +89,7 @@ def test_a_list_entry_wins_over_a_version_1_block_key_by_key():
 
 
 def test_the_name_defaults_to_the_type():
-    assert DeviceEntry.from_dict({"type": "gis"}).name == "gis"
+    assert DeviceEntry.from_dict({"type": "manipulator"}).name == "manipulator"
 
 
 @pytest.mark.parametrize(
@@ -114,8 +115,10 @@ def test_a_beam_is_named_for_its_column():
 
 
 def test_two_entries_with_one_name_are_an_error():
-    """Two GIS are two names; one name twice cannot be told apart."""
-    config = {"hardware": {"devices": [{"type": "gis"}, {"name": "gis"}]}}
+    """Two manipulators are two names; one name twice cannot be told apart."""
+    config = {
+        "hardware": {"devices": [{"type": "manipulator"}, {"name": "manipulator"}]}
+    }
     with pytest.raises(ValueError, match="twice"):
         SystemSettings.from_dict(config)
 
@@ -124,13 +127,18 @@ def test_two_devices_of_one_type_are_two_names():
     config = {
         "hardware": {
             "devices": [
-                {"type": "gis"},
-                {"name": "gis-w", "type": "gis", "driver": "remote", "port": 9},
+                {"type": "manipulator"},
+                {
+                    "name": "manipulator-w",
+                    "type": "manipulator",
+                    "driver": "remote",
+                    "port": 9,
+                },
             ]
         }
     }
     system = SystemSettings.from_dict(config)
-    assert [e.name for e in system.other_devices] == ["gis", "gis-w"]
+    assert [e.name for e in system.other_devices] == ["manipulator", "manipulator-w"]
     assert system.other_devices[1].options == {"port": 9}
 
 
@@ -160,12 +168,46 @@ def test_the_fm_entry_names_its_driver_and_its_keys_sit_beside_it():
 
 
 def test_a_device_without_a_record_is_kept_and_written_back():
-    entry = {"name": "gis", "type": "gis", "enabled": False}
+    entry = {"name": "manipulator", "type": "manipulator", "enabled": False}
     config = {"hardware": {"devices": [entry]}}
 
     written = SystemSettings.from_dict(config).to_dict()
 
     assert written["hardware"]["devices"][-1] == entry
+
+
+def test_an_old_gis_entry_still_loads_and_is_written_back():
+    """The gas injection system is no longer supported. A file that still lists one
+    loads, and its entry is kept as it was, like any type nothing here builds."""
+    entry = {"name": "gis", "type": "gis", "enabled": False}
+    config = {"hardware": {"devices": [entry]}}
+
+    system = SystemSettings.from_dict(config)
+
+    assert [e.name for e in system.other_devices] == ["gis"]
+    assert system.to_dict()["hardware"]["devices"][-1] == entry
+    assert utils.unrecognised_configuration_keys(config) == []
+
+
+def test_an_entry_of_no_known_type_is_ignored_with_a_warning(caplog):
+    """An entry with no `type:` whose name is no device type, such as a GIS from
+    before it was removed, is left out rather than failing the load."""
+    config = {"hardware": {"devices": [{"name": "gis"}, {"name": "manipulator"}]}}
+
+    with caplog.at_level(logging.WARNING):
+        system = SystemSettings.from_dict(config)
+
+    assert [e.name for e in system.other_devices] == ["manipulator"]
+    assert "'gis' states no type" in caplog.text
+    assert "It is ignored." in caplog.text
+
+
+def test_an_old_gis_block_still_loads_and_is_reported_as_unread():
+    config = _version_1()
+    config["hardware"]["gis"] = {"enabled": True, "multichem": True}
+
+    assert SystemSettings.from_dict(config).other_devices == []
+    assert "hardware.gis" in utils.unrecognised_configuration_keys(config)
 
 
 def test_a_version_1_block_for_another_device_is_not_read():
@@ -198,7 +240,9 @@ def test_a_written_file_reports_nothing():
 
 
 def test_a_device_without_a_record_carries_its_drivers_keys_unpoliced():
-    config = {"hardware": {"devices": [{"type": "gis", "driver": "x", "anything": 1}]}}
+    config = {
+        "hardware": {"devices": [{"type": "manipulator", "driver": "x", "anything": 1}]}
+    }
     assert utils.unrecognised_configuration_keys(config) == []
 
 
