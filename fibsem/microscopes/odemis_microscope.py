@@ -5,7 +5,7 @@ import os
 import sys
 from copy import deepcopy
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
 from psygnal import Signal
@@ -13,12 +13,13 @@ from psygnal import Signal
 from fibsem import manufacturers
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
+from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
 )
 from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES
-from fibsem.microscopes.registry import DriverEntry
+from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import ServiceMilling
@@ -27,6 +28,7 @@ from fibsem.structures import (
     BeamSettings,
     BeamType,
     CrossSectionPattern,
+    DeviceEntry,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
@@ -471,7 +473,26 @@ class OdemisPatterning:
 DRIVER = DriverEntry(
     manufacturer=manufacturers.ODEMIS,
     microscope_class="fibsem.microscopes.odemis_microscope:OdemisThermoMicroscope",
+    devices={
+        device_type: DeviceBuilder(
+            f"fibsem.devices.drivers.odemis:build_odemis_{device_type}"
+        )
+        for device_type in ("beam", "stage", "chamber")
+    },
 )
+
+# The devices Odemis builds by itself. There is no other code for their keys, so
+# each is required: one that cannot be built fails the connection. One the
+# configuration switches off (`enabled: false`) is not built.
+ODEMIS_DEVICES = (
+    DeviceEntry(name="electron", type="beam", required=True),
+    DeviceEntry(name="ion", type="beam", required=True),
+    DeviceEntry(name="stage", type="stage", required=True),
+    DeviceEntry(name="chamber", type="chamber", required=True),
+)
+# The FM is built on its own path; any other type a configuration adds is built
+# after these.
+_FM_TYPES = ("fm",)
 
 
 class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope):
@@ -545,23 +566,26 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
             logging.warning(f"Could not create sample stage: {e}")
 
     def _build_devices(self) -> None:
-        """Build the beam, stage and chamber devices and route their keys to them.
+        """Build the beam, stage and chamber devices from the configuration's
+        ``hardware.devices`` entries over ``ODEMIS_DEVICES``, then any other device it
+        adds, and route their keys to them.
 
         The moves, ``home``, ``link``, ``pump`` and ``vent`` then go through the
         devices; a false ``stage_link``, ``pump_chamber`` or ``vent_chamber`` runs
         nothing. There is no other code for these keys, so a device that cannot be
-        built fails the connection.
+        built fails the connection, and one switched off has no keys to answer.
         """
-        from fibsem.devices.drivers.odemis import (
-            bind_odemis_beams,
-            bind_odemis_chamber,
-            bind_odemis_stage,
+        resolved = resolve_system_devices(
+            self.system,
+            ODEMIS_DEVICES,
+            exclude_types=_FM_TYPES,
+            driver=manufacturers.ODEMIS,
         )
+        built: Dict[str, Any] = build_device_entries(resolved, self)
+        for name, device in built.items():
+            self._set_device(name, device)
 
-        self.beams = MappingProxyType(bind_odemis_beams(self))
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
-        self.stage = bind_odemis_stage(self)
-        self.chamber_device = bind_odemis_chamber(self)
         self._device_routes = MappingProxyType(
             {
                 **{key: ("stage", name) for key, name in STAGE_ROUTES.items()},
