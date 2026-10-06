@@ -238,7 +238,7 @@ class TestTheGuardsStillReadTheDevice:
     """The boundary this design depends on, and the one most likely to erode.
 
     `ObjectiveLens.position_changed` is for *displays*. Guards read the device, every time, because one
-    of them is a collision guard: `ThermoMicroscope.move_stage_absolute` suppresses z and
+    of them is a collision guard: `AutoscriptStage._move_absolute` suppresses z and
     t from a stage move while the objective is inserted -- the condition itself now lives
     in `FibsemMicroscope._blocked_axes` -- and a stale `"Retracted"` there
     means the stage changes height and rotates with the objective in the chamber.
@@ -254,7 +254,7 @@ class TestTheGuardsStillReadTheDevice:
     def _method(class_name: str, method_name: str) -> ast.FunctionDef:
         module = {
             "FibsemMicroscope": Path("microscope.py"),
-            "ThermoMicroscope": Path("microscopes") / "autoscript.py",
+            "AutoscriptStage": Path("devices") / "drivers" / "autoscript.py",
         }[class_name]
         source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
         cls = next(
@@ -296,8 +296,9 @@ class TestTheGuardsStillReadTheDevice:
 
     def test_the_stage_move_still_asks_the_guard(self):
         """The other half. Splitting the predicate out means the read being live is no
-        longer enough on its own -- the move has to still consult it."""
-        move = self._method("ThermoMicroscope", "move_stage_absolute")
+        longer enough on its own -- the move has to still consult it. Thermo's
+        absolute move is its stage device's."""
+        move = self._method("AutoscriptStage", "_move_absolute")
 
         calls = [
             node
@@ -308,14 +309,14 @@ class TestTheGuardsStillReadTheDevice:
         ]
 
         assert calls, (
-            "move_stage_absolute no longer calls `_without_blocked_axes`, so "
+            "The absolute move no longer calls `_without_blocked_axes`, so "
             "nothing suppresses z and t while the objective is inserted (FIB-534)"
         )
         # And it has to hand over the destination. Called bare, the predicate falls
         # back to the pose the stage is standing in -- which is the bug FIB-640 fixed:
         # a move out of the fluorescence pose losing its z to the pose it was leaving.
         assert all(call.args for call in calls), (
-            "move_stage_absolute calls `_without_blocked_axes` without the target "
+            "The absolute move calls `_without_blocked_axes` without the target "
             "position, so the guard asks where the stage is instead of where it is "
             "going (FIB-640)"
         )
