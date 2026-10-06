@@ -57,7 +57,6 @@ from fibsem.fm.autoscript import (
     ImagingDevice,
     ImagingState,
 )
-from fibsem.fm.microscope import SIM_CAMERA_OFFSET
 from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
@@ -253,7 +252,8 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
     ):
         super().__init__("camera", channel, **kwargs)
         self._filter_set = filter_set
-        self._offset = SIM_CAMERA_OFFSET
+        # AutoScript has no camera offset to set, so it is kept here, from zero.
+        self._offset = 0.0
         self._pixel_size: Tuple[float, float] = DEFAULT_CONFIGURATION["pixel_size"]
         self._resolution: Tuple[int, int] = DEFAULT_CONFIGURATION["resolution"]
 

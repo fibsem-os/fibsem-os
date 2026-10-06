@@ -8,7 +8,6 @@ import pytest
 
 from fibsem.devices.core import ParameterReadOnly
 from fibsem.devices.drivers.fm import bind_fm_devices
-from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import (
     OBJECTIVE_STATES,
     REFLECTION,
@@ -17,12 +16,13 @@ from fibsem.fm.structures import (
     objective_device_state,
     objective_state_name,
 )
+from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 from fibsem.structures import InsertableDeviceState
 
 
 @pytest.fixture
 def fm():
-    microscope = FluorescenceMicroscope()
+    microscope = SimulatedFluorescenceMicroscope()
     return microscope, bind_fm_devices(microscope)
 
 

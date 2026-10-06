@@ -1,9 +1,9 @@
-"""FM parts as devices, over the existing ``fibsem.fm`` classes.
+"""FM parts as devices, over an FM API object (``fibsem.fm.microscope``).
 
-The FM classes (``fibsem.fm.microscope``, with their AutoScript, Odemis and simulated
-implementations) are already split into parts, so this driver only adapts them: each
-parameter reads and writes the property it always did, and each command calls the
-method it always did. It works for every FM backend at once. An FM class may offer
+Today that is only the simulated FM (``SimulatedFluorescenceMicroscope``), served as
+a METEOR PC would serve its FM. The FM API is already split into parts, so this
+driver only adapts them: each parameter reads and writes the property it always did,
+and each command calls the method it always did. An FM class may offer
 more than today's API needs (an ``emission_bands`` map of each band's edges); the
 driver uses it where it's there.
 """

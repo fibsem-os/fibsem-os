@@ -200,11 +200,13 @@ unchanged.
 
 ### Fluorescence microscopes
 
-Subclass `FluorescenceMicroscope` (`fibsem/fm/microscope.py`), which covers
-the objective, the filter set, the camera and acquisition.
+`FluorescenceMicroscope` (`fibsem/fm/microscope.py`) is the FM API, which
+covers the objective, the filter set, the camera and acquisition. A backend
+provides the FM's devices (`fibsem/devices/fm.py`), and
+`DeviceFluorescenceMicroscope` (`fibsem/fm/api.py`) is the FM API over them;
+the Thermo Fisher, Odemis and Demo FMs are built that way.
 `SimulatedFluorescenceMicroscope` in `fibsem/microscopes/simulator.py` is
-the hardware-free reference, and the Thermo Fisher and Odemis backends in
-`fibsem/fm/` are the two hardware implementations. This interface is under
+the legacy Demo's FM, and a hardware-free stand-in. This interface is under
 active development and is expected to change; open an issue before building
 on it.
 

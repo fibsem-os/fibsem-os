@@ -10,7 +10,7 @@ import pytest
 from fibsem.devices.core import Device, Parameter, Role, RoleUnfilled
 from fibsem.devices.drivers.fm import bind_fm_devices
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
-from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 
 
 class Sensor(Device):
@@ -81,7 +81,7 @@ def test_the_fm_group_has_its_four_parts_as_roles():
     }
     assert all(role.required for role in FM.declared_roles().values())
 
-    devices = bind_fm_devices(FluorescenceMicroscope())
+    devices = bind_fm_devices(SimulatedFluorescenceMicroscope())
     group = devices["fm"]
     for name in FM.declared_roles():
         assert getattr(group, name) is devices[name]

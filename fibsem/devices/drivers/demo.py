@@ -38,10 +38,18 @@ from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
 from fibsem.fm.api import emission_filter_named
-from fibsem.fm.microscope import (
+from fibsem.fm.structures import (
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    emission_filter_for,
+)
+from fibsem.microscopes.simulator import (
     BINNING_VALUES,
     EMISSION_WAVELENGTHS,
     EXCITATION_WAVELENGTHS,
+    FM_ACTIVE_DEVICE,
+    FM_ACTIVE_VIEW,
     SIM_CAMERA_BINNING,
     SIM_CAMERA_EXPOSURE_LIMITS,
     SIM_CAMERA_EXPOSURE_TIME,
@@ -60,13 +68,6 @@ from fibsem.fm.microscope import (
     UINT16_MAX,
     UINT16_MIN,
 )
-from fibsem.fm.structures import (
-    REFLECTION,
-    ChannelSettings,
-    EmissionFilter,
-    emission_filter_for,
-)
-from fibsem.microscopes.simulator import FM_ACTIVE_DEVICE, FM_ACTIVE_VIEW
 from fibsem.structures import (
     BeamSettings,
     BeamType,

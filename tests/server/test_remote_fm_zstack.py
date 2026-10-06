@@ -201,19 +201,21 @@ def test_the_group_command_falls_back_to_steps_on_a_server_without_it(
 def test_a_local_fm_still_runs_the_stack_step_by_step():
     """Each slice is shown as it arrives, as before: no command for a local FM."""
     from fibsem.devices.drivers.fm import bind_fm_devices
-    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 
-    fm = DeviceFluorescenceMicroscope(bind_fm_devices(FluorescenceMicroscope()))
+    fm = DeviceFluorescenceMicroscope(
+        bind_fm_devices(SimulatedFluorescenceMicroscope())
+    )
     assert not fm.runs_z_stack_on_device
 
 
 def test_the_group_command_takes_the_steps_the_api_takes():
     """The same moves and frames, in the same order, as the step-by-step stack."""
     from fibsem.devices.drivers.fm import bind_fm_devices
-    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 
     def record(fm_class_run):
-        sim = FluorescenceMicroscope()
+        sim = SimulatedFluorescenceMicroscope()
         sim.camera.binning = 8  # small frames, so each stack is quick
         devices = bind_fm_devices(sim)
         steps = []

@@ -10,16 +10,16 @@ import pytest
 
 from fibsem.devices.drivers.fm import bind_fm_devices
 from fibsem.devices.fm import mount_transform_from_name, mount_transform_name
-from fibsem.fm import microscope as fm_microscope
 from fibsem.fm.api import DeviceFluorescenceMicroscope
 from fibsem.fm.structures import CameraImageTransform
+from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 
 FRAME = np.arange(6).reshape(2, 3)
 
 
 def _fm(mount=None):
     config = {"mount_transform": mount_transform_name(mount)} if mount else None
-    devices = bind_fm_devices(fm_microscope.FluorescenceMicroscope(), config=config)
+    devices = bind_fm_devices(SimulatedFluorescenceMicroscope(), config=config)
     return DeviceFluorescenceMicroscope(devices)
 
 
@@ -76,7 +76,7 @@ def test_an_unknown_name_says_what_it_could_be():
 
 def test_the_camera_takes_the_mount_from_the_fm_entrys_keys_and_ignores_the_rest():
     devices = bind_fm_devices(
-        fm_microscope.FluorescenceMicroscope(),
+        SimulatedFluorescenceMicroscope(),
         config={"mount_transform": "flip-y", "port": 8001, "driver": "remote"},
     )
 
@@ -90,7 +90,7 @@ def test_the_demo_fm_takes_its_configuration_too():
     microscope, _ = utils.setup_session(manufacturer="Demo")
     devices = bind_demo_fm(
         microscope,
-        fm_microscope.FluorescenceMicroscope(),
+        SimulatedFluorescenceMicroscope(),
         config={"mount_transform": "flip-x"},
     )
 

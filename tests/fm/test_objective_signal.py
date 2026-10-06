@@ -27,12 +27,15 @@ from pathlib import Path
 import pytest
 
 import fibsem
-from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.microscopes.simulator import (
+    SimulatedFluorescenceMicroscope,
+    SimulatedObjectiveLens,
+)
 
 
 @pytest.fixture
 def fm():
-    return FluorescenceMicroscope()
+    return SimulatedFluorescenceMicroscope()
 
 
 @pytest.fixture
@@ -78,9 +81,8 @@ class TestTheSimulatedObjectiveAnnounces:
         objective built alone -- silently, which is the worst way for a notification to
         fail.
         """
-        from fibsem.fm.microscope import ObjectiveLens
 
-        objective = ObjectiveLens()
+        objective = SimulatedObjectiveLens()
         seen = []
         objective.position_changed.connect(
             lambda position, state: seen.append(position)
@@ -162,7 +164,7 @@ class TestThePayload:
 
 
 class TestEveryDriverAnnounces:
-    """Structural, over the source of all three implementations.
+    """Structural, over the source of every implementation.
 
     A driver that silently stops announcing is a display that silently goes stale, and
     nothing else would catch it: the TFS and odemis classes cannot be constructed here.
@@ -174,7 +176,12 @@ class TestEveryDriverAnnounces:
     def _objective_classes() -> dict:
         """Every `ObjectiveLens` implementation, by qualified name."""
         found = {}
-        modules = ("fm/microscope.py", "fm/api.py", "fm/autoscript.py", "fm/odemis.py")
+        modules = (
+            "microscopes/simulator.py",
+            "fm/api.py",
+            "fm/autoscript.py",
+            "fm/odemis.py",
+        )
         for module in modules:
             source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
             for node in ast.walk(ast.parse(source)):
@@ -199,7 +206,7 @@ class TestEveryDriverAnnounces:
         and its Thermo (`home`) and Odemis subclasses count too."""
         classes = self._objective_classes()
         assert set(classes) == {
-            "fm/microscope.py:ObjectiveLens",
+            "microscopes/simulator.py:SimulatedObjectiveLens",
             "fm/api.py:DeviceObjectiveLens",
             "fm/autoscript.py:DeviceThermoFisherObjectiveLens",
             "fm/odemis.py:DeviceOdemisObjectiveLens",

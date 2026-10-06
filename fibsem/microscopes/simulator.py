@@ -17,7 +17,14 @@ import numpy as np
 from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
-from fibsem.fm.microscope import Camera, FluorescenceMicroscope
+from fibsem.fm.microscope import (
+    Camera,
+    FilterSet,
+    FluorescenceMicroscope,
+    LightSource,
+    ObjectiveLens,
+)
+from fibsem.fm.structures import ObjectiveStateName
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
@@ -271,6 +278,42 @@ class ImagingSystem:
 FM_ACTIVE_VIEW = 3
 FM_ACTIVE_DEVICE = 3
 
+# The simulated FM: what its parts offer and where they start. The Demo FM devices
+# (``fibsem.devices.drivers.demo``) start from the same values.
+EXCITATION_WAVELENGTHS = (365, 450, 550, 635)  # in nm, example wavelengths
+EMISSION_WAVELENGTHS = (None, "Fluorescence")  # in nm, example wavelengths
+
+SIM_OBJECTIVE_MAGNIFICATION = 100.0  # placeholder for simulation
+SIM_OBJECTIVE_NA = 0.8
+SIM_OBJECTIVE_INSERT_POSITION = 6.0e-3  # z-axis
+SIM_OBJECTIVE_RETRACT_POSITION = -10e-3  # z-axis
+SIM_OBJECTIVE_POSITION_LIMITS = (-12e-3, 10e-3)  # z-axis limits for the objective lens
+SIM_OBJECTIVE_USER_POSITION_LIMIT = 8.6e-3  # user-defined limits for the objective lens
+SIM_OBJECTIVE_FOCUS_POSITION = 8.0e-3
+# Insertion and retraction traverse the objective's whole range -- 16 mm here -- where a
+# focus nudge moves it by microns, so they are seconds of travel on a real system rather
+# than the fraction of one `move_absolute` simulates. Modelled because the difference is
+# what makes a second command *during* one reachable by hand (FIB-628); a delegating
+# `insert` that returned as fast as a nudge made that window too small to click into.
+# `sim_sleep`, so `FIBSEM_SIM_NO_DELAY=1` keeps it out of the test suite.
+SIM_OBJECTIVE_TRAVEL_SECONDS = 2.0
+
+SIM_CAMERA_EXPOSURE_TIME = 0.1  # seconds
+SIM_CAMERA_EXPOSURE_LIMITS = (1e-6, 60.0)  # seconds
+SIM_CAMERA_BINNING = 4
+SIM_CAMERA_GAIN = 0.01  # 1%
+SIM_CAMERA_OFFSET = 0.0
+SIM_CAMERA_PIXEL_SIZE = (
+    0.25 * 100e-9,
+    0.25 * 100e-9,
+)  # in meters (100 nm -> 0.25 um with 4x binning)
+SIM_CAMERA_RESOLUTION = (4 * 1024, 4 * 1024)  # default resolution
+SIM_LIGHT_SOURCE_POWER = 0.1  # a fraction of full power
+
+UINT16_MIN = np.iinfo(np.uint16).min  # 0 for uint16
+UINT16_MAX = np.iinfo(np.uint16).max  # 65535 for uint16
+BINNING_VALUES = [1, 2, 4, 8]  # typical binning values
+
 # The chamber camera's place on the same channel, matching the numbers
 # `ThermoMicroscope.acquire_chamber_image` writes.
 CHAMBER_ACTIVE_VIEW = 4
@@ -333,7 +376,247 @@ def render_fm_scene(
     return fm._transform_array(frame, fm.mount_transform)
 
 
-class SceneCamera(Camera):
+class SimulatedObjectiveLens(ObjectiveLens):
+    """The simulated FM's objective: a position that moves when told, clipped to the
+    user-defined limit, with seconds of travel to insert or retract."""
+
+    def __init__(self, parent: Optional[FluorescenceMicroscope] = None):
+        super().__init__(parent=parent)
+        self._position: float = SIM_OBJECTIVE_RETRACT_POSITION  # initial position
+        self._magnification: float = SIM_OBJECTIVE_MAGNIFICATION
+        self._numerical_aperture = SIM_OBJECTIVE_NA
+        self._insert_position = SIM_OBJECTIVE_INSERT_POSITION
+        self._retract_position = SIM_OBJECTIVE_RETRACT_POSITION
+        self._focus_position: Optional[float] = SIM_OBJECTIVE_FOCUS_POSITION
+        self._limit_position: float = SIM_OBJECTIVE_USER_POSITION_LIMIT
+
+    @property
+    def magnification(self) -> float:
+        return self._magnification
+
+    @property
+    def numerical_aperture(self) -> float:
+        return self._numerical_aperture
+
+    @property
+    def position(self) -> float:
+        sim_sleep(0.1)
+        return self._position
+
+    @property
+    def limit_position(self) -> float:
+        return self._limit_position
+
+    @limit_position.setter
+    def limit_position(self, position: float):
+        self._limit_position = position
+        logging.info(
+            f"Objective user-defined position limit set to: {self._limit_position * 1e3:.3f} mm"
+        )
+
+    def move_relative(self, delta: float):
+        self._position += delta
+        logging.info(
+            f"Objective moved to new position: {self._position * 1e3:.3f} mm (delta: {delta * 1e3:.3f} mm)"
+        )
+        # Announced here rather than relying on `move_absolute`: this implementation
+        # adjusts the field itself instead of delegating.
+        self._notify_moved()
+
+    def move_absolute(self, position: float):
+        # clip to user-defined limits
+        if not position <= self._limit_position:
+            logging.warning(
+                f"Clipping position {position} to user-defined limits {self._limit_position}"
+            )
+            position = np.clip(position, 0, self._limit_position)
+
+        sim_sleep(0.5)  # Simulate time taken to move the objective
+        self._position = position
+        logging.info(
+            f"Objective moved to absolute position: {self._position * 1e3:.3f} mm"
+        )
+        self._notify_moved()
+
+    def insert(self):
+        sim_sleep(SIM_OBJECTIVE_TRAVEL_SECONDS)  # the traverse, on top of the move
+        self.move_absolute(self._insert_position)
+        logging.info(
+            f"Objective lens inserted to position: {self._insert_position:.3f} mm"
+        )
+
+    def retract(self):
+        sim_sleep(SIM_OBJECTIVE_TRAVEL_SECONDS)
+        self.move_absolute(self._retract_position)
+        logging.info(
+            f"Objective lens retracted to position: {self._retract_position:.3f} mm"
+        )
+
+    @property
+    def limits(self) -> Tuple[float, float]:
+        return SIM_OBJECTIVE_POSITION_LIMITS
+
+    @property
+    def state(self) -> ObjectiveStateName:
+        return "Inserted" if self.position >= self._insert_position else "Retracted"
+
+
+class SimulatedCamera(Camera):
+    """The simulated FM's camera: a noise frame with a numbered "FM<n>" in it, taking
+    the exposure time to arrive."""
+
+    def __init__(self, parent: Optional[FluorescenceMicroscope] = None):
+        super().__init__(parent=parent)
+        self._index: int = 0  # Image index for simulating sequential images
+        self._use_counter: bool = True
+        self._exposure_time: float = SIM_CAMERA_EXPOSURE_TIME
+        self._binning: int = SIM_CAMERA_BINNING
+        self._gain: float = SIM_CAMERA_GAIN
+        self._offset: float = SIM_CAMERA_OFFSET
+        self._pixel_size: Tuple[float, float] = SIM_CAMERA_PIXEL_SIZE
+        self._resolution: Tuple[int, int] = SIM_CAMERA_RESOLUTION
+        self._number_cache: dict = {}  # Cache for draw_number images by mod
+
+    def acquire_image(self) -> np.ndarray:
+        sim_sleep(self.exposure_time)  # Simulate exposure time in seconds
+
+        # get min and max values for the image
+        noise = np.random.randint(
+            UINT16_MIN, UINT16_MAX, size=self.resolution[::-1], dtype=np.uint16
+        )
+        if not self._use_counter:
+            return noise
+
+        # Simulate a simple image with a number drawn in the center
+        mod = self._index % 10  # cycle through digits 0-9
+
+        # Cache the draw_number image by mod and resolution
+        cache_key = (mod, self.resolution)
+        if cache_key not in self._number_cache:
+            self._number_cache[cache_key] = draw_text(
+                f"FM{mod}",
+                size=(self.resolution[0] // 4, self.resolution[1] // 4),
+                thickness=min(64, self.resolution[0] // 16),
+                image_shape=self.resolution[::-1],
+            )
+
+        image = self._number_cache[cache_key]
+        self._index += 1  # increment index for next image
+        # use the image as an inverse mask for the noise
+        data = np.where(image > 0, image, noise)
+        return data
+
+    @property
+    def exposure_time(self) -> float:
+        return self._exposure_time
+
+    @exposure_time.setter
+    def exposure_time(self, value: float):
+        self._exposure_time = value
+
+    @property
+    def binning(self) -> int:
+        return self._binning
+
+    @binning.setter
+    def binning(self, value: int):
+        if value not in self.available_binnings:
+            raise ValueError(
+                f"Binning must be one of {self.available_binnings}, got {value}"
+            )
+        self._binning = value
+
+    @property
+    def available_binnings(self) -> Tuple[int, ...]:
+        return tuple(BINNING_VALUES)
+
+    @property
+    def exposure_time_limits(self) -> Tuple[float, float]:
+        return SIM_CAMERA_EXPOSURE_LIMITS
+
+    @property
+    def gain(self) -> float:
+        return self._gain
+
+    @gain.setter
+    def gain(self, value: float):
+        if value < 0:
+            raise ValueError("Gain must be non-negative.")
+        self._gain = value
+
+    @property
+    def offset(self) -> float:
+        return self._offset
+
+    @offset.setter
+    def offset(self, value: float):
+        if value < 0:
+            raise ValueError("Offset must be non-negative.")
+        self._offset = value
+
+    @property
+    def pixel_size(self) -> Tuple[float, float]:
+        return (
+            self._pixel_size[0] * self.binning,
+            self._pixel_size[1] * self.binning,
+        )
+
+    @property
+    def resolution(self) -> Tuple[int, int]:
+        return self._resolution[0] // self.binning, self._resolution[1] // self.binning
+
+
+class SimulatedLightSource(LightSource):
+    """The simulated FM's light source: one power, unchecked."""
+
+    def __init__(self, parent: Optional[FluorescenceMicroscope] = None):
+        super().__init__(parent=parent)
+        self._power: float = SIM_LIGHT_SOURCE_POWER
+
+    @property
+    def power(self) -> float:
+        return self._power
+
+    @power.setter
+    def power(self, value: float):
+        self._power = value
+
+
+class SimulatedFilterSet(FilterSet):
+    """The simulated FM's filter set: ``EXCITATION_WAVELENGTHS``, and reflection or
+    one multi-band emission filter (``EMISSION_WAVELENGTHS``)."""
+
+    def __init__(self, parent: Optional[FluorescenceMicroscope] = None):
+        super().__init__(parent=parent)
+        self._excitation_wavelength: float = EXCITATION_WAVELENGTHS[0]
+        self._emission_wavelength: Optional[Union[float, str]] = None
+
+    @property
+    def available_excitation_wavelengths(self) -> Tuple[float, ...]:
+        return EXCITATION_WAVELENGTHS
+
+    @property
+    def available_emission_wavelengths(self) -> Tuple[Union[None, str, float], ...]:
+        return EMISSION_WAVELENGTHS
+
+    @property
+    def excitation_wavelength(self) -> float:
+        return self._excitation_wavelength
+
+    @excitation_wavelength.setter
+    def excitation_wavelength(self, value: float):
+        self._excitation_wavelength = value
+
+    @property
+    def emission_wavelength(self) -> Optional[Union[float, str]]:
+        return self._emission_wavelength
+
+    @emission_wavelength.setter
+    def emission_wavelength(self, value: Optional[Union[float, str]]):
+        self._emission_wavelength = value
+
+
+class SceneCamera(SimulatedCamera):
     """The simulated FM camera, imaging the sample scene when there is one.
 
     Renders the same synthetic sample the beams image (``render_fm_scene``);
@@ -351,7 +634,12 @@ class SceneCamera(Camera):
 
 
 class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
-    """The FM half of the one imaging channel a TFS system shares (FIB-518).
+    """The simulated FM: the legacy Demo's, and a stand-in FM wherever one is needed
+    without hardware (tests, the FM widgets run on their own). Its parts are the
+    ``Simulated*`` ones above, and the camera images the sample scene when its
+    microscope has one (``SceneCamera``).
+
+    It is also the FM half of the one imaging channel a TFS system shares (FIB-518).
 
     `DemoMicroscope` simulates a TFS system, where the FM and the beams are one
     connection with one active view and one active device: whoever writes last owns the
@@ -369,7 +657,10 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
 
     def __init__(self, parent: Optional["FibsemMicroscope"] = None):
         super().__init__(parent=parent)
+        self.objective = SimulatedObjectiveLens(parent=self)
+        self.filter_set = SimulatedFilterSet(parent=self)
         self.camera = SceneCamera(parent=self)
+        self.light_source = SimulatedLightSource(parent=self)
         self._active_view = FM_ACTIVE_VIEW
         self._active_device = FM_ACTIVE_DEVICE
         # The parent's lock, as the driver takes it: an FM scope and a beam acquisition
@@ -382,6 +673,11 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
         self._restore_view: Optional[int] = None
         self._restore_device: Optional[int] = None
 
+    def _shares_a_channel(self) -> bool:
+        """Whether there is a channel to share: a microscope with an imaging system.
+        On its own, or on a microscope that isn't a demo, there is none."""
+        return getattr(self.parent, "imaging_system", None) is not None
+
     def set_active_channel(self) -> None:
         """Point the shared channel at the FM and leave it there.
 
@@ -390,7 +686,7 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
         read a buffer reads the FM's. Mirrors
         `AutoscriptFMChannel.set_active_channel`.
         """
-        if self.parent is None:
+        if not self._shares_a_channel():
             return
         self.parent.imaging_system.active_view = self._active_view
         self.parent.imaging_system.active_device = self._active_device
@@ -425,7 +721,7 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
         and a simulator that always took the lock would let a change reintroduce the
         contention with every test still green.
         """
-        if self.parent is None:
+        if not self._shares_a_channel():
             yield
             return
 

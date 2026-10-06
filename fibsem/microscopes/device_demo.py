@@ -61,10 +61,10 @@ from fibsem.devices.drivers.demo import bind_demo_fm
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.fm.api import DeviceFluorescenceMicroscope
-from fibsem.fm.microscope import SIM_OBJECTIVE_FOCUS_POSITION
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
 from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.microscopes.simulator import (
+    SIM_OBJECTIVE_FOCUS_POSITION,
     SIMULATOR_KNOWN_UNKNOWN_KEYS,
     DemoConfiguration,
     DemoImaging,
