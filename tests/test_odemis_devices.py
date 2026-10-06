@@ -1,19 +1,20 @@
-"""The Odemis beams and stage as devices make the odemis calls the old code makes.
+"""The Odemis beams and stage as devices make the odemis calls the old code made.
 
-``OdemisBeam`` and ``OdemisStage`` are ``OdemisThermoMicroscope``'s beam and stage
-keys moved onto the devices. Each case runs an old call on a microscope without the
-devices and on one that built them as it does when created, both over a fake odemis
-client and stage that record every call, and requires the same result (or error), the
-same calls in the same order and the same logged messages.
+``OdemisBeam``, ``OdemisStage`` and ``OdemisChamber`` are ``OdemisThermoMicroscope``'s
+beam, stage and chamber keys moved onto the devices. Each case runs an old call on a
+microscope created as usual, over a fake odemis client and stage that record every
+call, and requires the result (or error), the calls in order and the logged messages
+the old branches gave, recorded in ``tests/fixtures/odemis_device_calls.json`` before
+they were deleted.
 
 No odemis installation: odemis is replaced by the stub modules in
 ``tests/fm/_odemis_stubs.py``. Nothing here has run on an instrument.
 """
 
+import json
 import logging
 import os
 import sys
-from types import MappingProxyType
 
 import numpy as np
 import pytest
@@ -32,6 +33,9 @@ from fibsem.structures import (
 from tests.fm import _odemis_stubs as stubs
 
 ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
+RECORDED = os.path.join(
+    os.path.dirname(__file__), "fixtures", "odemis_device_calls.json"
+)
 
 LOG = []
 
@@ -151,19 +155,10 @@ def _system(ion=True):
     return system
 
 
-def make(cls, devices=True, ion=True):
-    """An OdemisThermoMicroscope over the fake client, created as usual, and without
-    its devices unless *devices*."""
+def make(cls, ion=True):
+    """An OdemisThermoMicroscope over the fake client, created as usual."""
     stubs.use_components({"fibsem": FakeClient(), "stage-bare": FakeStage()})
-    microscope = cls(_system(ion=ion))
-    if not devices:
-        microscope.beams = MappingProxyType({})
-        microscope._beam_routes = MappingProxyType({})
-        microscope.stage = None
-        microscope.chamber_device = None
-        microscope._device_routes = MappingProxyType({})
-        microscope._command_routes = MappingProxyType({})
-    return microscope
+    return cls(_system(ion=ion))
 
 
 class _Messages(logging.Handler):
@@ -208,7 +203,9 @@ def run(microscope, call):
     finally:
         root.removeHandler(messages)
         root.setLevel(level)
-    return result, list(LOG), messages.records
+    # as the recording stored it: JSON, with anything else as its repr
+    ran = {"result": result, "calls": list(LOG), "log": messages.records}
+    return json.loads(json.dumps(ran, default=repr))
 
 
 BEAM_GETS = (
@@ -425,6 +422,9 @@ REDUCED_AREA = {
 }
 SAME = tuple((key, call) for key, call in CASES if key not in REDUCED_AREA)
 
+with open(RECORDED) as f:
+    EXPECTED = json.load(f)
+
 # The calls the devices add, after the old call's first: the home command reads
 # back whether the stage is homed, as ``home()`` always has, so a bare
 # ``set("stage_home")`` asks once more; and the chamber's pump and vent read the
@@ -439,33 +439,38 @@ EXTRA_READS = {
 }
 
 
+def test_every_case_was_recorded():
+    assert sorted(key for key, _ in CASES) == sorted(EXPECTED)
+
+
 @pytest.mark.parametrize("key,call", SAME, ids=[key for key, _ in SAME])
 def test_the_devices_make_the_same_odemis_calls_logs_and_results(odemis_cls, key, call):
-    old = run(make(odemis_cls, devices=False), call)
     new = run(make(odemis_cls), call)
     READS["get_chamber_state"] = "vacuum"
-    calls = old[1][:1] + EXTRA_READS.get(key, []) + old[1][1:]
-    assert new == (old[0], calls, old[2])
+    old = EXPECTED[key]
+    calls = old["calls"][:1] + EXTRA_READS.get(key, []) + old["calls"][1:]
+    assert new == {**old, "calls": calls}
 
 
 @pytest.mark.parametrize("key", sorted(REDUCED_AREA))
 def test_the_reduced_area_is_set_where_the_old_code_warned(odemis_cls, key):
-    call = REDUCED_AREA[key]
-    old = run(make(odemis_cls, devices=False), call)
-    assert old[1] == []
-    assert old[2][0][0] == "WARNING" and "Unknown key: reduced_area" in old[2][0][1]
-    new = run(make(odemis_cls), call)
+    old = EXPECTED[key]
+    assert old["calls"] == []
+    assert old["log"][0][0] == "WARNING"
+    assert "Unknown key: reduced_area" in old["log"][0][1]
+    new = run(make(odemis_cls), REDUCED_AREA[key])
     channel = "electron" if key.endswith("ELECTRON") else "ion"
     area = {"left": 0.25, "top": 0.25, "width": 0.5, "height": 0.5}
-    assert new == (
-        None,
-        [["set_reduced_area_scan_mode", [], {"channel": channel, **area}]],
-        [],
-    )
+    assert new == {
+        "result": None,
+        "calls": [["set_reduced_area_scan_mode", [], {"channel": channel, **area}]],
+        "log": [],
+    }
 
 
-def test_the_cases_make_odemis_calls(odemis_cls):
-    calls = [run(make(odemis_cls, devices=False), call)[1] for _, call in CASES]
+def test_the_cases_make_odemis_calls():
+    """A guard on the guard: the recorded cases compare something."""
+    calls = [case["calls"] for case in EXPECTED.values()]
     assert sum(1 for c in calls if c) > len(CASES) * 0.8
 
 
@@ -560,21 +565,25 @@ def test_a_disabled_column_gets_no_device(odemis_cls):
     assert set(microscope.beams) == {BeamType.ELECTRON}
 
 
-def test_a_device_that_cannot_be_built_leaves_the_old_code(odemis_cls, caplog):
+def test_a_device_that_cannot_be_built_fails_the_connection(odemis_cls):
+    """There is no other code for the device keys to fall back to."""
+
     def broken(channel):
         raise RuntimeError("no detector")
 
     stubs.use_components({"fibsem": FakeClient(), "stage-bare": FakeStage()})
     client = stubs._get_component("fibsem")
     object.__setattr__(client, "detector_type_info", broken)
-    with caplog.at_level(logging.WARNING):
-        microscope = odemis_cls(_system())
-    assert dict(microscope.beams) == {}
-    assert microscope.stage is None
-    assert microscope._route("stage_position", None) is None
-    assert microscope.chamber_device is None
-    assert "Could not build the beam, stage and chamber devices" in caplog.text
-    assert microscope.get("hfw", BeamType.ELECTRON) == 150e-6
+    with pytest.raises(RuntimeError, match="no detector"):
+        odemis_cls(_system())
+
+
+def test_a_disabled_column_cannot_image(odemis_cls):
+    microscope = make(odemis_cls, ion=False)
+    with pytest.raises(ValueError, match="ION beam is not enabled"):
+        microscope.acquire_image(beam_type=BeamType.ION)
+    with pytest.raises(ValueError, match="ION beam is not enabled"):
+        microscope.autocontrast(BeamType.ION)
 
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
@@ -587,11 +596,10 @@ def test_the_choices_are_the_old_available_values(odemis_cls, beam_type):
 
 
 def test_an_unlisted_chamber_state_reads_unknown(odemis_cls):
-    """The old key passed a state it did not know through as the client named it;
-    the device reads it as UNKNOWN, as the AutoScript chamber does."""
+    """The old key passed a state it did not know through as the client named it
+    ("Prevac"); the device reads it as UNKNOWN, as the AutoScript chamber does."""
     READS["get_chamber_state"] = "Prevac"
     try:
-        assert make(odemis_cls, devices=False).get("chamber_state") == "Prevac"
         assert make(odemis_cls).get("chamber_state") == "Unknown"
     finally:
         READS["get_chamber_state"] = "vacuum"
