@@ -49,7 +49,6 @@ These need either stubs that delegate to `draw_patterns`, or individual endpoint
 |--------|-------|
 | `_get(key, beam_type)` | Low-level hardware getter — stub with `NotImplementedError` |
 | `_set(key, value, beam_type)` | Low-level hardware setter — stub with `NotImplementedError` |
-| `check_available_values(key, values, beam_type)` | Validation helper — stub with `NotImplementedError` |
 
 ---
 

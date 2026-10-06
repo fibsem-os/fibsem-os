@@ -571,16 +571,6 @@ class DemoConfiguration:
 
         return values
 
-    def check_available_values(
-        self, key: str, value, beam_type: BeamType = None
-    ) -> bool:
-        logging.info(f"Checking if {key}={value} is available ({beam_type})")
-
-        if key == "plasma_gas":
-            return value in self.get_available_values(key, beam_type)
-
-        return False
-
 
 class DemoImaging:
     """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
@@ -2125,7 +2115,7 @@ class LegacyDemoMicroscope(
                 if not self.system.ion.plasma:
                     logging.debug("Plasma gas cannot be set on this microscope.")
                     return
-                if not self.check_available_values("plasma_gas", value, beam_type):
+                if value not in self.get_available_values("plasma_gas", beam_type):
                     logging.warning(
                         f"Plasma gas {value} not available. Available values: {self.get_available_values('plasma_gas', beam_type)}"
                     )

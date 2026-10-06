@@ -92,7 +92,6 @@ OPTIONAL_METHODS = {
     "draw_sputter_pattern",
     "run_sputter",
     "finish_sputter",
-    "check_available_values",
 }
 
 
@@ -708,7 +707,6 @@ def test_demo_reads_its_configuration_without_demo(monkeypatch):
     assert microscope.get("plasma", BeamType.ION) is True
     for key in ("plasma_gas", "gis_ports", "scan_direction"):
         assert microscope.get_available_values(key)
-    assert microscope.check_available_values("plasma_gas", "Argon", BeamType.ION)
     assert microscope._get_axis_limits()
 
 
