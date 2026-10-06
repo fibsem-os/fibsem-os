@@ -617,147 +617,9 @@ class TescanMicroscope(FibsemMicroscope):
             raise ValueError(
                 "Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
             )
-        # The beam's acquire command; image_settings takes precedence, as below.
+        # The beam's acquire command; image_settings takes precedence.
         target = image_settings.beam_type if image_settings is not None else beam_type
-        device = self.beams.get(target)
-        if device is not None:
-            return device.acquire(image_settings)
-
-        # Determine which beam type and settings to use (image_settings takes precedence)
-        if image_settings is not None:
-            # Use provided image settings
-            effective_beam_type = image_settings.beam_type
-            effective_image_settings = image_settings
-        elif beam_type is not None:
-            # Use current settings for the specified beam type
-            effective_beam_type = beam_type
-            effective_image_settings = self.get_imaging_settings(
-                beam_type=effective_beam_type
-            )
-
-        logging.info(f"acquiring new {effective_beam_type.name} image.")
-
-        if image_settings is not None:
-            self._settle_after_electron_image(effective_beam_type)
-
-        # prepare the beam (turn on, stop scanning)
-        beam: Union[Automation.SEM, Automation.FIB]
-        beam = self._prepare_beam(effective_beam_type)
-
-        # imaging parameters
-        dwell_time_ns = effective_image_settings.dwell_time * constants.SI_TO_NANO
-        image_width, image_height = effective_image_settings.resolution
-
-        # Only apply settings if image_settings was provided
-        if image_settings is not None:
-            hfw = self.get_field_of_view(
-                beam_type=effective_beam_type
-            )  # update hfw if required
-            if not np.isclose(hfw, effective_image_settings.hfw, atol=1e-6):
-                self.set_field_of_view(
-                    effective_image_settings.hfw, effective_beam_type
-                )
-
-        image_roi = effective_image_settings.reduced_area
-
-        # The frame transfer is the longest SharkSEM operation there is, and the SDK
-        # has no locking of its own: every Recv is a paired send+receive on the shared
-        # control socket, and AcquireImage mixes control exchanges (ScScanXY) with the
-        # data-socket fetch inside one call. The whole SDK call is therefore the
-        # smallest unit an external lock can protect -- holding it for the full frame
-        # is what keeps other threads' calls from tearing the stream (FIB-786).
-        with self._connection_lock:
-            if image_roi is not None:
-                left, top, right, bottom = to_tescan_image_roi(
-                    rect=image_roi, image_shape=(image_width, image_height)
-                )
-                image: Document = beam.Scan.AcquireROI(
-                    Detector=self._active_detector[effective_beam_type],
-                    Width=image_width,
-                    Height=image_height,
-                    Left=left,
-                    Top=top,
-                    Right=right,
-                    Bottom=bottom,
-                    DwellTime=dwell_time_ns,
-                )
-            else:
-                image: Document = beam.Scan.AcquireImage(
-                    Detector=self._active_detector[effective_beam_type],
-                    Bpp=Bpp.Grayscale_8_bit,
-                    Width=image_width,
-                    Height=image_height,
-                    DwellTime=dwell_time_ns,
-                )
-
-        if image is None:
-            raise ValueError("Failed to acquire image from microscope.")
-
-        # convert to FibsemImage
-        fibsem_image = self._image_from_tescan(image, effective_image_settings)
-        fibsem_image.metadata.image_settings.beam_type = deepcopy(effective_beam_type)
-
-        # save the last image for md
-        if effective_beam_type == BeamType.ELECTRON:
-            self.last_image_eb = fibsem_image
-            beam_state = fibsem_image.metadata.microscope_state.electron_beam
-        elif effective_beam_type == BeamType.ION:
-            self.last_image_ib = fibsem_image
-            beam_state = fibsem_image.metadata.microscope_state.ion_beam
-        else:
-            raise ValueError(f"Unknown beam type: {effective_beam_type}")
-
-        # cache beam metadata parameters
-        self._beam_parameters[
-            effective_beam_type
-        ].dwell_time = effective_image_settings.dwell_time
-        self._beam_parameters[
-            effective_beam_type
-        ].resolution = effective_image_settings.resolution
-        self._beam_parameters[effective_beam_type].stigmation = beam_state.stigmation
-        self._beam_parameters[effective_beam_type].preset = beam_state.preset
-
-        # Store last imaging settings only if image_settings was provided
-        if image_settings is not None:
-            self._last_imaging_settings = image_settings
-
-        # set manufacuter metadata (only available from image)
-        if self.system.info.model == "Unknown":
-            self.system.info.model = image.Header["MAIN"]["DeviceModel"]
-            self.system.info.serial_number = image.Header["MAIN"]["SerialNumber"]
-            self.system.info.software_version = image.Header["MAIN"]["SoftwareVersion"]
-
-        # After the header read above, so the model/serial/version it just wrote onto
-        # self.system.info are the ones stamped on the image.
-        self._set_additional_metadata(fibsem_image)
-
-        return fibsem_image
-
-    def _acquisition_worker(self, beam_type: BeamType) -> None:
-        """Worker thread for live image acquisition.
-
-        Acquires frames in a loop and emits each one on the beam's acquisition signal until
-        stop_acquisition() sets the stop event. TESCAN has no dedicated continuous/streaming
-        API (SEM.Scan/FIB.Scan expose single AcquireImage calls), so this simply re-acquires
-        with the current beam settings -- the same shape as the simulator worker.
-
-        acquire_image holds the connection lock for the whole frame transfer (FIB-786), so
-        the loop is safe against other threads' socket use -- their calls queue between
-        frames rather than interleaving bytes mid-transfer.
-        """
-        try:
-            while not self._stop_acquisition_event.is_set():
-                image = self.acquire_image(beam_type=beam_type)
-
-                if self._stop_acquisition_event.is_set():
-                    break
-
-                if beam_type is BeamType.ELECTRON:
-                    self.sem_acquisition_signal.emit(image)
-                elif beam_type is BeamType.ION:
-                    self.fib_acquisition_signal.emit(image)
-        except Exception as e:
-            logging.error(f"Error in TESCAN acquisition worker: {e}")
+        return self._beam_device(target).acquire(image_settings)
 
     def last_image(self, beam_type: BeamType) -> FibsemImage:
         """
@@ -770,28 +632,7 @@ class TescanMicroscope(FibsemMicroscope):
             FibsemImage: The last acquired image of the specified beam type.
 
         """
-        device = self.beams.get(beam_type)
-        if device is not None:
-            return device.last_image()
-        if beam_type == BeamType.ELECTRON:
-            image = self.last_image_eb
-        elif beam_type == BeamType.ION:
-            image = self.last_image_ib
-        else:
-            raise ValueError(f"Unknown beam type: {beam_type}")
-
-        if image is not None:
-            self._set_additional_metadata(image)
-
-        return image
-
-    def acquire_chamber_image(self) -> FibsemImage:
-        """Acquire an image of the chamber inside."""
-        return NotImplemented
-        with self._connection_lock:
-            image = self.connection.Camera.AcquireImage()
-        logging.debug({"msg": "acquire_chamber_image"})
-        return FibsemImage(data=np.array(image.Image), metadata=None)
+        return self._beam_device(beam_type).last_image()
 
     def autocontrast(
         self, beam_type: BeamType, reduced_area: FibsemRectangle = None
@@ -801,15 +642,7 @@ class TescanMicroscope(FibsemMicroscope):
         Args:
             beam_type: The imaging beam type to adjust the contrast for.
         """
-        device = self.beams.get(beam_type)
-        if device is not None:
-            device.autocontrast(reduced_area)
-            return
-        beam = self._prepare_beam(beam_type=beam_type)
-        logging.info(f"Running autocontrast on {beam_type.name}.")
-        with self._connection_lock:
-            beam.Detector.AutoSignal(Detector=self._active_detector[beam_type])
-        return
+        self._beam_device(beam_type).autocontrast(reduced_area)
 
     def is_working_distance_settable(self, beam_type: BeamType) -> bool:
         """ION working distance is not settable: the SDK's FIB class has no WD or
@@ -822,19 +655,13 @@ class TescanMicroscope(FibsemMicroscope):
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
-        device = self.beams.get(beam_type)
-        if device is not None and device.commands["auto_focus"].available:
-            device.auto_focus(reduced_area)
-            return
-        if beam_type is BeamType.ION:
+        device = self._beam_device(beam_type)
+        if not device.commands["auto_focus"].available:
             logging.warning(
                 f"Auto focus is not supported for {beam_type.name} in Tescan API"
             )
             return
-        beam = self._prepare_beam(beam_type=beam_type)
-        with self._connection_lock:
-            beam.AutoWDFine(self._active_detector[beam_type])
-        return
+        device.auto_focus(reduced_area)
 
     @_records_beam_shift
     def beam_shift(
@@ -1891,6 +1718,13 @@ class TescanMicroscope(FibsemMicroscope):
     def finish_sputter(self, *args, **kwargs):
         pass
 
+    def _beam_device(self, beam_type: BeamType):
+        """The beam device for ``beam_type``; a column disabled in the config has none."""
+        device = self.beams.get(beam_type)
+        if device is None:
+            raise ValueError(f"The {beam_type.name} beam is not enabled.")
+        return device
+
     def _get_beam(
         self, beam_type: BeamType
     ) -> Union["Automation.SEM", "Automation.FIB"]:
@@ -2048,20 +1882,10 @@ class TescanMicroscope(FibsemMicroscope):
         left is what no device has yet: the chamber, the manipulator and the presets
         list.
         """
-        # ion beam properties
-        if key == "plasma":
-            if beam_type is BeamType.ION:
-                return self.system.ion.plasma
-            else:
-                return False
-
         # stage properties
         if key == "stage_position":
             # only reached without a stage device: an enabled stage answers it
             raise ValueError("Stage is not enabled.")
-
-        if key == "stage_calibrated":
-            return self.connection.Stage.IsCalibrated()
 
         # chamber properties
         if key == "chamber_state":
@@ -2189,128 +2013,3 @@ class TescanMicroscope(FibsemMicroscope):
     def home(self) -> bool:
         logging.warning("No homing available, please use native UI.")
         return False
-
-    # def fromTescanFile(
-    #     cls,
-    #     image_path: str,
-    #     metadata_path: str,
-    #     beam_type: BeamType,
-    # ) -> "FibsemImage":
-    #     with tff.TiffFile(image_path) as tiff_image:
-    #         data = tiff_image.asarray()
-
-    #     stage = 0
-    #     dictionary = {"MAIN": {}, "SEM": {}, "FIB": {}}
-    #     with open(metadata_path, "r") as file:
-    #         for line in file:
-    #             if line.startswith("["):
-    #                 stage += 1
-    #                 continue
-
-    #             line = line.strip()
-    #             if not line:
-    #                 continue  # Skip empty lines
-
-    #             key, value = line.split("=")
-    #             key = key.strip()
-    #             value = value.strip()
-    #             if stage == 1:
-    #                 dictionary["MAIN"][key] = value
-    #             if stage == 2 and beam_type.name == "ELECTRON":
-    #                 dictionary["SEM"][key] = value
-    #             if stage == 2 and beam_type.name == "ION":
-    #                 dictionary["FIB"][key] = value
-
-    #     if beam_type.name == "ELECTRON":
-    #         image_settings = ImageSettings(
-    #             resolution=[data.shape[0], data.shape[1]],
-    #             dwell_time=float(dictionary["SEM"]["DwellTime"]),
-    #             hfw=data.shape[0] * float(dictionary["MAIN"]["PixelSizeX"]),
-    #             beam_type=BeamType.ELECTRON,
-    #             filename=Path(image_path).stem,
-    #             path=Path(image_path).parent,
-    #         )
-    #         pixel_size = Point(
-    #             float(dictionary["MAIN"]["PixelSizeX"]),
-    #             float(dictionary["MAIN"]["PixelSizeY"]),
-    #         )
-    #         microscope_state = MicroscopeState(
-    #             timestamp=datetime.strptime(
-    #                 dictionary["MAIN"]["Date"] + " " + dictionary["MAIN"]["Time"],
-    #                 "%Y-%m-%d %H:%M:%S",
-    #             ),
-    #             electron_beam=BeamSettings(
-    #                 beam_type=BeamType.ELECTRON,
-    #                 working_distance=float(dictionary["SEM"]["WD"]),
-    #                 beam_current=float(dictionary["SEM"]["PredictedBeamCurrent"]),
-    #                 voltage=float(dictionary["SEM"]["TubeVoltage"]),
-    #                 hfw=data.shape[0] * float(dictionary["MAIN"]["PixelSizeX"]),
-    #                 resolution=[data.shape[0], data.shape[1]],
-    #                 dwell_time=float(dictionary["SEM"]["DwellTime"]),
-    #                 shift=Point(
-    #                     float(dictionary["SEM"]["ImageShiftX"]),
-    #                     float(dictionary["SEM"]["ImageShiftY"]),
-    #                 ),
-    #                 stigmation=Point(
-    #                     float(dictionary["SEM"]["StigmatorX"]),
-    #                     float(dictionary["SEM"]["StigmatorY"]),
-    #                 ),
-    #             ),
-    #             ion_beam=BeamSettings(beam_type=BeamType.ION),
-    #         )
-    #         detector_settings = FibsemDetectorSettings(
-    #             type=dictionary["SEM"]["Detector"],
-    #             brightness=float(dictionary["SEM"]["Detector0Offset"]),
-    #             contrast=float(dictionary["SEM"]["Detector0Gain"]),
-    #         )
-
-    #     if beam_type.name == "ION":
-    #         image_settings = ImageSettings(
-    #             resolution=[data.shape[0], data.shape[1]],
-    #             dwell_time=float(dictionary["FIB"]["DwellTime"]),
-    #             hfw=data.shape[0] * float(dictionary["MAIN"]["PixelSizeX"]),
-    #             beam_type=BeamType.ELECTRON,
-    #             filename=Path(image_path).stem,
-    #             path=Path(image_path).parent,
-    #         )
-    #         pixel_size = Point(
-    #             float(dictionary["MAIN"]["PixelSizeX"]),
-    #             float(dictionary["MAIN"]["PixelSizeY"]),
-    #         )
-    #         microscope_state = MicroscopeState(
-    #             timestamp=datetime.strptime(
-    #                 dictionary["MAIN"]["Date"] + " " + dictionary["MAIN"]["Time"],
-    #                 "%Y-%m-%d %H:%M:%S",
-    #             ),
-    #             electron_beam=BeamSettings(beam_type=BeamType.ELECTRON),
-    #             ion_beam=BeamSettings(
-    #                 beam_type=BeamType.ION,
-    #                 working_distance=float(dictionary["FIB"]["WD"]),
-    #                 beam_current=float(dictionary["FIB"]["PredictedBeamCurrent"]),
-    #                 hfw=data.shape[0] * float(dictionary["MAIN"]["PixelSizeX"]),
-    #                 resolution=[data.shape[0], data.shape[1]],
-    #                 dwell_time=float(dictionary["FIB"]["DwellTime"]),
-    #                 shift=Point(
-    #                     float(dictionary["FIB"]["ImageShiftX"]),
-    #                     float(dictionary["FIB"]["ImageShiftY"]),
-    #                 ),
-    #                 stigmation=Point(
-    #                     float(dictionary["FIB"]["StigmatorX"]),
-    #                     float(dictionary["FIB"]["StigmatorY"]),
-    #                 ),
-    #             ),
-    #         )
-    #         detector_settings = FibsemDetectorSettings(
-    #             type=dictionary["FIB"]["Detector"],
-    #             brightness=float(dictionary["FIB"]["Detector0Offset"]) / 100,
-    #             contrast=float(dictionary["FIB"]["Detector0Gain"]) / 100,
-    #         )
-
-    #     metadata = FibsemImageMetadata(
-    #         image_settings=image_settings,
-    #         pixel_size=pixel_size,
-    #         microscope_state=microscope_state,
-    #         # detector_settings=detector_settings,
-    #         version=METADATA_VERSION,
-    #     )
-    #     return FibsemImage(data=data, metadata=metadata)
