@@ -70,15 +70,16 @@ def test_the_stage_poses(scope):
         assert poses == {"SEM": (0.0, 35.0), "FIB": (180.0, 17.0)}
 
 
-@pytest.mark.parametrize("tilt", [-170.0, 30.0])
-def test_the_milling_angle_unwinds_a_turned_over_compustage(scope, tilt):
+# Tilts each stage can reach: a compustage tilts to -195, an offset stage stops at -10.
+@pytest.mark.parametrize("which", ["low", "high"])
+def test_the_milling_angle_unwinds_a_turned_over_compustage(scope, which):
     compustage = _compustage(scope)
-    expected = {
-        (True, -170.0): 48.0,
-        (True, 30.0): 68.0,
-        (False, -170.0): -167.0,
-        (False, 30.0): 33.0,
-    }[(compustage, tilt)]
+    tilt, expected = {
+        (True, "low"): (-170.0, 48.0),
+        (True, "high"): (30.0, 68.0),
+        (False, "low"): (-5.0, -2.0),
+        (False, "high"): (30.0, 33.0),
+    }[(compustage, which)]
     angle = scope[1].get_current_milling_angle(_position(tilt))
     assert np.isclose(angle, expected)
 
