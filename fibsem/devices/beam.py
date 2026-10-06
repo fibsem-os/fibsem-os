@@ -79,25 +79,35 @@ class Beam(Device):
 
     # The scan area. Each command changes scanning_mode; a backend implements
     # _spot, _reduced_area and _full_frame, and a beam that can't set the scan area
-    # has no scanning_mode, so the commands are unavailable.
+    # has no scanning_mode, so the commands are unavailable. A driver that can set
+    # the scan area but not read it back says so in _scans (Odemis); its commands
+    # then read nothing back.
 
-    @command(available=lambda beam: "scanning_mode" in beam.parameters)
+    @command(available=lambda beam: beam._scans())
     def spot(self, point: Point) -> None:
         """Park the beam on a point, in image coordinates (0 to 1)."""
         self._spot(point)
-        self.scanning_mode.get_value()
+        self._read_scanning_mode()
 
-    @command(available=lambda beam: "scanning_mode" in beam.parameters)
+    @command(available=lambda beam: beam._scans())
     def reduced_area(self, area: FibsemRectangle) -> None:
         """Scan only a rectangle of the frame, in image coordinates (0 to 1)."""
         self._reduced_area(area)
-        self.scanning_mode.get_value()
+        self._read_scanning_mode()
 
-    @command(available=lambda beam: "scanning_mode" in beam.parameters)
+    @command(available=lambda beam: beam._scans())
     def full_frame(self) -> None:
         """Scan the whole frame."""
         self._full_frame()
-        self.scanning_mode.get_value()
+        self._read_scanning_mode()
+
+    def _scans(self) -> bool:
+        """Whether this beam has the scan commands."""
+        return "scanning_mode" in self.parameters
+
+    def _read_scanning_mode(self) -> None:
+        if "scanning_mode" in self.parameters:
+            self.scanning_mode.get_value()
 
     def _spot(self, point: Point) -> None:
         raise NotImplementedError
@@ -241,6 +251,15 @@ BEAM_ROUTES: Dict[str, str] = {
     "scanning_mode": "scanning_mode",
     "angular_correction_angle": "angular_correction",
     "angular_correction_tilt_correction": "tilt_correction",
+}
+
+
+# Old set keys that are verbs, moved to the beam's scan commands: key -> command. The
+# value is the command's argument (none for full_frame, which ignores it).
+BEAM_COMMAND_ROUTES: Dict[str, str] = {
+    "spot_mode": "spot",
+    "reduced_area": "reduced_area",
+    "full_frame": "full_frame",
 }
 
 
