@@ -180,7 +180,7 @@ class TestCards:
 
     def test_a_refused_exchange_is_reported(self, tab, arctis):
         tab.btn_inventory.click()
-        arctis._stage.loader.fail_next_exchange = True
+        arctis._stage.loader.device.fail_next_exchange = True
         tab.cards.cards[0]._action_load.trigger()
         assert "Simulated autoloader exchange failure" in tab.status_label.text()
         assert tab.cards.cards[0]._action_load.isEnabled()

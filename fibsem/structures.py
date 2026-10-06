@@ -3044,7 +3044,14 @@ CONFIGURED_DEVICES: Dict[str, str] = {
 # Types a backend builds a device of by itself, so an entry named after one of them
 # needs no `type:` -- `name: chamber` is the chamber. A plugin may configure a type not
 # listed here; such an entry states its `type`.
-DEVICE_TYPES: Tuple[str, ...] = ("beam", "stage", "chamber", "manipulator", "fm")
+DEVICE_TYPES: Tuple[str, ...] = (
+    "beam",
+    "stage",
+    "chamber",
+    "manipulator",
+    "fm",
+    "sample_loader",
+)
 
 
 # The devices with records of their own whose entries also keep `required:`, and a

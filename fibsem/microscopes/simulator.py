@@ -1027,7 +1027,13 @@ class DemoScene:
         # Where the simulated autoloader really puts a grid, if it is told: the
         # scene draws the grid there whatever the working slot is calibrated to,
         # as on a real Arctis, where a loaded grid sits off the origin (FIB-1144).
-        grid_position = getattr(getattr(stage, "loader", None), "grid_position", None)
+        device = getattr(self, "devices", {}).get("sample_loader")
+        if device is not None:
+            grid_position = getattr(device, "sim_grid_position", None)
+        else:
+            grid_position = getattr(
+                getattr(stage, "loader", None), "grid_position", None
+            )
         try:
             return [
                 (

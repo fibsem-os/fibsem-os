@@ -595,6 +595,10 @@ class AutoscriptCompustage(Stage):
 class AutoscriptSampleLoader(SampleGridLoader):
     """The AutoScript autoloader (Arctis, xT 28.x, AutoScript >= 4.10) as a grid loader.
 
+    Not used: ``ThermoMicroscope`` builds the ``sample_loader`` device
+    (``fibsem.devices.drivers.autoscript.AutoscriptSampleLoader``) and the grid model
+    over it. Kept until the device has run on an Arctis, then deleted.
+
     Wraps ``connection.specimen.autoloader``. Magazine slots mirror ``get_slots()``
     and are addressed by the 1-based ``AutoloaderSlot.id``; ``load(id)`` blocks until
     the exchange is done and ``unload()`` takes nothing. Grid names live in each
@@ -1353,7 +1357,7 @@ DRIVER = DriverEntry(
         device_type: DeviceBuilder(
             f"fibsem.devices.drivers.autoscript:build_autoscript_{device_type}"
         )
-        for device_type in ("beam", "stage", "chamber", "manipulator")
+        for device_type in ("beam", "stage", "chamber", "manipulator", "sample_loader")
     },
 )
 
@@ -1362,7 +1366,8 @@ DRIVER = DriverEntry(
 _BEAM_TYPES = ("beam",)
 _STAGE_TYPES = ("stage",)
 _PART_TYPES = ("chamber", "manipulator")
-_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + ("fm",)
+_LOADER_TYPES = ("sample_loader",)
+_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + _LOADER_TYPES + ("fm",)
 
 
 class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
@@ -1730,18 +1735,27 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         return DeviceThermoFisherFluorescenceMicroscope(devices, parent=self)
 
     def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
-        """The AutoScript autoloader, when the microscope has one.
+        """The grid model over the ``sample_loader`` device, built when the
+        instrument has an autoloader, unless the configuration switches it off.
 
-        A compustage without an autoloader gets no loader at all: its grids are
-        exchanged by hand, and a phantom twelve-slot magazine would only mislead.
+        A compustage without one gets no loader at all: its grids are exchanged by
+        hand, and a phantom twelve-slot magazine would only mislead. The magazine is
+        not read here; ``get_inventory`` or ``run_inventory`` reads it.
         """
-        loader = AutoscriptSampleLoader(parent=self)
-        if not loader.is_installed:
-            logging.info(
-                "Compustage without an autoloader: grids are exchanged by hand."
-            )
+        from fibsem.devices.drivers.autoscript import autoloader_installed
+        from fibsem.microscopes._stage import DeviceSampleLoader
+
+        device = self.devices.get("sample_loader")
+        if device is None:
+            fitted = []
+            if autoloader_installed(self):
+                fitted.append(DeviceEntry(name="sample_loader", type="sample_loader"))
+            built = self._build_devices(fitted, _LOADER_TYPES)
+            device = next(iter(built.values()), None)
+        if device is None:
+            logging.info("No sample loader: grids are exchanged by hand.")
             return None
-        return loader
+        return DeviceSampleLoader(self, device)
 
     def get_detector_settings(
         self, beam_type: BeamType = BeamType.ELECTRON

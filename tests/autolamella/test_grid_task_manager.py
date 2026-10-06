@@ -240,7 +240,7 @@ class TestFailureIsolation:
     def test_a_failed_load_skips_that_grids_tasks_and_the_run_continues(
         self, manager, experiment, microscope
     ):
-        microscope._stage.loader.fail_next_exchange = True  # Grid-01's exchange
+        microscope._stage.loader.device.fail_next_exchange = True  # Grid-01's exchange
         executed = run_with_stub(
             manager, ["overview_sem", "overview_fib"], ["Grid-01", "Grid-02"]
         )
@@ -286,7 +286,7 @@ class TestFailureIsolation:
             return original(name)
 
         stage.ensure_loaded = counting
-        stage.loader.fail_next_exchange = True
+        stage.loader.device.fail_next_exchange = True
         run_with_stub(manager, ["overview_sem", "overview_fib"], ["Grid-01"])
         assert attempts == ["Grid-01"]
 
@@ -546,7 +546,7 @@ class TestStopAndStatus:
         ]
 
     def test_run_summary_has_one_row_per_attempt(self, manager, microscope):
-        microscope._stage.loader.fail_next_exchange = True
+        microscope._stage.loader.device.fail_next_exchange = True
         run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
         df = manager.build_run_summary_dataframe()
         assert list(df.columns) == [
