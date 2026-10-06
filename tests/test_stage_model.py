@@ -27,8 +27,8 @@ from fibsem.geometry.frames import (
     views_back,
 )
 from fibsem.geometry.movement import vertical_move_delta
+from fibsem.movement import rotation_angle_is_smaller
 from fibsem.transformations import (
-    _projection_terms,
     inverse_view_corrected_dy,
     view_corrected_stage_movement,
 )
@@ -68,12 +68,35 @@ def _mirror(geometry, model, view_tilt, r, t) -> float:
     return 1.0
 
 
+def _rules_before_the_model(geometry, r, t):
+    """The projection's rules before the model, kept here as the reference.
+
+    Returns (mirror, pre-tilt): a compustage mirrored image y at its FIB pose only, and
+    the pre-tilt took its sign from the nearer of the SEM and FIB rotations (+ if
+    neither is within 5 degrees, - at a compustage's FIB pose).
+    """
+    reference = np.deg2rad(geometry.rotation_reference) % (2 * np.pi)
+    half_turn = np.deg2rad(geometry.rotation_180) % (2 * np.pi)
+    r = r % (2 * np.pi)
+    at_fib = bool(
+        geometry.is_compustage
+        and np.isclose(
+            t,
+            np.deg2rad(geometry.fib_column_tilt - geometry.shuttle_pre_tilt - 180),
+            atol=0.1,
+        )
+        and rotation_angle_is_smaller(r, reference, atol=5)
+    )
+    sign = 1.0
+    if rotation_angle_is_smaller(r, half_turn, atol=5) or at_fib:
+        sign = -1.0
+    pretilt = sign * np.deg2rad(geometry.shuttle_pre_tilt + geometry.column_tilt)
+    return (-1.0 if at_fib else 1.0), pretilt
+
+
 def _named_fib_pose_mirror(geometry, r, t) -> float:
     """The rule the projection carried before: a compustage mirrors at its FIB pose."""
-    if not geometry.is_compustage:
-        return 1.0
-    sign, _, _ = _projection_terms(geometry, r, t)
-    return -sign
+    return _rules_before_the_model(geometry, r, t)[0]
 
 
 # Where mirroring back views parts from the named FIB-pose rule, at a declared pose: on
@@ -241,13 +264,11 @@ def test_a_click_between_the_poses_follows_the_shuttles_lean():
 
 def test_the_surface_slope_is_todays_corrected_pre_tilt(stage):
     """What coincidence's tilt walk and the sim scene read: the pre-tilt with the
-    sign `_projection_terms` gave it, at every pose."""
-    from fibsem.transformations import _projection_terms
-
+    sign the projection gave it before the model, at every pose."""
     geometry, poses = stage
     model = StageModel.from_geometry(geometry)
     for name, r, t in _poses_to_check(geometry, poses):
-        _, pretilt, _ = _projection_terms(geometry, r, t)
+        _, pretilt = _rules_before_the_model(geometry, r, t)
         assert model.surface_slope(r) == pytest.approx(pretilt, abs=1e-12), name
 
 
