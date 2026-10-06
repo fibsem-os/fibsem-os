@@ -7,6 +7,7 @@ device, load unchanged, and are converted the first time anything saves them.
 """
 
 import copy
+import logging
 import os
 
 import pytest
@@ -186,6 +187,19 @@ def test_an_old_gis_entry_still_loads_and_is_written_back():
     assert [e.name for e in system.other_devices] == ["gis"]
     assert system.to_dict()["hardware"]["devices"][-1] == entry
     assert utils.unrecognised_configuration_keys(config) == []
+
+
+def test_an_entry_of_no_known_type_is_ignored_with_a_warning(caplog):
+    """An entry with no `type:` whose name is no device type, such as a GIS from
+    before it was removed, is left out rather than failing the load."""
+    config = {"hardware": {"devices": [{"name": "gis"}, {"name": "manipulator"}]}}
+
+    with caplog.at_level(logging.WARNING):
+        system = SystemSettings.from_dict(config)
+
+    assert [e.name for e in system.other_devices] == ["manipulator"]
+    assert "'gis' states no type" in caplog.text
+    assert "It is ignored." in caplog.text
 
 
 def test_an_old_gis_block_still_loads_and_is_reported_as_unread():

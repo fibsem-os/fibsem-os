@@ -3047,6 +3047,10 @@ CONFIGURED_DEVICES: Dict[str, str] = {
 DEVICE_TYPES: Tuple[str, ...] = ("beam", "stage", "chamber", "manipulator", "fm")
 
 
+class UnknownDeviceType(ValueError):
+    """A `hardware.devices` entry states no type, and its name is no device type."""
+
+
 @dataclass
 class DeviceEntry:
     """One entry of `hardware.devices`: a device the configuration says something about.
@@ -3117,7 +3121,7 @@ class DeviceEntry:
                 name if name in DEVICE_TYPES else None
             )
             if type_ is None:
-                raise ValueError(
+                raise UnknownDeviceType(
                     f"hardware.devices: '{name}' states no type, and no device type "
                     "is called that. A device the backend does not build itself "
                     "needs a `type:`."
@@ -3155,7 +3159,9 @@ def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
     both only for the devices that had one, `CONFIGURED_DEVICES` -- and the version 2
     list (`hardware.devices:`). A later shape wins key by key, so a file
     half way between two reads as it says. Two list entries with one name are an error:
-    which of them the file meant cannot be known.
+    which of them the file meant cannot be known. A list entry with no type whose name
+    is no device type is ignored with a warning, so a file naming a device this version
+    no longer has still loads.
     """
     settings = settings or {}
     hardware = settings.get("hardware") or {}
@@ -3184,7 +3190,12 @@ def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
         raise ValueError("hardware.devices must be a list of devices.")
     seen: Set[str] = set()
     for item in listed:
-        entry = DeviceEntry.from_dict(item)
+        try:
+            entry = DeviceEntry.from_dict(item)
+        except UnknownDeviceType as e:
+            # such as a device this version no longer has (`name: gis`)
+            logging.warning(f"{e} It is ignored.")
+            continue
         if entry.name in seen:
             raise ValueError(
                 f"hardware.devices names '{entry.name}' twice. Give each device its "
