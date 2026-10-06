@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import logging
 from types import MappingProxyType
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from fibsem import manufacturers
 from fibsem._timing import sim_sleep
