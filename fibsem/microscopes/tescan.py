@@ -551,8 +551,8 @@ class TescanMicroscope(FibsemMicroscope):
     def _build_beams(self) -> None:
         """Build the beam devices and route the beam keys to them.
 
-        A key a beam does not have (the ion column's working distance, the electron
-        column's preset, ``detector_mode``) is still answered by ``_get``/``_set``,
+        A key a beam does not have (the ion column's working distance,
+        ``detector_mode``) is still answered by ``_get``/``_set``,
         and so is every key of a disabled column, which gets no device.
         """
         from fibsem.devices.drivers.tescan import bind_tescan_beams

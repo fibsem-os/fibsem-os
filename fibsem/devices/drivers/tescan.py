@@ -58,9 +58,9 @@ class TescanBeam(Beam):
     from the last image.
 
     Not here, so absent on the new API and still answered by the old branches: the ion
-    column's working distance (the old read warns of an unknown key), the electron
-    column's preset (it is set directly, ``beam_uses_presets``), ``detector_mode``
-    (not in the API), ``blanked``, ``plasma_gas`` and the scan modes.
+    column's working distance (the old read warns of an unknown key),
+    ``detector_mode`` (not in the API), ``blanked``, ``plasma_gas`` and the scan
+    modes.
     """
 
     def __init__(
@@ -254,10 +254,9 @@ class TescanBeam(Beam):
     def metadata_stigmation(self) -> ParameterMetadata:
         return _NOT_SETTABLE
 
-    # -- presets: the ion column's; the last one activated, and activation ----------
-
-    def available_preset(self) -> bool:
-        return self.parent.beam_uses_presets(self.beam_type)
+    # -- presets: the last one activated, and activation, on either column ----------
+    # The ion column is set by preset (``beam_uses_presets``); the electron column's
+    # can be activated too, as set_beam_settings does when it restores one.
 
     def read_preset(self) -> Optional[str]:
         return self._cache.preset
