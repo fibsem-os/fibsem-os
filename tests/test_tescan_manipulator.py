@@ -1,92 +1,52 @@
-"""The Tescan manipulator methods return where the needle is afterwards.
+"""Tescan reports no manipulator.
 
-Every backend's manipulator moves return the position after the move, as the
-Manipulator device's commands do (the contract suite pins it on Demo and
-LegacyDemo). These check Tescan's, which returned None, and its relative move,
-which logged a failure and returned the exception instead of raising it.
+fibsem no longer drives the Tescan Nanomanipulator: the backend reports none, so
+the app hides the manipulator widget, and the manipulator methods are the base
+class's, which raise without touching the instrument.
 
-No hardware or Tescan SDK required: the microscope is created without __init__
-and its connection is a fake Nanomanipulator.
+No hardware or Tescan SDK required: the microscope is connected over the fake SDK
+(``tests/fixtures/tescan_sdk.py``).
 """
 
-import threading
-from types import SimpleNamespace
+import os
 
 import pytest
 
-from fibsem.microscopes.tescan import TescanMicroscope
-from fibsem.structures import BeamType, FibsemManipulatorPosition
+import fibsem.config as cfg
+from fibsem import utils
+from fibsem.structures import FibsemManipulatorPosition
+from tests.fixtures.tescan_sdk import connect
 
 
-class FakeNanomanipulator:
-    Position = SimpleNamespace(Parking="parking", Standby="standby", Working="working")
-
-    def __init__(self, fail_moves: bool = False):
-        self.xyzr = [0.0, 0.0, 0.0, 0.0]  # mm, mm, mm, degrees
-        self.fail_moves = fail_moves
-
-    def IsCalibrated(self, index):
-        return True
-
-    def GetPosition(self, Index):
-        return tuple(self.xyzr)
-
-    def MoveTo(self, Index, X, Y, Z, Rot):
-        if self.fail_moves:
-            raise RuntimeError("the needle hit its limit")
-        self.xyzr = [X, Y, Z, Rot]
-
-    def MoveToPosition(self, Index, Position):
-        self.xyzr = {"parking": [0, 0, 0, 0], "standby": [1, 2, 3, 0]}.get(
-            Position, [4, 5, 6, 0]
-        )
+@pytest.fixture
+def connected(monkeypatch):
+    system = utils.load_microscope_configuration(
+        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+    ).system
+    return connect(monkeypatch, system)
 
 
-def _tescan(fail_moves: bool = False) -> TescanMicroscope:
-    microscope = TescanMicroscope.__new__(TescanMicroscope)
-    microscope._connection_lock = threading.RLock()
-    microscope.connection = SimpleNamespace(
-        Nanomanipulator=FakeNanomanipulator(fail_moves)
-    )
-    microscope.get_stage_position = lambda: SimpleNamespace(t=0.0)
-    return microscope
-
-
-def _xyz(position: FibsemManipulatorPosition):
-    return pytest.approx([position.x, position.y, position.z])
+def test_it_reports_no_manipulator(connected):
+    microscope, _ = connected
+    assert microscope.is_available("manipulator") is False
+    assert microscope.system.manipulator.enabled is False
+    assert microscope.capability_sources["manipulator"] == "backend"
+    assert microscope.manipulator_device is None
+    assert microscope.manipulator_named_positions() == []
 
 
 @pytest.mark.parametrize(
-    "move",
+    "call",
     [
         lambda m: m.insert_manipulator("Standby"),
         lambda m: m.retract_manipulator(),
-        lambda m: m.move_manipulator_absolute(
-            FibsemManipulatorPosition(x=1e-3, y=2e-3, z=3e-3, r=0)
-        ),
-        lambda m: m.move_manipulator_relative(
-            FibsemManipulatorPosition(x=1e-3, y=0, z=0, r=0)
-        ),
-        lambda m: m.move_manipulator_corrected(1e-3, -1e-3, BeamType.ELECTRON),
+        lambda m: m.move_manipulator_relative(FibsemManipulatorPosition(x=1e-6)),
+        lambda m: m.move_manipulator_absolute(FibsemManipulatorPosition()),
+        lambda m: m.move_manipulator_to_named_position("Parking"),
     ],
-    ids=["insert", "retract", "absolute", "relative", "corrected"],
 )
-def test_manipulator_moves_return_where_the_needle_is(move):
-    microscope = _tescan()
-    moved = move(microscope)
-    assert isinstance(moved, FibsemManipulatorPosition)
-    after = microscope.get_manipulator_position()
-    assert _xyz(moved) == [after.x, after.y, after.z]
-
-
-def test_a_failed_relative_move_raises():
-    microscope = _tescan(fail_moves=True)
-    with pytest.raises(RuntimeError, match="limit"):
-        microscope.move_manipulator_relative(
-            FibsemManipulatorPosition(x=1e-3, y=0, z=0, r=0)
-        )
-
-
-def test_home_reports_it_did_not_home():
-    """Tescan's API cannot home; `home` returns False, not None, like the others' bool."""
-    assert _tescan().home() is False
+def test_its_manipulator_moves_raise_without_touching_the_instrument(connected, call):
+    microscope, fake = connected
+    with pytest.raises(NotImplementedError):
+        call(microscope)
+    assert not [path for path, _, _ in fake.log if "Nanomanipulator" in path]
