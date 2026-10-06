@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
 
@@ -9,7 +9,6 @@ from fibsem.geometry.frames import (
     in_plane_move,
     views_back,
 )
-from fibsem.movement import rotation_angle_is_smaller
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -112,77 +111,6 @@ def is_close_to_milling_angle(
 # They live here rather than beside either modality's reprojection module because both
 # use them. They arrived in `fibsem/fm/reprojection.py` with the camera tilt baked in,
 # which read as fluorescence-specific and was not.
-
-
-def _projection_terms(
-    geometry: "FibsemHardwareGeometry",
-    stage_rotation: float,
-    stage_tilt: float,
-    is_fib_orientation: Optional[bool] = None,
-) -> Tuple[float, float, float]:
-    """The sign and angle terms both directions of the projection share.
-
-    Factored out rather than written twice: the forward and the inverse differ only in
-    the arithmetic that follows, and a sign convention that drifts between them would
-    make a click land somewhere other than where the marker was drawn -- while each
-    direction on its own still looked self-consistent.
-
-    ``is_fib_orientation`` lets a caller that has already classified the pose say
-    whether a compustage is at its FIB orientation, instead of having it derived here.
-    The live stage move classifies it against the microscope's orientation table and
-    passes the answer in, so moving through this function changed nothing about where
-    it decides the FIB side is. Ignored off a compustage, which has no FIB flip.
-
-    Returns:
-        (compustage_sign, corrected_pretilt_angle, stage_tilt), where `stage_tilt` has
-        the compustage half-turn already folded in.
-    """
-    sem_column_tilt = np.deg2rad(geometry.column_tilt)
-    stage_pretilt = np.deg2rad(geometry.shuttle_pre_tilt)
-    rotation_flat_to_eb = np.deg2rad(geometry.rotation_reference) % (2 * np.pi)
-    rotation_flat_to_ion = np.deg2rad(geometry.rotation_180) % (2 * np.pi)
-
-    stage_rotation = stage_rotation % (2 * np.pi)
-
-    # The forward flips expected_y once for a compustage and a second time at the FIB
-    # orientation, so the two cancel there. Unless the caller says, the orientation is
-    # derived from the pose rather than from a live microscope's `get_stage_orientation`.
-    #
-    # The rotation test is not redundant with the tilt test: a compustage cannot
-    # rotate, so `get_stage_orientation` reports FIB only at the reference rotation.
-    # Keying on tilt alone would call an unreachable pose FIB and flip the sign
-    # against the live path -- which is a disagreement no physical run can surface,
-    # and so exactly the kind that survives. `fibsem/imaging/tiling/reprojection.py`
-    # still keys on tilt alone; that is FIB-500, deliberately left for its own change
-    # because it moves a stage sign.
-    compustage_sign = 1.0
-    if not geometry.is_compustage:
-        is_fib_orientation = False
-    else:
-        if is_fib_orientation is None:
-            fib_orientation_tilt = np.deg2rad(
-                geometry.fib_column_tilt - geometry.shuttle_pre_tilt - 180
-            )
-            is_fib_orientation = bool(
-                np.isclose(stage_tilt, fib_orientation_tilt, atol=0.1)
-                and rotation_angle_is_smaller(
-                    stage_rotation, rotation_flat_to_eb, atol=5
-                )
-            )
-        compustage_sign = 1.0 if is_fib_orientation else -1.0
-        stage_tilt = stage_tilt + np.pi
-
-    pretilt_sign = 1.0
-    if rotation_angle_is_smaller(stage_rotation, rotation_flat_to_eb, atol=5):
-        pretilt_sign = 1.0
-    if rotation_angle_is_smaller(stage_rotation, rotation_flat_to_ion, atol=5):
-        pretilt_sign = -1.0
-    if is_fib_orientation:
-        pretilt_sign = -1.0
-
-    corrected_pretilt_angle = pretilt_sign * (stage_pretilt + sem_column_tilt)
-
-    return compustage_sign, corrected_pretilt_angle, stage_tilt
 
 
 def _image_y_flip(
