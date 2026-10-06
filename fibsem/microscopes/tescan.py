@@ -564,9 +564,9 @@ class TescanMicroscope(FibsemMicroscope):
         """Build the stage device and route the stage keys to it.
 
         The absolute and relative moves then go through the device, and so do the
-        view-corrected moves, which end in them. ``homed`` and ``linked`` are not on
-        the device, so their keys still go to ``_get``/``_set``. A disabled stage gets
-        no device.
+        view-corrected moves, which end in them. ``homed`` is not on the device, so its
+        key still goes to ``_get``/``_set``. A disabled stage gets no device, and then
+        the stage cannot be read or moved.
         """
         from fibsem.devices.drivers.tescan import bind_tescan_stage
 
@@ -869,56 +869,6 @@ class TescanMicroscope(FibsemMicroscope):
 
         # TODO: implement if required.
         self.move_stage_absolute(stage_position)
-
-    @_records_stage_move
-    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        """
-        Move the stage to the specified coordinates.
-
-        Args:
-            position: The raw stage position to move to (metres, radians).
-
-        Returns:
-            FibsemStagePosition: The stage position after the move.
-        """
-        # through the stage device once connect has built it; the code below stays
-        # until a session on an instrument confirms the device's moves
-        if self.stage is not None:
-            return super().move_stage_absolute(position)
-
-        logging.info(f"Moving stage to {position}.")
-        # convert to tescan position
-        x, y, z, r, t = to_tescan_stage_position(position=position)
-        with self._connection_lock:
-            self.connection.Stage.MoveTo(x=x, y=y, z=z, rot=r, tiltx=t)
-
-        logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
-
-        return self.get_stage_position()
-
-    @_records_stage_move
-    def move_stage_relative(
-        self,
-        position: FibsemStagePosition,
-    ) -> FibsemStagePosition:
-        """Move the stage by the specified relative move."""
-
-        # through the stage device once connect has built it, as move_stage_absolute
-        if self.stage is not None:
-            return super().move_stage_relative(position)
-
-        logging.info(f"Moving stage by {position}.")
-
-        current_position = self.get_stage_position()
-
-        abs_position = current_position + position
-        logging.debug(f"Moving stage to {abs_position}")
-        moved = self.move_stage_absolute(abs_position)  # reads where it ended
-
-        # move stage
-        logging.debug({"msg": "move_stage_relative", "position": position.to_dict()})
-
-        return moved
 
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct the coincidence point from the SEM view.
@@ -2075,48 +2025,12 @@ class TescanMicroscope(FibsemMicroscope):
     ) -> Union[
         float, str, List[str], Tuple[int, int], Point, FibsemStagePosition, None
     ]:
-        """Get a property of the microscope."""
-        if beam_type is not None:
-            beam: Union[Automation.SEM, Automation.FIB] = self._get_beam(beam_type)
+        """Get a property of the microscope.
 
-        # beam properties
-        if key == "on":
-            # GetStatus is a status code, not a flag: a column warming up or in
-            # transition is not on, so compare against BeamOn as _prepare_beam does.
-            return beam.Beam.GetStatus() == beam.Beam.Status.BeamOn
-        if key == "working_distance" and beam_type == BeamType.ELECTRON:
-            return beam.Optics.GetWD() * constants.MILLIMETRE_TO_METRE
-        if key == "current":
-            if beam_type == BeamType.ELECTRON:
-                return beam.Beam.GetCurrent() * constants.PICO_TO_SI
-            else:
-                return beam.Beam.ReadProbeCurrent() * constants.PICO_TO_SI
-        if key == "voltage":
-            return beam.Beam.GetVoltage()
-        if key == "hfw":
-            return beam.Optics.GetViewfield() * constants.MILLIMETRE_TO_METRE
-        if key == "resolution":
-            return self._beam_parameters[beam_type].resolution
-        if key == "dwell_time":
-            return self._beam_parameters[beam_type].dwell_time
-        if key == "stigmation":
-            return self._beam_parameters[beam_type].stigmation
-        if key == "scan_rotation":
-            scan_rotation = (
-                beam.Optics.GetImageRotation()
-            )  # DEGREES, can be nan on simulator
-            if np.isnan(scan_rotation):
-                scan_rotation = 0.0
-            # return radians to match the codebase-wide convention (Thermo, image
-            # metadata, reprojection). The Tescan API works in degrees.
-            return scan_rotation * constants.DEGREES_TO_RADIANS
-        if key == "shift":
-            values = beam.Optics.GetImageShift()
-            shift = Point(
-                x=values[0] * constants.MILLIMETRE_TO_METRE,
-                y=values[1] * constants.MILLIMETRE_TO_METRE,
-            )
-            return shift
+        The keys the beam and stage devices answer are not here (FIB-1161). What is
+        left is what no device has yet: the electron column's preset, the chamber, the
+        manipulator and the presets list.
+        """
         if key == "preset":
             return self._beam_parameters[beam_type].preset
 
@@ -2129,10 +2043,8 @@ class TescanMicroscope(FibsemMicroscope):
 
         # stage properties
         if key == "stage_position":
-            if self.system.stage.enabled is False:
-                raise ValueError("Stage is not enabled.")
-            position = self.connection.Stage.GetPosition()
-            return from_tescan_stage_position(position)
+            # only reached without a stage device: an enabled stage answers it
+            raise ValueError("Stage is not enabled.")
 
         if key == "stage_calibrated":
             return self.connection.Stage.IsCalibrated()
@@ -2142,23 +2054,6 @@ class TescanMicroscope(FibsemMicroscope):
             return self.connection.Chamber.GetStatus()
         if key == "chamber_pressure":
             return self.connection.Chamber.GetPressure(0)
-
-        # detector properties
-        if key == "detector_type":
-            detector = beam.Detector.Get(Channel=0)
-            if detector is None:  # QUERY: can this be None?
-                return None
-            return detector.name
-
-        if key in ["detector_contrast", "detector_brightness"]:
-            contrast, brightness = beam.Detector.GetGainBlack(
-                Detector=self._active_detector[beam_type]
-            )
-
-            if key == "detector_contrast":
-                return contrast / 100
-            if key == "detector_brightness":
-                return brightness / 100
 
         # manipulator properties
         if key == "manipulator_position":
@@ -2171,14 +2066,7 @@ class TescanMicroscope(FibsemMicroscope):
         if key == "presets":
             return self._get_presets(beam_type=beam_type)
 
-        NOT_SUPPORTED_KEYS = [
-            "resolution",
-            "dwell_time",
-            "stigmation",
-            "preset",
-            "detector_mode",
-        ]
-        if key in NOT_SUPPORTED_KEYS:
+        if key == "detector_mode":
             logging.debug(f"Key {key} directly not supported by Tescan API.")
             return None
 
@@ -2262,119 +2150,28 @@ class TescanMicroscope(FibsemMicroscope):
             self._set_impl(key, value, beam_type)
 
     def _set_impl(self, key: str, value, beam_type: BeamType = None) -> None:
-        """Set a property of the microscope."""
+        """Set a property of the microscope.
+
+        The keys the beam devices answer are not here (FIB-1161). What is left is
+        what no beam has: the ion column's working distance, the electron column's
+        preset and ``detector_mode``.
+        """
         if beam_type is not None:
             beam: Union[Automation.SEM, Automation.FIB] = self._get_beam(beam_type)
             self._prepare_beam(beam_type)
 
-        if key == "working_distance":
-            if beam_type is BeamType.ION:
-                logging.info(
-                    f"Setting working distance directly for {beam_type} is not supported by Tescan API"
-                )
-                return
-            if beam_type is BeamType.ELECTRON:
-                beam.Optics.SetWD(value * constants.METRE_TO_MILLIMETRE)
-                logging.info(f"Electron beam working distance set to {value} m.")
-            return
-        if key == "current":
-            if beam_type is BeamType.ION:
-                logging.info(
-                    f"Setting current directly for {beam_type} is not supported by Tescan API, please use presets instead."
-                )
-                return
-            if beam_type is BeamType.ELECTRON:
-                beam.Beam.SetCurrent(value * constants.SI_TO_PICO)
-                logging.info(f"Electron beam current set to {value} A.")
-            return
-        if key == "voltage":
-            if beam_type is BeamType.ION:
-                logging.warning(
-                    f"Setting voltage directly for {beam_type} is not supported by Tescan API, please use presets instead."
-                )
-                return
-            if beam_type is BeamType.ELECTRON:
-                beam.Beam.SetVoltage(value)
-                logging.info(f"Electron beam voltage set to {value} V.")
-            return
-
-        if key == "hfw":
-            limits = LIMITS[beam_type]["hfw"]
-            value = np.clip(value, limits[0], limits[1])
-            beam.Optics.SetViewfield(value * constants.METRE_TO_MILLIMETRE)
-            logging.info(f"{beam_type.name} HFW set to {value} m.")
-            return
-        if key == "scan_rotation":
-            # value is in radians (codebase convention); the Tescan API is in degrees
-            beam.Optics.SetImageRotation(value * constants.RADIANS_TO_DEGREES)
-            logging.info(f"{beam_type.name} scan rotation set to {value} radians.")
-            return
-
-        # beam control
-        if key == "on":
-            beam.Beam.On() if value else beam.Beam.Off()
-            logging.info(f"{beam_type.name} beam turned {'on' if value else 'off'}.")
-            return
-        if key == "shift":
-            point = Point(
-                value.x * constants.METRE_TO_MILLIMETRE,
-                value.y * constants.METRE_TO_MILLIMETRE,
+        if key == "working_distance" and beam_type is BeamType.ION:
+            logging.info(
+                f"Setting working distance directly for {beam_type} is not supported by Tescan API"
             )
-            beam.Optics.SetImageShift(point.x, point.y)
-            logging.info(f"{beam_type.name} beam shift set to {value}.")
-            return
-
-        # detector control
-        if key == "detector_type":
-            detector = self._get_detector(value, beam_type)
-            if detector is None:
-                logging.warning(f"Detector {value} not found for {beam_type}.")
-                return
-            beam.Detector.Set(Channel=0, Detector=detector)
-            self._active_detector[beam_type] = detector
-            logging.debug(f"{beam_type.name} detector type set to {value}.")
             return
 
         if key == "detector_mode":
             logging.debug("Setting detector mode not supported by Tescan API.")
             return
 
-        if key in ["detector_brightness", "detector_contrast"]:
-            # check if value is between 0 and 1
-            if not (0 <= value <= 1):
-                logging.warning(
-                    f"Invalid value for {beam_type} {key}: {value}. Must be between 0 and 1."
-                )
-                return
-
-            # get active detector
-            active_detector = self._active_detector[beam_type]
-            if active_detector is None:
-                logging.warning(
-                    f"No active detector for {beam_type}. Please set detector type first."
-                )
-                return
-
-            # get current gain and black level
-            contrast, brightness = beam.Detector.GetGainBlack(Detector=active_detector)
-            if key == "detector_contrast":
-                contrast = value * 100
-            if key == "detector_brightness":
-                brightness = value * 100
-
-            # set new gain and black level
-            beam.Detector.SetGainBlack(
-                Detector=active_detector, Gain=contrast, Black=brightness
-            )
-            logging.info(f"{beam_type.name} {key} set to {value}.")
-            return
-
         if key == "preset":
             self._activate_preset(beam, beam_type, value)
-            return
-
-        if key in ["resolution", "dwell_time", "stigmation"]:
-            logging.info(f"Setting {key} directly is not supported by Tescan API.")
             return
 
         logging.warning(f"Unknown key: {key}, value: {value} ({beam_type})")

@@ -1,12 +1,12 @@
 """The Tescan (SharkSEM) beams and stage as devices.
 
-``TescanBeam`` implements the ``Beam`` device with the beam branches of
-``TescanMicroscope._get``/``_set``, moved as they are, so the old call and the device
-make the same SDK calls in the same order and log the same messages.
-``TescanMicroscope`` builds one per enabled column at connect and routes its beam keys
-to them, and builds a ``TescanStage``, which converts between fibsem's stage frame and
-Tescan's, and routes its stage keys and moves to it; the old ``_get``/``_set`` branches
-stay until a session on an instrument confirms the devices.
+``TescanBeam`` implements the ``Beam`` device with what were the beam branches of
+``TescanMicroscope._get``/``_set``, moved as they were: the device makes the SDK calls
+those branches made, in the same order, and logs the same messages
+(``tests/fixtures/tescan_beam_calls.json``). ``TescanMicroscope`` builds one per enabled
+column at connect and routes its beam keys to them, and builds a ``TescanStage``, which
+converts between fibsem's stage frame and Tescan's, and routes its stage keys and moves
+to it.
 
 The vendor beams are ``connection.SEM`` and ``connection.FIB``. SharkSEM is one socket,
 so every read and write holds the microscope's ``_connection_lock``, as ``_get`` and
@@ -47,7 +47,7 @@ _NOT_SETTABLE = ParameterMetadata(settable=False)
 class TescanBeam(Beam):
     """A Tescan column: ``connection.SEM`` or ``connection.FIB``.
 
-    Each parameter is the matching branch of ``TescanMicroscope._get``/``_set``. A
+    Each parameter was the matching branch of ``TescanMicroscope._get``/``_set``. A
     write prepares the beam first (turns it on, stops the scan, waits until it is not
     busy), as ``_set`` does for every beam key. The choices are
     ``get_available_values``'s.
@@ -57,7 +57,7 @@ class TescanBeam(Beam):
     (set by preset), and the resolution, dwell time and stigmation, which are read
     from the last image.
 
-    Not here, so absent on the new API and still answered by the old branches: the ion
+    Not here, so absent on the new API and still answered by ``_get``/``_set``: the ion
     column's working distance (the old read warns of an unknown key), the electron
     column's preset (it is set directly, ``beam_uses_presets``), ``detector_mode``
     (not in the API), ``blanked``, ``plasma_gas`` and the scan modes.
@@ -77,7 +77,7 @@ class TescanBeam(Beam):
 
     @property
     def _beam(self) -> Any:
-        """The vendor beam, looked up on every call, as the old branches do."""
+        """The vendor beam, looked up on every call, as the old branches did."""
         return self.parent._get_beam(self.beam_type)
 
     def _prepared(self) -> Any:
@@ -473,7 +473,9 @@ class TescanStage(Stage):
         x = None if position.x is None else -position.x
         y = z = None
         if position.y is not None or position.z is not None:
-            current = self.position.get_value()
+            # where the stage is, only for what the move leaves out
+            given = (position.y, position.z, position.t)
+            current = self.position.get_value() if None in given else position
             full = FibsemStagePosition(
                 x=0.0,
                 y=current.y if position.y is None else position.y,
