@@ -30,9 +30,9 @@ from fibsem import config as cfg
 from fibsem import utils
 from fibsem.structures import (
     BeamType,
-    FibsemGasInjectionSettings,
     FibsemImage,
     FibsemManipulatorPosition,
+    FibsemMillingSettings,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
@@ -87,11 +87,6 @@ OPTIONAL_METHODS = {
     "_get_saved_manipulator_position",
     "draw_bitmap_pattern",
     "draw_polygon",
-    "cryo_deposition_v2",
-    "setup_sputter",
-    "draw_sputter_pattern",
-    "run_sputter",
-    "finish_sputter",
 }
 
 
@@ -113,8 +108,8 @@ def test_a_backend_without_an_optional_part_says_so():
     minimal = Minimal.__new__(Minimal)
     with pytest.raises(NotImplementedError, match="Minimal does not support"):
         minimal.insert_manipulator("PARK")
-    with pytest.raises(NotImplementedError, match="run_sputter"):
-        minimal.run_sputter()
+    with pytest.raises(NotImplementedError, match="draw_polygon"):
+        minimal.draw_polygon(None)
     # the raw moves go through the devices, so a backend with none says so too
     minimal.stage_device = minimal.manipulator_device = None
     with pytest.raises(NotImplementedError, match="move_stage_absolute"):
@@ -242,38 +237,6 @@ def test_demo_moves_its_manipulator_device():
         "_move_absolute",
     ]
     assert manipulator.state.cached is InsertableDeviceState.RETRACTED
-
-
-def test_demo_deposits_through_its_gis_device():
-    microscope = _connect("Demo")
-    gis = microscope.gis_device
-    calls = []
-    hooks = ("_insert", "_retract", "_heater_on", "_heater_off", "_open", "_close")
-    for name in hooks:
-        original = getattr(gis, name)
-        setattr(
-            gis,
-            name,
-            lambda *args, name=name, original=original: (
-                calls.append(name),
-                original(*args),
-            ),
-        )
-    microscope.gis_system = (
-        None  # the device keeps its own GIS, never the legacy Demo's
-    )
-    settings = FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0)
-    microscope.cryo_deposition_v2(settings)
-    assert calls == [
-        "_insert",
-        "_heater_on",
-        "_open",
-        "_close",
-        "_heater_off",
-        "_retract",
-    ]
-    assert gis.state.cached is InsertableDeviceState.RETRACTED
-    assert gis.heated.cached is False
 
 
 def test_demo_moves_its_stage_device():
@@ -711,12 +674,12 @@ def test_demo_reads_its_configuration_without_demo(monkeypatch):
     monkeypatch.setattr(LegacyDemoMicroscope, "_get", refuse)
     monkeypatch.setattr(LegacyDemoMicroscope, "get_available_values", refuse)
     assert microscope.get("plasma", BeamType.ION) is True
-    for key in ("plasma_gas", "gis_ports", "scan_direction"):
+    for key in ("plasma_gas", "scan_direction"):
         assert microscope.get_available_values(key)
     assert microscope._get_axis_limits()
 
 
-def test_demo_sets_its_imaging_and_milling_keys_without_demo(monkeypatch):
+def test_demo_sets_its_imaging_key_and_milling_recipe_without_demo(monkeypatch):
     from fibsem.microscopes.simulator import LegacyDemoMicroscope
 
     def refuse(self, key, value=None, beam_type=None):
@@ -726,17 +689,29 @@ def test_demo_sets_its_imaging_and_milling_keys_without_demo(monkeypatch):
     monkeypatch.setattr(LegacyDemoMicroscope, "_set", refuse)
     monkeypatch.setattr(LegacyDemoMicroscope, "get_available_values", refuse)
     files = microscope.get_available_values("application_file")
-    microscope.set("application_file", files[-1])
-    microscope.set("patterning_mode", "Parallel")
-    microscope.set("milling_channel", BeamType.ELECTRON)
-    microscope.set("default_patterning_beam_type", BeamType.ELECTRON)
+    microscope.set_milling_settings(
+        FibsemMillingSettings(
+            milling_channel=BeamType.ELECTRON,
+            application_file=files[-1],
+            patterning_mode="Parallel",
+        )
+    )
     microscope.set("active_view", BeamType.ION)
     milling = microscope.milling_system
     assert milling.default_application_file == files[-1]
     assert milling.patterning_mode == "Parallel"
-    assert microscope.milling_channel is BeamType.ELECTRON
     assert milling.default_beam_type is BeamType.ELECTRON
     assert microscope.imaging_system.active_view == BeamType.ION.value
+
+
+@pytest.mark.parametrize(
+    "key", ["patterning_mode", "application_file", "default_patterning_beam_type"]
+)
+def test_the_milling_keys_are_gone(microscope, key, caplog):
+    """A recipe sets them (`set_milling_settings`); as keys they are unknown."""
+    with caplog.at_level("WARNING"):
+        microscope.set(key, "Parallel")
+    assert f"Unknown key: {key}" in caplog.text
 
 
 def test_demo_is_not_built_on_the_legacy_demo():
@@ -751,16 +726,13 @@ def test_demo_is_not_built_on_the_legacy_demo():
         "chamber",
         "stage_system",
         "manipulator_system",
-        "gis_system",
         "electron_system",
         "ion_system",
     ):
         assert not hasattr(microscope, part)
 
 
-@pytest.mark.parametrize(
-    "key", ["plasma_gas", "application_file", "gis_ports", "scan_direction"]
-)
+@pytest.mark.parametrize("key", ["plasma_gas", "application_file", "scan_direction"])
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_choice_only_keys_list_strings(microscope, key, beam_type):
     choices = microscope.get_available_values(key, beam_type)
@@ -1060,46 +1032,6 @@ def test_unknown_saved_manipulator_position_raises(microscope):
 
 
 # ---------------------------------------------------------------------------
-# Gas injection
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("insert_position", [None, "ELECTRON_DEFAULT"])
-def test_cryo_deposition_leaves_the_microscope_as_it_was(microscope, insert_position):
-    before = _snapshot(microscope)
-    settings = FibsemGasInjectionSettings(
-        port="Pt cryo", gas="Pt cryo", duration=0, insert_position=insert_position
-    )
-    assert microscope.cryo_deposition_v2(settings) is None
-    assert not _first_difference(
-        [("start", None, before)], [("start", None, _snapshot(microscope))]
-    )
-
-
-def test_cryo_deposition_opens_the_valve_and_closes_it(microscope, monkeypatch):
-    """The gas flows: the valve opens for the deposition and is closed after it."""
-    # The valve is the legacy Demo's GIS there, and the GIS device's own on Demo.
-    device = microscope.gis_device
-    gis = microscope.gis_system if device is None else device
-    hooks = ("open", "close") if device is None else ("_open", "_close")
-    steps = []
-    for name in hooks:
-        original = getattr(gis, name)
-        monkeypatch.setattr(
-            gis,
-            name,
-            lambda name=name, original=original: (
-                steps.append(name.lstrip("_")),
-                original(),
-            ),
-        )
-    settings = FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0)
-    microscope.cryo_deposition_v2(settings)
-    assert steps == ["open", "close"]
-    assert (gis.opened if device is None else device.opened.get_value()) is False
-
-
-# ---------------------------------------------------------------------------
 # Fluorescence (on a configuration with an FM)
 # ---------------------------------------------------------------------------
 
@@ -1183,11 +1115,11 @@ def test_demo_fm_group_acquires_a_channel():
 def test_demo_fm_is_the_fm_api_over_devices():
     """`fm` is the same FM API over devices a remote FM is, over the Demo FM devices."""
     from fibsem.devices.drivers.demo import DemoCamera
-    from fibsem.fm.api import DeviceFluorescenceMicroscope
+    from fibsem.fm.microscope import FluorescenceMicroscope
 
     microscope = _connect("Demo", FM_CONFIGURATION)
     fm = microscope.fm
-    assert isinstance(fm, DeviceFluorescenceMicroscope)
+    assert isinstance(fm, FluorescenceMicroscope)
     assert fm.devices == dict(microscope.fm_devices)
     assert isinstance(microscope.fm_devices["camera"], DemoCamera)
     # the frame is the camera's, at its binned resolution
@@ -1373,11 +1305,6 @@ CALL_SEQUENCE = [
     ),
     ("move_manipulator_absolute", (FibsemManipulatorPosition(x=3e-6, z=1e-5),), {}),
     ("retract_manipulator", (), {}),
-    (
-        "cryo_deposition_v2",
-        (FibsemGasInjectionSettings(port="Pt cryo", gas="Pt cryo", duration=0),),
-        {},
-    ),
     ("set_spot_scanning_mode", (Point(0.25, 0.75), BeamType.ION), {}),
     ("set_full_frame_scanning_mode", (BeamType.ION,), {}),
     ("set", ("not_a_key", 1), {}),
@@ -1463,7 +1390,6 @@ def test_demo_devices_claim_the_microscopes_resources():
         microscope.stage_device,
         microscope.chamber_device,
         microscope.manipulator_device,
-        microscope.gis_device,
         *microscope.fm_devices.values(),
     ]
     assert microscope.fm_devices

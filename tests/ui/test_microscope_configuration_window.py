@@ -81,14 +81,12 @@ def test_the_geometry_tab_shows_the_declared_fib_pose_rotation(qapp, microscope)
 
 
 def test_devices_say_who_reported_them(microscope):
-    """sim-iflm states `has_gis_multichem: false` -- the simulator's stand-in for the
-    instrument answering -- and says nothing about the manipulator, so the backend's
-    default answers for that one."""
+    """sim-iflm says nothing about the manipulator, so the backend's default answers
+    for it."""
     rows = {
         name: (fitted, source) for name, fitted, source, _ in devices_rows(microscope)
     }
 
-    assert rows["Multichem"] == (False, "Instrument")
     assert rows["Manipulator"] == (True, "Backend default")
     assert rows["Fluorescence"] == (True, "Configuration")
 
@@ -112,6 +110,19 @@ def test_the_stage_row_says_when_the_stage_does_not_rotate(configuration, detail
         assert rows["Stage"] == detail
     finally:
         microscope.disconnect()
+
+
+def test_a_simulated_probe_is_reported_as_the_instrument(microscope):
+    """`sim.has_manipulator` is the simulator's stand-in for the instrument
+    answering."""
+    microscope.system.sim["has_manipulator"] = False
+    microscope._read_hardware_capabilities()
+
+    rows = {
+        name: (fitted, source) for name, fitted, source, _ in devices_rows(microscope)
+    }
+
+    assert rows["Manipulator"] == (False, "Instrument")
 
 
 def _fake_calibrated_slot(microscope):

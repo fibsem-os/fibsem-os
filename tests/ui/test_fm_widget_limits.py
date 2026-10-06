@@ -1,6 +1,6 @@
 """The FM widgets offer the exposure, power and binning the connected FM reports.
 
-The FM here is the API over the simulator's devices, set to report a narrower camera
+The FM here is the API over the Demo FM devices, set to report a narrower camera
 and light source than the widgets' old fixed ranges, as a real instrument would.
 """
 
@@ -12,10 +12,12 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.devices.drivers.fm import bind_fm_devices  # noqa: E402
-from fibsem.fm import microscope as fm_microscope  # noqa: E402
-from fibsem.fm.api import DeviceFluorescenceMicroscope  # noqa: E402
+from fibsem.devices.core import ParameterMetadata  # noqa: E402
+from fibsem.devices.drivers import demo  # noqa: E402
+from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
+from fibsem.microscopes import simulator  # noqa: E402
+from fibsem.structures import RangeLimit  # noqa: E402
 from fibsem.ui.fm.widgets import fm_limits  # noqa: E402
 
 CHANNEL = ChannelSettings(name="green", excitation_wavelength=488, exposure_time=0.1)
@@ -26,19 +28,21 @@ def fm(monkeypatch):
     """An FM whose camera takes 5 ms to 2 s at binning 1 or 2, and whose light
     source goes to 80%."""
     monkeypatch.setattr(
-        fm_microscope.Camera,
-        "exposure_time_limits",
-        property(lambda self: (0.005, 2.0)),
+        demo.DemoCamera,
+        "metadata_exposure_time",
+        lambda self: ParameterMetadata(limits=RangeLimit(min=0.005, max=2.0)),
     )
     monkeypatch.setattr(
-        fm_microscope.Camera, "available_binnings", property(lambda self: (1, 2))
+        demo.DemoCamera,
+        "metadata_binning",
+        lambda self: ParameterMetadata(choices=[1, 2]),
     )
     monkeypatch.setattr(
-        fm_microscope.LightSource, "power_limits", property(lambda self: (0.0, 0.8))
+        demo.DemoLightSource,
+        "metadata_power",
+        lambda self: ParameterMetadata(limits=RangeLimit(min=0.0, max=0.8)),
     )
-    return DeviceFluorescenceMicroscope(
-        bind_fm_devices(fm_microscope.FluorescenceMicroscope())
-    )
+    return FluorescenceMicroscope(demo.bind_demo_fm())
 
 
 def _range(spin):
@@ -72,7 +76,7 @@ def test_an_fm_that_cannot_answer_gets_the_old_ranges():
 
 def test_the_minimum_is_one_the_box_can_show():
     """A 1 µs camera minimum would show as 0.0 ms in a one-decimal box."""
-    sim = fm_microscope.FluorescenceMicroscope()
+    sim = simulator.SimulatedFluorescenceMicroscope()
     assert sim.camera.exposure_time_limits[0] == pytest.approx(1e-6)
     assert fm_limits.exposure_range_ms(sim) == (0.1, 60000.0)
 
@@ -112,26 +116,21 @@ def test_the_camera_offers_the_fms_binnings(qapp, fm):
 def fm_with_units(monkeypatch):
     """An FM whose light reaches 0.4 W and whose camera gain goes to 16, as a METEOR's
     driver reports them."""
-    from fibsem.devices.core import ParameterMetadata
-    from fibsem.devices.drivers import fm as drivers
-    from fibsem.structures import RangeLimit
-
     fraction = RangeLimit(min=0.0, max=1.0)
     monkeypatch.setattr(
-        drivers.FMLightSource,
+        demo.DemoLightSource,
         "metadata_power",
         lambda self: ParameterMetadata(
             limits=fraction, native_max=0.4, native_unit="W"
         ),
     )
     monkeypatch.setattr(
-        drivers.FMCamera,
+        demo.DemoCamera,
         "metadata_gain",
         lambda self: ParameterMetadata(limits=fraction, native_max=16.0),
+        raising=False,
     )
-    return DeviceFluorescenceMicroscope(
-        bind_fm_devices(fm_microscope.FluorescenceMicroscope())
-    )
+    return FluorescenceMicroscope(demo.bind_demo_fm())
 
 
 def _tooltip(spin, percent):
@@ -176,9 +175,7 @@ def test_the_camera_shows_gain_in_hardware_units(qapp, fm_with_units):
 def test_without_hardware_units_the_tooltips_stay_as_they_were(qapp):
     from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
 
-    sim = DeviceFluorescenceMicroscope(
-        bind_fm_devices(fm_microscope.FluorescenceMicroscope())
-    )
+    sim = FluorescenceMicroscope(demo.bind_demo_fm())
     widget = ChannelSettingsWidget(sim)
 
     assert widget.power_spin.toolTip() == "Light source power (%)"

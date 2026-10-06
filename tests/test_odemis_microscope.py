@@ -155,6 +155,19 @@ class FakeOdemisClient:
     def get_contrast(self, channel):
         return 0.5
 
+    def detector_type_info(self, channel):
+        return {"choices": {"ETD", "TLD"}}
+
+    def detector_mode_info(self, channel):
+        return {"choices": {"SecondaryElectrons", "BackscatterElectrons"}}
+
+    # stage
+    def is_homed(self):
+        return True
+
+    def is_linked(self):
+        return False
+
     # chamber
     def get_chamber_state(self):
         return self.chamber_state
@@ -243,6 +256,8 @@ def microscope(odemis_microscope_cls):
     microscope._last_imaging_settings = ImageSettings()
     microscope.milling_channel = BeamType.ION
     microscope._default_application_file = "Si"
+    microscope._build_devices()
+    microscope.connection.calls.clear()
     return microscope
 
 
@@ -306,7 +321,7 @@ def test_auto_focus_runs_the_working_distance_sweep(microscope):
         ("Pumped", "Pumped"),
         ("vacuum", "Pumped"),
         ("vented", "Vented"),
-        ("prevac", "prevac"),
+        ("prevac", "Unknown"),  # a state the chamber device does not list
     ],
 )
 def test_chamber_state(microscope, reported, expected):
@@ -444,12 +459,3 @@ def test_an_annulus_is_drawn_with_its_inner_diameter(microscope):
     ]
     assert parameters["outer_diameter"] == pytest.approx(10e-6)
     assert parameters["inner_diameter"] == pytest.approx(8e-6)
-
-
-def test_gis_is_not_fitted_and_raises(microscope):
-    assert microscope.DEFAULT_FITTED["gis"] is False
-    assert microscope.DEFAULT_FITTED["gis_multichem"] is False
-    with pytest.raises(NotImplementedError):
-        microscope.cryo_deposition_v2(gis_settings=None)
-    with pytest.raises(NotImplementedError):
-        microscope.setup_sputter({})

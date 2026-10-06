@@ -73,8 +73,8 @@ class DriverEntry:
 
     devices: Mapping[str, "DeviceBuilder"] = field(default_factory=dict)
     """How this driver builds a device, by the device entry's ``type`` (``beam``,
-    ``stage``, ``gis``, ...): what a ``hardware.devices`` entry naming this driver is
-    built with. See :func:`device_builder`."""
+    ``stage``, ``chamber``, ...): what a ``hardware.devices`` entry naming this driver
+    is built with. See :func:`device_builder`."""
 
     def load(self) -> Type["FibsemMicroscope"]:
         """Import and return the driver's class."""
@@ -133,6 +133,13 @@ _BUILT_IN: Dict[str, str] = {
     manufacturers.TESCAN: "fibsem.microscopes.tescan:DRIVER",
     manufacturers.ODEMIS: "fibsem.microscopes.odemis_microscope:DRIVER",
     manufacturers.DEMO: "fibsem.microscopes.device_demo:DRIVER",
+}
+
+# The built-in drivers that build devices and are no microscope, by name, with where
+# their builders by type live. ``remote`` is a device on its own PC, reached through
+# its device server; it is named only on a device entry, never as a manufacturer.
+_DEVICE_DRIVERS: Dict[str, str] = {
+    "remote": "fibsem.devices.drivers.remote:DEVICE_BUILDERS",
 }
 
 
@@ -209,10 +216,14 @@ def get_driver(manufacturer: Optional[str]) -> DriverEntry:
 def device_builder(driver: Optional[str], type: str) -> Optional[DeviceBuilder]:
     """How *driver* builds a device of *type*, or ``None`` if it builds none.
 
-    *driver* is a device entry's ``driver:``, in any spelling a manufacturer has;
-    pass the manufacturer for an entry that names none. Raises ``NotImplementedError``
-    for a driver nothing is registered as, as :func:`get_driver` does.
+    *driver* is a device entry's ``driver:``, in any spelling a manufacturer has, or
+    ``remote``; pass the manufacturer for an entry that names none. Raises
+    ``NotImplementedError`` for a driver nothing is registered as, as
+    :func:`get_driver` does.
     """
+    if isinstance(driver, str) and driver.strip().lower() in _DEVICE_DRIVERS:
+        builders = _import(_DEVICE_DRIVERS[driver.strip().lower()])
+        return builders.get(type)
     return get_driver(driver).devices.get(type)
 
 

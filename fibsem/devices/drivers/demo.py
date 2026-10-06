@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
     Iterable,
+    Iterator,
     List,
     Mapping,
     Optional,
@@ -34,7 +36,6 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
-from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.sample_loader import (
     GridExchangeError,
@@ -45,18 +46,37 @@ from fibsem.devices.sample_loader import (
     StageSample,
 )
 from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
-from fibsem.fm.api import emission_filter_named
-from fibsem.fm.microscope import (
+from fibsem.fm.microscope import emission_filter_named
+from fibsem.fm.structures import (
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    emission_filter_for,
+)
+from fibsem.microscopes.simulator import (
     BINNING_VALUES,
     EMISSION_WAVELENGTHS,
     EXCITATION_WAVELENGTHS,
+    FM_ACTIVE_DEVICE,
+    FM_ACTIVE_VIEW,
+    SIM_CAMERA_BINNING,
     SIM_CAMERA_EXPOSURE_LIMITS,
+    SIM_CAMERA_EXPOSURE_TIME,
+    SIM_CAMERA_GAIN,
+    SIM_CAMERA_OFFSET,
+    SIM_CAMERA_PIXEL_SIZE,
+    SIM_CAMERA_RESOLUTION,
+    SIM_LIGHT_SOURCE_POWER,
+    SIM_OBJECTIVE_INSERT_POSITION,
+    SIM_OBJECTIVE_MAGNIFICATION,
+    SIM_OBJECTIVE_NA,
     SIM_OBJECTIVE_POSITION_LIMITS,
+    SIM_OBJECTIVE_RETRACT_POSITION,
     SIM_OBJECTIVE_TRAVEL_SECONDS,
+    SIM_OBJECTIVE_USER_POSITION_LIMIT,
     UINT16_MAX,
     UINT16_MIN,
 )
-from fibsem.fm.structures import ChannelSettings, EmissionFilter, emission_filter_for
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -75,11 +95,6 @@ from fibsem.structures import (
 from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
-    from fibsem.fm.microscope import Camera as FMClassCamera
-    from fibsem.fm.microscope import FilterSet as FMClassFilterSet
-    from fibsem.fm.microscope import FluorescenceMicroscope
-    from fibsem.fm.microscope import LightSource as FMClassLightSource
-    from fibsem.fm.microscope import ObjectiveLens as FMClassObjectiveLens
     from fibsem.microscopes.device_demo import DemoMicroscope
     from fibsem.microscopes.registry import BuildContext
     from fibsem.microscopes.simulator import DemoParts
@@ -586,77 +601,6 @@ def bind_demo_manipulator(
     return DemoManipulator(microscope, resources, start).connect()
 
 
-class DemoGasInjector(GasInjector):
-    """The Demo gas injection system.
-
-    It keeps its own simulated GIS in ``sim_gas``, ``sim_inserted``, ``sim_heated``
-    and ``sim_opened``, copied when it is built from the starting ``gis_system``
-    (``start``, else the microscope's own), and it never touches the microscope's
-    again. Each hook is what the
-    matching method of Demo's ``GasInjectionSystem`` does, on that copy. Demo's GIS
-    takes no insert position or gas, so those arguments are only logged.
-    """
-
-    def __init__(
-        self,
-        parent: DemoMicroscope,
-        resources: Optional[Resources] = None,
-        start: Optional[DemoParts] = None,
-    ):
-        super().__init__(parent=parent, resources=resources)
-        start = (parent if start is None else start).gis_system
-        self.sim_gas: str = start.gas
-        self.sim_inserted: bool = start.inserted
-        self.sim_heated: bool = start.heated
-        self.sim_opened: bool = start.opened
-
-    def read_gas(self) -> str:
-        return self.sim_gas
-
-    def read_state(self) -> InsertableDeviceState:
-        return _insertable_state(self.sim_inserted)
-
-    def read_heated(self) -> bool:
-        return self.sim_heated
-
-    def read_opened(self) -> bool:
-        return self.sim_opened
-
-    def _insert(self, position: Optional[str]) -> None:
-        self.sim_inserted = True
-        logging.debug("GIS inserted")
-
-    def _retract(self) -> None:
-        self.sim_inserted = False
-        logging.debug("GIS retracted")
-
-    def _heater_on(self, gas: Optional[str]) -> None:
-        self.sim_heated = True
-        logging.debug("GIS heater on")
-        sim_sleep(3)  # Demo's heater takes a moment, as its deposition waits for
-
-    def _heater_off(self) -> None:
-        self.sim_heated = False
-        logging.debug("GIS heater off")
-
-    def _open(self) -> None:
-        self.sim_opened = True
-        logging.debug("GIS opened")
-
-    def _close(self) -> None:
-        self.sim_opened = False
-        logging.debug("GIS closed")
-
-
-def bind_demo_gis(
-    microscope: DemoMicroscope,
-    resources: Optional[Resources] = None,
-    start: Optional[DemoParts] = None,
-) -> DemoGasInjector:
-    """Build ``gis`` for a connected Demo microscope."""
-    return DemoGasInjector(microscope, resources, start).connect()
-
-
 # -- The sample loader --------------------------------------------------------------
 
 
@@ -843,10 +787,6 @@ def build_demo_manipulator(
     return _named(DemoManipulator(context.microscope, *_demo_start(context)), entry)
 
 
-def build_demo_gis(entry: "DeviceEntry", context: "BuildContext") -> DemoGasInjector:
-    return _named(DemoGasInjector(context.microscope, *_demo_start(context)), entry)
-
-
 def build_demo_sample_loader(
     entry: "DeviceEntry", context: "BuildContext"
 ) -> DemoSampleLoader:
@@ -879,9 +819,10 @@ def build_demo_sample_loader(
 # -- The FM -------------------------------------------------------------------------
 #
 # The simulated FM's parts as devices. Each keeps its own simulated part in sim_*
-# fields, copied when built from the part the simulated FM (``fibsem.fm.microscope``)
-# built, and does what that part does, on the copy. the Demo's ``fm`` is the FM API
-# over them (``fibsem.fm.api``).
+# fields, starting where the simulated FM's part starts (the ``SIM_*`` values), and
+# does what that part does. The Demo's ``fm`` is the FM API over them
+# (``fibsem.fm.microscope``), and the group holds the FM's share of the Demo's imaging
+# channel (``DemoFMChannel``).
 
 
 class DemoCamera(Camera):
@@ -894,18 +835,17 @@ class DemoCamera(Camera):
 
     def __init__(
         self,
-        camera: FMClassCamera,
-        parent: DemoMicroscope,
+        parent: Optional[DemoMicroscope] = None,
         resources: Optional[Resources] = None,
     ):
         super().__init__(name="camera", parent=parent, resources=resources)
-        self.sim_exposure_time: float = camera._exposure_time
-        self.sim_binning: int = camera._binning
-        self.sim_gain: float = camera._gain
-        self.sim_offset: float = camera._offset
-        self.sim_sensor_pixel_size: Tuple[float, float] = camera._pixel_size
-        self.sim_sensor_resolution: Tuple[int, int] = camera._resolution
-        self.sim_index: int = camera._index
+        self.sim_exposure_time: float = SIM_CAMERA_EXPOSURE_TIME
+        self.sim_binning: int = SIM_CAMERA_BINNING
+        self.sim_gain: float = SIM_CAMERA_GAIN
+        self.sim_offset: float = SIM_CAMERA_OFFSET
+        self.sim_sensor_pixel_size: Tuple[float, float] = SIM_CAMERA_PIXEL_SIZE
+        self.sim_sensor_resolution: Tuple[int, int] = SIM_CAMERA_RESOLUTION
+        self.sim_index: int = 0
         self._frames: Dict[Tuple[int, Tuple[int, int]], np.ndarray] = {}
 
     def read_exposure_time(self) -> float:
@@ -989,12 +929,11 @@ class DemoLightSource(LightSource):
 
     def __init__(
         self,
-        light_source: FMClassLightSource,
-        parent: DemoMicroscope,
+        parent: Optional[DemoMicroscope] = None,
         resources: Optional[Resources] = None,
     ):
         super().__init__(name="light_source", parent=parent, resources=resources)
-        self.sim_power: float = light_source._power
+        self.sim_power: float = SIM_LIGHT_SOURCE_POWER
 
     def read_power(self) -> float:
         return self.sim_power
@@ -1018,16 +957,12 @@ class DemoFilterSet(FilterSet):
 
     def __init__(
         self,
-        filter_set: FMClassFilterSet,
-        parent: DemoMicroscope,
+        parent: Optional[DemoMicroscope] = None,
         resources: Optional[Resources] = None,
     ):
         super().__init__(name="filter_set", parent=parent, resources=resources)
-        self.sim_excitation_wavelength: float = filter_set._excitation_wavelength
-        filters = self._emission_filters()
-        self.sim_emission_filter: EmissionFilter = emission_filter_named(
-            filter_set._emission_wavelength, filters
-        )
+        self.sim_excitation_wavelength: float = EXCITATION_WAVELENGTHS[0]
+        self.sim_emission_filter: EmissionFilter = REFLECTION
 
     @staticmethod
     def _emission_filters() -> List[EmissionFilter]:
@@ -1063,17 +998,16 @@ class DemoObjective(Objective):
 
     def __init__(
         self,
-        objective: FMClassObjectiveLens,
-        parent: DemoMicroscope,
+        parent: Optional[DemoMicroscope] = None,
         resources: Optional[Resources] = None,
     ):
         super().__init__(name="objective", parent=parent, resources=resources)
-        self.sim_position: float = objective._position
-        self.sim_magnification: float = objective._magnification
-        self.sim_numerical_aperture: float = objective._numerical_aperture
-        self.sim_insert_position: float = objective._insert_position
-        self.sim_retract_position: float = objective._retract_position
-        self.sim_limit_position: float = objective._limit_position
+        self.sim_position: float = SIM_OBJECTIVE_RETRACT_POSITION
+        self.sim_magnification: float = SIM_OBJECTIVE_MAGNIFICATION
+        self.sim_numerical_aperture: float = SIM_OBJECTIVE_NA
+        self.sim_insert_position: float = SIM_OBJECTIVE_INSERT_POSITION
+        self.sim_retract_position: float = SIM_OBJECTIVE_RETRACT_POSITION
+        self.sim_limit_position: float = SIM_OBJECTIVE_USER_POSITION_LIMIT
 
     def read_position(self) -> float:
         sim_sleep(0.1)
@@ -1137,15 +1071,92 @@ class DemoObjective(Objective):
         self._move_absolute(self.sim_retract_position)
 
 
+class DemoFMChannel:
+    """The FM's share of the Demo's one imaging channel, which the FM and the beams
+    share as on a TFS system (FIB-518): ``AutoscriptFMChannel``, simulated.
+
+    The Demo has one active view and one active device (``imaging_system``), and
+    whoever sets them last owns the microscope. This takes them the way the Thermo
+    FM's channel takes the AutoScript connection's: the same depth count, the same
+    lock (the microscope's ``_threading_lock``), the same restore and the same fast
+    path, so a test written against the Demo says something about the hardware.
+    Without a microscope (an FM served on its own) there is no channel to share.
+    """
+
+    def __init__(self, microscope: Optional[DemoMicroscope] = None):
+        self._microscope = microscope
+        # The microscope's lock, as the Thermo channel takes it: an FM scope and a beam
+        # acquisition then queue against each other rather than interleaving.
+        self.lock = getattr(microscope, "_threading_lock", None) or threading.RLock()
+        self._depth = 0
+        self._restore_view: Optional[int] = None
+        self._restore_device: Optional[int] = None
+
+    def set_active_channel(self) -> None:
+        """Point the channel at the FM and leave it there, as
+        ``AutoscriptFMChannel.set_active_channel`` does."""
+        if self._microscope is None:
+            return
+        imaging = self._microscope.imaging_system
+        imaging.active_view = FM_ACTIVE_VIEW
+        imaging.active_device = FM_ACTIVE_DEVICE
+
+    def _is_ours(self) -> bool:
+        """Whether the channel is already on the FM: the view alone answers it, as on
+        the driver, where the device follows the view. Read outside the lock on
+        purpose (``AutoscriptFMChannel._is_ours``)."""
+        return self._microscope.imaging_system.active_view == FM_ACTIVE_VIEW
+
+    @contextmanager
+    def scope(self) -> Iterator[None]:
+        """Hold the channel on the FM for the block, then put it back.
+
+        ``AutoscriptFMChannel.scope`` says why: depth counted, so a tileset holding it
+        for a whole run is not undone by each tile; the lock covers the bookkeeping and
+        never the body; nothing taken when the channel is already the FM, which is what
+        keeps the objective usable while streaming.
+
+        Puts the device back with the view, where the driver puts back the view alone.
+        On hardware the device belongs to the view and comes back with it; here they
+        are two fields, and restoring only the view would leave ``active_device`` on
+        the FM for the rest of the session.
+        """
+        if self._microscope is None:
+            yield
+            return
+
+        if self._depth == 0 and self._is_ours():
+            yield
+            return
+
+        imaging = self._microscope.imaging_system
+        with self.lock:
+            if self._depth == 0:
+                self._restore_view = imaging.active_view
+                self._restore_device = imaging.active_device
+            self.set_active_channel()
+            self._depth += 1
+        try:
+            yield
+        finally:
+            with self.lock:
+                self._depth -= 1
+                if self._depth == 0:
+                    imaging.active_view = self._restore_view
+                    imaging.active_device = self._restore_device
+
+
 class DemoFM(FM):
-    """The Demo FM group: sets up a channel on its parts, then takes a frame."""
+    """The Demo FM group: sets up a channel on its parts, then takes a frame. It holds
+    the FM's share of the imaging channel (``channel``), for the FM API to take."""
 
     def __init__(
         self,
-        parent: DemoMicroscope,
+        parent: Optional[DemoMicroscope] = None,
         resources: Optional[Resources] = None,
     ):
         super().__init__(name="fm", parent=parent, resources=resources)
+        self.channel = DemoFMChannel(parent)
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         self._apply_channel(channel)
@@ -1173,20 +1184,19 @@ class DemoFM(FM):
 
 
 def bind_demo_fm(
-    microscope: DemoMicroscope,
-    fm: FluorescenceMicroscope,
+    microscope: Optional[DemoMicroscope] = None,
     resources: Optional[Resources] = None,
     config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Device]:
-    """Build the FM's parts and group for a connected Demo microscope, each starting
-    where the simulated FM ``fm``'s part is, by device name. *config* is the fm
-    entry's own keys (``mount_transform``)."""
+    """Build the Demo FM's parts and group, by device name, for a Demo microscope,
+    or on their own without one (an FM served by itself, imaging no scene). *config*
+    is the fm entry's own keys (``mount_transform``)."""
     resources = resources if resources is not None else resources_of(microscope)
     parts: Dict[str, Device] = {
-        "camera": DemoCamera(fm.camera, microscope, resources),
-        "light_source": DemoLightSource(fm.light_source, microscope, resources),
-        "filter_set": DemoFilterSet(fm.filter_set, microscope, resources),
-        "objective": DemoObjective(fm.objective, microscope, resources),
+        "camera": DemoCamera(microscope, resources),
+        "light_source": DemoLightSource(microscope, resources),
+        "filter_set": DemoFilterSet(microscope, resources),
+        "objective": DemoObjective(microscope, resources),
     }
     parts["camera"].configure(config)
     group = DemoFM(microscope, resources).fill_roles(**parts)

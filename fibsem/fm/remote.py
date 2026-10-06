@@ -1,7 +1,7 @@
 """A fluorescence microscope on another computer, behind today's FM API.
 
 ``RemoteFluorescenceMicroscope`` is the FM API over devices
-(``fibsem.fm.api.DeviceFluorescenceMicroscope``), here the remote devices of
+(``fibsem.fm.microscope.FluorescenceMicroscope``), here the remote devices of
 ``fibsem.devices.drivers.remote``, served by ``fibsem.server.devices`` on the FM's
 computer (the METEOR PC, say). It is the same class a local FM uses; all this adds
 is connecting to the server:
@@ -21,14 +21,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
-from fibsem.fm.api import FM_DEVICE_NAMES, DeviceFluorescenceMicroscope
+from fibsem.fm.microscope import FM_DEVICE_NAMES, FluorescenceMicroscope
 
 if TYPE_CHECKING:
     from fibsem.devices.drivers.remote import DeviceClient
     from fibsem.microscope import FibsemMicroscope
 
 
-class RemoteFluorescenceMicroscope(DeviceFluorescenceMicroscope):
+class RemoteFluorescenceMicroscope(FluorescenceMicroscope):
     """Today's FM API over an FM served from another computer: the FM API over
     devices, here remote ones."""
 

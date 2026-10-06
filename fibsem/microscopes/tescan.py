@@ -8,19 +8,20 @@ import time
 from copy import deepcopy
 from queue import Queue
 from types import MappingProxyType
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
 import fibsem.constants as constants
 from fibsem import manufacturers
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
+from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
     _records_stage_move,
 )
-from fibsem.microscopes.registry import DriverEntry
+from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.services.milling import ServiceMilling
 
 TESCAN_API_AVAILABLE = False
@@ -80,16 +81,15 @@ from fibsem.structures import (  # noqa
     BeamSystemSettings,
     BeamType,
     CrossSectionPattern,
+    DeviceEntry,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
     FibsemExperimentRef,
-    FibsemGasInjectionSettings,
     FibsemHardwareGeometry,
     FibsemImage,
     FibsemImageMetadata,
     FibsemLineSettings,
-    FibsemManipulatorPosition,
     FibsemMillingSettings,
     FibsemPolygonSettings,
     FibsemRectangle,
@@ -689,7 +689,19 @@ DRIVER = DriverEntry(
     manufacturer=manufacturers.TESCAN,
     microscope_class="fibsem.microscopes.tescan:TescanMicroscope",
     config={"port": 8300, "ion-column-tilt": 55, "electron-column-tilt": 0},
+    devices={
+        device_type: DeviceBuilder(
+            f"fibsem.devices.drivers.tescan:build_tescan_{device_type}"
+        )
+        for device_type in ("beam", "stage")
+    },
 )
+
+# The device types each connect step builds (``TescanMicroscope._build_devices``);
+# any other type a configuration adds is built last.
+_BEAM_TYPES = ("beam",)
+_STAGE_TYPES = ("stage",)
+_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES
 
 
 class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
@@ -702,6 +714,11 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
     """
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+
+    #: fibsem does not drive the Tescan Nanomanipulator (its support was removed), so
+    #: the backend reports none and the manipulator methods are the base class's,
+    #: which raise.
+    DEFAULT_FITTED = {**FibsemMicroscope.DEFAULT_FITTED, "manipulator": False}
 
     # The beam of the last requested (non-live) acquisition, for the settle before an
     # ion image that follows an electron one.
@@ -799,6 +816,8 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         self._build_beams()
         self._build_stage()
         self._build_milling()
+        # whatever else the configuration adds, such as a device on its own PC
+        self._build_devices([], exclude_types=_OWN_TYPES)
 
         available_detectors = self._get_available_detectors(BeamType.ELECTRON)
         if self._default_detector_names[BeamType.ELECTRON] not in [
@@ -837,6 +856,23 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
             }
         )
 
+    def _build_devices(
+        self,
+        defaults: List[DeviceEntry],
+        types: Optional[Tuple[str, ...]] = None,
+        exclude_types: Tuple[str, ...] = (),
+    ) -> Dict[str, Any]:
+        """Build one connect step's devices: *defaults*, what the instrument has, with
+        the configuration's ``hardware.devices`` entries of *types* over them
+        (``fibsem.devices.entries``), and put them in ``devices``."""
+        resolved = resolve_system_devices(
+            self.system, defaults, types, exclude_types, manufacturers.TESCAN
+        )
+        built = build_device_entries(resolved, self)
+        for name, device in built.items():
+            self._set_device(name, device)
+        return built
+
     def _build_beams(self) -> None:
         """Build the beam devices and route the beam keys to them.
 
@@ -844,9 +880,13 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         ``detector_mode``) is still answered by ``_get``/``_set``,
         and so is every key of a disabled column, which gets no device.
         """
-        from fibsem.devices.drivers.tescan import bind_tescan_beams
-
-        self.beams = MappingProxyType(bind_tescan_beams(self))
+        self._build_devices(
+            [
+                DeviceEntry(name="electron", type="beam"),
+                DeviceEntry(name="ion", type="beam"),
+            ],
+            _BEAM_TYPES,
+        )
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
 
     def _build_milling(self) -> None:
@@ -864,9 +904,7 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         key still goes to ``_get``/``_set``. A disabled stage gets no device, and then
         the stage cannot be read or moved.
         """
-        from fibsem.devices.drivers.tescan import bind_tescan_stage
-
-        self.stage = bind_tescan_stage(self)
+        self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
         if self.stage is not None:
             self._device_routes = MappingProxyType(
                 {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
@@ -1078,267 +1116,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
             }
         )
         return self.get_stage_position()
-
-    def get_manipulator_state(self) -> bool:
-        """returns true if nanomanipulator is inserted. Manipulator positions must be calibrated and stored in system.yaml file if not done so
-
-        Raises:
-            ValueError: _description_
-
-        Returns:
-            _type_: True if Inserted, False if retracted
-        """
-
-        return False
-
-    def get_manipulator_position(self) -> FibsemManipulatorPosition:
-        index = 0
-        with self._connection_lock:
-            output_position = self.connection.Nanomanipulator.GetPosition(Index=index)
-
-        # GetPosition returns tuple in the form (x, y, z, r)
-        # x,y,z in mm and r in degrees, no tilt information
-
-        x = output_position[0] * constants.MILLIMETRE_TO_METRE
-        y = output_position[1] * constants.MILLIMETRE_TO_METRE
-        z = output_position[2] * constants.MILLIMETRE_TO_METRE
-        r = output_position[3] * constants.DEGREES_TO_RADIANS
-
-        return FibsemManipulatorPosition(x=x, y=y, z=z, r=r)
-
-    def _read_hardware_capabilities(self) -> None:
-        super()._read_hardware_capabilities()
-        # The Nanomanipulator moves take a rotation (`MoveTo(..., Rot=)`).
-        self.set_available("manipulator_rotation", True)
-
-    def manipulator_named_positions(self) -> List[str]:
-        return ["Parking", "Standby", "Working"]
-
-    def move_manipulator_to_named_position(
-        self, name: str
-    ) -> FibsemManipulatorPosition:
-        # Tescan's named positions are presets the instrument moves to itself.
-        return self.insert_manipulator(name=name)
-
-    def insert_manipulator(self, name: str = "Standby") -> FibsemManipulatorPosition:
-        preset_positions = [
-            "Parking",
-            "Standby",
-            "Working",
-        ]
-
-        if name == "PARK":
-            name = "Parking"
-
-        for position in preset_positions:
-            if name.lower() == position.lower():
-                name = position
-
-        if name not in preset_positions:
-            raise ValueError(
-                f"Position {name} is not a valid preset position. Valid positions are {preset_positions}."
-            )
-
-        insert_position = getattr(self.connection.Nanomanipulator.Position, name)
-
-        index = 0
-        logging.info(f"Inserting Nanomanipulator to {name} position")
-        with self._connection_lock:
-            self.connection.Nanomanipulator.MoveToPosition(
-                Index=index, Position=insert_position
-            )
-        return self.get_manipulator_position()
-
-    def _check_manipulator_limits(self, x, y, z, r):
-
-        with self._connection_lock:
-            limits = self.connection.Nanomanipulator.GetLimits(Index=0, Type=0)
-
-        xmin = limits[0]
-        xmax = limits[1]
-        ymin = limits[2]
-        ymax = limits[3]
-        zmin = limits[4]
-        zmax = limits[5]
-        rmin = limits[6]
-        rmax = limits[7]
-
-        assert x >= xmin and x <= xmax, (
-            f"X position {x} is outside of manipulator limits {xmin} to {xmax}"
-        )
-        assert y >= ymin and y <= ymax, (
-            f"Y position {y} is outside of manipulator limits {ymin} to {ymax}"
-        )
-        assert z >= zmin and z <= zmax, (
-            f"Z position {z} is outside of manipulator limits {zmin} to {zmax}"
-        )
-        assert r >= rmin and r <= rmax, (
-            f"R position {r} is outside of manipulator limits {rmin} to {rmax}"
-        )
-
-    def retract_manipulator(self) -> FibsemManipulatorPosition:
-        retract_position = getattr(self.connection.Nanomanipulator.Position, "Parking")
-        index = 0
-        with self._connection_lock:
-            self.connection.Nanomanipulator.MoveToPosition(
-                Index=index, Position=retract_position
-            )
-        return self.get_manipulator_position()
-
-    def move_manipulator_relative(
-        self, position: FibsemManipulatorPosition, name: str = None
-    ) -> FibsemManipulatorPosition:
-
-        with self._connection_lock:
-            if self.connection.Nanomanipulator.IsCalibrated(0) is False:
-                logging.info("Calibrating manipulator")
-                self.connection.Nanomanipulator.Calibrate(0)
-
-        current_position = self.get_manipulator_position()
-
-        x = (current_position.x + position.x) * constants.METRE_TO_MILLIMETRE
-        y = (current_position.y + position.y) * constants.METRE_TO_MILLIMETRE
-        z = (current_position.z + position.z) * constants.METRE_TO_MILLIMETRE
-        r = (current_position.r + position.r) * constants.RADIANS_TO_DEGREES
-        index = 0
-
-        # self._check_manipulator_limits(x,y,z,r)
-
-        logging.info(f"moving manipulator by {position}")
-        try:
-            with self._connection_lock:
-                self.connection.Nanomanipulator.MoveTo(
-                    Index=index, X=x, Y=y, Z=z, Rot=r
-                )
-        except Exception as e:
-            logging.error(e)
-            raise
-        return self.get_manipulator_position()
-
-    def move_manipulator_absolute(
-        self, position: FibsemManipulatorPosition, name: str = None
-    ) -> FibsemManipulatorPosition:
-
-        with self._connection_lock:
-            if self.connection.Nanomanipulator.IsCalibrated(0) is False:
-                logging.info("Calibrating manipulator")
-                self.connection.Nanomanipulator.Calibrate(0)
-
-        x = position.x * constants.METRE_TO_MILLIMETRE
-        y = position.y * constants.METRE_TO_MILLIMETRE
-        z = position.z * constants.METRE_TO_MILLIMETRE
-        r = position.r * constants.RADIANS_TO_DEGREES
-        index = 0
-
-        # self._check_manipulator_limits(x,y,z,r)
-
-        logging.info(f"moving manipulator to {position}")
-
-        with self._connection_lock:
-            self.connection.Nanomanipulator.MoveTo(Index=index, X=x, Y=y, Z=z, Rot=r)
-        return self.get_manipulator_position()
-
-    def calibrate_manipulator(self):
-        logging.info("Calibrating manipulator")
-        with self._connection_lock:
-            self.connection.Nanomanipulator.Calibrate(0)
-
-    def _x_corrected_needle_movement(
-        self, expected_x: float
-    ) -> FibsemManipulatorPosition:
-        """Calculate the corrected needle movement to move in the x-axis.
-
-        Args:
-            expected_x (float): distance along the x-axis (image coordinates)
-        Returns:
-            FibsemManipulatorPosition: x-corrected needle movement (relative position)
-        """
-        return FibsemManipulatorPosition(x=expected_x, y=0, z=0)  # no adjustment needed
-
-    def _y_corrected_needle_movement(
-        self, expected_y: float, stage_tilt: float
-    ) -> FibsemManipulatorPosition:
-        """Calculate the corrected needle movement to move in the y-axis.
-
-        Args:
-            expected_y (float): distance along the y-axis (image coordinates)
-            stage_tilt (float, optional): stage tilt.
-
-        Returns:
-            FibsemManipulatorPosition: y-corrected needle movement (relative position)
-        """
-        y_move = +np.cos(stage_tilt) * expected_y
-        z_move = +np.sin(stage_tilt) * expected_y
-        return FibsemManipulatorPosition(x=0, y=y_move, z=z_move)
-
-    def _z_corrected_needle_movement(
-        self, expected_z: float, stage_tilt: float
-    ) -> FibsemManipulatorPosition:
-        """Calculate the corrected needle movement to move in the z-axis.
-
-        Args:
-            expected_z (float): distance along the z-axis (image coordinates)
-            stage_tilt (float, optional): stage tilt.
-
-        Returns:
-            FibsemManipulatorPosition: z-corrected needle movement (relative position)
-        """
-        y_move = -np.sin(stage_tilt) * expected_z
-        z_move = +np.cos(stage_tilt) * expected_z
-        return FibsemManipulatorPosition(x=0, y=y_move, z=z_move)
-
-    def move_manipulator_corrected(
-        self,
-        dx: float = 0,
-        dy: float = 0,
-        beam_type: BeamType = BeamType.ELECTRON,
-    ) -> FibsemManipulatorPosition:
-        """Calculate the required corrected needle movements based on the BeamType to move in the desired image coordinates.
-        Then move the needle relatively.
-
-        BeamType.ELECTRON:  move in x, y (raw coordinates)
-        BeamType.ION:       move in x, z (raw coordinates)
-
-        Args:
-            microscope (SdbMicroscopeClient): autoScript microscope instance
-            dx (float): distance along the x-axis (image coordinates)
-            dy (float): distance along the y-axis (image corodinates)
-            beam_type (BeamType, optional): the beam type to move in. Defaults to BeamType.ELECTRON.
-        """
-
-        with self._connection_lock:
-            if self.connection.Nanomanipulator.IsCalibrated(0) is False:
-                logging.info("Calibrating manipulator")
-                self.connection.Nanomanipulator.Calibrate(0)
-        stage_tilt = self.get_stage_position().t
-
-        # # xy
-        # if beam_type is BeamType.ELECTRON:
-        #     x_move = self._x_corrected_needle_movement(expected_x=dx)
-        #     yz_move = self._y_corrected_needle_movement(dy, stage_tilt=stage_tilt)
-
-        # # xz,
-        # if beam_type is BeamType.ION:
-
-        #     x_move = self._x_corrected_needle_movement(expected_x=dx)
-        #     yz_move = self._z_corrected_needle_movement(expected_z=dy, stage_tilt=stage_tilt)
-
-        # move needle (relative)
-        # self.connection.Nanomanipulator.MoveTo(Index=0, X=x_move.x, Y=yz_move.y, Z=yz_move.z)
-        return self.move_manipulator_relative(
-            FibsemManipulatorPosition(x=dx, y=dy, z=0)
-        )
-
-    def move_manipulator_to_position_offset(
-        self, offset: FibsemManipulatorPosition, name: str = None
-    ) -> None:
-        logging.warning("Not supported by TESCAN API")
-        # raise NotImplementedError("Not supported by TESCAN API")
-        pass
-
-    def _get_saved_manipulator_position(self):
-        logging.warning("Not supported by TESCAN API")
-        pass
 
     def run_milling(
         self, milling_current: float, milling_voltage: float, asynch: bool = False
@@ -1718,21 +1495,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         finally:
             self.clear_patterns()
 
-    def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings):
-        pass
-
-    def setup_sputter(self, protocol: dict):
-        pass
-
-    def draw_sputter_pattern(self, hfw, line_pattern_length, *args, **kwargs):
-        pass
-
-    def run_sputter(self, *args, **kwargs):
-        pass
-
-    def finish_sputter(self, *args, **kwargs):
-        pass
-
     def _beam_device(self, beam_type: BeamType):
         """The beam device for ``beam_type``; a column disabled in the config has none."""
         device = self.beams.get(beam_type)
@@ -1894,8 +1656,7 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         """Get a property of the microscope.
 
         The keys the beam and stage devices answer are not here (FIB-1161). What is
-        left is what no device has yet: the chamber, the manipulator and the presets
-        list.
+        left is what no device has yet: the chamber and the presets list.
         """
         # stage properties
         if key == "stage_position":
@@ -1907,14 +1668,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
             return self.connection.Chamber.GetStatus()
         if key == "chamber_pressure":
             return self.connection.Chamber.GetPressure(0)
-
-        # manipulator properties
-        if key == "manipulator_position":
-            return self.connection.Nanomanipulator.GetPosition(0)
-        if key == "manipulator_calibrated":
-            return self.connection.Nanomanipulator.IsCalibrated(0)
-        if key == "manipulator_state":
-            return NotImplemented  # self.connection.Nanomanipulator.GetStatus(0)
 
         if key == "presets":
             return self._get_presets(beam_type=beam_type)

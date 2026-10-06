@@ -338,8 +338,8 @@ def test_resources_share_one_lock_unless_a_backend_separates_them():
     )
     assert tescan_like.lock("imaging_channel") is tescan_like.lock("connection")
 
-    separate = Resources({"imaging_channel": "view", "gis": "gis"})
-    assert separate.lock("imaging_channel") is not separate.lock("gis")
+    separate = Resources({"imaging_channel": "view", "manipulator": "manipulator"})
+    assert separate.lock("imaging_channel") is not separate.lock("manipulator")
 
     # A remote device gets its own registry and shares nothing with the beams.
     assert Resources().lock("imaging_channel") is not default.lock("imaging_channel")

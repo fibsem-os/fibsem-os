@@ -17,15 +17,6 @@ All manipulator methods are low-priority (most systems don't have one).
 | `move_manipulator_to_position_offset` | `(offset: FibsemManipulatorPosition, name: str) -> None` |
 | `_get_saved_manipulator_position` | `(name: str) -> FibsemManipulatorPosition` |
 
-### GIS / Sputter / Cryo
-| Method | Signature |
-|--------|-----------|
-| `cryo_deposition_v2` | `(gis_settings: FibsemGasInjectionSettings) -> None` |
-| `setup_sputter` | `(*args, **kwargs)` |
-| `draw_sputter_pattern` | `(*args, **kwargs) -> None` |
-| `run_sputter` | `(*args, **kwargs)` |
-| `finish_sputter` | `()` |
-
 ### Connection lifecycle
 | Method | Signature |
 |--------|-----------|

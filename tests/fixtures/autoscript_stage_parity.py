@@ -77,7 +77,6 @@ def _install_fake_sdk():
         "ManipulatorCoordinateSystem",
         "ManipulatorSavedPosition",
         "ManipulatorState",
-        "MultiChemInsertPosition",
         "PatterningState",
         "RegularCrossSectionScanMethod",
     ):

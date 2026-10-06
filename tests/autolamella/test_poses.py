@@ -32,9 +32,9 @@ def _microscope(compustage: bool = True, with_fm: bool = True):
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     if with_fm and microscope.fm is None:
-        from fibsem.fm.microscope import FluorescenceMicroscope
+        from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 
-        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        microscope.fm = SimulatedFluorescenceMicroscope(parent=microscope)
     if not with_fm:
         microscope.fm = None
     return microscope
