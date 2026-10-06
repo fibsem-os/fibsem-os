@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.devices.core import ParameterMetadata
 from fibsem.manufacturers import normalize_manufacturer
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings
@@ -48,6 +49,17 @@ _TAGGED_MANUFACTURERS = frozenset(
 )
 
 
+def _supported_settings(
+    microscope: FibsemMicroscope,
+) -> Optional[Dict[str, ParameterMetadata]]:
+    """The recipe fields the microscope's milling service mills with on the ion beam,
+    or None when it has no milling service."""
+    milling = getattr(microscope, "milling", None)
+    if milling is None:
+        return None
+    return milling.supported_settings(BeamType.ION)
+
+
 class FibsemMillingSettingsWidget(QWidget):
     settings_changed = pyqtSignal(object)  # FibsemMillingSettings
 
@@ -65,6 +77,9 @@ class FibsemMillingSettingsWidget(QWidget):
         self._settings = settings
         self._advanced_visible = False
         self._rows: List[_Row] = []
+        # The fields the instrument mills with and their choices, from its milling
+        # service; None on a backend without one, which goes by the manufacturer tags.
+        self._supported = _supported_settings(microscope)
         self._setup_ui()
         self._connect_signals()
         self._update_visibility()
@@ -109,7 +124,17 @@ class FibsemMillingSettingsWidget(QWidget):
         align_form(layout)
 
     def _dynamic_items(self, parameter: str):
-        """Resolve an `items: "dynamic"` field against the microscope."""
+        """Resolve an `items: "dynamic"` field: the milling service's choices for the
+        field, else the microscope's available values."""
+        if self._supported is not None:
+            for name, m in _META.items():
+                if (
+                    m.get("microscope_parameter") == parameter
+                    and name in self._supported
+                ):
+                    choices = self._supported[name].choices
+                    if choices is not None:
+                        return list(choices)
         return self.microscope.get_available_values_cached(parameter, BeamType.ION)
 
     def _connect_signals(self) -> None:
@@ -124,21 +149,31 @@ class FibsemMillingSettingsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _update_visibility(self) -> None:
-        # An instrument the tags know about hides the other manufacturer's fields; one
-        # they do not know about hides nothing, rather than everything.
+        # The milling service says which fields this instrument mills with. Without
+        # one, an instrument the tags know about hides the other manufacturer's
+        # fields; one they do not know about hides nothing, rather than everything.
         tagged_instrument = self._manufacturer in _TAGGED_MANUFACTURERS
         for row in self._rows:
-            mfr_ok = (
-                (row.mfr is None)
-                or (not tagged_instrument)
-                or (row.mfr == self._manufacturer)
-            )
+            if self._supported is not None:
+                mfr_ok = row.field in self._supported
+            else:
+                mfr_ok = (
+                    (row.mfr is None)
+                    or (not tagged_instrument)
+                    or (row.mfr == self._manufacturer)
+                )
             adv_ok = (not row.advanced) or self._advanced_visible
             row.label.setVisible(mfr_ok and adv_ok)
             row.control.widget.setVisible(mfr_ok and adv_ok)
 
     def set_manufacturer(self, manufacturer: Optional[str]) -> None:
         self._manufacturer = normalize_manufacturer(manufacturer) or ""
+        # Another manufacturer than the microscope's is a preview of that form, which
+        # only the tags can give; the microscope's own goes back to its service.
+        own = normalize_manufacturer(self.microscope.manufacturer) or ""
+        self._supported = (
+            _supported_settings(self.microscope) if self._manufacturer == own else None
+        )
         self._update_visibility()
 
     def set_advanced_visible(self, visible: bool) -> None:

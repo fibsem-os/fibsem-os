@@ -75,3 +75,26 @@ def test_the_manufacturer_is_normalised_before_it_is_compared(widget):
     """
     assert _shown(widget, "TESCAN") == _shown(widget, "Tescan")
     assert _shown(widget, "Thermo Fisher Scientific") == _shown(widget, "ThermoFisher")
+
+
+def _shown_as_built(widget):
+    widget.set_advanced_visible(True)
+    return {row.field for row in widget._rows if not row.label.isHidden()}
+
+
+def test_the_milling_service_says_which_fields_show(widget, microscope):
+    """With a milling service, the form shows what it mills with, not what a tag says."""
+    supported = microscope.milling.supported_settings()
+    rows = {row.field for row in widget._rows}
+    assert _shown_as_built(widget) == set(supported) & rows
+
+    # the application file's choices are the service's
+    (row,) = [r for r in widget._rows if r.field == "application_file"]
+    combo = row.control.widget
+    items = [combo.itemText(i) for i in range(combo.count())]
+    assert items == list(supported["application_file"].choices)
+
+
+def test_a_preview_of_another_manufacturer_still_goes_by_its_tags(widget, microscope):
+    assert _shown(widget, "Tescan") >= TESCAN_FIELDS
+    assert _shown(widget, microscope.manufacturer) == _shown_as_built(widget)
