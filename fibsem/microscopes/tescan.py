@@ -617,8 +617,14 @@ class TescanMicroscope(FibsemMicroscope):
             raise ValueError(
                 "Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
             )
+        # The beam's acquire command; image_settings takes precedence, as below.
+        target = image_settings.beam_type if image_settings is not None else beam_type
+        device = self.beams.get(target)
+        if device is not None:
+            return device.acquire(image_settings)
+
         # Determine which beam type and settings to use (image_settings takes precedence)
-        elif image_settings is not None:
+        if image_settings is not None:
             # Use provided image settings
             effective_beam_type = image_settings.beam_type
             effective_image_settings = image_settings
@@ -764,6 +770,9 @@ class TescanMicroscope(FibsemMicroscope):
             FibsemImage: The last acquired image of the specified beam type.
 
         """
+        device = self.beams.get(beam_type)
+        if device is not None:
+            return device.last_image()
         if beam_type == BeamType.ELECTRON:
             image = self.last_image_eb
         elif beam_type == BeamType.ION:
@@ -792,6 +801,10 @@ class TescanMicroscope(FibsemMicroscope):
         Args:
             beam_type: The imaging beam type to adjust the contrast for.
         """
+        device = self.beams.get(beam_type)
+        if device is not None:
+            device.autocontrast(reduced_area)
+            return
         beam = self._prepare_beam(beam_type=beam_type)
         logging.info(f"Running autocontrast on {beam_type.name}.")
         with self._connection_lock:
@@ -809,6 +822,10 @@ class TescanMicroscope(FibsemMicroscope):
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
+        device = self.beams.get(beam_type)
+        if device is not None and device.commands["auto_focus"].available:
+            device.auto_focus(reduced_area)
+            return
         if beam_type is BeamType.ION:
             logging.warning(
                 f"Auto focus is not supported for {beam_type.name} in Tescan API"
