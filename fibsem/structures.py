@@ -2486,6 +2486,18 @@ class StageSystemSettings:
         So a value that was never chosen is now computed, and the one case it could not
         express without a coincidence -- a stage with no rotation axis -- is asked of
         the field named for it.
+
+        Readers move to the whole FIB pose (FIB-1101): a rotation alone does not say
+        where a stage faces the ion beam, which a stage can reach by tilting instead.
+        ``microscope.get_orientation("FIB")``, or an image's
+        ``hardware_geometry.declared_poses()["FIB"]``.
+        """
+        return self._fib_rotation()
+
+    def _fib_rotation(self) -> float:
+        """The FIB pose's rotation by the configured rule, in degrees.
+
+        What images stamp as ``rotation_180``, which old readers of an image still use.
         """
         if not self.rotation:
             return self.rotation_reference
@@ -3590,7 +3602,7 @@ class FibsemHardwareGeometry:
             fib_column_tilt=system.ion.column_tilt,
             shuttle_pre_tilt=system.stage.shuttle_pre_tilt,
             rotation_reference=system.stage.rotation_reference,
-            rotation_180=system.stage.rotation_180,
+            rotation_180=system.stage._fib_rotation(),
             is_compustage=is_compustage,
             rotation_centre=(
                 rotation_centre
