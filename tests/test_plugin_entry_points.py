@@ -301,7 +301,7 @@ def test_failed_entry_point_becomes_a_row_that_spells_out_the_consequence():
         assert extension.distribution == "fibsem-test-plugin"
 
 
-def test_report_lists_the_fixture_across_all_three_groups():
+def test_report_lists_the_fixture_across_every_group():
     from fibsem.plugins.report import ExtensionSource, collect_extensions, render_report
 
     groups = collect_extensions()
@@ -309,10 +309,11 @@ def test_report_lists_the_fixture_across_all_three_groups():
         "fibsem.patterns",
         "fibsem.strategies",
         "fibsem.tasks",
+        "fibsem.drivers",
     ]
 
     text = render_report(groups)
-    for name in (PATTERN_NAME, STRATEGY_NAME, TASK_TYPE):
+    for name in (PATTERN_NAME, STRATEGY_NAME, TASK_TYPE, DRIVER_MANUFACTURER):
         assert name in text
 
     # Failures are in the text too, which is the difference between this and
@@ -366,4 +367,19 @@ def test_driver_plugins_record_what_they_could_not_register():
     assert records["not_a_record"].error == "returned str, not a DriverEntry"
     assert get_driver(manufacturers.DEMO).microscope_class == (
         "fibsem.microscopes.device_demo:DemoMicroscope"
+    )
+
+
+def test_the_report_says_why_a_driver_plugin_is_inactive():
+    from fibsem.plugins.report import collect_extensions
+
+    drivers = next(g for g in collect_extensions() if g.group == "fibsem.drivers")
+    rows = {e.target: e for e in drivers.extensions}
+
+    fixture = rows["fibsem.microscopes.device_demo:DemoMicroscope"]
+    assert fixture.name == DRIVER_MANUFACTURER and fixture.problem is None
+    clashing = rows["fibsem_test_plugin.drivers:NotADriver"]
+    assert clashing.problem.startswith("name taken by a built-in")
+    assert rows["fibsem_test_plugin.drivers:not_a_record"].problem == (
+        "returned str, not a DriverEntry - nothing was registered"
     )

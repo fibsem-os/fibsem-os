@@ -42,12 +42,12 @@ def restore_registry():
     from fibsem.milling import base
     from fibsem.plugins import loader
 
-    saved = dict(registry._DRIVERS)
+    saved = dict(registry.DRIVER_PLUGINS.registered)
     plugins = loader._CACHE.get(registry.DRIVER_ENTRY_POINT_GROUP)
     estimator = base._milling_time_estimator
     yield
-    registry._DRIVERS.clear()
-    registry._DRIVERS.update(saved)
+    registry.DRIVER_PLUGINS.registered.clear()
+    registry.DRIVER_PLUGINS.registered.update(saved)
     loader._CACHE.pop(registry.DRIVER_ENTRY_POINT_GROUP, None)
     if plugins is not None:
         loader._CACHE[registry.DRIVER_ENTRY_POINT_GROUP] = plugins

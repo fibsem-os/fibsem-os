@@ -76,14 +76,14 @@ the full contract; `examples/scripts/` contains three working examples.
 
 ## Plugins
 
-fibsemOS loads three entry-point groups at start: `fibsem.patterns`,
-`fibsem.strategies` and `fibsem.tasks`. A plugin is a Python package that
+fibsemOS loads four entry-point groups: `fibsem.patterns`,
+`fibsem.strategies`, `fibsem.tasks` and `fibsem.drivers`. A plugin is a Python package that
 declares one or more of these in its `pyproject.toml` and is installed into
 the same environment as fibsemOS. No registration calls or files in the
 fibsem tree are needed; the application discovers it on the next start.
 
 The [fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example)
-repository is a template covering all three groups. It includes tests that
+repository is a template covering the first three groups. It includes tests that
 check the contract, a CI workflow that installs against fibsemOS `main` so
 breaking changes are detected early, and a README describing how to rename
 it. Its "When nothing shows up" section covers the diagnostic steps.
@@ -98,6 +98,13 @@ Each group contributes one kind of object:
 - **A task** (`fibsem.tasks`): an `AutoLamellaTask` with its configuration
   class, as described in the next section. It appears in the Add Task
   dialog.
+- **A microscope driver** (`fibsem.drivers`): a function returning a
+  `DriverEntry` (`fibsem/microscopes/registry.py`) that names a
+  `FibsemMicroscope` subclass, its manufacturer and its defaults. A
+  configuration naming that manufacturer connects through it.
+
+When a built-in, a runtime registration and a plugin claim the same name, the
+built-in is used, then the runtime registration, then the plugin.
 
 Three constraints on loading. Each produces no error when violated, so the
 example's tests check them:
@@ -173,13 +180,14 @@ unchanged.
   same interface. `microscopes/zeiss.py` is an empty placeholder awaiting a
   SerialFIB migration; a Zeiss backend should be built there rather than in
   a new file.
-- **Registration.** Implementing the class is not sufficient. The
-  manufacturer dispatch is hard-coded in three places, and a missing entry
-  raises `NotImplementedError` at connection time, not at import:
-  `fibsem/manufacturers.py` (the constant and alias), `setup_session()` in
-  `fibsem/utils.py` (the branch that constructs the class), and
+- **Registration.** Implementing the class is not sufficient. A driver is
+  a `DriverEntry` in the registry (`fibsem/microscopes/registry.py`): a
+  module-level `DRIVER` record listed in `_BUILT_IN` for a backend in the
+  fibsem tree, or a `fibsem.drivers` entry point for one in its own package.
+  A manufacturer without one raises `NotImplementedError` at connection
+  time, not at import. The first-run wizard is still code:
   `fibsem/guided_setup.py` (`MANUFACTURERS`, and a `MicroscopeModel` per
-  instrument, which is what the first-run wizard offers).
+  instrument), with the constant and alias in `fibsem/manufacturers.py`.
 - **Configuration.** Instruments are described by a YAML file in
   `fibsem/config/`; the setup wizard creates one. For a manufacturer it
   does not know, start from a Demo configuration and edit it.
