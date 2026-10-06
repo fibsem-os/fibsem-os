@@ -197,22 +197,6 @@ def test_setup_session_accepts_any_demo_spelling(tmp_path):
     microscope.disconnect()
 
 
-def test_milling_parameters_accept_any_manufacturer_spelling():
-    """get_parameters_for_manufacturer used to raise on "Thermo" and "TESCAN" --
-    the exact spellings configs and live image headers carry."""
-    from fibsem.structures import FibsemMillingSettings
-
-    s = FibsemMillingSettings()
-    assert s.get_parameters_for_manufacturer(
-        "Thermo"
-    ) == s.get_parameters_for_manufacturer("ThermoFisher")
-    assert s.get_parameters_for_manufacturer(
-        "TESCAN"
-    ) == s.get_parameters_for_manufacturer("Tescan")
-    with pytest.raises(ValueError):
-        s.get_parameters_for_manufacturer("Hitachi")
-
-
 # ---------------------------------------------------------------------------
 # the config surface is canonical
 # ---------------------------------------------------------------------------

@@ -1,13 +1,9 @@
-"""The milling form never hides every manufacturer-tagged field at once.
+"""The milling form shows the recipe fields the microscope's milling service mills with.
 
-Eight of the form's fields are tagged for one manufacturer or the other, and the
-rule that reads the tag used to be `row.mfr == manufacturer` with no else. On a
-JEOL instrument neither string matched, so all eight disappeared together and the
-form came up with no milling current, no preset, and nothing to mill by (FIB-975).
-
-The tag is a proxy for a question only the driver can answer, and FIB-1011 replaces
-it. Until then the fallback is the fix: an instrument the tags know about hides the
-other one's fields, and an instrument they say nothing about hides none of them.
+The form used to choose by a manufacturer tag on each field, a proxy for a question
+only the driver can answer, and on a JEOL instrument it once hid every tagged field
+at once (FIB-975). The service now answers it: `supported_settings` lists the fields
+the driver's setup reads, with their choices.
 """
 
 import os
@@ -24,9 +20,6 @@ from fibsem.ui.widgets.milling_settings_widget import (  # noqa: E402
     FibsemMillingSettingsWidget,
 )
 
-THERMO_FIELDS = {"milling_current", "milling_voltage", "application_file"}
-TESCAN_FIELDS = {"preset", "spot_size", "rate", "dwell_time", "spacing"}
-
 
 @pytest.fixture(scope="module")
 def microscope():
@@ -34,59 +27,25 @@ def microscope():
     return scope
 
 
-def _shown(widget, manufacturer):
-    """The fields the form shows for *manufacturer*, advanced rows included."""
-    widget.set_advanced_visible(True)
-    widget.set_manufacturer(manufacturer)
-    return {row.field for row in widget._rows if not row.label.isHidden()}
-
-
-@pytest.fixture
-def widget(qapp, microscope):
+def _widget(microscope):
     return FibsemMillingSettingsWidget(
         microscope=microscope, settings=FibsemMillingSettings()
     )
 
 
-def test_an_unknown_manufacturer_keeps_every_field(widget):
-    """The JEOL case. Neither tag matches, so neither tag hides anything."""
-    shown = _shown(widget, "JEOL")
-
-    assert THERMO_FIELDS <= shown
-    assert TESCAN_FIELDS <= shown
-
-
-def test_a_known_manufacturer_still_hides_the_other_ones(widget):
-    thermo = _shown(widget, "ThermoFisher")
-    assert THERMO_FIELDS <= thermo
-    assert not (TESCAN_FIELDS & thermo)
-
-    tescan = _shown(widget, "Tescan")
-    assert TESCAN_FIELDS <= tescan
-    assert not (THERMO_FIELDS & tescan)
-
-
-def test_the_manufacturer_is_normalised_before_it_is_compared(widget):
-    """ "TESCAN" and "Thermo" are the same instruments as their canonical spellings.
-
-    Without normalisation an alias now falls into the unknown case and shows every
-    field, which is safe but still wrong -- the tags exist to hide the five fields a
-    TESCAN column has no use for.
-    """
-    assert _shown(widget, "TESCAN") == _shown(widget, "Tescan")
-    assert _shown(widget, "Thermo Fisher Scientific") == _shown(widget, "ThermoFisher")
-
-
-def _shown_as_built(widget):
+def _shown(widget):
+    """The fields the form shows, advanced rows included."""
     widget.set_advanced_visible(True)
     return {row.field for row in widget._rows if not row.label.isHidden()}
 
 
-def test_the_milling_service_says_which_fields_show(widget, microscope):
-    """With a milling service, the form shows what it mills with, not what a tag says."""
+def test_the_milling_service_says_which_fields_show(qapp, microscope):
+    widget = _widget(microscope)
     supported = microscope.milling.supported_settings()
     rows = {row.field for row in widget._rows}
-    assert _shown_as_built(widget) == set(supported) & rows
+    assert _shown(widget) == set(supported) & rows
+    # the Demo mills like ThermoFisher, so none of Tescan's fields
+    assert not {"preset", "spot_size", "rate", "dwell_time", "spacing"} & _shown(widget)
 
     # the application file's choices are the service's
     (row,) = [r for r in widget._rows if r.field == "application_file"]
@@ -95,6 +54,7 @@ def test_the_milling_service_says_which_fields_show(widget, microscope):
     assert items == list(supported["application_file"].choices)
 
 
-def test_a_preview_of_another_manufacturer_still_goes_by_its_tags(widget, microscope):
-    assert _shown(widget, "Tescan") >= TESCAN_FIELDS
-    assert _shown(widget, microscope.manufacturer) == _shown_as_built(widget)
+def test_without_a_milling_service_every_field_shows(qapp, microscope, monkeypatch):
+    monkeypatch.setattr(microscope, "milling", None)
+    widget = _widget(microscope)
+    assert _shown(widget) == {row.field for row in widget._rows}

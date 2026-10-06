@@ -68,7 +68,6 @@ DEFAULT_FIELD_METADATA: Dict[str, Any] = {
     "items": None,  # for lists/enums, the possible items. items specified as 'dynamic' are fetched from the microscope via the 'microscope_parameter' key
     "hidden": False,  # whether the field is hidden from the UI
     "advanced": False,  # whether the field is considered advanced in the UI
-    "manufacturer": None,  # manufacturer specific parameter (ThermoFisher, Tescan, etc.). Common parameters have None
     "microscope_parameter": None,  # the corresponding microscope parameter name, if applicable (via get/set)
     "format_fn": None,  # function to format the value for display
     "format_fn_kwargs": None,  # kwargs for the format function # NOTE: unused yet
@@ -107,7 +106,6 @@ def field_meta(
     items: Optional[Union[str, Sequence[Any]]] = None,
     hidden: Optional[bool] = None,
     advanced: Optional[bool] = None,
-    manufacturer: Optional[str] = None,
     microscope_parameter: Optional[str] = None,
     format_fn: Optional[Callable[..., str]] = None,
     format_fn_kwargs: Optional[Dict[str, Any]] = None,
@@ -1761,7 +1759,6 @@ class FibsemMillingSettings:
             "items": "dynamic",
             "microscope_parameter": "current",
             "tooltip": "The current used for milling. Higher currents mill faster but with less precision and more damage.",
-            "manufacturer": "ThermoFisher",
         },
     )
     milling_voltage: float = field(
@@ -1774,7 +1771,6 @@ class FibsemMillingSettings:
             "microscope_parameter": "voltage",
             "advanced": True,
             "tooltip": "The voltage used for milling. Higher voltages provide higher energy ions for milling.",
-            "manufacturer": "ThermoFisher",
         },
     )
     application_file: str = field(
@@ -1786,7 +1782,6 @@ class FibsemMillingSettings:
             "microscope_parameter": "application_file",
             "advanced": True,
             "tooltip": "The application file used for milling. Note: this can be changed at runtime depending on the pattern and other parameters.",
-            "manufacturer": "ThermoFisher",
         },
     )
     patterning_mode: str = field(
@@ -1825,7 +1820,6 @@ class FibsemMillingSettings:
             "items": "dynamic",
             "microscope_parameter": "preset",
             "tooltip": "The preset used for milling. Presets define the beam settings for different milling conditions.",
-            "manufacturer": "Tescan",
         },
     )
     # 1 µm is the value the cryo lamella milling was validated at on hardware
@@ -1847,7 +1841,6 @@ class FibsemMillingSettings:
             "step": 0.01,
             "decimals": 3,
             "tooltip": "The spot size for the ion beam during milling.",
-            "manufacturer": "Tescan",
         },
     )
     rate: float = field(
@@ -1864,7 +1857,6 @@ class FibsemMillingSettings:
             "tooltip": "Ion etching rate — how much material one amp removes per "
             "second. Equivalently µm³/nA/s, which is how TESCAN quotes "
             "it. Default is the cryo lamella value; silicon is 0.3.",
-            "manufacturer": "Tescan",
         },
     )
     dwell_time: float = field(
@@ -1875,7 +1867,6 @@ class FibsemMillingSettings:
             "unit": "s",
             "scale": 1e6,
             "tooltip": "The dwell time for the ion beam during milling (µs).",
-            "manufacturer": "Tescan",
         },
     )
     spacing: float = field(
@@ -1890,7 +1881,6 @@ class FibsemMillingSettings:
             "tooltip": "Exposition mesh spacing — how finely the pattern is filled "
             "with exposure points. Dimensionless; the TESCAN default is "
             "1.0 and smaller values mill more finely and take longer.",
-            "manufacturer": "Tescan",
         },
     )
     milling_channel: BeamType = field(
@@ -1912,9 +1902,6 @@ class FibsemMillingSettings:
             "hidden": True,
         },
     )
-
-    # Parameter mapping for different manufacturers
-    _SUPPORTED_MANUFACTURERS = {"ThermoFisher", "Tescan"}
 
     def __post_init__(self):
         assert isinstance(self.milling_current, (float, int)), (
@@ -2001,29 +1988,6 @@ class FibsemMillingSettings:
             for field_name, metadata in fields_with_metadata.items()
             if metadata.get("advanced", False)
         }
-
-    def get_parameters_for_manufacturer(self, manufacturer: str) -> tuple[str, ...]:
-        """Get all parameter names for a specific manufacturer (any known spelling)."""
-        manufacturer = normalize_manufacturer(manufacturer)
-        if manufacturer not in self._SUPPORTED_MANUFACTURERS:
-            raise ValueError(
-                f"Manufacturer must be one of: {', '.join(self._SUPPORTED_MANUFACTURERS)}"
-            )
-
-        # use the field metadata to determine manufacturer-specific parameters
-        fields_with_metadata = self.field_metadata
-        required_params = []
-
-        for field_name, metadata in fields_with_metadata.items():
-            param_manufacturer = metadata.get("manufacturer", None)
-            if param_manufacturer == manufacturer or param_manufacturer is None:
-                required_params.append(field_name)
-        return tuple(sorted(set(required_params)))
-
-    def get_parameters(self, manufacturer: str) -> Dict[str, Any]:
-        """Get parameter values for a specific manufacturer."""
-        required_params = self.get_parameters_for_manufacturer(manufacturer)
-        return {param: getattr(self, param) for param in required_params}
 
     def summary(self) -> str:
         from fibsem.utils import format_value
