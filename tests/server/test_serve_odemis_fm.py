@@ -123,7 +123,7 @@ def test_a_remote_fm_brings_how_its_camera_is_mounted(odemis_stubs):
     from fibsem.fm.structures import CameraImageTransform
     from fibsem.server.devices import DeviceServer
 
-    server = DeviceServer(odemis_fm_devices(mount_transform="flip-x")).start()
+    server = DeviceServer(odemis_fm_devices({"mount_transform": "flip-x"})).start()
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
     try:
         fm = RemoteFluorescenceMicroscope.connect(
@@ -140,8 +140,8 @@ def test_a_remote_fm_brings_how_its_camera_is_mounted(odemis_stubs):
 def test_the_command_line_names_the_mount(odemis_stubs, monkeypatch):
     served = {}
 
-    def odemis_fm_devices(mount_transform):
-        served["mount_transform"] = mount_transform
+    def odemis_fm_devices(config):
+        served["config"] = config
         return []
 
     monkeypatch.setattr(server_devices, "odemis_fm_devices", odemis_fm_devices)
@@ -149,4 +149,4 @@ def test_the_command_line_names_the_mount(odemis_stubs, monkeypatch):
 
     server_devices.main(["--serve", "odemis-fm", "--mount-transform", "flip-y"])
 
-    assert served["mount_transform"] == "flip-y"
+    assert served["config"] == {"mount_transform": "flip-y"}

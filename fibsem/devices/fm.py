@@ -66,8 +66,14 @@ class Camera(Device):
     )
 
     _mount_transform: CameraImageTransform = CameraImageTransform.NONE
-    """Set by the driver's binder from the site's configuration; a fact about the
-    mount, not something the camera can measure."""
+
+    def configure(self, config: Optional[Mapping[str, Any]]) -> None:
+        """Take the facts about this camera that the site's configuration states and
+        the hardware can't report: ``mount_transform``. *config* is the fm entry's own
+        keys, as every FM binder receives them; keys meant for other parts are
+        ignored. Called by the binder before ``connect``."""
+        config = config or {}
+        self._mount_transform = mount_transform_from_name(config.get("mount_transform"))
 
     @command
     def acquire(self) -> np.ndarray:

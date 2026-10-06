@@ -11,7 +11,7 @@ driver uses it where it's there.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -288,13 +288,18 @@ class FMGroup(FM):
 
 
 def bind_fm_devices(
-    fm: FluorescenceMicroscope, resources: Optional[Resources] = None
+    fm: FluorescenceMicroscope,
+    resources: Optional[Resources] = None,
+    config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Device]:
-    """The FM's parts and its group, by device name, for any ``fibsem.fm`` backend."""
+    """The FM's parts and its group, by device name, for any ``fibsem.fm`` backend.
+    *config* is the fm entry's own keys (``mount_transform``)."""
     resources = resources if resources is not None else resources_of(fm.parent)
     group = FMGroup(fm, resources=resources)
+    camera = FMCamera(fm.camera, resources=resources)
+    camera.configure(config)
     parts = [
-        FMCamera(fm.camera, resources=resources),
+        camera,
         FMLightSource(fm.light_source, resources=resources),
         FMFilterSet(fm.filter_set, resources=resources),
     ]
