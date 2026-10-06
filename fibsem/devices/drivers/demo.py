@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import threading
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -23,6 +23,7 @@ from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
+from fibsem.devices.entries import Builder
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
@@ -43,6 +44,7 @@ from fibsem.structures import (
     BeamSettings,
     BeamType,
     ChamberState,
+    DeviceEntry,
     FibsemDetectorSettings,
     FibsemImage,
     FibsemManipulatorPosition,
@@ -635,6 +637,50 @@ def bind_demo_gis(
 ) -> DemoGasInjector:
     """Build ``gis`` for a connected Demo microscope."""
     return DemoGasInjector(microscope, resources, start).connect()
+
+
+# The beam each beam entry is, by the entry's name (``beams[BeamType]``).
+_BEAM_ENTRY_TYPES = {"electron": BeamType.ELECTRON, "ion": BeamType.ION}
+
+
+def demo_device_builders(
+    microscope: DemoMicroscope,
+    resources: Optional[Resources] = None,
+    start: Optional[DemoParts] = None,
+) -> Dict[str, Builder]:
+    """The Demo driver's builder for each device type it builds
+    (``fibsem.devices.entries``), on one microscope and one set of resources.
+
+    The FM is not among them: the Demo builds its FM's devices from its simulated FM
+    (``bind_demo_fm``), after the FM API is set up.
+    """
+    resources = resources if resources is not None else resources_of(microscope)
+
+    def beam(entry: DeviceEntry, built: Mapping[str, Any]) -> DemoBeam:
+        beam_type = _BEAM_ENTRY_TYPES.get(entry.name)
+        if beam_type is None:
+            raise ValueError("a Demo beam is named 'electron' or 'ion'")
+        return DemoBeam(beam_type, microscope, resources, start).connect()
+
+    def named(device: Device, entry: DeviceEntry) -> Device:
+        device.name = entry.name
+        return device.connect()
+
+    return {
+        "beam": beam,
+        "stage": lambda entry, built: named(
+            DemoStage(microscope, resources, start), entry
+        ),
+        "chamber": lambda entry, built: named(
+            DemoChamber(microscope, resources, start), entry
+        ),
+        "manipulator": lambda entry, built: named(
+            DemoManipulator(microscope, resources, start), entry
+        ),
+        "gis": lambda entry, built: named(
+            DemoGasInjector(microscope, resources, start), entry
+        ),
+    }
 
 
 # -- The FM -------------------------------------------------------------------------

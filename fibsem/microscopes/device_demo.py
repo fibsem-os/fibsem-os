@@ -56,14 +56,8 @@ from fibsem._timing import sim_sleep
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.core import Device
-from fibsem.devices.drivers.demo import (
-    bind_demo_beams,
-    bind_demo_chamber,
-    bind_demo_fm,
-    bind_demo_gis,
-    bind_demo_manipulator,
-    bind_demo_stage,
-)
+from fibsem.devices.drivers.demo import bind_demo_fm, demo_device_builders
+from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.fm.api import DeviceFluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
@@ -82,12 +76,24 @@ from fibsem.microscopes.simulator import (
 from fibsem.structures import (
     BeamSettings,
     BeamType,
+    DeviceEntry,
     FibsemGasInjectionSettings,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
     Point,
     SystemSettings,
+)
+
+# The devices a Demo microscope has, in the order it builds them. The configuration's
+# `hardware.devices` switches one off, or adds one (``fibsem.devices.entries``).
+DEMO_DEVICES = (
+    DeviceEntry(name="electron", type="beam"),
+    DeviceEntry(name="ion", type="beam"),
+    DeviceEntry(name="stage", type="stage"),
+    DeviceEntry(name="chamber", type="chamber"),
+    DeviceEntry(name="manipulator", type="manipulator"),
+    DeviceEntry(name="gis", type="gis"),
 )
 
 # Today's scan-mode set keys, and the methods that run the beam commands for them.
@@ -163,12 +169,28 @@ class DemoMicroscope(
         self._finish_session()
 
     def _build_devices(self, parts: DemoParts) -> None:
-        """Build the devices from the starting parts and route their keys to them."""
-        self.beams = MappingProxyType(bind_demo_beams(self, start=parts))
+        """Build the devices the configuration asks for, from the starting parts,
+        and route their keys to them.
+
+        The Demo has every device in ``DEMO_DEVICES``; ``hardware.devices`` switches
+        one off, or adds one, such as a second GIS (``fibsem.devices.entries``). The
+        FM is built after the FM API, in ``_fm_devices``.
+        """
+        resolved = [
+            item
+            for item in resolve_system_devices(self.system, DEMO_DEVICES)
+            if item.type != "fm"
+        ]
+        builders = {manufacturers.DEMO: demo_device_builders(self, start=parts)}
+        built = build_device_entries(resolved, builders)
+        types = {item.name: item.type for item in resolved}
+        gis = {name: device for name, device in built.items() if types[name] == "gis"}
+        for name, device in built.items():
+            if name not in gis:
+                self._set_device(name, device)
+        self.gis_devices = gis
+        self.gis_device = gis.get("gis", next(iter(gis.values()), None))
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
-        self.stage = bind_demo_stage(self, start=parts)
-        self.chamber_device = bind_demo_chamber(self, start=parts)
-        self.manipulator_device = bind_demo_manipulator(self, start=parts)
         self._device_routes = MappingProxyType(
             {
                 **_routes("stage", STAGE_ROUTES),
@@ -182,7 +204,6 @@ class DemoMicroscope(
                 **_routes("chamber_device", CHAMBER_COMMAND_ROUTES),
             }
         )
-        self.gis_device = bind_demo_gis(self, start=parts)
 
     def _fm_devices(self) -> Dict[str, Device]:
         """The FM's devices, and ``fm`` as the FM API over them."""
