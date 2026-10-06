@@ -311,6 +311,33 @@ left empty is an error at `connect()`, and reading an unfilled optional role rai
 Roles are references between devices in the flat `microscope.devices` map, not a
 tree: every device keeps its own unique name.
 
+### Binding a role from the configuration
+
+A beam has an optional `scanner` role (`fibsem.devices.scanner.Scanner`). Left
+empty, the beam images through the vendor's scan, as it always has. Bound to a scan
+generator, `beam.acquire()`, `acquire_image` and live view scan through it instead:
+the beam keeps `resolution`, `dwell_time` and `hfw`, the scanner returns the frame,
+and the beam builds the `FibsemImage`. The binding sits on the beam's entry:
+
+```yaml
+hardware:
+  devices:
+    - name: scan_generator
+      type: scan_generator
+      driver: demo
+    - name: electron
+      roles: {scanner: scan_generator}
+```
+
+The Demo has a simulated scan generator (frames read "SG"), so a binding can be
+tried without hardware; only the Demo binds roles so far. Connecting fails
+(`RoleBindingError`) for a role the device doesn't have, a device that isn't the
+role's interface, a name no entry has, or bindings that form a cycle. A bound device
+that is switched off (`enabled: false`) leaves the role empty, with a warning.
+
+`Scanner` is minimal until a real unit's SDK says more: `acquire(resolution,
+dwell_time)` returns one frame, and `stop()` ends a frame in flight.
+
 ## Services
 
 A service is something the instrument does with its devices over time, such as
@@ -433,7 +460,7 @@ Each entry has:
 | `enabled` | Absent: the backend's default. `false`: never built, and its driver never touches it. |
 | `driver` | The driver that builds it, by its registry name. Absent: the driver for `info.manufacturer`. `remote` is a device on another computer, at `address` and `port`. |
 | `required` | `true`: connecting fails if the device cannot be built. Otherwise a device that fails to build is logged and left out. |
-| `roles` | Binds a role of this device to another entry by name (`{scanner: scan_generator}`). Reserved; nothing reads it yet. |
+| `roles` | Binds a role of this device to another entry by name (`{scanner: scan_generator}`). The Demo binds it; see [Binding a role from the configuration](#binding-a-role-from-the-configuration). |
 
 Every other key belongs to the device or its driver (`column_tilt`, `address`,
 `port`, ...) and sits beside these in the entry.
