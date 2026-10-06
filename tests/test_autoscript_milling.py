@@ -1,6 +1,6 @@
 """Thermo's milling methods make the same SDK calls through the milling service.
 
-``AutoscriptMilling`` runs the code ``ThermoMicroscope`` milled with
+``AutoScriptMilling`` runs the code ``ThermoMicroscope`` milled with
 (``ThermoMilling``). Each case runs a milling method on a microscope with its beams
 built and no milling service, and the same call on one with the service built as
 connect builds it, both over a fake AutoScript client that records every SDK call

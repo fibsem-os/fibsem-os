@@ -1,6 +1,6 @@
 """ThermoFisher's services.
 
-`AutoscriptMilling` mills on AutoScript's ``connection.patterning`` with the code
+`AutoScriptMilling` mills on AutoScript's ``connection.patterning`` with the code
 ``ThermoMicroscope`` has always milled with (`fibsem.microscopes.autoscript.ThermoMilling`):
 the per-pattern application file, the Serial mode cross-sections need, and the
 patterning state read in the milling view, under the imaging channel's lock. Each
@@ -40,7 +40,7 @@ _DRAW: Tuple[Tuple[type, Callable], ...] = (
 )
 
 
-class AutoscriptMilling(Milling):
+class AutoScriptMilling(Milling):
     """ThermoFisher milling, on ``connection.patterning``."""
 
     parent: ThermoMicroscope
@@ -85,6 +85,6 @@ class AutoscriptMilling(Milling):
 
 def bind_autoscript_milling(
     microscope: ThermoMicroscope,
-) -> Optional[AutoscriptMilling]:
+) -> Optional[AutoScriptMilling]:
     """Build ``milling`` for a connected Thermo microscope whose beams are built."""
-    return bind_milling(AutoscriptMilling, microscope)
+    return bind_milling(AutoScriptMilling, microscope)

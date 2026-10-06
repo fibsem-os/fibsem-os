@@ -900,7 +900,7 @@ def match_application_file(
 class ThermoMilling:
     """ThermoFisher patterning, on ``connection.patterning``: the milling methods
     ``ThermoMicroscope`` has when it has no milling service, and the code its
-    service runs (``fibsem.services.drivers.autoscript.AutoscriptMilling``) when it
+    service runs (``fibsem.services.drivers.autoscript.AutoScriptMilling``) when it
     has one."""
 
     def setup_milling(

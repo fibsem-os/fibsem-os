@@ -192,7 +192,7 @@ def _conditions(microscope):
 
 
 def facts():
-    from fibsem.services.drivers.autoscript import AutoscriptMilling
+    from fibsem.services.drivers.autoscript import AutoScriptMilling
 
     new = make(service=True)
     milling = new.milling
@@ -232,7 +232,7 @@ def facts():
 
     return {
         "type": type(milling).__name__,
-        "is_autoscript": isinstance(milling, AutoscriptMilling),
+        "is_autoscript": isinstance(milling, AutoScriptMilling),
         "roles": [milling.ion.name, milling.electron.name],
         "before": before,
         "during": during,
