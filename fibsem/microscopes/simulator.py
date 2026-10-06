@@ -23,7 +23,6 @@ from fibsem.microscope import (
     _records_beam_shift,
     _records_stage_move,
 )
-from fibsem.microscopes.autoscript import match_application_file
 from fibsem.microscopes.sim_scene import fm_channel_weights
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.projection import FMStageProjection
@@ -53,6 +52,7 @@ from fibsem.structures import (
     RangeLimit,
     SystemSettings,
 )
+from fibsem.util.application_file import match_application_file
 from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:

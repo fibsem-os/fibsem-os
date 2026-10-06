@@ -35,6 +35,14 @@ from fibsem.structures import (
     Point,
 )
 
+# The voltages Odemis offers on a ThermoFisher column, before the column's own range
+# narrows them. The same list as the AutoScript driver's: Odemis keeps its own copy so
+# the drivers do not import each other.
+ODEMIS_VOLTAGE_CHOICES = {
+    BeamType.ELECTRON: (1000, 2000, 3000, 5000, 10000, 20000, 30000),
+    BeamType.ION: (500, 1000, 2000, 8000, 16000, 30000),
+}
+
 if TYPE_CHECKING:
     from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
 
@@ -132,12 +140,10 @@ class OdemisBeam(Beam):
         self._set_log("voltage", value, " V")
 
     def metadata_voltage(self) -> ParameterMetadata:
-        from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES
-
         low, high = self._client.high_voltage_info(self.channel)["range"]
         return ParameterMetadata(
             choices=[
-                v for v in THERMO_VOLTAGE_CHOICES[self.beam_type] if low <= v <= high
+                v for v in ODEMIS_VOLTAGE_CHOICES[self.beam_type] if low <= v <= high
             ]
         )
 
