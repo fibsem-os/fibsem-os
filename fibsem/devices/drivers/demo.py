@@ -13,6 +13,7 @@ them.
 from __future__ import annotations
 
 import logging
+import threading
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -43,9 +44,11 @@ from fibsem.structures import (
     BeamType,
     ChamberState,
     FibsemDetectorSettings,
+    FibsemImage,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
+    ImageSettings,
     InsertableDeviceState,
     Point,
     RangeLimit,
@@ -268,6 +271,25 @@ class DemoBeam(Beam):
 
     def metadata_plasma_gas(self) -> ParameterMetadata:
         return self._choices("plasma_gas")
+
+    # Imaging, the autofunctions and live view run the Demo's own code (the
+    # ``_demo_*`` methods of ``DemoImaging``), so both demos image alike and the
+    # contract suite still compares like with like.
+
+    def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
+        return self.parent._demo_acquire(image_settings, self.beam_type)
+
+    def _last_image(self) -> FibsemImage:
+        return self.parent._demo_last_image(self.beam_type)
+
+    def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
+        self.parent._demo_autocontrast(self.beam_type, reduced_area)
+
+    def _auto_focus(self, reduced_area: Optional[FibsemRectangle]) -> None:
+        self.parent._demo_auto_focus(self.beam_type, reduced_area)
+
+    def _live(self, stop: threading.Event) -> None:
+        self.parent._demo_live(self.beam_type, stop, self.live_frame.emit)
 
     # "preset" is not implemented: Demo has no presets, so it is absent on the new
     # API while the old set("preset", ...) stays a logged no-op.
