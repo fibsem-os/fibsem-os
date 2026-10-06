@@ -25,14 +25,15 @@ from fibsem.imaging.spot import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
 
-# The widget-dispatch tests need the UI stack (napari/PyQt5), which isn't installed
-# in the core CI env (`pip install .`). Probe the third-party packages themselves,
+# The widget-dispatch tests need the UI stack (PyQt5/superqt, the [ui] extra), which
+# isn't installed in the core CI env (`pip install .`). napari is not part of it: it
+# moved to [labelling] (#778), and probing it here skipped these tests on every [ui]
+# install. Probe the third-party packages themselves,
 # and import from fibsem unguarded: wrapping the fibsem import in the try instead
 # also swallows a renamed symbol, and reports it as a missing dependency on a
 # machine that has the whole UI stack -- which left these tests silently skipped
 # everywhere once the parameter-widget classes were replaced (FIB-526/FIB-384).
 try:
-    import napari  # noqa: F401
     import superqt  # noqa: F401
     from PyQt5 import QtWidgets  # noqa: F401
 except ImportError as exc:  # pragma: no cover - exercised only in the no-UI CI env
