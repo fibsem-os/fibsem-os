@@ -123,6 +123,23 @@ def test_nothing_unfitted_is_built(recording):
     }
 
 
+def test_the_configuration_switches_parts_off(recording):
+    """`hardware.devices` is an overlay on what the instrument has: an entry turns a
+    fitted part off, so it is never built; a device no driver builds is left out with
+    a warning. The gas injectors are not built from entries."""
+    facts = recording["facts"]["configured"]
+    assert facts["devices"] == ["chamber", "Pt dep", "Water", "Multichem"]
+    assert facts["manipulator"] is True
+    assert facts["routed"] is False
+
+
+def test_a_required_device_that_cannot_be_built_fails_connect(recording):
+    assert recording["facts"]["configured"]["required"] == (
+        "Device 'laser' was not built: driver 'ThermoFisher' has no builder for a "
+        "'laser' device."
+    )
+
+
 def test_connect_builds_the_parts_after_it_reads_what_is_fitted():
     """Whether a manipulator and gas injectors are fitted is read in
     ``_create_sample_stage``, so the parts are built after it."""
