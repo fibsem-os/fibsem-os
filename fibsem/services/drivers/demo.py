@@ -1,8 +1,8 @@
 """The Demo's services.
 
-`DemoMilling` mills with the demo code both demos share
-(`fibsem.microscopes.simulator.DemoMilling`), on the microscope's ``milling_system``,
-so the device-built Demo mills as the legacy Demo does. Each hook calls that code's
+`DemoMilling` mills with the demo code (`fibsem.microscopes.simulator.DemoMilling`),
+on the microscope's ``milling_system``, so the Demo mills as it did before the
+service. Each hook calls that code's
 method for the step, by its class: the microscope's own method of the same name goes
 to this service, so calling it would come straight back here.
 """

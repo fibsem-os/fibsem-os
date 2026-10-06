@@ -1,23 +1,20 @@
-"""The Beam device, and the key router that keeps today's get/set working.
+"""The Beam device, and the old get/set keys it answers.
 
 One ``Beam`` class serves both columns; a parameter one column lacks is simply not
-bound on it. ``KeyRouter`` is what ``FibsemMicroscope.get``/``set`` would
-become: a key that has moved to a device is routed to its parameter, and every other
-key falls through to the backend's untouched if/elif chain.
+bound on it. ``FibsemMicroscope.get``/``set`` route a key that has moved to a device
+to its parameter (``BEAM_ROUTES``), and every other key to the backend's chain.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-from enum import Enum
 from math import pi
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, Optional
 
 from psygnal import Signal
 
-from fibsem.devices.core import BoundParameter, Device, Parameter, command
-from fibsem.devices.stage import Stage
+from fibsem.devices.core import Device, Parameter, command
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -275,82 +272,3 @@ STAGE_COMMAND_ROUTES: Dict[str, str] = {
     "stage_home": "home",
     "stage_link": "link",
 }
-
-
-class KeyRouter:
-    """Today's ``get``/``set``/``get_available_values``, routed where a key has moved.
-
-    Routed calls make the same instrument call the old branch made and skip the new
-    API's validation, so a half-migrated backend behaves exactly like an unmigrated one.
-    Logging matches ``FibsemMicroscope.get`` and ``set``.
-    """
-
-    def __init__(
-        self,
-        microscope: Any,
-        beams: Mapping[BeamType, Beam],
-        routes: Optional[Mapping[str, str]] = None,
-        stage: Optional[Stage] = None,
-    ):
-        self.microscope = microscope
-        self.beams = dict(beams)
-        self.routes = dict(BEAM_ROUTES if routes is None else routes)
-        self.stage = stage
-
-    def route(
-        self, key: str, beam_type: Optional[BeamType]
-    ) -> Optional[BoundParameter]:
-        if self.stage is not None and key in STAGE_ROUTES:
-            return self.stage.parameters.get(STAGE_ROUTES[key])
-        name = self.routes.get(key)
-        beam = self.beams.get(beam_type) if beam_type is not None else None
-        if name is None or beam is None:
-            return None
-        return beam.parameters.get(name)
-
-    def get(self, key: str, beam_type: Optional[BeamType] = None) -> Any:
-        param = self.route(key, beam_type)
-        if param is not None:
-            value = param.get_value()
-            if isinstance(value, Enum):
-                value = value.value  # old keys return the plain value ("spot")
-        else:
-            value = self.microscope._get(key, beam_type)
-        beam_name = "None" if beam_type is None else beam_type.name
-        logging.debug(
-            {"msg": "get", "key": key, "beam_type": beam_name, "value": value}
-        )
-        return value
-
-    def route_command(self, key: str) -> Optional[Any]:
-        """The device command an old set key has become, if it has moved and is available."""
-        name = STAGE_COMMAND_ROUTES.get(key)
-        if self.stage is None or name is None:
-            return None
-        info = self.stage.commands.get(name)
-        if info is None or not info.available:
-            return None
-        return getattr(self.stage, name)
-
-    def set(self, key: str, value: Any, beam_type: Optional[BeamType] = None) -> None:
-        param = self.route(key, beam_type)
-        run = self.route_command(key)
-        if run is not None:
-            run()
-        elif param is not None and param.writable:
-            param.write_through(value)
-        else:
-            # Unmoved keys, and read-only ones (set("stage_position") warns there).
-            self.microscope._set(key, value, beam_type)
-        beam_name = "None" if beam_type is None else beam_type.name
-        logging.debug(
-            {"msg": "set", "key": key, "beam_type": beam_name, "value": value}
-        )
-
-    def get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[Any]:
-        param = self.route(key, beam_type)
-        if param is not None and param.choices is not None:
-            return list(param.choices)
-        return self.microscope.get_available_values(key, beam_type)

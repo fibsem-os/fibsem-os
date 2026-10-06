@@ -29,7 +29,6 @@ from fibsem.devices.beam import (
     STAGE_COMMAND_ROUTES,
     STAGE_ROUTES,
     Beam,
-    KeyRouter,
 )
 from fibsem.devices.chamber import (
     CHAMBER_COMMAND_ROUTES,
@@ -83,7 +82,6 @@ __all__ = [
     "CommandInfo",
     "Beam",
     "BoundParameter",
-    "KeyRouter",
     "Device",
     "ParameterMetadata",
     "Parameter",

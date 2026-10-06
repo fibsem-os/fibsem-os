@@ -36,7 +36,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.constants import METRE_TO_MICRON
-from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -57,7 +57,7 @@ def _nearby_um(fm) -> float:
 
 @pytest.fixture
 def fm():
-    return SimulatedFluorescenceMicroscope()
+    return DemoFluorescenceMicroscope()
 
 
 @pytest.fixture

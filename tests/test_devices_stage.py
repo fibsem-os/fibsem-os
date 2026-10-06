@@ -1,205 +1,36 @@
-"""The stage as a device, on the Demo backend.
+"""The stage as a device, on the Demo backend: axes and limits, refused moves,
+signals, the stage resource and commands."""
 
-Three kinds of test. Parity: every stage key through the key router gives what the
-untouched old call gives. The reverse direction: a Demo microscope whose old stage
-methods ask the device behaves exactly like one that doesn't. And the new API:
-axes and limits, refused moves, signals, the stage resource and commands.
-"""
-
-import logging
 import math
+import os
 import threading
 
 import pytest
 
 from fibsem import utils
+from fibsem.config import CONFIG_PATH
 from fibsem.devices import (
-    STAGE_COMMAND_ROUTES,
     STAGE_RESOURCE,
-    STAGE_ROUTES,
-    KeyRouter,
     ParameterReadOnly,
     ParameterUnavailable,
     StageLimitError,
 )
-from fibsem.devices.drivers.demo import bind_demo_beams, bind_demo_stage
-from fibsem.microscope import _records_stage_move
-from fibsem.microscopes.simulator import LegacyDemoMicroscope
 from fibsem.structures import FibsemStagePosition, RangeLimit
-from tests._legacy_demo import setup_legacy_session
+
+# A simulated Arctis, whose stage is a compustage.
+_ARCTIS_CONFIG = os.path.join(CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 
-def _demo(compustage: bool = False):
-    microscope, _ = setup_legacy_session()
-    microscope.stage_is_compustage = compustage
-    return microscope
-
-
-def _router(microscope):
-    stage = bind_demo_stage(microscope)
-    return KeyRouter(microscope, bind_demo_beams(microscope), stage=stage), stage
-
-
-@pytest.fixture
-def microscope():
-    return _demo()
-
-
-@pytest.fixture
-def stage(microscope):
-    return bind_demo_stage(microscope)
-
-
-# -- parity: the old keys through the router behave exactly as before ---------------
-
-
-@pytest.mark.parametrize("compustage", [False, True])
-def test_router_get_matches_old_get_for_every_stage_key(compustage):
-    microscope = _demo(compustage)
-    router, _ = _router(microscope)
-    for key in STAGE_ROUTES:
-        assert router.get(key) == microscope.get(key), key
-
-
-@pytest.mark.parametrize("compustage", [False, True])
-@pytest.mark.parametrize("key", sorted(STAGE_COMMAND_ROUTES))
-def test_router_set_of_a_stage_verb_does_what_the_old_set_does(compustage, key, caplog):
-    old, new = _demo(compustage), _demo(compustage)
-    for m in (old, new):
-        m.stage_system.is_homed = False
-        m.stage_system.is_linked = False
-    router, _ = _router(new)
-
-    with caplog.at_level(logging.INFO):
-        old.set(key, True)
-        old_log = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]
-        caplog.clear()
-        router.set(key, True)
-        new_log = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]
-
-    for state in ("stage_homed", "stage_linked"):
-        assert router.get(state) == old.get(state), state
-    assert new_log == old_log
-
-
-def test_router_set_of_a_read_only_stage_key_falls_through_to_the_old_warning(
-    microscope, caplog
-):
-    router, _ = _router(microscope)
-    before = microscope.get_stage_position()
-    with caplog.at_level(logging.WARNING):
-        router.set("stage_position", FibsemStagePosition(x=1e-3))
-    assert "Unknown key: stage_position" in caplog.text
-    assert microscope.get_stage_position() == before
-
-
-# -- the reverse direction: old methods ask the device ------------------------------
-
-
-class DeviceBackedDemo(LegacyDemoMicroscope):
-    """What ``DemoMicroscope`` becomes once its stage keys move: the old stage
-    methods keep their names, signatures, returns and recording, and ask the device.
-
-    Only the methods whose Demo implementation touches the stage are here. The base
-    class's ``get_stage_position``, ``home`` and ``link_stage`` already go through
-    ``get``/``set``, so the router covers them.
-    """
-
-    router = None  # until the devices are bound; binding reads through the old API
-
-    def _use_devices(self) -> None:
-        self.stage_device = bind_demo_stage(self)
-        self.router = KeyRouter(self, bind_demo_beams(self), stage=self.stage_device)
-
-    def get(self, key, beam_type=None):
-        if self.router is None:
-            return super().get(key, beam_type)
-        return self.router.get(key, beam_type)
-
-    def set(self, key, value, beam_type=None):
-        if self.router is None:
-            return super().set(key, value, beam_type)
-        self.router.set(key, value, beam_type)
-
-    @_records_stage_move
-    def move_stage_absolute(self, position):
-        self.stage_device.move_through(position)
-        return self.get_stage_position()
-
-    @_records_stage_move
-    def move_stage_relative(self, position):
-        self.stage_device.move_through(position, relative=True)
-        return self.get_stage_position()
-
-    def home(self):
-        return self.stage_device.home()
-
-
-def _unhomed(microscope):
-    """Unhome and unlink the stage, so home and link have something to do. The stage
-    device copies this state when it is built."""
-    microscope.stage_system.is_homed = False
-    microscope.stage_system.is_linked = False
-    return microscope
-
-
-def _device_backed(compustage: bool = False) -> DeviceBackedDemo:
-    microscope = _unhomed(_demo(compustage))
-    microscope.__class__ = DeviceBackedDemo  # same connected state, the new methods
-    microscope._use_devices()
-    return microscope
-
-
-def _script(microscope):
-    """The old stage API, as scripts and the UI call it today, on an unhomed stage."""
-    emitted, recorded = [], []
-    microscope.stage_position_changed.connect(emitted.append)
-    microscope.record_signal.connect(
-        lambda kind, payload: recorded.append((kind, payload))
+def _demo_stage(config_path=None):
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo", config_path=config_path, setup_logging=False
     )
-    stage = microscope._stage
-    out = [
-        microscope.get_stage_position(),
-        stage.position,
-        stage.axes,
-        microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, y=-2e-3)),
-        microscope.move_stage_relative(FibsemStagePosition(z=1e-4, t=0.1)),
-        # the old API has no limit check on Demo, and still has none
-        microscope.move_stage_absolute(FibsemStagePosition(x=0.5)),
-        stage.move_absolute(FibsemStagePosition(x=0.0)),
-        stage.orientation,
-        stage.is_homed,
-        microscope.home(),
-        stage.is_homed,
-        microscope.link_stage(),
-        microscope.get("stage_linked"),
-        microscope.get_stage_position(),
-    ]
-    events = [
-        (p["move"], p["request"], p["start"], p["end"], p["error"])
-        for kind, p in recorded
-        if kind == "stage_moved"
-    ]
-    return out, emitted, events
+    return microscope.stage
 
 
-@pytest.mark.parametrize("compustage", [False, True])
-def test_old_stage_api_is_unchanged_when_it_asks_the_device(compustage):
-    old_out, old_emitted, old_events = _script(_unhomed(_demo(compustage)))
-    new_out, new_emitted, new_events = _script(_device_backed(compustage))
-    assert new_out == old_out
-    assert new_emitted == old_emitted
-    assert new_events == old_events and len(new_events) == 4
-
-
-def test_the_old_signal_and_the_new_one_fire_together():
-    microscope = _device_backed()
-    old, new = [], []
-    microscope.stage_position_changed.connect(old.append)
-    microscope.stage_device.position.changed.connect(new.append)
-    microscope.get_stage_position()
-    microscope.move_stage_relative(FibsemStagePosition(x=1e-4))
-    assert old == new and len(new) == 1
+@pytest.fixture
+def stage():
+    return _demo_stage()
 
 
 # -- the new API ---------------------------------------------------------------------
@@ -219,7 +50,7 @@ def test_the_driver_lists_the_axes_with_their_limits_in_si_units(stage):
 
 
 def test_a_compustage_has_no_rotation_axis_and_cannot_link():
-    stage = bind_demo_stage(_demo(compustage=True))
+    stage = _demo_stage(_ARCTIS_CONFIG)
     assert list(stage.axes) == ["x", "y", "z", "t"]
     assert "r" not in stage.axes
     with pytest.raises(AttributeError, match="no 'r' axis"):

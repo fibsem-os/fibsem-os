@@ -1,40 +1,48 @@
-"""The device prototype on the Demo backend.
-
-Two kinds of test. Parity: every call through the key router gives what the
-untouched old call gives, including its no-ops and missing checks. And the new API:
-metadata, validation, signals, dependencies, resources and commands.
+"""The device prototype on the Demo backend: metadata, validation, signals,
+dependencies, resources and commands.
 """
 
 import logging
 import math
+import os
+import tempfile
 import threading
 
 import pytest
+import yaml
 
+from fibsem import config as cfg
 from fibsem import utils
 from fibsem.devices import (
-    BEAM_ROUTES,
     Beam,
     Device,
-    KeyRouter,
     Parameter,
-    ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
     Resources,
     command,
 )
-from fibsem.devices.drivers.demo import bind_demo_beams
 from fibsem.structures import BeamType, FibsemImage, RangeLimit
-from tests._legacy_demo import setup_legacy_session
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 
 
 def _demo(plasma: bool = False):
-    microscope, _ = setup_legacy_session()
+    """A Demo session; on a plasma FIB (Xenon) with *plasma*."""
+    config_path = None
     if plasma:
-        microscope.system.ion.plasma_gas = "Xenon"
+        with open(cfg.DEFAULT_CONFIGURATION_PATH) as f:
+            configuration = yaml.safe_load(f)
+        configuration["sim"] = {
+            **(configuration.get("sim") or {}),
+            "plasma_gas": "Xenon",
+        }
+        config_path = os.path.join(tempfile.mkdtemp(), "plasma-configuration.yaml")
+        with open(config_path, "w") as f:
+            yaml.safe_dump(configuration, f)
+    microscope, _ = utils.setup_session(
+        config_path=config_path, manufacturer="Demo", setup_logging=False
+    )
     return microscope
 
 
@@ -45,94 +53,7 @@ def microscope():
 
 @pytest.fixture
 def beams(microscope):
-    return bind_demo_beams(microscope)
-
-
-# -- parity: the old API through the router behaves exactly as before ---------------
-
-
-@pytest.mark.parametrize("plasma", [False, True])
-def test_router_get_matches_old_get_for_every_routed_key(plasma):
-    microscope = _demo(plasma)
-    router = KeyRouter(microscope, bind_demo_beams(microscope))
-    for beam_type in BEAMS:
-        for key in list(BEAM_ROUTES) + ["shift", "on", "no_such_key"]:
-            assert router.get(key, beam_type) == microscope.get(key, beam_type), key
-    assert router.get("stage_position") == microscope.get("stage_position")
-
-
-def test_router_available_values_match_old(microscope, beams):
-    router = KeyRouter(microscope, beams)
-    for beam_type in BEAMS:
-        for key in (
-            "voltage",
-            "current",
-            "detector_type",
-            "detector_mode",
-            "scan_direction",
-        ):
-            assert router.get_available_values(key, beam_type) == (
-                microscope.get_available_values(key, beam_type)
-            ), key
-
-
-# Old calls, including ones the new API would clip or refuse. The old path must not.
-OLD_SETS = [
-    ("current", 1.234e-9),  # not one of the available currents
-    ("voltage", 12345),  # not one of the available voltages
-    ("scan_rotation", 7.0),  # above 2*pi: the old path does not clip on Demo
-    ("hfw", 1.0),  # Demo has no hfw limit
-    ("working_distance", 5e-3),
-    ("detector_type", "NotADetector"),
-    ("detector_mode", "BackscatteredElectrons"),
-    ("blanked", True),
-    ("preset", "anything"),  # no-op on Demo, before and after
-    ("no_such_key", 1),  # warning and nothing else
-]
-
-
-@pytest.mark.parametrize("beam_type", BEAMS)
-@pytest.mark.parametrize("key, value", OLD_SETS)
-def test_router_set_leaves_the_same_state_as_old_set(beam_type, key, value):
-    old, new = _demo(), _demo()
-    router = KeyRouter(new, bind_demo_beams(new))
-
-    old.set(key, value, beam_type)
-    router.set(key, value, beam_type)
-
-    # the beams keep their own state, so the router's reads are the ones to compare
-    for read_key in list(BEAM_ROUTES) + ["shift", "stigmation", "resolution"]:
-        assert router.get(read_key, beam_type) == old.get(read_key, beam_type), read_key
-
-
-def test_router_keeps_the_spot_burn_side_effect_of_unblanking(monkeypatch):
-    burns = []
-    microscope = _demo()
-    monkeypatch.setattr(microscope, "_burn_into_sample_scene", burns.append)
-    beams = bind_demo_beams(microscope)
-    router = KeyRouter(microscope, beams)
-    beams[BeamType.ION].sim_scanning_mode = "spot"
-
-    router.set("blanked", False, BeamType.ION)
-
-    assert burns == [BeamType.ION]
-
-
-def test_router_keeps_ignoring_an_unavailable_plasma_gas():
-    old, new = _demo(plasma=True), _demo(plasma=True)
-    router = KeyRouter(new, bind_demo_beams(new))
-
-    old.set("plasma_gas", "Helium", BeamType.ION)
-    router.set("plasma_gas", "Helium", BeamType.ION)
-
-    assert new.get("plasma_gas", BeamType.ION) == old.get("plasma_gas", BeamType.ION)
-    assert new.get("plasma_gas", BeamType.ION) == "Xenon"
-
-
-def test_the_old_api_is_untouched_by_binding(microscope):
-    before = {k: microscope.get(k, BeamType.ELECTRON) for k in BEAM_ROUTES}
-    bind_demo_beams(microscope)
-    assert {k: microscope.get(k, BeamType.ELECTRON) for k in BEAM_ROUTES} == before
+    return microscope.beams
 
 
 # -- the new API --------------------------------------------------------------------
@@ -204,13 +125,12 @@ def test_a_choice_matches_within_float_noise(beams):
 
 def test_changed_carries_the_value_from_both_apis(microscope, beams):
     sem = beams[BeamType.ELECTRON]
-    router = KeyRouter(microscope, beams)
     seen, on_device = [], []
     sem.hfw.changed.connect(seen.append)
     sem.changed.connect(lambda name, value: on_device.append((name, value)))
 
     sem.hfw.set_value(100e-6)
-    router.set("hfw", 50e-6, BeamType.ELECTRON)
+    microscope.set_field_of_view(50e-6, BeamType.ELECTRON)
 
     assert seen == [100e-6, 50e-6]
     assert on_device == [("hfw", 100e-6), ("hfw", 50e-6)]
@@ -246,7 +166,7 @@ def test_cached_reads_do_not_touch_the_instrument():
 
 def test_dependent_metadata_is_refreshed_and_announced():
     microscope = _demo(plasma=True)
-    fib = bind_demo_beams(microscope)[BeamType.ION]
+    fib = microscope.beams[BeamType.ION]
     xenon = list(fib.current.choices)
     metadatas = []
     fib.current.metadata_changed.connect(metadatas.append)
@@ -467,53 +387,11 @@ def test_needs_channel_is_declared_on_the_backend_class():
     assert not det.contrast.settable  # no write_contrast: read-only
 
 
-# FibsemMicroscope.get/set route a moved key to its device parameter.
-
-
-def _routed_demo(plasma: bool = False):
-    microscope = _demo(plasma)
-    microscope.beams = bind_demo_beams(microscope)
-    microscope._beam_routes = dict(BEAM_ROUTES)
-    return microscope
-
-
-def test_get_and_set_take_the_old_path_until_a_backend_routes_keys(monkeypatch):
-    microscope = _demo()
-    assert dict(microscope.beams) == {} and dict(microscope._beam_routes) == {}
-    calls = []
-    monkeypatch.setattr(microscope, "_get", lambda *a: calls.append(("get", a)) or 1)
-    monkeypatch.setattr(microscope, "_set", lambda *a: calls.append(("set", a)))
-
-    assert microscope.get("current", BeamType.ELECTRON) == 1
-    microscope.set("current", 2e-9, BeamType.ELECTRON)
-    assert calls == [
-        ("get", ("current", BeamType.ELECTRON)),
-        ("set", ("current", 2e-9, BeamType.ELECTRON)),
-    ]
-
-
-@pytest.mark.parametrize("plasma", [False, True])
-def test_routed_get_matches_the_old_chain(plasma):
-    microscope = _routed_demo(plasma)
-    for beam_type in BEAMS:
-        for key in list(BEAM_ROUTES) + ["shift", "stage_position"]:
-            assert microscope.get(key, beam_type) == microscope._get(key, beam_type)
-
-
-@pytest.mark.parametrize("beam_type", BEAMS)
-@pytest.mark.parametrize("key, value", OLD_SETS)
-def test_routed_set_leaves_the_same_state_as_the_old_chain(beam_type, key, value):
-    old, new = _demo(), _routed_demo()
-
-    old.set(key, value, beam_type)
-    new.set(key, value, beam_type)
-
-    for read_key in list(BEAM_ROUTES) + ["shift", "stigmation", "resolution"]:
-        assert new.get(read_key, beam_type) == old.get(read_key, beam_type), read_key
+# FibsemMicroscope.set routes a moved key to its device parameter.
 
 
 def test_routed_set_emits_the_parameter_change():
-    microscope = _routed_demo()
+    microscope = _demo()
     seen = []
     microscope.beams[BeamType.ELECTRON].hfw.changed.connect(seen.append)
     microscope.set("hfw", 150e-6, BeamType.ELECTRON)

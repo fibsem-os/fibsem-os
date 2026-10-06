@@ -5,9 +5,9 @@ the microscope did not, so what a backend promises was spread across every test 
 happens to use Demo. This file writes it down, through the public API only: `get`/`set`
 keys, their base-class wrappers, stage moves, state, and image acquisition.
 
-It holds `DemoMicroscope`, the demo backend built from devices, to exactly what
-`LegacyDemoMicroscope`, the Demo before devices, does: every test runs against both,
-and the differential test at the bottom compares them call by call.
+It runs against `DemoMicroscope`, the demo backend built from devices. Until it
+replaced the Demo before devices (`LegacyDemoMicroscope`, since deleted), every test
+here ran against both, so what is pinned is what the Demo has always done.
 
 What is pinned is today's behaviour, including the parts nobody would design on
 purpose (a beam key read without a beam type raises; `stage_link` links whatever value
@@ -41,23 +41,15 @@ from fibsem.structures import (
     Point,
     ScanMode,
 )
-from tests._legacy_demo import setup_legacy_session
 
 # The backends this suite runs against. Each is built the way a session builds it,
-# through `utils.setup_session`. "LegacyDemo" is the Demo before devices
-# (`LegacyDemoMicroscope`), which no configuration selects, built in its place.
-BACKENDS = ["Demo", "LegacyDemo"]
-
-# The backend every other one is compared against in the differential test.
-REFERENCE_BACKEND = "LegacyDemo"
+# through `utils.setup_session`.
+BACKENDS = ["Demo"]
 
 BEAMS = [BeamType.ELECTRON, BeamType.ION]
 
 
 def _connect(backend: str, base: str = cfg.DEFAULT_CONFIGURATION_PATH):
-    if backend == "LegacyDemo":
-        microscope, _ = setup_legacy_session(config_path=base, setup_logging=False)
-        return microscope
     microscope, _ = utils.setup_session(
         config_path=base, manufacturer="Demo", setup_logging=False
     )
@@ -66,10 +58,8 @@ def _connect(backend: str, base: str = cfg.DEFAULT_CONFIGURATION_PATH):
 
 def test_backends_are_what_they_say():
     from fibsem.microscopes.device_demo import DemoMicroscope
-    from fibsem.microscopes.simulator import LegacyDemoMicroscope
 
     assert type(_connect("Demo")) is DemoMicroscope
-    assert type(_connect("LegacyDemo")) is LegacyDemoMicroscope
 
 
 # The parts not every system has, and the patterns not every vendor can draw: a
@@ -625,14 +615,8 @@ def _plasma_configuration() -> str:
     return path
 
 
-def test_demo_beams_own_their_choices(monkeypatch):
-    """The beam keys' values come from the beam devices, not the legacy Demo's lists."""
-    from fibsem.microscopes.simulator import LegacyDemoMicroscope
-
-    def refuse(self, key, beam_type=None):
-        raise AssertionError(f"{key} asked the legacy Demo for its values")
-
-    monkeypatch.setattr(LegacyDemoMicroscope, "get_available_values", refuse)
+def test_demo_beams_own_their_choices():
+    """The beam keys' values come from the beam devices."""
     microscope = _connect("Demo", _plasma_configuration())
     for beam_type in BEAMS:
         for key in ("current", "voltage", "detector_type", "detector_mode"):
@@ -655,30 +639,16 @@ def test_ion_currents_follow_the_plasma_gas(backend):
     assert microscope.get("plasma_gas", BeamType.ION) == "Argon"
 
 
-def test_demo_reads_its_configuration_without_demo(monkeypatch):
-    """The configured keys and capabilities read the configuration, not Demo."""
-    from fibsem.microscopes.simulator import LegacyDemoMicroscope
-
-    def refuse(self, key, beam_type=None):
-        raise AssertionError(f"{key} went to the legacy Demo")
-
+def test_demo_reads_its_configuration():
+    """The configured keys and capabilities read the configuration."""
     microscope = _connect("Demo", _plasma_configuration())
-    monkeypatch.setattr(LegacyDemoMicroscope, "_get", refuse)
-    monkeypatch.setattr(LegacyDemoMicroscope, "get_available_values", refuse)
     for key in ("plasma_gas", "scan_direction"):
         assert microscope.get_available_values(key)
     assert microscope._get_axis_limits()
 
 
-def test_demo_sets_its_milling_recipe_without_demo(monkeypatch):
-    from fibsem.microscopes.simulator import LegacyDemoMicroscope
-
-    def refuse(self, key, value=None, beam_type=None):
-        raise AssertionError(f"{key} went to the legacy Demo")
-
+def test_demo_sets_its_milling_recipe():
     microscope = _connect("Demo")
-    monkeypatch.setattr(LegacyDemoMicroscope, "_set", refuse)
-    monkeypatch.setattr(LegacyDemoMicroscope, "get_available_values", refuse)
     files = microscope.get_available_values("application_file")
     microscope.set_milling_settings(
         FibsemMillingSettings(
@@ -719,13 +689,9 @@ def test_the_unused_keys_are_gone(call, caplog):
     assert "Unknown key" in caplog.text
 
 
-def test_demo_is_not_built_on_the_legacy_demo():
-    """The Demo is devices and the shared demo code: it inherits nothing from
-    LegacyDemoMicroscope and has none of its simulated parts."""
-    from fibsem.microscopes.device_demo import DemoMicroscope
-    from fibsem.microscopes.simulator import LegacyDemoMicroscope
-
-    assert LegacyDemoMicroscope not in DemoMicroscope.__mro__
+def test_demo_has_no_simulated_parts_beside_its_devices():
+    """The Demo is devices and the shared demo code, with no simulated parts of its
+    own."""
     microscope = _connect("Demo")
     for part in (
         "chamber",
@@ -1132,28 +1098,9 @@ def test_demo_fm_is_the_fm_api_over_devices():
     assert fm.acquire_image().data.shape == (height, width)
 
 
-def test_demo_fm_starts_where_the_simulated_fm_was():
-    """The devices copy the simulated FM's parts at connect, calibration included."""
-    legacy = _connect("LegacyDemo", FM_CONFIGURATION)
-    demo = _connect("Demo", FM_CONFIGURATION)
-    for name in ("focus_position", "limit_position", "position", "state"):
-        assert getattr(demo.fm.objective, name) == getattr(legacy.fm.objective, name), (
-            name
-        )
-    for part, names in {
-        "camera": ("exposure_time", "binning", "gain", "pixel_size", "resolution"),
-        "light_source": ("power",),
-        "filter_set": ("excitation_wavelength", "emission_wavelength"),
-    }.items():
-        for name in names:
-            assert getattr(getattr(demo.fm, part), name) == getattr(
-                getattr(legacy.fm, part), name
-            ), f"{part}.{name}"
-
-
 def test_demo_fm_snaps_excitation_to_its_bands(caplog):
-    """As the hardware does, and unlike the simulated FM, which stores any value: an
-    excitation between bands selects the nearest, with a warning."""
+    """As the hardware does: an excitation between bands selects the nearest, with a
+    warning."""
     microscope = _connect("Demo", FM_CONFIGURATION)
     microscope.fm.filter_set.excitation_wavelength = 488
     assert microscope.fm.filter_set.excitation_wavelength == 450
@@ -1162,7 +1109,7 @@ def test_demo_fm_snaps_excitation_to_its_bands(caplog):
 
 def test_demo_fm_names_a_numeric_emission_as_its_multi_band_filter():
     """The simulator's filter set has no bands, so a wavelength means its multi-band
-    filter, as Thermo reports one; the simulated FM stores the number."""
+    filter, as Thermo reports one."""
     microscope = _connect("Demo", FM_CONFIGURATION)
     microscope.fm.filter_set.emission_wavelength = 520.0
     assert microscope.fm.filter_set.emission_wavelength == "Fluorescence"
@@ -1171,8 +1118,7 @@ def test_demo_fm_names_a_numeric_emission_as_its_multi_band_filter():
 
 
 def test_fm_image_metadata_is_the_state_it_was_taken_in(fm_microscope):
-    """Whether the FM reads its state after the frame (the legacy Demo) or its devices
-    report it with the frame (Demo), the image says the same."""
+    """The devices report their state with the frame, and the image carries it."""
     from fibsem.fm.structures import ChannelSettings
 
     fm = fm_microscope.fm
@@ -1268,107 +1214,6 @@ def test_finish_milling_puts_the_beam_back(microscope, beam_type):
     microscope.set("hfw", 40e-6, beam_type)
     microscope.finish_milling()
     assert microscope.get("hfw", beam_type) == 40e-6
-
-
-# ---------------------------------------------------------------------------
-# Differential check
-# ---------------------------------------------------------------------------
-
-# A fixed call sequence. Each entry is (method, args, kwargs); every call is
-# followed by a snapshot of every key the contract reads. Two backends that agree
-# on every snapshot agree on everything this sequence exercises, including the
-# interactions between calls that the per-key tests above do not reach.
-CALL_SEQUENCE = [
-    ("set", ("working_distance", 6e-3, BeamType.ELECTRON), {}),
-    ("set", ("hfw", 250e-6, BeamType.ION), {}),
-    ("set_beam_current", (2e-10, BeamType.ION), {}),
-    ("set_beam_voltage", (5000, BeamType.ELECTRON), {}),
-    ("set_resolution", ((3072, 2048), BeamType.ELECTRON), {}),
-    ("set_detector_type", ("TLD", BeamType.ELECTRON), {}),
-    ("set_detector_mode", ("BackscatteredElectrons", BeamType.ION), {}),
-    ("set_beam_shift", (Point(1e-6, 1e-6), BeamType.ION), {}),
-    ("blank", (BeamType.ION,), {}),
-    ("unblank", (BeamType.ION,), {}),
-    ("turn_off", (BeamType.ELECTRON,), {}),
-    ("turn_on", (BeamType.ELECTRON,), {}),
-    ("move_stage_absolute", (FibsemStagePosition(x=1e-3, y=1e-3, z=2e-3),), {}),
-    ("move_stage_relative", (FibsemStagePosition(x=5e-4, t=0.1),), {}),
-    (
-        "safe_absolute_stage_movement",
-        (FibsemStagePosition(x=0, y=0, z=1e-3, r=np.radians(180), t=0.2),),
-        {},
-    ),
-    ("vent", (), {}),
-    ("pump", (), {}),
-    ("insert_manipulator", ("PARK",), {}),
-    ("move_manipulator_relative", (FibsemManipulatorPosition(x=1e-6, z=-2e-6),), {}),
-    ("move_manipulator_corrected", (2e-6, -1e-6, BeamType.ION), {}),
-    (
-        "move_manipulator_to_position_offset",
-        (FibsemManipulatorPosition(y=1e-6), "EUCENTRIC"),
-        {},
-    ),
-    ("move_manipulator_absolute", (FibsemManipulatorPosition(x=3e-6, z=1e-5),), {}),
-    ("retract_manipulator", (), {}),
-    ("set_spot_scanning_mode", (Point(0.25, 0.75), BeamType.ION), {}),
-    ("set_full_frame_scanning_mode", (BeamType.ION,), {}),
-    ("set", ("not_a_key", 1), {}),
-]
-
-
-def _snapshot(microscope) -> Dict[str, Any]:
-    state = _readable_state(microscope)
-    # Positions compare by value; the objects themselves carry names and identities.
-    for key in ("stage_position", "manipulator_position"):
-        state[key] = [round(float(v), 12) for v in _xyzrt(state[key])]
-    for key, value in list(state.items()):
-        if isinstance(value, Point):
-            state[key] = (value.x, value.y)
-        elif isinstance(value, list) and key not in (
-            "stage_position",
-            "manipulator_position",
-        ):
-            state[key] = tuple(value)
-    return state
-
-
-def _record(microscope) -> List[Tuple[str, Any, Dict[str, Any]]]:
-    record = [("start", None, _snapshot(microscope))]
-    for method, args, kwargs in CALL_SEQUENCE:
-        returned = getattr(microscope, method)(*deepcopy(args), **deepcopy(kwargs))
-        if isinstance(returned, (FibsemStagePosition, FibsemManipulatorPosition)):
-            returned = [round(float(v), 12) for v in _xyzrt(returned)]
-        elif isinstance(returned, Point):
-            returned = (returned.x, returned.y)
-        record.append((method, returned, _snapshot(microscope)))
-    return record
-
-
-def _first_difference(a, b) -> str:
-    for (method, ret_a, snap_a), (_, ret_b, snap_b) in zip(a, b):
-        if ret_a != ret_b:
-            return f"{method} returned {ret_a!r} vs {ret_b!r}"
-        for key in snap_a:
-            if snap_a[key] != snap_b.get(key):
-                return (
-                    f"after {method}: {key} is {snap_a[key]!r} vs {snap_b.get(key)!r}"
-                )
-    return ""
-
-
-def test_call_sequence_is_deterministic():
-    """The differential check only means something if one backend agrees with itself."""
-    a = _record(_connect(REFERENCE_BACKEND))
-    b = _record(_connect(REFERENCE_BACKEND))
-    assert not _first_difference(a, b)
-
-
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_call_sequence_matches_the_reference(backend):
-    reference = _record(_connect(REFERENCE_BACKEND))
-    candidate = _record(_connect(backend))
-    difference = _first_difference(reference, candidate)
-    assert not difference, difference
 
 
 def test_each_microscope_has_its_own_imaging_lock_and_stop_event():

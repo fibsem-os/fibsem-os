@@ -48,7 +48,7 @@ def microscope():
     """A simulated Arctis, because these tabs are half about fluorescence.
 
     A plain Demo session is not a compustage, and `DemoMicroscope` only builds a
-    `SimulatedFluorescenceMicroscope` when `sim.is_compustage` is set. Without one,
+    `DemoFluorescenceMicroscope` when `sim.is_compustage` is set. Without one,
     `microscope.fm` is None -- and then `build_lamella_poses` returns no fluorescence
     pose, which `Lamella.fluorescence_pose`'s setter rejects, and the fluorescence tab
     builds no widget at all. That took out 19 of the 27 tests here, invisibly: CI

@@ -8,35 +8,16 @@ import random
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import cycle
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
 from fibsem.fm.microscope import (
-    Camera,
-    FilterSet,
     FluorescenceMicroscope,
-    LightSource,
-    ObjectiveLens,
-)
-from fibsem.fm.structures import (
-    CameraImageTransform,
-    ChannelSettings,
-    EmissionFilter,
-    FluorescenceImage,
-    FluorescenceImageMetadata,
-    ObjectiveStateName,
-    emission_filter_for,
-)
-from fibsem.microscope import (
-    FibsemMicroscope,
-    _records_beam_shift,
-    _records_stage_move,
 )
 from fibsem.microscopes.sim_scene import fm_channel_weights
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -50,7 +31,6 @@ from fibsem.structures import (
     FibsemDetectorSettings,
     FibsemExperimentRef,
     FibsemImage,
-    FibsemImageMetadata,
     FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
@@ -61,7 +41,6 @@ from fibsem.structures import (
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
-    MicroscopeState,
     MillingState,
     Point,
     RangeLimit,
@@ -313,7 +292,7 @@ def render_fm_scene(
     Renders the same synthetic sample the beams image, through the FM's projection,
     for the channel ``fm`` is set to and with the objective's defocus, at the binned
     ``resolution`` (width, height) and ``pixel_size`` the camera has. Shared by
-    ``SceneCamera`` and the Demo FM camera device.
+    the Demo FM camera device.
     """
     microscope = getattr(fm, "parent", None)
     scene = getattr(microscope, "_sample_scene", None)
@@ -350,490 +329,6 @@ def render_fm_scene(
     return fm._transform_array(frame, fm.mount_transform)
 
 
-class SimulatedObjectiveLens(ObjectiveLens):
-    """The simulated FM's objective: a position that moves when told, clipped to the
-    user-defined limit, with seconds of travel to insert or retract."""
-
-    def __init__(self, parent: Optional[FluorescenceMicroscope] = None):
-        super().__init__(parent=parent)
-        self._position: float = SIM_OBJECTIVE_RETRACT_POSITION  # initial position
-        self._magnification: float = SIM_OBJECTIVE_MAGNIFICATION
-        self._numerical_aperture = SIM_OBJECTIVE_NA
-        self._insert_position = SIM_OBJECTIVE_INSERT_POSITION
-        self._retract_position = SIM_OBJECTIVE_RETRACT_POSITION
-        self._focus_position: Optional[float] = SIM_OBJECTIVE_FOCUS_POSITION
-        self._limit_position: float = SIM_OBJECTIVE_USER_POSITION_LIMIT
-
-    @property
-    def magnification(self) -> float:
-        return self._magnification
-
-    @property
-    def numerical_aperture(self) -> float:
-        return self._numerical_aperture
-
-    @property
-    def position(self) -> float:
-        sim_sleep(0.1)
-        return self._position
-
-    @property
-    def limit_position(self) -> float:
-        return self._limit_position
-
-    @limit_position.setter
-    def limit_position(self, position: float):
-        self._limit_position = position
-        logging.info(
-            f"Objective user-defined position limit set to: {self._limit_position * 1e3:.3f} mm"
-        )
-
-    def move_relative(self, delta: float):
-        self._position += delta
-        logging.info(
-            f"Objective moved to new position: {self._position * 1e3:.3f} mm (delta: {delta * 1e3:.3f} mm)"
-        )
-        # Announced here rather than relying on `move_absolute`: this implementation
-        # adjusts the field itself instead of delegating.
-        self._notify_moved()
-
-    def move_absolute(self, position: float):
-        # clip to user-defined limits
-        if not position <= self._limit_position:
-            logging.warning(
-                f"Clipping position {position} to user-defined limits {self._limit_position}"
-            )
-            position = np.clip(position, 0, self._limit_position)
-
-        sim_sleep(0.5)  # Simulate time taken to move the objective
-        self._position = position
-        logging.info(
-            f"Objective moved to absolute position: {self._position * 1e3:.3f} mm"
-        )
-        self._notify_moved()
-
-    def insert(self):
-        sim_sleep(SIM_OBJECTIVE_TRAVEL_SECONDS)  # the traverse, on top of the move
-        self.move_absolute(self._insert_position)
-        logging.info(
-            f"Objective lens inserted to position: {self._insert_position:.3f} mm"
-        )
-
-    def retract(self):
-        sim_sleep(SIM_OBJECTIVE_TRAVEL_SECONDS)
-        self.move_absolute(self._retract_position)
-        logging.info(
-            f"Objective lens retracted to position: {self._retract_position:.3f} mm"
-        )
-
-    @property
-    def limits(self) -> Tuple[float, float]:
-        return SIM_OBJECTIVE_POSITION_LIMITS
-
-    @property
-    def state(self) -> ObjectiveStateName:
-        return "Inserted" if self.position >= self._insert_position else "Retracted"
-
-
-class SimulatedCamera(Camera):
-    """The simulated FM's camera: a noise frame with a numbered "FM<n>" in it, taking
-    the exposure time to arrive."""
-
-    def __init__(self, parent: Optional[FluorescenceMicroscope] = None):
-        super().__init__(parent=parent)
-        self._index: int = 0  # Image index for simulating sequential images
-        self._use_counter: bool = True
-        self._exposure_time: float = SIM_CAMERA_EXPOSURE_TIME
-        self._binning: int = SIM_CAMERA_BINNING
-        self._gain: float = SIM_CAMERA_GAIN
-        self._offset: float = SIM_CAMERA_OFFSET
-        self._pixel_size: Tuple[float, float] = SIM_CAMERA_PIXEL_SIZE
-        self._resolution: Tuple[int, int] = SIM_CAMERA_RESOLUTION
-        self._number_cache: dict = {}  # Cache for draw_number images by mod
-
-    def acquire_image(self) -> np.ndarray:
-        sim_sleep(self.exposure_time)  # Simulate exposure time in seconds
-
-        # get min and max values for the image
-        noise = np.random.randint(
-            UINT16_MIN, UINT16_MAX, size=self.resolution[::-1], dtype=np.uint16
-        )
-        if not self._use_counter:
-            return noise
-
-        # Simulate a simple image with a number drawn in the center
-        mod = self._index % 10  # cycle through digits 0-9
-
-        # Cache the draw_number image by mod and resolution
-        cache_key = (mod, self.resolution)
-        if cache_key not in self._number_cache:
-            self._number_cache[cache_key] = draw_text(
-                f"FM{mod}",
-                size=(self.resolution[0] // 4, self.resolution[1] // 4),
-                thickness=min(64, self.resolution[0] // 16),
-                image_shape=self.resolution[::-1],
-            )
-
-        image = self._number_cache[cache_key]
-        self._index += 1  # increment index for next image
-        # use the image as an inverse mask for the noise
-        data = np.where(image > 0, image, noise)
-        return data
-
-    @property
-    def exposure_time(self) -> float:
-        return self._exposure_time
-
-    @exposure_time.setter
-    def exposure_time(self, value: float):
-        self._exposure_time = value
-
-    @property
-    def binning(self) -> int:
-        return self._binning
-
-    @binning.setter
-    def binning(self, value: int):
-        if value not in self.available_binnings:
-            raise ValueError(
-                f"Binning must be one of {self.available_binnings}, got {value}"
-            )
-        self._binning = value
-
-    @property
-    def available_binnings(self) -> Tuple[int, ...]:
-        return tuple(BINNING_VALUES)
-
-    @property
-    def exposure_time_limits(self) -> Tuple[float, float]:
-        return SIM_CAMERA_EXPOSURE_LIMITS
-
-    @property
-    def gain(self) -> float:
-        return self._gain
-
-    @gain.setter
-    def gain(self, value: float):
-        if value < 0:
-            raise ValueError("Gain must be non-negative.")
-        self._gain = value
-
-    @property
-    def gain_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
-        return None
-
-    @property
-    def offset(self) -> float:
-        return self._offset
-
-    @offset.setter
-    def offset(self, value: float):
-        if value < 0:
-            raise ValueError("Offset must be non-negative.")
-        self._offset = value
-
-    @property
-    def pixel_size(self) -> Tuple[float, float]:
-        return (
-            self._pixel_size[0] * self.binning,
-            self._pixel_size[1] * self.binning,
-        )
-
-    @property
-    def resolution(self) -> Tuple[int, int]:
-        return self._resolution[0] // self.binning, self._resolution[1] // self.binning
-
-
-class SimulatedLightSource(LightSource):
-    """The simulated FM's light source: one power, unchecked."""
-
-    def __init__(self, parent: Optional[FluorescenceMicroscope] = None):
-        super().__init__(parent=parent)
-        self._power: float = SIM_LIGHT_SOURCE_POWER
-
-    @property
-    def power(self) -> float:
-        return self._power
-
-    @power.setter
-    def power(self, value: float):
-        self._power = value
-
-    @property
-    def power_limits(self) -> Tuple[float, float]:
-        return (0.0, 1.0)
-
-    @property
-    def power_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
-        return None
-
-
-class SimulatedFilterSet(FilterSet):
-    """The simulated FM's filter set: ``EXCITATION_WAVELENGTHS``, and reflection or
-    one multi-band emission filter (``EMISSION_WAVELENGTHS``)."""
-
-    def __init__(self, parent: Optional[FluorescenceMicroscope] = None):
-        super().__init__(parent=parent)
-        self._excitation_wavelength: float = EXCITATION_WAVELENGTHS[0]
-        self._emission_wavelength: Optional[Union[float, str]] = None
-
-    @property
-    def available_excitation_wavelengths(self) -> Tuple[float, ...]:
-        return EXCITATION_WAVELENGTHS
-
-    @property
-    def available_emission_wavelengths(self) -> Tuple[Union[None, str, float], ...]:
-        return EMISSION_WAVELENGTHS
-
-    @property
-    def excitation_wavelength(self) -> float:
-        return self._excitation_wavelength
-
-    @excitation_wavelength.setter
-    def excitation_wavelength(self, value: float):
-        self._excitation_wavelength = value
-
-    @property
-    def emission_wavelength(self) -> Optional[Union[float, str]]:
-        return self._emission_wavelength
-
-    @emission_wavelength.setter
-    def emission_wavelength(self, value: Optional[Union[float, str]]):
-        self._emission_wavelength = value
-
-    def emission_filter(self, value: Optional[Union[float, str]]) -> EmissionFilter:
-        """The filter an emission value names, with its band's edges when this filter
-        set knows them (``emission_bands``), for showing it by name and band."""
-        return emission_filter_for(value, getattr(self, "emission_bands", {}))
-
-
-class SceneCamera(SimulatedCamera):
-    """The simulated FM camera, imaging the sample scene when there is one.
-
-    Renders the same synthetic sample the beams image (``render_fm_scene``);
-    falls back to the stock noise/counter frames when no scene is enabled.
-    """
-
-    def acquire_image(self) -> np.ndarray:
-        frame = render_fm_scene(
-            self.parent, self.exposure_time, self.pixel_size[0], self.resolution
-        )
-        if frame is None:
-            return super().acquire_image()
-        self._index += 1
-        return frame
-
-
-class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
-    """The simulated FM: the legacy Demo's, and a stand-in FM wherever one is needed
-    without hardware (tests, the FM widgets run on their own). Its parts are the
-    ``Simulated*`` ones above, and the camera images the sample scene when its
-    microscope has one (``SceneCamera``).
-
-    It is also the FM half of the one imaging channel a TFS system shares (FIB-518).
-
-    `DemoMicroscope` simulates a TFS system, where the FM and the beams are one
-    connection with one active view and one active device: whoever writes last owns the
-    microscope. The base class's `active_channel()` is a no-op -- right for a system
-    whose FM has a connection of its own, and the reason the simulator could show none
-    of FIB-517/542/544/545. Every one of those was found on hardware instead, one of
-    them by a workflow task stopping.
-
-    So this participates in `parent.imaging_system` the way the Thermo FM devices'
-    channel (`AutoscriptFMChannel`) participates in the shared connection: same depth
-    count, same lock, same restore. Deliberately a mirror rather than an
-    approximation, so a test written against the simulator says something about the
-    hardware.
-    """
-
-    def __init__(self, parent: Optional["FibsemMicroscope"] = None):
-        super().__init__(parent=parent)
-        self.objective = SimulatedObjectiveLens(parent=self)
-        self.filter_set = SimulatedFilterSet(parent=self)
-        self.camera = SceneCamera(parent=self)
-        self.light_source = SimulatedLightSource(parent=self)
-        self._active_view = FM_ACTIVE_VIEW
-        self._active_device = FM_ACTIVE_DEVICE
-        # The parent's lock, as the driver takes it: an FM scope and a beam acquisition
-        # then queue against each other rather than interleaving, which is what makes
-        # the scoped and unscoped paths behave differently here as they do on hardware.
-        self._channel_lock = (
-            getattr(parent, "_threading_lock", None) or threading.RLock()
-        )
-        self._channel_depth = 0
-        self._restore_view: Optional[int] = None
-        self._restore_device: Optional[int] = None
-
-    # The simulated FM has no devices: it takes frames from its own camera, as the FM
-    # API did before it ran over devices.
-
-    @property
-    def runs_z_stack_on_device(self) -> bool:
-        return False
-
-    @property
-    def mount_transform(self) -> CameraImageTransform:
-        """Fixed correction from raw sensor axes to stage-aligned axes.
-
-        Hardware truth about how the camera is mounted, not a user preference: it
-        is applied before the user's ``CameraImageTransform`` so that every
-        consumer (display, correlation, saved data, movement) sees one consistently
-        oriented image, and so that movement needs only the user transform.
-
-        Defaults to no correction; drivers override per system. The value is
-        determined by observing which stage axis a feature travels along in the
-        FM view.
-        """
-        return CameraImageTransform.NONE
-
-    def acquire_image(
-        self, channel_settings: Optional[ChannelSettings] = None
-    ) -> FluorescenceImage:
-        """Acquire a single fluorescence image.
-
-        Args:
-            channel_settings: Optional channel configuration. If provided,
-                            the microscope will be reconfigured before acquisition.
-
-        Returns:
-            A FluorescenceImage object containing the image data and metadata
-        """
-        with self.active_channel():
-            if channel_settings is not None:
-                self.set_channel(channel_settings)
-            data = self.camera.acquire_image()
-            # Inside the scope, not after it. `_construct_image` looks like formatting
-            # but calls `get_metadata`, which reads 14 device properties that each take
-            # the channel themselves -- outside, that is 56 round trips and 28 changes
-            # of the microscope's active view per image, and the metadata would then
-            # describe the state *after* the channel had been handed back rather than
-            # the one the frame was taken under.
-            return self._construct_image(data)
-
-    def _metadata_for_frame(
-        self, frame_metadata: Optional[dict]
-    ) -> FluorescenceImageMetadata:
-        """The image's metadata: the current state, with what the driver reported for
-        the frame itself in place of it."""
-        md = self.get_metadata()
-
-        if frame_metadata:
-            pixel_size = frame_metadata.get("pixel_size")
-            if pixel_size is not None:
-                md.pixel_size_x, md.pixel_size_y = pixel_size[0], pixel_size[1]
-            acquisition_date = frame_metadata.get("acquisition_date")
-            if acquisition_date is not None:
-                md.acquisition_date = acquisition_date
-            exposure_time = frame_metadata.get("exposure_time")
-            if exposure_time is not None and md.channels:
-                md.channels[0].exposure_time = exposure_time
-        return md
-
-    def _acquisition_worker(self, channel_settings: Optional[ChannelSettings] = None):
-        """Internal worker thread for continuous image acquisition.
-
-        Runs in a separate thread to continuously acquire images and emit them
-        via the acquisition_signal until stop_acquisition() is called.
-
-        Args:
-            channel_settings: Optional channel configuration to apply
-
-        Note:
-            This is an internal method and should not be called directly.
-            Use start_acquisition() instead.
-        """
-        # TODO: add thread lock for thread safety
-        try:
-            if channel_settings is not None:
-                self.set_channel(channel_settings)
-            logging.info("Starting acquisition worker thread.")
-            while True:
-                if self._stop_acquisition_event.is_set():
-                    break
-
-                if hasattr(self.camera, "_start_fast_acquisition"):
-                    self.camera._start_fast_acquisition()  # type: ignore
-                    break
-
-                # acquire and emit image using current settings
-                self.acquire_image()
-
-        except Exception as e:
-            logging.error(f"Error in acquisition worker: {e}")
-
-    def _shares_a_channel(self) -> bool:
-        """Whether there is a channel to share: a microscope with an imaging system.
-        On its own, or on a microscope that isn't a demo, there is none."""
-        return getattr(self.parent, "imaging_system", None) is not None
-
-    def set_active_channel(self) -> None:
-        """Point the shared channel at the FM and leave it there.
-
-        The unscoped form, and the shape of the bug: a property getter that calls this
-        and walks away leaves the microscope on the FM, and the next beam operation to
-        read a buffer reads the FM's. Mirrors
-        `AutoscriptFMChannel.set_active_channel`.
-        """
-        if not self._shares_a_channel():
-            return
-        self.parent.imaging_system.active_view = self._active_view
-        self.parent.imaging_system.active_device = self._active_device
-
-    def _channel_is_ours(self) -> bool:
-        """Whether the shared channel is already pointed at the FM.
-
-        The view alone answers it, matching the driver, where the device follows the
-        view. Read outside the lock on purpose: taking the lock to find out whether the
-        lock is needed would defeat the point of asking.
-        """
-        return self.parent.imaging_system.active_view == self._active_view
-
-    @contextmanager
-    def active_channel(self):
-        """Hold the channel on the FM for the length of the block, then put it back.
-
-        Depth counted, so a tileset that holds it for a whole run is not undone by each
-        tile's acquisition restoring between frames; the lock covers the bookkeeping and
-        never the body, since the body can be that whole run. Both rules are the
-        driver's -- see `AutoscriptFMChannel.scope` for why.
-
-        Restores the device alongside the view, where the driver restores the view
-        alone. Not a divergence: on hardware `set_active_device` changes the device *in
-        the active view*, so the view owns it and it comes back with it. Here the two
-        are independent fields, and putting only the view back would leave
-        `active_device` reporting the FM for the rest of the session.
-
-        Skips both the lock and the bookkeeping when the channel is already the FM, as
-        the driver does -- there is nothing to set, so nothing to put back. Modelled
-        here because that fast path is what makes the objective usable while streaming,
-        and a simulator that always took the lock would let a change reintroduce the
-        contention with every test still green.
-        """
-        if not self._shares_a_channel():
-            yield
-            return
-
-        if self._channel_depth == 0 and self._channel_is_ours():
-            yield
-            return
-
-        imaging = self.parent.imaging_system
-        with self._channel_lock:
-            if self._channel_depth == 0:
-                self._restore_view = imaging.active_view
-                self._restore_device = imaging.active_device
-            self.set_active_channel()
-            self._channel_depth += 1
-        try:
-            yield
-        finally:
-            with self._channel_lock:
-                self._channel_depth -= 1
-                if self._channel_depth == 0:
-                    imaging.active_view = self._restore_view
-                    imaging.active_device = self._restore_device
-
-
 def _grid_stage_position(grid_position) -> FibsemStagePosition:
     """Where the simulated autoloader puts a grid, as a stage position at the
     working slot's pose (the SEM orientation, r = t = 0)."""
@@ -842,7 +337,7 @@ def _grid_stage_position(grid_position) -> FibsemStagePosition:
 
 
 class DemoConfiguration:
-    """What a demo configuration says the instrument has, shared by both demos.
+    """What a demo configuration says the instrument has.
 
     Everything here reads only ``system`` (its ``sim:`` block and ``ion``), never a
     simulated part (the beam keys' values go through ``get``), so it is the same whether
@@ -948,9 +443,8 @@ class DemoConfiguration:
 class DemoImaging:
     """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
 
-    Shared by both demos. It reads and changes the beams only through the
-    microscope's beam methods, so on the device-built Demo it images through the beam
-    devices.
+    It reads and changes the beams only through the microscope's beam methods, so it
+    images through the beam devices.
     Its own state is the imaging channel and last images (``imaging_system``), the
     image sequence and the sample scene, which the demo sets up at construction.
     """
@@ -1034,8 +528,8 @@ class DemoImaging:
     def _imaging_beam(self, beam_type: Optional[BeamType], hook: str):
         """The beam device whose driver implements *hook*, or None for the code here.
 
-        The device-built Demo's beams run imaging as commands, which call back into
-        the ``_demo_*`` methods below; the legacy Demo has no beam devices.
+        The Demo's beams run imaging as commands, which call back into the
+        ``_demo_*`` methods below.
         """
         from fibsem.devices.beam import implements
 
@@ -1047,8 +541,7 @@ class DemoImaging:
         image_settings: Optional[ImageSettings],
         beam_type: Optional[BeamType],
     ) -> FibsemImage:
-        """``acquire_image``'s frame: what both demos acquire, through the beam's
-        command on the device-built one."""
+        """``acquire_image``'s frame, through the beam's acquire command."""
         # Determine which beam type and settings to use (image_settings takes precedence)
         if image_settings is not None:
             # Use provided image settings
@@ -1361,7 +854,7 @@ class DemoImaging:
         emit: Callable[[FibsemImage], None],
     ) -> None:
         """Live view: acquire with the current settings and emit each image until
-        *stop* is set. The legacy Demo's worker, and the device-built Demo's beam's."""
+        *stop* is set. The Demo beam's live view."""
         # TODO: add lock
 
         self.set_channel(beam_type)
@@ -1467,7 +960,7 @@ class DemoImaging:
 
 
 class DemoScene:
-    """The demo's synthetic sample (FIB-874), shared by both demos.
+    """The demo's synthetic sample (FIB-874).
 
     The scene is set up from the ``sim: sample`` block; milling and spot burns
     mark it. It reads the beams and stage only through the microscope's API,
@@ -1616,7 +1109,7 @@ class DemoScene:
 
 
 class DemoMilling:
-    """Simulated milling, shared by both demos.
+    """Simulated milling.
 
     The patterns, the milling state and the application files are
     ``milling_system``'s, which the demo sets up at construction; the beams
@@ -1902,10 +1395,11 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
 
 
 class DemoSession:
-    """Building and connecting a demo, shared by both demos.
+    """Building and connecting a demo.
 
-    A demo's ``__init__`` is ``_start_session``, then its parts (Demo's simulated
-    parts, or devices), then ``_setup_fluorescence`` and ``_finish_session``.
+    A demo's ``__init__`` is ``_start_session``, then its devices, then
+    ``_setup_fluorescence`` (which builds its FM in ``_local_fluorescence``) and
+    ``_finish_session``.
     """
 
     def _start_session(self, system_settings: SystemSettings) -> None:
@@ -1965,11 +1459,6 @@ class DemoSession:
 
         self._apply_fluorescence_calibration()
         self._warn_on_fluorescence_geometry()
-
-    def _local_fluorescence(self) -> FluorescenceMicroscope:
-        """The FM this demo simulates itself: the simulated FM, sharing the imaging
-        channel with the beams."""
-        return SimulatedFluorescenceMicroscope(self)
 
     def _finish_session(self) -> None:
         # user, experiment metadata
@@ -2038,484 +1527,6 @@ class DemoSession:
         """Disconnect from the microscope server."""
         self.connection.disconnect()
         logging.info("Disconnected from Demo Microscope")
-
-
-class LegacyDemoMicroscope(
-    DemoSession,
-    DemoConfiguration,
-    DemoImaging,
-    DemoScene,
-    DemoMilling,
-    FibsemMicroscope,
-):
-    """The Demo backend before devices: simulated parts behind ``_get``/``_set``.
-
-    ``DemoMicroscope`` (``fibsem.microscopes.device_demo``) replaced it, built from
-    devices. This class is kept frozen as the reference the contract suite compares
-    the device-built Demo against (``tests/test_microscope_contract.py``); a
-    deliberate behaviour change to the Demo lands here in the same PR. No
-    configuration selects it.
-    """
-
-    vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
-
-    def __init__(self, system_settings: SystemSettings):
-        self._start_session(system_settings)
-        parts = initial_demo_parts(self.system)
-        self.chamber = parts.chamber
-        self.stage_system = parts.stage_system
-        self.manipulator_system = parts.manipulator_system
-        self.electron_system = parts.electron_system
-        self.ion_system = parts.ion_system
-        self._setup_fluorescence()
-        self._finish_session()
-
-    # The milling beam's conditions the first setup_milling found, until
-    # finish_milling puts them back: what the Demo's milling service does
-    # (`fibsem.services.milling.Milling`), by key.
-    _milling_saved: Optional[Tuple[BeamType, Dict[str, Any]]] = None
-
-    def setup_milling(self, mill_settings: FibsemMillingSettings):
-        if self._milling_saved is None:
-            channel = mill_settings.milling_channel
-            saved = {
-                key: self.get(key, channel) for key in ("voltage", "current", "hfw")
-            }
-            self._milling_saved = (channel, saved)
-        super().setup_milling(mill_settings)
-
-    def finish_milling(
-        self,
-        imaging_current: Optional[float] = None,
-        imaging_voltage: Optional[float] = None,
-    ) -> None:
-        self.clear_patterns()
-        if self._milling_saved is not None:
-            channel, saved = self._milling_saved
-            self._milling_saved = None
-            for key, value in saved.items():
-                self.set(key, value, channel)
-        if imaging_voltage is not None:
-            self.set_beam_voltage(
-                voltage=imaging_voltage, beam_type=self.milling_channel
-            )
-        if imaging_current is not None:
-            self.set_beam_current(
-                current=imaging_current, beam_type=self.milling_channel
-            )
-
-    @_records_beam_shift
-    def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
-
-        logging.debug(
-            {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
-        )
-
-        if beam_type == BeamType.ELECTRON:
-            self.electron_system.beam.shift += Point(float(dx), float(dy))
-        elif beam_type == BeamType.ION:
-            self.ion_system.beam.shift += Point(float(dx), float(dy))
-
-    @_records_stage_move
-    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        """Move the stage to the specified position."""
-        # Before the position is assigned, not after: a stage that is moving has not
-        # arrived, and anything reading the position during the move should see where it
-        # set off from. The read happens on the GUI thread while the move runs on a
-        # worker, so the two really can overlap.
-        sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)
-
-        # only assign if not None
-        if position.x is not None:
-            self.stage_system.position.x = position.x
-        if position.y is not None:
-            self.stage_system.position.y = position.y
-        if position.z is not None:
-            self.stage_system.position.z = position.z
-        if position.r is not None:
-            self.stage_system.position.r = position.r
-        if position.t is not None:
-            self.stage_system.position.t = position.t
-
-        logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
-
-        return self.get_stage_position()
-
-    @_records_stage_move
-    def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        """Move the stage by the specified amount."""
-        sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)  # see `move_stage_absolute`
-
-        self.stage_system.position += position
-
-        logging.debug({"msg": "move_stage_relative", "position": position.to_dict()})
-
-        return self.get_stage_position()
-
-    def insert_manipulator(self, name: str = "PARK") -> FibsemManipulatorPosition:
-        """Insert the manipulator to the specified position."""
-
-        logging.info(f"Inserting manipulator to {name}...")
-        self.move_manipulator_absolute(
-            FibsemManipulatorPosition(x=0, y=0, z=180e-6, r=0, t=0)
-        )
-        self.manipulator_system.inserted = True
-        logging.debug({"msg": "insert_manipulator", "name": name})
-
-        return self.get_manipulator_position()
-
-    def retract_manipulator(self) -> FibsemManipulatorPosition:
-        """Retract the manipulator."""
-        logging.info("Retracting manipulator...")
-        self.move_manipulator_absolute(
-            FibsemManipulatorPosition(x=0, y=0, z=0, r=0, t=0)
-        )
-        self.manipulator_system.inserted = False
-        logging.debug({"msg": "retract_manipulator"})
-        return self.get_manipulator_position()
-
-    def move_manipulator_relative(
-        self, position: FibsemManipulatorPosition
-    ) -> FibsemManipulatorPosition:
-        logging.info(f"Moving manipulator: {position} (Relative)")
-        self.manipulator_system.position += position
-        logging.debug(
-            {"msg": "move_manipulator_relative", "position": position.to_dict()}
-        )
-        return self.get_manipulator_position()
-
-    def move_manipulator_absolute(
-        self, position: FibsemManipulatorPosition
-    ) -> FibsemManipulatorPosition:
-        logging.info(f"Moving manipulator: {position} (Absolute)")
-        self.manipulator_system.position = position
-        logging.debug(
-            {"msg": "move_manipulator_absolute", "position": position.to_dict()}
-        )
-        return self.get_manipulator_position()
-
-    def move_manipulator_corrected(
-        self, dx: float, dy: float, beam_type: BeamType
-    ) -> FibsemManipulatorPosition:
-        logging.info(
-            f"Moving manipulator: dx={dx:.2e}, dy={dy:.2e}, beam_type = {beam_type.name} (Corrected)"
-        )
-        self.manipulator_system.position.x += dx
-        self.manipulator_system.position.y += dy
-        logging.debug(
-            {
-                "msg": "move_manipulator_corrected",
-                "dx": dx,
-                "dy": dy,
-                "beam_type": beam_type.name,
-            }
-        )
-        return self.get_manipulator_position()
-
-    def move_manipulator_to_position_offset(
-        self, offset: FibsemManipulatorPosition, name: Optional[str] = None
-    ) -> FibsemManipulatorPosition:
-        if name is None:
-            name = "EUCENTRIC"
-
-        position = self._get_saved_manipulator_position(name)
-
-        logging.info(f"Moving manipulator: {offset} to {name}")
-        self.move_manipulator_absolute(position + offset)
-        logging.debug(
-            {
-                "msg": "move_manipulator_to_position_offset",
-                "offset": offset.to_dict(),
-                "name": name,
-            }
-        )
-        return self.get_manipulator_position()
-
-    manipulator_move_types = ("relative", "corrected")
-
-    def manipulator_named_positions(self) -> List[str]:
-        return ["PARK", "EUCENTRIC"]
-
-    def _get_saved_manipulator_position(
-        self, name: str = "PARK"
-    ) -> FibsemManipulatorPosition:
-
-        if name not in ["PARK", "EUCENTRIC"]:
-            raise ValueError(f"Unknown manipulator position: {name}")
-        if name == "PARK":
-            return FibsemManipulatorPosition(x=0, y=0, z=180e-6, r=0, t=0)
-        if name == "EUCENTRIC":
-            return FibsemManipulatorPosition(x=0, y=0, z=0, r=0, t=0)
-
-    def _spot_and_beam(
-        self, beam_type: BeamType
-    ) -> Tuple[Union[None, Point, FibsemRectangle], BeamSettings]:
-        """The point a beam is parked on (its scan target) and its settings."""
-        beam_system = (
-            self.electron_system if beam_type is BeamType.ELECTRON else self.ion_system
-        )
-        return beam_system.scanning_mode_value, beam_system.beam
-
-    def _get(
-        self, key, beam_type: Optional[BeamType] = None
-    ) -> Union[float, int, bool, str, list, FibsemStagePosition]:
-        """Get a value from the microscope."""
-        # get beam
-        if beam_type is not None:
-            beam_system = (
-                self.electron_system
-                if beam_type is BeamType.ELECTRON
-                else self.ion_system
-            )
-            beam, detector = beam_system.beam, beam_system.detector
-
-        # TODO: change this so value is returned, so we can log the return value
-
-        # beam properties
-        if key == "on":
-            return beam_system.on
-        if key == "blanked":
-            return beam_system.blanked
-        if key == "voltage":
-            return beam.voltage
-        if key == "current":
-            return beam.beam_current
-        if key == "working_distance":
-            return beam.working_distance
-        if key == "hfw":
-            return beam.hfw
-        if key == "resolution":
-            return beam.resolution
-        if key == "dwell_time":
-            return beam.dwell_time
-        if key == "stigmation":
-            return Point(beam.stigmation.x, beam.stigmation.y)
-        if key == "shift":
-            return Point(beam.shift.x, beam.shift.y)
-        if key == "scan_rotation":
-            return float(beam.scan_rotation)
-
-        # ion beam properties
-        if key == "plasma":
-            return self._read_plasma(beam_type)
-
-        if key == "plasma_gas":
-            if beam_type is BeamType.ION and self.system.ion.plasma:
-                return (
-                    self.system.ion.plasma_gas
-                )  # might need to check if this is available?
-            else:
-                return None
-
-        # stage
-        if key == "stage_position":
-            sim_sleep(0.1)
-            return self.stage_system.position
-        if key == "stage_homed":
-            return self.stage_system.is_homed
-        if key == "stage_linked":
-            return self.stage_system.is_linked
-
-        # detector properties
-        #
-        # Set, then read against the shared channel, as on hardware, where
-        # `connection.detector` resolves against the active device: a read whose channel
-        # has moved answers from the other column's detector, silently. Warned here
-        # rather than answered wrongly (FIB-544).
-        if key in DETECTOR_KEYS:
-            self.set_channel(beam_type)
-            self._warn_if_channel_moved(beam_type, f"reading {key}")
-            if key == "detector_type":
-                return detector.type
-            if key == "detector_mode":
-                return detector.mode
-            if key == "detector_brightness":
-                return detector.brightness
-            if key == "detector_contrast":
-                return detector.contrast
-
-        # manipulator properties
-        if key == "manipulator_position":
-            return self.manipulator_system.position
-        if key == "manipulator_state":
-            return self.manipulator_system.inserted
-
-        # chamber properties
-        if key == "chamber_state":
-            return self.chamber.state
-        if key == "chamber_pressure":
-            return self.chamber.pressure
-
-        # scanning mode
-        if key == "scanning_mode":
-            return beam_system.scanning_mode
-
-        if key in SIMULATOR_KNOWN_UNKNOWN_KEYS:
-            logging.debug(f"Skipping unknown key: {key} for {beam_type}")
-            return None
-
-        logging.warning(f"Unknown key: {key} ({beam_type})")
-        return None
-
-    def _set(self, key: str, value, beam_type: Optional[BeamType] = None) -> None:
-        """Set a property of the microscope."""
-
-        # get beam
-        if beam_type is not None:
-            beam_system = (
-                self.electron_system
-                if beam_type is BeamType.ELECTRON
-                else self.ion_system
-            )
-            beam = beam_system.beam
-            detector = beam_system.detector
-
-        # voltage
-        if key == "voltage":
-            beam.voltage = value
-            return
-        # current
-        if key == "current":
-            beam.beam_current = value
-            return
-
-        if key == "working_distance":
-            beam.working_distance = value
-            return
-
-        if key == "stigmation":
-            beam.stigmation = value
-            return
-        if key == "shift":
-            beam.shift = value
-            return
-        if key == "scan_rotation":
-            beam.scan_rotation = float(value)
-            return
-        if key == "hfw":
-            beam.hfw = value
-            return
-        if key == "resolution":
-            beam.resolution = value
-            return
-        if key == "dwell_time":
-            beam.dwell_time = value
-            return
-
-        # beam control
-        if key == "on":
-            beam_system.on = value
-            return
-
-        if key == "blanked":
-            beam_system.blanked = value
-            # the beam parked on a point and let through is a spot burn: the
-            # base run_spot_burn does blank -> spot -> unblank per point
-            if not value and beam_system.scanning_mode == "spot":
-                self._burn_into_sample_scene(beam_type)
-            return
-
-        # detector: the write half of the same pair, which on hardware would land on
-        # the other column's detector and stay there (FIB-544)
-        if key in DETECTOR_KEYS:
-            self.set_channel(beam_type)
-            self._warn_if_channel_moved(beam_type, f"writing {key}")
-            if key == "detector_type":
-                detector.type = value
-                return
-            if key == "detector_mode":
-                detector.mode = value
-                return
-            if key == "detector_contrast":
-                detector.contrast = value
-                return
-            if key == "detector_brightness":
-                detector.brightness = value
-                return
-
-        if beam_type is BeamType.ION:
-            if key == "plasma_gas":
-                if not self.system.ion.plasma:
-                    logging.debug("Plasma gas cannot be set on this microscope.")
-                    return
-                if value not in self.get_available_values("plasma_gas", beam_type):
-                    logging.warning(
-                        f"Plasma gas {value} not available. Available values: {self.get_available_values('plasma_gas', beam_type)}"
-                    )
-                    return
-                logging.info(
-                    f"Setting plasma gas to {value}... this may take some time..."
-                )
-                self.system.ion.plasma_gas = value
-                logging.info(f"Plasma gas set to {value}.")
-
-                return
-
-        if key == "spot_mode":
-            # value: Point, image pixels
-            beam_system.scanning_mode = "spot"
-            beam_system.scanning_mode_value = value
-            return
-
-        if key == "reduced_area":
-            beam_system.scanning_mode = "reduced_area"
-            beam_system.scanning_mode_value = value
-            return
-
-        if key == "full_frame":
-            beam_system.scanning_mode = "full_frame"
-            beam_system.scanning_mode_value = value
-            return
-
-        if self._set_imaging_key(key, value):
-            return
-
-        # stage properties
-        if key == "stage_home":
-            logging.info("Homing stage...")
-            self.stage_system.is_homed = True
-            logging.info("Stage homed.")
-            return
-
-        if key == "stage_link":
-            if self.stage_is_compustage:
-                logging.debug("Compustage does not support linking.")
-                return
-            logging.info("Linking stage...")
-            self.stage_system.is_linked = True
-            logging.info("Stage linked.")
-            return
-
-        # chamber properties
-        if key == "pump_chamber":
-            if value:
-                logging.info("Pumping chamber...")
-                self.chamber.state = "Pumped"
-                self.chamber.pressure = 1e-6  # 1 uTorr
-                logging.info("Chamber pumped.")
-            else:
-                logging.info(f"Invalid value for pump_chamber: {value}")
-            return
-        if key == "vent_chamber":
-            if value:
-                logging.info("Venting chamber...")
-                self.chamber.state = "Vented"
-                self.chamber.pressure = 1e5
-                logging.info("Chamber vented.")
-            else:
-                logging.info(f"Invalid value for vent_chamber: {value}")
-            return
-
-        if key in SIMULATOR_KNOWN_UNKNOWN_KEYS:
-            logging.debug(f"Skipping unknown key: {key} for {beam_type}")
-            return
-
-        logging.warning(f"Unknown key: {key} ({beam_type})")
-        return None
-
-    def home(self) -> bool:
-        self.stage_system.is_homed = True
-        return self._stage_value("homed", "stage_homed")
 
 
 def __getattr__(name: str):

@@ -3097,7 +3097,7 @@ class FibsemMicroscope(ABC):
         """The stage's pose for each orientation name, from the configured geometry.
 
         The stage device declares them (FIB-1101). A backend without a stage device
-        yet (Odemis, Tescan, the legacy Demo) gets the same declarations here, chosen
+        yet (Odemis, Tescan) gets the same declarations here, chosen
         by the stage type it reported; this branch goes once each has a stage device.
         """
         from fibsem.devices.stage import compustage_poses, rotating_stage_poses

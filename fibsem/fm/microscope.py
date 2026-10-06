@@ -125,7 +125,7 @@ class ObjectiveLens:
 
     Its position, magnification and numerical aperture, and moving it, inserting it and
     retracting it; each implementation answers them from its own hardware (the FM
-    devices, ``fibsem.fm.microscope``, or the simulated FM, ``fibsem.microscopes.simulator``).
+    devices, ``fibsem.fm.microscope``).
     The saved focus position is the session's, not the hardware's, so it is kept here.
 
     Attributes:
@@ -562,8 +562,8 @@ class FluorescenceMicroscope:
         parent: Optional["FibsemMicroscope"] = None,
     ):
         """Args:
-        devices: The FM's devices by name (``FM_DEVICE_NAMES``). The legacy
-            simulated FM passes none and sets its own parts.
+        devices: The FM's devices by name (``FM_DEVICE_NAMES``). Without them the
+            parts are left for a subclass to set.
         parent: Optional parent FibsemMicroscope instance for stage access
         """
         super().__init__()

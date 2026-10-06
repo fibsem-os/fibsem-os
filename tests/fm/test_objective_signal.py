@@ -27,15 +27,14 @@ from pathlib import Path
 import pytest
 
 import fibsem
-from fibsem.microscopes.simulator import (
-    SimulatedFluorescenceMicroscope,
-    SimulatedObjectiveLens,
-)
+from fibsem.devices.drivers.demo import bind_demo_fm
+from fibsem.fm.microscope import ObjectiveLens
+from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 
 
 @pytest.fixture
 def fm():
-    return SimulatedFluorescenceMicroscope()
+    return DemoFluorescenceMicroscope()
 
 
 @pytest.fixture
@@ -48,7 +47,7 @@ def moves(fm):
     return seen
 
 
-class TestTheSimulatedObjectiveAnnounces:
+class TestTheDemoObjectiveAnnounces:
     def test_move_absolute(self, fm, moves):
         fm.objective.move_absolute(fm.objective.position + 1e-4)
         assert len(moves) == 1
@@ -82,7 +81,7 @@ class TestTheSimulatedObjectiveAnnounces:
         fail.
         """
 
-        objective = SimulatedObjectiveLens()
+        objective = ObjectiveLens(bind_demo_fm()["objective"])
         seen = []
         objective.position_changed.connect(
             lambda position, state: seen.append(position)
@@ -202,12 +201,11 @@ class TestEveryDriverAnnounces:
         return False
 
     def test_every_implementation_is_found(self):
-        """Guard against the probe silently matching nothing. The FM API's lens, the
-        legacy simulator's, and the Thermo (`home`) and Odemis subclasses."""
+        """Guard against the probe silently matching nothing. The FM API's lens and
+        the Thermo (`home`) and Odemis subclasses."""
         classes = self._objective_classes()
         assert set(classes) == {
             "fm/microscope.py:ObjectiveLens",
-            "microscopes/simulator.py:SimulatedObjectiveLens",
             "fm/autoscript.py:DeviceThermoFisherObjectiveLens",
             "fm/odemis.py:DeviceOdemisObjectiveLens",
         }, f"unexpected ObjectiveLens classes: {sorted(classes)}"

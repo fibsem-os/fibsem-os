@@ -2,8 +2,7 @@
 
 ``DemoMicroscope``'s ``acquire_image``, ``last_image``, ``autocontrast``,
 ``auto_focus`` and live view go through the beam devices, whose driver runs the
-Demo's own imaging code, so the legacy Demo (no beam devices) and the device-built
-one still image alike; ``test_microscope_contract.py`` compares them.
+Demo's own imaging code; ``test_microscope_contract.py`` pins what it images.
 """
 
 import threading

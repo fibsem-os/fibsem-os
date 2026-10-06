@@ -58,9 +58,9 @@ def build_microscope(
         )
 
     if microscope.fm is None:
-        from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+        from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 
-        microscope.fm = SimulatedFluorescenceMicroscope(parent=microscope)
+        microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
 
     logging.info(
         f"FM overview app: {manufacturer}, compustage={microscope.stage_is_compustage}, "
