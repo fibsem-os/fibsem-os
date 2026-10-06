@@ -644,7 +644,7 @@ def bind_demo_gis(
 # The Demo driver's device builders (``DRIVER.devices`` in ``device_demo``): each
 # builds one device from its ``hardware.devices`` entry. The devices of one connect
 # share their starting parts and resources, as the ``bind_demo_*`` calls above do,
-# through the build context.
+# through the build context, and each device is named after its entry.
 
 
 def _demo_start(context: "BuildContext") -> Tuple[Resources, "DemoParts"]:
@@ -659,29 +659,36 @@ def _demo_start(context: "BuildContext") -> Tuple[Resources, "DemoParts"]:
     return context.shared["Demo"]
 
 
+def _named(device: Device, entry: "DeviceEntry") -> Device:
+    device.name = entry.name
+    return device.connect()
+
+
 def build_demo_beam(entry: "DeviceEntry", context: "BuildContext") -> DemoBeam:
     """The beam an ``electron`` or ``ion`` entry names."""
+    if entry.name not in ("electron", "ion"):
+        raise ValueError("a Demo beam is named 'electron' or 'ion'")
     beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
     resources, start = _demo_start(context)
     return DemoBeam(beam_type, context.microscope, resources, start).connect()
 
 
 def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> DemoStage:
-    return bind_demo_stage(context.microscope, *_demo_start(context))
+    return _named(DemoStage(context.microscope, *_demo_start(context)), entry)
 
 
 def build_demo_chamber(entry: "DeviceEntry", context: "BuildContext") -> DemoChamber:
-    return bind_demo_chamber(context.microscope, *_demo_start(context))
+    return _named(DemoChamber(context.microscope, *_demo_start(context)), entry)
 
 
 def build_demo_manipulator(
     entry: "DeviceEntry", context: "BuildContext"
 ) -> DemoManipulator:
-    return bind_demo_manipulator(context.microscope, *_demo_start(context))
+    return _named(DemoManipulator(context.microscope, *_demo_start(context)), entry)
 
 
 def build_demo_gis(entry: "DeviceEntry", context: "BuildContext") -> DemoGasInjector:
-    return bind_demo_gis(context.microscope, *_demo_start(context))
+    return _named(DemoGasInjector(context.microscope, *_demo_start(context)), entry)
 
 
 # -- The FM -------------------------------------------------------------------------
