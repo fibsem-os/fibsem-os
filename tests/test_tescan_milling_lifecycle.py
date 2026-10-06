@@ -41,9 +41,9 @@ class FakeConnection:
 def make_microscope(monkeypatch, current_preset="30 keV; 20 pA", unload_error=None):
     """Create a TescanMicroscope with the SDK and connection stubbed out.
 
-    finish_milling restores the preset through the base set_preset() -> set("preset"),
+    finish_milling restores the preset through the base set_preset() -> _set("preset"),
     so preset changes are captured in state["set_calls"] rather than a raw SDK call.
-    state["fail_preset"] arms a failure on the next set("preset") to simulate the restore
+    state["fail_preset"] arms a failure on the next _set("preset") to simulate the restore
     step raising while leaving setup's own preset set intact.
     """
     microscope = object.__new__(TescanMicroscope)
@@ -66,9 +66,9 @@ def make_microscope(monkeypatch, current_preset="30 keV; 20 pA", unload_error=No
                 raise RuntimeError("preset unavailable")
             state["preset"] = value
 
-    microscope.get = fake_get
-    microscope.set = fake_set
-    # set_preset (real base method) resolves via the class MRO and routes through fake_set
+    microscope._get = fake_get
+    microscope._set = fake_set
+    # with no beam devices, the base set_preset() falls back to _set, the fake here
 
     monkeypatch.setattr(
         tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
@@ -77,7 +77,7 @@ def make_microscope(monkeypatch, current_preset="30 keV; 20 pA", unload_error=No
 
 
 def preset_restores(m) -> List[str]:
-    """The preset values passed to set("preset"), in order (setup + finish restores)."""
+    """The preset values passed to _set("preset"), in order (setup + finish restores)."""
     return [v for k, v in m._test_state["set_calls"] if k == "preset"]
 
 
@@ -162,7 +162,7 @@ def test_finish_milling_clears_the_snapshot_for_the_next_cycle(monkeypatch):
 
 
 def test_finish_milling_falls_back_when_no_snapshot_exists(monkeypatch):
-    """get("preset") can be None if no image was acquired and no preset set this session."""
+    """The preset read can be None if no image was acquired and no preset set this session."""
     m = make_microscope(monkeypatch, current_preset=None)
 
     m.finish_milling()

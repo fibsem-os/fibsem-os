@@ -427,7 +427,7 @@ class TescanDrawBeam:
         # milling preset itself, so calling it twice without an intervening finish_milling
         # would otherwise overwrite the snapshot with the milling preset.
         if getattr(self, "_preset_before_milling", None) is None:
-            self._preset_before_milling = self.get("preset", BeamType.ION)
+            self._preset_before_milling = self.get_preset(BeamType.ION)
             logging.debug(
                 f"Snapshot preset before milling: {self._preset_before_milling}"
             )
@@ -439,7 +439,7 @@ class TescanDrawBeam:
         layer_settings = IEtching(
             syncWriteField=False,
             writeFieldSize=mill_settings.hfw,
-            beamCurrent=self.get("current", self.milling_channel),
+            beamCurrent=self.get_beam_current(self.milling_channel),
             spotSize=mill_settings.spot_size,
             rate=mill_settings.rate,
             dwellTime=mill_settings.dwell_time,
@@ -1315,7 +1315,7 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         layer_settings = IEtching(
             syncWriteField=False,
             writeFieldSize=hfw,
-            beamCurrent=self.get("current", BeamType.ION),
+            beamCurrent=self.get_beam_current(BeamType.ION),
             spotSize=defaults.spot_size,
             rate=defaults.rate,
             dwellTime=defaults.dwell_time,
@@ -1404,8 +1404,8 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
 
         self.clear_patterns()
 
-        hfw = self.get("hfw", beam_type)
-        resolution = self.get("resolution", beam_type)
+        hfw = self.get_field_of_view(beam_type)
+        resolution = self.get_resolution(beam_type)
         # milling_current None: TESCAN burns at SPOT_BURN_PRESET, not the request
         self._record_spot_burn_started(
             coordinates, beam_type, exposure_time, None, len(dropped), field_of_view=hfw

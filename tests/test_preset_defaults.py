@@ -42,20 +42,18 @@ def preset_ion(monkeypatch):
         lambda self, beam_type: beam_type is BeamType.ION,
     )
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
-    original_get, original_set = microscope.get, microscope.set
+    original_get = microscope.get_preset
 
-    def get(key, beam_type=None):
-        if key == "preset" and beam_type is BeamType.ION:
+    def get_preset(beam_type):
+        if beam_type is BeamType.ION:
             return active["preset"]
-        return original_get(key, beam_type)
+        return original_get(beam_type)
 
-    def set_(key, value, beam_type=None):
-        if key == "preset":
-            active["preset"] = value
-            return
-        return original_set(key, value, beam_type)
+    def set_preset(preset, beam_type):
+        active["preset"] = preset
+        return preset
 
-    microscope.get, microscope.set = get, set_
+    microscope.get_preset, microscope.set_preset = get_preset, set_preset
     microscope._active = active
     yield microscope
     microscope.disconnect()
