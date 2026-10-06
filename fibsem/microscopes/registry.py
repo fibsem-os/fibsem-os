@@ -32,6 +32,7 @@ from dataclasses import dataclass, field, replace
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     Iterator,
     List,
@@ -45,9 +46,10 @@ from fibsem import manufacturers
 from fibsem.plugins.loader import PluginRegistry, PluginRejected
 
 if TYPE_CHECKING:
+    from fibsem.devices.core import Device
     from fibsem.microscope import FibsemMicroscope
     from fibsem.plugins.loader import PluginRecord
-    from fibsem.structures import SystemSettings
+    from fibsem.structures import DeviceEntry, SystemSettings
 
 
 @dataclass(frozen=True)
@@ -69,9 +71,51 @@ class DriverEntry:
     ``electron-column-tilt``) are what ``config.DEFAULT_CONFIGURATION_VALUES`` is
     built from."""
 
+    devices: Mapping[str, "DeviceBuilder"] = field(default_factory=dict)
+    """How this driver builds a device, by the device entry's ``type`` (``beam``,
+    ``stage``, ``gis``, ...): what a ``hardware.devices`` entry naming this driver is
+    built with. See :func:`device_builder`."""
+
     def load(self) -> Type["FibsemMicroscope"]:
         """Import and return the driver's class."""
         return _import(self.microscope_class)
+
+
+@dataclass(frozen=True)
+class DeviceBuilder:
+    """How a driver builds one type of device from its configuration entry."""
+
+    build: str
+    """The build function, as ``"module:function"``, imported when first used. It is
+    called as ``build(entry, context)`` with the ``DeviceEntry`` and a
+    :class:`BuildContext`, and returns the connected device, or raises."""
+
+    implements: Tuple[str, ...] = ()
+    """The interfaces the device implements, by class name (``"Scanner"``), for a
+    role to be bound to it (FIB-1167). Nothing reads it yet."""
+
+    def load(self) -> "BuildFn":
+        """Import and return the build function."""
+        return _import(self.build)
+
+
+@dataclass
+class BuildContext:
+    """What a build function gets besides its entry, for one connect."""
+
+    microscope: "FibsemMicroscope"
+    """The microscope being connected. A vendor driver's connection lives on it."""
+
+    built: Mapping[str, "Device"] = field(default_factory=dict)
+    """The devices built so far in this connect, by entry name."""
+
+    shared: Dict[str, Any] = field(default_factory=dict)
+    """Scratch space for this connect's builders, so the entries of one driver can
+    share something, such as one connection per remote address. Key it by driver."""
+
+
+BuildFn = Callable[["DeviceEntry", BuildContext], "Device"]
+"""A device builder's function: ``build(entry, context) -> Device``."""
 
 
 DRIVER_ENTRY_POINT_GROUP = "fibsem.drivers"
@@ -160,6 +204,16 @@ def get_driver(manufacturer: Optional[str]) -> DriverEntry:
     if entry is None:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
     return entry
+
+
+def device_builder(driver: Optional[str], type: str) -> Optional[DeviceBuilder]:
+    """How *driver* builds a device of *type*, or ``None`` if it builds none.
+
+    *driver* is a device entry's ``driver:``, in any spelling a manufacturer has;
+    pass the manufacturer for an entry that names none. Raises ``NotImplementedError``
+    for a driver nothing is registered as, as :func:`get_driver` does.
+    """
+    return get_driver(driver).devices.get(type)
 
 
 def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":

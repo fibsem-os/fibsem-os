@@ -67,7 +67,7 @@ from fibsem.devices.drivers.demo import (
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.fm.api import DeviceFluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
-from fibsem.microscopes.registry import DriverEntry
+from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.microscopes.simulator import (
     SIMULATOR_KNOWN_UNKNOWN_KEYS,
     DemoConfiguration,
@@ -134,6 +134,12 @@ DRIVER = DriverEntry(
     manufacturer=manufacturers.DEMO,
     microscope_class="fibsem.microscopes.device_demo:DemoMicroscope",
     config={"port": 7520, "ion-column-tilt": 52, "electron-column-tilt": 0},
+    devices={
+        device_type: DeviceBuilder(
+            f"fibsem.devices.drivers.demo:build_demo_{device_type}"
+        )
+        for device_type in ("beam", "stage", "chamber", "manipulator", "gis")
+    },
 )
 
 
