@@ -153,18 +153,28 @@ class Milling(Service):
         if saved is not None and beam is not None:
             for name in SAVED_BEAM_CONDITIONS:
                 if name in saved:
-                    getattr(beam, name).write_through(saved[name])
+                    self._write_back(beam, name, saved[name])
         self._restore()
 
     def _save(self, beam: Beam) -> None:
-        """Keep the beam's conditions that it has and can write back."""
+        """Keep the beam's conditions that it has, can set, and reports.
+
+        A condition the beam can't set (a Tescan ion column's current and voltage come
+        with its preset) is left out, and so is one it reads as None.
+        """
         self._saved_beam = beam
-        self._saved = {
-            name: getattr(beam, name).get_value()
-            for name in SAVED_BEAM_CONDITIONS
-            if name in beam.parameters and getattr(beam, name).writable
-        }
+        saved = {}
+        for name in SAVED_BEAM_CONDITIONS:
+            if name in beam.parameters and getattr(beam, name).settable:
+                value = getattr(beam, name).get_value()
+                if value is not None:
+                    saved[name] = value
+        self._saved = saved
         logging.debug({"msg": "milling saved the beam", "saved": self._saved})
+
+    def _write_back(self, beam: Beam, name: str, value: Any) -> None:
+        """Write one saved condition back to the beam, as the old API would."""
+        getattr(beam, name).write_through(value)
 
     # -- what a driver implements -------------------------------------------------
 
@@ -285,11 +295,13 @@ class ServiceMilling:
             return super().finish_milling(imaging_current, imaging_voltage)
         self.milling.clear()
         self.milling.restore()
-        if imaging_voltage is not None:
+        # only what the beam can set: a Tescan ion column takes both from its preset
+        beam = self.milling.beam(self.milling_channel)
+        if imaging_voltage is not None and _settable(beam, "voltage"):
             self.set_beam_voltage(
                 voltage=imaging_voltage, beam_type=self.milling_channel
             )
-        if imaging_current is not None:
+        if imaging_current is not None and _settable(beam, "current"):
             self.set_beam_current(
                 current=imaging_current, beam_type=self.milling_channel
             )
@@ -300,6 +312,10 @@ class ServiceMilling:
                 "imaging_voltage": imaging_voltage,
             }
         )
+
+
+def _settable(beam: Optional[Beam], name: str) -> bool:
+    return beam is not None and name in beam.parameters and getattr(beam, name).settable
 
 
 def bind_milling(service: Type[_M], microscope: Any) -> Optional[_M]:
