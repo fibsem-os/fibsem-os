@@ -12,6 +12,7 @@ from fibsem import config as cfg
 from fibsem import manufacturers, utils
 from fibsem.microscopes import registry
 from fibsem.microscopes.registry import DriverEntry, get_driver, register_driver
+from fibsem.structures import BeamType, DeviceEntry
 
 # What the old chain in setup_session did, per manufacturer.
 BUILT_IN = {
@@ -391,3 +392,62 @@ def test_an_unset_port_is_left_out_of_the_saved_file():
     config = utils.load_yaml(cfg.DEFAULT_CONFIGURATION_PATH)
     config["info"]["port"] = 4321
     assert "info.port" not in utils.unrecognised_configuration_keys(config)
+
+
+# ---------------------------------------------------------------------------
+# Device builders
+# ---------------------------------------------------------------------------
+
+DEMO_DEVICE_TYPES = ("beam", "stage", "chamber", "manipulator", "gis")
+
+
+def test_a_driver_offers_a_builder_by_device_type():
+    for spelling in ("Demo", "demo"):
+        builder = registry.device_builder(spelling, "stage")
+        assert builder.build == "fibsem.devices.drivers.demo:build_demo_stage"
+    assert registry.device_builder(manufacturers.DEMO, "laser") is None
+    with pytest.raises(NotImplementedError, match="Manufacturer acme not supported."):
+        registry.device_builder("acme", "stage")
+
+
+def test_a_registered_drivers_builders_are_found(restore_registry):
+    builder = registry.DeviceBuilder(f"{__name__}:_build_laser", implements=("Laser",))
+    register_driver(
+        DriverEntry("Acme", f"{__name__}:_Recorder", devices={"laser": builder})
+    )
+
+    assert registry.device_builder("Acme", "laser") is builder
+    context = registry.BuildContext(microscope=None)
+    laser = builder.load()(
+        DeviceEntry.from_dict({"name": "laser", "type": "laser"}), context
+    )
+    assert laser == ("laser", context)
+
+
+def _build_laser(entry, context):
+    return entry.name, context
+
+
+def test_the_demo_builders_build_each_device_from_its_entry():
+    from fibsem.devices.drivers import demo
+
+    microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
+    context = registry.BuildContext(microscope=microscope)
+    built = {}
+    for name, device_type in [("electron", "beam"), ("ion", "beam")] + [
+        (t, t) for t in DEMO_DEVICE_TYPES[1:]
+    ]:
+        entry = DeviceEntry.from_dict({"name": name, "type": device_type})
+        build = registry.device_builder(manufacturers.DEMO, device_type).load()
+        built[name] = build(entry, context)
+
+    assert isinstance(built["electron"], demo.DemoBeam)
+    assert built["electron"].beam_type is BeamType.ELECTRON
+    assert built["ion"].beam_type is BeamType.ION
+    assert isinstance(built["stage"], demo.DemoStage)
+    assert isinstance(built["chamber"], demo.DemoChamber)
+    assert isinstance(built["manipulator"], demo.DemoManipulator)
+    assert isinstance(built["gis"], demo.DemoGasInjector)
+    # One connect's devices start from the same parts, as bind_demo_* do.
+    resources, start = context.shared["Demo"]
+    assert built["electron"].resources is built["ion"].resources is resources

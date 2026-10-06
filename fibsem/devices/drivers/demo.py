@@ -63,7 +63,9 @@ if TYPE_CHECKING:
     from fibsem.fm.microscope import LightSource as FMClassLightSource
     from fibsem.fm.microscope import ObjectiveLens as FMClassObjectiveLens
     from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.microscopes.registry import BuildContext
     from fibsem.microscopes.simulator import DemoParts
+    from fibsem.structures import DeviceEntry
 
 
 class DemoBeam(Beam):
@@ -635,6 +637,51 @@ def bind_demo_gis(
 ) -> DemoGasInjector:
     """Build ``gis`` for a connected Demo microscope."""
     return DemoGasInjector(microscope, resources, start).connect()
+
+
+# -- Builders by entry --------------------------------------------------------------
+#
+# The Demo driver's device builders (``DRIVER.devices`` in ``device_demo``): each
+# builds one device from its ``hardware.devices`` entry. The devices of one connect
+# share their starting parts and resources, as the ``bind_demo_*`` calls above do,
+# through the build context.
+
+
+def _demo_start(context: "BuildContext") -> Tuple[Resources, "DemoParts"]:
+    from fibsem.microscopes.simulator import initial_demo_parts
+
+    if "Demo" not in context.shared:
+        microscope = context.microscope
+        context.shared["Demo"] = (
+            resources_of(microscope),
+            initial_demo_parts(microscope.system),
+        )
+    return context.shared["Demo"]
+
+
+def build_demo_beam(entry: "DeviceEntry", context: "BuildContext") -> DemoBeam:
+    """The beam an ``electron`` or ``ion`` entry names."""
+    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    resources, start = _demo_start(context)
+    return DemoBeam(beam_type, context.microscope, resources, start).connect()
+
+
+def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> DemoStage:
+    return bind_demo_stage(context.microscope, *_demo_start(context))
+
+
+def build_demo_chamber(entry: "DeviceEntry", context: "BuildContext") -> DemoChamber:
+    return bind_demo_chamber(context.microscope, *_demo_start(context))
+
+
+def build_demo_manipulator(
+    entry: "DeviceEntry", context: "BuildContext"
+) -> DemoManipulator:
+    return bind_demo_manipulator(context.microscope, *_demo_start(context))
+
+
+def build_demo_gis(entry: "DeviceEntry", context: "BuildContext") -> DemoGasInjector:
+    return bind_demo_gis(context.microscope, *_demo_start(context))
 
 
 # -- The FM -------------------------------------------------------------------------
