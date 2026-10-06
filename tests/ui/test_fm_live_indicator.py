@@ -109,7 +109,7 @@ class TestTheStreamDrivesIt:
         from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 
         # A simulated Arctis: `DemoMicroscope` only builds a
-        # `SimulatedFluorescenceMicroscope` when `sim.is_compustage` is set, and
+        # `DemoFluorescenceMicroscope` when `sim.is_compustage` is set, and
         # `FMControlWidget` refuses a microscope without one -- so on a plain Demo
         # session every test in this class errored in setup rather than running
         # (FIB-734).
@@ -144,7 +144,9 @@ class TestTheStreamDrivesIt:
     def test_stopping_it_clears_the_panel(self, widget, controller):
         widget.fm.start_acquisition(channel_settings=widget.channel_settings)
         widget._update_acquisition_button_states()
-        assert _badge_on(controller, controller.fm_canvas), "never lit; nothing to clear"
+        assert _badge_on(controller, controller.fm_canvas), (
+            "never lit; nothing to clear"
+        )
 
         widget.fm.stop_acquisition()
         widget._update_acquisition_button_states()

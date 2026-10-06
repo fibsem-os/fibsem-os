@@ -12,11 +12,8 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import Qt  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
-from fibsem.fm.structures import ChannelSettings  # noqa: E402
-from fibsem.microscopes.simulator import (  # noqa: E402
-    SimulatedFilterSet,
-    SimulatedFluorescenceMicroscope,
-)
+from fibsem.fm.structures import ChannelSettings, emission_filter_for  # noqa: E402
+from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope  # noqa: E402
 from fibsem.ui.fm.widgets.emission_filter_combo import (  # noqa: E402
     EmissionFilterComboBox,
     emission_lookup_for,
@@ -29,8 +26,15 @@ def qapp():
     yield app
 
 
-class _BandedFilters(SimulatedFilterSet):
-    """An Odemis-like filter set: bands known, one of them dual-band."""
+class _BandedFilters:
+    """An Odemis-like filter set: bands known, one of them dual-band. The rest is the
+    Demo FM's filter set."""
+
+    def __init__(self):
+        self._demo = DemoFluorescenceMicroscope().filter_set
+
+    def __getattr__(self, name):
+        return getattr(self._demo, name)
 
     @property
     def available_emission_wavelengths(self):
@@ -39,6 +43,9 @@ class _BandedFilters(SimulatedFilterSet):
     @property
     def emission_bands(self):
         return {425.0: ((425.0, 475.0),), 505.0: ((505.0, 535.0), (600.0, 650.0))}
+
+    def emission_filter(self, value):
+        return emission_filter_for(value, self.emission_bands)
 
 
 class _FM:
@@ -63,7 +70,7 @@ def test_items_show_the_filters_and_keep_their_values(qapp):
 
 
 def test_the_simulator_multi_band_filter_shows_as_multi_band(qapp):
-    fm = SimulatedFluorescenceMicroscope()
+    fm = DemoFluorescenceMicroscope()
     combo = EmissionFilterComboBox(
         items=list(fm.filter_set.available_emission_wavelengths),
         lookup=emission_lookup_for(fm),

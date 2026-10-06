@@ -1,13 +1,12 @@
 """The Demo backend, built from devices.
 
 ``DemoMicroscope`` is the simulated microscope every Demo session gets. It is its
-devices plus the demo code it shares with ``LegacyDemoMicroscope``, the Demo before
-devices, from ``fibsem.microscopes.simulator`` (``DemoSession``,
+devices plus the demo code in ``fibsem.microscopes.simulator`` (``DemoSession``,
 ``DemoConfiguration``, ``DemoImaging``, ``DemoScene`` and ``DemoMilling``).
 ``fibsem.microscopes.simulator.DemoMicroscope`` is this class too.
 
-``tests/test_microscope_contract.py`` runs the same contract against both, and
-compares them call by call against the legacy one, so the two can't drift.
+``tests/test_microscope_contract.py`` pins its behaviour, which is what the Demo
+did before devices.
 
 Devices, from ``fibsem.devices.drivers.demo``: the beams (``DemoBeam``), the stage
 (``DemoStage``), the chamber (``DemoChamber``) and the manipulator
@@ -23,9 +22,9 @@ method that reads or changes a part goes to its device:
   ``stage_home`` and ``stage_link`` commands; a compustage has no ``linked``, so
   its ``stage_linked`` reads the stage's own flag, which nothing changes there;
 - ``chamber_state`` and ``chamber_pressure``, and the ``pump_chamber`` and
-  ``vent_chamber`` commands (a false value does nothing, as on the legacy Demo);
-- ``manipulator_position`` and ``manipulator_state`` (a bool, as the legacy Demo
-  returns it); the old API moves the needle with methods, which use the device.
+  ``vent_chamber`` commands (a false value does nothing, as before devices);
+- ``manipulator_position`` and ``manipulator_state`` (a bool, as before devices);
+  the old API moves the needle with methods, which use the device.
 
 Milling is a service, ``milling`` (``fibsem.services.drivers.demo.DemoMilling``),
 and the milling methods go to it (``ServiceMilling``): it mills with the shared demo
@@ -34,8 +33,8 @@ The run loop is still the shared demo code's.
 
 The shared code answers what the configuration alone does (the fitted parts, the
 stage's limits, the grid loader and the constant value lists), and runs
-imaging, the sample scene and milling, changing the beams only through
-``get``/``set`` and so, here, through the beam devices.
+imaging, the sample scene and milling, changing the beams only through the
+microscope's beam methods and so through the beam devices.
 
 The FM is devices too: ``fm_devices`` are the Demo FM devices (``DemoCamera`` and
 the rest), and ``fm`` is the FM API over them (``DemoFluorescenceMicroscope``), so
@@ -122,12 +121,22 @@ _BEAM_KEYS_WITHOUT_BEAM = ("plasma_gas", "preset")
 class DemoFluorescenceMicroscope(FluorescenceMicroscope):
     """The FM API over the Demo FM devices, sharing the imaging channel with the
     beams through the ``fm`` group's ``DemoFMChannel``, as the Thermo FM shares the
-    AutoScript connection through its group's channel."""
+    AutoScript connection through its group's channel.
 
-    def __init__(self, devices: Dict[str, Device], parent: Optional[Any] = None):
+    Without *devices* it builds the Demo FM's own, for *parent* (``bind_demo_fm``):
+    a stand-in FM wherever one is needed without hardware, on a microscope or on its
+    own (the FM widgets run by themselves, tests)."""
+
+    def __init__(
+        self,
+        devices: Optional[Dict[str, Device]] = None,
+        parent: Optional[Any] = None,
+    ):
+        if devices is None:
+            devices = bind_demo_fm(parent)
         super().__init__(devices, parent=parent)
         self._channel = devices["fm"].channel
-        # The simulated FM starts with a saved focus; a session setting, so kept here.
+        # The Demo FM starts with a saved focus; a session setting, so kept here.
         self.objective._focus_position = SIM_OBJECTIVE_FOCUS_POSITION
 
     def set_active_channel(self) -> None:
@@ -140,14 +149,14 @@ class DemoFluorescenceMicroscope(FluorescenceMicroscope):
 
 
 def _needs_beam_type(key: str, beam_type: Optional[BeamType]) -> None:
-    """A beam key with no beam type raises, as the legacy Demo's branches do."""
+    """A beam key with no beam type raises, as the Demo's did before devices."""
     if beam_type is None and key in BEAM_ROUTES and key not in _BEAM_KEYS_WITHOUT_BEAM:
         raise ValueError(f"{key} needs a beam type")
 
 
 def _unknown_key(key: str, beam_type: Optional[BeamType]) -> None:
-    """Log a key no device or shared code answers, as the legacy Demo does; it
-    reads None."""
+    """Log a key no device or shared code answers, as the Demo did before devices;
+    it reads None."""
     if key in SIMULATOR_KNOWN_UNKNOWN_KEYS:
         logging.debug(f"Skipping unknown key: {key} for {beam_type}")
         return
@@ -186,14 +195,14 @@ class DemoMicroscope(
     """The demo microscope built from devices, with the shared demo code."""
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
-    # The needle moves as the legacy Demo's does, with no correction on a corrected
+    # The needle moves as the Demo's did before devices, with no correction on a corrected
     # move (``move_manipulator_corrected``); its named positions are the device's.
     manipulator_move_types = ("relative", "corrected")
 
     def __init__(self, system_settings: SystemSettings):
         self._start_session(system_settings)
         # The ion beam's plasma gas is read before its device is built, which only
-        # offers a gas on a plasma column; the legacy Demo reads it at connect.
+        # offers a gas on a plasma column, so it is read at connect.
         self._read_plasma_source()
         self._build_devices(initial_demo_parts(self.system))
         self._setup_fluorescence()
@@ -290,8 +299,8 @@ class DemoMicroscope(
             logging.debug("Plasma gas cannot be set on this microscope.")
             return
         _needs_beam_type(key, beam_type)
-        # A command its device doesn't run: the legacy Demo's branches log and do
-        # nothing.
+        # A command its device doesn't run: log and do nothing, as the Demo did
+        # before devices.
         if key == "stage_link":
             logging.debug("Compustage does not support linking.")
             return

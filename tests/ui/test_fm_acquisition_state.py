@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from PyQt5.QtWidgets import QApplication, QDialog
 
-from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
 if TYPE_CHECKING:
@@ -95,7 +95,7 @@ def no_worker(monkeypatch):
 class TestTheThreeQuestions:
     @pytest.fixture()
     def fm(self):
-        return SimulatedFluorescenceMicroscope()
+        return DemoFluorescenceMicroscope()
 
     def test_an_idle_microscope(self, fm):
         assert (fm.is_streaming, fm.is_acquiring, fm.is_interactive) == (
@@ -295,7 +295,7 @@ class TestTheControlWidgetGuard:
 
     @pytest.fixture()
     def fm(self):
-        return SimulatedFluorescenceMicroscope()
+        return DemoFluorescenceMicroscope()
 
     def test_an_idle_instrument_is_not_refused(self, fm):
         assert self._widget(fm)._refuse_to_start("live acquisition") is False
@@ -395,7 +395,7 @@ class TestTheControlWidgetWiring:
         the acquisition policy, in one place on the enum."""
         from fibsem.structures import DeviceImagingState
 
-        fm = SimulatedFluorescenceMicroscope()
+        fm = DemoFluorescenceMicroscope()
         widget = TestTheControlWidgetGuard._widget(
             fm, state=DeviceImagingState.NEEDS_TRAVEL
         )
@@ -410,7 +410,7 @@ class TestTheControlWidgetWiring:
         from fibsem.structures import DeviceImagingState
 
         widget = TestTheControlWidgetGuard._widget(
-            SimulatedFluorescenceMicroscope(), state=DeviceImagingState.NEEDS_REPOSE
+            DemoFluorescenceMicroscope(), state=DeviceImagingState.NEEDS_REPOSE
         )
 
         assert widget._refuse_to_start("image acquisition") is False
