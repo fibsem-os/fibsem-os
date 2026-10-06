@@ -2400,6 +2400,13 @@ LEGACY_ROTATION_CENTRE: Tuple[float, float] = (
 )
 
 
+# The frame a stage's positions are in (FIB-1114). Every stage reports fibsem's frame
+# except Tescan's, which still reports its own: x and y run opposite the image, y rides
+# on the tilt module and z is chamber-vertical, +z down.
+STAGE_FRAME_FIBSEM = "fibsem"
+STAGE_FRAME_TESCAN = "tescan_native"
+
+
 def _parse_rotation_centre(value) -> Optional[Tuple[float, float]]:
     """A stored rotation centre as an (x, y) tuple of floats, or None."""
     if value is None:
@@ -2878,10 +2885,9 @@ class SystemInfo:
     port: Optional[int] = None
 
     def to_dict(self):
-        return {
+        ddict = {
             "name": self.name,
             "ip_address": self.ip_address,
-            "port": self.port,
             "manufacturer": self.manufacturer,
             "model": self.model,
             "serial_number": self.serial_number,
@@ -2891,6 +2897,11 @@ class SystemInfo:
             "application": self.application,
             "fibsem_revision": self.fibsem_revision,
         }
+        # Written only when set: unset is the driver's registered port, and a file
+        # that says `port: null` reads as though it chose one.
+        if self.port is not None:
+            ddict["port"] = self.port
+        return ddict
 
     @staticmethod
     def from_dict(settings: dict):
@@ -3523,6 +3534,12 @@ class FibsemHardwareGeometry:
     # compustage), as (r, t) in degrees (FIB-1101). Empty on an image written before
     # the stage declared its poses; `declared_poses` rebuilds them for those.
     poses: Dict[str, Tuple[float, float]] = field(default_factory=dict)
+    # The frame the image's stage position is in: STAGE_FRAME_FIBSEM, or
+    # STAGE_FRAME_TESCAN from a Tescan without a stage device (FIB-1114). None on an
+    # image written before this was stamped, whose position is in the frame its backend
+    # reported: Tescan's own for a Tescan image, fibsem's for any other. Nothing reads
+    # Tescan's frame any more; old Tescan images are not converted.
+    stage_frame: Optional[str] = None
     # Fluorescence only; left at these defaults for a beam image.
     camera_tilt: float = 0.0  # viewing axis, from the electron column
     transform: CameraImageTransform = CameraImageTransform.NONE
@@ -3556,6 +3573,7 @@ class FibsemHardwareGeometry:
         is_compustage: bool = False,
         rotation_centre: Optional[Tuple[float, float]] = None,
         poses: Optional[Mapping[str, "FibsemStagePosition"]] = None,
+        stage_frame: Optional[str] = None,
     ) -> "FibsemHardwareGeometry":
         """Gather the geometry terms out of a full system configuration.
 
@@ -3565,6 +3583,7 @@ class FibsemHardwareGeometry:
         ``rotation_centre`` likewise comes from the driver (``microscope.rotation_centre``);
         None records LEGACY_ROTATION_CENTRE. ``poses`` are the stage's declared poses
         (``microscope._stage_poses()``), in radians; None records none.
+        ``stage_frame`` is the frame the stage reports (``microscope.stage_frame``).
         """
         return cls(
             column_tilt=system.electron.column_tilt,
@@ -3582,6 +3601,7 @@ class FibsemHardwareGeometry:
                 name: (float(np.degrees(pose.r)), float(np.degrees(pose.t)))
                 for name, pose in (poses or {}).items()
             },
+            stage_frame=stage_frame,
         )
 
     def to_dict(self) -> dict:
@@ -3594,6 +3614,7 @@ class FibsemHardwareGeometry:
             "is_compustage": self.is_compustage,
             "rotation_centre": list(self.rotation_centre),
             "poses": {name: list(pose) for name, pose in self.poses.items()},
+            "stage_frame": self.stage_frame,
             "camera_tilt": self.camera_tilt,
             "transform": self.transform.value,
         }
@@ -3618,6 +3639,7 @@ class FibsemHardwareGeometry:
                 name: (float(pose[0]), float(pose[1]))
                 for name, pose in (ddict.get("poses") or {}).items()
             },
+            stage_frame=ddict.get("stage_frame"),
             camera_tilt=ddict.get("camera_tilt", 0.0),
             # Not a bare CameraImageTransform(...): stored configurations may hold a
             # rotation that is no longer a member, which the parser migrates.

@@ -1,6 +1,8 @@
-"""The beams and the stage of a Thermo microscope driven through odemis, as devices.
+"""The beams, the stage and the chamber of a Thermo microscope driven through odemis,
+as devices.
 
-``OdemisBeam`` and ``OdemisStage`` are ``OdemisThermoMicroscope``'s beam and stage keys
+``OdemisBeam``, ``OdemisStage`` and ``OdemisChamber`` are ``OdemisThermoMicroscope``'s
+beam, stage and chamber keys
 moved as they are, so the old call and the device make the same odemis calls in the
 same order and log the same messages. ``OdemisThermoMicroscope`` builds them when it
 is created and routes its keys and moves to them; its old code stays until a session
@@ -20,9 +22,10 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from fibsem.devices.beam import Beam
+from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
-from fibsem.structures import BeamType, FibsemStagePosition, Point
+from fibsem.structures import BeamType, ChamberState, FibsemStagePosition, Point
 
 if TYPE_CHECKING:
     from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
@@ -310,3 +313,51 @@ def bind_odemis_stage(
 ) -> OdemisStage:
     """Build ``stage`` for an Odemis microscope."""
     return OdemisStage(microscope, resources).connect()
+
+
+class OdemisChamber(Chamber):
+    """The vacuum of a Thermo microscope driven through odemis.
+
+    ``read_state``/``read_pressure`` are the ``chamber_state``/``chamber_pressure``
+    branches of ``OdemisThermoMicroscope._get``, and ``_pump``/``_vent`` the
+    ``pump_chamber``/``vent_chamber`` branches of ``_set``. The client names the state
+    as AutoScript does ("Pumped") or as xT does ("vacuum"); both read through
+    ``ODEMIS_CHAMBER_STATES`` as before, then as a ``ChamberState``.
+    """
+
+    def __init__(
+        self, parent: OdemisThermoMicroscope, resources: Optional[Resources] = None
+    ):
+        super().__init__(parent=parent, resources=resources)
+
+    @property
+    def _client(self) -> Any:
+        return self.parent.connection
+
+    def read_state(self) -> ChamberState:
+        from fibsem.microscopes.odemis_microscope import ODEMIS_CHAMBER_STATES
+
+        state = self._client.get_chamber_state()
+        return ChamberState.from_name(
+            ODEMIS_CHAMBER_STATES.get(str(state).lower(), state)
+        )
+
+    def read_pressure(self) -> float:
+        return self._client.get_pressure()
+
+    def _pump(self) -> None:
+        logging.info("Pumping chamber...")
+        self._client.pump()
+        logging.info("Chamber pumped.")
+
+    def _vent(self) -> None:
+        logging.info("Venting chamber...")
+        self._client.vent()
+        logging.info("Chamber vented.")
+
+
+def bind_odemis_chamber(
+    microscope: OdemisThermoMicroscope, resources: Optional[Resources] = None
+) -> OdemisChamber:
+    """Build ``chamber`` for an Odemis microscope."""
+    return OdemisChamber(microscope, resources).connect()

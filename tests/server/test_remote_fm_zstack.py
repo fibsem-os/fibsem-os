@@ -177,6 +177,27 @@ def test_a_server_without_the_command_still_runs_the_stack(served, monkeypatch):
     assert sent.count("acquire_frame") == 6
 
 
+def test_the_group_command_falls_back_to_steps_on_a_server_without_it(
+    served, monkeypatch
+):
+    """Called on the remote group itself, the stack runs here through the remote
+    parts: the group has them in its roles, so it finds the objective to move."""
+    far, fm, client = served
+    group = fm.devices["fm"]
+    assert group.objective is fm.devices["objective"]
+    monkeypatch.setattr(
+        group, "server_commands", group.server_commands - {"acquire_z_stack"}
+    )
+    sent = _commands(client, monkeypatch)
+    z = far["objective"].position.get_value()
+
+    frames = group.acquire_z_stack([CHANNELS[0].to_dict()], [z, z + 1e-6])
+
+    assert len(frames) == 2
+    assert "acquire_z_stack" not in sent
+    assert sent.count("move_absolute") >= 2
+
+
 def test_a_local_fm_still_runs_the_stack_step_by_step():
     """Each slice is shown as it arrives, as before: no command for a local FM."""
     from fibsem.devices.drivers.fm import bind_fm_devices

@@ -745,3 +745,141 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     assert shown == [["grid-birch"]]
     assert main_ui._present_grids_not_run() == ["grid-birch"]
     assert not ui.is_workflow_running
+
+
+def _labels(dialog) -> list:
+    return [w.text() for w in dialog.findChildren(QLabel)]
+
+
+def test_the_preflight_quotes_the_time_per_task_and_the_finish(
+    qapp, view, experiment, arctis
+):
+    """FIB-1134: the run confirmation shows a time per task, the exchanges as a
+    row of their own priced at the loader's figure, a total and a finish."""
+    from datetime import datetime
+
+    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+        estimate_grid_run,
+    )
+    from fibsem.ui.widgets.preflight import format_duration
+
+    view.grid_header.select_all.setChecked(True)
+    grids = view.get_selected_grids()
+    names = [g.name for g in grids]
+    exchanges = view.exchanges_for(grids)
+    assert view.exchange_seconds() == arctis._stage.loader.exchange_seconds > 0
+    estimate = estimate_grid_run(
+        experiment,
+        ["overview_sem", "overview_fm"],
+        names,
+        exchanges,
+        view.exchange_seconds(),
+        now=datetime(2026, 10, 5, 14, 0),
+    )
+    dialog = GridRunPreflightDialog(
+        ["overview_sem", "overview_fm"], names, exchanges, "/exp", estimate=estimate
+    )
+    labels = _labels(dialog)
+    assert "Estimated duration" in labels and "Expected finish" in labels
+    assert format_duration(estimate.work_seconds) in labels
+    rows = [t for t in labels if "×" in t]
+    assert [r.split("<")[0].strip() for r in rows] == [
+        LOAD_ENTRY_NAME,
+        "overview_sem",
+        "overview_fm",
+    ]
+    assert all("×3" in r for r in rows)
+    assert "Estimates round up." in labels
+
+    # Screen all grids quotes the grids known before the inventory, and says so
+    dialog = GridRunPreflightDialog(
+        ["overview_sem"], names, 3, "/exp", screen_all=True, estimate=estimate
+    )
+    assert any("Quoted for the 3 grids known now" in t for t in _labels(dialog))
+
+    # no estimate, no time: what a caller that could not price gets
+    dialog = GridRunPreflightDialog(["overview_sem"], names, 3, "/exp")
+    assert "Estimated duration" not in _labels(dialog)
+
+
+def test_the_preflight_says_what_adding_costs_and_moves_the_finish(qapp):
+    from datetime import datetime, timedelta
+
+    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+        AdditionEstimate,
+    )
+
+    before = datetime(2026, 10, 5, 14, 0)
+    addition = AdditionEstimate(
+        work_seconds=600,
+        delay_seconds=600,
+        finish_before=before,
+        finish_after=before + timedelta(minutes=10),
+        priced_count=2,
+        total_count=2,
+    )
+    dialog = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", adding=True, addition=addition
+    )
+    labels = _labels(dialog)
+    assert "Adds" in labels and "Expected finish" in labels
+    assert any(t.startswith("was ") for t in labels)
+
+
+def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
+    main_ui, tmp_path, monkeypatch
+):
+    """On a fixed holder: no exchange is priced, each task is, and the timeline
+    gets a figure for every step of the plan."""
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    microscope = ui.microscope
+    microscope.stage_is_compustage = False
+    microscope._stage = _create_sample_stage(microscope)
+    for i, name in enumerate(["grid-aspen", "grid-birch"]):
+        slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
+        slot.position = FibsemStagePosition(
+            name=slot.name, x=-4e-3 + i * 8e-3, y=1e-3, z=4e-3, r=0, t=0.61
+        )
+        slot.calibration = SlotCalibration("SEM", 35.0, 0.0, "2026-09-02T11:24:09", "t")
+        slot.loaded_grid = SampleGrid(name=name)
+    main_ui._refresh_grids_tab_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    exp.grid_protocol.add(
+        BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
+    )
+    exp.sync_grids_from_inventory(microscope._stage)
+    ui.experiment = exp
+    main_ui.grid_workflow_widget.set_experiment(exp)
+    main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)
+
+    shown = []
+
+    class _Capture:
+        def __init__(self, *args, **kwargs):
+            shown.append(kwargs.get("estimate"))
+
+        def exec_(self):
+            return QDialog.Rejected  # look, do not run
+
+    monkeypatch.setattr(module, "GridRunPreflightDialog", _Capture)
+    main_ui.grid_workflow_widget.grid_header.select_all.setChecked(True)
+    main_ui._run_grid_workflow()
+    (estimate,) = shown
+    assert [(t.name, t.lamella_count) for t in estimate.tasks] == [("overview_sem", 2)]
+    per_grid = exp.grid_protocol.task_config["overview_sem"].estimated_duration
+    assert estimate.work_seconds == pytest.approx(2 * per_grid)
+
+    pairs = [
+        (g, s)
+        for g in ["grid-aspen", "grid-birch"]
+        for s in [LOAD_ENTRY_NAME, "overview_sem"]
+    ]
+    main_ui._push_timeline_estimates(pairs)
+    estimates = main_ui.workflow_timeline._estimates
+    assert estimates[("grid-aspen", LOAD_ENTRY_NAME)] == 0.0  # a fixed holder
+    assert estimates[("grid-birch", "overview_sem")] == pytest.approx(per_grid)

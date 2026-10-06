@@ -647,7 +647,7 @@ def written_configuration_keys() -> Set[str]:
     `hardware.devices.<name>`, with its keys under that.
     """
     written = MicroscopeSettings.from_dict({}).to_dict()
-    keys: Set[str] = set()
+    keys: Set[str] = {"info.port"}  # written only when it is set
     for block, value in written.items():
         keys.add(block)
         if not isinstance(value, dict):

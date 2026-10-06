@@ -24,7 +24,6 @@ Readers measured, with the stage at each declared pose:
   -90 degrees (FIB-1124 step 2);
 - the geometry stamped onto images (`hardware_geometry`);
 - `transformations._projection_terms`, the pre-tilt sign of the view-corrected move;
-- `reprojection._tescan_pose_angles`, the same sign for reprojection;
 - `coincidence.geometry_from_images`, whether it warns about the flipped side;
 - `correlation.geometry._complete_fm_pose`, the FM pose for a position without r or t.
 
@@ -134,7 +133,6 @@ def _warns_flipped_side(geometry, pose: FibsemStagePosition) -> bool:
 def _measure(stage_type: str) -> Dict[str, Any]:
     """Every pinned value for one stage type, flattened to "what: value"."""
     from fibsem.correlation.geometry import _complete_fm_pose
-    from fibsem.imaging.tiling.reprojection import _tescan_pose_angles
     from fibsem.transformations import _projection_terms
 
     microscope = _microscope(stage_type)
@@ -182,12 +180,6 @@ def _measure(stage_type: str) -> Dict[str, Any]:
     for name, pose in orientations.items():
         sign, pretilt, tilt = _projection_terms(geometry, pose.r, pose.t)
         out[f"projection_terms {name}"] = (sign, _deg(pretilt), _deg(tilt))
-        tilt, pretilt, inclination = _tescan_pose_angles(geometry, pose)
-        out[f"tescan_pose_angles {name}"] = (
-            _deg(tilt),
-            _deg(pretilt),
-            _deg(inclination),
-        )
         out[f"coincidence warns {name}"] = _warns_flipped_side(geometry, pose)
 
     fm_pose = _complete_fm_pose(FibsemStagePosition(x=0, y=0, z=0), geometry)
@@ -263,13 +255,10 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "stamped rotation_180": 180.0,
         "stamped is_compustage": False,
         "projection_terms SEM": (1.0, 35.0, 35.0),
-        "tescan_pose_angles SEM": (35.0, 35.0, 0.0),
         "coincidence warns SEM": False,
         "projection_terms FIB": (1.0, -35.0, 17.0),
-        "tescan_pose_angles FIB": (17.0, -35.0, 52.0),
         "coincidence warns FIB": True,
         "projection_terms MILLING": (1.0, 35.0, 12.0),
-        "tescan_pose_angles MILLING": (12.0, 35.0, -23.0),
         "coincidence warns MILLING": False,
         "complete_fm_pose.r": 180.0,
         "complete_fm_pose.t": 17.0,
@@ -315,13 +304,10 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "stamped rotation_180": 0.0,
         "stamped is_compustage": False,
         "projection_terms SEM": (1.0, 0.0, 0.0),
-        "tescan_pose_angles SEM": (0.0, 0.0, 0.0),
         "coincidence warns SEM": False,
         "projection_terms FIB": (1.0, 0.0, 55.0),
-        "tescan_pose_angles FIB": (55.0, 0.0, 55.0),
         "coincidence warns FIB": True,
         "projection_terms MILLING": (1.0, 0.0, -20.0),
-        "tescan_pose_angles MILLING": (-20.0, 0.0, -20.0),
         "coincidence warns MILLING": False,
         "complete_fm_pose.r": 0.0,
         "complete_fm_pose.t": 55.0,
@@ -378,16 +364,12 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "stamped rotation_180": 0.0,
         "stamped is_compustage": True,
         "projection_terms SEM": (-1.0, 0.0, 180.0),
-        "tescan_pose_angles SEM": (0.0, 0.0, 0.0),
         "coincidence warns SEM": False,
         "projection_terms FIB": (1.0, 0.0, 52.0),
-        "tescan_pose_angles FIB": (-128.0, 0.0, -128.0),
         "coincidence warns FIB": False,
         "projection_terms MILLING": (-1.0, 0.0, 157.0),
-        "tescan_pose_angles MILLING": (-23.0, 0.0, -23.0),
         "coincidence warns MILLING": False,
         "projection_terms FM": (-1.0, 0.0, 0.0),
-        "tescan_pose_angles FM": (-180.0, 0.0, -180.0),
         "coincidence warns FM": False,
         "complete_fm_pose.r": 0.0,
         "complete_fm_pose.t": -180.0,

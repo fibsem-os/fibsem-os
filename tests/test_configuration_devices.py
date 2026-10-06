@@ -21,7 +21,11 @@ from fibsem.structures import (
     SystemSettings,
 )
 
-VERSION_1 = os.path.join(cfg.CONFIG_PATH, "tfs-arctis-configuration.yaml")
+# The shipped files as they were in configuration version 1.
+VERSION_1_FILES = os.path.join(
+    os.path.dirname(__file__), "fixtures", "configuration_v1"
+)
+VERSION_1 = os.path.join(VERSION_1_FILES, "tfs-arctis-configuration.yaml")
 
 
 def _version_1() -> dict:
@@ -274,7 +278,7 @@ def test_roles_are_kept_on_every_entry():
 # Where the stage travels for a device is on that device's entry
 # ---------------------------------------------------------------------------
 
-OFFSET_FM = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+OFFSET_FM = os.path.join(VERSION_1_FILES, "sim-iflm-configuration.yaml")
 
 
 def _offset_fm_entry(**keys) -> dict:

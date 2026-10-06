@@ -626,6 +626,13 @@ class AutoscriptSampleLoader(SampleGridLoader):
         return self.parent.connection.specimen.autoloader
 
     @property
+    def exchange_seconds(self) -> float:
+        """Measured on an Arctis (FIB-893, 2026-10-02): an unload and a load took
+        about 3 minutes, a load alone about 2 (98 s on 2026-09-13). Every exchange
+        is charged the full figure, a run's first load included, which errs long."""
+        return 180.0
+
+    @property
     def is_installed(self) -> bool:
         try:
             return bool(self._autoloader.is_installed)
