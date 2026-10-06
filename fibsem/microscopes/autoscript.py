@@ -1249,9 +1249,7 @@ class ThermoMicroscope(FibsemMicroscope):
         from fibsem.devices.drivers.autoscript_fm import bind_autoscript_fm
         from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
 
-        devices = bind_autoscript_fm(
-            self, mount_transform=self.system.fm.mount_transform
-        )
+        devices = bind_autoscript_fm(self, config=self.system.fm.to_dict())
         devices["fm"].live_timeout = None
         return DeviceThermoFisherFluorescenceMicroscope(devices, parent=self)
 

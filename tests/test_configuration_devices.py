@@ -370,3 +370,22 @@ def test_an_unknown_mount_says_where_it_is_and_what_it_could_be():
 
     with pytest.raises(ValueError, match="fm.*none, flip-x, flip-y, flip-xy"):
         SystemSettings.from_dict(config)
+
+
+def test_the_demo_microscope_hands_the_fm_entry_to_its_fm(tmp_path):
+    """The configuration's fm entry reaches the FM's devices as the binder's config,
+    so the images come out the way round the mount says."""
+    from fibsem.structures import CameraImageTransform
+
+    config = utils.load_yaml(
+        os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    )
+    config = utils.upgrade_configuration(config)
+    utils.configuration_device(config, "fm", create=True)["mount_transform"] = "flip-xy"
+    path = tmp_path / "microscope-configuration.yaml"
+    path.write_text(yaml.safe_dump(config))
+
+    microscope, _ = utils.setup_session(config_path=str(path))
+
+    assert microscope.fm.devices["camera"].mount_transform.get_value() == "flip-xy"
+    assert microscope.fm.mount_transform is CameraImageTransform.FLIP_XY

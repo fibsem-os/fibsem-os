@@ -2984,6 +2984,8 @@ class FluorescenceSystemSettings:
             self.mount_transform = CameraImageTransform.NONE
 
     def to_dict(self) -> dict:
+        """The fm entry's own keys, as the configuration writes them and as every FM
+        binder receives them (``config``)."""
         settings = {
             "enabled": self.enabled,
             "driver": self.driver,

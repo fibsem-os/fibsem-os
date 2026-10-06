@@ -193,7 +193,7 @@ class DemoMicroscope(
         if devices is not None:
             return dict(devices)
         simulated = self.fm
-        devices = bind_demo_fm(self, simulated)
+        devices = bind_demo_fm(self, simulated, config=self.system.fm.to_dict())
         self.fm = DemoFluorescenceMicroscope(devices, parent=self)
         # The saved focus is the session's, so the FM API keeps it; the configured
         # one was applied to the simulated FM's objective before the devices existed.
