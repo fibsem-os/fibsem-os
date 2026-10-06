@@ -125,7 +125,7 @@ class StagePositionWidget(QWidget):
 
         From the stage device's axes, whose limits it read at connect: an axis it does
         not have is hidden with its label. A backend without a stage device answers
-        from the stage model and ``stage_is_compustage``."""
+        from the stage model's limits."""
         stage = getattr(self.microscope, "stage", None)
         if stage is None:
             self._apply_stage_configuration_by_kind()
@@ -150,8 +150,8 @@ class StagePositionWidget(QWidget):
             spinbox.setMaximum(high)
 
     def _apply_stage_configuration_by_kind(self) -> None:
-        """Without a stage device: the stage model's ranges, and no rotation on a
-        compustage."""
+        """Without a stage device: the stage model's ranges, and no rotation box when
+        the stage has no rotation limits."""
         limits = self.microscope._stage.limits
 
         for axis, spinbox in (
@@ -167,7 +167,7 @@ class StagePositionWidget(QWidget):
         self.spinbox_tilt.setMinimum(limits["t"].min)
         self.spinbox_tilt.setMaximum(limits["t"].max)
 
-        if self.microscope.stage_is_compustage:
+        if "r" not in limits:
             # It does not rotate. The label goes with the box -- hiding only the box
             # leaves a caption over the tilt row.
             self.label_rotation.setVisible(False)

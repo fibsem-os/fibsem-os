@@ -107,7 +107,7 @@ class FMTilePreviewWidget(QWidget):
         self._origin = to_fm_pose(
             microscope.get_stage_position(),
             self._fm_orientation,
-            is_compustage=microscope.stage_is_compustage,
+            is_compustage=microscope._fm_is_a_pose(),
         )
 
         self._plan: Optional[SparseOverviewPlan] = None
@@ -200,7 +200,7 @@ class FMTilePreviewWidget(QWidget):
                 fov_x=self._fov[0],
                 fov_y=self._fov[1],
                 overlap=overlap,
-                is_compustage=self.microscope.stage_is_compustage,
+                is_compustage=self.microscope._fm_is_a_pose(),
             )
         except ValueError as e:
             # Selecting nothing is a state, not a failure -- a region dragged to zero
