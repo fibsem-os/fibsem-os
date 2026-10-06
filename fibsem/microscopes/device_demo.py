@@ -252,7 +252,7 @@ class DemoMicroscope(
         return beam.sim_scanning_mode_value, beam.sim_beam
 
     def _set(self, key: str, value, beam_type: Optional[BeamType] = None) -> None:
-        if self._set_imaging_key(key, value) or self._set_milling_key(key, value):
+        if self._set_imaging_key(key, value):
             return
         # The ion beam has a plasma gas only on a plasma column.
         if key == "plasma_gas" and beam_type is BeamType.ION:

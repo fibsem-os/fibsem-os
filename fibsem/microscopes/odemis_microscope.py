@@ -416,6 +416,15 @@ class OdemisPatterning:
         logging.debug({"msg": "set_patterning_mode", "mode": mode})
         return mode
 
+    def _set_default_application_file(self, application_file: str) -> None:
+        self.connection.set_default_application_file(application_file)
+        logging.info(f"Default application file set to {application_file}.")
+
+    def _set_default_patterning_beam_type(self, beam_type: BeamType) -> None:
+        channel = beam_type_to_odemis[beam_type]
+        self.connection.set_default_patterning_beam_type(channel)
+        logging.info(f"Patterning beam type set to {beam_type} - {channel} .")
+
     def clear_patterns(self) -> None:
         self.connection.clear_patterns()
 
@@ -711,27 +720,11 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
         return None
 
     def _set(self, key: str, value: str, beam_type: BeamType = None) -> None:
-        # The devices write every key Odemis has, but for the milling keys and the
-        # view and device selection below. A beam key the beam does not have (preset,
+        # The devices write every key Odemis has, but for the view and device
+        # selection below. A beam key the beam does not have (preset,
         # plasma_gas) is unsupported, and is not written.
         if key in BEAM_ROUTES and beam_type is not None:
             logging.debug(f"{key} is not supported on the {beam_type.name} beam.")
-            return
-
-        # patterning
-        if key == "patterning_mode":
-            if value in ["Serial", "Parallel"]:
-                self.connection.set_patterning_mode(value)
-                logging.info(f"Patterning mode set to {value}.")
-                return
-        if key == "application_file":
-            self.connection.set_default_application_file(value)
-            logging.info(f"Default application file set to {value}.")
-            return
-        if key == "default_patterning_beam_type":
-            channel = beam_type_to_odemis[value]
-            self.connection.set_default_patterning_beam_type(channel)
-            logging.info(f"Patterning beam type set to {value} - {channel} .")
             return
 
         if key == "active_view":

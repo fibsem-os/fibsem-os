@@ -1798,19 +1798,11 @@ class DemoMilling:
             return self.milling_system.application_files
         return None
 
-    def _set_milling_key(self, key: str, value) -> bool:
-        """Set a milling key; False for any other key."""
-        if key == "patterning_mode":
-            self.milling_system.patterning_mode = value
-        elif key == "application_file":
-            self.milling_system.default_application_file = value
-        elif key == "milling_channel":
-            self.milling_channel = value
-        elif key == "default_patterning_beam_type":
-            self.milling_system.default_beam_type = value
-        else:
-            return False
-        return True
+    def _set_default_application_file(self, application_file: str) -> None:
+        self.milling_system.default_application_file = application_file
+
+    def _set_default_patterning_beam_type(self, beam_type: BeamType) -> None:
+        self.milling_system.default_beam_type = beam_type
 
 
 @dataclass
@@ -2472,7 +2464,7 @@ class LegacyDemoMicroscope(
             beam_system.scanning_mode_value = value
             return
 
-        if self._set_imaging_key(key, value) or self._set_milling_key(key, value):
+        if self._set_imaging_key(key, value):
             return
 
         # stage properties
