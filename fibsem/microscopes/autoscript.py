@@ -55,7 +55,6 @@ from fibsem.structures import (
     FibsemCircleSettings,
     FibsemDetectorSettings,
     FibsemExperimentRef,
-    FibsemGasInjectionSettings,
     FibsemImage,
     FibsemLineSettings,
     FibsemManipulatorPosition,
@@ -165,7 +164,6 @@ try:
         ManipulatorCoordinateSystem,
         ManipulatorSavedPosition,
         ManipulatorState,
-        MultiChemInsertPosition,
         PatterningState,
         RegularCrossSectionScanMethod,
     )
@@ -779,80 +777,6 @@ def _slot_state(hw_slot) -> str:
     return text.capitalize()
 
 
-class AutoscriptSputterCoater:
-    pass
-
-
-class AutoscriptGISPort:
-    port_name: str = "Pt dep"
-    zlimit: float = 4.0e-3  # RAW_COORDINATES
-
-    def __init__(self, parent: "ThermoMicroscope"):
-        self.parent = parent
-
-        available_ports = self.parent.connection.gas.list_all_gis_ports()
-
-        print(f"available gis ports: {available_ports}")
-        self._port = self.parent.connection.gas.get_gis_port(self.port_name)
-
-    def insert(self):
-
-        self._run_safety_check()
-
-        self._port.insert()
-
-    def retract(self):
-        self._port.retract()
-
-    def _move_to_safe_gis_position(self):
-
-        self.parent.move_stage_absolute(FibsemStagePosition(z=self.zlimit - 500e-6))
-
-    def _run_safety_check(self):
-
-        stage_position = self.parent.get_stage_position()
-        if stage_position.z > self.zlimit:
-            raise ValueError(
-                f"Unable to insert gis at current z-position{stage_position.pretty}, {self.zlimit * 1e3}mm"
-            )
-
-    def open(self):
-        self._port.open()
-
-    def close(self):
-        self._port.close()
-
-    @property
-    def temperature(self) -> float:
-        return self._port.get_temperature()
-
-    def turn_heater_on(self, target_temp: float = 300, timeout: float = 15):
-        self._port.turn_heater_on(target_temp, timeout)
-
-    def turn_heater_off(self):
-        self._port.turn_heater_off()
-
-    def run_deposition(self, duration: int) -> None:
-
-        self.insert()
-
-        # QUERY: acquire diagnostic sem image?
-
-        self.open()
-
-        remaining_time = duration
-        while True:
-            print(f"Depositing: {self.port_name} - {remaining_time}s")
-            time.sleep(1)
-            remaining_time -= 1
-
-            if remaining_time <= 0:
-                break
-
-        self.close()
-        self.retract()
-
-
 def _thermo_application_file_wrapper_for_drawing_functions(
     patterning_function: Callable[["ThermoMicroscope", TFibsemPatternSettings], Any],
 ) -> Callable[["ThermoMicroscope", TFibsemPatternSettings], Any]:
@@ -1463,12 +1387,11 @@ DRIVER = DriverEntry(
 )
 
 # The device types each connect step builds (``ThermoMicroscope._build_devices``).
-# The FM and the gas injectors are built on their own paths; any other type a
-# configuration adds is built last.
+# The FM is built on its own path; any other type a configuration adds is built last.
 _BEAM_TYPES = ("beam",)
 _STAGE_TYPES = ("stage",)
 _PART_TYPES = ("chamber", "manipulator")
-_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + ("fm", "gis")
+_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + ("fm",)
 
 
 class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
@@ -1548,18 +1471,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
 
         finish_milling(self, imaging_current: float):
             Finalises the milling process by clearing the microscope of any patterns and returning the current to the imaging current.
-
-        setup_sputter(self, protocol: dict):
-            Set up the sputter coating process on the microscope.
-
-        draw_sputter_pattern(self, hfw: float, line_pattern_length: float, sputter_time: float):
-            Draws a line pattern for sputtering with the given parameters.
-
-        run_sputter(self, **kwargs):
-            Runs the GIS Platinum Sputter.
-
-        finish_sputter(self, application_file: str) -> None:
-            Finish the sputter process by clearing patterns and resetting beam and imaging settings.
 
         set_microscope_state(self, microscope_state: MicroscopeState) -> None:
             Reset the microscope state to the provided state.
@@ -1796,26 +1707,18 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         self._command_routes = MappingProxyType({"stage_home": ("stage", "home")})
 
     def _build_parts(self) -> None:
-        """Build the chamber, and the manipulator and gas injectors that are fitted,
-        and route the chamber and manipulator keys to them. Then build any other
-        device the configuration adds.
+        """Build the chamber, and the manipulator when it is fitted, and route the
+        chamber and manipulator keys to them. Then build any other device the
+        configuration adds.
 
         ``pump``, ``vent`` and the manipulator's raw moves then go through the
-        devices, and ``cryo_deposition_v2`` through the gas injector for its port.
-        The corrected and offset needle moves stay here and move through the device.
+        devices. The corrected and offset needle moves stay here and move through
+        the device.
         """
-        from fibsem.devices.drivers.autoscript import MULTICHEM, bind_autoscript_gis
-
         fitted = [DeviceEntry(name="chamber", type="chamber")]
         if self.is_available("manipulator"):
             fitted.append(DeviceEntry(name="manipulator", type="manipulator"))
         self._build_devices(fitted, _PART_TYPES)
-        self.gis_devices = MappingProxyType(bind_autoscript_gis(self))
-        # the one a caller of the device API means: the multichem, or a lone port
-        if MULTICHEM in self.gis_devices:
-            self.gis_device = self.gis_devices[MULTICHEM]
-        elif len(self.gis_devices) == 1:
-            self.gis_device = next(iter(self.gis_devices.values()))
 
         routes = dict(self._device_routes)
         routes.update(
@@ -2446,38 +2349,14 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
 
     # ---- fitted subsystems, as AutoScript reports them --------------------
 
-    #: For a probe that cannot say. Multichem is the exception on these instruments,
-    #: so it is the one assumed absent.
+    #: For a probe that cannot say.
     DEFAULT_FITTED = {
         "manipulator": True,
-        "gis": True,
-        "gis_multichem": False,
-        "gis_sputter_coater": False,
     }
 
     def _probe_manipulator_installed(self) -> Optional[bool]:
         """`specimen.manipulator.is_installed` -- documented, read-only, a bool."""
         return bool(self.connection.specimen.manipulator.is_installed)
-
-    def _probe_gis_installed(self) -> Optional[bool]:
-        """A GIS is fitted when the instrument lists at least one port.
-
-        There is no `gas.is_installed`; the ports are the honest form of the question,
-        and they are what `get_available_values("gis_ports")` already reads.
-        """
-        return bool(self.connection.gas.list_all_gis_ports())
-
-    def _probe_multichem_installed(self) -> Optional[bool]:
-        return bool(self.connection.gas.list_all_multichem_ports())
-
-    def _probe_sputter_coater_installed(self) -> Optional[bool]:
-        """The probe `run_sputter_coater` already makes before it will run.
-
-        It raises `NotImplementedError` on an instrument whose `specimen` has no
-        `sputter_coater` attribute at all, so the attribute's presence is the test --
-        the same one, asked at connect instead of at the point of use.
-        """
-        return hasattr(self.connection.specimen, "sputter_coater")
 
     def _probe_plasma_gas(self) -> Optional[str]:
         """`ion_beam.source.plasma_gas.value` -- the call `get("plasma_gas")` makes.
@@ -2776,292 +2655,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
 
         return manipulator_position
 
-    def get_gis(self, port: str = None):
-        use_multichem = self.is_available("gis_multichem")
-
-        if use_multichem:
-            gis = self.connection.gas.get_multichem()
-        else:
-            gis = self.connection.gas.get_gis_port(port)
-        logging.debug({"msg": "get_gis", "use_multichem": use_multichem, "port": port})
-        self.gis = gis
-        return self.gis
-
-    def insert_gis(self, insert_position: str = None) -> None:
-
-        if insert_position:
-            logging.info(f"Inserting Multichem GIS to {insert_position}")
-            self.gis.insert(insert_position)
-        else:
-            logging.info("Inserting Gas Injection System")
-            self.gis.insert()
-
-        logging.debug({"msg": "insert_gis", "insert_position": insert_position})
-
-    def retract_gis(self):
-        """Retract the gis"""
-        self.gis.retract()
-        logging.debug(
-            {"msg": "retract_gis", "use_multichem": self.is_available("gis_multichem")}
-        )
-
-    def gis_turn_heater_on(self, gas: str = None) -> None:
-        """Turn the heater on and wait for it to get to temperature"""
-        logging.info(f"Turning on heater for {gas}")
-        if gas is not None:
-            self.gis.turn_heater_on(gas)
-        else:
-            self.gis.turn_heater_on()
-
-        logging.info("Waiting for heater to get to temperature...")
-        time.sleep(3)  # we need to wait a bit
-
-        wait_time = 0
-        max_wait_time = 15
-        target_temp = 300  # validate this somehow?
-        while True:
-            if gas is not None:
-                temp = self.gis.get_temperature(gas)  # multi-chem requires gas name
-            else:
-                temp = self.gis.get_temperature()
-            logging.info(
-                f"Waiting for heater: {temp}K, target={target_temp}, wait_time={wait_time}/{max_wait_time} sec"
-            )
-
-            if temp >= target_temp:
-                break
-
-            time.sleep(1)  # wait for the heat
-
-            wait_time += 1
-            if wait_time > max_wait_time:
-                raise TimeoutError("Gas Injection Failed to heat within time...")
-
-        logging.debug(
-            {
-                "msg": "gis_turn_heater_on",
-                "temp": temp,
-                "target_temp": target_temp,
-                "wait_time": wait_time,
-                "max_wait_time": max_wait_time,
-            }
-        )
-
-        return
-
-    def _gis_device_for(
-        self, port: Optional[str], use_multichem: bool
-    ) -> Optional[Any]:
-        """The gas injector ``get_gis`` would use, if connect built it."""
-        from fibsem.devices.drivers.autoscript import MULTICHEM
-
-        devices = getattr(self, "gis_devices", None) or {}
-        return devices.get(MULTICHEM if use_multichem else port)
-
-    def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
-        """Run non-specific cryo deposition protocol.
-
-        # TODO: universalise this for demo, tescan
-        """
-
-        use_multichem = self.is_available("gis_multichem")
-        port = gis_settings.port
-        gas = gis_settings.gas
-        duration = gis_settings.duration
-        insert_position = gis_settings.insert_position
-
-        logging.debug({"msg": "cryo_depositon_v2", "settings": gis_settings.to_dict()})
-
-        # through the gas injector for this port once connect has built it; the code
-        # below stays until a session on an instrument confirms the device
-        gis = self._gis_device_for(port, use_multichem)
-        if gis is not None:
-            logging.info(f"Inserting Gas Injection System at {insert_position}")
-            gis.insert(insert_position if use_multichem else None)
-            gas = gas if use_multichem else None
-            gis.heater_on(gas)
-            logging.info(f"Running deposition for {duration} seconds")
-            gis.open()
-            time.sleep(duration)
-            gis.close()
-            logging.info(f"Turning off heater for {gas}")
-            gis.heater_off()
-            logging.info("Retracting Gas Injection System")
-            gis.retract()
-            return
-
-        # get gis subsystem
-        self.get_gis(port)
-
-        # insert gis / multichem
-        logging.info(f"Inserting Gas Injection System at {insert_position}")
-        if use_multichem is False:
-            insert_position = None
-        self.insert_gis(insert_position)
-
-        # turn heater on
-        gas = gas if use_multichem else None
-        self.gis_turn_heater_on(gas)
-
-        # run deposition
-        logging.info(f"Running deposition for {duration} seconds")
-        self.gis.open()
-        time.sleep(duration)
-        # TODO: provide more feedback to user
-        self.gis.close()
-
-        # turn off heater
-        logging.info(f"Turning off heater for {gas}")
-        self.gis.turn_heater_off()
-
-        # retract gis / multichem
-        logging.info("Retracting Gas Injection System")
-        self.retract_gis()
-
-        return
-
-    def setup_sputter(self, protocol: dict):
-        """
-        Set up the sputter coating process on the microscope.
-
-        Args:
-            protocol (dict): Dictionary containing the protocol details for sputter coating.
-
-        Returns:
-            None
-
-        Raises:
-            None
-
-        Notes:
-            This function sets up the sputter coating process on the microscope.
-            It sets the active view to the electron beam, clears any existing patterns, and sets the default beam type to the electron beam.
-            It then inserts the multichem and turns on the heater for the specified gas according to the given protocol.
-            This function also waits for 3 seconds to allow the heater to warm up.
-        """
-        self.original_active_view = self.connection.imaging.get_active_view()
-        self.set_channel(BeamType.ELECTRON)
-        self.connection.patterning.clear_patterns()
-        self.set_application_file(protocol["application_file"])
-        self.connection.patterning.set_default_beam_type(BeamType.ELECTRON.value)
-        self.multichem = self.connection.gas.get_multichem()
-        self.multichem.insert(protocol["position"])
-        self.multichem.turn_heater_on(protocol["gas"])  # "Pt cryo")
-        time.sleep(3)
-
-        logging.debug({"msg": "setup_sputter", "protocol": protocol})
-
-    def draw_sputter_pattern(
-        self, hfw: float, line_pattern_length: float, sputter_time: float
-    ):
-        """
-        Draws a line pattern for sputtering with the given parameters.
-
-        Args:
-            hfw (float): The horizontal field width of the electron beam.
-            line_pattern_length (float): The length of the line pattern to draw.
-            sputter_time (float): The time to sputter the line pattern.
-
-        Returns:
-            None
-
-        Notes:
-            Sets the horizontal field width of the electron beam to the given value.
-            Draws a line pattern for sputtering with the given length and milling depth.
-            Sets the sputter time of the line pattern to the given value.
-
-        """
-        self.connection.beams.electron_beam.horizontal_field_width.value = hfw
-        pattern = self.connection.patterning.create_line(
-            -line_pattern_length / 2,  # x_start
-            +line_pattern_length,  # y_start
-            +line_pattern_length / 2,  # x_end
-            +line_pattern_length,  # y_end
-            2e-6,
-        )  # milling depth
-        pattern.time = sputter_time + 0.1
-
-        logging.debug(
-            {
-                "msg": "draw_sputter_pattern",
-                "hfw": hfw,
-                "line_pattern_length": line_pattern_length,
-                "sputter_time": sputter_time,
-            }
-        )
-
-    def run_sputter(self, **kwargs):
-        """
-        Runs the GIS Platinum Sputter.
-
-        Args:
-            **kwargs: Optional keyword arguments for the sputter function. The required argument for
-        the Thermo version is "sputter_time" (int), which specifies the time to sputter in seconds.
-
-        Returns:
-            None
-
-        Notes:
-        - Blanks the electron beam.
-        - Starts sputtering with platinum for the specified sputter time, and waits until the sputtering
-        is complete before continuing.
-        - If the patterning state is not ready, raises a RuntimeError.
-        - If the patterning state is running, stops the patterning.
-        - If the patterning state is idle, logs a warning message suggesting to adjust the patterning
-        line depth.
-        """
-        sputter_time = kwargs["sputter_time"]
-
-        self.connection.beams.electron_beam.blank()
-        if self.connection.patterning.state == "Idle":
-            logging.info(
-                "Sputtering with platinum for {} seconds...".format(sputter_time)
-            )
-            self.connection.patterning.start()  # asynchronous patterning
-            time.sleep(sputter_time + 5)
-        else:
-            raise RuntimeError("Can't sputter platinum, patterning state is not ready.")
-        if self.connection.patterning.state == "Running":
-            self.connection.patterning.stop()
-        else:
-            logging.warning(
-                "Patterning state is {}".format(self.connection.patterning.state)
-            )
-            logging.warning("Consider adjusting the patterning line depth.")
-
-    def finish_sputter(self, application_file: str) -> None:
-        """
-        Finish the sputter process by clearing patterns and resetting beam and imaging settings.
-
-        Args:
-            application_file (str): The path to the default application file to use.
-
-        Returns:
-            None
-
-        Raises:
-            None
-
-        Notes:
-            This function finishes the sputter process by clearing any remaining patterns and restoring the beam and imaging settings to their
-            original state. It sets the beam current back to imaging current and sets the default beam type to ion beam.
-            It also retracts the multichem and logs that the sputtering process has finished.
-        """
-        # Clear any remaining patterns
-        self.connection.patterning.clear_patterns()
-
-        # Restore beam and imaging settings to their original state
-        self.connection.beams.electron_beam.unblank()
-        self.set_application_file(application_file)
-        self.connection.imaging.set_active_view(self.original_active_view)
-        self.connection.patterning.set_default_beam_type(
-            BeamType.ION.value
-        )  # set ion beam
-        self.multichem.retract()
-
-        # Log that the sputtering process has finished
-        logging.info("Platinum sputtering process completed.")
-
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> Tuple:
@@ -3128,14 +2721,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
                 "TopToBottom",
             ]
             values = TFS_SCAN_DIRECTIONS
-
-        if key == "gis_ports":
-            if self.is_available("gis"):
-                values = self.connection.gas.list_all_gis_ports()
-            elif self.is_available("gis_multichem"):
-                values = self.connection.gas.list_all_multichem_ports()
-            else:
-                values = []
 
         logging.debug({"msg": "get_available_values", "key": key, "values": values})
 
@@ -3533,35 +3118,3 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         )
 
         return offset
-
-    def run_sputter_coater(self, time_seconds: int) -> None:
-        """Run the sputter coater for a given time in seconds.
-        Args:
-            time_seconds (int): The time to run the sputter coater in seconds.
-        Returns:
-            None
-        Raises:
-            NotImplementedError: If the system is not an Arctis system.
-        """
-
-        if not hasattr(self.connection.specimen, "sputter_coater"):
-            raise NotImplementedError(
-                "Sputter coater not available on this microscope."
-            )
-
-        # check if system is Arctis
-        if "Arctis" not in self.system.info.model:
-            self.connection.specimen.sputter_coater.run(time_seconds)
-            return
-
-        # Prepare for sputtering
-        self.connection.specimen.sputter_coater.prepare()
-
-        # Change chamber pressure to 20 Pa and sputter current to 10 mA
-        # self.connection.vacuum.pump(VacuumSettings(pressure=20))
-        # self.connection.specimen.sputter_coater.current.value = 0.01
-        # Perform sputtering procedure with 10 second run time
-        self.connection.specimen.sputter_coater.run(time_seconds)
-
-        # Recover from sputtering
-        self.connection.specimen.sputter_coater.recover()

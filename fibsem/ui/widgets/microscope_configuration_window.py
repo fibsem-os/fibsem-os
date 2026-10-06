@@ -209,9 +209,6 @@ def devices_rows(microscope: FibsemMicroscope) -> List[Tuple[str, bool, str, str
             "" if microscope.system.stage.rotation else "No rotation",
         ),
         ("Manipulator", *probed("manipulator"), ""),
-        ("GIS", *probed("gis"), ""),
-        ("Multichem", *probed("gis_multichem"), ""),
-        ("Sputter coater", *probed("gis_sputter_coater"), ""),
         ("Fluorescence", microscope.fm is not None, "Configuration", ""),
         ("Grid loader", loader is not None, "Instrument", ""),
     ]

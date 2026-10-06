@@ -26,7 +26,7 @@ from fibsem.structures import BeamType, DeviceEntry
 DEFAULTS = (
     DeviceEntry(name="stage", type="stage"),
     DeviceEntry(name="manipulator", type="manipulator"),
-    DeviceEntry(name="gis", type="gis"),
+    DeviceEntry(name="chamber", type="chamber"),
 )
 
 
@@ -44,27 +44,34 @@ def _resolve(*entries, manufacturer="Demo"):
 def test_without_entries_the_backend_builds_its_defaults_with_its_own_driver():
     resolved = _resolve()
 
-    assert [item.name for item in resolved] == ["stage", "manipulator", "gis"]
+    assert [item.name for item in resolved] == ["stage", "manipulator", "chamber"]
     assert {item.driver for item in resolved} == {manufacturers.DEMO}
 
 
 def test_a_disabled_entry_is_not_built():
     resolved = _resolve({"name": "manipulator", "enabled": False})
 
-    assert [item.name for item in resolved] == ["stage", "gis"]
+    assert [item.name for item in resolved] == ["stage", "chamber"]
 
 
 def test_an_entry_with_a_new_name_is_added_after_the_defaults():
-    resolved = _resolve({"name": "gis_pt", "type": "gis"}, {"name": "stage", "x": 1})
+    resolved = _resolve(
+        {"name": "chamber_b", "type": "chamber"}, {"name": "stage", "x": 1}
+    )
 
-    assert [item.name for item in resolved] == ["stage", "manipulator", "gis", "gis_pt"]
+    assert [item.name for item in resolved] == [
+        "stage",
+        "manipulator",
+        "chamber",
+        "chamber_b",
+    ]
     assert resolved[0].entry.options == {"x": 1}
 
 
 def test_a_disabled_entry_the_backend_does_not_have_is_not_built():
-    resolved = _resolve({"name": "gis_pt", "type": "gis", "enabled": False})
+    resolved = _resolve({"name": "chamber_b", "type": "chamber", "enabled": False})
 
-    assert "gis_pt" not in [item.name for item in resolved]
+    assert "chamber_b" not in [item.name for item in resolved]
 
 
 def test_the_driver_defaults_to_the_manufacturer_in_its_canonical_spelling():
@@ -75,7 +82,7 @@ def test_the_driver_defaults_to_the_manufacturer_in_its_canonical_spelling():
 
 def test_an_entry_names_its_own_driver():
     resolved = _resolve(
-        {"name": "gis", "driver": "Remote", "address": "10.0.0.2"},
+        {"name": "chamber", "driver": "Remote", "address": "10.0.0.2"},
         {"name": "manipulator", "driver": "tescan"},
     )
     drivers = {item.name: item.driver for item in resolved}
@@ -83,7 +90,7 @@ def test_an_entry_names_its_own_driver():
     assert drivers == {
         "stage": manufacturers.DEMO,
         "manipulator": manufacturers.TESCAN,
-        "gis": REMOTE_DRIVER,
+        "chamber": REMOTE_DRIVER,
     }
     assert resolved[2].entry.options == {"address": "10.0.0.2"}
 
@@ -132,28 +139,29 @@ def test_each_device_is_built_by_its_drivers_builder_in_order(builders):
         context.shared["seen"] = context.shared.get("seen", 0) + 1
         return entry.name.upper()
 
-    builders.update(stage=build, gis=build)
+    builders.update(stage=build, chamber=build)
     shared = {}
     built = build_device_entries(
-        [_item("stage", "stage"), _item("gis", "gis")], "scope", shared=shared
+        [_item("stage", "stage"), _item("chamber", "chamber")], "scope", shared=shared
     )
 
-    assert built == {"stage": "STAGE", "gis": "GIS"}
+    assert built == {"stage": "STAGE", "chamber": "CHAMBER"}
     # A later builder sees the devices built before it, and the same scratch space.
-    assert calls == [("stage", [], "scope"), ("gis", ["stage"], "scope")]
+    assert calls == [("stage", [], "scope"), ("chamber", ["stage"], "scope")]
     assert shared == {"seen": 2}
 
 
 def test_a_device_without_a_builder_is_skipped_with_a_warning(builders, caplog):
-    builders["gis"] = lambda entry, context: "gis"
+    builders["chamber"] = lambda entry, context: "chamber"
     with caplog.at_level(logging.WARNING):
         built = build_device_entries(
-            [_item("laser", "laser"), _item("gis", "gis", driver="remote")], None
+            [_item("laser", "laser"), _item("chamber", "chamber", driver="remote")],
+            None,
         )
 
     assert built == {}
     assert "'laser' was not built: driver 'Test' has no builder" in caplog.text
-    assert "'gis' was not built: driver 'remote' has no builder" in caplog.text
+    assert "'chamber' was not built: driver 'remote' has no builder" in caplog.text
 
 
 def test_a_required_device_without_a_builder_fails_connect(builders):
@@ -165,14 +173,14 @@ def test_a_builder_that_fails_skips_its_device_unless_it_is_required(builders, c
     def broken(entry, context):
         raise RuntimeError("no answer")
 
-    builders["gis"] = broken
+    builders["chamber"] = broken
     with caplog.at_level(logging.WARNING):
-        built = build_device_entries([_item("gis", "gis")], None)
+        built = build_device_entries([_item("chamber", "chamber")], None)
     assert built == {}
     assert "building it failed: no answer" in caplog.text
 
     with pytest.raises(DeviceBuildError, match="no answer"):
-        build_device_entries([_item("gis", "gis", required=True)], None)
+        build_device_entries([_item("chamber", "chamber", required=True)], None)
 
 
 # -- on the Demo -------------------------------------------------------------------
@@ -192,31 +200,23 @@ def _demo_with(tmp_path, *entries):
 def test_the_demo_builds_every_device_it_has(tmp_path):
     microscope = _demo_with(tmp_path)
 
-    assert {"electron", "ion", "stage", "chamber", "manipulator", "gis"} <= set(
+    assert {"electron", "ion", "stage", "chamber", "manipulator"} <= set(
         microscope.devices
     )
-    assert microscope.gis_device is microscope.devices["gis"]
 
 
-def test_the_demo_leaves_out_a_disabled_manipulator_and_gis(tmp_path):
-    microscope = _demo_with(
-        tmp_path,
-        {"name": "manipulator", "enabled": False},
-        {"name": "gis", "enabled": False},
-    )
+def test_the_demo_leaves_out_a_disabled_manipulator(tmp_path):
+    microscope = _demo_with(tmp_path, {"name": "manipulator", "enabled": False})
 
     assert "manipulator" not in microscope.devices
     assert microscope.manipulator_device is None
-    assert microscope.gis_device is None
-    assert dict(microscope.gis_devices) == {}
 
 
-def test_the_demo_builds_a_second_gis_under_its_own_name(tmp_path):
-    microscope = _demo_with(tmp_path, {"name": "gis_pt", "type": "gis"})
+def test_the_demo_builds_an_added_device_under_its_own_name(tmp_path):
+    microscope = _demo_with(tmp_path, {"name": "chamber_b", "type": "chamber"})
 
-    assert set(microscope.gis_devices) == {"gis", "gis_pt"}
-    assert microscope.devices["gis_pt"].name == "gis_pt"
-    assert microscope.gis_device is microscope.devices["gis"]
+    assert microscope.devices["chamber_b"].name == "chamber_b"
+    assert microscope.chamber_device is microscope.devices["chamber"]
 
 
 def test_the_demo_fails_connect_for_a_required_device_it_cannot_build(tmp_path):
