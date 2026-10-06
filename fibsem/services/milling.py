@@ -22,7 +22,7 @@ signatures.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence, Type, TypeVar
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, Role, command
@@ -48,6 +48,8 @@ if TYPE_CHECKING:
 # then the voltage before the current, as the instruments want.
 SAVED_BEAM_CONDITIONS = ("preset", "voltage", "current", "hfw")
 
+_M = TypeVar("_M", bound="Milling")
+
 
 class Milling(Service):
     """Pattern milling with the ion beam, or the electron beam when a recipe asks.
@@ -61,6 +63,9 @@ class Milling(Service):
     ion = Role(Beam, doc="The ion beam, which mills unless a recipe asks otherwise.")
     electron = Role(Beam, required=False, doc="The electron beam, on a dual beam.")
 
+    # Read only when asked: on ThermoFisher a read selects the milling view, which a
+    # caller holding the view for something else (coincidence milling) must not have
+    # done behind its back, so the commands don't read it after themselves.
     state = Parameter(MillingState, doc="Idle, running, paused, ...; read-only.")
 
     def __init__(self, name: str = "milling", **kwargs: Any):
@@ -110,25 +115,21 @@ class Milling(Service):
     def start(self) -> None:
         """Start milling what is drawn, and return."""
         self._start()
-        self.state.get_value()
 
     @command
     def stop(self) -> None:
         """Stop milling."""
         self._stop()
-        self.state.get_value()
 
     @command
     def pause(self) -> None:
         """Pause milling."""
         self._pause()
-        self.state.get_value()
 
     @command
     def resume(self) -> None:
         """Resume paused milling."""
         self._resume()
-        self.state.get_value()
 
     @command
     def estimate(self) -> float:
@@ -144,15 +145,16 @@ class Milling(Service):
     def restore(self) -> None:
         """Put the milling beam back as the first ``setup`` found it.
 
-        Does nothing when nothing was saved, so it is safe to call twice.
+        The beam is left alone when nothing was saved, so it is safe to call twice;
+        what else the driver resets (``_restore``) is reset every time.
         """
         saved, beam = self._saved, self._saved_beam
         self._saved = self._saved_beam = None
-        if saved is None or beam is None:
-            return
-        for name in SAVED_BEAM_CONDITIONS:
-            if name in saved:
-                getattr(beam, name).write_through(saved[name])
+        if saved is not None and beam is not None:
+            for name in SAVED_BEAM_CONDITIONS:
+                if name in saved:
+                    getattr(beam, name).write_through(saved[name])
+        self._restore()
 
     def _save(self, beam: Beam) -> None:
         """Keep the beam's conditions that it has and can write back."""
@@ -192,55 +194,84 @@ class Milling(Service):
     def _clear(self) -> None:
         raise NotImplementedError
 
+    def _restore(self) -> None:
+        """Put back anything else milling changed, after the beam; by default nothing."""
+
 
 class ServiceMilling:
     """The microscope's milling methods, over its milling service (``self.milling``).
 
-    A backend with a milling service lists this before its own milling code, which
-    then keeps only what the service doesn't do yet (the run loop, sputtering).
+    A backend lists this before its own milling code. With a service, each method
+    goes to it; without one (no ion beam was built), each falls through to that code.
     """
 
-    milling: Milling
+    milling: Optional[Milling] = None
     milling_channel: BeamType
     # and FibsemMicroscope's set_beam_voltage and set_beam_current
 
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
+        if self.milling is None:
+            return super().setup_milling(mill_settings)
         self.milling.setup(mill_settings)
 
     def draw_rectangle(self, pattern_settings: FibsemRectangleSettings) -> None:
+        if self.milling is None:
+            return super().draw_rectangle(pattern_settings)
         self.milling.draw([pattern_settings])
 
     def draw_line(self, pattern_settings: FibsemLineSettings) -> None:
+        if self.milling is None:
+            return super().draw_line(pattern_settings)
         self.milling.draw([pattern_settings])
 
     def draw_circle(self, pattern_settings: FibsemCircleSettings) -> None:
+        if self.milling is None:
+            return super().draw_circle(pattern_settings)
         self.milling.draw([pattern_settings])
 
     def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
+        if self.milling is None:
+            return super().draw_polygon(pattern_settings)
         self.milling.draw([pattern_settings])
 
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
+        if self.milling is None:
+            return super().draw_bitmap_pattern(pattern_settings)
         self.milling.draw([pattern_settings])
 
     def start_milling(self) -> None:
+        if self.milling is None:
+            return super().start_milling()
         self.milling.start()
 
     def stop_milling(self) -> None:
+        if self.milling is None:
+            return super().stop_milling()
         self.milling.stop()
 
     def pause_milling(self) -> None:
+        if self.milling is None:
+            return super().pause_milling()
         self.milling.pause()
 
     def resume_milling(self) -> None:
+        if self.milling is None:
+            return super().resume_milling()
         self.milling.resume()
 
     def get_milling_state(self) -> MillingState:
+        if self.milling is None:
+            return super().get_milling_state()
         return self.milling.state.get_value()
 
     def estimate_milling_time(self) -> float:
+        if self.milling is None:
+            return super().estimate_milling_time()
         return self.milling.estimate()
 
     def clear_patterns(self) -> None:
+        if self.milling is None:
+            return super().clear_patterns()
         self.milling.clear()
 
     def finish_milling(
@@ -250,6 +281,8 @@ class ServiceMilling:
     ) -> None:
         """Clear the patterns and put the milling beam back as ``setup_milling`` found
         it. An imaging current or voltage given wins over what was saved."""
+        if self.milling is None:
+            return super().finish_milling(imaging_current, imaging_voltage)
         self.milling.clear()
         self.milling.restore()
         if imaging_voltage is not None:
@@ -267,3 +300,17 @@ class ServiceMilling:
                 "imaging_voltage": imaging_voltage,
             }
         )
+
+
+def bind_milling(service: Type[_M], microscope: Any) -> Optional[_M]:
+    """Build a microscope's milling service of class *service* over its beams, or
+    None when it has no ion beam (the column is disabled), which leaves the
+    microscope's own milling code in charge."""
+    beams = microscope.beams
+    if BeamType.ION not in beams:
+        return None
+    milling = service(parent=microscope)
+    milling.fill_roles(ion=beams[BeamType.ION])
+    if BeamType.ELECTRON in beams:
+        milling.fill_roles(electron=beams[BeamType.ELECTRON])
+    return milling.connect()

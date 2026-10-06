@@ -111,6 +111,7 @@ def test_the_old_methods_go_through_the_service(microscope):
     microscope.pause_milling()
     assert microscope.milling.state.get_value() is MillingState.PAUSED
     microscope.resume_milling()
+    microscope.get_milling_state()
     microscope.stop_milling()
     assert microscope.get_milling_state() is MillingState.IDLE
     assert seen == [
