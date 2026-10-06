@@ -49,7 +49,8 @@ def both(odemis_cls, call):
     new = make(odemis_cls)
     old = make(odemis_cls)
     old.milling = None
-    return run(new, call), run(old, call)
+    ran, old_ran = run(new, call), run(old, call)
+    return (ran["result"], ran["calls"]), (old_ran["result"], old_ran["calls"])
 
 
 def test_odemis_builds_its_milling_service(odemis_cls):
@@ -98,7 +99,7 @@ SAVES = [
 
 @pytest.mark.parametrize("call", [_setup, _draw, _run], ids=lambda c: c.__name__)
 def test_milling_makes_the_same_odemis_calls(odemis_cls, call):
-    (result, calls, _), (old_result, old_calls, _) = both(odemis_cls, call)
+    (result, calls), (old_result, old_calls) = both(odemis_cls, call)
     assert result == old_result
     if call is not _draw:
         assert calls[: len(SAVES)] == SAVES
@@ -107,10 +108,10 @@ def test_milling_makes_the_same_odemis_calls(odemis_cls, call):
 
 
 def test_the_state_is_read_on_the_milling_channel(odemis_cls):
-    (result, calls, _), (old_result, old_calls, _) = both(
+    (result, calls), (old_result, old_calls) = both(
         odemis_cls, lambda m: m.get_milling_state()
     )
-    assert result is old_result is MillingState.IDLE
+    assert result == old_result == repr(MillingState.IDLE)
     assert calls == old_calls
 
 
@@ -120,7 +121,7 @@ WRITES = ("set_high_voltage", "set_beam_current", "set_field_of_view")
 def _finish(microscope, **overrides):
     """The odemis calls ``finish_milling`` makes after a setup, without the reads."""
     microscope.setup_milling(SETTINGS)
-    _, calls, _ = run(microscope, lambda m: m.finish_milling(**overrides))
+    calls = run(microscope, lambda m: m.finish_milling(**overrides))["calls"]
     return [
         c[:2]
         for c in calls
