@@ -30,8 +30,9 @@ from fibsem.imaging.tiling.geometry import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.projection import FMStageProjection, StageProjection
 from fibsem.structures import FibsemStagePosition, TileOrderStrategy
-from fibsem.ui.tokens import GRID_BOUNDARY_COLOUR, STAGE_LIMITS_COLOUR
+from fibsem.ui.tokens import GRID_BOUNDARY_COLOUR
 from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
+from fibsem.ui.widgets.canvas.overlays import stage_context
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     GRID_BOUNDARY_RADIUS_M,
     MinimapShapesOverlay,
@@ -326,25 +327,26 @@ class FMTilePreviewWidget(QWidget):
             logging.debug(f"Cannot place the grid centre: {e}")
             return
 
-        limits = getattr(self.microscope._stage, "limits", None)
-        if not limits or not self.microscope.stage_is_compustage:
-            return
-
-        # No `surface_foreshortening` term: these lie on the sample, and the sample is
-        # square-on to the camera at the fluorescence pose. The beam pane, drawn from a
-        # tilted view, does need it.
-        self.stage_overlay.set_shapes([
-            ShapeSpec(
-                kind="rect", cx=centre[0], cy=centre[1], color=STAGE_LIMITS_COLOUR,
-                width=frame.length(limits["x"].max - limits["x"].min),
-                height=frame.length(limits["y"].max - limits["y"].min),
-                label="Stage limits",
-            ),
-            ShapeSpec(
-                kind="circle", cx=centre[0], cy=centre[1], color=GRID_BOUNDARY_COLOUR,
-                radius=frame.length(GRID_BOUNDARY_RADIUS_M), label="Grid boundary",
-            ),
-        ])
+        # The travel box on every stage: where it is far outside the grid it is simply
+        # off the edge of the view, which is fixed to the grid. One implementation with
+        # the overview tabs, which draw it on every stage too.
+        #
+        # The boundary has no `surface_foreshortening` term: it lies on the sample, and
+        # the sample is square-on to the camera at the fluorescence pose. The beam pane,
+        # drawn from a tilted view, does need it.
+        self.stage_overlay.set_shapes(
+            stage_context.limit_shapes(self.microscope, frame)
+            + [
+                ShapeSpec(
+                    kind="circle",
+                    cx=centre[0],
+                    cy=centre[1],
+                    color=GRID_BOUNDARY_COLOUR,
+                    radius=frame.length(GRID_BOUNDARY_RADIUS_M),
+                    label="Grid boundary",
+                ),
+            ]
+        )
 
     # ── edits ────────────────────────────────────────────────────────────
 
