@@ -48,7 +48,6 @@ def image_to_stage_delta(
     geometry: FibsemHardwareGeometry,
     stage_rotation: float,
     stage_tilt: float,
-    is_fib_orientation: Optional[bool] = None,
 ) -> FibsemStagePosition:
     """Relative stage movement that slides the sample by (dx, dy) in a view.
 
@@ -62,8 +61,6 @@ def image_to_stage_delta(
         geometry: the instrument geometry.
         stage_rotation: stage rotation, in radians.
         stage_tilt: stage tilt, in radians.
-        is_fib_orientation: whether a compustage is at its FIB orientation, when the
-            caller has classified the pose; None derives it from the pose.
 
     Returns:
         FibsemStagePosition: relative movement in the RAW coordinate system.
@@ -74,7 +71,6 @@ def image_to_stage_delta(
         geometry=geometry,
         stage_rotation=stage_rotation,
         stage_tilt=stage_tilt,
-        is_fib_orientation=is_fib_orientation,
     )
     return FibsemStagePosition(
         x=dx, y=y_move, z=z_move, r=0, t=0, coordinate_system="RAW"

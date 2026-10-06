@@ -10,6 +10,7 @@ The pre-extraction formulae themselves are pinned in test_view_corrected_movemen
 and the vertical-move physics in test_vertical_move.py.
 """
 
+import dataclasses
 import itertools
 import os
 from copy import deepcopy
@@ -81,12 +82,6 @@ def _pose(microscope, tilt_deg, rotation_deg, scan_rotation):
     return microscope.get_stage_position()
 
 
-def _is_fib_orientation(microscope):
-    if not microscope.stage_is_compustage:
-        return None
-    return microscope.get_stage_orientation() == "FIB"
-
-
 @pytest.mark.parametrize("tilt_deg, rotation_deg, scan_rotation", POSES)
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
 def test_stable_move_sends_the_pure_delta(
@@ -101,7 +96,6 @@ def test_stable_move_sends_the_pure_delta(
         geometry=microscope.hardware_geometry(),
         stage_rotation=pose.r,
         stage_tilt=pose.t,
-        is_fib_orientation=_is_fib_orientation(microscope),
     )
 
     microscope.stable_move(12e-6, -7e-6, beam_type)
@@ -178,34 +172,42 @@ def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(
     assert (vertical.y, vertical.z) != (0.0, 0.0)
 
 
-class TestTheOrientationOverride:
-    """The live move asks the orientation table; the saved-image path derives it."""
+class TestTheBackViewMirror:
+    """A compustage mirrors a view of the back of the grid; the pose decides it."""
 
     GEOMETRY = FibsemHardwareGeometry(is_compustage=True)
-    FIB_TILT = np.deg2rad(-128)
 
-    def _delta(self, rotation, is_fib_orientation, geometry=GEOMETRY):
+    def _delta(self, tilt_deg, view_tilt=0.0, geometry=GEOMETRY):
         return image_to_stage_delta(
             0.0,
             10e-6,
-            view_tilt=0.0,
+            view_tilt=view_tilt,
             geometry=geometry,
-            stage_rotation=rotation,
-            stage_tilt=self.FIB_TILT,
-            is_fib_orientation=is_fib_orientation,
+            stage_rotation=0.0,
+            stage_tilt=np.deg2rad(tilt_deg),
         )
 
-    def test_none_derives_it_from_the_pose(self):
-        assert self._delta(0.0, None) == self._delta(0.0, True)
-        assert self._delta(np.pi / 2, None) == self._delta(np.pi / 2, False)
+    @pytest.mark.parametrize(
+        "tilt_deg, view_tilt_deg, mirrored",
+        [(-10, 0, False), (-170, 0, True), (-30, 52, False), (-128, 52, True)],
+    )
+    def test_only_a_back_view_is_mirrored(self, tilt_deg, view_tilt_deg, mirrored):
+        offset = dataclasses.replace(self.GEOMETRY, is_compustage=False)
+        view_tilt = np.deg2rad(view_tilt_deg)
+        compustage = self._delta(tilt_deg, view_tilt)
+        plain = self._delta(tilt_deg, view_tilt, geometry=offset)
+        expected = -plain.y if mirrored else plain.y
+        assert compustage.y == pytest.approx(expected)
 
-    def test_an_answer_overrides_the_pose(self):
-        assert self._delta(np.pi / 2, True) == self._delta(0.0, True)
-        assert self._delta(0.0, False) != self._delta(0.0, True)
+    def test_the_live_move_does_not_read_the_orientation_table(self, monkeypatch):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_is_compustage = True
 
-    def test_it_is_ignored_off_a_compustage(self):
-        offset = FibsemHardwareGeometry(is_compustage=False)
-        assert self._delta(0.0, True, offset) == self._delta(0.0, None, offset)
+        def unread(*args, **kwargs):
+            raise AssertionError("the live move asked the orientation table")
+
+        monkeypatch.setattr(microscope, "get_stage_orientation", unread)
+        microscope._view_stage_delta(0.0, 10e-6, view_tilt=0.0)
 
 
 def test_undo_scan_rotation_inverts_only_a_half_turn():

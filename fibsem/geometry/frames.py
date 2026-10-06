@@ -16,9 +16,11 @@ From that, the rules the readers carry today are consequences, not branches:
 Rotations in radians throughout. Nothing here reads a microscope: the same answer serves
 a live move and a saved image (FIB-1101).
 
-What the model does not yet cover: a compustage at its FIB pose, where today's
-projection reverses image y and plain geometry does not (see ``image_flip``); and the
-Tescan stage in its native frame, which keeps its own maths until its frame conversion.
+Whether a view sees the front or the back of the sample is geometry too
+(`views_back`). Some instruments mirror a back view so it reads as if from the front;
+that is a property of the instrument, not the model, and the caller applies it. What
+the model does not yet cover is the Tescan stage in its native frame, which keeps its
+own maths until its frame conversion.
 """
 
 from __future__ import annotations
@@ -100,6 +102,20 @@ class StageModel:
         """The stage (y, z) move that goes straight up the chamber by one unit."""
         up = self.stage_axes(t).T @ UP
         return float(up[1]), float(up[2])
+
+
+def view_axis(view_tilt: float) -> np.ndarray:
+    """A view's axis in the chamber, pointing from the sample back towards the view.
+
+    The electron column looks down (axis up); a camera under the grid, at a half turn,
+    looks up (axis down).
+    """
+    return rotate_x(view_tilt) @ UP
+
+
+def views_back(model: StageModel, view_tilt: float, r: float, t: float) -> bool:
+    """Whether the view sees the back of the sample: its surface faces away from it."""
+    return bool(model.surface_normal(r, t) @ view_axis(view_tilt) < 0)
 
 
 def image_y_axis(view_tilt: float) -> np.ndarray:
