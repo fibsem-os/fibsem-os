@@ -18,13 +18,12 @@ FRAME = np.arange(6).reshape(2, 3)
 
 
 def _fm(mount=None):
-    devices = bind_fm_devices(fm_microscope.FluorescenceMicroscope())
-    if mount is not None:
-        devices["camera"]._mount_transform = mount
+    config = {"mount_transform": mount_transform_name(mount)} if mount else None
+    devices = bind_fm_devices(fm_microscope.FluorescenceMicroscope(), config=config)
     return DeviceFluorescenceMicroscope(devices)
 
 
-def test_a_camera_is_mounted_straight_unless_its_driver_says():
+def test_a_camera_is_mounted_straight_unless_its_configuration_says():
     fm = _fm()
 
     assert fm.devices["camera"].mount_transform.get_value() == "none"
@@ -73,3 +72,26 @@ def test_the_names_go_both_ways(transform):
 def test_an_unknown_name_says_what_it_could_be():
     with pytest.raises(ValueError, match="none, flip-x, flip-y, flip-xy"):
         mount_transform_from_name("rotate-90")
+
+
+def test_the_camera_takes_the_mount_from_the_fm_entrys_keys_and_ignores_the_rest():
+    devices = bind_fm_devices(
+        fm_microscope.FluorescenceMicroscope(),
+        config={"mount_transform": "flip-y", "port": 8001, "driver": "remote"},
+    )
+
+    assert devices["camera"].mount_transform.get_value() == "flip-y"
+
+
+def test_the_demo_fm_takes_its_configuration_too():
+    from fibsem import utils
+    from fibsem.devices.drivers.demo import bind_demo_fm
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    devices = bind_demo_fm(
+        microscope,
+        fm_microscope.FluorescenceMicroscope(),
+        config={"mount_transform": "flip-x"},
+    )
+
+    assert devices["camera"].mount_transform.get_value() == "flip-x"

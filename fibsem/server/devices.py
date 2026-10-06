@@ -326,29 +326,28 @@ def demo_devices() -> List[Device]:
     return list(microscope.beams.values())
 
 
-def demo_fm_devices() -> List[Device]:
-    """The simulated FM's parts and group, as a METEOR PC would serve its FM."""
+def demo_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
+    """The simulated FM's parts and group, as a METEOR PC would serve its FM.
+    *config* is the FM's configuration keys, as an fm entry states them."""
     from fibsem.devices.drivers.fm import bind_fm_devices
     from fibsem.fm.microscope import FluorescenceMicroscope
 
-    return list(bind_fm_devices(FluorescenceMicroscope()).values())
+    return list(bind_fm_devices(FluorescenceMicroscope(), config=config).values())
 
 
-def odemis_fm_devices(mount_transform: str = "none") -> List[Device]:
+def odemis_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
     """The METEOR's FM, through the odemis backend on this computer (FIB-1095).
 
     odemis is reachable only from the computer running it, over unix sockets, which
     is why the FM is served from there rather than driven from the beams' PC.
-    ``mount_transform`` is how its camera is mounted, which the camera reports, so
-    every client sees the frames the same way round.
+    *config* is the FM's configuration keys, as an fm entry states them: its
+    ``mount_transform``, which the camera reports so every client sees the frames
+    the same way round.
 
     Raises:
         RuntimeError: odemis is not installed here, or its backend did not answer;
             the message says which, and what to check.
     """
-    from fibsem.devices.fm import mount_transform_from_name
-
-    transform = mount_transform_from_name(mount_transform)
     try:
         import fibsem.fm.odemis  # noqa: F401
         from fibsem.devices.drivers.odemis_fm import bind_odemis_fm
@@ -358,7 +357,7 @@ def odemis_fm_devices(mount_transform: str = "none") -> List[Device]:
             "METEOR PC that runs odemis."
         ) from e
     try:
-        return list(bind_odemis_fm(parent=None, mount_transform=transform).values())
+        return list(bind_odemis_fm(parent=None, config=config).values())
     except Exception as e:
         raise RuntimeError(
             f"The odemis backend did not answer ({type(e).__name__}: {e}). Check "
@@ -383,18 +382,21 @@ def main(argv: Optional[List[str]] = None) -> None:
         "--mount-transform",
         choices=("none", "flip-x", "flip-y", "flip-xy"),
         default="none",
-        help="odemis-fm: the flip that puts the camera's frames into the stage's "
-        "axes, from how it is mounted",
+        help="fm, odemis-fm: the flip that puts the camera's frames into the "
+        "stage's axes, from how it is mounted",
     )
     args = parser.parse_args(argv)
     served: List[Device] = []
     if "beams" in args.serve:
         served += demo_devices()
+    # The FM's configuration keys, as an fm entry in a microscope configuration
+    # states them.
+    fm_config = {"mount_transform": args.mount_transform}
     if "fm" in args.serve:
-        served += demo_fm_devices()
+        served += demo_fm_devices(fm_config)
     if "odemis-fm" in args.serve:
         try:
-            served += odemis_fm_devices(args.mount_transform)
+            served += odemis_fm_devices(fm_config)
         except RuntimeError as e:
             logging.error(e)
             raise SystemExit(1) from e
