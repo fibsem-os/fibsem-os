@@ -18,6 +18,48 @@ are deprecated and will be removed in the next minor release.
 named methods (`get_beam_current`, `move_stage_absolute`,
 `get_microscope_state`, ...) are not deprecated; they now read and write the devices.
 
+## Why the API changed
+
+Before devices, a `FibsemMicroscope` subclass per vendor did everything, and most
+settings went through two string-keyed methods, `get(key, beam_type)` and
+`set(key, value, beam_type)`. An inventory of that API in September 2026 (141 public
+methods, 56 keys, four backends) found these limits:
+
+- **Nothing said what a backend supported.** Only 27 of the 56 keys were handled by
+  all four backends (ThermoFisher 46, Demo 47, Odemis 46, Tescan 31). An unsupported
+  key looked the same as a supported one: an unknown key, including a typo, logged a
+  warning and returned `None`; on some backends setting the resolution, dwell time or
+  stigmation only logged; and 30 abstract methods across the backends were silent
+  no-ops. A caller found out by reading the backend's code, or on the instrument.
+- **What a value could be was scattered.** Choices came from a second key chain,
+  `get_available_values`. Limits came from four places: `voltage_limits` keys on two
+  backends, a module-level table on another, clipping inline in two setters, and the
+  stage's axis limits. Only the field of view was checked against its limits when
+  set. A widget had to ask the instrument to fill a drop-down, and could not show a
+  range it did not know.
+- **Nothing reported a change.** There were no events, so the UI polled, and a change
+  made in the vendor's own software was invisible until the next read.
+- **Shared behaviour was copied or borrowed.** The Demo and Odemis backends called
+  ThermoFisher's stage moves and milling as `ThermoMicroscope.method(self, ...)`, and
+  code shared by every backend branched on the stage type. A fix to one backend's
+  moves changed another's, and a new backend had to imitate ThermoFisher's internals.
+- **The instrument was one object.** Every device came from the microscope's own
+  driver, and a device the vendor class did not know about meant new methods and
+  branches on that class. A configuration could not switch a device off, drive one
+  device with another driver (a METEOR FM on its own computer beside ThermoFisher
+  beams), or add a device from a plugin.
+- **One lock guarded everything,** so devices that the hardware allows in parallel
+  waited on each other.
+
+The device API answers each of these. A device class declares every parameter it may
+have, with its type and unit, and a parameter the backend does not bind is absent, so
+`in device.parameters` says what is supported. Limits and choices are read once at
+connect and kept on the parameter, and `set_value` checks against them. Every change
+emits `changed`. Behaviour shared by every backend lives once, in the vendor-neutral
+classes and services, and each driver implements only the instrument calls. Devices
+are built from configuration entries, each with its own driver, into one flat map,
+and named resources replace the single lock where a backend allows it.
+
 ## Finding a device
 
 ```python

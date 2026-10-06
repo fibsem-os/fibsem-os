@@ -7,7 +7,7 @@ operating the application is at [fibsemos.org/docs](https://www.fibsemos.org/doc
 | -- | -- |
 | [Getting started as a developer](getting-started.md) | Repository layout, running the application against the simulator, running tests, and which extension point applies to a given goal. |
 | [Contributing](../../CONTRIBUTING.md) | Pull request size, the Python version floor, formatting, tests, and network rules. |
-| [Devices](devices.md) | The device API: `microscope.devices`, parameters, commands, events, roles, services such as `microscope.milling`, configuring devices under `hardware.devices`, adding a device type or driver, and where each deprecated `get`/`set` key went. |
+| [Devices](devices.md) | Why the microscope API changed, and the device API: `microscope.devices`, parameters, commands, events, roles, services such as `microscope.milling`, configuring devices under `hardware.devices`, adding a device type or driver, and where each deprecated `get`/`set` key went. |
 | [Extending fibsemOS](extending.md) | Scripts, plugins (patterns, strategies, tasks), workflow tasks, and microscope backends. |
 | [Scripting experiments](../../SCRIPTING.md) | Reading and modifying experiment data from Python, in a notebook or from the application. |
 | [The simulator](../simulator.md) | What the Demo microscope images, the scene configuration keys, and how the figures are generated. |
