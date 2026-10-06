@@ -34,7 +34,6 @@ from fibsem.structures import (
     FibsemImage,
     FibsemImageMetadata,
     FibsemLineSettings,
-    FibsemManipulatorPosition,
     FibsemMillingSettings,
     FibsemPolygonSettings,
     FibsemRectangle,
@@ -470,8 +469,8 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
 
-    #: An Odemis system has no manipulator. Nothing here can ask the instrument, so
-    #: this is the backend's own answer.
+    #: An Odemis system has no manipulator: the base class's manipulator methods
+    #: raise. Nothing here can ask the instrument, so this is the backend's own answer.
     DEFAULT_FITTED = {
         "manipulator": False,
     }
@@ -727,12 +726,6 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
             else:
                 return None
 
-        # manipulator properties
-        if key == "manipulator_position":
-            raise NotImplementedError()
-        if key == "manipulator_state":
-            raise NotImplementedError()
-
         if key in ["preset"]:
             return None
 
@@ -806,9 +799,6 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
 
         return
 
-    def _get_saved_manipulator_position(self, name: str) -> FibsemManipulatorPosition:
-        pass
-
     def get_available_values(self, key: str, beam_type: BeamType = None) -> list:
         values = []
         if key == "application_file":
@@ -847,26 +837,6 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
         logging.debug({"msg": "get_available_values", "key": key, "values": values})
 
         return values
-
-    def insert_manipulator(self) -> None:
-        pass
-
-    def move_manipulator_absolute(self, position: FibsemManipulatorPosition) -> None:
-        pass
-
-    def move_manipulator_relative(self, position: FibsemManipulatorPosition) -> None:
-        pass
-
-    def move_manipulator_corrected(self, position: FibsemManipulatorPosition) -> None:
-        pass
-
-    def move_manipulator_to_position_offset(
-        self, offset: FibsemManipulatorPosition, name: str
-    ) -> None:
-        pass
-
-    def retract_manipulator(self) -> None:
-        pass
 
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.
