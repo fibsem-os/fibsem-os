@@ -51,9 +51,11 @@ def test_odemis_inherits_rather_than_borrows(odemis_cls):
     assert _owner(odemis_cls, "get_orientation") is FibsemMicroscope
 
 
-def test_demo_keeps_its_own_milling():
+def test_demo_keeps_its_own_run_loop_and_finishes_through_its_milling_service():
+    from fibsem.services.milling import ServiceMilling
+
     assert _owner(DemoMicroscope, "run_milling") is DemoMilling
-    assert _owner(DemoMicroscope, "finish_milling") is DemoMilling
+    assert _owner(DemoMicroscope, "finish_milling") is ServiceMilling
 
 
 def test_application_files_stay_off_the_base_class():
