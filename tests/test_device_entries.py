@@ -7,6 +7,7 @@ device it cannot build.
 """
 
 import logging
+import os
 
 import pytest
 import yaml
@@ -195,6 +196,38 @@ def _demo_with(tmp_path, *entries):
     path.write_text(yaml.safe_dump(config))
     microscope, _ = utils.setup_session(setup_logging=False, config_path=str(path))
     return microscope
+
+
+def _arctis_with(tmp_path, *entries):
+    """The shipped Arctis simulator, with *entries* replacing its own of one name."""
+    with open(os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")) as f:
+        config = yaml.safe_load(f)
+    names = {entry["name"] for entry in entries}
+    devices = [e for e in config["hardware"]["devices"] if e["name"] not in names]
+    config["hardware"]["devices"] = devices + list(entries)
+    path = tmp_path / "configuration.yaml"
+    path.write_text(yaml.safe_dump(config))
+    microscope, _ = utils.setup_session(setup_logging=False, config_path=str(path))
+    return microscope
+
+
+def test_the_arctis_simulator_builds_its_sample_loader_from_its_entry(tmp_path):
+    microscope = _arctis_with(tmp_path)
+
+    device = microscope.devices["sample_loader"]
+    assert device.capacity.get_value() == 12
+    assert [
+        s.number for s in device.magazine.get_value().slots if s.state.value != "empty"
+    ] == [1, 2, 3]
+    assert microscope._stage.loader.device is device
+
+
+def test_a_compustage_with_its_sample_loader_switched_off_has_none(tmp_path):
+    microscope = _arctis_with(tmp_path, {"name": "sample_loader", "enabled": False})
+
+    assert "sample_loader" not in microscope.devices
+    assert microscope._stage.loader is None  # grids are exchanged by hand
+    assert microscope._stage.holder.slots  # the working slot is still there
 
 
 def test_the_demo_builds_every_device_it_has(tmp_path):

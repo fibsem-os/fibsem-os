@@ -20,11 +20,13 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
+    Iterable,
     Iterator,
     List,
     Mapping,
     Optional,
     Tuple,
+    Union,
 )
 
 import numpy as np
@@ -35,6 +37,14 @@ from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.manipulator import Manipulator
+from fibsem.devices.sample_loader import (
+    GridExchangeError,
+    Magazine,
+    MagazineSlot,
+    MagazineSlotState,
+    SampleLoader,
+    StageSample,
+)
 from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
 from fibsem.fm.microscope import emission_filter_named
 from fibsem.fm.structures import (
@@ -591,6 +601,144 @@ def bind_demo_manipulator(
     return DemoManipulator(microscope, resources, start).connect()
 
 
+# -- The sample loader --------------------------------------------------------------
+
+
+class DemoSampleLoader(SampleLoader):
+    """An in-memory autoloader for a simulated compustage system.
+
+    ``occupied`` lists the 1-based magazine slots that hold a grid, as printed on a
+    real magazine; ``names`` maps a slot number to the description its grid carries
+    (an occupied slot without one reads blank, as on the hardware, and the grid model
+    calls it ``Grid-NN``). The slot of the grid on the stage reads ``LOADED``, as
+    AutoScript 4.14 reports it.
+
+    ``fail_next_exchange`` makes the next load or unload raise ``GridExchangeError``
+    and change nothing, so a run's load-failure path can be exercised.
+    ``exchange_delay`` is how long each load and each unload pretends to take, and
+    ``scan_delay`` a scan, through ``sim_sleep`` (a no-op under
+    ``FIBSEM_SIM_NO_DELAY=1``, as the tests run). ``start_unscanned`` starts the
+    magazine as a real one reads after it has been undocked: every slot ``UNKNOWN``
+    until a scan; a read does not change that.
+
+    ``sim_grid_position`` is where this autoloader really puts a grid, (x, y, z) in
+    metres from the stage origin, as a real Arctis does (FIB-1144); the simulated
+    scene draws a loaded grid there. None puts it at the origin.
+    """
+
+    def __init__(
+        self,
+        parent: Any = None,
+        resources: Optional[Resources] = None,
+        capacity: int = 12,
+        occupied: Iterable[int] = (),
+        names: Optional[Mapping[Union[int, str], str]] = None,
+        exchange_delay: float = 0.0,
+        start_unscanned: bool = False,
+        scan_delay: float = 0.0,
+        grid_position: Optional[Tuple[float, float, float]] = None,
+    ):
+        super().__init__(parent=parent, resources=resources)
+        self.sim_capacity = int(capacity)
+        self.exchange_delay = float(exchange_delay)
+        self.scan_delay = float(scan_delay)
+        self.sim_grid_position = (
+            tuple(float(v) for v in grid_position) if grid_position else None
+        )
+        self.fail_next_exchange = False
+        names = names or {}
+        # slot number -> description, for each slot holding a grid
+        self.sim_grids: Dict[int, str] = {}
+        for number in occupied:
+            number = int(number)
+            if not 1 <= number <= self.sim_capacity:
+                raise ValueError(
+                    f"Magazine slot {number} is outside capacity {self.sim_capacity}."
+                )
+            self.sim_grids[number] = str(
+                names.get(number, names.get(str(number))) or ""
+            )
+        self.sim_on_stage: Optional[int] = None  # the slot whose grid is on the stage
+        self.sim_scanned = not start_unscanned
+
+    def read_magazine(self) -> Magazine:
+        slots = []
+        for number in range(1, self.sim_capacity + 1):
+            if not self.sim_scanned:
+                slots.append(MagazineSlot(number, MagazineSlotState.UNKNOWN))
+            elif number == self.sim_on_stage:
+                slots.append(
+                    MagazineSlot(
+                        number, MagazineSlotState.LOADED, self.sim_grids[number]
+                    )
+                )
+            elif number in self.sim_grids:
+                slots.append(
+                    MagazineSlot(
+                        number, MagazineSlotState.OCCUPIED, self.sim_grids[number]
+                    )
+                )
+            else:
+                slots.append(MagazineSlot(number, MagazineSlotState.EMPTY))
+        return Magazine(tuple(slots))
+
+    def read_on_stage(self) -> StageSample:
+        if self.sim_on_stage is None:
+            return StageSample(present=False)
+        return StageSample(present=True, description=self.sim_grids[self.sim_on_stage])
+
+    def read_capacity(self) -> int:
+        return self.sim_capacity
+
+    def read_exchange_time(self) -> float:
+        """An unload and a load, each ``exchange_delay``."""
+        return 2 * self.exchange_delay
+
+    def _load(self, slot: int) -> None:
+        if slot not in self.sim_grids:
+            raise GridExchangeError(f"Magazine slot {slot} holds no grid.")
+        if self.sim_on_stage is not None:
+            raise GridExchangeError("A grid is already on the stage; unload it first.")
+        self._exchange()
+        self.sim_on_stage = slot
+
+    def _unload(self) -> None:
+        if self.sim_on_stage is None:
+            return
+        self._exchange()
+        self.sim_on_stage = None
+
+    def _scan(self) -> None:
+        sim_sleep(self.scan_delay)
+        self.sim_scanned = True
+
+    def _set_description(self, slot: int, text: str) -> None:
+        if not 1 <= slot <= self.sim_capacity:
+            raise GridExchangeError(f"The sample loader has no slot {slot}.")
+        if slot in self.sim_grids:
+            self.sim_grids[slot] = text
+
+    def _exchange(self) -> None:
+        if self.fail_next_exchange:
+            self.fail_next_exchange = False
+            raise GridExchangeError("Simulated autoloader exchange failure.")
+        sim_sleep(self.exchange_delay)
+
+
+# The keys a Demo sample loader entry takes, and their defaults. A simulator
+# configuration from before the entry had them under `sim.loader`, which is still
+# read for any key the entry leaves out.
+DEMO_SAMPLE_LOADER_KEYS: Dict[str, Any] = {
+    "capacity": 12,
+    "occupied": (),
+    "names": None,
+    "exchange_delay": 0.0,
+    "start_unscanned": False,
+    "scan_delay": 0.0,
+    "grid_position": None,
+}
+
+
 # -- Builders by entry --------------------------------------------------------------
 #
 # The Demo driver's device builders (``DRIVER.devices`` in ``device_demo``): each
@@ -637,6 +785,35 @@ def build_demo_manipulator(
     entry: "DeviceEntry", context: "BuildContext"
 ) -> DemoManipulator:
     return _named(DemoManipulator(context.microscope, *_demo_start(context)), entry)
+
+
+def build_demo_sample_loader(
+    entry: "DeviceEntry", context: "BuildContext"
+) -> DemoSampleLoader:
+    """The simulated autoloader, from its entry's keys (``DEMO_SAMPLE_LOADER_KEYS``),
+    each falling back to the old ``sim.loader`` block, then the default."""
+    microscope = context.microscope
+    system = getattr(microscope, "system", None)
+    legacy = (getattr(system, "sim", None) or {}).get("loader") or {}
+    keys = {
+        key: entry.options.get(key, legacy.get(key, default))
+        for key, default in DEMO_SAMPLE_LOADER_KEYS.items()
+    }
+    resources, _ = _demo_start(context)
+    return _named(
+        DemoSampleLoader(
+            microscope,
+            resources,
+            capacity=int(keys["capacity"]),
+            occupied=keys["occupied"] or (),
+            names=keys["names"] or {},
+            exchange_delay=float(keys["exchange_delay"]),
+            start_unscanned=bool(keys["start_unscanned"]),
+            scan_delay=float(keys["scan_delay"]),
+            grid_position=keys["grid_position"] or None,
+        ),
+        entry,
+    )
 
 
 # -- The FM -------------------------------------------------------------------------

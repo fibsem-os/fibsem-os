@@ -15,6 +15,7 @@ from fibsem.microscopes import _stage as stage_module
 from fibsem.microscopes._stage import (
     COMPUSTAGE_HOLDER_NAME,
     DemoSampleLoader,
+    DeviceSampleLoader,
     GridExchangeError,
     GridSlot,
     GridSlotState,
@@ -331,7 +332,7 @@ class TestCreateSampleStage:
             loader={"capacity": 6, "occupied": [1, 4], "names": {4: "grid-elm"}},
         )
         stage = _create_sample_stage(microscope)
-        assert isinstance(stage.loader, DemoSampleLoader)
+        assert isinstance(stage.loader, DeviceSampleLoader)
         assert stage.loader.capacity == 6
         assert [s.loaded_grid.name for s in stage.loader.loaded_magazine_slots] == [
             "Grid-01",
@@ -346,7 +347,7 @@ class TestCreateSampleStage:
             loader={"occupied": [1, 4], "start_unscanned": True, "scan_delay": 10.0},
         )
         stage = _create_sample_stage(microscope)
-        assert stage.loader.scan_delay == 10.0
+        assert stage.loader.device.scan_delay == 10.0
         assert stage.loader.loaded_magazine_slots == []
         stage.run_inventory()
         assert [s.loaded_grid.name for s in stage.loader.loaded_magazine_slots] == [
@@ -418,7 +419,7 @@ class TestCreateSampleStage:
 
     def test_compustage_demo_without_loader_block_has_an_empty_magazine(self):
         microscope = _compustage_demo()
-        assert isinstance(microscope._stage.loader, DemoSampleLoader)
+        assert isinstance(microscope._stage.loader, DeviceSampleLoader)
         assert microscope._stage.loader.loaded_magazine_slots == []
 
     def test_fixed_holder_has_no_loader(self):
