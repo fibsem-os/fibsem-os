@@ -70,8 +70,9 @@ class TestTheImagingChannelIsPartOfTheContract:
     """Both forms exist on every FM, so callers need not ask what they are talking to.
 
     A no-op on a system whose FM has a connection of its own, and overridden by the two
-    that share one with the beams: `ThermoFisherFluorescenceMicroscope` and, so the
-    sharing can be tested without hardware, `SimulatedFluorescenceMicroscope` (FIB-518).
+    that share one with the beams: Thermo's (`DeviceThermoFisherFluorescenceMicroscope`)
+    and, so the sharing can be tested without hardware,
+    `SimulatedFluorescenceMicroscope` (FIB-518).
     """
 
     def test_both_forms_exist_and_are_harmless(self, fm):

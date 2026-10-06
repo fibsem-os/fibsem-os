@@ -1,9 +1,12 @@
-"""The AutoScript FM drivers make the SDK calls Thermo's FM class makes today.
+"""The AutoScript FM drivers make the SDK calls Thermo's old FM class made.
 
-``fibsem.devices.drivers.autoscript_fm`` is ``ThermoFisherFluorescenceMicroscope``'s
-parts moved onto the FM devices. Each case runs an old call on one FM and the matching
-device call on another, both over a fake AutoScript client that records every SDK call,
-read and write with the view that was active when it was made. Cases: every camera,
+``fibsem.devices.drivers.autoscript_fm`` is the old ``ThermoFisherFluorescenceMicroscope``'s
+parts moved onto the FM devices. Each case runs a device call over a fake AutoScript
+client that records every SDK call, read and write with the view that was active when it
+was made, and compares it with the pin of the matching old call: its result and SDK log,
+recorded from the old class over the same fake before it was removed
+(``tests/fixtures/autoscript_fm_old_pins.json``; for the FM API cases, the changes, the
+settings read and the view hand-backs). Cases: every camera,
 light source, filter set and objective parameter and command, acquiring a channel
 (fluorescence, reflection, the current settings) and live view, each from the beam view
 and from the FM view, with the objective in and out, and the filter on fluorescence and
@@ -38,6 +41,10 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_fm_parity.py"
+# What the old class did in each case, keyed as the cases are.
+PINS = json.loads(
+    (Path(__file__).parent / "fixtures" / "autoscript_fm_old_pins.json").read_text()
+)
 
 PARTS = ("camera", "light", "filter", "objective")
 # The setters that check before writing, so hold the view across the check.
@@ -62,12 +69,16 @@ def recorded(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def recording(recorded):
-    return recorded["cases"]
+    """Each case with the old class's pinned result, log and view as ``old``."""
+    assert {case["key"] for case in recorded["cases"]} == set(PINS["cases"])
+    return [{**case, "old": PINS["cases"][case["key"]]} for case in recorded["cases"]]
 
 
 @pytest.fixture(scope="module")
 def api(recorded):
-    return recorded["api"]
+    """Each FM API case with what the old class's pin keeps of it as ``old``."""
+    assert {case["key"] for case in recorded["api"]} == set(PINS["api"])
+    return [{**case, "old": PINS["api"][case["key"]]} for case in recorded["api"]]
 
 
 @pytest.fixture(scope="module")
@@ -266,10 +277,10 @@ def test_a_read_on_the_fm_view_does_not_wait_for_the_lock(facts):
     assert facts["reads_on_the_beam_view_wait_for_the_lock"]
 
 
-# -- the FM API: today's Thermo class against the FM API over the devices -----------
+# -- the FM API over the devices, against the old Thermo class's pins ------------------
 
 # Limits and choices are read once, when the devices connect, and cached, as for every
-# device; today's class reads them again on each use.
+# device; the old class read them again on each use.
 CACHED_AT_CONNECT = (
     "detector.brightness.limits",
     "detector.camera_settings.binning.available_values",
@@ -303,9 +314,9 @@ def test_the_api_cases_cover_acquisitions_and_live_view(api):
 
 def test_the_api_returns_the_same(api):
     differ = [
-        (case["key"], case["old"][0], case["new"][0])
+        (case["key"], case["old"]["result"], case["new"][0])
         for case in api
-        if case["old"][0] != case["new"][0]
+        if case["old"]["result"] != case["new"][0]
     ]
     assert differ == []
 
@@ -319,7 +330,7 @@ def test_the_api_makes_the_same_changes_in_the_same_order(api):
     differ = [
         case["key"]
         for case in api
-        if _changes(case["old"][1]) != _changes(case["new"][1])
+        if case["old"]["changes"] != _changes(case["new"][1])
     ]
     assert differ == []
 
@@ -327,7 +338,7 @@ def test_the_api_makes_the_same_changes_in_the_same_order(api):
 def test_the_api_reads_the_same_settings_but_limits_once(api):
     differ = []
     for case in api:
-        old, new = set(_reads(case["old"][1])), set(_reads(case["new"][1]))
+        old, new = set(case["old"]["reads"]), set(_reads(case["new"][1]))
         if not new <= old or not (old - new) <= set(CACHED_AT_CONNECT):
             differ.append((case["key"], sorted(old ^ new)))
     assert differ == []
@@ -335,21 +346,20 @@ def test_the_api_reads_the_same_settings_but_limits_once(api):
 
 def test_the_api_makes_every_fm_call_on_the_fm_view(api):
     off_view = [
-        (case["key"], side, entry)
+        (case["key"], entry)
         for case in api
-        for side in ("old", "new")
-        for entry in _without_channel(case[side][1])
+        for entry in _without_channel(case["new"][1])
         if entry[3] != FM_VIEW
     ]
     assert off_view == []
 
 
 def test_the_api_leaves_the_view_where_it_did_and_never_hands_it_back_more(api):
-    assert [c["key"] for c in api if c["old"][2] != c["new"][2]] == []
+    assert [c["key"] for c in api if c["old"]["view"] != c["new"][2]] == []
     more = [
-        (case["key"], _restores(case["old"][1]), _restores(case["new"][1]))
+        (case["key"], case["old"]["restores"], _restores(case["new"][1]))
         for case in api
-        if _restores(case["new"][1]) > _restores(case["old"][1])
+        if _restores(case["new"][1]) > case["old"]["restores"]
     ]
     assert more == []
     # A tileset holds the FM's view for the whole run: one hand-back at the end.

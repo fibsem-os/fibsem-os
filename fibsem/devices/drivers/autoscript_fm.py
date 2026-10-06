@@ -1,15 +1,16 @@
-"""The Thermo Fisher FM (Arctis, Hydra) as devices, beside the untouched Thermo FM.
+"""The Thermo Fisher FM (Arctis, Hydra) as devices.
 
 ``AutoscriptFMCamera``, ``AutoscriptFMLightSource``, ``AutoscriptFMFilterSet``,
-``AutoscriptFMObjective`` and the ``AutoscriptFM`` group are
-``ThermoFisherFluorescenceMicroscope``'s parts (``fibsem.fm.autoscript``) moved onto the
-FM devices: each read, write and command makes the SDK calls the old property or method
-makes, in the same order. Nothing builds them yet: ``ThermoMicroscope.fm`` is still the
-old class, and pointing it at these is the next step.
+``AutoscriptFMObjective`` and the ``AutoscriptFM`` group are the old
+``ThermoFisherFluorescenceMicroscope``'s parts moved onto the FM devices: each read,
+write and command makes the SDK calls the old property or method made, in the same
+order (``tests/fixtures/autoscript_fm_old_pins.json`` holds those calls).
+``ThermoMicroscope.fm`` is the FM API over them
+(``DeviceThermoFisherFluorescenceMicroscope``).
 
 The channel. The FM and the beams are one AutoScript connection with one active view,
 so whoever sets the view last owns it (FIB-517). ``AutoscriptFMChannel`` is the old
-class's ``active_channel()`` as it is: point the connection at the FM for a block, put
+class's ``active_channel()`` as it was: point the connection at the FM for a block, put
 the view back after the outermost block, count the depth so a run isn't undone by each
 step inside it, and take the microscope's ``imaging_channel`` lock (its
 ``_threading_lock``) for that bookkeeping only. A parameter in ``needs_channel`` runs in
@@ -77,12 +78,9 @@ MULTI_BAND = emission_filter_for("Fluorescence", {})
 
 
 class AutoscriptFMChannel:
-    """``ThermoFisherFluorescenceMicroscope.active_channel()``, shared by the FM devices.
-
-    ``scope()`` is the old method unchanged: see its docstring in
-    ``fibsem.fm.autoscript`` for why the lock covers the bookkeeping and not the body,
-    and why a connection already on the FM takes no lock at all.
-    """
+    """The FM's share of the microscope's one AutoScript connection, shared by the FM
+    devices: the old ``ThermoFisherFluorescenceMicroscope.active_channel()``, moved.
+    ``scope()`` says why it works as it does."""
 
     def __init__(self, microscope: ThermoMicroscope, lock: Any):
         self._microscope = microscope
@@ -108,11 +106,46 @@ class AutoscriptFMChannel:
         return self.connection.detector.camera_settings
 
     def _is_ours(self) -> bool:
+        """Whether the connection is already pointed at the FM.
+
+        The view alone answers it, for the same reason only the view is captured and
+        restored: AutoScript documents ``set_active_device`` as changing the device
+        *in the active view*, so the device follows the view rather than varying under
+        it. One read, and deliberately not under the lock: taking the lock to find out
+        whether the lock is needed would defeat the point.
+        """
         return self.connection.imaging.get_active_view() == FM_ACTIVE_VIEW
 
     @contextmanager
     def scope(self) -> Iterator[None]:
-        """Hold the connection on the FM for the block, then put the view back."""
+        """Hold the connection on the FM for the block, then put the view back.
+
+        The FM and the beams are one connection with one active view and one active
+        device, so whoever sets it last owns it. A read that sets it and walks away
+        steals the microscope from whatever else is using it: the objective's state,
+        read on every stage poll for the overview's info bar, once left the connection
+        on the FM under a running beam acquisition (FIB-517). The view is what is
+        captured and put back, and that is enough: the device belongs to the view and
+        comes back with it.
+
+        The lock covers the bookkeeping only, and deliberately not the body. A scope
+        can span a whole tileset, and the lock is the microscope's ``_threading_lock``,
+        which every caller on the microscope shares, devices claiming
+        ``imaging_channel`` included; held for minutes it would block them all.
+
+        A depth count rather than a captured local, so the view is put back once, by
+        the outermost scope: a tileset holds the channel for the whole run, and each
+        tile's acquisition opens a scope inside it that must not restore the beam view
+        between tiles.
+
+        Nothing to change means nothing to lock. When the connection is already on the
+        FM there is no view to set and none to put back, so the scope does no work and
+        takes no lock. Live view re-takes this lock every frame with nothing between
+        iterations, and Python locks are not fair, so a waiter would be starved rather
+        than delayed: moving the objective while streaming was unusable for exactly
+        this reason. The fast path makes no writes to the channel, so it cannot leave
+        the connection where the next beam operation does not expect it.
+        """
         if self._depth == 0 and self._is_ours():
             yield
             return
@@ -121,6 +154,9 @@ class AutoscriptFMChannel:
             if self._depth == 0:
                 self._restore_view = self.connection.imaging.get_active_view()
             self.set_active_channel()
+            # Counted only once the channel is ours. A raise here comes out of
+            # ``__enter__``, so neither the block nor the ``finally`` runs; a depth
+            # left too high would mean no later scope restored the view again.
             self._depth += 1
         try:
             yield
