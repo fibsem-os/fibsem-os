@@ -31,6 +31,11 @@ part goes to its device:
 - the GIS has no keys; ``cryo_deposition_v2`` runs its sequence through the
   device's commands.
 
+Milling is a service, ``milling`` (``fibsem.services.drivers.demo.DemoMilling``),
+and the milling methods go to it (``ServiceMilling``): it mills with the shared demo
+code, and ``finish_milling`` puts the milling beam back as ``setup_milling`` found it.
+The run loop is still the shared demo code's.
+
 The shared code answers what the configuration alone does (the fitted parts, the
 stage's limits, the grid loader, ``plasma`` and the constant value lists), and runs
 imaging, the sample scene and milling, changing the beams only through
@@ -73,6 +78,8 @@ from fibsem.microscopes.simulator import (
     SimulatedFluorescenceMicroscope,
     initial_demo_parts,
 )
+from fibsem.services.drivers.demo import bind_demo_milling
+from fibsem.services.milling import ServiceMilling
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -150,6 +157,7 @@ DRIVER = DriverEntry(
 
 
 class DemoMicroscope(
+    ServiceMilling,
     DemoSession,
     DemoConfiguration,
     DemoImaging,
@@ -212,6 +220,7 @@ class DemoMicroscope(
                 **_routes("chamber_device", CHAMBER_COMMAND_ROUTES),
             }
         )
+        self.milling = bind_demo_milling(self)
 
     def _fm_devices(self) -> Dict[str, Device]:
         """The FM's devices, and ``fm`` as the FM API over them."""

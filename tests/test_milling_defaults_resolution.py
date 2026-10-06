@@ -39,10 +39,15 @@ def _owner(cls, name):
     return next(klass for klass in cls.__mro__ if name in vars(klass))
 
 
-def test_thermo_runs_the_base_milling_loop_and_resets_the_patterning_mode():
+def test_thermo_runs_the_base_milling_loop_and_finishes_through_its_service():
+    from fibsem.microscopes.autoscript import ThermoMilling
+    from fibsem.services.milling import ServiceMilling
+
     assert _owner(ThermoMicroscope, "run_milling") is FibsemMicroscope
-    assert _owner(ThermoMicroscope, "finish_milling") is ThermoMicroscope
-    assert _owner(ThermoMicroscope, "get_application_file") is ThermoMicroscope
+    assert _owner(ThermoMicroscope, "finish_milling") is ServiceMilling
+    # without a service, ThermoFisher's own finish, which resets the patterning mode
+    assert "finish_milling" in vars(ThermoMilling)
+    assert _owner(ThermoMicroscope, "get_application_file") is ThermoMilling
 
 
 def test_odemis_inherits_rather_than_borrows(odemis_cls):
@@ -51,9 +56,11 @@ def test_odemis_inherits_rather_than_borrows(odemis_cls):
     assert _owner(odemis_cls, "get_orientation") is FibsemMicroscope
 
 
-def test_demo_keeps_its_own_milling():
+def test_demo_keeps_its_own_run_loop_and_finishes_through_its_milling_service():
+    from fibsem.services.milling import ServiceMilling
+
     assert _owner(DemoMicroscope, "run_milling") is DemoMilling
-    assert _owner(DemoMicroscope, "finish_milling") is DemoMilling
+    assert _owner(DemoMicroscope, "finish_milling") is ServiceMilling
 
 
 def test_application_files_stay_off_the_base_class():
