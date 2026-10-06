@@ -8,19 +8,18 @@ to every frame before the user's own transform, as the old FM classes did.
 import numpy as np
 import pytest
 
-from fibsem.devices.drivers.fm import bind_fm_devices
+from fibsem.devices.drivers.demo import bind_demo_fm
 from fibsem.devices.fm import mount_transform_from_name, mount_transform_name
-from fibsem.fm.api import DeviceFluorescenceMicroscope
+from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import CameraImageTransform
-from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 
 FRAME = np.arange(6).reshape(2, 3)
 
 
 def _fm(mount=None):
     config = {"mount_transform": mount_transform_name(mount)} if mount else None
-    devices = bind_fm_devices(SimulatedFluorescenceMicroscope(), config=config)
-    return DeviceFluorescenceMicroscope(devices)
+    devices = bind_demo_fm(config=config)
+    return FluorescenceMicroscope(devices)
 
 
 def test_a_camera_is_mounted_straight_unless_its_configuration_says():
@@ -75,8 +74,7 @@ def test_an_unknown_name_says_what_it_could_be():
 
 
 def test_the_camera_takes_the_mount_from_the_fm_entrys_keys_and_ignores_the_rest():
-    devices = bind_fm_devices(
-        SimulatedFluorescenceMicroscope(),
+    devices = bind_demo_fm(
         config={"mount_transform": "flip-y", "port": 8001, "driver": "remote"},
     )
 
@@ -85,7 +83,6 @@ def test_the_camera_takes_the_mount_from_the_fm_entrys_keys_and_ignores_the_rest
 
 def test_the_demo_fm_takes_its_configuration_too():
     from fibsem import utils
-    from fibsem.devices.drivers.demo import bind_demo_fm
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     devices = bind_demo_fm(microscope, config={"mount_transform": "flip-x"})

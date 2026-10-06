@@ -563,8 +563,8 @@ def _cases(add):
         lambda fm: list(fm.filter_set.available_excitation_wavelengths),
         lambda d: filters(d).metadata_excitation_wavelength().choices,
     )
-    # The old filter set says fluorescence with the excitation wavelength, as the FM
-    # adapter (FMFilterSet) reads it: the multi-band filter.
+    # The old filter set says fluorescence with the excitation wavelength, which reads
+    # as the multi-band filter.
     add(
         "filter get emission",
         lambda fm: (

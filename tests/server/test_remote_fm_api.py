@@ -1,4 +1,4 @@
-"""Today's FM API over a simulated FM served on localhost: the calls the FM UI and
+"""Today's FM API over the Demo FM devices served on localhost: the calls the FM UI and
 workflows make answer as they do on a local FM, and read the FM's computer each time."""
 
 import time
@@ -13,7 +13,7 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
     DeviceClient,
     RemoteDeviceUnreachable,
 )
-from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
+from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402  # noqa: E402
 from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage  # noqa: E402
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
@@ -31,8 +31,8 @@ def served():
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
     fm = RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port, client=client)
     fm._served = local  # for the tests that check the far side's devices
-    # The simulated FM behind the served devices, as its computer would hold it.
-    far = local["fm"]._fm
+    # The FM API over the served devices, as the FM's computer would hold it.
+    far = FluorescenceMicroscope(local)
     yield far, fm
     client.close()
     server.stop()
@@ -371,7 +371,7 @@ def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
         power = fm.devices["light_source"].power
         assert power.cached == local["light_source"].power.get_value()  # primed
         fm.set_power(0.3)
-        assert local["fm"]._fm.light_source.power == 0.3
+        assert local["light_source"].power.get_value() == 0.3
         assert isinstance(fm.acquire_image(), FluorescenceImage)
     finally:
         client.close()
@@ -411,7 +411,7 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
         local = {d.name: d for d in demo_fm_devices()}
         server = DeviceServer(local.values(), port=port).start()
 
-        far = local["fm"]._fm
+        far = FluorescenceMicroscope(local)
         assert _wait_for(lambda: far.objective.limit_position == 0.004, timeout=10)
         assert fm.online
         assert fm.objective.limit_position == 0.004

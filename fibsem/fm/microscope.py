@@ -1,18 +1,55 @@
+"""The FM API: what the FM UI, acquisition and workflows call, over the FM's devices
+(``fibsem.devices.fm``), wherever the devices are.
+
+``FluorescenceMicroscope``'s parts forward to the FM's devices: the camera, light
+source, filter set and objective, and the ``fm`` group that runs a channel. It doesn't
+know which driver built them, or whether they run in this process or on another
+computer:
+
+- the Demo's FM is this over the Demo FM devices (``fibsem.devices.drivers.demo``);
+- the Thermo and Odemis FMs add their hardware's extras (``fibsem.fm.autoscript``,
+  ``fibsem.fm.odemis``);
+- ``RemoteFluorescenceMicroscope`` (``fibsem.fm.remote``) is this over remote devices,
+  plus connecting to their server.
+
+Every property is a live read, or a write through the old API path
+(``write_through``): nothing is cached behind the caller's back, so a guard reading
+``fm.objective.state`` asks the device, and a remote one fails closed with
+``RemoteDeviceUnreachable`` when its server can't be reached. Acquiring a channel is
+one command on the ``fm`` group, run next to the hardware.
+
+What belongs to the session rather than the hardware stays here: the objective's
+saved focus position, the channel name and colour, and the image transform.
+"""
+
 from __future__ import annotations
 
 import logging
 import threading
-from abc import ABC
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Literal, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 from psygnal import Signal
 
-from fibsem.fm.progress import FluorescenceAcquisitionProgress
+from fibsem.fm.progress import (
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
 from fibsem.fm.structures import (
+    REFLECTION,
     CameraImageTransform,
     ChannelSettings,
     EmissionFilter,
@@ -20,17 +57,42 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
     ObjectiveStateName,
+    ZParameters,
+    ZStackOrder,
     emission_filter_for,
+    objective_state_name,
+    same_emission_value,
 )
 
 if TYPE_CHECKING:
+    from fibsem.devices.core import BoundParameter, Device
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import FibsemStagePosition
 
 RATE_LIMIT_DEFAULT = 0.05  # seconds between updates
 
+FM_DEVICE_NAMES = ("fm", "camera", "light_source", "filter_set", "objective")
+"""The devices an FM is made of: the four parts and the group."""
 
-class ObjectiveLens(ABC):
+
+def _param(device: Device, name: str) -> BoundParameter:
+    """A part's parameter, failing closed while a remote part's server has never
+    answered.
+
+    A remote part built offline has no parameters yet, so a guard reading
+    ``fm.objective.state`` gets the same ``RemoteDeviceUnreachable`` as one whose
+    server went away later, not an ``AttributeError`` that reads like a missing
+    feature. A local part is always online.
+    """
+    if not getattr(device, "online", True):
+        from fibsem.devices.drivers.remote import RemoteDeviceUnreachable
+
+        raise RemoteDeviceUnreachable(
+            f"{device.name} at {device.client.base_url} has not connected yet"
+        )
+    return getattr(device, name)
+
+
+class ObjectiveLens:
     # Raised after the objective moves, carrying position (metres) and state, so a
     # display can refresh instead of polling the device for numbers it mostly does not
     # need (FIB-534). On a TFS system each such read takes the shared imaging channel,
@@ -63,7 +125,7 @@ class ObjectiveLens(ABC):
 
     Its position, magnification and numerical aperture, and moving it, inserting it and
     retracting it; each implementation answers them from its own hardware (the FM
-    devices, ``fibsem.fm.api``, or the simulated FM, ``fibsem.microscopes.simulator``).
+    devices, ``fibsem.fm.microscope``, or the simulated FM, ``fibsem.microscopes.simulator``).
     The saved focus position is the session's, not the hardware's, so it is kept here.
 
     Attributes:
@@ -77,12 +139,19 @@ class ObjectiveLens(ABC):
     microscope refuses a height or tilt change, and a move that sends them anyway
     half-succeeds. A driver whose objective differs overrides this."""
 
-    def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
+    def __init__(
+        self,
+        device: Optional[Device] = None,
+        parent: Optional["FluorescenceMicroscope"] = None,
+    ):
         """Args:
+        device: The objective device; a subclass that keeps its own state (the legacy
+            simulator) passes none and overrides what reads it.
         parent: Optional parent fluorescence microscope instance
         """
         self.parent = parent
-        self._focus_position: Optional[float] = None
+        self._device = device
+        self._focus_position: Optional[float] = None  # a session setting, kept here
 
     def _notify_moved(self) -> None:
         """Announce where the objective ended up, for displays to refresh on (FIB-534).
@@ -128,17 +197,17 @@ class ObjectiveLens(ABC):
     @property
     def magnification(self) -> float:
         """The magnification of the objective lens (e.g. 100.0 for 100x)."""
-        raise NotImplementedError
+        return _param(self._device, "magnification").get_value()
 
     @property
     def numerical_aperture(self) -> float:
         """The numerical aperture of the objective lens."""
-        raise NotImplementedError
+        return _param(self._device, "numerical_aperture").get_value()
 
     @property
     def position(self) -> float:
         """The objective's z position, in metres (negative = retracted)."""
-        raise NotImplementedError
+        return _param(self._device, "position").get_value()
 
     @property
     def focus_position(self) -> Optional[float]:
@@ -171,224 +240,270 @@ class ObjectiveLens(ABC):
     @property
     def limit_position(self) -> float:
         """The user-defined z position limit of the objective lens, in metres."""
-        raise NotImplementedError
+        return _param(self._device, "limit_position").get_value()
 
     @limit_position.setter
-    def limit_position(self, position: float):
-        raise NotImplementedError
-
-    def move_relative(self, delta: float):
-        """Move the objective by ``delta`` metres (positive = towards the sample).
-
-        Every implementation announces the move (``_notify_moved``)."""
-        raise NotImplementedError
-
-    def move_absolute(self, position: float):
-        """Move the objective to ``position`` metres, announcing the move."""
-        raise NotImplementedError
-
-    def insert(self):
-        """Insert the objective into its working position, for imaging."""
-        raise NotImplementedError
-
-    def retract(self):
-        """Retract the objective to a safe position away from the sample."""
-        raise NotImplementedError
+    def limit_position(self, position: float) -> None:
+        _param(self._device, "limit_position").write_through(position)
 
     @property
     def limits(self) -> Tuple[float, float]:
         """The objective's (minimum, maximum) z positions, in metres."""
-        raise NotImplementedError
+        limits = _param(self._device, "position").limits
+        return (limits.min, limits.max)
 
     @property
     def state(self) -> ObjectiveStateName:
         """The objective's state ('Inserted', 'Retracted', 'Busy', 'Error', ...)."""
-        raise NotImplementedError
+        return objective_state_name(_param(self._device, "state").get_value())
+
+    # Every move announces itself (`_notify_moved`); insert and retract do unless the
+    # driver says nothing moved.
+
+    def move_relative(self, delta: float) -> None:
+        """Move the objective by ``delta`` metres (positive = towards the sample)."""
+        self._device.move_relative(delta)
+        self._notify_moved()
+
+    def move_absolute(self, position: float) -> None:
+        """Move the objective to ``position`` metres."""
+        self._device.move_absolute(position)
+        self._notify_moved()
+
+    def insert(self) -> None:
+        """Insert the objective into its working position, for imaging."""
+        if self._device.insert() is not False:
+            self._notify_moved()
+
+    def retract(self) -> None:
+        """Retract the objective to a safe position away from the sample."""
+        if self._device.retract() is not False:
+            self._notify_moved()
 
 
-class Camera(ABC):
-    """The FM API's camera: acquiring a frame, and its exposure, binning, gain and
-    offset. Pixel size and resolution are as binned."""
+class Camera:
+    """The FM API's camera, over the camera device: acquiring a frame, and its
+    exposure, binning, gain and offset. Pixel size and resolution are as binned.
 
-    def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
-        """Args:
-        parent: Optional parent fluorescence microscope instance
-        """
+    A camera without a gain control (a driver that offers no ``gain``) reads its gain
+    as None and ignores a write, warning once."""
+
+    def __init__(
+        self,
+        device: Optional[Device] = None,
+        parent: Optional["FluorescenceMicroscope"] = None,
+    ):
         self.parent = parent
-        super().__init__()
+        self._device = device
+        self._gain_warning_logged = False
+
+    def _has_no_gain(self) -> bool:
+        # An offline remote camera has no parameters yet; reading it fails closed.
+        return getattr(self._device, "online", True) and (
+            "gain" not in self._device.parameters
+        )
 
     def acquire_image(self) -> np.ndarray:
-        """Acquire a single frame from the camera, as a 16-bit array."""
-        raise NotImplementedError
+        return self._device.acquire()
 
     @property
     def exposure_time(self) -> float:
-        """The exposure time, in seconds."""
-        raise NotImplementedError
+        return _param(self._device, "exposure_time").get_value()
 
     @exposure_time.setter
-    def exposure_time(self, value: float):
-        raise NotImplementedError
+    def exposure_time(self, value: float) -> None:
+        _param(self._device, "exposure_time").write_through(value)
 
     @property
     def binning(self) -> int:
-        """The binning factor (1 = no binning, 2 = 2x2 binning, ...)."""
-        raise NotImplementedError
+        return _param(self._device, "binning").get_value()
 
     @binning.setter
-    def binning(self, value: int):
-        raise NotImplementedError
+    def binning(self, value: int) -> None:
+        _param(self._device, "binning").write_through(value)
 
     @property
     def available_binnings(self) -> Tuple[int, ...]:
-        """The binning factors the camera supports."""
-        raise NotImplementedError
+        return tuple(_param(self._device, "binning").choices or ())
 
     @property
     def exposure_time_limits(self) -> Tuple[float, float]:
-        """The (minimum, maximum) exposure times, in seconds."""
-        raise NotImplementedError
+        limits = _param(self._device, "exposure_time").limits
+        return (limits.min, limits.max)
 
     @property
-    def gain(self) -> float:
-        """The gain, as a fraction of the camera's maximum."""
-        raise NotImplementedError
+    def gain(self) -> Optional[float]:
+        if self._has_no_gain():
+            return None
+        return _param(self._device, "gain").get_value()
 
     @gain.setter
-    def gain(self, value: float):
-        raise NotImplementedError
+    def gain(self, value: float) -> None:
+        if self._has_no_gain():
+            if not self._gain_warning_logged:
+                logging.warning("Camera has no gain control; ignoring gain settings.")
+                self._gain_warning_logged = True
+            return
+        _param(self._device, "gain").write_through(value)
 
     @property
     def gain_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
-        """What a gain of 1 is in the camera's own units, as (value, unit), when the
-        driver knows; None when the camera's gain is a fraction itself."""
-        return None
+        return _native_scale(self._device, "gain")
 
     @property
     def offset(self) -> float:
-        """The offset (baseline signal level)."""
-        raise NotImplementedError
+        return _param(self._device, "offset").get_value()
 
     @offset.setter
-    def offset(self, value: float):
-        raise NotImplementedError
+    def offset(self, value: float) -> None:
+        _param(self._device, "offset").write_through(value)
 
     @property
     def pixel_size(self) -> Tuple[float, float]:
-        """The (x, y) pixel size in metres, as binned."""
-        raise NotImplementedError
+        return tuple(_param(self._device, "pixel_size").get_value())
 
     @property
     def resolution(self) -> Tuple[int, int]:
-        """The (width, height) image size in pixels, as binned."""
-        raise NotImplementedError
+        return tuple(_param(self._device, "resolution").get_value())
 
     @property
     def field_of_view(self) -> Tuple[float, float]:
-        """Get the effective field of view in meters accounting for binning.
-
-        Returns:
-            A tuple of (width, height) in meters
-        """
+        """The (width, height) field of view in metres, as binned."""
         return (
             self.pixel_size[0] * self.resolution[0],
             self.pixel_size[1] * self.resolution[1],
         )
 
 
-class LightSource(ABC):
-    """The FM API's light source: its power, as a fraction of full power."""
+def _native_scale(device: Device, name: str) -> Optional[Tuple[float, Optional[str]]]:
+    """A fraction parameter's full scale in hardware units, when the driver gives it."""
+    if name not in device.parameters:
+        return None
+    metadata = _param(device, name).metadata
+    if metadata.native_max is None:
+        return None
+    return (metadata.native_max, metadata.native_unit)
 
-    def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
-        """Args:
-        parent: Optional parent fluorescence microscope instance
-        """
+
+class LightSource:
+    """The FM API's light source, over its device: the power, as a fraction of
+    full power on every driver; hardware units are the driver's to convert."""
+
+    def __init__(
+        self,
+        device: Optional[Device] = None,
+        parent: Optional["FluorescenceMicroscope"] = None,
+    ):
         self.parent = parent
-        super().__init__()
+        self._device = device
 
     @property
     def power(self) -> float:
-        """The power, as a fraction of full power."""
-        raise NotImplementedError
+        return _param(self._device, "power").get_value()
 
     @power.setter
-    def power(self, value: float):
-        raise NotImplementedError
+    def power(self, value: float) -> None:
+        _param(self._device, "power").write_through(value)
 
     @property
     def power_limits(self) -> Tuple[float, float]:
-        """Get the valid power range for the light source.
-
-        Power is expressed as a fraction of maximum power (0-1) across all
-        drivers; hardware units are normalised inside each driver.
-
-        Returns:
-            A tuple of (minimum, maximum) power levels
-        """
-        return (0.0, 1.0)
+        limits = _param(self._device, "power").limits
+        return (limits.min, limits.max)
 
     @property
     def power_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
-        """What full power is in the light's own units, as (value, unit), when the
-        driver knows; None when the light's power is a fraction itself."""
+        return _native_scale(self._device, "power")
+
+
+def _old_emission_value(found: EmissionFilter) -> Optional[Union[float, str]]:
+    if found == REFLECTION:
         return None
+    return found.name if found.low is None else found.low
 
 
-class FilterSet(ABC):
-    """The FM API's filter set: the excitation wavelength and the emission filter.
+def emission_filter_named(
+    value: Optional[Union[float, str]], filters: Sequence[EmissionFilter]
+) -> EmissionFilter:
+    """The filter among ``filters`` that today's emission value names.
 
-    An emission filter is named by one value: None for reflection, a label for a
-    multi-band filter, or the band's bottom edge in nm.
+    ``None`` is reflection. A label is the filter of that name, or else the multi-band
+    filter, as the FM classes take any label to mean fluorescence. A number is the
+    band whose bottom edge is closest, as on Odemis; a filter set with no bands (Thermo,
+    the simulator) has only its multi-band filter, which is what Thermo reports a
+    number as.
     """
+    multi_band = [f for f in filters if f != REFLECTION and f.low is None]
+    if value is None:
+        matches = [f for f in filters if f == REFLECTION]
+    elif isinstance(value, str):
+        matches = [f for f in filters if f.name == value] or multi_band
+    else:
+        banded = [f for f in filters if f.low is not None]
+        matches = sorted(banded, key=lambda f: abs(f.low - value))[:1] or multi_band
+    if not matches:
+        raise ValueError(f"No emission filter for {value!r}")
+    return matches[0]
 
-    def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
-        """Args:
-        parent: Optional parent fluorescence microscope instance
-        """
+
+class FilterSet:
+    """The FM API's filter set, over its device: the excitation wavelength and
+    the emission filter. An emission filter is named by one value: None for
+    reflection, a label for a multi-band filter, or the band's bottom edge in nm."""
+
+    def __init__(
+        self,
+        device: Optional[Device] = None,
+        parent: Optional["FluorescenceMicroscope"] = None,
+    ):
         self.parent = parent
-        super().__init__()
+        self._device = device
 
     @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
-        """The excitation wavelengths the filter set offers, in nm."""
-        raise NotImplementedError
+        return tuple(_param(self._device, "excitation_wavelength").choices or ())
+
+    # Today's API names a filter by one value: None for reflection, a label for a
+    # multi-band filter, or the band's bottom edge in nm.
 
     @property
     def available_emission_wavelengths(self) -> Tuple[Union[None, str, float], ...]:
-        """The emission filters the filter set offers, each named by its value
-        (None for reflection)."""
-        raise NotImplementedError
+        return tuple(_old_emission_value(f) for f in self._emission_filters())
+
+    def _emission_filters(self) -> Tuple[EmissionFilter, ...]:
+        return tuple(_param(self._device, "emission_filter").choices or ())
+
+    def emission_filter(self, value: Optional[Union[float, str]]) -> EmissionFilter:
+        for found in self._emission_filters():
+            if same_emission_value(_old_emission_value(found), value):
+                return found
+        return emission_filter_for(value, {})
 
     @property
     def excitation_wavelength(self) -> float:
-        """The excitation wavelength, in nm."""
-        raise NotImplementedError
+        return _param(self._device, "excitation_wavelength").get_value()
 
     @excitation_wavelength.setter
-    def excitation_wavelength(self, value: float):
-        raise NotImplementedError
+    def excitation_wavelength(self, value: float) -> None:
+        _param(self._device, "excitation_wavelength").write_through(value)
 
     @property
     def emission_wavelength(self) -> Optional[Union[float, str]]:
-        """The emission filter, by its value (None for reflection)."""
-        raise NotImplementedError
+        return _old_emission_value(_param(self._device, "emission_filter").get_value())
 
     @emission_wavelength.setter
-    def emission_wavelength(self, value: Optional[Union[float, str]]):
-        raise NotImplementedError
-
-    def emission_filter(self, value: Optional[Union[float, str]]) -> EmissionFilter:
-        """The filter an emission value names, with its band's edges when this filter
-        set knows them (``emission_bands``), for showing it by name and band."""
-        return emission_filter_for(value, getattr(self, "emission_bands", {}))
+    def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
+        found = emission_filter_named(value, self._emission_filters())
+        _param(self._device, "emission_filter").write_through(found)
 
 
-class FluorescenceMicroscope(ABC):
-    """Abstract base class for fluorescence microscope control.
+class FluorescenceMicroscope:
+    """The FM API, over the FM's devices (``fibsem.devices.fm``), local or remote.
 
-    Provides a unified interface for controlling all aspects of fluorescence microscopy
-    including objective lens, camera, light source, and filter sets. Supports both
-    single image acquisition and live/continuous acquisition modes.
+    What the FM UI, acquisition and workflows call: the objective, filter set, camera
+    and light source, single images, z-stacks and live view. Each part forwards to its
+    device, and acquiring a channel is one command on the ``fm`` group, run next to the
+    hardware. Backends add only what their hardware needs on top (the Thermo FM's
+    shared channel, Odemis's filter bands, a remote FM's connection).
 
     Attributes:
         objective: The objective lens controller
@@ -441,16 +556,20 @@ class FluorescenceMicroscope(ABC):
     # (FIB-521). Same threading contract as the signals above.
     transform_changed = Signal(object)  # CameraImageTransform
 
-    def __init__(self, parent: Optional["FibsemMicroscope"] = None):
-        """Each implementation sets its parts (``objective``, ``filter_set``,
-        ``camera``, ``light_source``) after this.
-
-        Args:
-            parent: Optional parent FibsemMicroscope instance for stage access
+    def __init__(
+        self,
+        devices: Optional[Dict[str, Device]] = None,
+        parent: Optional["FibsemMicroscope"] = None,
+    ):
+        """Args:
+        devices: The FM's devices by name (``FM_DEVICE_NAMES``). The legacy
+            simulated FM passes none and sets its own parts.
+        parent: Optional parent FibsemMicroscope instance for stage access
         """
         super().__init__()
 
         self.parent = parent
+        self.devices = devices
 
         # per-instance acquisition state (previously shared class attributes)
         self._stop_acquisition_event = threading.Event()
@@ -463,6 +582,11 @@ class FluorescenceMicroscope(ABC):
 
         self.channel_name: str = "channel-01"
         self.channel_color: str = "gray"
+        if devices is not None:
+            self.objective = ObjectiveLens(devices["objective"], parent=self)
+            self.camera = Camera(devices["camera"], parent=self)
+            self.light_source = LightSource(devices["light_source"], parent=self)
+            self.filter_set = FilterSet(devices["filter_set"], parent=self)
         self._last_updated_at: Optional[datetime] = datetime.now()
         self._rate_limit = RATE_LIMIT_DEFAULT  # seconds between updates
         self._transform: Optional[CameraImageTransform] = (
@@ -808,18 +932,17 @@ class FluorescenceMicroscope(ABC):
 
     @property
     def mount_transform(self) -> CameraImageTransform:
-        """Fixed correction from raw sensor axes to stage-aligned axes.
+        """How the camera is mounted, as its device reports it, so an FM on another
+        computer brings its own. A camera without the parameter (a server from before
+        it) is mounted straight, as every FM was. Read once and kept: every frame
+        uses it, and a mount does not change."""
+        # Here rather than at the top: fibsem.devices.fm imports fibsem.fm.
+        from fibsem.devices.fm import mount_transform_from_name
 
-        Hardware truth about how the camera is mounted, not a user preference: it
-        is applied before the user's ``CameraImageTransform`` so that every
-        consumer (display, correlation, saved data, movement) sees one consistently
-        oriented image, and so that movement needs only the user transform.
-
-        Defaults to no correction; drivers override per system. The value is
-        determined by observing which stage axis a feature travels along in the
-        FM view.
-        """
-        return CameraImageTransform.NONE
+        camera = self.devices["camera"]
+        if "mount_transform" not in camera.parameters:
+            return CameraImageTransform.NONE
+        return mount_transform_from_name(_param(camera, "mount_transform").cached)
 
     @staticmethod
     def _transform_array(
@@ -853,26 +976,17 @@ class FluorescenceMicroscope(ABC):
     def acquire_image(
         self, channel_settings: Optional[ChannelSettings] = None
     ) -> FluorescenceImage:
-        """Acquire a single fluorescence image.
-
-        Args:
-            channel_settings: Optional channel configuration. If provided,
-                            the microscope will be reconfigured before acquisition.
-
-        Returns:
-            A FluorescenceImage object containing the image data and metadata
-        """
+        """One command on the ``fm`` group sets up the channel and takes the frame,
+        with what it was taken with, so building the image needs no further reads."""
         with self.active_channel():
+            channel = None
             if channel_settings is not None:
-                self.set_channel(channel_settings)
-            data = self.camera.acquire_image()
-            # Inside the scope, not after it. `_construct_image` looks like formatting
-            # but calls `get_metadata`, which reads 14 device properties that each take
-            # the channel themselves -- outside, that is 56 round trips and 28 changes
-            # of the microscope's active view per image, and the metadata would then
-            # describe the state *after* the channel had been handed back rather than
-            # the one the frame was taken under.
-            return self._construct_image(data)
+                # The name and colour are this session's labels, not hardware.
+                self.channel_name = channel_settings.name
+                self.channel_color = channel_settings.color
+                channel = channel_settings.to_dict()
+            frame = self.devices["fm"].acquire_frame(channel)
+            return self._construct_image(frame.data, frame.metadata)
 
     def _construct_image(
         self, data: np.ndarray, frame_metadata: Optional[dict] = None
@@ -906,29 +1020,62 @@ class FluorescenceMicroscope(ABC):
 
         return img
 
-    def frame_metadata_of(self, data: np.ndarray) -> Optional[dict]:
-        """What the driver stamped on a frame at exposure time, in the keys
-        ``_construct_image`` takes, or None when it stamps nothing."""
-        return None
-
     def _metadata_for_frame(
         self, frame_metadata: Optional[dict]
     ) -> FluorescenceImageMetadata:
-        """The image's metadata: the current state, with what the driver reported for
-        the frame itself in place of it."""
-        md = self.get_metadata()
+        """Built from what the ``fm`` group reported with the frame. Anything it didn't
+        report (a server from before ``acquire_frame``) is read live, as before."""
+        frame = frame_metadata or {}
 
-        if frame_metadata:
-            pixel_size = frame_metadata.get("pixel_size")
-            if pixel_size is not None:
-                md.pixel_size_x, md.pixel_size_y = pixel_size[0], pixel_size[1]
-            acquisition_date = frame_metadata.get("acquisition_date")
-            if acquisition_date is not None:
-                md.acquisition_date = acquisition_date
-            exposure_time = frame_metadata.get("exposure_time")
-            if exposure_time is not None and md.channels:
-                md.channels[0].exposure_time = exposure_time
-        return md
+        def reported(key: str, read: Callable[[], Any]) -> Any:
+            return frame[key] if key in frame else read()
+
+        if "emission_filter" in frame:
+            emission = _old_emission_value(
+                EmissionFilter.from_dict(frame["emission_filter"])
+            )
+        else:
+            emission = self.filter_set.emission_wavelength
+        camera, objective = self.camera, self.objective
+        channel = FluorescenceChannelMetadata(
+            name=self.channel_name,
+            color=self.channel_color,
+            excitation_wavelength=reported(
+                "excitation_wavelength",
+                lambda: self.filter_set.excitation_wavelength,
+            ),
+            emission_wavelength=emission,
+            power=reported("power", lambda: self.light_source.power),
+            exposure_time=reported("exposure_time", lambda: camera.exposure_time),
+            gain=reported("gain", lambda: camera.gain),
+            offset=reported("offset", lambda: camera.offset),
+            binning=reported("binning", lambda: camera.binning),
+            objective_position=reported(
+                "objective_position", lambda: objective.position
+            ),
+            objective_magnification=reported(
+                "objective_magnification", lambda: objective.magnification
+            ),
+            objective_numerical_aperture=reported(
+                "objective_numerical_aperture", lambda: objective.numerical_aperture
+            ),
+        )
+        pixel_size = reported("pixel_size", lambda: camera.pixel_size)
+        resolution = reported("resolution", lambda: camera.resolution)
+        parent = self.parent
+        # The coordinator's own state, as `get_metadata` stamps it.
+        return FluorescenceImageMetadata(
+            acquisition_date=reported(
+                "acquisition_date", lambda: datetime.now().isoformat()
+            ),
+            pixel_size_x=pixel_size[0],
+            pixel_size_y=pixel_size[1],
+            resolution=(resolution[0], resolution[1]),
+            stage_position=parent.get_stage_position() if parent else None,
+            geometry=parent.fm_image_geometry() if parent else None,
+            experiment=deepcopy(parent.experiment) if parent else None,
+            channels=[channel],
+        )
 
     def get_metadata(self) -> FluorescenceImageMetadata:
         """Generate comprehensive metadata for the current microscope state.
@@ -1032,34 +1179,102 @@ class FluorescenceMicroscope(ABC):
             # not stopped yet must not be announced as stopped.
             self.acquiring_changed.emit(self.is_acquiring)
 
-    def _acquisition_worker(self, channel_settings: Optional[ChannelSettings] = None):
-        """Internal worker thread for continuous image acquisition.
+    @property
+    def runs_z_stack_on_device(self) -> bool:
+        """Whether a z-stack is one command on the ``fm`` group: when the group runs
+        on another computer and has the command. A local FM runs it step by step, so
+        each slice is shown as it arrives."""
+        group = self.devices["fm"]
+        return getattr(group, "runs_elsewhere", False) and (
+            "acquire_z_stack" in getattr(group, "server_commands", group.commands)
+        )
 
-        Runs in a separate thread to continuously acquire images and emit them
-        via the acquisition_signal until stop_acquisition() is called.
+    def acquire_z_stack_on_device(
+        self,
+        channel_settings: Union[ChannelSettings, List[ChannelSettings]],
+        zparams: ZParameters,
+        stop_event: Optional[threading.Event] = None,
+    ) -> Optional[FluorescenceImage]:
+        """``fibsem.fm.acquisition.acquire_z_stack`` as one ``fm`` group command:
+        the same positions, order, progress and cancelling, with the frames coming
+        back together at the end."""
+        group = self.devices["fm"]
+        channels = (
+            channel_settings
+            if isinstance(channel_settings, list)
+            else [channel_settings]
+        )
+        with self.active_channel():
+            z_init = self.objective.position
+            positions = [float(z) for z in zparams.generate_positions(z_init=z_init)]
+            order = "z" if zparams.order == ZStackOrder.Z_LEVEL else "channel"
 
-        Args:
-            channel_settings: Optional channel configuration to apply
+            def on_changed(name: str, value: Any) -> None:
+                if name != "progress" or not value:
+                    return
+                self.acquisition_progress_signal.emit(
+                    FluorescenceAcquisitionProgress(
+                        status=FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK,
+                        **value,
+                    )
+                )
 
-        Note:
-            This is an internal method and should not be called directly.
-            Use start_acquisition() instead.
-        """
-        # TODO: add thread lock for thread safety
+            done = threading.Event()
+
+            def watch_for_stop() -> None:
+                while not done.wait(0.1):
+                    if stop_event.is_set():
+                        group.cancel()
+                        return
+
+            group.changed.connect(on_changed)
+            if stop_event is not None:
+                threading.Thread(
+                    target=watch_for_stop, name="fm-z-stack-stop", daemon=True
+                ).start()
+            try:
+                frames = group.acquire_z_stack(
+                    channels=[ch.to_dict() for ch in channels],
+                    positions=positions,
+                    order=order,
+                    restore_position=z_init,
+                )
+            finally:
+                done.set()
+                group.changed.disconnect(on_changed)
+            # The objective moved on the FM's side; announce where it ended up.
+            self.objective._notify_moved()
+            if not frames:
+                logging.info("Z-stack acquisition cancelled")
+                return None
+
+            images: List[FluorescenceImage] = []
+            n = len(positions)
+            for i, ch in enumerate(channels):
+                self.channel_name, self.channel_color = ch.name, ch.color
+                planes = [
+                    self._construct_image(frame.data, frame.metadata)
+                    for frame in frames[i * n : (i + 1) * n]
+                ]
+                images.append(FluorescenceImage.create_z_stack(planes))
+            return FluorescenceImage.create_multi_channel_image(images)
+
+    def _acquisition_worker(
+        self, channel_settings: Optional[ChannelSettings] = None
+    ) -> None:
+        """Live view, pulled: the ``fm`` group keeps the hardware acquiring, and each
+        frame is one `acquire_image` with the current settings. Stopping, or this
+        process going away, ends it; the group stops by itself if no frame is asked
+        for in its ``live_timeout``."""
+        group = self.devices["fm"]
         try:
             if channel_settings is not None:
                 self.set_channel(channel_settings)
-            logging.info("Starting acquisition worker thread.")
-            while True:
-                if self._stop_acquisition_event.is_set():
-                    break
-
-                if hasattr(self.camera, "_start_fast_acquisition"):
-                    self.camera._start_fast_acquisition()  # type: ignore
-                    break
-
-                # acquire and emit image using current settings
-                self.acquire_image()
-
+            group.start_live()
+            try:
+                while not self._stop_acquisition_event.is_set():
+                    self.acquire_image()
+            finally:
+                group.stop_live()
         except Exception as e:
             logging.error(f"Error in acquisition worker: {e}")

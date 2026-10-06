@@ -18,10 +18,10 @@ from autoscript_sdb_microscope_client.structures import (  # noqa: F401 (the dri
     GrabFrameSettings,
 )
 
-from fibsem.fm.api import (
-    DeviceFilterSet,
-    DeviceFluorescenceMicroscope,
-    DeviceObjectiveLens,
+from fibsem.fm.microscope import (
+    FilterSet,
+    FluorescenceMicroscope,
+    ObjectiveLens,
 )
 from fibsem.fm.structures import REFLECTION
 
@@ -91,7 +91,7 @@ HFW = 150e-6  # Horizontal field width for ARCTIS (diagonal)
 IFLM_HFW = 500e-6  # Horizontal field width for iFlm
 
 
-class DeviceThermoFisherObjectiveLens(DeviceObjectiveLens):
+class DeviceThermoFisherObjectiveLens(ObjectiveLens):
     """The FM API's objective over the Thermo objective device, with what the old
     Thermo objective added: its configured focus position, and homing."""
 
@@ -110,7 +110,7 @@ class DeviceThermoFisherObjectiveLens(DeviceObjectiveLens):
         self._notify_moved()
 
 
-class DeviceThermoFisherFilterSet(DeviceFilterSet):
+class DeviceThermoFisherFilterSet(FilterSet):
     """The FM API's filter set over the Thermo filter set device. Thermo names its
     multi-band fluorescence filter by the excitation wavelength, as the old filter set
     did, where the other drivers name it "Fluorescence"."""
@@ -123,10 +123,10 @@ class DeviceThermoFisherFilterSet(DeviceFilterSet):
 
     @emission_wavelength.setter
     def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
-        DeviceFilterSet.emission_wavelength.fset(self, value)
+        FilterSet.emission_wavelength.fset(self, value)
 
 
-class DeviceThermoFisherFluorescenceMicroscope(DeviceFluorescenceMicroscope):
+class DeviceThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
     """The FM API over the Thermo FM devices (``fibsem.devices.drivers.autoscript_fm``).
 
     What the old ``ThermoFisherFluorescenceMicroscope`` did, through its devices: the channel

@@ -14,9 +14,10 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
+from fibsem.devices.drivers.demo import bind_demo_fm  # noqa: E402
 from fibsem.devices.drivers.remote import DeviceClient  # noqa: E402
 from fibsem.fm.acquisition import acquire_z_stack  # noqa: E402
-from fibsem.fm.api import DeviceFluorescenceMicroscope  # noqa: E402
+from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
 from fibsem.fm.progress import FluorescenceAcquisitionStatus  # noqa: E402
 from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import (  # noqa: E402
@@ -38,7 +39,7 @@ ZPARAMS = ZParameters(zmin=-1e-6, zmax=1e-6, zstep=1e-6)  # 3 planes
 @pytest.fixture
 def served():
     far = {d.name: d for d in demo_fm_devices()}
-    far["fm"]._fm.camera.binning = 8  # small frames, so each stack is quick
+    far["camera"].binning.set_value(8)  # small frames, so each stack is quick
     server = DeviceServer(far.values()).start()
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
     fm = RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port, client=client)
@@ -63,14 +64,14 @@ def _commands(client, monkeypatch):
 
 def _far_moves(far, monkeypatch):
     moves = []
-    objective = far["fm"]._fm.objective
-    move = objective.move_absolute
+    objective = far["objective"]
+    move = objective._move_absolute
 
     def recording(position):
         moves.append(round(position, 12))
         return move(position)
 
-    monkeypatch.setattr(objective, "move_absolute", recording)
+    monkeypatch.setattr(objective, "_move_absolute", recording)
     return moves
 
 
@@ -107,7 +108,8 @@ def test_each_plane_says_where_it_was_taken(served):
 
     assert stack.data.shape[:2] == (1, 3)
     assert stack.metadata.channels[0].exposure_time == pytest.approx(0.01)
-    assert stack.metadata.channels[0].excitation_wavelength == pytest.approx(488)
+    # 488 nm is the nearest band the filter set has, as on the hardware.
+    assert stack.metadata.channels[0].excitation_wavelength == pytest.approx(450)
     assert np.isfinite(stack.data).all()
     assert len(positions) == 3
 
@@ -200,45 +202,38 @@ def test_the_group_command_falls_back_to_steps_on_a_server_without_it(
 
 def test_a_local_fm_still_runs_the_stack_step_by_step():
     """Each slice is shown as it arrives, as before: no command for a local FM."""
-    from fibsem.devices.drivers.fm import bind_fm_devices
-    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
-
-    fm = DeviceFluorescenceMicroscope(
-        bind_fm_devices(SimulatedFluorescenceMicroscope())
-    )
+    fm = FluorescenceMicroscope(bind_demo_fm())
     assert not fm.runs_z_stack_on_device
 
 
 def test_the_group_command_takes_the_steps_the_api_takes():
     """The same moves and frames, in the same order, as the step-by-step stack."""
-    from fibsem.devices.drivers.fm import bind_fm_devices
-    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 
-    def record(fm_class_run):
-        sim = SimulatedFluorescenceMicroscope()
-        sim.camera.binning = 8  # small frames, so each stack is quick
-        devices = bind_fm_devices(sim)
+    def record(run):
+        devices = bind_demo_fm()
+        devices["camera"].binning.set_value(8)  # small frames, so each stack is quick
         steps = []
-        move, acquire = sim.objective.move_absolute, sim.acquire_image
-        sim.objective.move_absolute = lambda z: (
+        objective, group = devices["objective"], devices["fm"]
+        move, acquire = objective._move_absolute, group._acquire_channel
+        objective._move_absolute = lambda z: (
             steps.append(("move", round(z, 12))),
             move(z),
         )[1]
-        sim.acquire_image = lambda ch=None: (
-            steps.append(("frame", ch.name if ch else None)),
+        group._acquire_channel = lambda ch=None: (
+            steps.append(("frame", ch["name"] if ch else None)),
             acquire(ch),
         )[1]
-        fm_class_run(devices)
+        run(devices)
         return steps
 
     for order in (ZStackOrder.CHANNEL, ZStackOrder.Z_LEVEL):
         zparams = ZParameters(zmin=-1e-6, zmax=1e-6, zstep=1e-6, order=order)
 
         def step_by_step(devices):
-            acquire_z_stack(DeviceFluorescenceMicroscope(devices), CHANNELS, zparams)
+            acquire_z_stack(FluorescenceMicroscope(devices), CHANNELS, zparams)
 
         def one_command(devices):
-            fm = DeviceFluorescenceMicroscope(devices)
+            fm = FluorescenceMicroscope(devices)
             z_init = fm.objective.position
             devices["fm"].acquire_z_stack(
                 channels=[c.to_dict() for c in CHANNELS],

@@ -366,7 +366,7 @@ def _part_cases():
     for nm in (None, 420.0, 500.0, 680.0):
 
         def new(d, nm=nm):
-            from fibsem.fm.api import emission_filter_named
+            from fibsem.fm.microscope import emission_filter_named
 
             param = d["filter_set"].emission_filter
             param.write_through(emission_filter_named(nm, param.choices))

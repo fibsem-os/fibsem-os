@@ -8,10 +8,10 @@ set up.
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
-from fibsem.fm.api import (
-    DeviceFilterSet,
-    DeviceFluorescenceMicroscope,
-    DeviceObjectiveLens,
+from fibsem.fm.microscope import (
+    FilterSet,
+    FluorescenceMicroscope,
+    ObjectiveLens,
 )
 from fibsem.microscopes.odemis_microscope import add_odemis_path
 
@@ -67,7 +67,7 @@ def _odemis_bands_nm(choice: Any) -> Tuple[Tuple[float, float], ...]:
     return tuple(sorted((band[0] * 1e9, band[-1] * 1e9) for band in bands))
 
 
-class DeviceOdemisObjectiveLens(DeviceObjectiveLens):
+class DeviceOdemisObjectiveLens(ObjectiveLens):
     """The FM API's objective over the Odemis objective device, focusing where the old
     objective does: odemis's favourite inserted position."""
 
@@ -76,7 +76,7 @@ class DeviceOdemisObjectiveLens(DeviceObjectiveLens):
         self._focus_position = device.focus_position
 
 
-class DeviceOdemisFilterSet(DeviceFilterSet):
+class DeviceOdemisFilterSet(FilterSet):
     """The FM API's filter set over the Odemis filter set device. A "Fluorescence"
     emission (TFS-style channel settings) is the band odemis matches to the current
     excitation, as on the old filter set."""
@@ -88,17 +88,17 @@ class DeviceOdemisFilterSet(DeviceFilterSet):
 
     @property
     def emission_wavelength(self) -> Optional[float]:
-        return DeviceFilterSet.emission_wavelength.fget(self)
+        return FilterSet.emission_wavelength.fget(self)
 
     @emission_wavelength.setter
     def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
         if isinstance(value, str):
             self._device.select_fluorescence()
             return
-        DeviceFilterSet.emission_wavelength.fset(self, value)
+        FilterSet.emission_wavelength.fset(self, value)
 
 
-class DeviceOdemisFluorescenceMicroscope(DeviceFluorescenceMicroscope):
+class DeviceOdemisFluorescenceMicroscope(FluorescenceMicroscope):
     """The FM API over the Odemis FM devices (``fibsem.devices.drivers.odemis_fm``):
     what the old ``OdemisFluorescenceMicroscope`` did, through its devices. Live view
     is the stream running, with each frame pulled."""

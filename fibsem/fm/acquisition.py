@@ -96,9 +96,9 @@ def acquire_z_stack(
     stop_event: Optional["threading.Event"] = None,
 ) -> Optional[FluorescenceImage]:
     """Acquire a Z-stack of images for a given channel."""
-    from fibsem.fm.api import DeviceFluorescenceMicroscope
+    from fibsem.fm.microscope import FluorescenceMicroscope
 
-    if isinstance(microscope, DeviceFluorescenceMicroscope) and (
+    if isinstance(microscope, FluorescenceMicroscope) and (
         microscope.runs_z_stack_on_device
     ):
         # A remote FM: the whole stack is one command on its computer.
