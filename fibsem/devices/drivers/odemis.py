@@ -5,8 +5,8 @@ as devices.
 beam, stage and chamber keys
 moved as they are, so the old call and the device make the same odemis calls in the
 same order and log the same messages. ``OdemisThermoMicroscope`` builds them when it
-is created and routes its keys and moves to them; its old code stays until a session
-on an instrument confirms the devices.
+is created and routes its keys and moves to them; its old branches are deleted, and
+``tests/fixtures/odemis_device_calls.json`` keeps what they did.
 
 The odemis client (``microscope.connection``, the ``fibsem`` component) takes the
 channel on every call, so nothing here selects an imaging channel first. The vendor
@@ -50,7 +50,7 @@ class OdemisBeam(Beam):
 
     Each parameter is the matching branch of ``OdemisThermoMicroscope._get``/``_set``
     moved as it is; the choices are its ``get_available_values``'s. The detector
-    writes check as the old branches do, against the same choices.
+    writes check as the old branches did, against the same choices.
 
     The scan commands are the old ``spot_mode`` and ``full_frame`` keys, and
     ``reduced_area`` is the client call ``acquire_image`` and ``autocontrast`` make;
@@ -58,7 +58,7 @@ class OdemisBeam(Beam):
     The client has no read of the scan mode, so ``scanning_mode`` is absent and the
     commands read nothing back.
 
-    Not here, so absent on the new API and still answered by the old branches:
+    Not here, so absent on the new API and answered by ``_get``/``_set``:
     ``plasma_gas`` (the old branch raises on a plasma column) and ``preset`` (there is
     none).
     """
@@ -74,7 +74,7 @@ class OdemisBeam(Beam):
 
     @property
     def _client(self) -> Any:
-        """The odemis client, looked up on every call, as the old branches do."""
+        """The odemis client, looked up on every call, as the old branches did."""
         return self.parent.connection
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
@@ -187,7 +187,7 @@ class OdemisBeam(Beam):
         self._client.set_resolution(value, self.channel)
 
     # The detector. A type or mode not in the choices warns and is not set, and a
-    # brightness or contrast outside (0, 1] likewise, as the old branches do.
+    # brightness or contrast outside (0, 1] likewise, as the old branches did.
 
     def _detector_choices(self, what: str) -> List[str]:
         return getattr(self._client, f"detector_{what}_info")(self.channel)["choices"]

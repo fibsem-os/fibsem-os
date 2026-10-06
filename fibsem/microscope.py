@@ -5,6 +5,7 @@ import datetime
 import functools
 import inspect
 import logging
+import sys
 import threading
 import time
 import warnings
@@ -59,7 +60,6 @@ from fibsem.structures import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
-    FibsemGasInjectionSettings,
     FibsemHardwareGeometry,
     FibsemImage,
     FibsemImageMetadata,
@@ -118,6 +118,9 @@ _VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber"))
 # Keys only ever set: the old `_get` has no branch for them and returns None. A get
 # stays with `_get`, so it still returns None, rather than reading the device.
 _SET_ONLY_KEYS = frozenset(("angular_correction_tilt_correction",))
+# Modules that implement the old API, whose own get/set calls are not deprecated: the
+# named wrappers here, the backends, and the device router.
+_KEY_API_MODULES = ("fibsem.microscope", "fibsem.microscopes.", "fibsem.devices.")
 
 
 # Whether a stage move is being recorded on this thread. A move is often made of
@@ -541,35 +544,23 @@ class FibsemMicroscope(ABC):
 
     # ---- fitted subsystems ---------------------------------------------------
     #
-    # Whether a manipulator, a GIS, a multichem or a sputter coater is fitted used to
-    # be four configuration keys, which meant a site could describe hardware it does
-    # not have, or omit hardware it does, and nothing would disagree. They are not in
-    # the file any more. A backend that can ask the instrument does (AutoScript); one
-    # that cannot answers for itself with `DEFAULT_FITTED`, which is what its shipped
-    # configuration used to say. Each probe returns True, False, or None for "cannot
-    # say", and None falls back to the class default rather than to "not fitted" --
-    # a subsystem that wrongly appears is a menu entry that errors, one that wrongly
-    # disappears is a working instrument that lost a feature on upgrade.
+    # Whether a manipulator is fitted used to be a configuration key, which meant a
+    # site could describe hardware it does not have, or omit hardware it does, and
+    # nothing would disagree. It is not in the file any more. A backend that can ask
+    # the instrument does (AutoScript); one that cannot answers for itself with
+    # `DEFAULT_FITTED`, which is what its shipped configuration used to say. Each
+    # probe returns True, False, or None for "cannot say", and None falls back to the
+    # class default rather than to "not fitted" -- a subsystem that wrongly appears
+    # is a menu entry that errors, one that wrongly disappears is a working
+    # instrument that lost a feature on upgrade.
 
     #: What this backend assumes is fitted when it cannot ask.
     DEFAULT_FITTED: Dict[str, bool] = {
         "manipulator": True,
-        "gis": True,
-        "gis_multichem": True,
-        "gis_sputter_coater": False,
     }
 
     def _probe_manipulator_installed(self) -> Optional[bool]:
         """Whether a manipulator is fitted, or None if this backend cannot say."""
-        return None
-
-    def _probe_gis_installed(self) -> Optional[bool]:
-        return None
-
-    def _probe_multichem_installed(self) -> Optional[bool]:
-        return None
-
-    def _probe_sputter_coater_installed(self) -> Optional[bool]:
         return None
 
     #: Who answered each fitted-subsystem question at connect: ``"instrument"`` when
@@ -579,12 +570,7 @@ class FibsemMicroscope(ABC):
     def _read_hardware_capabilities(self) -> None:
         """Ask the instrument which subsystems are fitted, and record the answers."""
         self.capability_sources = {}
-        probes = (
-            ("manipulator", self._probe_manipulator_installed),
-            ("gis", self._probe_gis_installed),
-            ("gis_multichem", self._probe_multichem_installed),
-            ("gis_sputter_coater", self._probe_sputter_coater_installed),
-        )
+        probes = (("manipulator", self._probe_manipulator_installed),)
         for key, probe in probes:
             try:
                 present = probe()
@@ -1550,47 +1536,6 @@ class FibsemMicroscope(ABC):
     def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
         raise self._unsupported("draw_polygon")
 
-    def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
-        """Deposit through the GIS device: insert, heat, open for the duration,
-        close, heater off, retract."""
-        gis = self.gis_device
-        if gis is None:
-            raise self._unsupported("cryo_deposition_v2")
-        logging.info({"msg": "inserting gis", "settings": gis_settings.to_dict()})
-        logging.info(
-            f"Inserting Gas Injection System at {gis_settings.insert_position}"
-        )
-        gis.insert(gis_settings.insert_position)
-        logging.info(f"Turning on heater for {gis_settings.gas}")
-        gis.heater_on(gis_settings.gas)
-        logging.info(f"Running deposition for {gis_settings.duration} seconds")
-        gis.open()
-        self._wait(gis_settings.duration)
-        gis.close()
-        logging.info(f"Turning off heater for {gis_settings.gas}")
-        gis.heater_off()
-        logging.info("Retracting Gas Injection System")
-        gis.retract()
-
-    def _wait(self, seconds: float) -> None:
-        """Wait for the instrument, as a timed step does (a deposition)."""
-        time.sleep(seconds)
-
-    def setup_sputter(self, *args, **kwargs):
-        raise self._unsupported("setup_sputter")
-
-    def draw_sputter_pattern(self, *args, **kwargs) -> None:
-        raise self._unsupported("draw_sputter_pattern")
-
-    def run_sputter(self, *args, **kwargs):
-        raise self._unsupported("run_sputter")
-
-    def finish_sputter(self):
-        raise self._unsupported("finish_sputter")
-
-    def run_sputter_coater(self, time_seconds: int) -> None:
-        raise NotImplementedError("Sputter coater not implemented for this microscope.")
-
     @abstractmethod
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
@@ -1651,10 +1596,10 @@ class FibsemMicroscope(ABC):
     # path. They are read-only here; a backend replaces them, never mutates them.
     #
     # Every device this microscope built, by name, in the order they were built:
-    # `electron`, `ion`, `stage`, `chamber`, `manipulator`, each gas injector by its
-    # name, and the FM group and parts by theirs (`fm`, `camera`, ...). The typed
-    # attributes below (`beams`, `stage`, `chamber_device`, ...) are views of it, and
-    # assigning one is how a backend adds its devices, so the two can't disagree.
+    # `electron`, `ion`, `stage`, `chamber`, `manipulator`, and the FM group and parts
+    # by theirs (`fm`, `camera`, ...). The typed attributes below (`beams`, `stage`,
+    # `chamber_device`, ...) are views of it, and assigning one is how a backend adds
+    # its devices, so the two can't disagree.
     _devices = _PerInstance(lambda _: {})
 
     @property
@@ -1732,51 +1677,6 @@ class FibsemMicroscope(ABC):
     @manipulator_device.setter
     def manipulator_device(self, device: Optional[Any]) -> None:
         self._set_device("manipulator", device)
-
-    # The gas injectors as devices (fibsem.devices.GasInjector), by name; they have
-    # no keys. `gis_device` is the one a caller of the device API means -- the
-    # multichem, or a lone port -- and `cryo_deposition_v2` runs its sequence
-    # through it. A backend that builds one injector sets only `gis_device`.
-    _gis_names = _PerInstance(lambda _: [])
-    _gis_name: Optional[str] = None
-
-    @property
-    def gis_devices(self) -> Mapping[str, Any]:
-        names = list(self._gis_names)
-        if self._gis_name is not None and self._gis_name not in names:
-            names.append(self._gis_name)
-        return MappingProxyType(
-            {name: self._devices[name] for name in names if name in self._devices}
-        )
-
-    @gis_devices.setter
-    def gis_devices(self, devices: Mapping[str, Any]) -> None:
-        for name in self._gis_names:
-            if name != self._gis_name:
-                self._devices.pop(name, None)
-        self._gis_names[:] = list(devices or {})
-        for name, device in (devices or {}).items():
-            self._devices[name] = device
-
-    @property
-    def gis_device(self) -> Optional[Any]:
-        if self._gis_name is None:
-            return None
-        return self._devices.get(self._gis_name)
-
-    @gis_device.setter
-    def gis_device(self, device: Optional[Any]) -> None:
-        if self._gis_name is not None and self._gis_name not in self._gis_names:
-            self._devices.pop(self._gis_name, None)
-        if device is None:
-            self._gis_name = None
-            return
-        name = next(
-            (n for n in self._gis_names if self._devices.get(n) is device),
-            getattr(device, "name", None) or "gis",
-        )
-        self._gis_name = name
-        self._devices[name] = device
 
     # The FM's parts and its group as devices (fibsem.devices.fm), by device name,
     # beside `fm`. They drive the same FM objects `fm` holds, so the two share one
@@ -1863,10 +1763,9 @@ class FibsemMicroscope(ABC):
     def _unsupported(self, method: str) -> NotImplementedError:
         """The error an optional method raises on a backend that does not have it.
 
-        The instrument parts not every system has (the manipulator, the GIS, the
-        sputter coater, the chamber camera) and the patterns not every vendor can
-        draw are optional: the base class raises this, and a backend that has them
-        overrides the method.
+        The instrument parts not every system has (the manipulator, the chamber
+        camera) and the patterns not every vendor can draw are optional: the base
+        class raises this, and a backend that has them overrides the method.
         """
         return NotImplementedError(f"{type(self).__name__} does not support {method}.")
 
@@ -1882,7 +1781,13 @@ class FibsemMicroscope(ABC):
     def get(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> Union[float, int, bool, str, list, tuple, Point]:
-        """Get wrapper for logging."""
+        """Get wrapper for logging.
+
+        Deprecated from outside the microscope classes: use the device
+        (``microscope.beams[beam_type].parameters[...]``, ``microscope.stage``, ...) or
+        the named wrapper (``get_working_distance``, ...).
+        """
+        self._warn_key_call("get", key, beam_type)
         param = None if key in _SET_ONLY_KEYS else self._route(key, beam_type)
         if param is not None:
             value = _old_key_value(key, param.get_value())
@@ -1904,7 +1809,11 @@ class FibsemMicroscope(ABC):
         value: Union[str, float, int, tuple, list, Point],
         beam_type: Optional[BeamType] = None,
     ) -> None:
-        """Set wrapper for logging"""
+        """Set wrapper for logging.
+
+        Deprecated from outside the microscope classes, as ``get`` is.
+        """
+        self._warn_key_call("set", key, beam_type)
         param = None if key in self._device_routes else self._route(key, beam_type)
         command = self._route_command(key)
         if key in _VERBS_THAT_NEED_TRUE and not value:
@@ -1923,6 +1832,31 @@ class FibsemMicroscope(ABC):
         beam_name = "None" if beam_type is None else beam_type.name
         logging.debug(
             {"msg": "set", "key": key, "beam_type": beam_name, "value": value}
+        )
+
+    def _warn_key_call(
+        self, method: str, key: str, beam_type: Optional[BeamType]
+    ) -> None:
+        """Warn that a string-key get/set from outside the microscope classes is
+        deprecated, naming the device parameter the key has moved to, if any."""
+        caller = sys._getframe(2).f_globals.get("__name__", "")
+        if caller == _KEY_API_MODULES[0] or caller.startswith(_KEY_API_MODULES[1:]):
+            return
+        if key in self._device_routes:
+            attribute, name = self._device_routes[key]
+            replacement = f'microscope.{attribute}.parameters["{name}"]'
+        elif key in self._beam_routes and beam_type is not None:
+            replacement = (
+                f"microscope.beams[BeamType.{beam_type.name}]"
+                f'.parameters["{self._beam_routes[key]}"]'
+            )
+        else:
+            replacement = "the device or the named microscope method"
+        warnings.warn(
+            f'microscope.{method}("{key}", ...) is deprecated and will be removed in '
+            f"the next minor release; use {replacement} instead.",
+            DeprecationWarning,
+            stacklevel=3,
         )
 
     @abstractmethod
@@ -2300,12 +2234,6 @@ class FibsemMicroscope(ABC):
             return self.system.manipulator.rotation
         elif system == "manipulator_tilt":
             return self.system.manipulator.tilt
-        elif system == "gis":
-            return self.system.gis.enabled
-        elif system == "gis_multichem":
-            return self.system.gis.multichem
-        elif system == "gis_sputter_coater":
-            return self.system.gis.sputter_coater
         else:
             return False
 
@@ -2333,12 +2261,6 @@ class FibsemMicroscope(ABC):
             self.system.manipulator.rotation = value
         elif system == "manipulator_tilt":
             self.system.manipulator.tilt = value
-        elif system == "gis":
-            self.system.gis.enabled = value
-        elif system == "gis_multichem":
-            self.system.gis.multichem = value
-        elif system == "gis_sputter_coater":
-            self.system.gis.sputter_coater = value
 
     def apply_configuration(
         self, system_settings: Optional[SystemSettings] = None
@@ -2383,10 +2305,10 @@ class FibsemMicroscope(ABC):
                 # holder while `_stage.holder` still moves to the slots of another.
                 self._create_sample_stage()
 
-        # `system_settings.manipulator` and `.gis` are not taken from the incoming
-        # settings: what is fitted is not in the file, so the incoming records only
-        # carry defaults, and the ones already here carry what the instrument (or
-        # the backend) said at connect.
+        # `system_settings.manipulator` is not taken from the incoming settings:
+        # what is fitted is not in the file, so the incoming record only carries
+        # defaults, and the one already here carries what the instrument (or the
+        # backend) said at connect.
 
         # dont update info -> read only
         logging.info("Microscope configuration applied.")

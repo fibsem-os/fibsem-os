@@ -49,7 +49,7 @@ def test_registering_copies_the_configuration_in(microscope, tmp_path):
     assert copy["version"] == CONFIGURATION_VERSION
     assert set(copy) >= {"info", "hardware", "calibration", "defaults"}
     # It reads back as the configuration the session ran with. Compared through
-    # the file's own contents: what is fitted (GIS, manipulator) is asked of the
+    # the file's own contents: what is fitted (the manipulator) is asked of the
     # instrument at connect and is deliberately not in a configuration file.
     back = SystemSettings.from_dict(copy)
     assert utils._plain(back.to_dict()) == utils._plain(microscope.system.to_dict())

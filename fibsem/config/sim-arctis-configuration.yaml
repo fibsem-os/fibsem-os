@@ -54,7 +54,6 @@ defaults:                                                   # what a session sta
         save:                       false                       
 sim:
     has_manipulator: false                                  # stand in for the hardware probe
-    has_gis_multichem: false                                # stand in for the hardware probe
     sem: null # "/path/to/sem/image/data"                   
     fib: null # "/path/to/fib/image/data"                   
     use_cycle: true

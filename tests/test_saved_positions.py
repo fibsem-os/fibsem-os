@@ -1,9 +1,9 @@
 """Saved positions are session state: one list, per instrument configuration.
 
 They were two files for the PC. The Saved Positions panel wrote
-`saved-positions.yaml` and the cryo-deposition widget listed it, while the deposition
-looked names up in the older `positions.yaml` -- so a position picked from the list
-was "not found". Both are imported into `saved_positions`, and every reader uses it.
+`saved-positions.yaml` while a lookup by name read the older `positions.yaml` -- so a
+position picked from the list was "not found". Both are imported into
+`saved_positions`, and every reader uses it.
 """
 
 import os
@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 import fibsem.config as cfg
-from fibsem import gis, utils
+from fibsem import utils
 from fibsem.saved_positions import (
     get_saved_position,
     load_saved_positions,
@@ -94,8 +94,13 @@ def test_a_position_that_cannot_be_read_is_skipped(store):
 
 
 # ---------------------------------------------------------------------------
-# The deposition finds what the widgets list
+# A lookup by name finds what the widgets list
 # ---------------------------------------------------------------------------
+
+
+def _saved_position(microscope, name: str):
+    """A saved position by name, from the microscope's configuration."""
+    return get_saved_position(name, session_state_for(microscope))
 
 
 @pytest.fixture
@@ -107,23 +112,23 @@ def microscope():
     microscope.disconnect()
 
 
-def test_the_deposition_finds_a_position_the_panel_saved(microscope):
+def test_a_lookup_finds_a_position_the_panel_saved(microscope):
     """The bug: listed from `saved-positions.yaml`, looked up in `positions.yaml`."""
     _write(cfg.POSITION_PATH, [_position("cryo", x=2e-3)])
 
-    found = gis._saved_position(microscope, "cryo")
+    found = _saved_position(microscope, "cryo")
 
     assert found is not None and found.x == 2e-3
 
 
-def test_the_deposition_still_finds_a_position_only_the_oldest_file_had(microscope):
+def test_a_lookup_still_finds_a_position_only_the_oldest_file_had(microscope):
     _write(cfg.LEGACY_POSITIONS_PATH, [_position("deposition")])
 
-    assert gis._saved_position(microscope, "deposition") is not None
+    assert _saved_position(microscope, "deposition") is not None
 
 
 def test_an_unknown_name_is_none(microscope):
-    assert gis._saved_position(microscope, "nowhere") is None
+    assert _saved_position(microscope, "nowhere") is None
 
 
 def test_two_configurations_do_not_share_positions(tmp_path):
@@ -135,10 +140,10 @@ def test_two_configurations_do_not_share_positions(tmp_path):
     assert get_saved_position("cryo", second) is None
 
 
-def test_the_deposition_uses_the_microscope_s_configuration(microscope):
+def test_a_lookup_uses_the_microscope_s_configuration(microscope):
     save_saved_positions(
         [FibsemStagePosition(name="cryo", x=3e-3, y=0, z=0, r=0, t=0)],
         session_state_for(microscope, writable=True),
     )
 
-    assert gis._saved_position(microscope, "cryo").x == 3e-3
+    assert _saved_position(microscope, "cryo").x == 3e-3

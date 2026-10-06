@@ -34,7 +34,6 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
-from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
 from fibsem.fm.api import emission_filter_named
@@ -592,77 +591,6 @@ def bind_demo_manipulator(
     return DemoManipulator(microscope, resources, start).connect()
 
 
-class DemoGasInjector(GasInjector):
-    """The Demo gas injection system.
-
-    It keeps its own simulated GIS in ``sim_gas``, ``sim_inserted``, ``sim_heated``
-    and ``sim_opened``, copied when it is built from the starting ``gis_system``
-    (``start``, else the microscope's own), and it never touches the microscope's
-    again. Each hook is what the
-    matching method of Demo's ``GasInjectionSystem`` does, on that copy. Demo's GIS
-    takes no insert position or gas, so those arguments are only logged.
-    """
-
-    def __init__(
-        self,
-        parent: DemoMicroscope,
-        resources: Optional[Resources] = None,
-        start: Optional[DemoParts] = None,
-    ):
-        super().__init__(parent=parent, resources=resources)
-        start = (parent if start is None else start).gis_system
-        self.sim_gas: str = start.gas
-        self.sim_inserted: bool = start.inserted
-        self.sim_heated: bool = start.heated
-        self.sim_opened: bool = start.opened
-
-    def read_gas(self) -> str:
-        return self.sim_gas
-
-    def read_state(self) -> InsertableDeviceState:
-        return _insertable_state(self.sim_inserted)
-
-    def read_heated(self) -> bool:
-        return self.sim_heated
-
-    def read_opened(self) -> bool:
-        return self.sim_opened
-
-    def _insert(self, position: Optional[str]) -> None:
-        self.sim_inserted = True
-        logging.debug("GIS inserted")
-
-    def _retract(self) -> None:
-        self.sim_inserted = False
-        logging.debug("GIS retracted")
-
-    def _heater_on(self, gas: Optional[str]) -> None:
-        self.sim_heated = True
-        logging.debug("GIS heater on")
-        sim_sleep(3)  # Demo's heater takes a moment, as its deposition waits for
-
-    def _heater_off(self) -> None:
-        self.sim_heated = False
-        logging.debug("GIS heater off")
-
-    def _open(self) -> None:
-        self.sim_opened = True
-        logging.debug("GIS opened")
-
-    def _close(self) -> None:
-        self.sim_opened = False
-        logging.debug("GIS closed")
-
-
-def bind_demo_gis(
-    microscope: DemoMicroscope,
-    resources: Optional[Resources] = None,
-    start: Optional[DemoParts] = None,
-) -> DemoGasInjector:
-    """Build ``gis`` for a connected Demo microscope."""
-    return DemoGasInjector(microscope, resources, start).connect()
-
-
 # -- Builders by entry --------------------------------------------------------------
 #
 # The Demo driver's device builders (``DRIVER.devices`` in ``device_demo``): each
@@ -709,10 +637,6 @@ def build_demo_manipulator(
     entry: "DeviceEntry", context: "BuildContext"
 ) -> DemoManipulator:
     return _named(DemoManipulator(context.microscope, *_demo_start(context)), entry)
-
-
-def build_demo_gis(entry: "DeviceEntry", context: "BuildContext") -> DemoGasInjector:
-    return _named(DemoGasInjector(context.microscope, *_demo_start(context)), entry)
 
 
 # -- The FM -------------------------------------------------------------------------

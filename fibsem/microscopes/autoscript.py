@@ -27,6 +27,7 @@ from skimage import transform
 from fibsem import manufacturers
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
+from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
@@ -43,16 +44,17 @@ from fibsem.microscopes._stage import (
     Stage,
     _slot_name,
 )
-from fibsem.microscopes.registry import DriverEntry
+from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
+from fibsem.services.milling import ServiceMilling
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamType,
     CrossSectionPattern,
+    DeviceEntry,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
     FibsemExperimentRef,
-    FibsemGasInjectionSettings,
     FibsemImage,
     FibsemLineSettings,
     FibsemManipulatorPosition,
@@ -162,7 +164,6 @@ try:
         ManipulatorCoordinateSystem,
         ManipulatorSavedPosition,
         ManipulatorState,
-        MultiChemInsertPosition,
         PatterningState,
         RegularCrossSectionScanMethod,
     )
@@ -776,80 +777,6 @@ def _slot_state(hw_slot) -> str:
     return text.capitalize()
 
 
-class AutoscriptSputterCoater:
-    pass
-
-
-class AutoscriptGISPort:
-    port_name: str = "Pt dep"
-    zlimit: float = 4.0e-3  # RAW_COORDINATES
-
-    def __init__(self, parent: "ThermoMicroscope"):
-        self.parent = parent
-
-        available_ports = self.parent.connection.gas.list_all_gis_ports()
-
-        print(f"available gis ports: {available_ports}")
-        self._port = self.parent.connection.gas.get_gis_port(self.port_name)
-
-    def insert(self):
-
-        self._run_safety_check()
-
-        self._port.insert()
-
-    def retract(self):
-        self._port.retract()
-
-    def _move_to_safe_gis_position(self):
-
-        self.parent.move_stage_absolute(FibsemStagePosition(z=self.zlimit - 500e-6))
-
-    def _run_safety_check(self):
-
-        stage_position = self.parent.get_stage_position()
-        if stage_position.z > self.zlimit:
-            raise ValueError(
-                f"Unable to insert gis at current z-position{stage_position.pretty}, {self.zlimit * 1e3}mm"
-            )
-
-    def open(self):
-        self._port.open()
-
-    def close(self):
-        self._port.close()
-
-    @property
-    def temperature(self) -> float:
-        return self._port.get_temperature()
-
-    def turn_heater_on(self, target_temp: float = 300, timeout: float = 15):
-        self._port.turn_heater_on(target_temp, timeout)
-
-    def turn_heater_off(self):
-        self._port.turn_heater_off()
-
-    def run_deposition(self, duration: int) -> None:
-
-        self.insert()
-
-        # QUERY: acquire diagnostic sem image?
-
-        self.open()
-
-        remaining_time = duration
-        while True:
-            print(f"Depositing: {self.port_name} - {remaining_time}s")
-            time.sleep(1)
-            remaining_time -= 1
-
-            if remaining_time <= 0:
-                break
-
-        self.close()
-        self.retract()
-
-
 def _thermo_application_file_wrapper_for_drawing_functions(
     patterning_function: Callable[["ThermoMicroscope", TFibsemPatternSettings], Any],
 ) -> Callable[["ThermoMicroscope", TFibsemPatternSettings], Any]:
@@ -895,15 +822,579 @@ def match_application_file(
     return application_file
 
 
+class ThermoMilling:
+    """ThermoFisher patterning, on ``connection.patterning``: the milling methods
+    ``ThermoMicroscope`` has when it has no milling service, and the code its
+    service runs (``fibsem.services.drivers.autoscript.AutoScriptMilling``) when it
+    has one."""
+
+    def setup_milling(
+        self,
+        mill_settings: FibsemMillingSettings,
+    ):
+        """
+        Configure the microscope for milling using the ion beam.
+
+        Args:
+            mill_settings (FibsemMillingSettings): Milling settings.
+        """
+        self.milling_channel = mill_settings.milling_channel
+        self.set_channel(self.milling_channel)
+        self.connection.patterning.set_default_beam_type(self.milling_channel.value)
+        self.set_application_file(mill_settings.application_file, default=True)
+        self.set_patterning_mode(mill_settings.patterning_mode)
+        self.clear_patterns()  # clear any existing patterns
+        self.set_field_of_view(hfw=mill_settings.hfw, beam_type=self.milling_channel)
+        # voltage before current: the available ion currents are calibrated per voltage
+        self.set_beam_voltage(
+            voltage=mill_settings.milling_voltage, beam_type=self.milling_channel
+        )
+        self.set_beam_current(
+            current=mill_settings.milling_current, beam_type=self.milling_channel
+        )
+
+        # TODO: migrate to _set_milling_settings():
+        # self.milling_channel = mill_settings.milling_channel
+        # self.set_milling_settings(mill_settings)
+        # self.clear_patterns()
+
+        logging.debug(
+            {"msg": "setup_milling", "mill_settings": mill_settings.to_dict()}
+        )
+
+    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
+        """Restore the imaging beam, then reset the patterning mode.
+
+        The patterning mode persists in xT, so a stage left in Parallel would carry
+        over to the next one unless reset here.
+        """
+        super().finish_milling(imaging_current, imaging_voltage)
+        self.set_patterning_mode("Serial")
+
+    # def setup_milling2(
+    #     self,
+    #     milling_stage: 'FibsemMillingStage',
+    # ):
+    #     """
+    #     Configure the microscope for milling using the ion beam.
+
+    #     Args:
+    #         milling_stage (FibsemMillingStage): Milling stage.
+    #     """
+    #     self.milling_channel = milling_stage.milling.milling_channel
+    #     self.set_channel(self.milling_channel)
+    #     self.clear_patterns()  # clear any existing patterns
+    #     self.set_default_patterning_beam_type(self.milling_channel)
+    #     self.set_application_file(milling_stage.milling.application_file, default=True)
+    #     self.set_patterning_mode(milling_stage.milling.patterning_mode)
+    #     self.set_field_of_view(hfw=milling_stage.milling.hfw, beam_type=self.milling_channel)
+    #     self.set_beam_current(current=milling_stage.milling.milling_current, beam_type=self.milling_channel)
+    #     self.set_beam_voltage(voltage=milling_stage.milling.milling_voltage, beam_type=self.milling_channel)
+
+    def set_default_patterning_beam_type(self, beam_type: BeamType):
+        """Set the default beam type for patterning."""
+        if beam_type not in BeamType:
+            raise ValueError(
+                f"Beam type {beam_type} not supported. Supported types: {list(BeamType)}"
+            )
+
+        self.connection.patterning.set_default_beam_type(beam_type.value)
+        return beam_type
+
+    # def finish_milling2(self):
+    #     """Clear the patterns and reset the beam settings to the imaging state."""
+    #     self.clear_patterns()
+    #     self.set_beam_current(current=self.system.ion.beam.beam_current, beam_type=self.milling_channel)
+    #     self.set_beam_voltage(voltage=self.system.ion.beam.voltage, beam_type=self.milling_channel)
+    #     self.set_patterning_mode(mode="Serial")  # reset to serial mode
+
+    def start_milling(self) -> None:
+        """Start the milling process."""
+        with self._threading_lock:
+            if self.get_milling_state() is MillingState.IDLE:
+                self.connection.patterning.start()
+                logging.info("Starting milling...")
+
+    def stop_milling(self) -> None:
+        """Stop the milling process."""
+        with self._threading_lock:
+            if self.get_milling_state() in ACTIVE_MILLING_STATES:
+                logging.info("Stopping milling...")
+                self.connection.patterning.stop()
+                logging.info("Milling stopped.")
+
+    def pause_milling(self) -> None:
+        """Pause the milling process."""
+        with self._threading_lock:
+            if self.get_milling_state() == MillingState.RUNNING:
+                logging.info("Pausing milling...")
+                self.connection.patterning.pause()
+                logging.info("Milling paused.")
+
+    def resume_milling(self) -> None:
+        """Resume the milling process."""
+        with self._threading_lock:
+            if self.get_milling_state() == MillingState.PAUSED:
+                logging.info("Resuming milling...")
+                self.connection.patterning.resume()
+                logging.info("Milling resumed.")
+
+    def get_milling_state(self) -> MillingState:
+        """Get the current milling state."""
+        with self._threading_lock:
+            self.set_channel(channel=self.milling_channel)
+            return MillingState[self.connection.patterning.state.upper()]
+
+    def clear_patterns(self):
+        """Clear all currently drawn milling patterns."""
+        self.connection.patterning.clear_patterns()
+        self._patterns = []
+
+    def estimate_milling_time(self) -> float:
+        """Calculates the estimated milling time for a list of patterns."""
+        total_time = 0
+        for pattern in self._patterns:
+            total_time += pattern.time
+
+        return total_time
+
+    def get_application_file(self, application_file: str, strict: bool = True) -> str:
+        """Get a valid application file for the patterning API.
+        The api requires setting a valid application file before creating patterns.
+        Args:
+            application_file (str): The name of the application file to set as default.
+            strict (bool): If True, raises an error if the application file is not available.
+                If False, tries to find the closest match to the application file.
+                Defaults to True.
+        Returns:
+                str: The name of the application file that was set as default.
+        Raises:
+            ValueError: If the application file is not available.
+        """
+        return match_application_file(
+            application_file, self.get_available_values("application_file"), strict
+        )
+
+    def set_application_file(
+        self, application_file: str, default: bool = False, strict: bool = True
+    ) -> str:
+        """Sets the default application file for the patterning API.
+        The api requires setting a valid application file before creating patterns.
+        Args:
+            application_file (str): The name of the application file to set as default.
+        """
+        application_file = self.get_application_file(application_file, strict=strict)
+        self.connection.patterning.set_default_application_file(application_file)
+        self._current_application_file = application_file
+
+        if default:
+            self._default_application_file = application_file
+
+        logging.debug(
+            {
+                "msg": "set_application_file",
+                "application_file": application_file,
+                "default": default,
+            }
+        )
+        return application_file
+
+    def get_current_application_file(self) -> str:
+        return self._current_application_file
+
+    def get_default_application_file(self) -> str:
+        return self._default_application_file
+
+    def set_patterning_mode(self, mode: str):
+        """Sets the patterning mode for the patterning API.
+        The api requires setting a valid patterning mode before creating patterns.
+        Args:
+            mode (str): The patterning mode to set. Can be "Serial" or "Parallel".
+        """
+        if mode not in ["Serial", "Parallel"]:
+            raise ValueError(
+                f"Patterning mode {mode} not supported. Supported modes: Serial, Parallel"
+            )
+
+        self.connection.patterning.mode = mode
+        logging.debug({"msg": "set_patterning_mode", "mode": mode})
+        return mode
+
+    @_thermo_application_file_wrapper_for_drawing_functions
+    def draw_rectangle(
+        self,
+        pattern_settings: FibsemRectangleSettings,
+    ):
+        """
+        Draws a rectangle pattern using the current ion beam.
+
+        Args:
+            pattern_settings (FibsemRectangleSettings): the settings for the pattern to draw.
+
+        Returns:
+            Pattern: the created pattern.
+
+        Raises:
+            AutoscriptError: if an error occurs while creating the pattern.
+        """
+
+        # get patterning api
+        patterning_api = self.connection.patterning
+        if pattern_settings.cross_section is CrossSectionPattern.RegularCrossSection:
+            create_pattern_function = patterning_api.create_regular_cross_section
+            self.set_patterning_mode(
+                "Serial"
+            )  # parallel mode not supported for regular cross section
+            self.set_application_file("Si-multipass", strict=False)
+        elif pattern_settings.cross_section is CrossSectionPattern.CleaningCrossSection:
+            create_pattern_function = patterning_api.create_cleaning_cross_section
+            self.set_patterning_mode(
+                "Serial"
+            )  # parallel mode not supported for cleaning cross section
+            self.set_application_file("Si-ccs", strict=False)
+        else:
+            create_pattern_function = patterning_api.create_rectangle
+            # ensure a rectangle-compatible application file is set; the stage's
+            # application file may be a cross-section-only file (e.g. Si-ccs) that
+            # AutoScript rejects for a plain Rectangle pattern.
+            self.set_application_file("Si", strict=False)
+
+        # create pattern
+        pattern = create_pattern_function(
+            center_x=pattern_settings.centre_x,
+            center_y=pattern_settings.centre_y,
+            width=pattern_settings.width,
+            height=pattern_settings.height,
+            depth=pattern_settings.depth,
+        )
+
+        if not np.isclose(pattern_settings.time, 0.0):
+            logging.debug(f"Setting pattern time to {pattern_settings.time}.")
+            pattern.time = pattern_settings.time
+
+        # set pattern rotation
+        pattern.rotation = pattern_settings.rotation
+
+        # set exclusion
+        pattern.is_exclusion_zone = pattern_settings.is_exclusion
+
+        # set scan direction
+        available_scan_directions = self.get_available_values("scan_direction")
+
+        if pattern_settings.scan_direction in available_scan_directions:
+            pattern.scan_direction = pattern_settings.scan_direction
+        else:
+            pattern.scan_direction = "TopToBottom"
+            logging.warning(
+                f"Scan direction {pattern_settings.scan_direction} not supported. Using TopToBottom instead."
+            )
+            logging.warning(
+                f"Supported scan directions are: {available_scan_directions}"
+            )
+
+        # set passes
+        if pattern_settings.passes:  # not zero
+            if isinstance(pattern, RegularCrossSectionPattern):
+                pattern.multi_scan_pass_count = pattern_settings.passes
+                pattern.scan_method = 1  # multi scan
+            else:
+                pattern.dwell_time = pattern.dwell_time * (
+                    pattern.pass_count / pattern_settings.passes
+                )
+
+                # NB: passes, time, dwell time are all interlinked, therefore can only adjust passes indirectly
+                # if we adjust passes directly, it just reduces the total time to compensate, rather than increasing the dwell_time
+                # NB: the current must be set before doing this, otherwise it will be out of range
+
+        logging.debug(
+            {"msg": "draw_rectangle", "pattern_settings": pattern_settings.to_dict()}
+        )
+
+        self._patterns.append(pattern)
+
+        return pattern
+
+    @_thermo_application_file_wrapper_for_drawing_functions
+    def draw_line(self, pattern_settings: FibsemLineSettings):
+        """
+        Draws a line pattern on the current imaging view of the microscope.
+
+        Args:
+            pattern_settings (FibsemLineSettings): A data class object specifying the pattern parameters,
+                including the start and end points, and the depth of the pattern.
+
+        Returns:
+            LinePattern: A line pattern object, which can be used to configure further properties or to add the
+                pattern to the milling list.
+
+        Raises:
+            autoscript.exceptions.InvalidArgumentException: if any of the pattern parameters are invalid.
+        """
+        pattern = self.connection.patterning.create_line(
+            start_x=pattern_settings.start_x,
+            start_y=pattern_settings.start_y,
+            end_x=pattern_settings.end_x,
+            end_y=pattern_settings.end_y,
+            depth=pattern_settings.depth,
+        )
+        logging.debug(
+            {"msg": "draw_line", "pattern_settings": pattern_settings.to_dict()}
+        )
+        self._patterns.append(pattern)
+        return pattern
+
+    @_thermo_application_file_wrapper_for_drawing_functions
+    def draw_circle(self, pattern_settings: FibsemCircleSettings):
+        """
+        Draws a circle pattern on the current imaging view of the microscope.
+
+        Args:
+            pattern_settings (FibsemCircleSettings): A data class object specifying the pattern parameters,
+                including the centre point, radius and depth of the pattern.
+
+        Returns:
+            CirclePattern: A circle pattern object, which can be used to configure further properties or to add the
+                pattern to the milling list.
+
+        Raises:
+            autoscript.exceptions.InvalidArgumentException: if any of the pattern parameters are invalid.
+        """
+
+        outer_diameter = 2 * pattern_settings.radius
+        inner_diameter = 0
+        if pattern_settings.thickness != 0:
+            inner_diameter = outer_diameter - 2 * pattern_settings.thickness
+
+        fallback_application_file = "Si"
+        try:
+            pattern = self.connection.patterning.create_circle(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                outer_diameter=outer_diameter,
+                inner_diameter=inner_diameter,
+                depth=pattern_settings.depth,
+            )
+        except Exception:
+            if self.get_current_application_file() == fallback_application_file:
+                # No need to try again with the same application file
+                raise
+            logging.warning(
+                "Failed to draw circle pattern, falling back on application file %s",
+                fallback_application_file,
+            )
+            self.set_application_file(fallback_application_file)
+            pattern = self.connection.patterning.create_circle(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                outer_diameter=outer_diameter,
+                inner_diameter=inner_diameter,
+                depth=pattern_settings.depth,
+            )
+        # set exclusion
+        pattern.is_exclusion_zone = pattern_settings.is_exclusion
+
+        logging.debug(
+            {"msg": "draw_circle", "pattern_settings": pattern_settings.to_dict()}
+        )
+        self._patterns.append(pattern)
+        return pattern
+
+    @_thermo_application_file_wrapper_for_drawing_functions
+    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
+        # Avoid modifying the original pattern_settings object
+        pattern_settings = deepcopy(pattern_settings)
+
+        if pattern_settings.bitmap is None:
+            logging.warning("Bitmap pattern will be skipped as no bitmap has been set")
+            return None
+
+        # Get bitmap from pattern settings
+        bitmap_pattern = BitmapPatternDefinition()
+
+        if pattern_settings.flip_y:
+            pattern_settings.bitmap = np.flip(pattern_settings.bitmap, axis=0)
+
+        points = pattern_settings.bitmap
+
+        fallback_application_file = "Si"
+        try:
+            if pattern_settings.interpolate is not None:
+                points = self._resize_bitmap_to_pattern(pattern_settings)
+            bitmap_pattern.points = points
+            pattern = self.connection.patterning.create_bitmap(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                width=pattern_settings.width,
+                height=pattern_settings.height,
+                depth=pattern_settings.depth,
+                bitmap_pattern_definition=bitmap_pattern,
+            )
+        except Exception:
+            if self.get_current_application_file() == fallback_application_file:
+                # No need to try again with the same application file
+                raise
+            logging.warning(
+                "Failed to draw bitmap pattern, falling back on application file %s",
+                fallback_application_file,
+            )
+            self.set_application_file(fallback_application_file)
+
+            if pattern_settings.interpolate is not None:
+                points = self._resize_bitmap_to_pattern(pattern_settings)
+            bitmap_pattern.points = points
+            pattern = self.connection.patterning.create_bitmap(
+                center_x=pattern_settings.centre_x,
+                center_y=pattern_settings.centre_y,
+                width=pattern_settings.width,
+                height=pattern_settings.height,
+                depth=pattern_settings.depth,
+                bitmap_pattern_definition=bitmap_pattern,
+            )
+
+        if not np.isclose(pattern_settings.time, 0.0):
+            logging.debug("Setting pattern time to %f", pattern_settings.time)
+            pattern.time = pattern_settings.time
+
+        # set pattern rotation
+        pattern.rotation = pattern_settings.rotation
+
+        # set exclusion
+        pattern.is_exclusion_zone = pattern_settings.is_exclusion
+
+        # set scan direction
+        available_scan_directions = self.get_available_values("scan_direction")
+
+        if pattern_settings.scan_direction in available_scan_directions:
+            pattern.scan_direction = pattern_settings.scan_direction
+        else:
+            pattern.scan_direction = "TopToBottom"
+            logging.warning(
+                "Scan direction %s not supported. Using TopToBottom instead.",
+                pattern_settings.scan_direction,
+            )
+            logging.warning(
+                "Supported scan directions are: %s", str(available_scan_directions)
+            )
+
+        # set passes
+        if pattern_settings.passes:  # not zero
+            pattern.dwell_time = pattern.dwell_time * (
+                pattern.pass_count / pattern_settings.passes
+            )
+
+            # NB: passes, time, dwell time are all interlinked, therefore can only adjust passes indirectly
+            # if we adjust passes directly, it just reduces the total time to compensate, rather than increasing the dwell_time
+            # NB: the current must be set before doing this, otherwise it will be out of range
+
+        logging.debug(
+            {
+                "msg": "draw_bitmap_pattern",
+                "pattern_settings": pattern_settings.to_dict(),
+            }
+        )
+        self._patterns.append(pattern)
+        return pattern
+
+    def _resize_bitmap_to_pattern(
+        self, pattern_settings: FibsemBitmapSettings
+    ) -> NDArray[np.float64 | np.uint8]:
+        points = pattern_settings.bitmap
+
+        if points is None:
+            raise ValueError(
+                "Unable to resize bitmap as FibsemBitmapSettings.bitmap is None"
+            )
+
+        # Get pitch to calculate expected pixel size
+        rectangle = self.connection.patterning.create_rectangle(
+            center_x=pattern_settings.centre_x,
+            center_y=pattern_settings.centre_y,
+            width=pattern_settings.width,
+            height=pattern_settings.height,
+            depth=pattern_settings.depth,
+        )
+
+        new_shape = (
+            int(round(pattern_settings.height / rectangle.pitch_y)),
+            int(round(pattern_settings.width / rectangle.pitch_x)),
+        )
+
+        # Disable after calculations just in case values are cleared
+        rectangle.enabled = False
+
+        if pattern_settings.interpolate == "bicubic":
+            order = 3
+        elif pattern_settings.interpolate == "bilinear":
+            order = 1
+        elif pattern_settings.interpolate == "nearest":
+            order = 0
+        else:
+            raise ValueError(
+                f"Invalid interpolate option '{pattern_settings.interpolate}'"
+            )
+
+        resized_points = np.empty((*new_shape, 2), dtype=object)
+
+        resized_points[:, :, 0] = transform.resize(
+            points[:, :, 0]
+            .reshape(points.shape[0], points.shape[1])
+            .astype(np.float64),
+            output_shape=new_shape,
+            order=order,
+            preserve_range=True,
+        ).astype(np.float64)
+        resized_points[:, :, 1] = transform.resize(
+            points[:, :, 1].reshape(points.shape[0], points.shape[1]).astype(np.uint8),
+            output_shape=new_shape,
+            order=0,
+            preserve_range=True,
+        ).astype(np.uint8)
+
+        return resized_points
+
+    @_thermo_application_file_wrapper_for_drawing_functions
+    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
+        """Draw a polygon pattern on the current imaging view of the microscope."""
+
+        if AUTOSCRIPT_VERSION < parse_version("4.12"):
+            raise NotImplementedError(
+                "Polygon patterning is only supported in Autoscript 4.12 or higher."
+            )
+
+        pattern = self.connection.patterning.create_polygon(
+            pattern_settings.vertices, depth=pattern_settings.depth
+        )
+        pattern.is_exclusion_zone = pattern_settings.is_exclusion
+
+        logging.debug(
+            {"msg": "draw_polygon", "pattern_settings": pattern_settings.to_dict()}
+        )
+        self._patterns.append(pattern)
+        return pattern
+
+
 # This driver, as the registry knows it (fibsem.microscopes.registry).
 DRIVER = DriverEntry(
     manufacturer=manufacturers.THERMOFISHER,
     microscope_class="fibsem.microscopes.autoscript:ThermoMicroscope",
     config={"port": 7520, "ion-column-tilt": 52, "electron-column-tilt": 0},
+    devices={
+        device_type: DeviceBuilder(
+            f"fibsem.devices.drivers.autoscript:build_autoscript_{device_type}"
+        )
+        for device_type in ("beam", "stage", "chamber", "manipulator")
+    },
 )
 
+# The device types each connect step builds (``ThermoMicroscope._build_devices``).
+# The FM is built on its own path; any other type a configuration adds is built last.
+_BEAM_TYPES = ("beam",)
+_STAGE_TYPES = ("stage",)
+_PART_TYPES = ("chamber", "manipulator")
+_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + ("fm",)
 
-class ThermoMicroscope(FibsemMicroscope):
+
+class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
     """
     A class representing a Thermo Fisher FIB-SEM microscope.
 
@@ -980,18 +1471,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         finish_milling(self, imaging_current: float):
             Finalises the milling process by clearing the microscope of any patterns and returning the current to the imaging current.
-
-        setup_sputter(self, protocol: dict):
-            Set up the sputter coating process on the microscope.
-
-        draw_sputter_pattern(self, hfw: float, line_pattern_length: float, sputter_time: float):
-            Draws a line pattern for sputtering with the given parameters.
-
-        run_sputter(self, **kwargs):
-            Runs the GIS Platinum Sputter.
-
-        finish_sputter(self, application_file: str) -> None:
-            Finish the sputter process by clearing patterns and resetting beam and imaging settings.
 
         set_microscope_state(self, microscope_state: MicroscopeState) -> None:
             Reset the microscope state to the provided state.
@@ -1105,6 +1584,7 @@ class ThermoMicroscope(FibsemMicroscope):
         )
 
         self._build_beams()
+        self._build_milling()
 
         if reset_beam_shift:
             self.reset_beam_shifts()
@@ -1172,6 +1652,23 @@ class ThermoMicroscope(FibsemMicroscope):
         # after the sample stage, which reads which subsystems are fitted
         self._build_parts()
 
+    def _build_devices(
+        self,
+        defaults: List[DeviceEntry],
+        types: Optional[Tuple[str, ...]] = None,
+        exclude_types: Tuple[str, ...] = (),
+    ) -> Dict[str, Any]:
+        """Build one connect step's devices: *defaults*, what the instrument has, with
+        the configuration's ``hardware.devices`` entries of *types* over them
+        (``fibsem.devices.entries``), and put them in ``devices``."""
+        resolved = resolve_system_devices(
+            self.system, defaults, types, exclude_types, manufacturers.THERMOFISHER
+        )
+        built = build_device_entries(resolved, self)
+        for name, device in built.items():
+            self._set_device(name, device)
+        return built
+
     def _build_beams(self) -> None:
         """Build the beam devices and route the beam keys that have moved to them.
 
@@ -1180,10 +1677,21 @@ class ThermoMicroscope(FibsemMicroscope):
         answered by ``_get``/``_set``. A disabled column gets no device, so its keys
         stay with the old branches too.
         """
-        from fibsem.devices.drivers.autoscript import bind_autoscript_beams
-
-        self.beams = MappingProxyType(bind_autoscript_beams(self))
+        self._build_devices(
+            [
+                DeviceEntry(name="electron", type="beam"),
+                DeviceEntry(name="ion", type="beam"),
+            ],
+            _BEAM_TYPES,
+        )
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
+
+    def _build_milling(self) -> None:
+        """Build the milling service over the beams; the milling methods then go to it
+        (``ServiceMilling``). Without an ion beam there is none, and they stay here."""
+        from fibsem.services.drivers.autoscript import bind_autoscript_milling
+
+        self.milling = bind_autoscript_milling(self)
 
     def _build_stage(self) -> None:
         """Build the stage device and route the stage keys to it.
@@ -1192,38 +1700,25 @@ class ThermoMicroscope(FibsemMicroscope):
         ``stage_link`` set stays with ``_set``: a false value unlinks there, and the
         device's ``link`` command only links.
         """
-        from fibsem.devices.drivers.autoscript import bind_autoscript_stage
-
-        self.stage = bind_autoscript_stage(self)
+        self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
         self._device_routes = MappingProxyType(
             {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
         )
         self._command_routes = MappingProxyType({"stage_home": ("stage", "home")})
 
     def _build_parts(self) -> None:
-        """Build the chamber, and the manipulator and gas injectors that are fitted,
-        and route the chamber and manipulator keys to them.
+        """Build the chamber, and the manipulator when it is fitted, and route the
+        chamber and manipulator keys to them. Then build any other device the
+        configuration adds.
 
         ``pump``, ``vent`` and the manipulator's raw moves then go through the
-        devices, and ``cryo_deposition_v2`` through the gas injector for its port.
-        The corrected and offset needle moves stay here and move through the device.
+        devices. The corrected and offset needle moves stay here and move through
+        the device.
         """
-        from fibsem.devices.drivers.autoscript import (
-            MULTICHEM,
-            bind_autoscript_chamber,
-            bind_autoscript_gis,
-            bind_autoscript_manipulator,
-        )
-
-        self.chamber_device = bind_autoscript_chamber(self)
+        fitted = [DeviceEntry(name="chamber", type="chamber")]
         if self.is_available("manipulator"):
-            self.manipulator_device = bind_autoscript_manipulator(self)
-        self.gis_devices = MappingProxyType(bind_autoscript_gis(self))
-        # the one a caller of the device API means: the multichem, or a lone port
-        if MULTICHEM in self.gis_devices:
-            self.gis_device = self.gis_devices[MULTICHEM]
-        elif len(self.gis_devices) == 1:
-            self.gis_device = next(iter(self.gis_devices.values()))
+            fitted.append(DeviceEntry(name="manipulator", type="manipulator"))
+        self._build_devices(fitted, _PART_TYPES)
 
         routes = dict(self._device_routes)
         routes.update(
@@ -1245,6 +1740,9 @@ class ThermoMicroscope(FibsemMicroscope):
             }
         )
         self._command_routes = MappingProxyType(commands)
+
+        # whatever else the configuration adds, such as a device on its own PC
+        self._build_devices([], exclude_types=_OWN_TYPES)
 
     def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
         """The FM API over the Thermo FM devices, sharing this microscope's
@@ -1851,38 +2349,14 @@ class ThermoMicroscope(FibsemMicroscope):
 
     # ---- fitted subsystems, as AutoScript reports them --------------------
 
-    #: For a probe that cannot say. Multichem is the exception on these instruments,
-    #: so it is the one assumed absent.
+    #: For a probe that cannot say.
     DEFAULT_FITTED = {
         "manipulator": True,
-        "gis": True,
-        "gis_multichem": False,
-        "gis_sputter_coater": False,
     }
 
     def _probe_manipulator_installed(self) -> Optional[bool]:
         """`specimen.manipulator.is_installed` -- documented, read-only, a bool."""
         return bool(self.connection.specimen.manipulator.is_installed)
-
-    def _probe_gis_installed(self) -> Optional[bool]:
-        """A GIS is fitted when the instrument lists at least one port.
-
-        There is no `gas.is_installed`; the ports are the honest form of the question,
-        and they are what `get_available_values("gis_ports")` already reads.
-        """
-        return bool(self.connection.gas.list_all_gis_ports())
-
-    def _probe_multichem_installed(self) -> Optional[bool]:
-        return bool(self.connection.gas.list_all_multichem_ports())
-
-    def _probe_sputter_coater_installed(self) -> Optional[bool]:
-        """The probe `run_sputter_coater` already makes before it will run.
-
-        It raises `NotImplementedError` on an instrument whose `specimen` has no
-        `sputter_coater` attribute at all, so the attribute's presence is the test --
-        the same one, asked at connect instead of at the point of use.
-        """
-        return hasattr(self.connection.specimen, "sputter_coater")
 
     def _probe_plasma_gas(self) -> Optional[str]:
         """`ion_beam.source.plasma_gas.value` -- the call `get("plasma_gas")` makes.
@@ -2181,836 +2655,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         return manipulator_position
 
-    def setup_milling(
-        self,
-        mill_settings: FibsemMillingSettings,
-    ):
-        """
-        Configure the microscope for milling using the ion beam.
-
-        Args:
-            mill_settings (FibsemMillingSettings): Milling settings.
-        """
-        self.milling_channel = mill_settings.milling_channel
-        self.set_channel(self.milling_channel)
-        self.connection.patterning.set_default_beam_type(self.milling_channel.value)
-        self.set_application_file(mill_settings.application_file, default=True)
-        self.set_patterning_mode(mill_settings.patterning_mode)
-        self.clear_patterns()  # clear any existing patterns
-        self.set_field_of_view(hfw=mill_settings.hfw, beam_type=self.milling_channel)
-        # voltage before current: the available ion currents are calibrated per voltage
-        self.set_beam_voltage(
-            voltage=mill_settings.milling_voltage, beam_type=self.milling_channel
-        )
-        self.set_beam_current(
-            current=mill_settings.milling_current, beam_type=self.milling_channel
-        )
-
-        # TODO: migrate to _set_milling_settings():
-        # self.milling_channel = mill_settings.milling_channel
-        # self.set_milling_settings(mill_settings)
-        # self.clear_patterns()
-
-        logging.debug(
-            {"msg": "setup_milling", "mill_settings": mill_settings.to_dict()}
-        )
-
-    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        """Restore the imaging beam, then reset the patterning mode.
-
-        The patterning mode persists in xT, so a stage left in Parallel would carry
-        over to the next one unless reset here.
-        """
-        super().finish_milling(imaging_current, imaging_voltage)
-        self.set_patterning_mode("Serial")
-
-    # def setup_milling2(
-    #     self,
-    #     milling_stage: 'FibsemMillingStage',
-    # ):
-    #     """
-    #     Configure the microscope for milling using the ion beam.
-
-    #     Args:
-    #         milling_stage (FibsemMillingStage): Milling stage.
-    #     """
-    #     self.milling_channel = milling_stage.milling.milling_channel
-    #     self.set_channel(self.milling_channel)
-    #     self.clear_patterns()  # clear any existing patterns
-    #     self.set_default_patterning_beam_type(self.milling_channel)
-    #     self.set_application_file(milling_stage.milling.application_file, default=True)
-    #     self.set_patterning_mode(milling_stage.milling.patterning_mode)
-    #     self.set_field_of_view(hfw=milling_stage.milling.hfw, beam_type=self.milling_channel)
-    #     self.set_beam_current(current=milling_stage.milling.milling_current, beam_type=self.milling_channel)
-    #     self.set_beam_voltage(voltage=milling_stage.milling.milling_voltage, beam_type=self.milling_channel)
-
-    def set_default_patterning_beam_type(self, beam_type: BeamType):
-        """Set the default beam type for patterning."""
-        if beam_type not in BeamType:
-            raise ValueError(
-                f"Beam type {beam_type} not supported. Supported types: {list(BeamType)}"
-            )
-
-        self.connection.patterning.set_default_beam_type(beam_type.value)
-        return beam_type
-
-    # def finish_milling2(self):
-    #     """Clear the patterns and reset the beam settings to the imaging state."""
-    #     self.clear_patterns()
-    #     self.set_beam_current(current=self.system.ion.beam.beam_current, beam_type=self.milling_channel)
-    #     self.set_beam_voltage(voltage=self.system.ion.beam.voltage, beam_type=self.milling_channel)
-    #     self.set_patterning_mode(mode="Serial")  # reset to serial mode
-
-    def start_milling(self) -> None:
-        """Start the milling process."""
-        with self._threading_lock:
-            if self.get_milling_state() is MillingState.IDLE:
-                self.connection.patterning.start()
-                logging.info("Starting milling...")
-
-    def stop_milling(self) -> None:
-        """Stop the milling process."""
-        with self._threading_lock:
-            if self.get_milling_state() in ACTIVE_MILLING_STATES:
-                logging.info("Stopping milling...")
-                self.connection.patterning.stop()
-                logging.info("Milling stopped.")
-
-    def pause_milling(self) -> None:
-        """Pause the milling process."""
-        with self._threading_lock:
-            if self.get_milling_state() == MillingState.RUNNING:
-                logging.info("Pausing milling...")
-                self.connection.patterning.pause()
-                logging.info("Milling paused.")
-
-    def resume_milling(self) -> None:
-        """Resume the milling process."""
-        with self._threading_lock:
-            if self.get_milling_state() == MillingState.PAUSED:
-                logging.info("Resuming milling...")
-                self.connection.patterning.resume()
-                logging.info("Milling resumed.")
-
-    def get_milling_state(self) -> MillingState:
-        """Get the current milling state."""
-        with self._threading_lock:
-            self.set_channel(channel=self.milling_channel)
-            return MillingState[self.connection.patterning.state.upper()]
-
-    def clear_patterns(self):
-        """Clear all currently drawn milling patterns."""
-        self.connection.patterning.clear_patterns()
-        self._patterns = []
-
-    def estimate_milling_time(self) -> float:
-        """Calculates the estimated milling time for a list of patterns."""
-        total_time = 0
-        for pattern in self._patterns:
-            total_time += pattern.time
-
-        return total_time
-
-    def get_application_file(self, application_file: str, strict: bool = True) -> str:
-        """Get a valid application file for the patterning API.
-        The api requires setting a valid application file before creating patterns.
-        Args:
-            application_file (str): The name of the application file to set as default.
-            strict (bool): If True, raises an error if the application file is not available.
-                If False, tries to find the closest match to the application file.
-                Defaults to True.
-        Returns:
-                str: The name of the application file that was set as default.
-        Raises:
-            ValueError: If the application file is not available.
-        """
-        return match_application_file(
-            application_file, self.get_available_values("application_file"), strict
-        )
-
-    def set_application_file(
-        self, application_file: str, default: bool = False, strict: bool = True
-    ) -> str:
-        """Sets the default application file for the patterning API.
-        The api requires setting a valid application file before creating patterns.
-        Args:
-            application_file (str): The name of the application file to set as default.
-        """
-        application_file = self.get_application_file(application_file, strict=strict)
-        self.connection.patterning.set_default_application_file(application_file)
-        self._current_application_file = application_file
-
-        if default:
-            self._default_application_file = application_file
-
-        logging.debug(
-            {
-                "msg": "set_application_file",
-                "application_file": application_file,
-                "default": default,
-            }
-        )
-        return application_file
-
-    def get_current_application_file(self) -> str:
-        return self._current_application_file
-
-    def get_default_application_file(self) -> str:
-        return self._default_application_file
-
-    def set_patterning_mode(self, mode: str):
-        """Sets the patterning mode for the patterning API.
-        The api requires setting a valid patterning mode before creating patterns.
-        Args:
-            mode (str): The patterning mode to set. Can be "Serial" or "Parallel".
-        """
-        if mode not in ["Serial", "Parallel"]:
-            raise ValueError(
-                f"Patterning mode {mode} not supported. Supported modes: Serial, Parallel"
-            )
-
-        self.connection.patterning.mode = mode
-        logging.debug({"msg": "set_patterning_mode", "mode": mode})
-        return mode
-
-    @_thermo_application_file_wrapper_for_drawing_functions
-    def draw_rectangle(
-        self,
-        pattern_settings: FibsemRectangleSettings,
-    ):
-        """
-        Draws a rectangle pattern using the current ion beam.
-
-        Args:
-            pattern_settings (FibsemRectangleSettings): the settings for the pattern to draw.
-
-        Returns:
-            Pattern: the created pattern.
-
-        Raises:
-            AutoscriptError: if an error occurs while creating the pattern.
-        """
-
-        # get patterning api
-        patterning_api = self.connection.patterning
-        if pattern_settings.cross_section is CrossSectionPattern.RegularCrossSection:
-            create_pattern_function = patterning_api.create_regular_cross_section
-            self.set_patterning_mode(
-                "Serial"
-            )  # parallel mode not supported for regular cross section
-            self.set_application_file("Si-multipass", strict=False)
-        elif pattern_settings.cross_section is CrossSectionPattern.CleaningCrossSection:
-            create_pattern_function = patterning_api.create_cleaning_cross_section
-            self.set_patterning_mode(
-                "Serial"
-            )  # parallel mode not supported for cleaning cross section
-            self.set_application_file("Si-ccs", strict=False)
-        else:
-            create_pattern_function = patterning_api.create_rectangle
-            # ensure a rectangle-compatible application file is set; the stage's
-            # application file may be a cross-section-only file (e.g. Si-ccs) that
-            # AutoScript rejects for a plain Rectangle pattern.
-            self.set_application_file("Si", strict=False)
-
-        # create pattern
-        pattern = create_pattern_function(
-            center_x=pattern_settings.centre_x,
-            center_y=pattern_settings.centre_y,
-            width=pattern_settings.width,
-            height=pattern_settings.height,
-            depth=pattern_settings.depth,
-        )
-
-        if not np.isclose(pattern_settings.time, 0.0):
-            logging.debug(f"Setting pattern time to {pattern_settings.time}.")
-            pattern.time = pattern_settings.time
-
-        # set pattern rotation
-        pattern.rotation = pattern_settings.rotation
-
-        # set exclusion
-        pattern.is_exclusion_zone = pattern_settings.is_exclusion
-
-        # set scan direction
-        available_scan_directions = self.get_available_values("scan_direction")
-
-        if pattern_settings.scan_direction in available_scan_directions:
-            pattern.scan_direction = pattern_settings.scan_direction
-        else:
-            pattern.scan_direction = "TopToBottom"
-            logging.warning(
-                f"Scan direction {pattern_settings.scan_direction} not supported. Using TopToBottom instead."
-            )
-            logging.warning(
-                f"Supported scan directions are: {available_scan_directions}"
-            )
-
-        # set passes
-        if pattern_settings.passes:  # not zero
-            if isinstance(pattern, RegularCrossSectionPattern):
-                pattern.multi_scan_pass_count = pattern_settings.passes
-                pattern.scan_method = 1  # multi scan
-            else:
-                pattern.dwell_time = pattern.dwell_time * (
-                    pattern.pass_count / pattern_settings.passes
-                )
-
-                # NB: passes, time, dwell time are all interlinked, therefore can only adjust passes indirectly
-                # if we adjust passes directly, it just reduces the total time to compensate, rather than increasing the dwell_time
-                # NB: the current must be set before doing this, otherwise it will be out of range
-
-        logging.debug(
-            {"msg": "draw_rectangle", "pattern_settings": pattern_settings.to_dict()}
-        )
-
-        self._patterns.append(pattern)
-
-        return pattern
-
-    @_thermo_application_file_wrapper_for_drawing_functions
-    def draw_line(self, pattern_settings: FibsemLineSettings):
-        """
-        Draws a line pattern on the current imaging view of the microscope.
-
-        Args:
-            pattern_settings (FibsemLineSettings): A data class object specifying the pattern parameters,
-                including the start and end points, and the depth of the pattern.
-
-        Returns:
-            LinePattern: A line pattern object, which can be used to configure further properties or to add the
-                pattern to the milling list.
-
-        Raises:
-            autoscript.exceptions.InvalidArgumentException: if any of the pattern parameters are invalid.
-        """
-        pattern = self.connection.patterning.create_line(
-            start_x=pattern_settings.start_x,
-            start_y=pattern_settings.start_y,
-            end_x=pattern_settings.end_x,
-            end_y=pattern_settings.end_y,
-            depth=pattern_settings.depth,
-        )
-        logging.debug(
-            {"msg": "draw_line", "pattern_settings": pattern_settings.to_dict()}
-        )
-        self._patterns.append(pattern)
-        return pattern
-
-    @_thermo_application_file_wrapper_for_drawing_functions
-    def draw_circle(self, pattern_settings: FibsemCircleSettings):
-        """
-        Draws a circle pattern on the current imaging view of the microscope.
-
-        Args:
-            pattern_settings (FibsemCircleSettings): A data class object specifying the pattern parameters,
-                including the centre point, radius and depth of the pattern.
-
-        Returns:
-            CirclePattern: A circle pattern object, which can be used to configure further properties or to add the
-                pattern to the milling list.
-
-        Raises:
-            autoscript.exceptions.InvalidArgumentException: if any of the pattern parameters are invalid.
-        """
-
-        outer_diameter = 2 * pattern_settings.radius
-        inner_diameter = 0
-        if pattern_settings.thickness != 0:
-            inner_diameter = outer_diameter - 2 * pattern_settings.thickness
-
-        fallback_application_file = "Si"
-        try:
-            pattern = self.connection.patterning.create_circle(
-                center_x=pattern_settings.centre_x,
-                center_y=pattern_settings.centre_y,
-                outer_diameter=outer_diameter,
-                inner_diameter=inner_diameter,
-                depth=pattern_settings.depth,
-            )
-        except Exception:
-            if self.get_current_application_file() == fallback_application_file:
-                # No need to try again with the same application file
-                raise
-            logging.warning(
-                "Failed to draw circle pattern, falling back on application file %s",
-                fallback_application_file,
-            )
-            self.set_application_file(fallback_application_file)
-            pattern = self.connection.patterning.create_circle(
-                center_x=pattern_settings.centre_x,
-                center_y=pattern_settings.centre_y,
-                outer_diameter=outer_diameter,
-                inner_diameter=inner_diameter,
-                depth=pattern_settings.depth,
-            )
-        # set exclusion
-        pattern.is_exclusion_zone = pattern_settings.is_exclusion
-
-        logging.debug(
-            {"msg": "draw_circle", "pattern_settings": pattern_settings.to_dict()}
-        )
-        self._patterns.append(pattern)
-        return pattern
-
-    @_thermo_application_file_wrapper_for_drawing_functions
-    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
-        # Avoid modifying the original pattern_settings object
-        pattern_settings = deepcopy(pattern_settings)
-
-        if pattern_settings.bitmap is None:
-            logging.warning("Bitmap pattern will be skipped as no bitmap has been set")
-            return None
-
-        # Get bitmap from pattern settings
-        bitmap_pattern = BitmapPatternDefinition()
-
-        if pattern_settings.flip_y:
-            pattern_settings.bitmap = np.flip(pattern_settings.bitmap, axis=0)
-
-        points = pattern_settings.bitmap
-
-        fallback_application_file = "Si"
-        try:
-            if pattern_settings.interpolate is not None:
-                points = self._resize_bitmap_to_pattern(pattern_settings)
-            bitmap_pattern.points = points
-            pattern = self.connection.patterning.create_bitmap(
-                center_x=pattern_settings.centre_x,
-                center_y=pattern_settings.centre_y,
-                width=pattern_settings.width,
-                height=pattern_settings.height,
-                depth=pattern_settings.depth,
-                bitmap_pattern_definition=bitmap_pattern,
-            )
-        except Exception:
-            if self.get_current_application_file() == fallback_application_file:
-                # No need to try again with the same application file
-                raise
-            logging.warning(
-                "Failed to draw bitmap pattern, falling back on application file %s",
-                fallback_application_file,
-            )
-            self.set_application_file(fallback_application_file)
-
-            if pattern_settings.interpolate is not None:
-                points = self._resize_bitmap_to_pattern(pattern_settings)
-            bitmap_pattern.points = points
-            pattern = self.connection.patterning.create_bitmap(
-                center_x=pattern_settings.centre_x,
-                center_y=pattern_settings.centre_y,
-                width=pattern_settings.width,
-                height=pattern_settings.height,
-                depth=pattern_settings.depth,
-                bitmap_pattern_definition=bitmap_pattern,
-            )
-
-        if not np.isclose(pattern_settings.time, 0.0):
-            logging.debug("Setting pattern time to %f", pattern_settings.time)
-            pattern.time = pattern_settings.time
-
-        # set pattern rotation
-        pattern.rotation = pattern_settings.rotation
-
-        # set exclusion
-        pattern.is_exclusion_zone = pattern_settings.is_exclusion
-
-        # set scan direction
-        available_scan_directions = self.get_available_values("scan_direction")
-
-        if pattern_settings.scan_direction in available_scan_directions:
-            pattern.scan_direction = pattern_settings.scan_direction
-        else:
-            pattern.scan_direction = "TopToBottom"
-            logging.warning(
-                "Scan direction %s not supported. Using TopToBottom instead.",
-                pattern_settings.scan_direction,
-            )
-            logging.warning(
-                "Supported scan directions are: %s", str(available_scan_directions)
-            )
-
-        # set passes
-        if pattern_settings.passes:  # not zero
-            pattern.dwell_time = pattern.dwell_time * (
-                pattern.pass_count / pattern_settings.passes
-            )
-
-            # NB: passes, time, dwell time are all interlinked, therefore can only adjust passes indirectly
-            # if we adjust passes directly, it just reduces the total time to compensate, rather than increasing the dwell_time
-            # NB: the current must be set before doing this, otherwise it will be out of range
-
-        logging.debug(
-            {
-                "msg": "draw_bitmap_pattern",
-                "pattern_settings": pattern_settings.to_dict(),
-            }
-        )
-        self._patterns.append(pattern)
-        return pattern
-
-    def _resize_bitmap_to_pattern(
-        self, pattern_settings: FibsemBitmapSettings
-    ) -> NDArray[np.float64 | np.uint8]:
-        points = pattern_settings.bitmap
-
-        if points is None:
-            raise ValueError(
-                "Unable to resize bitmap as FibsemBitmapSettings.bitmap is None"
-            )
-
-        # Get pitch to calculate expected pixel size
-        rectangle = self.connection.patterning.create_rectangle(
-            center_x=pattern_settings.centre_x,
-            center_y=pattern_settings.centre_y,
-            width=pattern_settings.width,
-            height=pattern_settings.height,
-            depth=pattern_settings.depth,
-        )
-
-        new_shape = (
-            int(round(pattern_settings.height / rectangle.pitch_y)),
-            int(round(pattern_settings.width / rectangle.pitch_x)),
-        )
-
-        # Disable after calculations just in case values are cleared
-        rectangle.enabled = False
-
-        if pattern_settings.interpolate == "bicubic":
-            order = 3
-        elif pattern_settings.interpolate == "bilinear":
-            order = 1
-        elif pattern_settings.interpolate == "nearest":
-            order = 0
-        else:
-            raise ValueError(
-                f"Invalid interpolate option '{pattern_settings.interpolate}'"
-            )
-
-        resized_points = np.empty((*new_shape, 2), dtype=object)
-
-        resized_points[:, :, 0] = transform.resize(
-            points[:, :, 0]
-            .reshape(points.shape[0], points.shape[1])
-            .astype(np.float64),
-            output_shape=new_shape,
-            order=order,
-            preserve_range=True,
-        ).astype(np.float64)
-        resized_points[:, :, 1] = transform.resize(
-            points[:, :, 1].reshape(points.shape[0], points.shape[1]).astype(np.uint8),
-            output_shape=new_shape,
-            order=0,
-            preserve_range=True,
-        ).astype(np.uint8)
-
-        return resized_points
-
-    @_thermo_application_file_wrapper_for_drawing_functions
-    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
-        """Draw a polygon pattern on the current imaging view of the microscope."""
-
-        if AUTOSCRIPT_VERSION < parse_version("4.12"):
-            raise NotImplementedError(
-                "Polygon patterning is only supported in Autoscript 4.12 or higher."
-            )
-
-        pattern = self.connection.patterning.create_polygon(
-            pattern_settings.vertices, depth=pattern_settings.depth
-        )
-        pattern.is_exclusion_zone = pattern_settings.is_exclusion
-
-        logging.debug(
-            {"msg": "draw_polygon", "pattern_settings": pattern_settings.to_dict()}
-        )
-        self._patterns.append(pattern)
-        return pattern
-
-    def get_gis(self, port: str = None):
-        use_multichem = self.is_available("gis_multichem")
-
-        if use_multichem:
-            gis = self.connection.gas.get_multichem()
-        else:
-            gis = self.connection.gas.get_gis_port(port)
-        logging.debug({"msg": "get_gis", "use_multichem": use_multichem, "port": port})
-        self.gis = gis
-        return self.gis
-
-    def insert_gis(self, insert_position: str = None) -> None:
-
-        if insert_position:
-            logging.info(f"Inserting Multichem GIS to {insert_position}")
-            self.gis.insert(insert_position)
-        else:
-            logging.info("Inserting Gas Injection System")
-            self.gis.insert()
-
-        logging.debug({"msg": "insert_gis", "insert_position": insert_position})
-
-    def retract_gis(self):
-        """Retract the gis"""
-        self.gis.retract()
-        logging.debug(
-            {"msg": "retract_gis", "use_multichem": self.is_available("gis_multichem")}
-        )
-
-    def gis_turn_heater_on(self, gas: str = None) -> None:
-        """Turn the heater on and wait for it to get to temperature"""
-        logging.info(f"Turning on heater for {gas}")
-        if gas is not None:
-            self.gis.turn_heater_on(gas)
-        else:
-            self.gis.turn_heater_on()
-
-        logging.info("Waiting for heater to get to temperature...")
-        time.sleep(3)  # we need to wait a bit
-
-        wait_time = 0
-        max_wait_time = 15
-        target_temp = 300  # validate this somehow?
-        while True:
-            if gas is not None:
-                temp = self.gis.get_temperature(gas)  # multi-chem requires gas name
-            else:
-                temp = self.gis.get_temperature()
-            logging.info(
-                f"Waiting for heater: {temp}K, target={target_temp}, wait_time={wait_time}/{max_wait_time} sec"
-            )
-
-            if temp >= target_temp:
-                break
-
-            time.sleep(1)  # wait for the heat
-
-            wait_time += 1
-            if wait_time > max_wait_time:
-                raise TimeoutError("Gas Injection Failed to heat within time...")
-
-        logging.debug(
-            {
-                "msg": "gis_turn_heater_on",
-                "temp": temp,
-                "target_temp": target_temp,
-                "wait_time": wait_time,
-                "max_wait_time": max_wait_time,
-            }
-        )
-
-        return
-
-    def _gis_device_for(
-        self, port: Optional[str], use_multichem: bool
-    ) -> Optional[Any]:
-        """The gas injector ``get_gis`` would use, if connect built it."""
-        from fibsem.devices.drivers.autoscript import MULTICHEM
-
-        devices = getattr(self, "gis_devices", None) or {}
-        return devices.get(MULTICHEM if use_multichem else port)
-
-    def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
-        """Run non-specific cryo deposition protocol.
-
-        # TODO: universalise this for demo, tescan
-        """
-
-        use_multichem = self.is_available("gis_multichem")
-        port = gis_settings.port
-        gas = gis_settings.gas
-        duration = gis_settings.duration
-        insert_position = gis_settings.insert_position
-
-        logging.debug({"msg": "cryo_depositon_v2", "settings": gis_settings.to_dict()})
-
-        # through the gas injector for this port once connect has built it; the code
-        # below stays until a session on an instrument confirms the device
-        gis = self._gis_device_for(port, use_multichem)
-        if gis is not None:
-            logging.info(f"Inserting Gas Injection System at {insert_position}")
-            gis.insert(insert_position if use_multichem else None)
-            gas = gas if use_multichem else None
-            gis.heater_on(gas)
-            logging.info(f"Running deposition for {duration} seconds")
-            gis.open()
-            time.sleep(duration)
-            gis.close()
-            logging.info(f"Turning off heater for {gas}")
-            gis.heater_off()
-            logging.info("Retracting Gas Injection System")
-            gis.retract()
-            return
-
-        # get gis subsystem
-        self.get_gis(port)
-
-        # insert gis / multichem
-        logging.info(f"Inserting Gas Injection System at {insert_position}")
-        if use_multichem is False:
-            insert_position = None
-        self.insert_gis(insert_position)
-
-        # turn heater on
-        gas = gas if use_multichem else None
-        self.gis_turn_heater_on(gas)
-
-        # run deposition
-        logging.info(f"Running deposition for {duration} seconds")
-        self.gis.open()
-        time.sleep(duration)
-        # TODO: provide more feedback to user
-        self.gis.close()
-
-        # turn off heater
-        logging.info(f"Turning off heater for {gas}")
-        self.gis.turn_heater_off()
-
-        # retract gis / multichem
-        logging.info("Retracting Gas Injection System")
-        self.retract_gis()
-
-        return
-
-    def setup_sputter(self, protocol: dict):
-        """
-        Set up the sputter coating process on the microscope.
-
-        Args:
-            protocol (dict): Dictionary containing the protocol details for sputter coating.
-
-        Returns:
-            None
-
-        Raises:
-            None
-
-        Notes:
-            This function sets up the sputter coating process on the microscope.
-            It sets the active view to the electron beam, clears any existing patterns, and sets the default beam type to the electron beam.
-            It then inserts the multichem and turns on the heater for the specified gas according to the given protocol.
-            This function also waits for 3 seconds to allow the heater to warm up.
-        """
-        self.original_active_view = self.connection.imaging.get_active_view()
-        self.set_channel(BeamType.ELECTRON)
-        self.connection.patterning.clear_patterns()
-        self.set_application_file(protocol["application_file"])
-        self.connection.patterning.set_default_beam_type(BeamType.ELECTRON.value)
-        self.multichem = self.connection.gas.get_multichem()
-        self.multichem.insert(protocol["position"])
-        self.multichem.turn_heater_on(protocol["gas"])  # "Pt cryo")
-        time.sleep(3)
-
-        logging.debug({"msg": "setup_sputter", "protocol": protocol})
-
-    def draw_sputter_pattern(
-        self, hfw: float, line_pattern_length: float, sputter_time: float
-    ):
-        """
-        Draws a line pattern for sputtering with the given parameters.
-
-        Args:
-            hfw (float): The horizontal field width of the electron beam.
-            line_pattern_length (float): The length of the line pattern to draw.
-            sputter_time (float): The time to sputter the line pattern.
-
-        Returns:
-            None
-
-        Notes:
-            Sets the horizontal field width of the electron beam to the given value.
-            Draws a line pattern for sputtering with the given length and milling depth.
-            Sets the sputter time of the line pattern to the given value.
-
-        """
-        self.connection.beams.electron_beam.horizontal_field_width.value = hfw
-        pattern = self.connection.patterning.create_line(
-            -line_pattern_length / 2,  # x_start
-            +line_pattern_length,  # y_start
-            +line_pattern_length / 2,  # x_end
-            +line_pattern_length,  # y_end
-            2e-6,
-        )  # milling depth
-        pattern.time = sputter_time + 0.1
-
-        logging.debug(
-            {
-                "msg": "draw_sputter_pattern",
-                "hfw": hfw,
-                "line_pattern_length": line_pattern_length,
-                "sputter_time": sputter_time,
-            }
-        )
-
-    def run_sputter(self, **kwargs):
-        """
-        Runs the GIS Platinum Sputter.
-
-        Args:
-            **kwargs: Optional keyword arguments for the sputter function. The required argument for
-        the Thermo version is "sputter_time" (int), which specifies the time to sputter in seconds.
-
-        Returns:
-            None
-
-        Notes:
-        - Blanks the electron beam.
-        - Starts sputtering with platinum for the specified sputter time, and waits until the sputtering
-        is complete before continuing.
-        - If the patterning state is not ready, raises a RuntimeError.
-        - If the patterning state is running, stops the patterning.
-        - If the patterning state is idle, logs a warning message suggesting to adjust the patterning
-        line depth.
-        """
-        sputter_time = kwargs["sputter_time"]
-
-        self.connection.beams.electron_beam.blank()
-        if self.connection.patterning.state == "Idle":
-            logging.info(
-                "Sputtering with platinum for {} seconds...".format(sputter_time)
-            )
-            self.connection.patterning.start()  # asynchronous patterning
-            time.sleep(sputter_time + 5)
-        else:
-            raise RuntimeError("Can't sputter platinum, patterning state is not ready.")
-        if self.connection.patterning.state == "Running":
-            self.connection.patterning.stop()
-        else:
-            logging.warning(
-                "Patterning state is {}".format(self.connection.patterning.state)
-            )
-            logging.warning("Consider adjusting the patterning line depth.")
-
-    def finish_sputter(self, application_file: str) -> None:
-        """
-        Finish the sputter process by clearing patterns and resetting beam and imaging settings.
-
-        Args:
-            application_file (str): The path to the default application file to use.
-
-        Returns:
-            None
-
-        Raises:
-            None
-
-        Notes:
-            This function finishes the sputter process by clearing any remaining patterns and restoring the beam and imaging settings to their
-            original state. It sets the beam current back to imaging current and sets the default beam type to ion beam.
-            It also retracts the multichem and logs that the sputtering process has finished.
-        """
-        # Clear any remaining patterns
-        self.connection.patterning.clear_patterns()
-
-        # Restore beam and imaging settings to their original state
-        self.connection.beams.electron_beam.unblank()
-        self.set_application_file(application_file)
-        self.connection.imaging.set_active_view(self.original_active_view)
-        self.connection.patterning.set_default_beam_type(
-            BeamType.ION.value
-        )  # set ion beam
-        self.multichem.retract()
-
-        # Log that the sputtering process has finished
-        logging.info("Platinum sputtering process completed.")
-
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> Tuple:
@@ -3077,14 +2721,6 @@ class ThermoMicroscope(FibsemMicroscope):
                 "TopToBottom",
             ]
             values = TFS_SCAN_DIRECTIONS
-
-        if key == "gis_ports":
-            if self.is_available("gis"):
-                values = self.connection.gas.list_all_gis_ports()
-            elif self.is_available("gis_multichem"):
-                values = self.connection.gas.list_all_multichem_ports()
-            else:
-                values = []
 
         logging.debug({"msg": "get_available_values", "key": key, "values": values})
 
@@ -3482,35 +3118,3 @@ class ThermoMicroscope(FibsemMicroscope):
         )
 
         return offset
-
-    def run_sputter_coater(self, time_seconds: int) -> None:
-        """Run the sputter coater for a given time in seconds.
-        Args:
-            time_seconds (int): The time to run the sputter coater in seconds.
-        Returns:
-            None
-        Raises:
-            NotImplementedError: If the system is not an Arctis system.
-        """
-
-        if not hasattr(self.connection.specimen, "sputter_coater"):
-            raise NotImplementedError(
-                "Sputter coater not available on this microscope."
-            )
-
-        # check if system is Arctis
-        if "Arctis" not in self.system.info.model:
-            self.connection.specimen.sputter_coater.run(time_seconds)
-            return
-
-        # Prepare for sputtering
-        self.connection.specimen.sputter_coater.prepare()
-
-        # Change chamber pressure to 20 Pa and sputter current to 10 mA
-        # self.connection.vacuum.pump(VacuumSettings(pressure=20))
-        # self.connection.specimen.sputter_coater.current.value = 0.01
-        # Perform sputtering procedure with 10 second run time
-        self.connection.specimen.sputter_coater.run(time_seconds)
-
-        # Recover from sputtering
-        self.connection.specimen.sputter_coater.recover()

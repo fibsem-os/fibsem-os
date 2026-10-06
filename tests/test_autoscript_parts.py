@@ -1,19 +1,17 @@
-"""Thermo's chamber, manipulator and gas injectors as devices make the SDK calls the
-old code makes.
+"""Thermo's chamber and manipulator as devices make the SDK calls the old code makes.
 
-``AutoscriptChamber``, ``AutoscriptManipulator`` and ``AutoscriptGasInjector`` are
-``ThermoMicroscope``'s chamber branches, manipulator methods and GIS methods moved onto
-the devices. Each case runs an old call on a microscope without the devices and on
-one that built them as connect does, both over a fake AutoScript client that records
-every SDK call and write, and requires the same result (or error), the same calls in
-the same order and the same logged messages.
+``AutoscriptChamber`` and ``AutoscriptManipulator`` are ``ThermoMicroscope``'s chamber
+branches and manipulator methods moved onto the devices. Each case runs an old call on
+a microscope without the devices and on one that built them as connect does, both over
+a fake AutoScript client that records every SDK call and write, and requires the same
+result (or error), the same calls in the same order and the same logged messages.
 
 Cases: the chamber keys, pump and vent; the manipulator keys, insert (each named
 position, and an unknown one), retract, the raw moves, the corrected and offset moves,
 which stay ``ThermoMicroscope``'s and move through the device, and the saved
-positions; a deposition on a GIS port and on the multichem. The recording runs in its
-own interpreter (``tests/fixtures/autoscript_parts_parity.py``). Nothing here has run
-on an instrument.
+positions. The recording runs in its own interpreter
+(``tests/fixtures/autoscript_parts_parity.py``). Nothing here has run on an
+instrument.
 """
 
 import json
@@ -49,8 +47,8 @@ def _case(recording, key):
 def test_the_recording_makes_sdk_calls(recording):
     cases = recording["cases"]
     assert len(cases) > 20
-    assert sum(len(c["old"][1]) for c in cases) > 40
-    assert sum(len(c["old"][2]) for c in cases) > 30
+    assert sum(len(c["old"][1]) for c in cases) > 20
+    assert sum(len(c["old"][2]) for c in cases) > 15
 
 
 def test_the_devices_make_the_same_sdk_calls_logs_and_results(recording):
@@ -71,60 +69,43 @@ def test_the_calls_go_through_the_devices(recording):
         "manipulator._move_relative",  # the corrected move
         "manipulator._move_absolute",  # the offset move
         "manipulator._retract",
-        "gis._insert",  # a GIS port
-        "gis._heater_on",
-        "gis._retract",
-        "gis._insert",  # the multichem
-        "gis._heater_on",
-        "gis._retract",
     ]
 
 
-def test_a_deposition_heats_and_waits_as_before(recording):
-    _, calls, messages = _case(recording, "deposition on the multichem")["new"]
-    names = [call[1].rsplit(".", 1)[-1] for call in calls if call[0] == "call"]
-    assert names == [
-        "insert",
-        "turn_heater_on",
-        "get_temperature",
-        "open",
-        "close",
-        "turn_heater_off",
-        "retract",
-    ]
-    assert ["sleep", 2] in calls  # the deposition's duration
-    assert ["INFO", "Inserting Multichem GIS to ELECTRON_DEFAULT"] in messages
-
-
-def test_connect_builds_one_gas_injector_per_port_and_the_multichem(recording):
+def test_connect_builds_the_chamber_and_the_manipulator(recording):
     devices = recording["facts"]["devices"]
     assert devices["chamber"] == "AutoscriptChamber"
     assert devices["manipulator"] == "AutoscriptManipulator"
-    assert devices["gis"] == ["Multichem", "Pt dep", "Water"]
-    assert devices["gis_device"] == "Multichem"
     assert devices["chamber_parameters"] == ["pressure", "state"]
     assert devices["manipulator_parameters"] == ["position", "state"]
-    assert devices["gis_parameters"] == ["gas", "heated", "opened", "state"]
-
-
-def test_a_gas_injector_reports_what_its_commands_did(recording):
-    """AutoScript's GIS state was never read, so the device keeps its own."""
-    facts = recording["facts"]["gis_state"]
-    assert facts["before"] == ["retracted", False, False]
-    assert facts["during"] == ["inserted", True, True, "Pt cryo"]
 
 
 def test_nothing_unfitted_is_built(recording):
     assert recording["facts"]["none_fitted"] == {
         "manipulator": True,
-        "gis": [],
-        "gis_device": True,
         "routed": False,
     }
 
 
+def test_the_configuration_switches_parts_off(recording):
+    """`hardware.devices` is an overlay on what the instrument has: an entry turns a
+    fitted part off, so it is never built; a device no driver builds is left out with
+    a warning."""
+    facts = recording["facts"]["configured"]
+    assert facts["devices"] == ["chamber"]
+    assert facts["manipulator"] is True
+    assert facts["routed"] is False
+
+
+def test_a_required_device_that_cannot_be_built_fails_connect(recording):
+    assert recording["facts"]["configured"]["required"] == (
+        "Device 'laser' was not built: driver 'ThermoFisher' has no builder for a "
+        "'laser' device."
+    )
+
+
 def test_connect_builds_the_parts_after_it_reads_what_is_fitted():
-    """Whether a manipulator and gas injectors are fitted is read in
+    """Whether a manipulator is fitted is read in
     ``_create_sample_stage``, so the parts are built after it."""
     import ast
 
