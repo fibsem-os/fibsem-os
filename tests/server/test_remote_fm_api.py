@@ -13,8 +13,7 @@ from fibsem.devices.drivers.remote import (  # noqa: E402
     DeviceClient,
     RemoteDeviceUnreachable,
 )
-from fibsem.fm.api import DeviceFluorescenceMicroscope  # noqa: E402
-from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
+from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402  # noqa: E402
 from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage  # noqa: E402
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
@@ -33,7 +32,7 @@ def served():
     fm = RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port, client=client)
     fm._served = local  # for the tests that check the far side's devices
     # The FM API over the served devices, as the FM's computer would hold it.
-    far = DeviceFluorescenceMicroscope(local)
+    far = FluorescenceMicroscope(local)
     yield far, fm
     client.close()
     server.stop()
@@ -412,7 +411,7 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
         local = {d.name: d for d in demo_fm_devices()}
         server = DeviceServer(local.values(), port=port).start()
 
-        far = DeviceFluorescenceMicroscope(local)
+        far = FluorescenceMicroscope(local)
         assert _wait_for(lambda: far.objective.limit_position == 0.004, timeout=10)
         assert fm.online
         assert fm.objective.limit_position == 0.004

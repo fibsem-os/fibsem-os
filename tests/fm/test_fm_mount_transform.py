@@ -10,7 +10,7 @@ import pytest
 
 from fibsem.devices.drivers.demo import bind_demo_fm
 from fibsem.devices.fm import mount_transform_from_name, mount_transform_name
-from fibsem.fm.api import DeviceFluorescenceMicroscope
+from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import CameraImageTransform
 
 FRAME = np.arange(6).reshape(2, 3)
@@ -19,7 +19,7 @@ FRAME = np.arange(6).reshape(2, 3)
 def _fm(mount=None):
     config = {"mount_transform": mount_transform_name(mount)} if mount else None
     devices = bind_demo_fm(config=config)
-    return DeviceFluorescenceMicroscope(devices)
+    return FluorescenceMicroscope(devices)
 
 
 def test_a_camera_is_mounted_straight_unless_its_configuration_says():

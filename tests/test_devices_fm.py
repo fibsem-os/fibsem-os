@@ -209,9 +209,9 @@ def test_live_view_keeps_going_while_frames_are_asked_for(fm):
 
 def test_the_simulator_has_no_hardware_units_for_power_or_gain(fm):
     """Its power and gain are fractions already, so there is nothing more to show."""
-    from fibsem.fm.api import DeviceFluorescenceMicroscope
+    from fibsem.fm.microscope import FluorescenceMicroscope
 
-    api = DeviceFluorescenceMicroscope(fm)
+    api = FluorescenceMicroscope(fm)
     assert api.light_source.power_native_scale is None
     assert api.camera.gain_native_scale is None
     assert "native_max" not in fm["light_source"].describe()["power"]

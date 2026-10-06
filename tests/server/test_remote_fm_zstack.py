@@ -17,7 +17,7 @@ pytest.importorskip("websockets")
 from fibsem.devices.drivers.demo import bind_demo_fm  # noqa: E402
 from fibsem.devices.drivers.remote import DeviceClient  # noqa: E402
 from fibsem.fm.acquisition import acquire_z_stack  # noqa: E402
-from fibsem.fm.api import DeviceFluorescenceMicroscope  # noqa: E402
+from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
 from fibsem.fm.progress import FluorescenceAcquisitionStatus  # noqa: E402
 from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import (  # noqa: E402
@@ -202,7 +202,7 @@ def test_the_group_command_falls_back_to_steps_on_a_server_without_it(
 
 def test_a_local_fm_still_runs_the_stack_step_by_step():
     """Each slice is shown as it arrives, as before: no command for a local FM."""
-    fm = DeviceFluorescenceMicroscope(bind_demo_fm())
+    fm = FluorescenceMicroscope(bind_demo_fm())
     assert not fm.runs_z_stack_on_device
 
 
@@ -230,10 +230,10 @@ def test_the_group_command_takes_the_steps_the_api_takes():
         zparams = ZParameters(zmin=-1e-6, zmax=1e-6, zstep=1e-6, order=order)
 
         def step_by_step(devices):
-            acquire_z_stack(DeviceFluorescenceMicroscope(devices), CHANNELS, zparams)
+            acquire_z_stack(FluorescenceMicroscope(devices), CHANNELS, zparams)
 
         def one_command(devices):
-            fm = DeviceFluorescenceMicroscope(devices)
+            fm = FluorescenceMicroscope(devices)
             z_init = fm.objective.position
             devices["fm"].acquire_z_stack(
                 channels=[c.to_dict() for c in CHANNELS],

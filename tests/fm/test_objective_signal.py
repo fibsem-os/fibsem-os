@@ -177,8 +177,8 @@ class TestEveryDriverAnnounces:
         """Every `ObjectiveLens` implementation, by qualified name."""
         found = {}
         modules = (
+            "fm/microscope.py",
             "microscopes/simulator.py",
-            "fm/api.py",
             "fm/autoscript.py",
             "fm/odemis.py",
         )
@@ -202,12 +202,12 @@ class TestEveryDriverAnnounces:
         return False
 
     def test_every_implementation_is_found(self):
-        """Guard against the probe silently matching nothing. The device-backed lens
-        and its Thermo (`home`) and Odemis subclasses count too."""
+        """Guard against the probe silently matching nothing. The FM API's lens, the
+        legacy simulator's, and the Thermo (`home`) and Odemis subclasses."""
         classes = self._objective_classes()
         assert set(classes) == {
+            "fm/microscope.py:ObjectiveLens",
             "microscopes/simulator.py:SimulatedObjectiveLens",
-            "fm/api.py:DeviceObjectiveLens",
             "fm/autoscript.py:DeviceThermoFisherObjectiveLens",
             "fm/odemis.py:DeviceOdemisObjectiveLens",
         }, f"unexpected ObjectiveLens classes: {sorted(classes)}"

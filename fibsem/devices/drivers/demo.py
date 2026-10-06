@@ -36,7 +36,7 @@ from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
-from fibsem.fm.api import emission_filter_named
+from fibsem.fm.microscope import emission_filter_named
 from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
@@ -644,7 +644,7 @@ def build_demo_manipulator(
 # The simulated FM's parts as devices. Each keeps its own simulated part in sim_*
 # fields, starting where the simulated FM's part starts (the ``SIM_*`` values), and
 # does what that part does. The Demo's ``fm`` is the FM API over them
-# (``fibsem.fm.api``), and the group holds the FM's share of the Demo's imaging
+# (``fibsem.fm.microscope``), and the group holds the FM's share of the Demo's imaging
 # channel (``DemoFMChannel``).
 
 

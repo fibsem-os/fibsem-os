@@ -14,7 +14,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.devices.core import ParameterMetadata  # noqa: E402
 from fibsem.devices.drivers import demo  # noqa: E402
-from fibsem.fm.api import DeviceFluorescenceMicroscope  # noqa: E402
+from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
 from fibsem.microscopes import simulator  # noqa: E402
 from fibsem.structures import RangeLimit  # noqa: E402
@@ -42,7 +42,7 @@ def fm(monkeypatch):
         "metadata_power",
         lambda self: ParameterMetadata(limits=RangeLimit(min=0.0, max=0.8)),
     )
-    return DeviceFluorescenceMicroscope(demo.bind_demo_fm())
+    return FluorescenceMicroscope(demo.bind_demo_fm())
 
 
 def _range(spin):
@@ -130,7 +130,7 @@ def fm_with_units(monkeypatch):
         lambda self: ParameterMetadata(limits=fraction, native_max=16.0),
         raising=False,
     )
-    return DeviceFluorescenceMicroscope(demo.bind_demo_fm())
+    return FluorescenceMicroscope(demo.bind_demo_fm())
 
 
 def _tooltip(spin, percent):
@@ -175,7 +175,7 @@ def test_the_camera_shows_gain_in_hardware_units(qapp, fm_with_units):
 def test_without_hardware_units_the_tooltips_stay_as_they_were(qapp):
     from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
 
-    sim = DeviceFluorescenceMicroscope(demo.bind_demo_fm())
+    sim = FluorescenceMicroscope(demo.bind_demo_fm())
     widget = ChannelSettingsWidget(sim)
 
     assert widget.power_spin.toolTip() == "Light source power (%)"

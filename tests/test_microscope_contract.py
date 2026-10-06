@@ -1102,11 +1102,11 @@ def test_demo_fm_group_acquires_a_channel():
 def test_demo_fm_is_the_fm_api_over_devices():
     """`fm` is the same FM API over devices a remote FM is, over the Demo FM devices."""
     from fibsem.devices.drivers.demo import DemoCamera
-    from fibsem.fm.api import DeviceFluorescenceMicroscope
+    from fibsem.fm.microscope import FluorescenceMicroscope
 
     microscope = _connect("Demo", FM_CONFIGURATION)
     fm = microscope.fm
-    assert isinstance(fm, DeviceFluorescenceMicroscope)
+    assert isinstance(fm, FluorescenceMicroscope)
     assert fm.devices == dict(microscope.fm_devices)
     assert isinstance(microscope.fm_devices["camera"], DemoCamera)
     # the frame is the camera's, at its binned resolution

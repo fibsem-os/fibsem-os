@@ -24,7 +24,15 @@ from fibsem.fm.microscope import (
     LightSource,
     ObjectiveLens,
 )
-from fibsem.fm.structures import ObjectiveStateName
+from fibsem.fm.structures import (
+    CameraImageTransform,
+    ChannelSettings,
+    EmissionFilter,
+    FluorescenceImage,
+    FluorescenceImageMetadata,
+    ObjectiveStateName,
+    emission_filter_for,
+)
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
@@ -511,6 +519,10 @@ class SimulatedCamera(Camera):
         self._gain = value
 
     @property
+    def gain_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
+        return None
+
+    @property
     def offset(self) -> float:
         return self._offset
 
@@ -547,6 +559,14 @@ class SimulatedLightSource(LightSource):
     def power(self, value: float):
         self._power = value
 
+    @property
+    def power_limits(self) -> Tuple[float, float]:
+        return (0.0, 1.0)
+
+    @property
+    def power_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
+        return None
+
 
 class SimulatedFilterSet(FilterSet):
     """The simulated FM's filter set: ``EXCITATION_WAVELENGTHS``, and reflection or
@@ -580,6 +600,11 @@ class SimulatedFilterSet(FilterSet):
     @emission_wavelength.setter
     def emission_wavelength(self, value: Optional[Union[float, str]]):
         self._emission_wavelength = value
+
+    def emission_filter(self, value: Optional[Union[float, str]]) -> EmissionFilter:
+        """The filter an emission value names, with its band's edges when this filter
+        set knows them (``emission_bands``), for showing it by name and band."""
+        return emission_filter_for(value, getattr(self, "emission_bands", {}))
 
 
 class SceneCamera(SimulatedCamera):
@@ -638,6 +663,103 @@ class SimulatedFluorescenceMicroscope(FluorescenceMicroscope):
         self._channel_depth = 0
         self._restore_view: Optional[int] = None
         self._restore_device: Optional[int] = None
+
+    # The simulated FM has no devices: it takes frames from its own camera, as the FM
+    # API did before it ran over devices.
+
+    @property
+    def runs_z_stack_on_device(self) -> bool:
+        return False
+
+    @property
+    def mount_transform(self) -> CameraImageTransform:
+        """Fixed correction from raw sensor axes to stage-aligned axes.
+
+        Hardware truth about how the camera is mounted, not a user preference: it
+        is applied before the user's ``CameraImageTransform`` so that every
+        consumer (display, correlation, saved data, movement) sees one consistently
+        oriented image, and so that movement needs only the user transform.
+
+        Defaults to no correction; drivers override per system. The value is
+        determined by observing which stage axis a feature travels along in the
+        FM view.
+        """
+        return CameraImageTransform.NONE
+
+    def acquire_image(
+        self, channel_settings: Optional[ChannelSettings] = None
+    ) -> FluorescenceImage:
+        """Acquire a single fluorescence image.
+
+        Args:
+            channel_settings: Optional channel configuration. If provided,
+                            the microscope will be reconfigured before acquisition.
+
+        Returns:
+            A FluorescenceImage object containing the image data and metadata
+        """
+        with self.active_channel():
+            if channel_settings is not None:
+                self.set_channel(channel_settings)
+            data = self.camera.acquire_image()
+            # Inside the scope, not after it. `_construct_image` looks like formatting
+            # but calls `get_metadata`, which reads 14 device properties that each take
+            # the channel themselves -- outside, that is 56 round trips and 28 changes
+            # of the microscope's active view per image, and the metadata would then
+            # describe the state *after* the channel had been handed back rather than
+            # the one the frame was taken under.
+            return self._construct_image(data)
+
+    def _metadata_for_frame(
+        self, frame_metadata: Optional[dict]
+    ) -> FluorescenceImageMetadata:
+        """The image's metadata: the current state, with what the driver reported for
+        the frame itself in place of it."""
+        md = self.get_metadata()
+
+        if frame_metadata:
+            pixel_size = frame_metadata.get("pixel_size")
+            if pixel_size is not None:
+                md.pixel_size_x, md.pixel_size_y = pixel_size[0], pixel_size[1]
+            acquisition_date = frame_metadata.get("acquisition_date")
+            if acquisition_date is not None:
+                md.acquisition_date = acquisition_date
+            exposure_time = frame_metadata.get("exposure_time")
+            if exposure_time is not None and md.channels:
+                md.channels[0].exposure_time = exposure_time
+        return md
+
+    def _acquisition_worker(self, channel_settings: Optional[ChannelSettings] = None):
+        """Internal worker thread for continuous image acquisition.
+
+        Runs in a separate thread to continuously acquire images and emit them
+        via the acquisition_signal until stop_acquisition() is called.
+
+        Args:
+            channel_settings: Optional channel configuration to apply
+
+        Note:
+            This is an internal method and should not be called directly.
+            Use start_acquisition() instead.
+        """
+        # TODO: add thread lock for thread safety
+        try:
+            if channel_settings is not None:
+                self.set_channel(channel_settings)
+            logging.info("Starting acquisition worker thread.")
+            while True:
+                if self._stop_acquisition_event.is_set():
+                    break
+
+                if hasattr(self.camera, "_start_fast_acquisition"):
+                    self.camera._start_fast_acquisition()  # type: ignore
+                    break
+
+                # acquire and emit image using current settings
+                self.acquire_image()
+
+        except Exception as e:
+            logging.error(f"Error in acquisition worker: {e}")
 
     def _shares_a_channel(self) -> bool:
         """Whether there is a channel to share: a microscope with an imaging system.
