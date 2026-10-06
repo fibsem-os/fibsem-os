@@ -2177,9 +2177,6 @@ class TescanMicroscope(FibsemMicroscope):
         logging.warning(f"Unknown key: {key}, value: {value} ({beam_type})")
         return
 
-    def check_available_values(self, key: str, beam_type: BeamType = None) -> bool:
-        return False
-
     def home(self) -> bool:
         logging.warning("No homing available, please use native UI.")
         return False

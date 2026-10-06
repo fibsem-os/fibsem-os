@@ -2354,11 +2354,6 @@ class FibsemMicroscope(ABC):
             {"msg": "apply_configuration", "system_settings": system_settings.to_dict()}
         )
 
-    def check_available_values(
-        self, key: str, values, beam_type: Optional[BeamType] = None
-    ) -> bool:
-        raise self._unsupported("check_available_values")
-
     def home(self) -> bool:
         """Home the stage."""
         if self.stage is not None and self.stage.commands["home"].available:

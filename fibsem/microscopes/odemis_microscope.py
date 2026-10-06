@@ -798,7 +798,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
                 if not self.system.ion.plasma:
                     logging.debug("Plasma gas cannot be set on this microscope.")
                     return
-                if not self.check_available_values("plasma_gas", [value], beam_type):
+                if value not in self.get_available_values("plasma_gas", beam_type):
                     logging.warning(
                         f"Plasma gas {value} not available. Available values: {self.get_available_values('plasma_gas', beam_type)}"
                     )
@@ -905,9 +905,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         logging.debug({"msg": "get_available_values", "key": key, "values": values})
 
         return values
-
-    def check_available_values(self, key: str) -> list:
-        pass
 
     def insert_manipulator(self) -> None:
         pass

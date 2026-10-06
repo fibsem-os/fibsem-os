@@ -3383,7 +3383,7 @@ class ThermoMicroscope(FibsemMicroscope):
                 if not self.system.ion.plasma:
                     logging.debug("Plasma gas cannot be set on this microscope.")
                     return
-                if not self.check_available_values("plasma_gas", [value], beam_type):
+                if value not in self.get_available_values("plasma_gas", beam_type):
                     logging.warning(
                         f"Plasma gas {value} not available. Available values: {self.get_available_values('plasma_gas', beam_type)}"
                     )
@@ -3444,25 +3444,6 @@ class ThermoMicroscope(FibsemMicroscope):
         logging.warning(f"Unknown key: {key} ({beam_type})")
 
         return
-
-    def check_available_values(
-        self, key: str, values: list, beam_type: Optional[BeamType] = None
-    ) -> bool:
-        """Check if the given values are available for the given key."""
-
-        available_values = self.get_available_values(key, beam_type)
-
-        if available_values is None:
-            return False
-
-        for value in values:
-            if value not in available_values:
-                return False
-
-            if isinstance(value, float):
-                if value < min(available_values) or value > max(available_values):
-                    return False
-        return True
 
     def _get_beam(self, beam_type: BeamType) -> Union["ElectronBeam", "IonBeam"]:
         """Get the beam connection api for the given beam type.

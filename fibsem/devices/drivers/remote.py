@@ -48,7 +48,7 @@ import io
 import json
 import logging
 import threading
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import requests
@@ -332,6 +332,7 @@ class RemoteDevice(Device):
         its server; its parameters are absent until then."""
 
     def connect(self, description: Optional[Dict[str, Any]] = None) -> Device:
+        self.check_roles()
         if description is None:
             description = self.client.request(
                 "GET", f"devices/{self.name}", READ_TIMEOUT
@@ -343,6 +344,7 @@ class RemoteDevice(Device):
 
     def connect_offline(self) -> Device:
         """Follow a server that isn't answering yet: nothing is bound until it does."""
+        self.check_roles()
         self.client.register(self, wait=False)
         return self
 
@@ -577,12 +579,25 @@ def connect_remote_fm(
             f"The fluorescence microscope is not reachable ({error}). It will connect "
             "when its device server starts."
         )
-        return {
-            name: part(name=name, client=client).connect_offline()
-            for name, part in REMOTE_FM_PARTS.items()
-        }
+        devices = _remote_fm_devices(REMOTE_FM_PARTS, client)
+        return {name: device.connect_offline() for name, device in devices.items()}
+    devices = _remote_fm_devices(
+        [name for name in descriptions if name in REMOTE_FM_PARTS], client
+    )
     return {
-        name: REMOTE_FM_PARTS[name](name=name, client=client).connect(description)
-        for name, description in descriptions.items()
-        if name in REMOTE_FM_PARTS
+        name: device.connect(descriptions[name]) for name, device in devices.items()
     }
+
+
+def _remote_fm_devices(
+    names: Iterable[str], client: DeviceClient
+) -> Dict[str, RemoteDevice]:
+    """The named remote FM devices, unconnected, with the group's roles filled by the
+    parts beside it."""
+    devices = {name: REMOTE_FM_PARTS[name](name=name, client=client) for name in names}
+    group = devices.get("fm")
+    if group is not None:
+        group.fill_roles(
+            **{name: device for name, device in devices.items() if name != "fm"}
+        )
+    return devices
