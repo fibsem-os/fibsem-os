@@ -3,12 +3,14 @@
 ``TescanBeam``'s ``acquire``, ``last_image``, ``autocontrast``, ``auto_focus`` and live
 view are ``TescanMicroscope``'s ``acquire_image``, ``last_image``, ``autocontrast``,
 ``auto_focus`` and acquisition worker moved onto the beam. Each case runs an old call on
-a microscope connected without beam devices and the same call on one connected as the
-app connects it, each over its own recording fake of the SDK
-(``tests/fixtures/tescan_sdk.py``), and requires the same result, the same SDK calls in
-the same order and the same messages. Nothing here has run on an instrument.
+a microscope connected as the app connects it, over a recording fake of the SDK
+(``tests/fixtures/tescan_sdk.py``), and requires the result, the SDK calls in order and
+the messages that the same call made on a microscope without beam devices, recorded in
+``tests/fixtures/tescan_imaging_calls.json`` before the ``_get``/``_set`` branches that
+path read through were deleted (FIB-1161). Nothing here has run on an instrument.
 """
 
+import json
 import logging
 import os
 import threading
@@ -18,7 +20,6 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.microscopes import tescan as tescan_module
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -29,6 +30,9 @@ from fibsem.structures import (
 from tests.fixtures.tescan_sdk import connect
 
 E, I = BeamType.ELECTRON, BeamType.ION
+RECORDED = os.path.join(
+    os.path.dirname(__file__), "fixtures", "tescan_imaging_calls.json"
+)
 AREA = FibsemRectangle(0.25, 0.25, 0.5, 0.5)
 
 
@@ -39,24 +43,19 @@ def _system():
 
 
 @pytest.fixture
-def pair(monkeypatch):
-    """(old, old fake), (new, new fake): connected without and with the beams."""
+def connected(monkeypatch):
+    """Connected as the app connects it, with its beam devices."""
     monkeypatch.setattr(tescan_module, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
-    monkeypatch.setattr(TescanMicroscope, "_build_beams", lambda self: None)
-    old = connect(monkeypatch, _system())
-    monkeypatch.undo()
-    monkeypatch.setattr(tescan_module, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
-    new = connect(monkeypatch, _system())
-    assert not old[0].beams and set(new[0].beams) == {E, I}
-    for microscope, _ in (old, new):
-        # what the last image reported: the API cannot read these
-        for beam_type in (E, I):
-            cache = microscope._beam_parameters[beam_type]
-            cache.resolution = [1536, 1024]
-            cache.dwell_time = 1e-6
-            cache.stigmation = Point(0.1, -0.2)
-            cache.preset = "30 keV; 1 nA" if beam_type is I else None
-    return old, new
+    microscope, fake = connect(monkeypatch, _system())
+    assert set(microscope.beams) == {E, I}
+    # what the last image reported: the API cannot read these
+    for beam_type in (E, I):
+        cache = microscope._beam_parameters[beam_type]
+        cache.resolution = [1536, 1024]
+        cache.dwell_time = 1e-6
+        cache.stigmation = Point(0.1, -0.2)
+        cache.preset = "30 keV; 1 nA" if beam_type is I else None
+    return microscope, fake
 
 
 class _Messages(logging.Handler):
@@ -68,6 +67,15 @@ class _Messages(logging.Handler):
         self.messages.append([record.levelname, record.getMessage()])
 
 
+def _system_info(info):
+    """The system info without the commit it ran at, which the recording can't match."""
+    if info is None:
+        return None
+    ddict = info.to_dict()
+    ddict.pop("fibsem_revision", None)
+    return ddict
+
+
 def _plain(value):
     if isinstance(value, FibsemImage):
         md = value.metadata
@@ -76,7 +84,7 @@ def _plain(value):
             "settings": md.image_settings.to_dict(),
             "pixel_size": [md.pixel_size.x, md.pixel_size.y],
             "stage": md.microscope_state.stage_position.to_dict(),
-            "system": md.system_info.to_dict() if md.system_info else None,
+            "system": _system_info(md.system_info),
         }
     if isinstance(value, ImageSettings):
         return value.to_dict()
@@ -107,13 +115,15 @@ def _run(microscope, fake, call):
         ]
         for bt in (E, I)
     }
-    return {
+    ran = {
         "result": result,
         "sdk": list(fake.log),
         "log": handler.messages,
         "cache": cache,
         "last_settings": _plain(microscope._last_imaging_settings),
     }
+    # as the recording stored it: JSON, with anything else as its repr
+    return json.loads(json.dumps(ran, default=repr))
 
 
 def _settings(beam_type, reduced=False, hfw=80e-6):
@@ -166,22 +176,27 @@ def _cases():
 CASES = dict(_cases())
 
 
+with open(RECORDED) as f:
+    EXPECTED = json.load(f)
+
+
+def test_every_case_was_recorded():
+    assert sorted(CASES) == sorted(EXPECTED)
+
+
 @pytest.mark.parametrize("case", list(CASES))
-def test_imaging_makes_the_same_calls_logs_and_result(pair, case):
-    (old, old_fake), (new, new_fake) = pair
-    expected = _run(old, old_fake, CASES[case])
-    actual = _run(new, new_fake, CASES[case])
-    assert actual == expected
+def test_imaging_makes_the_same_calls_logs_and_result(connected, case):
+    microscope, fake = connected
+    assert _run(microscope, fake, CASES[case]) == EXPECTED[case]
 
 
-def test_the_cases_make_sdk_calls(pair):
-    (old, old_fake), _ = pair
-    calls = [_run(old, old_fake, call)["sdk"] for call in CASES.values()]
+def test_the_cases_make_sdk_calls():
+    calls = [case["sdk"] for case in EXPECTED.values()]
     assert sum(1 for c in calls if c) >= len(CASES) * 0.7
 
 
-def test_imaging_goes_through_the_beam_commands(pair):
-    _, (microscope, _) = pair
+def test_imaging_goes_through_the_beam_commands(connected):
+    microscope, _ = connected
     used = []
     for beam in microscope.beams.values():
         for name in ("acquire", "last_image", "autocontrast", "auto_focus"):
@@ -208,8 +223,8 @@ def test_imaging_goes_through_the_beam_commands(pair):
     ]
 
 
-def test_the_ion_beam_has_no_auto_focus(pair):
-    _, (microscope, _) = pair
+def test_the_ion_beam_has_no_auto_focus(connected):
+    microscope, _ = connected
     sem, fib = microscope.beams[E], microscope.beams[I]
     for beam in (sem, fib):
         for name in ("acquire", "last_image", "autocontrast", "start_live"):
@@ -219,8 +234,8 @@ def test_the_ion_beam_has_no_auto_focus(pair):
 
 
 @pytest.mark.parametrize("beam_type", [E, I])
-def test_live_view_runs_on_the_beam_and_reaches_the_old_signal(pair, beam_type):
-    _, (microscope, fake) = pair
+def test_live_view_runs_on_the_beam_and_reaches_the_old_signal(connected, beam_type):
+    microscope, fake = connected
     beam = microscope.beams[beam_type]
     seen, done = [], threading.Event()
 

@@ -1,10 +1,11 @@
-"""The METEOR's FM through odemis as devices, beside the untouched Odemis FM.
+"""The METEOR's FM through odemis, as devices.
 
 ``OdemisFMCamera``, ``OdemisFMLightSource``, ``OdemisFMFilterSet``,
-``OdemisFMObjective`` and the ``OdemisFM`` group are ``OdemisFluorescenceMicroscope``'s
-parts (``fibsem.fm.odemis``) moved onto the FM devices: each read, write and command
-makes the odemis calls the old property or method makes, in the same order, on the same
-components and the same ``FluoStream``. ``OdemisThermoMicroscope.fm`` is the FM API over
+``OdemisFMObjective`` and the ``OdemisFM`` group are the old
+``OdemisFluorescenceMicroscope``'s parts moved onto the FM devices: each read, write
+and command makes the odemis calls the old property or method made, in the same order,
+on the same components and the same ``FluoStream``
+(``tests/fixtures/odemis/old_fm_pins.json`` holds those calls). ``OdemisThermoMicroscope.fm`` is the FM API over
 them (``DeviceOdemisFluorescenceMicroscope``), and the device server serves them from the
 METEOR PC.
 
@@ -63,7 +64,7 @@ def emission_filter_of(choice: Any) -> EmissionFilter:
 
 
 class OdemisFMCamera(Camera):
-    """``OdemisCamera``: the ``ccd`` component, with acquisitions through the stream."""
+    """The camera: the ``ccd`` component, with acquisitions through the stream."""
 
     def __init__(
         self,
@@ -209,7 +210,7 @@ class OdemisFMCamera(Camera):
 
 
 class OdemisFMLightSource(LightSource):
-    """``OdemisLightSource``: the stream's power, as a fraction of its maximum."""
+    """The light source: the stream's power, as a fraction of its maximum."""
 
     def __init__(
         self, stream: Any, parent: Any = None, resources: Optional[Resources] = None
@@ -240,7 +241,7 @@ class OdemisFMLightSource(LightSource):
 
 
 class OdemisFMFilterSet(FilterSet):
-    """``OdemisFilterSet``: the stream's excitation and emission bands."""
+    """The filter set: the stream's excitation and emission bands."""
 
     def __init__(
         self, stream: Any, parent: Any = None, resources: Optional[Resources] = None
@@ -314,7 +315,7 @@ class OdemisFMFilterSet(FilterSet):
 
 
 class OdemisFMObjective(Objective):
-    """``OdemisObjectiveLens``: the ``focus`` actuator and the ``lens`` component.
+    """The objective: the ``focus`` actuator and the ``lens`` component.
 
     The favourite (inserted and retracted) positions are read from the focuser's
     metadata at connect and kept, as the old class caches them.
@@ -537,7 +538,7 @@ def bind_odemis_fm(
 ) -> Dict[str, Device]:
     """The METEOR's FM parts and group, by device name, from the odemis backend on
     this computer: its components by role, and one ``FluoStream`` over them, as
-    ``OdemisFluorescenceMicroscope`` builds it. *config* is the fm entry's own
+    the old ``OdemisFluorescenceMicroscope`` built it. *config* is the fm entry's own
     keys (``mount_transform``)."""
     resources = resources if resources is not None else resources_of(parent)
     camera = model.getComponent(role="ccd")

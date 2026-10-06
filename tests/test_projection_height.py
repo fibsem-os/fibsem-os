@@ -119,19 +119,19 @@ class _Oracle:
             y_stage = -y_stage
         return y_stage, z_stage
 
-    def _flip(self, geometry, rotation, tilt) -> float:
+    def _flip(self, geometry, rotation, tilt, view_tilt) -> float:
         if not (geometry.is_compustage and self.m_cs):
             return 1.0
-        from fibsem.transformations import _projection_terms
+        from fibsem.transformations import _image_y_flip
 
-        sign, _, _ = _projection_terms(geometry, rotation, tilt)
-        return sign
+        # Against the half-turn fold, which already negates both stage axes.
+        return -_image_y_flip(geometry, view_tilt, rotation, tilt)
 
     def project(self, geometry, rotation, tilt, view_tilt, dy, dz) -> float:
         y_stage, z_stage = self._stage_axes(geometry, rotation, tilt)
         d = dy * y_stage + dz * z_stage
         y_image = self.s_img * (_rot(self.s_v * view_tilt) @ np.array([1.0, 0.0]))
-        return float(y_image @ d) * self._flip(geometry, rotation, tilt)
+        return float(y_image @ d) * self._flip(geometry, rotation, tilt, view_tilt)
 
     def vertical_as_stage_delta(self, geometry, rotation, tilt, height):
         """A chamber-vertical displacement, expressed as a stage (dy, dz)."""
@@ -279,7 +279,9 @@ class TestGoldenValuesAtTheConfiguredOrientations:
             (-128.0, +15.760254),  # FIB orientation
             (-23.0, -15.760254),  # MILLING orientation
             (0.0, -15.760254),  # SEM orientation
-            (-180.0, -15.760254),  # FM orientation
+            # FM orientation: the FIB sees the back of the grid here, so the
+            # instrument mirrors it as it does at the FIB orientation (FIB-1101).
+            (-180.0, +15.760254),
         ],
     )
     def test_fib_view_response(self, oracle, tilt_deg, fib_shift_um):

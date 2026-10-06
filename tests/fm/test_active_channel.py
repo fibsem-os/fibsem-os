@@ -1,13 +1,14 @@
 """The FM and the beams share one connection, so an FM read must hand it back (FIB-517).
 
-`ThermoFisherFluorescenceMicroscope.set_active_channel()` points the shared connection at
-the FM. A property getter that called it and walked away left the microscope there --
-and since the FM overview's info bar read the objective on every stage poll, a beam
-acquisition that had set its own channel found the FM instead. It stopped a workflow task.
+Setting the FM's channel points the shared connection at the FM. A property getter that
+did it and walked away left the microscope there -- and since the FM overview's info bar
+read the objective on every stage poll, a beam acquisition that had set its own channel
+found the FM instead. It stopped a workflow task.
 
-`autoscript.py` cannot be imported without the AutoScript SDK, which is not installed off
-the microscope, so the context manager is exercised against a stub connection through a
-stub of the class rather than the real import. What is under test is the contract --
+The Thermo FM devices' channel (`AutoscriptFMChannel` in
+`fibsem/devices/drivers/autoscript_fm.py`) cannot be imported without the AutoScript SDK,
+which is not installed off the microscope, so the scope is exercised against a stub
+connection through a stub of it rather than the real import. What is under test is the contract --
 capture, set, restore, restore-on-failure -- not the SDK.
 """
 
@@ -40,11 +41,11 @@ class _Connection:
 
 
 class _FM:
-    """`ThermoFisherFluorescenceMicroscope`'s channel handling, without the SDK import.
+    """`AutoscriptFMChannel`'s channel handling, without the SDK import.
 
-    Copied rather than imported: `fibsem/fm/autoscript.py` imports
+    Copied rather than imported: `fibsem/devices/drivers/autoscript_fm.py` imports
     `autoscript_sdb_microscope_client` at module scope, which is absent off the
-    microscope. The structural test below pins this against the real source so the two
+    microscope. `TestTheDeviceChannelMatches` pins the real source's shape so the two
     cannot drift.
     """
 
@@ -279,164 +280,10 @@ class TestEveryMetadataReadIsInsideTheScope:
         )
 
 
-class TestTheRealDriverMatches:
-    """Structural, since the SDK import cannot be satisfied here.
-
-    Pins that every place in the driver that needs the FM channel goes through the
-    scoped form -- with the live stream, which owns it deliberately, as the exception.
-    """
-
-    @staticmethod
-    def _source() -> str:
-        from pathlib import Path
-
-        import fibsem.fm as fm_package
-
-        return (Path(fm_package.__file__).parent / "autoscript.py").read_text(
-            encoding="utf-8"
-        )
-
-    @staticmethod
-    def _functions(source: str, class_name: str = ""):
-        """Functions by name; within one class when ``class_name`` is given, since the
-        device-backed FM in the same module defines some of the same names."""
-        import ast
-
-        tree = ast.parse(source)
-        if class_name:
-            tree = next(
-                node
-                for node in ast.walk(tree)
-                if isinstance(node, ast.ClassDef) and node.name == class_name
-            )
-        return {
-            node.name: node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef)
-        }
-
-    def _active_channel(self):
-        return self._functions(self._source(), "ThermoFisherFluorescenceMicroscope")[
-            "active_channel"
-        ]
-
-    def test_the_context_manager_captures_and_restores_the_view(self):
-        import ast
-
-        node = self._active_channel()
-        body = ast.dump(node)
-        assert "get_active_view" in body, "does not capture the view"
-        assert "set_active_view" in body, "does not restore the view"
-        assert any(isinstance(n, ast.Try) and n.finalbody for n in ast.walk(node)), (
-            "restores outside a finally, so a failing read strands the connection"
-        )
-
-    def test_only_the_live_stream_sets_the_channel_unscoped(self):
-        """Everything discrete hands the connection back. `_start_fast_acquisition`,
-        `start_acquisition` and `stop_acquisition` are the live stream, which holds it
-        for as long as it runs and re-forces it per frame."""
-        import ast
-
-        source = self._source()
-        allowed = {
-            "set_active_channel",  # the primitive itself
-            "active_channel",  # the scoped form, which calls it
-            "fm_settings",  # every caller of this is inside a scope
-            "_start_fast_acquisition",
-            "start_acquisition",
-            "stop_acquisition",
-            # every path here comes through `FluorescenceMicroscope.acquire_image`,
-            # which scopes, and a tileset scopes the whole run
-            "acquire_image",
-        }
-        offenders = sorted(
-            name
-            for name, node in self._functions(source).items()
-            if name not in allowed
-            and "set_active_channel"
-            in {
-                child.func.attr
-                for child in ast.walk(node)
-                if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)
-            }
-        )
-        assert offenders == [], (
-            f"these take the shared channel without handing it back: {offenders}"
-        )
-
-    def test_the_bookkeeping_is_locked_but_the_body_is_not(self):
-        """Both halves matter. Unlocked, two scopes interleave and leave the view on the
-        FM. Locked across the body, a run-length scope holds a process-wide lock for
-        minutes and blocks everything else that takes it."""
-        import ast
-
-        node = self._active_channel()
-        locked = [
-            child
-            for child in ast.walk(node)
-            if isinstance(child, ast.With) and "channel_lock" in ast.dump(child)
-        ]
-        assert locked, "the bookkeeping is not locked"
-        assert not any(
-            isinstance(inner, ast.Expr) and isinstance(inner.value, ast.Yield)
-            for block in locked
-            for inner in ast.walk(block)
-        ), "the lock is held across the body"
-
-    def test_the_scope_is_counted_only_after_the_channel_is_taken(self):
-        """Order matters, and only in one direction.
-
-        Entering is two RPCs. If the depth is incremented first and the second RPC then
-        fails, the exception comes out of `__enter__`, no `finally` ever runs, and the
-        count stays high forever -- after which every scope looks nested and nothing
-        restores the view again. Incrementing last costs nothing and cannot strand it.
-        """
-        import ast
-
-        node = self._active_channel()
-        entry = next(
-            child
-            for child in ast.walk(node)
-            if isinstance(child, ast.With) and "set_active_channel" in ast.dump(child)
-        )
-
-        def index_of(predicate) -> int:
-            return next(i for i, stmt in enumerate(entry.body) if predicate(stmt))
-
-        took_it = index_of(
-            lambda stmt: any(
-                isinstance(n, ast.Call)
-                and isinstance(n.func, ast.Attribute)
-                and n.func.attr == "set_active_channel"
-                for n in ast.walk(stmt)
-            )
-        )
-        counted_it = index_of(
-            lambda stmt: (
-                isinstance(stmt, ast.AugAssign)
-                and "_channel_depth" in ast.dump(stmt.target)
-            )
-        )
-        assert took_it < counted_it, (
-            "the scope is counted before the channel is taken, so a connection that "
-            "drops mid-entry leaves the depth permanently too high"
-        )
-
-    def test_the_objective_state_getter_is_scoped(self):
-        """The one that stopped a workflow task, named so a regression is legible."""
-        import ast
-
-        node = self._functions(self._source(), "ThermoFisherObjectiveLens")["state"]
-        assert any(
-            isinstance(child, ast.With)
-            and "active_channel" in ast.dump(child.items[0].context_expr)
-            for child in ast.walk(node)
-        )
-
-
 class TestTheDeviceChannelMatches:
-    """The devices' FM channel (`AutoscriptFMChannel.scope`) is the same scope, moved.
-    Thermo's FM API runs on it, so it is pinned the same way."""
+    """Structural, since the SDK import cannot be satisfied here: the devices' FM
+    channel (`AutoscriptFMChannel.scope`) is the scope the stub above runs. Thermo's FM
+    API runs on it."""
 
     @staticmethod
     def _scope():

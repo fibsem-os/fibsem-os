@@ -31,7 +31,12 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from fibsem import utils
-from fibsem.microscopes._stage import GRID_RADIUS, SampleHolder, SlotCalibration
+from fibsem.microscopes._stage import (
+    COMPUSTAGE_HOLDER_NAME,
+    GRID_RADIUS,
+    SampleHolder,
+    SlotCalibration,
+)
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
@@ -143,8 +148,9 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         self._holder = holder
         # The compustage's holder is the autoloader's one working slot: its name
         # and capacity are not the operator's to change, and its position is where
-        # a loaded grid sits, height included (FIB-1144).
-        self._compustage = bool(getattr(microscope, "stage_is_compustage", False))
+        # a loaded grid sits, height included (FIB-1144). Read from the holder the
+        # stage built, not the stage type.
+        self._compustage = holder.name == COMPUSTAGE_HOLDER_NAME
         # The configuration the microscope was connected with; tests point it
         # elsewhere. None when the session was not started from a file.
         self._configuration_path: Optional[str] = configuration_path or getattr(

@@ -172,6 +172,11 @@ filterwarnings = [
     # anyio 4.15 deprecated the anyio.abc.BlockingPortal alias; starlette's
     # TestClient (through 1.6.0) still imports it, at import time - third-party.
     "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+    # The string-key microscope.get/set is deprecated for one minor release. Tests
+    # still exercise it (parity, routing, contract) until it is removed, which is
+    # when they move or go; tests/test_get_set_deprecation.py checks the warning.
+    # Code outside tests is kept off it by tests/test_no_direct_get_set.py.
+    "ignore:microscope\\.(get|set)\\(.* is deprecated:DeprecationWarning",
 ]
 
 [tool.ruff]

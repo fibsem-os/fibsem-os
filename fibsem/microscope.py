@@ -5,6 +5,7 @@ import datetime
 import functools
 import inspect
 import logging
+import sys
 import threading
 import time
 import warnings
@@ -118,6 +119,9 @@ _VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber"))
 # Keys only ever set: the old `_get` has no branch for them and returns None. A get
 # stays with `_get`, so it still returns None, rather than reading the device.
 _SET_ONLY_KEYS = frozenset(("angular_correction_tilt_correction",))
+# Modules that implement the old API, whose own get/set calls are not deprecated: the
+# named wrappers here, the backends, and the device router.
+_KEY_API_MODULES = ("fibsem.microscope", "fibsem.microscopes.", "fibsem.devices.")
 
 
 # Whether a stage move is being recorded on this thread. A move is often made of
@@ -978,13 +982,22 @@ class FibsemMicroscope(ABC):
     def _axis_restrictions_apply(
         self, position: Optional[FibsemStagePosition] = None
     ) -> bool:
-        """Whether the microscope refuses z and rotation, so an absolute move drops them.
+        """Whether an absolute move to *position* leaves any stage axis alone; see
+        `_blocked_axes`."""
+        return bool(self._blocked_axes(position))
+
+    def _blocked_axes(
+        self, position: Optional[FibsemStagePosition] = None
+    ) -> Tuple[str, ...]:
+        """The stage axes an absolute move to *position* leaves alone, because the
+        microscope would refuse them.
 
         Two halves, and they are not the same rule.
 
         The **orientation** half asks where the move is *going*, not where the stage is
-        standing. Asking the current pose is what dropped z from the very move that was
-        leaving the fluorescence pose: the stage landed at the requested x/y/t at the old
+        standing, and blocks z (and r, which a stage with an FM pose does not have).
+        Asking the current pose is what dropped z from the very move that was leaving
+        the fluorescence pose: the stage landed at the requested x/y/t at the old
         z-height, and the operator pressed Move a second time to finish it. Measured on
         the Arctis (Aug 2026): with the objective retracted, z and t are both available
         at t = -180, so a move out of that pose has nothing to lose. A move *into* it is
@@ -997,24 +1010,16 @@ class FibsemMicroscope(ABC):
 
         `get_stage_orientation` can never return "FM" on an offset mount -- the FM is a
         device there and `orientations["FM"]` is a copy of the FIB entry -- so that half
-        is naturally confined to the mounting it was written for.
+        is naturally confined to the stages that declare an FM pose.
 
-        The **objective** half is gated on `stage_is_compustage` **temporarily**, and
-        that gate belongs to FIB-640 to remove. It has only ever run on a compustage,
-        because `self.fm` is None everywhere else, and the axes it drops are not
-        equivalent across stage types: `stage_position_to_autoscript` returns a
-        `CompustagePosition(x, y, z, a)` with no `r` field at all, so dropping `r`
-        there has never done anything, while on an offset mount it would drop a real
-        rotation axis. Opening the connection gate is what makes that reachable, so
-        the gate goes on first.
-
-        Removing it silently would be the worse failure of the two. Without the gate
-        an offset move half-succeeds -- lands at x and y, no z, no rotation -- where
-        with it the full move is sent and the *microscope* refuses if it objects,
-        which is an error an operator can see and report. FIB-640 argues for exactly
-        that preference, and is also where the axis pair gets settled: it measured
-        z and t, not z and r.
+        The **objective** half applies on every mount: while the objective is
+        inserted, the axes it names (`ObjectiveLens.blocked_axes`, z and t as FIB-640
+        measured) are left alone. It read the stage type until those axes were
+        settled, because it dropped z and r, and r is a real rotation axis on an
+        offset mount. The objective state is read live, every move: a stale
+        "Retracted" here moves the stage with the objective in the chamber.
         """
+        blocked = []
         destination = (
             position
             if position is not None
@@ -1023,13 +1028,24 @@ class FibsemMicroscope(ABC):
             else None
         )
         if self.get_stage_orientation(destination) == "FM":
-            return True
+            blocked += ["z", "r"]
 
-        return (
-            self.stage_is_compustage
-            and self.fm is not None
-            and self.fm.objective.state == "Inserted"
-        )
+        if self.fm is not None and self.fm.objective.state == "Inserted":
+            blocked += [a for a in self.fm.objective.blocked_axes if a not in blocked]
+        return tuple(blocked)
+
+    def _without_blocked_axes(
+        self, position: FibsemStagePosition
+    ) -> FibsemStagePosition:
+        """*position* with the axes `_blocked_axes` names left unset, so an absolute
+        move does not send them."""
+        blocked = self._blocked_axes(position)
+        if not blocked:
+            return position
+        position = deepcopy(position)
+        for axis in blocked:
+            setattr(position, axis, None)
+        return position
 
     def _fluorescence_is_configured(self) -> bool:
         """Whether this site has said its instrument has a fluorescence microscope.
@@ -1162,10 +1178,10 @@ class FibsemMicroscope(ABC):
         Dormant until the connection gate opens: `microscope.fm` is `None` on every
         non-compustage system today, so nothing can park at the FM to begin with.
         """
-        # A compustage reaches the FM by flipping, and its devices are the same place,
-        # so "parked at the FM" is not a state it can be in -- and it has no rotation
-        # axis to be compucentric about either.
-        if self.stage_is_compustage or self.fm is None:
+        # A stage that reaches the FM by re-posing (a compustage, flipping) has its
+        # devices at one place, so "parked at the FM" is not a state it can be in --
+        # and it has no rotation axis to be compucentric about either.
+        if self._fm_is_a_pose() or self.fm is None:
             return
 
         if stage_position.r is None:
@@ -1870,7 +1886,13 @@ class FibsemMicroscope(ABC):
     def get(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> Union[float, int, bool, str, list, tuple, Point]:
-        """Get wrapper for logging."""
+        """Get wrapper for logging.
+
+        Deprecated from outside the microscope classes: use the device
+        (``microscope.beams[beam_type].parameters[...]``, ``microscope.stage``, ...) or
+        the named wrapper (``get_working_distance``, ...).
+        """
+        self._warn_key_call("get", key, beam_type)
         param = None if key in _SET_ONLY_KEYS else self._route(key, beam_type)
         if param is not None:
             value = _old_key_value(key, param.get_value())
@@ -1892,7 +1914,11 @@ class FibsemMicroscope(ABC):
         value: Union[str, float, int, tuple, list, Point],
         beam_type: Optional[BeamType] = None,
     ) -> None:
-        """Set wrapper for logging"""
+        """Set wrapper for logging.
+
+        Deprecated from outside the microscope classes, as ``get`` is.
+        """
+        self._warn_key_call("set", key, beam_type)
         param = None if key in self._device_routes else self._route(key, beam_type)
         command = self._route_command(key)
         if key in _VERBS_THAT_NEED_TRUE and not value:
@@ -1911,6 +1937,31 @@ class FibsemMicroscope(ABC):
         beam_name = "None" if beam_type is None else beam_type.name
         logging.debug(
             {"msg": "set", "key": key, "beam_type": beam_name, "value": value}
+        )
+
+    def _warn_key_call(
+        self, method: str, key: str, beam_type: Optional[BeamType]
+    ) -> None:
+        """Warn that a string-key get/set from outside the microscope classes is
+        deprecated, naming the device parameter the key has moved to, if any."""
+        caller = sys._getframe(2).f_globals.get("__name__", "")
+        if caller == _KEY_API_MODULES[0] or caller.startswith(_KEY_API_MODULES[1:]):
+            return
+        if key in self._device_routes:
+            attribute, name = self._device_routes[key]
+            replacement = f'microscope.{attribute}.parameters["{name}"]'
+        elif key in self._beam_routes and beam_type is not None:
+            replacement = (
+                f"microscope.beams[BeamType.{beam_type.name}]"
+                f'.parameters["{self._beam_routes[key]}"]'
+            )
+        else:
+            replacement = "the device or the named microscope method"
+        warnings.warn(
+            f'microscope.{method}("{key}", ...) is deprecated and will be removed in '
+            f"the next minor release; use {replacement} instead.",
+            DeprecationWarning,
+            stacklevel=3,
         )
 
     @abstractmethod
@@ -2781,6 +2832,10 @@ class FibsemMicroscope(ABC):
         self.set("detector_brightness", brightness, beam_type)
         return self.get("detector_brightness", beam_type)
 
+    def get_preset(self, beam_type: BeamType) -> Optional[str]:
+        """Get the active preset for the specified beam type, or None if it has none."""
+        return self.get("preset", beam_type)
+
     def set_preset(self, preset: str, beam_type: BeamType) -> str:
         """Set the preset for the specified beam type."""
         self.set("preset", preset, beam_type)
@@ -2898,7 +2953,7 @@ class FibsemMicroscope(ABC):
         # beam wearing the FM's rotation and tilt. Ask for it as a device instead:
         # `target_device="FM"`, with whichever orientation the sample should be in.
         if "FM" in (currrent_orientation, target_orientation) and (
-            not self.stage_is_compustage
+            not self._fm_is_a_pose()
         ):
             raise ValueError("Cannot move to FM position on non-compustage systems.")
 
@@ -3151,6 +3206,17 @@ class FibsemMicroscope(ABC):
             return compustage_poses(**geometry)
         return rotating_stage_poses(**geometry, rotates=stage_settings.rotation)
 
+    def _fm_is_a_pose(self) -> bool:
+        """Does the stage reach the FM by re-posing rather than by travelling?
+
+        True where the stage declares an FM pose (FIB-1101): the objective is under
+        the grid and the stage turns the grid over to face it, so the beams and the
+        FM are one place. False on an offset mount, where the FM is a place the stage
+        travels to in whatever pose it holds. The FM decisions ask this rather than
+        the stage's type; today it is true exactly on a compustage.
+        """
+        return "FM" in self._stage_poses()
+
     def _update_orientations(self) -> None:
         """Update the stage orientations based on the current system settings."""
 
@@ -3288,15 +3354,11 @@ class FibsemMicroscope(ABC):
     ) -> FibsemStagePosition:
         """:func:`fibsem.geometry.movement.image_to_stage_delta` at the current pose.
 
-        On a compustage, which side of the stage faces the FIB is decided by the
-        microscope's own orientation table (`get_stage_orientation`), as the stage
-        moves always have; the saved-image path derives it from the pose instead.
+        The same answer a saved image gets at that pose: nothing here reads the
+        orientation table.
         """
         # TODO: replace with camera matrix * inverse kinematics
         position = self.get_stage_position()
-        is_fib_orientation = None
-        if self.stage_is_compustage:
-            is_fib_orientation = self.get_stage_orientation() == "FIB"
         return image_to_stage_delta(
             dx,
             dy,
@@ -3304,7 +3366,6 @@ class FibsemMicroscope(ABC):
             geometry=self.hardware_geometry(),
             stage_rotation=position.r,
             stage_tilt=position.t,
-            is_fib_orientation=is_fib_orientation,
         )
 
     def _y_corrected_stage_movement(
@@ -3961,7 +4022,7 @@ class FibsemMicroscope(ABC):
         # An offset mount that enabled the FM but declared no geometry inherits the
         # default -- the objective under the grid, sharing the beams' origin -- so
         # every place-term answer is about somewhere its FM is not.
-        if not self.stage_is_compustage and devices == DEFAULT_STAGE_DEVICES:
+        if not self._fm_is_a_pose() and devices == DEFAULT_STAGE_DEVICES:
             logging.warning(
                 "A fluorescence microscope is enabled but its device entry declares "
                 "no `origin`, so the FM defaults to the beams' origin. An offset "
@@ -3973,7 +4034,7 @@ class FibsemMicroscope(ABC):
         # reaches its FM by flipping, not travelling, so a distinct origin is
         # somewhere it never goes and `is_at_device(\"FM\")` is False at the
         # objective itself.
-        if self.stage_is_compustage and "FM" in devices and "FIBSEM" in devices:
+        if self._fm_is_a_pose() and "FM" in devices and "FIBSEM" in devices:
             if self._resolved_origin(devices["FM"]) != devices["FIBSEM"].origin:
                 logging.warning(
                     "This compustage declares an FM device origin away from the "
@@ -3990,14 +4051,14 @@ class FibsemMicroscope(ABC):
         rather than absolute on purpose: the devices constrain x only, and a relative
         move carries y, z, r and t across unchanged.
 
-        **Nothing on a compustage.** There the objective is under the grid, so the
-        beams and the FM are the same place and the stage reaches one from the other
-        by flipping, not travelling -- the configured origins describe an offset
-        chamber and do not apply. Answering here rather than at each call site is the
+        **Nothing where the FM is a pose** (a compustage). There the objective is under
+        the grid, so the beams and the FM are the same place and the stage reaches one
+        from the other by flipping, not travelling -- the configured origins describe
+        an offset chamber and do not apply. Answering here rather than at each call site is the
         same arrangement `_get_compucentric_rotation_position` already uses: the
         primitive is the no-op, so no caller needs a stage-type branch.
         """
-        if self.stage_is_compustage:
+        if self._fm_is_a_pose():
             return FibsemStagePosition()
 
         source_origin = self._resolved_origin(self._get_device(source))
@@ -4081,7 +4142,7 @@ class FibsemMicroscope(ABC):
         """
         target_device = self._get_device(device)  # refuses by name
 
-        if self.stage_is_compustage:
+        if self._fm_is_a_pose():
             self._move_to_device_compustage(device, orientation)
             return
 
@@ -4263,7 +4324,7 @@ class FibsemMicroscope(ABC):
     def move_to_microscope_compustage(self, target: str) -> None:
         """Deprecated name for the compustage half of `move_to_device`."""
 
-        if not self.stage_is_compustage:
+        if not self._fm_is_a_pose():
             raise ValueError(
                 "This method is only available for Compustage microscopes."
             )
