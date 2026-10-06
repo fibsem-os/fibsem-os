@@ -206,10 +206,10 @@ class TestBothDriversHaveIt:
                 "scope",
             ),
             (
-                "microscopes/simulator.py",
-                "SimulatedFluorescenceMicroscope",
-                "_channel_is_ours",
-                "active_channel",
+                "devices/drivers/demo.py",
+                "DemoFMChannel",
+                "_is_ours",
+                "scope",
             ),
         ):
             tree = ast.parse((root / module).read_text(encoding="utf-8"))

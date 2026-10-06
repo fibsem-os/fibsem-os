@@ -125,7 +125,7 @@ class ObjectiveLens:
 
     Its position, magnification and numerical aperture, and moving it, inserting it and
     retracting it; each implementation answers them from its own hardware (the FM
-    devices, ``fibsem.fm.microscope``, or the simulated FM, ``fibsem.microscopes.simulator``).
+    devices, ``fibsem.fm.microscope``).
     The saved focus position is the session's, not the hardware's, so it is kept here.
 
     Attributes:
@@ -562,8 +562,8 @@ class FluorescenceMicroscope:
         parent: Optional["FibsemMicroscope"] = None,
     ):
         """Args:
-        devices: The FM's devices by name (``FM_DEVICE_NAMES``). The legacy
-            simulated FM passes none and sets its own parts.
+        devices: The FM's devices by name (``FM_DEVICE_NAMES``). Without them the
+            parts are left for a subclass to set.
         parent: Optional parent FibsemMicroscope instance for stage access
         """
         super().__init__()
@@ -574,9 +574,16 @@ class FluorescenceMicroscope:
         # per-instance acquisition state (previously shared class attributes)
         self._stop_acquisition_event = threading.Event()
         self._acquisition_thread: Optional[threading.Thread] = None
+        # Set while the live stream runs: by `start_acquisition`, and cleared by the
+        # worker as its very last act, which then announces the stop itself. Not the
+        # thread's `is_alive()`: the worker is still alive while it announces, so the
+        # announcement would read "streaming", and `stop_acquisition` gives up waiting
+        # after 2 s -- a frame slower than that left the stream announced as running
+        # with nothing left to say otherwise.
+        self._streaming = threading.Event()
         # Something other than the live stream is driving the FM: an overview tileset,
         # a z-stack, an autofocus sweep. Set by whoever is driving it. The stream is not
-        # in here -- it reports itself through `_acquisition_thread`. See `is_acquiring`.
+        # in here -- it reports itself through `_streaming`. See `is_acquiring`.
         self._acquiring: bool = False
         self._acquiring_reason: str = ""
 
@@ -650,9 +657,7 @@ class FluorescenceMicroscope:
         labels the start/stop button, since stopping is the one thing that must stay
         possible while it runs, and it is what makes `is_interactive` true.
         """
-        if not self._acquisition_thread:
-            return False
-        return self._acquisition_thread and self._acquisition_thread.is_alive()
+        return self._streaming.is_set()
 
     @property
     def is_acquiring(self) -> bool:
@@ -1144,12 +1149,15 @@ class FluorescenceMicroscope:
             Images are emitted via the acquisition_signal. Connect to this signal
             to receive live images. Call stop_acquisition() to end the process.
         """
-        if self.is_streaming:
+        if self.is_streaming or (
+            self._acquisition_thread and self._acquisition_thread.is_alive()
+        ):
             logging.warning("Acquisition thread is already running.")
             return
 
         # reset stop event if needed
         self._stop_acquisition_event.clear()
+        self._streaming.set()
 
         # start acquisition thread
         self._acquisition_thread = threading.Thread(
@@ -1266,8 +1274,8 @@ class FluorescenceMicroscope:
         frame is one `acquire_image` with the current settings. Stopping, or this
         process going away, ends it; the group stops by itself if no frame is asked
         for in its ``live_timeout``."""
-        group = self.devices["fm"]
         try:
+            group = self.devices["fm"]
             if channel_settings is not None:
                 self.set_channel(channel_settings)
             group.start_live()
@@ -1278,3 +1286,6 @@ class FluorescenceMicroscope:
                 group.stop_live()
         except Exception as e:
             logging.error(f"Error in acquisition worker: {e}")
+        finally:
+            self._streaming.clear()
+            self.acquiring_changed.emit(self.is_acquiring)

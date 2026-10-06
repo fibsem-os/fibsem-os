@@ -31,7 +31,13 @@ from psygnal import Signal
 
 import fibsem.constants as constants
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_COMMAND_ROUTES, BEAM_ROUTES
+from fibsem.devices.beam import (
+    BEAM_COMMAND_ROUTES,
+    BEAM_ROUTES,
+    STAGE_COMMAND_ROUTES,
+    STAGE_ROUTES,
+)
+from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.core import IMAGING_CHANNEL, Resources
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import (
@@ -118,6 +124,23 @@ _VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber", "stage_link")
 # Keys only ever set: the old `_get` has no branch for them and returns None. A get
 # stays with `_get`, so it still returns None, rather than reading the device.
 _SET_ONLY_KEYS = frozenset(("angular_correction_tilt_correction",))
+# The old keys a device answers. A microscope whose device lacks the parameter or
+# command (or that has no such device) doesn't support the key: it reads None and a
+# write does nothing, quietly. Any other key is unknown, and says so.
+_DEVICE_KEYS = frozenset(
+    (
+        *BEAM_ROUTES,
+        *BEAM_COMMAND_ROUTES,
+        *STAGE_ROUTES,
+        *STAGE_COMMAND_ROUTES,
+        *CHAMBER_ROUTES,
+        *CHAMBER_COMMAND_ROUTES,
+        "manipulator_position",
+        "manipulator_state",
+    )
+)
+# The beam keys that may be asked without a beam type; any other needs one.
+_BEAM_KEYS_WITHOUT_BEAM = frozenset(("plasma_gas", "preset"))
 # Modules that implement the old API, whose own get/set calls are not deprecated: the
 # named wrappers here, the backends, and the device router.
 _KEY_API_MODULES = ("fibsem.microscope", "fibsem.microscopes.", "fibsem.devices.")
@@ -585,7 +608,45 @@ class FibsemMicroscope(ABC):
             else:
                 self.capability_sources[key] = "instrument"
             self.set_available(key, bool(present))
+            # A device for it from another driver is fitted whatever the backend
+            # says: a manipulator on its own controller is one the vendor never
+            # reports. `_set_device` does the same for a device built afterwards.
+            self._mark_device_fitted(key)
         self._read_plasma_source()
+
+    #: The fitted subsystems that are a device of the same name.
+    _FITTED_DEVICES: Tuple[str, ...] = ("manipulator",)
+
+    def _mark_device_fitted(self, name: str) -> None:
+        """Record *name* as fitted when its device was built by a driver other than
+        this backend's, from a `hardware.devices` entry.
+
+        The backend's own device follows the backend's answer: the Demo builds a
+        manipulator even where its simulated instrument has none."""
+        if name not in self._FITTED_DEVICES or self._devices.get(name) is None:
+            return
+        if not self._built_by_another_driver(name) or self.is_available(name):
+            return
+        self.set_available(name, True)
+        # Before the probes run there is nothing to record a source in; they call
+        # this again.
+        sources = getattr(self, "capability_sources", None)
+        if sources is not None:
+            sources[name] = "device"
+
+    def _built_by_another_driver(self, name: str) -> bool:
+        """Whether the configuration's entry for *name* names a driver other than
+        this backend's own."""
+        from fibsem.devices.entries import configured_device_entries
+
+        entry = configured_device_entries(self.system).get(name)
+        if entry is None or not entry.driver:
+            return False
+
+        def canonical(driver: Optional[str]) -> str:
+            return str(manufacturers.normalize_manufacturer(driver)).strip().casefold()
+
+        return canonical(entry.driver) != canonical(self.system.info.manufacturer)
 
     # ---- the ion column's plasma source ----------------------------------------
     #
@@ -1548,11 +1609,27 @@ class FibsemMicroscope(ABC):
     def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
         raise self._unsupported("draw_polygon")
 
-    @abstractmethod
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Union[str, float, int]]:
-        pass
+        """The values a key can take.
+
+        A beam key's values are its beam parameter's choices (the device's metadata,
+        read when the beam was built and again when a dependency changes, e.g. the
+        ion currents when the plasma gas does). A key with no device home, or a beam
+        parameter with no choices (the detector modes), is the backend's
+        ``_get_available_values``.
+        """
+        param = self._beam_parameter(key, beam_type) if key in BEAM_ROUTES else None
+        if param is not None and param.choices is not None:
+            return list(param.choices)
+        return self._get_available_values(key, beam_type)
+
+    def _get_available_values(
+        self, key: str, beam_type: Optional[BeamType] = None
+    ) -> List[Union[str, float, int]]:
+        """The values of a key the devices don't answer: none, unless a backend says."""
+        return []
 
     def get_available_values_cached(
         self, key: str, beam_type: Optional[BeamType] = None
@@ -1630,6 +1707,7 @@ class FibsemMicroscope(ABC):
             self._devices.pop(name, None)
         else:
             self._devices[name] = device
+            self._mark_device_fitted(name)
 
     @property
     def beams(self) -> Mapping[BeamType, Any]:
@@ -1871,20 +1949,37 @@ class FibsemMicroscope(ABC):
             stacklevel=3,
         )
 
-    @abstractmethod
     def _get(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> Union[float, int, bool, str, list]:
-        pass
+        """A key no device answered: None (see `_no_key`). A backend with keys of
+        its own answers them here first."""
+        self._no_key(key, beam_type)
+        return None
 
-    @abstractmethod
     def _set(
         self,
         key: str,
         value: Union[str, float, int, list, tuple, Point],
         beam_type: Optional[BeamType] = None,
     ) -> None:
-        pass
+        """A key no device answered: nothing to do (see `_no_key`)."""
+        self._no_key(key, beam_type)
+
+    def _no_key(self, key: str, beam_type: Optional[BeamType]) -> None:
+        """What a key no device answered means: a beam key with no beam type is an
+        error; a device's key the microscope's device doesn't have is unsupported,
+        quietly (absent = unsupported); anything else is unknown, with a warning."""
+        if (
+            beam_type is None
+            and key in BEAM_ROUTES
+            and key not in _BEAM_KEYS_WITHOUT_BEAM
+        ):
+            raise ValueError(f"{key} needs a beam type")
+        if key in _DEVICE_KEYS:
+            logging.debug(f"{key} is not supported here ({beam_type}).")
+            return
+        logging.warning(f"Unknown key: {key} ({beam_type})")
 
     # TODO: i dont think this is needed, you set the beam settings and detector settings separately
     # you can't set image settings, only when acquiring an image
@@ -2346,7 +2441,7 @@ class FibsemMicroscope(ABC):
         self._set("vent_chamber", True)
         return self._get("chamber_state")
 
-    def _beam_parameter(self, key: str, beam_type: BeamType) -> Optional[Any]:
+    def _beam_parameter(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
         """The beam device's parameter for an old beam key, or None when the backend
         builds no such beam, or the beam has no such parameter."""
         beam = self.beams.get(beam_type)
@@ -3097,7 +3192,7 @@ class FibsemMicroscope(ABC):
         """The stage's pose for each orientation name, from the configured geometry.
 
         The stage device declares them (FIB-1101). A backend without a stage device
-        yet (Odemis, Tescan, the legacy Demo) gets the same declarations here, chosen
+        yet (Odemis, Tescan) gets the same declarations here, chosen
         by the stage type it reported; this branch goes once each has a stage device.
         """
         from fibsem.devices.stage import compustage_poses, rotating_stage_poses

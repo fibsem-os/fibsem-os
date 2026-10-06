@@ -12,16 +12,13 @@ odemis-driver conformance is covered in test_odemis_fm_devices.py.
 import numpy as np
 import pytest
 
-from fibsem.microscopes.simulator import (
-    BINNING_VALUES,
-    SIM_CAMERA_EXPOSURE_LIMITS,
-    SimulatedFluorescenceMicroscope,
-)
+from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+from fibsem.microscopes.simulator import BINNING_VALUES, SIM_CAMERA_EXPOSURE_LIMITS
 
 
 @pytest.fixture()
 def fm():
-    return SimulatedFluorescenceMicroscope()
+    return DemoFluorescenceMicroscope()
 
 
 class TestPromotedContract:
@@ -53,15 +50,15 @@ class TestPerInstanceAcquisitionState:
     """The stop event and thread handle must not be shared between instances."""
 
     def test_stop_events_are_independent(self):
-        fm_a = SimulatedFluorescenceMicroscope()
-        fm_b = SimulatedFluorescenceMicroscope()
+        fm_a = DemoFluorescenceMicroscope()
+        fm_b = DemoFluorescenceMicroscope()
         assert fm_a._stop_acquisition_event is not fm_b._stop_acquisition_event
         fm_a._stop_acquisition_event.set()
         assert not fm_b._stop_acquisition_event.is_set()
 
     def test_thread_handles_are_independent(self):
-        fm_a = SimulatedFluorescenceMicroscope()
-        fm_b = SimulatedFluorescenceMicroscope()
+        fm_a = DemoFluorescenceMicroscope()
+        fm_b = DemoFluorescenceMicroscope()
         fm_a._acquisition_thread = object()
         assert fm_b._acquisition_thread is None
 
@@ -71,8 +68,8 @@ class TestTheImagingChannelIsPartOfTheContract:
 
     A no-op on a system whose FM has a connection of its own, and overridden by the two
     that share one with the beams: Thermo's (`DeviceThermoFisherFluorescenceMicroscope`)
-    and, so the sharing can be tested without hardware,
-    `SimulatedFluorescenceMicroscope` (FIB-518).
+    and, so the sharing can be tested without hardware, the Demo's
+    (`DemoFluorescenceMicroscope`, FIB-518).
     """
 
     def test_both_forms_exist_and_are_harmless(self, fm):

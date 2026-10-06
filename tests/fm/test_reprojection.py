@@ -21,7 +21,7 @@ from fibsem.fm.structures import (
     ChannelSettings,
     FibsemHardwareGeometry,
 )
-from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 from fibsem.structures import FibsemStagePosition, Point
 from fibsem.transformations import (
     inverse_view_corrected_dy,
@@ -37,7 +37,7 @@ PIXEL_SIZE = 1e-7  # 102.4 um across
 def microscope():
     scope, _ = utils.setup_session(manufacturer="Demo")
     if scope.fm is None:
-        scope.fm = SimulatedFluorescenceMicroscope(parent=scope)
+        scope.fm = DemoFluorescenceMicroscope(parent=scope)
     return scope
 
 

@@ -514,7 +514,6 @@ def build_knife(entry, context):
 def driver():
     return DriverEntry(
         manufacturer="KnifeCo",
-        microscope_class="my_plugin.microscope:KnifeMicroscope",
         devices={"knife": DeviceBuilder("my_plugin.devices:build_knife")},
     )
 ```
@@ -534,6 +533,10 @@ The builder is imported only when an entry needs it. A builder that raises leave
 device out, or fails the connect if the entry is `required`.
 `BuildContext.shared` is scratch space the builders of one connect share, such as one
 connection per address.
+
+A driver like this one, that only builds devices, has no `microscope_class`. It is
+never offered as a manufacturer, and connecting with it as `info.manufacturer` is
+refused. Its name matches a `driver:` in any case (`knifeco` finds `KnifeCo`).
 
 A driver for a whole microscope also names its `FibsemMicroscope` subclass in
 `microscope_class`. [Supporting a microscope](extending.md#supporting-a-microscope)

@@ -877,8 +877,8 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         """Build the beam devices and route the beam keys to them.
 
         A key a beam does not have (the ion column's working distance,
-        ``detector_mode``) is still answered by ``_get``/``_set``,
-        and so is every key of a disabled column, which gets no device.
+        ``detector_mode``) is unknown; their wrappers answer for themselves. Every key
+        of a disabled column, which gets no device, goes to ``_get``/``_set``.
         """
         self._build_devices(
             [
@@ -985,6 +985,27 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         best-effort no-op so state restores keep working; anything that *depends* on
         the write landing (the autofocus sweep) must gate on this instead."""
         return beam_type is not BeamType.ION
+
+    # What the Tescan API has no control for. These are not keys: the wrappers answer
+    # for themselves, quietly, because state restores call them every time.
+
+    def get_working_distance(self, beam_type: BeamType) -> Optional[float]:
+        if beam_type is BeamType.ION:
+            return None  # the FIB has no working distance in the API
+        return super().get_working_distance(beam_type)
+
+    def set_working_distance(self, wd: float, beam_type: BeamType) -> Optional[float]:
+        if beam_type is BeamType.ION:
+            logging.debug("The Tescan API has no ion working distance; not set.")
+            return None
+        return super().set_working_distance(wd, beam_type)
+
+    def get_detector_mode(self, beam_type: BeamType) -> Optional[str]:
+        return None  # not in the Tescan API
+
+    def set_detector_mode(self, mode: str, beam_type: BeamType) -> Optional[str]:
+        logging.debug("The Tescan API has no detector mode; not set.")
+        return None
 
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
@@ -1604,40 +1625,13 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
                 return detector
         return None
 
-    def get_available_values(
+    def _get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[Union[str, float]]:
-        """Get a list of available values for a given key.
-        Keys: plasma_gas, current, detector_type
-        """
-        values = []
-
-        if key == "current":
-            if beam_type == BeamType.ELECTRON:
-                values = [1.0e-12]
-            elif beam_type == BeamType.ION:
-                values = [
-                    20e-12,
-                    60e-12,
-                    0.2e-9,
-                    0.74e-9,
-                    2.0e-9,
-                    7.6e-9,
-                    28.0e-9,
-                    120e-9,
-                ]
-
-        if key == "detector_type":
-            detectors = self._get_available_detectors(beam_type=beam_type)
-            values = [detector.name for detector in detectors]
-
-        if key == "preset":
-            values = self._get_presets(beam_type=beam_type)
-
+    ) -> List[str]:
+        """The values of the keys the beam devices don't answer: scan_direction."""
         if key == "scan_direction":
-            values = ["ZigZag", "Flyback", "RLE", "SpiralInsideOut", "SpiralOutsideIn"]
-
-        return values
+            return ["ZigZag", "Flyback", "RLE", "SpiralInsideOut", "SpiralOutsideIn"]
+        return []
 
     def _get(
         self, key: str, beam_type: Optional[BeamType] = None
@@ -1663,10 +1657,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         if key == "stage_position":
             # only reached without a stage device: an enabled stage answers it
             raise ValueError("Stage is not enabled.")
-
-        if key == "detector_mode":
-            logging.debug(f"Key {key} directly not supported by Tescan API.")
-            return None
 
         logging.warning(f"Unknown key: {key} ({beam_type})")
         return None
@@ -1750,22 +1740,14 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
     def _set_impl(self, key: str, value, beam_type: BeamType = None) -> None:
         """Set a property of the microscope.
 
-        The keys the beam devices answer are not here (FIB-1161). What is left is
-        what no beam has: the ion column's working distance and ``detector_mode``.
+        The keys the beam devices answer are not here (FIB-1161), and nothing else is
+        left: the ion column's working distance and the detector mode, which the Tescan
+        API does not have, are answered by their wrappers (``set_working_distance``,
+        ``set_detector_mode``) without a key.
         """
         if beam_type is not None:
             self._get_beam(beam_type)  # refuses an unknown beam type
             self._prepare_beam(beam_type)
-
-        if key == "working_distance" and beam_type is BeamType.ION:
-            logging.info(
-                f"Setting working distance directly for {beam_type} is not supported by Tescan API"
-            )
-            return
-
-        if key == "detector_mode":
-            logging.debug("Setting detector mode not supported by Tescan API.")
-            return
 
         logging.warning(f"Unknown key: {key}, value: {value} ({beam_type})")
         return

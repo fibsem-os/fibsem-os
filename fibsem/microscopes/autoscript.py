@@ -94,6 +94,19 @@ AUTOSCRIPT_VERSION: Optional[Version] = None
 # The voltages a ThermoFisher microscope offers, per beam, in volts. The API gives
 # only a range, and any value in it can be set, but these are the ones xT lists.
 # Shared with OdemisThermoMicroscope, which reaches the same columns.
+TFS_SCAN_DIRECTIONS = [
+    "BottomToTop",
+    "DynamicAllDirections",
+    "DynamicInnerToOuter",
+    "DynamicLeftToRight",
+    "DynamicTopToBottom",
+    "InnerToOuter",
+    "LeftToRight",
+    "OuterToInner",
+    "RightToLeft",
+    "TopToBottom",
+]
+
 THERMO_VOLTAGE_CHOICES = {
     BeamType.ELECTRON: (1000, 2000, 3000, 5000, 10000, 20000, 30000),
     BeamType.ION: (500, 1000, 2000, 8000, 16000, 30000),
@@ -2640,71 +2653,24 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
 
         return manipulator_position
 
-    def get_available_values(
+    def _get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
-    ) -> Tuple:
-        """Get a list of available values for a given key.
-        Keys: application_file, plasma_gas, current, detector_type, detector_mode
-        """
-
+    ) -> List[str]:
+        """The values of the keys the beam devices don't answer: application_file,
+        detector_mode (the detector type's, which can change) and scan_direction."""
         values = []
         if key == "application_file":
             values = self.connection.patterning.list_all_application_files()
 
-        if beam_type is BeamType.ION and self.system.ion.plasma:
-            if key == "plasma_gas":
-                values = (
-                    self.connection.beams.ion_beam.source.plasma_gas.available_values
-                )
-
-        if key == "current":
-            if beam_type is BeamType.ION and self.is_available("ion_beam"):
-                values = self.connection.beams.ion_beam.beam_current.available_values
-            elif beam_type is BeamType.ELECTRON and self.is_available("electron_beam"):
-                # loop through the beam current range, to match the available choices on microscope
-                limits: Limits = self.connection.beams.electron_beam.beam_current.limits
-                beam_current = limits.min
-                while beam_current <= limits.max:
-                    values.append(beam_current)
-                    beam_current *= 2.0
-
-        if key == "voltage":
-            beam = self._get_beam(beam_type)
-            limits: Limits = beam.high_voltage.limits
-            # QUERY: match what is displayed on microscope, as list[float], or keep as range?
-            # technically we can set any value, but primarily people would use what is on microscope
-            # filter values to be within limits
-            values = [
-                v
-                for v in THERMO_VOLTAGE_CHOICES[beam_type]
-                if limits.min <= v <= limits.max
-            ]
-            return values
-
         # the detector's values are the active device's, so the channel is claimed
         # for the read (FIB-544)
-        if key in ("detector_type", "detector_mode"):
+        if key == "detector_mode":
             with self._threading_lock:
                 if beam_type is not None:
                     self.set_channel(beam_type)
-                if key == "detector_type":
-                    values = self.connection.detector.type.available_values
-                else:
-                    values = self.connection.detector.mode.available_values
+                values = self.connection.detector.mode.available_values
 
         if key == "scan_direction":
-            TFS_SCAN_DIRECTIONS = [
-                "BottomToTop",
-                "DynamicAllDirections",
-                "DynamicInnerToOuter",
-                "DynamicLeftToRight",
-                "DynamicTopToBottom",
-                "InnerToOuter",
-                "LeftToRight",
-                "OuterToInner",
-                "RightToLeft",
-                "TopToBottom",
-            ]
             values = TFS_SCAN_DIRECTIONS
 
         logging.debug({"msg": "get_available_values", "key": key, "values": values})
@@ -2977,9 +2943,10 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
                 if not self.system.ion.plasma:
                     logging.debug("Plasma gas cannot be set on this microscope.")
                     return
-                if value not in self.get_available_values("plasma_gas", beam_type):
+                gases = beam.source.plasma_gas.available_values
+                if value not in gases:
                     logging.warning(
-                        f"Plasma gas {value} not available. Available values: {self.get_available_values('plasma_gas', beam_type)}"
+                        f"Plasma gas {value} not available. Available values: {gases}"
                     )
 
                 logging.info(

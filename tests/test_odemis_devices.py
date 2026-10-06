@@ -442,12 +442,24 @@ CHANGED = {
     "set pump_chamber False": _unknown("pump_chamber"),
     "set vent_chamber False": _unknown("vent_chamber"),
 }
+with open(RECORDED) as f:
+    EXPECTED = json.load(f)
+
+# A beam key's values are the choices the device read when it was built, so asking
+# for them makes no client call.
+CHANGED.update(
+    {
+        key: {**EXPECTED[key], "calls": []}
+        for key in (
+            f"available {k} {n}"
+            for k in ("current", "voltage", "detector_type")
+            for n in ("ELECTRON", "ION")
+        )
+    }
+)
 SAME = tuple(
     (key, call) for key, call in CASES if key not in REDUCED_AREA and key not in CHANGED
 )
-
-with open(RECORDED) as f:
-    EXPECTED = json.load(f)
 
 # The calls the devices add, after the old call's first: the home command reads
 # back whether the stage is homed, as ``home()`` always has, so a bare
@@ -661,8 +673,8 @@ def test_the_choices_are_the_old_available_values(odemis_cls, beam_type):
     microscope = make(odemis_cls)
     beam = microscope.beams[beam_type]
     for key in ("current", "voltage", "detector_type"):
-        old = microscope.get_available_values(key, beam_type)
-        assert sorted(beam.parameters[key].choices) == sorted(old), key
+        old = EXPECTED[f"available {key} {beam_type.name}"]["result"]
+        assert sorted(beam.parameters[key].choices) == old, key
 
 
 def test_an_unlisted_chamber_state_reads_unknown(odemis_cls):

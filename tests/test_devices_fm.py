@@ -1,5 +1,4 @@
-"""The FM as devices: a group and four parts, on the Demo FM devices, which do what
-the simulated FM does. What every FM device driver shares (channels, frames, live
+"""The FM as devices: a group and four parts, on the Demo FM devices. What every FM device driver shares (channels, frames, live
 view, nearest excitation) is checked here; each driver's own tests check the rest."""
 
 import time

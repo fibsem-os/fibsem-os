@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from PyQt5.QtWidgets import QApplication, QDialog
 
-from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
 if TYPE_CHECKING:
@@ -33,6 +33,18 @@ if TYPE_CHECKING:
 @pytest.fixture(scope="module")
 def qapp():
     return QApplication.instance() or QApplication([])
+
+
+def _stop(fm) -> None:
+    """Stop the stream and wait for its worker to finish announcing it.
+
+    `stop_acquisition` waits only 2 s for the worker, and a simulated frame takes
+    about half a second to render alone -- several under `pytest -n`. A stop that
+    outlasts the wait is announced by the worker when it ends.
+    """
+    fm.stop_acquisition()
+    if fm._acquisition_thread is not None:
+        fm._acquisition_thread.join(timeout=60)
 
 
 @pytest.fixture()
@@ -95,7 +107,7 @@ def no_worker(monkeypatch):
 class TestTheThreeQuestions:
     @pytest.fixture()
     def fm(self):
-        return SimulatedFluorescenceMicroscope()
+        return DemoFluorescenceMicroscope()
 
     def test_an_idle_microscope(self, fm):
         assert (fm.is_streaming, fm.is_acquiring, fm.is_interactive) == (
@@ -129,7 +141,7 @@ class TestTheThreeQuestions:
             )
             assert fm.acquiring_reason == "live acquisition"
         finally:
-            fm.stop_acquisition()
+            _stop(fm)
 
         assert (fm.is_streaming, fm.is_acquiring, fm.is_interactive) == (
             False,
@@ -165,7 +177,7 @@ class TestTheThreeQuestions:
         try:
             assert seen == [True]
         finally:
-            fm.stop_acquisition()
+            _stop(fm)
         assert seen[-1] is False
 
 
@@ -263,7 +275,7 @@ class TestTheAcquireButtonFollowsTheInstrument:
             qapp.processEvents()
             assert widget.button_acquire.isEnabled() is False
         finally:
-            widget.fm.stop_acquisition()
+            _stop(widget.fm)
         qapp.processEvents()
         assert widget.button_acquire.isEnabled() is True
 
@@ -295,7 +307,7 @@ class TestTheControlWidgetGuard:
 
     @pytest.fixture()
     def fm(self):
-        return SimulatedFluorescenceMicroscope()
+        return DemoFluorescenceMicroscope()
 
     def test_an_idle_instrument_is_not_refused(self, fm):
         assert self._widget(fm)._refuse_to_start("live acquisition") is False
@@ -395,7 +407,7 @@ class TestTheControlWidgetWiring:
         the acquisition policy, in one place on the enum."""
         from fibsem.structures import DeviceImagingState
 
-        fm = SimulatedFluorescenceMicroscope()
+        fm = DemoFluorescenceMicroscope()
         widget = TestTheControlWidgetGuard._widget(
             fm, state=DeviceImagingState.NEEDS_TRAVEL
         )
@@ -410,7 +422,7 @@ class TestTheControlWidgetWiring:
         from fibsem.structures import DeviceImagingState
 
         widget = TestTheControlWidgetGuard._widget(
-            SimulatedFluorescenceMicroscope(), state=DeviceImagingState.NEEDS_REPOSE
+            DemoFluorescenceMicroscope(), state=DeviceImagingState.NEEDS_REPOSE
         )
 
         assert widget._refuse_to_start("image acquisition") is False

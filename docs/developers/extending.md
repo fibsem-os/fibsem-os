@@ -106,8 +106,9 @@ Each group contributes one kind of object:
   `FibsemMicroscope` subclass, its manufacturer, its defaults, and how it
   builds each type of device. A configuration naming that manufacturer
   connects through it, and a `hardware.devices` entry naming it as its
-  `driver` is built by it. [Adding a driver](devices.md#adding-a-driver) shows
-  one that adds a device type.
+  `driver` is built by it. A driver can also build devices only, with no
+  microscope class, such as a manipulator on its own controller.
+  [Adding a driver](devices.md#adding-a-driver) shows one that adds a device type.
 
 When a built-in, a runtime registration and a plugin claim the same name, the
 built-in is used, then the runtime registration, then the plugin.
@@ -191,7 +192,9 @@ work unchanged.
   `hardware.devices` entries with `fibsem.devices.entries`
   (`resolve_system_devices`, then `build_device_entries`), as
   `DemoMicroscope._build_devices` does. A string key the backend's devices
-  cover is routed to them; do not add new keys to `_get`/`_set`.
+  cover is routed to them. A new backend needs no `_get`/`_set`: the base
+  class's read a key no device answers as None and do nothing for a write (the
+  Demo has none); do not add keys to them.
 
 - **Reference implementations.** `DemoMicroscope` in
   `fibsem/microscopes/device_demo.py` is the complete, hardware-free

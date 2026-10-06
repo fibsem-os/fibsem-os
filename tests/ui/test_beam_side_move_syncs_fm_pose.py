@@ -42,14 +42,14 @@ _app = QApplication.instance() or QApplication(sys.argv)
 
 def _microscope():
     from fibsem import utils
-    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+    from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_is_compustage = True
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     if microscope.fm is None:
-        microscope.fm = SimulatedFluorescenceMicroscope(parent=microscope)
+        microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
     return microscope
 
 

@@ -16,7 +16,7 @@ from fibsem.devices.core import ParameterMetadata  # noqa: E402
 from fibsem.devices.drivers import demo  # noqa: E402
 from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
-from fibsem.microscopes import simulator  # noqa: E402
+from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope  # noqa: E402
 from fibsem.structures import RangeLimit  # noqa: E402
 from fibsem.ui.fm.widgets import fm_limits  # noqa: E402
 
@@ -76,7 +76,7 @@ def test_an_fm_that_cannot_answer_gets_the_old_ranges():
 
 def test_the_minimum_is_one_the_box_can_show():
     """A 1 µs camera minimum would show as 0.0 ms in a one-decimal box."""
-    sim = simulator.SimulatedFluorescenceMicroscope()
+    sim = DemoFluorescenceMicroscope()
     assert sim.camera.exposure_time_limits[0] == pytest.approx(1e-6)
     assert fm_limits.exposure_range_ms(sim) == (0.1, 60000.0)
 

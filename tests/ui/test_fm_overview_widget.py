@@ -621,10 +621,10 @@ def test_channel_detail_fields_fill_the_panel(qapp):
     of these controls carry an Expanding policy."""
     from PyQt5.QtCore import Qt
 
-    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+    from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
     from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
 
-    widget = ChannelSettingsWidget(fm=SimulatedFluorescenceMicroscope())
+    widget = ChannelSettingsWidget(fm=DemoFluorescenceMicroscope())
     widget.set_channel(ChannelSettings(name="Channel-01"))
     widget.resize(440, widget.sizeHint().height())
     widget.show()
@@ -653,13 +653,13 @@ def test_channel_rows_do_not_overflow_a_narrow_panel(qapp):
     the host. In the overview's controls column that pushed the excitation and emission
     combos past the right edge -- and the column keeps its horizontal scrollbar off, so
     they were unreachable rather than merely cramped."""
-    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+    from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
     from fibsem.ui.fm.widgets.fm_multi_channel_widget import (
         FluorescenceMultiChannelWidget,
     )
 
     widget = FluorescenceMultiChannelWidget(
-        fm=SimulatedFluorescenceMicroscope(),
+        fm=DemoFluorescenceMicroscope(),
         channel_settings=[ChannelSettings(name="Channel-01")],
     )
     widget.show()
@@ -2771,7 +2771,7 @@ def _microscope_at(tilt_deg: float):
     import numpy as np
 
     from fibsem import utils
-    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+    from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
     from fibsem.structures import FibsemStagePosition
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -2779,7 +2779,7 @@ def _microscope_at(tilt_deg: float):
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     if microscope.fm is None:
-        microscope.fm = SimulatedFluorescenceMicroscope(parent=microscope)
+        microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
     microscope.move_stage_absolute(
         FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
     )
