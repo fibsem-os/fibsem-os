@@ -52,10 +52,15 @@ class OdemisBeam(Beam):
     moved as it is; the choices are its ``get_available_values``'s. The detector
     writes check as the old branches do, against the same choices.
 
+    The scan commands are the old ``spot_mode`` and ``full_frame`` keys, and
+    ``reduced_area`` is the client call ``acquire_image`` and ``autocontrast`` make;
+    the old branches had no ``reduced_area`` key, so that set warned and did nothing.
+    The client has no read of the scan mode, so ``scanning_mode`` is absent and the
+    commands read nothing back.
+
     Not here, so absent on the new API and still answered by the old branches:
-    ``plasma_gas`` (the old branch raises on a plasma column), ``preset`` (there is
-    none), and ``scanning_mode`` with the scan commands, since the client has no read
-    of the scan mode. The scan-mode methods keep using the old keys.
+    ``plasma_gas`` (the old branch raises on a plasma column) and ``preset`` (there is
+    none).
     """
 
     def __init__(
@@ -303,6 +308,26 @@ class OdemisBeam(Beam):
         client.run_auto_contrast_brightness(channel=channel)
         if reduced_area is not None:
             client.set_full_frame_scan_mode(channel)
+
+    # -- the scan area, with no read of the scan mode -------------------------------
+
+    def _scans(self) -> bool:
+        return True
+
+    def _spot(self, point: Point) -> None:
+        self._client.set_spot_scan_mode(channel=self.channel, x=point.x, y=point.y)
+
+    def _reduced_area(self, area: FibsemRectangle) -> None:
+        self._client.set_reduced_area_scan_mode(
+            channel=self.channel,
+            left=area.left,
+            top=area.top,
+            width=area.width,
+            height=area.height,
+        )
+
+    def _full_frame(self) -> None:
+        self._client.set_full_frame_scan_mode(self.channel)
 
 
 def bind_odemis_beams(

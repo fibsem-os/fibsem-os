@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import logging
 from types import MappingProxyType
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fibsem import manufacturers
 from fibsem._timing import sim_sleep
@@ -246,10 +246,6 @@ class DemoMicroscope(
         return beam.sim_scanning_mode_value, beam.sim_beam
 
     def _set(self, key: str, value, beam_type: Optional[BeamType] = None) -> None:
-        # The scan-mode keys are the beam's commands; the methods use them already.
-        if beam_type is not None and key in _SCAN_MODE_KEYS:
-            _SCAN_MODE_KEYS[key](self, value, beam_type)
-            return
         if self._set_imaging_key(key, value) or self._set_milling_key(key, value):
             return
         # The ion beam has a plasma gas only on a plasma column.

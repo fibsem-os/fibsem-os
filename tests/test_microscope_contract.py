@@ -410,7 +410,7 @@ def test_demo_images_through_its_beam_devices(beam_type):
 
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_demo_scans_through_its_beam_commands(beam_type):
-    """The Demo's scan-mode methods call the beam's commands, not _set."""
+    """The Demo's scan-mode methods and keys call the beam's commands, not _set."""
     microscope = _connect("Demo")
     beam = microscope.beams[beam_type]
     calls = []
@@ -433,6 +433,12 @@ def test_demo_scans_through_its_beam_commands(beam_type):
     assert beam.scanning_mode.cached is ScanMode.REDUCED_AREA
     microscope.set_full_frame_scanning_mode(beam_type)
     assert beam.scanning_mode.cached is ScanMode.FULL_FRAME
+    assert calls == [("_spot", point), ("_reduced_area", area), ("_full_frame",)]
+    # and so do the old keys, which the shared set routes to the commands
+    calls.clear()
+    microscope.set("spot_mode", point, beam_type)
+    microscope.set("reduced_area", area, beam_type)
+    microscope.set("full_frame", None, beam_type)
     assert calls == [("_spot", point), ("_reduced_area", area), ("_full_frame",)]
 
 

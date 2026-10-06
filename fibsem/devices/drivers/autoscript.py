@@ -117,13 +117,11 @@ class AutoscriptStage(Stage):
         # get current working distance, to be restored later
         wd = self.parent.get_working_distance(BeamType.ELECTRON)
 
-        autoscript_position = self._to_autoscript(position)
-
-        if self.parent._axis_restrictions_apply(
-            position
-        ):  # ONLY when restrictions are on
-            autoscript_position.z = None
-            autoscript_position.r = None
+        # leaving alone the axes the microscope would refuse (the objective inserted,
+        # or entering the FM pose)
+        autoscript_position = self._to_autoscript(
+            self.parent._without_blocked_axes(position)
+        )
 
         logging.info(f"Moving stage to {position}.")
         self._stage.absolute_move(

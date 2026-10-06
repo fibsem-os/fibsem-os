@@ -56,7 +56,6 @@ STAGE_TILTS_DEG = [-128, -50, -23, 0, 15, 35, 52]
 PRETILTS_DEG = [0, 35, 45]
 ROTATIONS_DEG = [0, 180]
 BEAM_TYPES = [BeamType.ELECTRON, BeamType.ION]
-COMPUSTAGE = [False, True]
 
 
 def _reference_y_corrected(microscope, expected_y: float, beam_type: BeamType):
@@ -235,21 +234,47 @@ class TestRefactorParity:
     @pytest.mark.parametrize("pretilt_deg", PRETILTS_DEG)
     @pytest.mark.parametrize("rotation_deg", ROTATIONS_DEG)
     @pytest.mark.parametrize("beam_type", BEAM_TYPES)
-    @pytest.mark.parametrize("compustage", COMPUSTAGE)
     def test_forward_parity(
-        self, microscope, tilt_deg, pretilt_deg, rotation_deg, beam_type, compustage
+        self, microscope, tilt_deg, pretilt_deg, rotation_deg, beam_type
     ):
         _configure(
             microscope,
             pretilt_deg=pretilt_deg,
             rotation_deg=rotation_deg,
             tilt_deg=tilt_deg,
-            compustage=compustage,
+            compustage=False,
         )
         expected_y = 25e-6
 
         got = microscope._y_corrected_stage_movement(expected_y, beam_type=beam_type)
         want = _reference_y_corrected(microscope, expected_y, beam_type=beam_type)
+
+        assert got.y == pytest.approx(want.y, rel=1e-12, abs=1e-18)
+        assert got.z == pytest.approx(want.z, rel=1e-12, abs=1e-18)
+
+    @pytest.mark.parametrize("tilt_deg", STAGE_TILTS_DEG)
+    @pytest.mark.parametrize("beam_type", BEAM_TYPES)
+    def test_forward_parity_compustage(self, microscope, tilt_deg, beam_type):
+        """A compustage as built: no pre-tilt, no rotation.
+
+        The pre-refactor formula mirrored the image only at the FIB pose; the
+        projection now mirrors wherever the view sees the back of the grid
+        (FIB-1101). The two agree at every pose a view images at; the one tilt here
+        where they part is the FIB view at -50, past edge-on, which no pose uses.
+        """
+        _configure(
+            microscope,
+            pretilt_deg=0,
+            rotation_deg=0,
+            tilt_deg=tilt_deg,
+            compustage=True,
+        )
+        expected_y = 25e-6
+
+        got = microscope._y_corrected_stage_movement(expected_y, beam_type=beam_type)
+        want = _reference_y_corrected(microscope, expected_y, beam_type=beam_type)
+        if beam_type is BeamType.ION and tilt_deg == -50:
+            want = FibsemStagePosition(y=-want.y, z=-want.z)
 
         assert got.y == pytest.approx(want.y, rel=1e-12, abs=1e-18)
         assert got.z == pytest.approx(want.z, rel=1e-12, abs=1e-18)
