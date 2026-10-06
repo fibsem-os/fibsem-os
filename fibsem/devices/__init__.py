@@ -1,49 +1,27 @@
-"""A prototype of the microscope as a container of devices.
+"""The microscope as a container of devices: the vendor-neutral device API.
 
-Nothing in fibsem uses this package yet, and ``FibsemMicroscope`` is unchanged. This
-package is the vendor-neutral API, and backend implementations live in
-``fibsem.devices.drivers``. It shows the device model on the Demo backend:
-parameters that describe themselves, commands, named shared resources, and a key
-router that sends today's ``get``/``set`` keys to parameters without changing what
-the old calls do.
+Every device a microscope builds is in ``microscope.devices``, by name (``electron``,
+``ion``, ``stage``, ``chamber``, ``manipulator``, and the FM's ``fm``, ``camera``,
+...). A device's parameters describe themselves (type, unit, limits, choices) and
+emit ``changed``; its commands are plain methods it lists in ``commands``:
 
     from fibsem import utils
-    from fibsem.devices import KeyRouter
-    from fibsem.devices.drivers.demo import bind_demo_beams
-    from fibsem.structures import BeamType
+    from fibsem.structures import BeamType, FibsemStagePosition
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    beams = bind_demo_beams(microscope)
-    sem = beams[BeamType.ELECTRON]
+    sem = microscope.beams[BeamType.ELECTRON]     # microscope.devices["electron"]
 
     sem.current.choices                     # cached metadata, no instrument call
     sem.current.changed.connect(print)      # every change, with the value
-    sem.current.set_value(1e-9)             # the new API: checked, then written
-    sem.scan_rotation.set_value(7.0)        # clipped to 2*pi, with a warning
-    sem.hfw.value = 100e-6                  # shorthand for set_value / get_value
-    "preset" in sem.parameters              # False: Demo has no presets
-    sem.commands["acquire"].signature        # "(image_settings=None)"
+    sem.hfw.set_value(100e-6)               # checked, then written
+    "preset" in sem.parameters              # False: the Demo has no presets
+    image = sem.acquire()
 
-    router = KeyRouter(microscope, beams)
-    router.get("current", BeamType.ELECTRON) == microscope.get("current", BeamType.ELECTRON)
+    microscope.stage.move_absolute(FibsemStagePosition(x=1e-3))  # refused outside limits
 
-The stage is a device the same way, with moves as commands:
-
-    from fibsem.devices.drivers.demo import bind_demo_stage
-    from fibsem.structures import FibsemStagePosition
-
-    stage = bind_demo_stage(microscope)
-    list(stage.axes)                        # ["x", "y", "z", "r", "t"]; no r on a compustage
-    stage.axes.t.limits                     # radians, cached at connect
-    stage.axes.t.cached                     # stage.position.cached.t, no instrument call
-    stage.position.changed.connect(print)   # every move, and every read that differs
-    stage.axes.t.changed.connect(print)     # only when t moved
-    stage.move_absolute(FibsemStagePosition(x=1e-3))   # refused outside the limits
-    stage.move_through(FibsemStagePosition(x=1e-3))    # the old API's move: no new check
-    stage.home()
-
-    router = KeyRouter(microscope, beams, stage=stage)
-    router.get("stage_position") == microscope.get("stage_position")
+This package is vendor-neutral and never imports a driver; each driver's device
+classes and builders are in ``fibsem.devices.drivers``. ``docs/developers/devices.md``
+is the guide, including where each deprecated ``get``/``set`` key went.
 """
 
 from fibsem.devices.beam import (

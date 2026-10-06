@@ -123,6 +123,18 @@ if __name__ == "__main__":
 This example is available as a script in example/example.py.
 For more detailed examples, see the Examples section below.
 
+The microscope's beams, stage and other hardware are also available as devices, whose parameters describe their own units, limits and choices:
+
+```python
+from fibsem.structures import BeamType
+
+sem = microscope.beams[BeamType.ELECTRON]   # or microscope.devices["electron"]
+sem.hfw.set_value(150e-6)
+print(sem.current.get_value(), sem.current.choices)
+```
+
+See the [device guide](docs/developers/devices.md). `microscope.get("key")` and `microscope.set(...)` are deprecated.
+
 ## Examples
 
 ### Core Functionality
