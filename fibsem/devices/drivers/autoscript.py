@@ -32,6 +32,14 @@ from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device, ParameterMetadata, Resources
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
+from fibsem.devices.sample_loader import (
+    GridExchangeError,
+    Magazine,
+    MagazineSlot,
+    MagazineSlotState,
+    SampleLoader,
+    StageSample,
+)
 from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
 from fibsem.structures import (
     BeamType,
@@ -702,6 +710,133 @@ def bind_autoscript_chamber(
     return AutoscriptChamber(microscope, resources).connect()
 
 
+class AutoscriptSampleLoader(SampleLoader):
+    """The AutoScript autoloader (Arctis, xT 28.x, AutoScript >= 4.10),
+    ``connection.specimen.autoloader``.
+
+    The magazine is ``get_slots(False)``, the autoloader's last-known record (it may
+    read ``Unknown`` throughout before any scan), and ``scan`` is ``get_slots(True)``,
+    a physical scan. Slots are the 1-based ``AutoloaderSlot.id``; ``load(id)`` blocks
+    until the exchange is done and ``unload()`` takes nothing. A slot's description is
+    its ``sample_description``. ``on_stage`` is ``autoloader.stage``. States arrive as
+    enum names in either case and are read case-blind; from AutoScript 4.14 the home
+    slot of the grid on the stage reads ``Loaded``, before that ``Empty``, which the
+    grid model absorbs.
+
+    Confirmed from operator code: the ``get_slots(bool)`` shape, the state strings,
+    ``load(id)``/``unload()`` and ``autoloader.stage``. Measured on an Arctis
+    (FIB-893, 2026-10-02): an unload and a load take about 3 minutes. Description
+    writes seen to stick on an Arctis (2026-10-02); read back anyway.
+    """
+
+    # How many slots until the magazine is first read; the Arctis magazine has 12.
+    DEFAULT_CAPACITY = 12
+
+    def __init__(self, parent: ThermoMicroscope, resources: Optional[Resources] = None):
+        super().__init__(parent=parent, resources=resources)
+        self._capacity = self.DEFAULT_CAPACITY
+
+    @property
+    def _autoloader(self) -> Any:
+        return self.parent.connection.specimen.autoloader
+
+    def read_magazine(self) -> Magazine:
+        return self._magazine(list(self._autoloader.get_slots(False)))
+
+    def read_on_stage(self) -> StageSample:
+        stage = getattr(self._autoloader, "stage", None)
+        if stage is None:
+            return StageSample()
+        state = MagazineSlotState.from_name(getattr(stage, "state", "Unknown"))
+        present = {
+            MagazineSlotState.OCCUPIED: True,
+            MagazineSlotState.LOADED: True,
+            MagazineSlotState.EMPTY: False,
+        }.get(state)
+        return StageSample(present, _description(stage))
+
+    def read_capacity(self) -> int:
+        """The slots the magazine reported at its last read; nothing is asked."""
+        return self._capacity
+
+    def read_exchange_time(self) -> float:
+        """An unload and a load, measured on an Arctis; every exchange is charged
+        the full figure, a run's first load included, which errs long."""
+        return 180.0
+
+    def _load(self, slot: int) -> None:
+        try:
+            self._autoloader.load(slot)
+        except Exception as e:
+            raise GridExchangeError(
+                f"Autoloader could not load slot {slot}: {e}"
+            ) from e
+
+    def _unload(self) -> None:
+        try:
+            self._autoloader.unload()
+        except Exception as e:
+            raise GridExchangeError(f"Autoloader could not unload: {e}") from e
+
+    def _scan(self) -> Magazine:
+        return self._magazine(list(self._autoloader.get_slots(True)))
+
+    def _set_description(self, slot: int, text: str) -> None:
+        try:
+            for hw in self._autoloader.get_slots(False):
+                if int(hw.id) == slot:
+                    hw.sample_description = text
+                    return
+        except Exception as e:  # noqa: BLE001 - whatever AutoScript raised, as one error
+            raise GridExchangeError(
+                f"Could not write the autoloader slot description: {e}"
+            ) from e
+        raise GridExchangeError(f"Autoloader reported no slot {slot} to name.")
+
+    def _magazine(self, hw_slots: list) -> Magazine:
+        # The rows as the hardware gave them: what a bench session needs from the log
+        # when every slot shows unknown or empty and the question is what AutoScript
+        # actually said.
+        logging.info(
+            "Autoloader slots: "
+            + ", ".join(f"{hw.id}={_describe_hw(hw)}" for hw in hw_slots)
+        )
+        stage = getattr(self._autoloader, "stage", None)
+        if stage is not None:
+            logging.info(f"Autoloader stage: {_describe_hw(stage)}")
+        if hw_slots:
+            self._capacity = len(hw_slots)
+        return Magazine(
+            tuple(
+                MagazineSlot(
+                    int(hw.id),
+                    MagazineSlotState.from_name(getattr(hw, "state", "Unknown")),
+                    _description(hw),
+                )
+                for hw in hw_slots
+            )
+        )
+
+
+def _description(hw: Any) -> str:
+    return (getattr(hw, "sample_description", "") or "").strip()
+
+
+def _describe_hw(hw: Any) -> str:
+    """``State 'description'``, as the vendor gave the state."""
+    state = str(getattr(hw, "state", "Unknown")).rsplit(".", 1)[-1].capitalize()
+    described = _description(hw)
+    return state + (f" '{described}'" if described else "")
+
+
+def autoloader_installed(microscope: ThermoMicroscope) -> bool:
+    """Whether the instrument has an autoloader; False when AutoScript can't say."""
+    try:
+        return bool(microscope.connection.specimen.autoloader.is_installed)
+    except Exception:  # noqa: BLE001 - device absent, or not ready
+        return False
+
+
 _MANIPULATOR_NAMES = ("PARK", "EUCENTRIC")
 
 
@@ -1011,3 +1146,9 @@ def build_autoscript_manipulator(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptManipulator:
     return _named(AutoscriptManipulator(context.microscope), entry)
+
+
+def build_autoscript_sample_loader(
+    entry: DeviceEntry, context: BuildContext
+) -> AutoscriptSampleLoader:
+    return _named(AutoscriptSampleLoader(context.microscope), entry)
