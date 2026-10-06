@@ -444,12 +444,3 @@ def test_an_annulus_is_drawn_with_its_inner_diameter(microscope):
     ]
     assert parameters["outer_diameter"] == pytest.approx(10e-6)
     assert parameters["inner_diameter"] == pytest.approx(8e-6)
-
-
-def test_gis_is_not_fitted_and_raises(microscope):
-    assert microscope.DEFAULT_FITTED["gis"] is False
-    assert microscope.DEFAULT_FITTED["gis_multichem"] is False
-    with pytest.raises(NotImplementedError):
-        microscope.cryo_deposition_v2(gis_settings=None)
-    with pytest.raises(NotImplementedError):
-        microscope.setup_sputter({})

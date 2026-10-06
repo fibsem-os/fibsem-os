@@ -337,8 +337,8 @@ class ManipulatorState(Enum):
 
 
 class InsertableDeviceState(Enum):
-    """Where a device that goes in and out is: the FM objective, the manipulator, a
-    gas injector's needle. A driver that only knows in or out reports those two."""
+    """Where a device that goes in and out is: the FM objective, the manipulator. A
+    driver that only knows in or out reports those two."""
 
     RETRACTED = "retracted"
     INSERTED = "inserted"
@@ -2828,33 +2828,6 @@ class ManipulatorSystemSettings:
 
 
 @dataclass
-class GISSystemSettings:
-    # What is fitted is not in the configuration file. It is asked of the instrument
-    # where the backend can (AutoScript), and is the backend's own answer where it
-    # cannot -- see `FibsemMicroscope._read_hardware_capabilities`. These are the
-    # runtime record of that answer, and `is_available("gis")` reads them.
-    enabled: bool = False
-    multichem: bool = False
-    sputter_coater: bool = False
-    inserted: bool = False
-
-    def to_dict(self):
-        return {
-            "enabled": self.enabled,
-            "multichem": self.multichem,
-            "sputter_coater": self.sputter_coater,
-        }
-
-    @staticmethod
-    def from_dict(settings: dict):
-        return GISSystemSettings(
-            enabled=settings.get("enabled", False),
-            multichem=settings.get("multichem", False),
-            sputter_coater=settings.get("sputter_coater", False),
-        )
-
-
-@dataclass
 class SystemInfo:
     """Which instrument, and what software is running on it. Provenance.
 
@@ -3069,9 +3042,9 @@ CONFIGURED_DEVICES: Dict[str, str] = {
 }
 
 # Types a backend builds a device of by itself, so an entry named after one of them
-# needs no `type:` -- `name: gis` is the GIS. A plugin may configure a type not listed
-# here; such an entry states its `type`.
-DEVICE_TYPES: Tuple[str, ...] = ("beam", "stage", "chamber", "manipulator", "gis", "fm")
+# needs no `type:` -- `name: chamber` is the chamber. A plugin may configure a type not
+# listed here; such an entry states its `type`.
+DEVICE_TYPES: Tuple[str, ...] = ("beam", "stage", "chamber", "manipulator", "fm")
 
 
 @dataclass
@@ -3084,9 +3057,10 @@ class DeviceEntry:
     file does not name is built exactly as before.
 
     `name` is unique within the file and is how the device is found; it defaults to the
-    `type`, so a site with one GIS writes `type: gis` and nothing else. `type` may be left
-    out where the name says it (`name: fm`). Two devices of one type need two names. A
-    beam is named for its column, `electron` or `ion`, as `beams[BeamType]` keys it.
+    `type`, so a site with one manipulator writes `type: manipulator` and nothing else.
+    `type` may be left out where the name says it (`name: fm`). Two devices of one
+    type need two names. A beam is named for its column, `electron` or `ion`, as
+    `beams[BeamType]` keys it.
 
     `enabled` has three states, as `fm.enabled` always has: absent is the backend's
     default, `false` means never built and its driver never touches it. `driver`
@@ -3227,7 +3201,6 @@ class SystemSettings:
     electron: BeamSystemSettings
     ion: BeamSystemSettings
     manipulator: ManipulatorSystemSettings
-    gis: GISSystemSettings
     info: SystemInfo
     sim: Dict[str, Union[str, bool]] = field(default_factory=dict)
     fm: FluorescenceSystemSettings = field(default_factory=FluorescenceSystemSettings)
@@ -3298,7 +3271,7 @@ class SystemSettings:
         self._write_stage_positions(devices)
         return {
             "info": self.info.to_dict(),
-            # No manipulator or GIS unless the file named one. What is fitted is the
+            # No manipulator unless the file named one. What is fitted is the
             # instrument's to report (or the backend's, where it cannot be asked), not
             # a file's to state: `hardware.devices` is an overlay on what the backend
             # builds, so a device it does not name is built exactly as before.
@@ -3332,10 +3305,9 @@ class SystemSettings:
     def from_dict(settings: dict):
 
         # A missing *section* defaults like a missing field. A configuration that
-        # drops a block it does not need -- no GIS, no manipulator -- is a
-        # configuration, not a corrupt file, and this is what lets a key be removed
-        # from the shipped files without every existing one raising `KeyError` at
-        # load.
+        # drops a block it does not need -- no manipulator -- is a configuration,
+        # not a corrupt file, and this is what lets a key be removed from the
+        # shipped files without every existing one raising `KeyError` at load.
         #
         # `defaults:` names what a session starts from; `electron:` / `ion:` describe
         # what the column *is*. Merged back together here because nothing downstream
@@ -3408,7 +3380,6 @@ class SystemSettings:
             ion=BeamSystemSettings.from_dict(ion),
             # Not read from the file: filled in at connect by the backend.
             manipulator=ManipulatorSystemSettings(),
-            gis=GISSystemSettings(),
             info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
             fm=fm,
@@ -4792,31 +4763,6 @@ def save_tiff(data: np.ndarray, path: Union[str, Path]) -> str:
 def load_tiff(path: Union[str, Path]) -> np.ndarray:
     """Read a raw image array from a TIFF file."""
     return tff.imread(str(path))
-
-
-@dataclass
-class FibsemGasInjectionSettings:
-    port: str
-    gas: str
-    duration: float
-    insert_position: Optional[str] = None  # multichem only
-
-    @staticmethod
-    def from_dict(d: dict):
-        return FibsemGasInjectionSettings(
-            port=d["port"],
-            gas=d["gas"],
-            duration=d["duration"],
-            insert_position=d.get("insert_position", None),
-        )
-
-    def to_dict(self):
-        return {
-            "port": self.port,
-            "gas": self.gas,
-            "duration": self.duration,
-            "insert_position": self.insert_position,
-        }
 
 
 def calculate_fiducial_area_v2(

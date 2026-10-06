@@ -35,7 +35,6 @@ from fibsem.structures import (
     FibsemCircleSettings,
     FibsemDetectorSettings,
     FibsemExperimentRef,
-    FibsemGasInjectionSettings,
     FibsemImage,
     FibsemImageMetadata,
     FibsemLineSettings,
@@ -207,39 +206,6 @@ class StageSystem:
 class ManipulatorSystem:
     inserted: bool
     position: FibsemManipulatorPosition
-
-
-@dataclass
-class GasInjectionSystem:
-    gas: str
-    inserted: bool = False
-    heated: bool = False
-    opened: bool = False
-    position: Optional[str] = None
-
-    def insert(self):
-        self.inserted = True
-        logging.debug("GIS inserted")
-
-    def retract(self):
-        self.inserted = False
-        logging.debug("GIS retracted")
-
-    def turn_heater_on(self):
-        self.heated = True
-        logging.debug("GIS heater on")
-
-    def turn_heater_off(self):
-        self.heated = False
-        logging.debug("GIS heater off")
-
-    def open(self):
-        self.opened = True
-        logging.debug("GIS opened")
-
-    def close(self):
-        self.opened = False
-        logging.debug("GIS closed")
 
 
 @dataclass
@@ -472,19 +438,10 @@ class DemoConfiguration:
     #
     # The `sim:` block is where a simulated configuration stands in for a hardware
     # probe (`has_fm`, `is_compustage`), so that is where these come from too. Absent
-    # means the Demo default -- everything fitted but a sputter coater.
+    # means the Demo default -- fitted.
 
     def _probe_manipulator_installed(self) -> Optional[bool]:
         return self.system.sim.get("has_manipulator")
-
-    def _probe_gis_installed(self) -> Optional[bool]:
-        return self.system.sim.get("has_gis")
-
-    def _probe_multichem_installed(self) -> Optional[bool]:
-        return self.system.sim.get("has_gis_multichem")
-
-    def _probe_sputter_coater_installed(self) -> Optional[bool]:
-        return self.system.sim.get("has_gis_sputter_coater")
 
     def _probe_plasma_gas(self) -> Optional[str]:
         return self.system.sim.get("plasma_gas")
@@ -531,8 +488,6 @@ class DemoConfiguration:
             return SIMULATOR_SCAN_DIRECTIONS
         if key == "plasma_gas":
             return SIMULATOR_PLASMA_GASES
-        if key == "gis_ports":
-            return ["Pt Dep", "Pt Dep Cryo2"]
         return None
 
     def get_available_values(
@@ -1240,7 +1195,7 @@ class DemoScene:
 
 
 class DemoMilling:
-    """Simulated milling and sputtering, shared by both demos.
+    """Simulated milling, shared by both demos.
 
     The patterns, the milling state and the application files are
     ``milling_system``'s, which the demo sets up at construction; the beams
@@ -1419,40 +1374,6 @@ class DemoMilling:
         )
         self.milling_system.patterns.append(pattern_settings)
 
-    def setup_sputter(self, protocol: dict) -> None:
-        logging.info(f"Setting up sputter: {protocol}")
-
-    def draw_sputter_pattern(
-        self, hfw: float, line_pattern_length: float, sputter_time: float
-    ):
-        logging.debug(
-            {
-                "msg": "draw_sputter_pattern",
-                "hfw": hfw,
-                "line_pattern_length": line_pattern_length,
-                "sputter_time": sputter_time,
-            }
-        )
-
-    def run_sputter(self, **kwargs):
-        logging.info(f"Running sputter: {kwargs}")
-
-    def finish_sputter(self, **kwargs):
-        logging.info(f"Finishing sputter: {kwargs}")
-
-    def run_sputter_coater(self, time_seconds: int) -> None:
-        """Run the sputter coater for a given time in seconds.
-        Args:
-            time_seconds (int): The time to run the sputter coater in seconds.
-        Returns:
-            None
-        Raises:
-            NotImplementedError: If the system is not an Arctis system.
-        """
-        logging.info(f"Running sputter coater for {time_seconds} seconds...")
-        sim_sleep(time_seconds)
-        logging.info("Sputter coating complete.")
-
     def _milling_values(self, key: str) -> Optional[List[str]]:
         """The values of a milling key, or None for any other key."""
         if key == "application_file":
@@ -1481,7 +1402,6 @@ class DemoParts:
     chamber: ChamberSystem
     stage_system: StageSystem
     manipulator_system: ManipulatorSystem
-    gis_system: GasInjectionSystem
     electron_system: BeamSystem
     ion_system: BeamSystem
 
@@ -1501,8 +1421,6 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
             x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW"
         ),
     )
-
-    gis_system = GasInjectionSystem(gas="Pt dep")
 
     electron_system = BeamSystem(
         on=True,
@@ -1565,7 +1483,6 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         chamber=chamber,
         stage_system=stage_system,
         manipulator_system=manipulator_system,
-        gis_system=gis_system,
         electron_system=electron_system,
         ion_system=ion_system,
     )
@@ -1704,9 +1621,6 @@ class DemoSession:
         self.connection.disconnect()
         logging.info("Disconnected from Demo Microscope")
 
-    def _wait(self, seconds: float) -> None:
-        sim_sleep(seconds)
-
 
 class LegacyDemoMicroscope(
     DemoSession,
@@ -1733,7 +1647,6 @@ class LegacyDemoMicroscope(
         self.chamber = parts.chamber
         self.stage_system = parts.stage_system
         self.manipulator_system = parts.manipulator_system
-        self.gis_system = parts.gis_system
         self.electron_system = parts.electron_system
         self.ion_system = parts.ion_system
         self._setup_fluorescence()
@@ -1890,48 +1803,6 @@ class LegacyDemoMicroscope(
             self.electron_system if beam_type is BeamType.ELECTRON else self.ion_system
         )
         return beam_system.scanning_mode_value, beam_system.beam
-
-    def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings) -> None:
-        """Run non-specific cryo deposition protocol.
-
-        # TODO: universalise this for demo, tescan
-        """
-
-        use_multichem = self.is_available("gis_multichem")
-        port = gis_settings.port
-        gas = gis_settings.gas
-        duration = gis_settings.duration
-        insert_position = gis_settings.insert_position
-
-        logging.info({"msg": "inserting gis", "settings": gis_settings.to_dict()})
-
-        gis = self.gis_system
-
-        # insert gis / multichem
-        logging.info(f"Inserting Gas Injection System at {insert_position}")
-        gis.insert()
-
-        logging.info(f"Turning on heater for {gas}")
-        # turn on heater
-        gis.turn_heater_on()
-        sim_sleep(3)  # wait for the heat
-        # TODO: get state feedback, wait for heater to be at temp
-
-        # run deposition
-        logging.info(f"Running deposition for {duration} seconds")
-        gis.open()
-        sim_sleep(duration)
-        gis.close()
-
-        # turn off heater
-        logging.info(f"Turning off heater for {gas}")
-        gis.turn_heater_off()
-
-        # retract gis / multichem
-        logging.info("Retracting Gas Injection System")
-        gis.retract()
-
-        return
 
     def _get(
         self, key, beam_type: Optional[BeamType] = None

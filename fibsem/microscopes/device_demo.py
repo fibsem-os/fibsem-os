@@ -10,13 +10,11 @@ devices, from ``fibsem.microscopes.simulator`` (``DemoSession``,
 compares them call by call against the legacy one, so the two can't drift.
 
 Devices, from ``fibsem.devices.drivers.demo``: the beams (``DemoBeam``), the stage
-(``DemoStage``), the chamber (``DemoChamber``), the manipulator
-(``DemoManipulator``) and the gas injection system (``DemoGasInjector``), as
-``beams``, ``stage``, ``chamber_device``, ``manipulator_device`` and
-``gis_device``. They are
-built at construction from the parts a demo starts with (``initial_demo_parts``),
-and each keeps its own simulated part. Every key and method that reads or changes a
-part goes to its device:
+(``DemoStage``), the chamber (``DemoChamber``) and the manipulator
+(``DemoManipulator``), as ``beams``, ``stage``, ``chamber_device`` and
+``manipulator_device``. They are built at construction from the parts a demo starts
+with (``initial_demo_parts``), and each keeps its own simulated part. Every key and
+method that reads or changes a part goes to its device:
 
 - the beam keys (``_beam_routes``), and ``beam_shift``, the scan-mode keys
   (``spot_mode``, ``reduced_area``, ``full_frame``) and the spot burn's read of
@@ -27,9 +25,7 @@ part goes to its device:
 - ``chamber_state`` and ``chamber_pressure``, and the ``pump_chamber`` and
   ``vent_chamber`` commands (a false value does nothing, as on the legacy Demo);
 - ``manipulator_position`` and ``manipulator_state`` (a bool, as the legacy Demo
-  returns it); the old API moves the needle with methods, which use the device;
-- the GIS has no keys; ``cryo_deposition_v2`` runs its sequence through the
-  device's commands.
+  returns it); the old API moves the needle with methods, which use the device.
 
 The shared code answers what the configuration alone does (the fitted parts, the
 stage's limits, the grid loader, ``plasma`` and the constant value lists), and runs
@@ -77,7 +73,6 @@ from fibsem.structures import (
     BeamSettings,
     BeamType,
     DeviceEntry,
-    FibsemGasInjectionSettings,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
@@ -93,7 +88,6 @@ DEMO_DEVICES = (
     DeviceEntry(name="stage", type="stage"),
     DeviceEntry(name="chamber", type="chamber"),
     DeviceEntry(name="manipulator", type="manipulator"),
-    DeviceEntry(name="gis", type="gis"),
 )
 
 # Today's scan-mode set keys, and the methods that run the beam commands for them.
@@ -144,7 +138,7 @@ DRIVER = DriverEntry(
         device_type: DeviceBuilder(
             f"fibsem.devices.drivers.demo:build_demo_{device_type}"
         )
-        for device_type in ("beam", "stage", "chamber", "manipulator", "gis")
+        for device_type in ("beam", "stage", "chamber", "manipulator")
     },
 )
 
@@ -179,7 +173,7 @@ class DemoMicroscope(
         and route their keys to them.
 
         The Demo has every device in ``DEMO_DEVICES``; ``hardware.devices`` switches
-        one off, or adds one, such as a second GIS (``fibsem.devices.entries``). The
+        one off, or adds one (``fibsem.devices.entries``). The
         FM is built after the FM API, in ``_fm_devices``.
         """
         resolved = [
@@ -191,13 +185,8 @@ class DemoMicroscope(
         # .demo``), so the devices and the shared demo code begin the same.
         shared = {manufacturers.DEMO: (resources_of(self), parts)}
         built = build_device_entries(resolved, self, shared=shared)
-        types = {item.name: item.type for item in resolved}
-        gis = {name: device for name, device in built.items() if types[name] == "gis"}
         for name, device in built.items():
-            if name not in gis:
-                self._set_device(name, device)
-        self.gis_devices = gis
-        self.gis_device = gis.get("gis", next(iter(gis.values()), None))
+            self._set_device(name, device)
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
         self._device_routes = MappingProxyType(
             {

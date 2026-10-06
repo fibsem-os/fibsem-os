@@ -83,7 +83,6 @@ from fibsem.structures import (  # noqa
     FibsemCircleSettings,
     FibsemDetectorSettings,
     FibsemExperimentRef,
-    FibsemGasInjectionSettings,
     FibsemHardwareGeometry,
     FibsemImage,
     FibsemImageMetadata,
@@ -1546,9 +1545,6 @@ class TescanMicroscope(FibsemMicroscope):
         finally:
             self.clear_patterns()
 
-    def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings):
-        pass
-
     def estimate_milling_time(self) -> float:
 
         # NOTE: we cannot load the layer again
@@ -1705,18 +1701,6 @@ class TescanMicroscope(FibsemMicroscope):
 
     def draw_polygon(self, pattern_settings: FibsemPolygonSettings):
         raise NotImplementedError("draw_polygon not implemented for Tescan API")
-
-    def setup_sputter(self, protocol: dict):
-        pass
-
-    def draw_sputter_pattern(self, hfw, line_pattern_length, *args, **kwargs):
-        pass
-
-    def run_sputter(self, *args, **kwargs):
-        pass
-
-    def finish_sputter(self, *args, **kwargs):
-        pass
 
     def _beam_device(self, beam_type: BeamType):
         """The beam device for ``beam_type``; a column disabled in the config has none."""

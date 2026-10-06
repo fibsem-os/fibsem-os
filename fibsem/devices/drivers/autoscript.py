@@ -1,13 +1,12 @@
-"""The AutoScript (Thermo Fisher) stage, beams, chamber, manipulator and gas injectors
-as devices.
+"""The AutoScript (Thermo Fisher) stage, beams, chamber and manipulator as devices.
 
 ``AutoscriptStage`` implements the ``Stage`` device with what ``ThermoMicroscope``
 does today, moved as-is, so the old call and the device make the same SDK calls in
 the same order. ``AutoscriptCompustage`` is the same for a compustage (Arctis,
-Hydra), ``AutoscriptBeam`` for the beam keys, and ``AutoscriptChamber``,
-``AutoscriptManipulator`` and ``AutoscriptGasInjector`` for the vacuum, the needle and
-the GIS. ``ThermoMicroscope`` builds them at connect and routes its keys and moves to
-them; its old code stays until a session on an instrument confirms the devices.
+Hydra), ``AutoscriptBeam`` for the beam keys, and ``AutoscriptChamber`` and
+``AutoscriptManipulator`` for the vacuum and the needle. ``ThermoMicroscope`` builds
+them at connect and routes its keys and moves to them; its old code stays until a
+session on an instrument confirms the devices.
 
 The vendor stage is ``microscope._vendor_stage``, which the Thermo backend sets at
 connect to ``specimen.stage`` or ``specimen.compustage`` (``microscope.stage`` is the
@@ -30,7 +29,6 @@ import numpy as np
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device, ParameterMetadata, Resources
-from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
 from fibsem.structures import (
@@ -659,7 +657,7 @@ def bind_autoscript_beams(
     }
 
 
-# -- the chamber, the manipulator and the gas injectors -------------------------------
+# -- the chamber and the manipulator --------------------------------------------------
 
 
 class AutoscriptChamber(Chamber):
@@ -828,148 +826,6 @@ def bind_autoscript_manipulator(
 ) -> AutoscriptManipulator:
     """Build ``manipulator`` for a connected Thermo microscope that has one."""
     return AutoscriptManipulator(microscope, resources).connect()
-
-
-MULTICHEM = "Multichem"
-
-
-class AutoscriptGasInjector(GasInjector):
-    """One AutoScript gas injector: a GIS port (``gas.get_gis_port(port)``), or the
-    multichem (``gas.get_multichem()``), looked up on every call as
-    ``ThermoMicroscope.get_gis`` does.
-
-    The hooks are ``ThermoMicroscope``'s GIS methods: ``_insert`` (``insert_gis``),
-    ``_heater_on`` (``gis_turn_heater_on``, including its wait for temperature),
-    ``_retract`` (``retract_gis``), and the open, close and heater-off calls of
-    ``cryo_deposition_v2``.
-
-    fibsem has never read a gas injector's state back from AutoScript, so ``state``,
-    ``heated``, ``opened`` and ``gas`` report what this device's own commands last
-    did (retracted, off and closed until then). They do not see a change made in the
-    microscope's own UI.
-    """
-
-    def __init__(
-        self,
-        parent: ThermoMicroscope,
-        port: str,
-        resources: Optional[Resources] = None,
-    ):
-        super().__init__(parent=parent, resources=resources)
-        self.port = port
-        self._inserted = False
-        self._heated = False
-        self._opened = False
-        self._gas: str = "" if port == MULTICHEM else port
-
-    @property
-    def multichem(self) -> bool:
-        return self.port == MULTICHEM
-
-    @property
-    def _gis(self) -> Any:
-        gas = self.parent.connection.gas
-        return gas.get_multichem() if self.multichem else gas.get_gis_port(self.port)
-
-    def read_gas(self) -> str:
-        return self._gas
-
-    def read_state(self) -> InsertableDeviceState:
-        if self._inserted:
-            return InsertableDeviceState.INSERTED
-        return InsertableDeviceState.RETRACTED
-
-    def read_heated(self) -> bool:
-        return self._heated
-
-    def read_opened(self) -> bool:
-        return self._opened
-
-    def _insert(self, position: Optional[str]) -> None:
-        gis = self._gis
-        if position:
-            logging.info(f"Inserting Multichem GIS to {position}")
-            gis.insert(position)
-        else:
-            logging.info("Inserting Gas Injection System")
-            gis.insert()
-        self._inserted = True
-        logging.debug({"msg": "insert_gis", "insert_position": position})
-
-    def _retract(self) -> None:
-        self._gis.retract()
-        self._inserted = False
-        logging.debug({"msg": "retract_gis", "use_multichem": self.multichem})
-
-    def _heater_on(self, gas: Optional[str]) -> None:
-        gis = self._gis
-        logging.info(f"Turning on heater for {gas}")
-        if gas is not None:
-            gis.turn_heater_on(gas)
-            self._gas = gas
-        else:
-            gis.turn_heater_on()
-        self._heated = True
-
-        logging.info("Waiting for heater to get to temperature...")
-        time.sleep(3)  # we need to wait a bit
-
-        wait_time = 0
-        max_wait_time = 15
-        target_temp = 300  # validate this somehow?
-        while True:
-            # a multichem needs the gas name
-            temp = (
-                gis.get_temperature(gas) if gas is not None else gis.get_temperature()
-            )
-            logging.info(
-                f"Waiting for heater: {temp}K, target={target_temp}, wait_time={wait_time}/{max_wait_time} sec"
-            )
-            if temp >= target_temp:
-                break
-            time.sleep(1)  # wait for the heat
-            wait_time += 1
-            if wait_time > max_wait_time:
-                raise TimeoutError("Gas Injection Failed to heat within time...")
-
-        logging.debug(
-            {
-                "msg": "gis_turn_heater_on",
-                "temp": temp,
-                "target_temp": target_temp,
-                "wait_time": wait_time,
-                "max_wait_time": max_wait_time,
-            }
-        )
-
-    def _heater_off(self) -> None:
-        self._gis.turn_heater_off()
-        self._heated = False
-
-    def _open(self) -> None:
-        self._gis.open()
-        self._opened = True
-
-    def _close(self) -> None:
-        self._gis.close()
-        self._opened = False
-
-
-def bind_autoscript_gis(
-    microscope: ThermoMicroscope, resources: Optional[Resources] = None
-) -> Dict[str, AutoscriptGasInjector]:
-    """Build one gas injector per GIS port the instrument lists, and the multichem
-    (keyed ``MULTICHEM``) when it has one, for a connected Thermo microscope."""
-    devices: Dict[str, AutoscriptGasInjector] = {}
-    gas = microscope.connection.gas
-    if microscope.is_available("gis"):
-        for port in gas.list_all_gis_ports():
-            devices[port] = AutoscriptGasInjector(microscope, port, resources).connect()
-    if microscope.is_available("gis_multichem"):
-        devices[MULTICHEM] = AutoscriptGasInjector(
-            microscope, MULTICHEM, resources
-        ).connect()
-    return devices
 
 
 # -- Builders by entry --------------------------------------------------------------
