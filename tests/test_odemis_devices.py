@@ -603,6 +603,51 @@ def test_a_device_that_cannot_be_built_fails_the_connection(odemis_cls):
         odemis_cls(_system())
 
 
+def test_the_odemis_driver_has_builders_for_its_devices():
+    from fibsem import manufacturers
+    from fibsem.microscopes.registry import device_builder
+
+    for device_type in ("beam", "stage", "chamber"):
+        assert device_builder(manufacturers.ODEMIS, device_type) is not None
+    assert device_builder(manufacturers.ODEMIS, "manipulator") is None
+
+
+def _with(odemis_cls, *entries, stage=True):
+    from fibsem.structures import DeviceEntry
+
+    system = _system()
+    system.stage.enabled = stage
+    system.other_devices = [DeviceEntry.from_dict(e) for e in entries]
+    stubs.use_components({"fibsem": FakeClient(), "stage-bare": FakeStage()})
+    return odemis_cls(system)
+
+
+def test_a_switched_off_stage_is_not_built(odemis_cls):
+    microscope = _with(odemis_cls, stage=False)
+
+    assert microscope.stage is None
+    assert "stage" not in microscope.devices
+    assert microscope._route("stage_position", None) is None
+    assert microscope.chamber_device is not None
+
+
+def test_a_device_odemis_has_no_builder_for_is_skipped_with_a_warning(
+    odemis_cls, caplog
+):
+    with caplog.at_level(logging.WARNING):
+        microscope = _with(odemis_cls, {"name": "laser", "type": "laser"})
+
+    assert "laser" not in microscope.devices
+    assert "driver 'Odemis' has no builder for a 'laser' device" in caplog.text
+
+
+def test_a_required_device_odemis_cannot_build_fails_the_connection(odemis_cls):
+    from fibsem.devices.entries import DeviceBuildError
+
+    with pytest.raises(DeviceBuildError, match="'laser'"):
+        _with(odemis_cls, {"name": "laser", "type": "laser", "required": True})
+
+
 def test_a_disabled_column_cannot_image(odemis_cls):
     microscope = make(odemis_cls, ion=False)
     with pytest.raises(ValueError, match="ION beam is not enabled"):
