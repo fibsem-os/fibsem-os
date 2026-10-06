@@ -38,6 +38,7 @@ from fibsem.structures import (
     FibsemMillingSettings,
     FibsemPatternSettings,
     MillingState,
+    get_fields_with_metadata,
 )
 
 if TYPE_CHECKING:
@@ -53,18 +54,6 @@ if TYPE_CHECKING:
 # written back: a preset first, since it sets the others on a column that has one,
 # then the voltage before the current, as the instruments want.
 SAVED_BEAM_CONDITIONS = ("preset", "voltage", "current", "hfw")
-
-# The recipe fields that are the milling beam's own parameters, by beam parameter name.
-# Their choices and limits are the beam's, read from it, not kept here.
-BEAM_SETTINGS = {
-    "milling_current": "current",
-    "milling_voltage": "voltage",
-    "preset": "preset",
-    "hfw": "hfw",
-}
-
-# What every driver reads from a recipe besides its own fields.
-COMMON_SETTINGS = ("milling_channel", "hfw")
 
 _M = TypeVar("_M", bound="Milling")
 
@@ -86,8 +75,8 @@ class Milling(Service):
     # done behind its back, so the commands don't read it after themselves.
     state = Parameter(MillingState, doc="Idle, running, paused, ...; read-only.")
 
-    # The `FibsemMillingSettings` fields this driver's ``setup`` reads, besides
-    # `COMMON_SETTINGS`; it ignores the rest. A driver sets it.
+    # The `FibsemMillingSettings` fields this driver's ``setup`` reads; it ignores
+    # the rest. A driver sets it.
     setting_names: Tuple[str, ...] = ()
 
     def __init__(self, name: str = "milling", **kwargs: Any):
@@ -108,8 +97,8 @@ class Milling(Service):
         """The recipe (`FibsemMillingSettings`) fields this instrument mills with on
         ``channel``, each with its choices and limits; the fields left out it ignores.
 
-        A field that is a beam parameter (milling current and voltage, preset, hfw)
-        has the milling beam's own metadata, and is left out when that beam doesn't
+        A field whose ``microscope_parameter`` is one of the milling beam's parameters
+        (milling current and voltage, preset, hfw) has that parameter's own metadata, and is left out when that beam doesn't
         have it or can't set it. The others (application file, patterning mode,
         Tescan's rate and dwell, ...) have what the driver reports. A channel this
         instrument doesn't mill on (no beam, or not one the driver mills with) has
@@ -119,11 +108,10 @@ class Milling(Service):
             return {}
         beam = self.beam(channel)
         available: Dict[str, ParameterMetadata] = {}
-        for name in COMMON_SETTINGS + tuple(self.setting_names):
-            if name in available:
-                continue
-            beam_parameter = BEAM_SETTINGS.get(name)
-            if beam_parameter is None:
+        fields = get_fields_with_metadata(FibsemMillingSettings)
+        for name in self.setting_names:
+            beam_parameter = fields[name].get("microscope_parameter")
+            if beam_parameter not in beam.parameters:
                 available[name] = self._metadata_of(name)
             elif _settable(beam, beam_parameter):
                 available[name] = beam.parameters[beam_parameter].metadata

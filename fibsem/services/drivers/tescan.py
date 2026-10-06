@@ -50,6 +50,8 @@ class TescanMilling(Milling):
 
     # The preset sets the current and voltage; the rest go into the DrawBeam layer.
     setting_names = (
+        "milling_channel",
+        "hfw",
         "preset",
         "spot_size",
         "rate",

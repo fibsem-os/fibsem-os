@@ -47,6 +47,8 @@ class DemoMilling(Milling):
     parent: DemoMicroscope
 
     setting_names = (
+        "milling_channel",
+        "hfw",
         "milling_current",
         "milling_voltage",
         "application_file",
