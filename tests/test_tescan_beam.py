@@ -195,7 +195,10 @@ def test_each_column_has_what_its_api_has(monkeypatch, beam_type, parameters):
     assert isinstance(beam, TescanBeam)
     assert sorted(beam.parameters) == parameters
     available = sorted(n for n, c in beam.commands.items() if c.available)
-    assert available == ["acquire"]
+    imaging = ["acquire", "autocontrast", "last_image", "start_live", "stop_live"]
+    # the ion column has no focus control
+    focus = ["auto_focus"] if beam_type is BeamType.ELECTRON else []
+    assert available == sorted(imaging + focus)
 
 
 def test_what_the_api_refuses_reads_as_not_settable(monkeypatch):

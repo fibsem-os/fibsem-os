@@ -139,7 +139,11 @@ class Beam(Device):
         rectangle of the frame (0 to 1); the beam scans the full frame after."""
         self._autocontrast(reduced_area)
 
-    @command(available=lambda beam: implements(beam, "_auto_focus"))
+    @command(
+        available=lambda beam: (
+            implements(beam, "_auto_focus") and beam._has_auto_focus()
+        )
+    )
     def auto_focus(self, reduced_area: Optional[FibsemRectangle] = None) -> None:
         """Run the instrument's autofocus routine, optionally on a rectangle of the
         frame (0 to 1); the beam scans the full frame after."""
@@ -159,6 +163,11 @@ class Beam(Device):
 
     def _auto_focus(self, reduced_area: Optional[FibsemRectangle]) -> None:
         raise NotImplementedError
+
+    def _has_auto_focus(self) -> bool:
+        """Whether this column has the driver's focus routine: a driver whose columns
+        differ (one with no focus control) says no for that one."""
+        return True
 
     # Live view: the driver's _live runs on a thread of its own, acquiring with the
     # beam's current settings and emitting each image on live_frame, until stop_live

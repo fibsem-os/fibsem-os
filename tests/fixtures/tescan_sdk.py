@@ -18,6 +18,7 @@ No ``tescanautomation`` install is needed.
 """
 
 import copy
+import types
 from typing import List, Optional, Sequence
 
 import numpy as np
@@ -234,6 +235,31 @@ class FakePresets(_Recorded):
         self._call("Activate", name)
 
 
+class FakeScan(_Recorded):
+    """``SEM.Scan`` or ``FIB.Scan``: the acquires return a frame with a header for the
+    fake's current stage, as the instrument's would."""
+
+    def __init__(self, sdk: "FakeTescan", path: str, beam_type: BeamType):
+        super().__init__(sdk, path)
+        self.beam_type = beam_type
+
+    def _document(self, width, height):
+        return _Document(
+            np.full((height, width), 7, dtype=np.uint8),
+            header_at(self._sdk, self.beam_type),
+        )
+
+    def AcquireImage(self, **kwargs):
+        self._call("AcquireImage", **kwargs)
+        return self._document(kwargs["Width"], kwargs["Height"])
+
+    def AcquireROI(self, **kwargs):
+        self._call("AcquireROI", **kwargs)
+        return self._document(
+            kwargs["Right"] - kwargs["Left"] + 1, kwargs["Bottom"] - kwargs["Top"] + 1
+        )
+
+
 class FakeColumn(_Recorded):
     def __init__(
         self,
@@ -243,6 +269,8 @@ class FakeColumn(_Recorded):
         presets: Sequence[str] = (),
     ):
         super().__init__(sdk, path)
+        beam_type = BeamType.ELECTRON if path == "SEM" else BeamType.ION
+        self.Scan = FakeScan(sdk, f"{path}.Scan", beam_type)
         self.Optics = FakeOptics(sdk, f"{path}.Optics")
         self.Beam = FakeBeamUnit(sdk, f"{path}.Beam")
         self.Detector = FakeDetectors(sdk, f"{path}.Detector", detectors)
@@ -290,6 +318,12 @@ def connect(monkeypatch, system: SystemSettings, fake: Optional[FakeTescan] = No
         tescan_module, "Automation", lambda *args, **kwargs: fake, raising=False
     )
     monkeypatch.setattr(tescan_module, "Detector", FakeDetector, raising=False)
+    monkeypatch.setattr(
+        tescan_module,
+        "Bpp",
+        types.SimpleNamespace(Grayscale_8_bit="Grayscale_8_bit"),
+        raising=False,
+    )
     microscope = TescanMicroscope(copy.deepcopy(system))
     microscope.connect_to_microscope(ip_address="localhost", port=8300)
     fake.lock = microscope._connection_lock
@@ -311,14 +345,31 @@ def image_at(
     shape=(1024, 1536),
 ) -> FibsemImage:
     """The image the app would have taken here: header parse plus metadata stamp."""
+    document = _Document(
+        np.zeros(shape, dtype=np.uint8), header_at(fake, beam_type, pixel_size)
+    )
+    image = microscope._image_from_tescan(
+        document,
+        ImageSettings(resolution=(shape[1], shape[0]), beam_type=beam_type),
+    )
+    image.metadata.image_settings.beam_type = beam_type
+    microscope._set_additional_metadata(image)
+    return image
+
+
+def header_at(fake: FakeTescan, beam_type: BeamType, pixel_size: float = 1e-7) -> dict:
+    """A Tescan image header for the fake's current stage."""
     x, y, z, r, t = fake.Stage.position
     column = "SEM" if beam_type is BeamType.ELECTRON else "FIB"
-    header = {
+    return {
         "MAIN": {
             "PixelSizeX": pixel_size,
             "PixelSizeY": pixel_size,
             "Date": "2026-10-05",
             "Time": "12:00:00",
+            "DeviceModel": "FAKE",
+            "SerialNumber": "0000",
+            "SoftwareVersion": "1.0",
         },
         column: {
             "StageX": x * 1e-3,
@@ -340,11 +391,3 @@ def image_at(
             "Detector0Offset": 50.0,
         },
     }
-    document = _Document(np.zeros(shape, dtype=np.uint8), header)
-    image = microscope._image_from_tescan(
-        document,
-        ImageSettings(resolution=(shape[1], shape[0]), beam_type=beam_type),
-    )
-    image.metadata.image_settings.beam_type = beam_type
-    microscope._set_additional_metadata(image)
-    return image

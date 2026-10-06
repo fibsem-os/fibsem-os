@@ -17,6 +17,8 @@ import is the only one.
 from __future__ import annotations
 
 import logging
+import threading
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
@@ -27,7 +29,10 @@ from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import AXIS_UNITS, UNLIMITED, Stage
 from fibsem.structures import (
     BeamType,
+    FibsemImage,
+    FibsemRectangle,
     FibsemStagePosition,
+    ImageSettings,
     Point,
     RangeLimit,
 )
@@ -336,6 +341,143 @@ class TescanBeam(Beam):
                 Detector=active_detector, Gain=contrast, Black=brightness
             )
             logging.info(f"{self.beam_type.name} {key} set to {value}.")
+
+    # -- imaging and the autofunctions -----------------------------------------------
+    # TescanMicroscope's acquire_image, last_image, autocontrast, auto_focus and live
+    # view worker, moved as they are: the image is built from the frame's header, as
+    # before, and the SDK call holds the connection lock for the whole frame (FIB-786).
+
+    def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
+        from fibsem.microscopes import tescan
+
+        microscope = self.parent
+        beam_type = self.beam_type
+        settings = (
+            image_settings
+            if image_settings is not None
+            else microscope.get_imaging_settings(beam_type=beam_type)
+        )
+        logging.info(f"acquiring new {beam_type.name} image.")
+
+        if image_settings is not None:
+            microscope._settle_after_electron_image(beam_type)
+
+        # prepare the beam (turn on, stop scanning)
+        beam = microscope._prepare_beam(beam_type)
+
+        dwell_time_ns = settings.dwell_time * constants.SI_TO_NANO
+        image_width, image_height = settings.resolution
+
+        # Only apply settings if image_settings was provided
+        if image_settings is not None:
+            hfw = microscope.get_field_of_view(beam_type=beam_type)
+            if not np.isclose(hfw, settings.hfw, atol=1e-6):
+                microscope.set_field_of_view(settings.hfw, beam_type)
+
+        image_roi = settings.reduced_area
+        detector = microscope._active_detector[beam_type]
+        with self._lock:
+            if image_roi is not None:
+                left, top, right, bottom = tescan.to_tescan_image_roi(
+                    rect=image_roi, image_shape=(image_width, image_height)
+                )
+                image = beam.Scan.AcquireROI(
+                    Detector=detector,
+                    Width=image_width,
+                    Height=image_height,
+                    Left=left,
+                    Top=top,
+                    Right=right,
+                    Bottom=bottom,
+                    DwellTime=dwell_time_ns,
+                )
+            else:
+                image = beam.Scan.AcquireImage(
+                    Detector=detector,
+                    Bpp=tescan.Bpp.Grayscale_8_bit,
+                    Width=image_width,
+                    Height=image_height,
+                    DwellTime=dwell_time_ns,
+                )
+
+        if image is None:
+            raise ValueError("Failed to acquire image from microscope.")
+
+        fibsem_image = microscope._image_from_tescan(image, settings)
+        fibsem_image.metadata.image_settings.beam_type = deepcopy(beam_type)
+
+        # the last image, for last_image and for what the API cannot read
+        state = fibsem_image.metadata.microscope_state
+        if beam_type is BeamType.ELECTRON:
+            microscope.last_image_eb = fibsem_image
+            beam_state = state.electron_beam
+        else:
+            microscope.last_image_ib = fibsem_image
+            beam_state = state.ion_beam
+        cache = self._cache
+        cache.dwell_time = settings.dwell_time
+        cache.resolution = settings.resolution
+        cache.stigmation = beam_state.stigmation
+        cache.preset = beam_state.preset
+
+        if image_settings is not None:
+            microscope._last_imaging_settings = image_settings
+
+        # the manufacturer's details are only in the image header
+        info = microscope.system.info
+        if info.model == "Unknown":
+            info.model = image.Header["MAIN"]["DeviceModel"]
+            info.serial_number = image.Header["MAIN"]["SerialNumber"]
+            info.software_version = image.Header["MAIN"]["SoftwareVersion"]
+
+        microscope._set_additional_metadata(fibsem_image)
+        return fibsem_image
+
+    def _last_image(self) -> Optional[FibsemImage]:
+        # The last image this session acquired: the API has no read of it.
+        microscope = self.parent
+        if self.beam_type is BeamType.ELECTRON:
+            image = microscope.last_image_eb
+        else:
+            image = microscope.last_image_ib
+        if image is not None:
+            microscope._set_additional_metadata(image)
+        return image
+
+    def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
+        # The SDK's AutoSignal works on the whole frame: the area is not used.
+        microscope = self.parent
+        beam = microscope._prepare_beam(beam_type=self.beam_type)
+        logging.info(f"Running autocontrast on {self.beam_type.name}.")
+        with self._lock:
+            beam.Detector.AutoSignal(
+                Detector=microscope._active_detector[self.beam_type]
+            )
+
+    def _has_auto_focus(self) -> bool:
+        # The ion column has no working distance or focus control: no auto_focus,
+        # and microscope.auto_focus(ION) keeps its warning.
+        return self.beam_type is BeamType.ELECTRON
+
+    def _auto_focus(self, reduced_area: Optional[FibsemRectangle]) -> None:
+        # AutoWDFine, on the electron column only.
+        microscope = self.parent
+        beam = microscope._prepare_beam(beam_type=self.beam_type)
+        with self._lock:
+            beam.AutoWDFine(microscope._active_detector[self.beam_type])
+
+    def _live(self, stop: threading.Event) -> None:
+        # Tescan has no streaming API: re-acquire with the current settings until
+        # stopped. acquire holds the connection lock per frame, so other threads'
+        # calls queue between frames.
+        try:
+            while not stop.is_set():
+                image = self.acquire()
+                if stop.is_set():
+                    break
+                self.live_frame.emit(image)
+        except Exception as e:
+            logging.error(f"Error in TESCAN acquisition worker: {e}")
 
 
 def bind_tescan_beams(
