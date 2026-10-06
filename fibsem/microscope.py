@@ -978,13 +978,22 @@ class FibsemMicroscope(ABC):
     def _axis_restrictions_apply(
         self, position: Optional[FibsemStagePosition] = None
     ) -> bool:
-        """Whether the microscope refuses z and rotation, so an absolute move drops them.
+        """Whether an absolute move to *position* leaves any stage axis alone; see
+        `_blocked_axes`."""
+        return bool(self._blocked_axes(position))
+
+    def _blocked_axes(
+        self, position: Optional[FibsemStagePosition] = None
+    ) -> Tuple[str, ...]:
+        """The stage axes an absolute move to *position* leaves alone, because the
+        microscope would refuse them.
 
         Two halves, and they are not the same rule.
 
         The **orientation** half asks where the move is *going*, not where the stage is
-        standing. Asking the current pose is what dropped z from the very move that was
-        leaving the fluorescence pose: the stage landed at the requested x/y/t at the old
+        standing, and blocks z (and r, which a stage with an FM pose does not have).
+        Asking the current pose is what dropped z from the very move that was leaving
+        the fluorescence pose: the stage landed at the requested x/y/t at the old
         z-height, and the operator pressed Move a second time to finish it. Measured on
         the Arctis (Aug 2026): with the objective retracted, z and t are both available
         at t = -180, so a move out of that pose has nothing to lose. A move *into* it is
@@ -997,24 +1006,16 @@ class FibsemMicroscope(ABC):
 
         `get_stage_orientation` can never return "FM" on an offset mount -- the FM is a
         device there and `orientations["FM"]` is a copy of the FIB entry -- so that half
-        is naturally confined to the mounting it was written for.
+        is naturally confined to the stages that declare an FM pose.
 
-        The **objective** half is gated on `stage_is_compustage` **temporarily**, and
-        that gate belongs to FIB-640 to remove. It has only ever run on a compustage,
-        because `self.fm` is None everywhere else, and the axes it drops are not
-        equivalent across stage types: `stage_position_to_autoscript` returns a
-        `CompustagePosition(x, y, z, a)` with no `r` field at all, so dropping `r`
-        there has never done anything, while on an offset mount it would drop a real
-        rotation axis. Opening the connection gate is what makes that reachable, so
-        the gate goes on first.
-
-        Removing it silently would be the worse failure of the two. Without the gate
-        an offset move half-succeeds -- lands at x and y, no z, no rotation -- where
-        with it the full move is sent and the *microscope* refuses if it objects,
-        which is an error an operator can see and report. FIB-640 argues for exactly
-        that preference, and is also where the axis pair gets settled: it measured
-        z and t, not z and r.
+        The **objective** half applies on every mount: while the objective is
+        inserted, the axes it names (`ObjectiveLens.blocked_axes`, z and t as FIB-640
+        measured) are left alone. It read the stage type until those axes were
+        settled, because it dropped z and r, and r is a real rotation axis on an
+        offset mount. The objective state is read live, every move: a stale
+        "Retracted" here moves the stage with the objective in the chamber.
         """
+        blocked = []
         destination = (
             position
             if position is not None
@@ -1023,13 +1024,24 @@ class FibsemMicroscope(ABC):
             else None
         )
         if self.get_stage_orientation(destination) == "FM":
-            return True
+            blocked += ["z", "r"]
 
-        return (
-            self.stage_is_compustage
-            and self.fm is not None
-            and self.fm.objective.state == "Inserted"
-        )
+        if self.fm is not None and self.fm.objective.state == "Inserted":
+            blocked += [a for a in self.fm.objective.blocked_axes if a not in blocked]
+        return tuple(blocked)
+
+    def _without_blocked_axes(
+        self, position: FibsemStagePosition
+    ) -> FibsemStagePosition:
+        """*position* with the axes `_blocked_axes` names left unset, so an absolute
+        move does not send them."""
+        blocked = self._blocked_axes(position)
+        if not blocked:
+            return position
+        position = deepcopy(position)
+        for axis in blocked:
+            setattr(position, axis, None)
+        return position
 
     def _fluorescence_is_configured(self) -> bool:
         """Whether this site has said its instrument has a fluorescence microscope.

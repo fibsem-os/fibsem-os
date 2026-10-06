@@ -229,6 +229,7 @@ SYSTEM = utils.load_microscope_configuration(
 
 class _Objective:
     state = "Inserted"
+    blocked_axes = ("z", "t")
 
 
 class _FM:
