@@ -27,6 +27,7 @@ from skimage import transform
 from fibsem import manufacturers
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
+from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
@@ -43,11 +44,12 @@ from fibsem.microscopes._stage import (
     Stage,
     _slot_name,
 )
-from fibsem.microscopes.registry import DriverEntry
+from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamType,
     CrossSectionPattern,
+    DeviceEntry,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
@@ -900,7 +902,21 @@ DRIVER = DriverEntry(
     manufacturer=manufacturers.THERMOFISHER,
     microscope_class="fibsem.microscopes.autoscript:ThermoMicroscope",
     config={"port": 7520, "ion-column-tilt": 52, "electron-column-tilt": 0},
+    devices={
+        device_type: DeviceBuilder(
+            f"fibsem.devices.drivers.autoscript:build_autoscript_{device_type}"
+        )
+        for device_type in ("beam", "stage", "chamber", "manipulator")
+    },
 )
+
+# The device types each connect step builds (``ThermoMicroscope._build_devices``).
+# The FM and the gas injectors are built on their own paths; any other type a
+# configuration adds is built last.
+_BEAM_TYPES = ("beam",)
+_STAGE_TYPES = ("stage",)
+_PART_TYPES = ("chamber", "manipulator")
+_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + ("fm", "gis")
 
 
 class ThermoMicroscope(FibsemMicroscope):
@@ -1172,6 +1188,23 @@ class ThermoMicroscope(FibsemMicroscope):
         # after the sample stage, which reads which subsystems are fitted
         self._build_parts()
 
+    def _build_devices(
+        self,
+        defaults: List[DeviceEntry],
+        types: Optional[Tuple[str, ...]] = None,
+        exclude_types: Tuple[str, ...] = (),
+    ) -> Dict[str, Any]:
+        """Build one connect step's devices: *defaults*, what the instrument has, with
+        the configuration's ``hardware.devices`` entries of *types* over them
+        (``fibsem.devices.entries``), and put them in ``devices``."""
+        resolved = resolve_system_devices(
+            self.system, defaults, types, exclude_types, manufacturers.THERMOFISHER
+        )
+        built = build_device_entries(resolved, self)
+        for name, device in built.items():
+            self._set_device(name, device)
+        return built
+
     def _build_beams(self) -> None:
         """Build the beam devices and route the beam keys that have moved to them.
 
@@ -1180,9 +1213,13 @@ class ThermoMicroscope(FibsemMicroscope):
         answered by ``_get``/``_set``. A disabled column gets no device, so its keys
         stay with the old branches too.
         """
-        from fibsem.devices.drivers.autoscript import bind_autoscript_beams
-
-        self.beams = MappingProxyType(bind_autoscript_beams(self))
+        self._build_devices(
+            [
+                DeviceEntry(name="electron", type="beam"),
+                DeviceEntry(name="ion", type="beam"),
+            ],
+            _BEAM_TYPES,
+        )
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
 
     def _build_stage(self) -> None:
@@ -1192,9 +1229,7 @@ class ThermoMicroscope(FibsemMicroscope):
         ``stage_link`` set stays with ``_set``: a false value unlinks there, and the
         device's ``link`` command only links.
         """
-        from fibsem.devices.drivers.autoscript import bind_autoscript_stage
-
-        self.stage = bind_autoscript_stage(self)
+        self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
         self._device_routes = MappingProxyType(
             {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
         )
@@ -1202,22 +1237,19 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def _build_parts(self) -> None:
         """Build the chamber, and the manipulator and gas injectors that are fitted,
-        and route the chamber and manipulator keys to them.
+        and route the chamber and manipulator keys to them. Then build any other
+        device the configuration adds.
 
         ``pump``, ``vent`` and the manipulator's raw moves then go through the
         devices, and ``cryo_deposition_v2`` through the gas injector for its port.
         The corrected and offset needle moves stay here and move through the device.
         """
-        from fibsem.devices.drivers.autoscript import (
-            MULTICHEM,
-            bind_autoscript_chamber,
-            bind_autoscript_gis,
-            bind_autoscript_manipulator,
-        )
+        from fibsem.devices.drivers.autoscript import MULTICHEM, bind_autoscript_gis
 
-        self.chamber_device = bind_autoscript_chamber(self)
+        fitted = [DeviceEntry(name="chamber", type="chamber")]
         if self.is_available("manipulator"):
-            self.manipulator_device = bind_autoscript_manipulator(self)
+            fitted.append(DeviceEntry(name="manipulator", type="manipulator"))
+        self._build_devices(fitted, _PART_TYPES)
         self.gis_devices = MappingProxyType(bind_autoscript_gis(self))
         # the one a caller of the device API means: the multichem, or a lone port
         if MULTICHEM in self.gis_devices:
@@ -1245,6 +1277,9 @@ class ThermoMicroscope(FibsemMicroscope):
             }
         )
         self._command_routes = MappingProxyType(commands)
+
+        # whatever else the configuration adds, such as a device on its own PC
+        self._build_devices([], exclude_types=_OWN_TYPES)
 
     def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
         """The FM API over the Thermo FM devices, sharing this microscope's
