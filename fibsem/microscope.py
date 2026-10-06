@@ -3288,15 +3288,11 @@ class FibsemMicroscope(ABC):
     ) -> FibsemStagePosition:
         """:func:`fibsem.geometry.movement.image_to_stage_delta` at the current pose.
 
-        On a compustage, which side of the stage faces the FIB is decided by the
-        microscope's own orientation table (`get_stage_orientation`), as the stage
-        moves always have; the saved-image path derives it from the pose instead.
+        The same answer a saved image gets at that pose: nothing here reads the
+        orientation table.
         """
         # TODO: replace with camera matrix * inverse kinematics
         position = self.get_stage_position()
-        is_fib_orientation = None
-        if self.stage_is_compustage:
-            is_fib_orientation = self.get_stage_orientation() == "FIB"
         return image_to_stage_delta(
             dx,
             dy,
@@ -3304,7 +3300,6 @@ class FibsemMicroscope(ABC):
             geometry=self.hardware_geometry(),
             stage_rotation=position.r,
             stage_tilt=position.t,
-            is_fib_orientation=is_fib_orientation,
         )
 
     def _y_corrected_stage_movement(
