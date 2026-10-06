@@ -2781,6 +2781,10 @@ class FibsemMicroscope(ABC):
         self.set("detector_brightness", brightness, beam_type)
         return self.get("detector_brightness", beam_type)
 
+    def get_preset(self, beam_type: BeamType) -> Optional[str]:
+        """Get the active preset for the specified beam type, or None if it has none."""
+        return self.get("preset", beam_type)
+
     def set_preset(self, preset: str, beam_type: BeamType) -> str:
         """Set the preset for the specified beam type."""
         self.set("preset", preset, beam_type)

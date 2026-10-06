@@ -17,7 +17,7 @@ def main():
             _DEBUG = True
 
     if _DEBUG:
-        microscope.set("scan_rotation", np.deg2rad(0), beam_type=BeamType.ION)
+        microscope.set_scan_rotation(np.deg2rad(0), BeamType.ION)
         microscope.move_manipulator_to_position_offset(
             offset=FibsemManipulatorPosition(), name="EUCENTRIC"
         )

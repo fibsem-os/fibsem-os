@@ -157,9 +157,7 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         """Mill each pattern at an alternating over/under-tilt, realigning at each tilt."""
         for i, pattern in enumerate(stage.define_patterns()):
             # TODO: validate which direction to tilt, including when combined with scan rotation
-            scan_rotation = microscope.get(
-                "scan_rotation", stage.milling.milling_channel
-            )
+            scan_rotation = microscope.get_scan_rotation(stage.milling.milling_channel)
             # overtilt
             if i == 0:
                 t = -overtilt_in_radians

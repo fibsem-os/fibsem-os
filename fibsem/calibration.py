@@ -158,11 +158,9 @@ def _calibrate_manipulator_thermo(
     hfws = [2000e-6, 900e-6, 400e-6, 150e-6]
 
     # set working distance
-    wd = microscope.get("working_distance", BeamType.ELECTRON)
-    microscope.set(
-        "working_distance",
-        microscope.system.electron.eucentric_height,
-        BeamType.ELECTRON,
+    wd = microscope.get_working_distance(BeamType.ELECTRON)
+    microscope.set_working_distance(
+        microscope.system.electron.eucentric_height, BeamType.ELECTRON
     )
 
     for hfw in hfws:
@@ -172,7 +170,7 @@ def _calibrate_manipulator_thermo(
 
             features = (
                 [detection.NeedleTip(), detection.ImageCentre()]
-                if np.isclose(microscope.get("scan_rotation", beam_type), 0)
+                if np.isclose(microscope.get_scan_rotation(beam_type), 0)
                 else [detection.NeedleTipBottom(), detection.ImageCentre()]
             )
 
@@ -210,7 +208,7 @@ def _calibrate_manipulator_thermo(
             )
 
     # restore working distance
-    microscope.set("working_distance", wd, BeamType.ELECTRON)
+    microscope.set_working_distance(wd, BeamType.ELECTRON)
 
     if parent_ui:
         ask_user(
