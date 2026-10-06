@@ -752,38 +752,19 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
 
         logging.warning(f"Unknown key: {key} ({beam_type})")
 
-    def get_available_values(self, key: str, beam_type: BeamType = None) -> list:
+    def _get_available_values(self, key: str, beam_type: BeamType = None) -> list:
+        """The values of the keys the beam devices don't answer: application_file,
+        scan_direction, detector_mode (the detector type's, which can change) and
+        plasma_gas (there is no plasma gas parameter)."""
         values = []
         if key == "application_file":
             values = self.connection.get_available_application_files()
         if key == "scan_direction":
             values = ["TopToBottom", "BottomToTop", "LeftToRight", "RightToLeft"]
-        if key == "detector_type":
-            values = self.connection.detector_type_info(beam_type_to_odemis[beam_type])[
-                "choices"
-            ]
         if key == "detector_mode":
             values = self.connection.detector_mode_info(beam_type_to_odemis[beam_type])[
                 "choices"
             ]
-        if key == "current":
-            # The adapter gives the ion beam's currents as choices and the electron
-            # beam's as a range; a range is stepped by doubling, as ThermoMicroscope
-            # does, to match the choices the microscope offers.
-            info = self.connection.beam_current_info(beam_type_to_odemis[beam_type])
-            if "choices" in info:
-                values = list(info["choices"])
-            else:
-                low, high = info["range"]
-                current = low
-                while current <= high:
-                    values.append(current)
-                    current *= 2.0
-        if key == "voltage":
-            low, high = self.connection.high_voltage_info(
-                beam_type_to_odemis[beam_type]
-            )["range"]
-            values = [v for v in ODEMIS_VOLTAGE_CHOICES[beam_type] if low <= v <= high]
         if key == "plasma_gas":
             values = ["Argon", "Oxygen", "Xenon"]
 

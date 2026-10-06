@@ -59,8 +59,8 @@ class OdemisBeam(Beam):
     """A column of a Thermo microscope driven through odemis.
 
     Each parameter is the matching branch of ``OdemisThermoMicroscope._get``/``_set``
-    moved as it is; the choices are its ``get_available_values``'s. The detector
-    writes check as the old branches did, against the same choices.
+    moved as it is; the choices are what its ``get_available_values`` answers. The
+    detector writes check as the old branches did, against the same choices.
 
     The scan commands are the old ``spot_mode`` and ``full_frame`` keys, and
     ``reduced_area`` is the client call ``acquire_image`` and ``autocontrast`` make;

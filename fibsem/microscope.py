@@ -1548,11 +1548,27 @@ class FibsemMicroscope(ABC):
     def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
         raise self._unsupported("draw_polygon")
 
-    @abstractmethod
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Union[str, float, int]]:
-        pass
+        """The values a key can take.
+
+        A beam key's values are its beam parameter's choices (the device's metadata,
+        read when the beam was built and again when a dependency changes, e.g. the
+        ion currents when the plasma gas does). A key with no device home, or a beam
+        parameter with no choices (the detector modes), is the backend's
+        ``_get_available_values``.
+        """
+        param = self._beam_parameter(key, beam_type) if key in BEAM_ROUTES else None
+        if param is not None and param.choices is not None:
+            return list(param.choices)
+        return self._get_available_values(key, beam_type)
+
+    def _get_available_values(
+        self, key: str, beam_type: Optional[BeamType] = None
+    ) -> List[Union[str, float, int]]:
+        """The values of a key the devices don't answer: none, unless a backend says."""
+        return []
 
     def get_available_values_cached(
         self, key: str, beam_type: Optional[BeamType] = None
@@ -2346,7 +2362,7 @@ class FibsemMicroscope(ABC):
         self._set("vent_chamber", True)
         return self._get("chamber_state")
 
-    def _beam_parameter(self, key: str, beam_type: BeamType) -> Optional[Any]:
+    def _beam_parameter(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
         """The beam device's parameter for an old beam key, or None when the backend
         builds no such beam, or the beam has no such parameter."""
         beam = self.beams.get(beam_type)

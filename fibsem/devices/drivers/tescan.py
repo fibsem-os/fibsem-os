@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from fibsem.microscopes.tescan import TescanMicroscope
     from fibsem.structures import DeviceEntry
 
-# What the old get_available_values lists for "current".
+# What get_available_values lists for "current" (the old method's hard-coded list).
 _CURRENT_CHOICES: Dict[BeamType, List[float]] = {
     BeamType.ELECTRON: [1.0e-12],
     BeamType.ION: [20e-12, 60e-12, 0.2e-9, 0.74e-9, 2.0e-9, 7.6e-9, 28.0e-9, 120e-9],
@@ -57,8 +57,8 @@ class TescanBeam(Beam):
 
     Each parameter was the matching branch of ``TescanMicroscope._get``/``_set``. A
     write prepares the beam first (turns it on, stops the scan, waits until it is not
-    busy), as ``_set`` does for every beam key. The choices are
-    ``get_available_values``'s.
+    busy), as ``_set`` does for every beam key. The choices are what
+    ``get_available_values`` answers for a beam key.
 
     What the Tescan API refuses is still written, so the old API keeps its message,
     but reads as not settable: the current on both columns, the ion column's voltage
