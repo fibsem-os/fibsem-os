@@ -444,11 +444,10 @@ class FibsemBeamSettingsWidget(QWidget):
         """
         self.beam_current_combo.blockSignals(True)
         self.beam_current_combo.clear()
+        current = self.microscope.get_beam_current(self.beam_type)
         _create_combobox_control(
-            value=self.microscope.get_beam_current(self.beam_type),
-            items=self.microscope.get_available_values_cached(
-                "current", self.beam_type
-            ),
+            value=current,
+            items=self._combo_items("current", current),
             units="A",
             format_fn=utils.format_value,
             control=self.beam_current_combo,
@@ -457,11 +456,10 @@ class FibsemBeamSettingsWidget(QWidget):
 
         self.beam_voltage_combo.blockSignals(True)
         self.beam_voltage_combo.clear()
+        voltage = self.microscope.get_beam_voltage(self.beam_type)
         _create_combobox_control(
-            value=self.microscope.get_beam_voltage(self.beam_type),
-            items=self.microscope.get_available_values_cached(
-                "voltage", self.beam_type
-            ),
+            value=voltage,
+            items=self._combo_items("voltage", voltage),
             units="V",
             format_fn=utils.format_value,
             control=self.beam_voltage_combo,
@@ -566,13 +564,73 @@ class FibsemBeamSettingsWidget(QWidget):
         self._advanced_visible = show
         self._update_visibility()
 
+    def _beam_device(self):
+        """This beam's device, or None on a backend without beam devices."""
+        beams = getattr(self.microscope, "beams", None) or {}
+        return beams.get(self.beam_type)
+
+    def _beam_parameter(self, name: str):
+        """The beam device's parameter, or None when the beam does not have it."""
+        beam = self._beam_device()
+        return None if beam is None else beam.parameters.get(name)
+
+    def _combo_items(self, key: str, value) -> list:
+        """The choices for a combo: the available values when the beam can set
+        ``key``, and only the value it reads when the beam reports it read-only, so
+        the control shows what the beam is at rather than snapping to a choice."""
+        parameter = self._beam_parameter(key)
+        if parameter is not None and not parameter.settable:
+            return [] if value is None else [value]
+        return self.microscope.get_available_values_cached(key, self.beam_type)
+
     def _update_visibility(self):
-        """Apply visibility based on manufacturer and advanced-mode state."""
-        is_tescan = manufacturers.is_tescan(self.microscope.manufacturer)
+        """Apply visibility from the beam device's parameters and advanced mode.
+
+        A control is hidden when the beam has no such parameter, and shown read-only
+        when the beam reports it not settable. A backend without beam devices keeps
+        the manufacturer rules."""
         adv = self._advanced_visible
 
         for w in self._adv_widgets:
             w.setVisible(adv)
+
+        if self._beam_device() is None:
+            self._update_visibility_by_manufacturer()
+            return
+
+        def apply(name, widgets, advanced=False):
+            parameter = self._beam_parameter(name)
+            shown = parameter is not None and (adv or not advanced)
+            settable = parameter is not None and parameter.settable
+            for w in widgets:
+                w.setVisible(shown)
+                w.setEnabled(settable)
+            return parameter
+
+        apply("stigmation", [self.stigmation_label, self.stigmation_row], advanced=True)
+        apply(
+            "voltage", [self.beam_voltage_label, self.beam_voltage_combo], advanced=True
+        )
+        apply("current", [self.beam_current_label, self.beam_current_combo])
+
+        # An empty preset combo also hides (it reads as a control the user failed to set).
+        preset = self._beam_parameter("preset")
+        show_preset = preset is not None and self.preset_combo.count() > 0
+        for w in [self.preset_label, self.preset_combo]:
+            w.setVisible(show_preset)
+
+        wd = apply(
+            "working_distance",
+            [self.working_distance_label, self.working_distance_spinbox],
+        )
+        self.working_distance_spinbox.setToolTip(
+            "" if wd is None or wd.settable else "Not settable on this beam"
+        )
+
+    def _update_visibility_by_manufacturer(self):
+        """The rules for a backend without beam devices."""
+        is_tescan = manufacturers.is_tescan(self.microscope.manufacturer)
+        adv = self._advanced_visible
 
         # Stigmation: also hidden for TESCAN
         for w in [self.stigmation_label, self.stigmation_row]:

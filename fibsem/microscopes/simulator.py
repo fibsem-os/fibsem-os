@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import cycle
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from skimage.transform import resize
@@ -571,16 +571,6 @@ class DemoConfiguration:
 
         return values
 
-    def check_available_values(
-        self, key: str, value, beam_type: BeamType = None
-    ) -> bool:
-        logging.info(f"Checking if {key}={value} is available ({beam_type})")
-
-        if key == "plasma_gas":
-            return value in self.get_available_values(key, beam_type)
-
-        return False
-
 
 class DemoImaging:
     """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
@@ -660,7 +650,31 @@ class DemoImaging:
             raise ValueError(
                 "Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
             )
+        # The beam's acquire command, on a demo whose beams have it; settings win.
+        target = image_settings.beam_type if image_settings is not None else beam_type
+        beam = self._imaging_beam(target, "_acquire")
+        if beam is not None:
+            return beam.acquire(image_settings)
+        return self._demo_acquire(image_settings, beam_type)
 
+    def _imaging_beam(self, beam_type: Optional[BeamType], hook: str):
+        """The beam device whose driver implements *hook*, or None for the code here.
+
+        The device-built Demo's beams run imaging as commands, which call back into
+        the ``_demo_*`` methods below; the legacy Demo has no beam devices.
+        """
+        from fibsem.devices.beam import implements
+
+        beam = self.beams.get(beam_type) if beam_type is not None else None
+        return beam if beam is not None and implements(beam, hook) else None
+
+    def _demo_acquire(
+        self,
+        image_settings: Optional[ImageSettings],
+        beam_type: Optional[BeamType],
+    ) -> FibsemImage:
+        """``acquire_image``'s frame: what both demos acquire, through the beam's
+        command on the device-built one."""
         # Determine which beam type and settings to use (image_settings takes precedence)
         if image_settings is not None:
             # Use provided image settings
@@ -908,6 +922,12 @@ class DemoImaging:
         Returns:
             FibsemImage: The last acquired image.
         """
+        beam = self._imaging_beam(beam_type, "_last_image")
+        if beam is not None:
+            return beam.last_image()
+        return self._demo_last_image(beam_type)
+
+    def _demo_last_image(self, beam_type: BeamType) -> Optional[FibsemImage]:
         # `ThermoMicroscope.last_image` sets the channel and then reads the *active
         # view's* buffer -- `imaging.get_image` "retrieves a microscope image currently
         # present in the active view" -- so it is FIB-542's pair on the retrieval path
@@ -953,14 +973,28 @@ class DemoImaging:
 
     def _acquisition_worker(self, beam_type: BeamType):
         """Worker thread for image acquisition."""
+        signal = (
+            self.sem_acquisition_signal
+            if beam_type is BeamType.ELECTRON
+            else self.fib_acquisition_signal
+        )
+        self._demo_live(beam_type, self._stop_acquisition_event, signal.emit)
 
+    def _demo_live(
+        self,
+        beam_type: BeamType,
+        stop: threading.Event,
+        emit: Callable[[FibsemImage], None],
+    ) -> None:
+        """Live view: acquire with the current settings and emit each image until
+        *stop* is set. The legacy Demo's worker, and the device-built Demo's beam's."""
         # TODO: add lock
 
         self.set_channel(beam_type)
 
         try:
             while True:
-                if self._stop_acquisition_event.is_set():
+                if stop.is_set():
                     break
 
                 # "acquire" image
@@ -973,16 +1007,22 @@ class DemoImaging:
                 sim_sleep(estimated_time)
 
                 # emit the acquired image
-                if beam_type is BeamType.ELECTRON:
-                    self.sem_acquisition_signal.emit(image)
-                if beam_type is BeamType.ION:
-                    self.fib_acquisition_signal.emit(image)
+                emit(image)
 
         except Exception as e:
             logging.error(f"Error in acquisition worker: {e}")
 
     def autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
+    ) -> None:
+        beam = self._imaging_beam(beam_type, "_autocontrast")
+        if beam is not None:
+            beam.autocontrast(reduced_area)
+            return
+        self._demo_autocontrast(beam_type, reduced_area)
+
+    def _demo_autocontrast(
+        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle]
     ) -> None:
         # Claims the channel and holds it for the routine, as `ThermoMicroscope`'s does:
         # `run_auto_cb` optimises "the active detector in the active view", so a channel
@@ -1007,6 +1047,15 @@ class DemoImaging:
 
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
+    ) -> None:
+        beam = self._imaging_beam(beam_type, "_auto_focus")
+        if beam is not None:
+            beam.auto_focus(reduced_area)
+            return
+        self._demo_auto_focus(beam_type, reduced_area)
+
+    def _demo_auto_focus(
+        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle]
     ) -> None:
         # Same claim as `autocontrast`, for the same reason: `run_auto_focus` runs "in
         # the active view", so losing the channel focuses the other column and leaves it
@@ -2066,7 +2115,7 @@ class LegacyDemoMicroscope(
                 if not self.system.ion.plasma:
                     logging.debug("Plasma gas cannot be set on this microscope.")
                     return
-                if not self.check_available_values("plasma_gas", value, beam_type):
+                if value not in self.get_available_values("plasma_gas", beam_type):
                     logging.warning(
                         f"Plasma gas {value} not available. Available values: {self.get_available_values('plasma_gas', beam_type)}"
                     )

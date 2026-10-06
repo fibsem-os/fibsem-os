@@ -141,11 +141,8 @@ def test_writing_goes_to_the_file_named_and_keeps_its_shape(tmp_path):
 
     utils.write_objective_calibration(path, np.float64(7.3e-3), np.float32(8.4e-3))
 
-    # No sibling `site.yaml`; the version 1 file it was is kept as a copy.
-    assert sorted(p.name for p in tmp_path.iterdir()) == [
-        "site.yml",
-        "site.yml.before-v2",
-    ]
+    # No sibling `site.yaml`.
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["site.yml"]
     written = utils.load_yaml(str(path))  # safe_load: raises on a numpy tag
     assert list(written) == order
     assert written["calibration"]["objective"]["focus_position"] == pytest.approx(

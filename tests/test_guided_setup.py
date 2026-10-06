@@ -66,7 +66,7 @@ def test_every_model_carries_both_stage_values():
 
     for model in wizard.MICROSCOPE_MODELS:
         config = utils.load_yaml(model.path)
-        assert "rotation_reference" in config["hardware"]["stage"], model.label
+        assert "rotation_reference" in _device(config, "stage"), model.label
         assert "shuttle_pre_tilt" in config["calibration"], model.label
 
 
@@ -401,7 +401,7 @@ def test_every_shipped_file_already_agrees_with_its_manufacturers_column_tilts()
         # is a Demo configuration standing in for someone else's instrument.
         if model.filename != "microscope-configuration.yaml":
             assert (
-                shipped["hardware"]["ion"]["column_tilt"] == defaults["ion-column-tilt"]
+                _device(shipped, "ion")["column_tilt"] == defaults["ion-column-tilt"]
             ), model.key
 
 

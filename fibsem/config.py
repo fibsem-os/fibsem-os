@@ -30,7 +30,10 @@ from fibsem.microscopes import registry
 # orientation name (FIB-1101). Absent in earlier files, where
 # `FibsemHardwareGeometry.declared_poses` rebuilds them from `rotation_180` and
 # `is_compustage`.
-METADATA_VERSION = "v9"
+# v10 added `hardware_geometry.stage_frame` -- the frame the stage position is in,
+# "fibsem" or "tescan_native" (FIB-1114). Absent in earlier files, whose positions
+# are in the frame their backend reported: Tescan's own on a Tescan image.
+METADATA_VERSION = "v10"
 # What an unversioned file is. Absent means written before versioning existed, i.e.
 # older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
 UNVERSIONED_METADATA = "v0"

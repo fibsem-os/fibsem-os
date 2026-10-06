@@ -3,7 +3,12 @@ from typing import TYPE_CHECKING, Optional, Tuple
 
 import numpy as np
 
-from fibsem.geometry.frames import StageModel, image_y_shift, in_plane_move
+from fibsem.geometry.frames import (
+    StageModel,
+    image_y_shift,
+    in_plane_move,
+    views_back,
+)
 from fibsem.movement import rotation_angle_is_smaller
 
 if TYPE_CHECKING:
@@ -182,23 +187,21 @@ def _projection_terms(
 
 def _image_y_flip(
     geometry: "FibsemHardwareGeometry",
+    view_tilt: float,
     stage_rotation: float,
     stage_tilt: float,
-    is_fib_orientation: Optional[bool] = None,
 ) -> float:
-    """-1 where the projection reverses image y beyond what the geometry gives.
+    """-1 where the instrument mirrors the image, so image y runs against the geometry.
 
-    Only a compustage at its FIB pose, as the projection has always done; plain
-    geometry (`fibsem.geometry.frames`) gives no reversal anywhere. Whether the
-    instrument flips the image there is an open question (FIB-1101), so it stays a
-    named exception here rather than in the model.
+    A compustage's instrument flips an image the beam takes of the back of the grid,
+    so it reads as if seen from the front (FIB-1101). Which side a view sees is the
+    model's (`fibsem.geometry.frames.views_back`); that the instrument mirrors it is
+    the compustage's. Other stages present the image as the beam sees it.
     """
     if not geometry.is_compustage:
         return 1.0
-    sign, _, _ = _projection_terms(
-        geometry, stage_rotation, stage_tilt, is_fib_orientation
-    )
-    return -sign
+    model = StageModel.from_geometry(geometry)
+    return -1.0 if views_back(model, view_tilt, stage_rotation, stage_tilt) else 1.0
 
 
 def view_corrected_stage_movement(
@@ -207,7 +210,6 @@ def view_corrected_stage_movement(
     geometry: "FibsemHardwareGeometry",
     stage_rotation: float,
     stage_tilt: float,
-    is_fib_orientation: Optional[bool] = None,
 ) -> Tuple[float, float]:
     """Split an in-image y-displacement across the stage y- and z-axes.
 
@@ -222,13 +224,11 @@ def view_corrected_stage_movement(
         geometry: the geometry the image was captured under.
         stage_rotation: stage rotation at acquisition, in radians.
         stage_tilt: stage tilt at acquisition, in radians.
-        is_fib_orientation: whether a compustage is at its FIB orientation, when the
-            caller has classified the pose itself; None derives it from the pose.
 
     Returns:
         (dy, dz) stage movement, in metres.
     """
-    flip = _image_y_flip(geometry, stage_rotation, stage_tilt, is_fib_orientation)
+    flip = _image_y_flip(geometry, view_tilt, stage_rotation, stage_tilt)
     return in_plane_move(
         StageModel.from_geometry(geometry),
         flip * expected_y,
@@ -285,6 +285,6 @@ def inverse_view_corrected_dy(
     Returns:
         The in-image y-displacement produced by that stage movement, in metres.
     """
-    flip = _image_y_flip(geometry, stage_rotation, stage_tilt)
+    flip = _image_y_flip(geometry, view_tilt, stage_rotation, stage_tilt)
     model = StageModel.from_geometry(geometry)
     return flip * image_y_shift(model, dy, dz, view_tilt, stage_tilt)

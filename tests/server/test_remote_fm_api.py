@@ -302,7 +302,7 @@ def test_a_configuration_naming_a_remote_fm_connects_to_it(tmp_path):
         settings = utils.load_yaml(
             os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
         )
-        settings["hardware"]["fm"].update(
+        utils.configuration_device(settings, "fm").update(
             driver="remote", address="127.0.0.1", port=server.port
         )
         settings["sim"]["has_fm"] = False  # no FM on the beams' connection
@@ -393,7 +393,9 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
     settings = utils.load_yaml(
         os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
-    settings["hardware"]["fm"].update(driver="remote", address="127.0.0.1", port=port)
+    utils.configuration_device(settings, "fm").update(
+        driver="remote", address="127.0.0.1", port=port
+    )
     settings.setdefault("calibration", {})["objective"] = {"limit_position": 0.004}
     path = tmp_path / "remote-fm-configuration.yaml"
     utils.save_yaml(path, settings)
