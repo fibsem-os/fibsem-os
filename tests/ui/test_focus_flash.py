@@ -28,7 +28,7 @@ from PyQt5.QtGui import QWheelEvent
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from fibsem.constants import METRE_TO_MICRON
-from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
@@ -46,7 +46,7 @@ class _Host(QWidget):
 
 @pytest.fixture
 def fm():
-    return FluorescenceMicroscope()
+    return SimulatedFluorescenceMicroscope()
 
 
 @pytest.fixture
@@ -72,8 +72,14 @@ def _wheel(dx: int, dy: int, modifiers=Qt.ShiftModifier) -> QWheelEvent:
     """
     pos = QPoint(200, 200)
     return QWheelEvent(
-        pos, pos, QPoint(0, 0), QPoint(dx, dy), Qt.NoButton, modifiers,
-        Qt.NoScrollPhase, False,
+        pos,
+        pos,
+        QPoint(0, 0),
+        QPoint(dx, dy),
+        Qt.NoButton,
+        modifiers,
+        Qt.NoScrollPhase,
+        False,
     )
 
 

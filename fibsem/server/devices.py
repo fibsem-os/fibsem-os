@@ -330,9 +330,10 @@ def demo_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
     """The simulated FM's parts and group, as a METEOR PC would serve its FM.
     *config* is the FM's configuration keys, as an fm entry states them."""
     from fibsem.devices.drivers.fm import bind_fm_devices
-    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 
-    return list(bind_fm_devices(FluorescenceMicroscope(), config=config).values())
+    fm = SimulatedFluorescenceMicroscope()
+    return list(bind_fm_devices(fm, config=config).values())
 
 
 def odemis_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:

@@ -13,9 +13,9 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.devices.drivers.fm import bind_fm_devices  # noqa: E402
-from fibsem.fm import microscope as fm_microscope  # noqa: E402
 from fibsem.fm.api import DeviceFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
+from fibsem.microscopes import simulator  # noqa: E402
 from fibsem.ui.fm.widgets import fm_limits  # noqa: E402
 
 CHANNEL = ChannelSettings(name="green", excitation_wavelength=488, exposure_time=0.1)
@@ -26,18 +26,20 @@ def fm(monkeypatch):
     """An FM whose camera takes 5 ms to 2 s at binning 1 or 2, and whose light
     source goes to 80%."""
     monkeypatch.setattr(
-        fm_microscope.Camera,
+        simulator.SimulatedCamera,
         "exposure_time_limits",
         property(lambda self: (0.005, 2.0)),
     )
     monkeypatch.setattr(
-        fm_microscope.Camera, "available_binnings", property(lambda self: (1, 2))
+        simulator.SimulatedCamera, "available_binnings", property(lambda self: (1, 2))
     )
     monkeypatch.setattr(
-        fm_microscope.LightSource, "power_limits", property(lambda self: (0.0, 0.8))
+        simulator.SimulatedLightSource,
+        "power_limits",
+        property(lambda self: (0.0, 0.8)),
     )
     return DeviceFluorescenceMicroscope(
-        bind_fm_devices(fm_microscope.FluorescenceMicroscope())
+        bind_fm_devices(simulator.SimulatedFluorescenceMicroscope())
     )
 
 
@@ -72,7 +74,7 @@ def test_an_fm_that_cannot_answer_gets_the_old_ranges():
 
 def test_the_minimum_is_one_the_box_can_show():
     """A 1 µs camera minimum would show as 0.0 ms in a one-decimal box."""
-    sim = fm_microscope.FluorescenceMicroscope()
+    sim = simulator.SimulatedFluorescenceMicroscope()
     assert sim.camera.exposure_time_limits[0] == pytest.approx(1e-6)
     assert fm_limits.exposure_range_ms(sim) == (0.1, 60000.0)
 
@@ -130,7 +132,7 @@ def fm_with_units(monkeypatch):
         lambda self: ParameterMetadata(limits=fraction, native_max=16.0),
     )
     return DeviceFluorescenceMicroscope(
-        bind_fm_devices(fm_microscope.FluorescenceMicroscope())
+        bind_fm_devices(simulator.SimulatedFluorescenceMicroscope())
     )
 
 
@@ -177,7 +179,7 @@ def test_without_hardware_units_the_tooltips_stay_as_they_were(qapp):
     from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
 
     sim = DeviceFluorescenceMicroscope(
-        bind_fm_devices(fm_microscope.FluorescenceMicroscope())
+        bind_fm_devices(simulator.SimulatedFluorescenceMicroscope())
     )
     widget = ChannelSettingsWidget(sim)
 

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Literal, Optional, Tuple, Union
 import numpy as np
 from psygnal import Signal
 
-from fibsem._timing import sim_sleep
 from fibsem.fm.progress import FluorescenceAcquisitionProgress
 from fibsem.fm.structures import (
     CameraImageTransform,
@@ -23,44 +22,10 @@ from fibsem.fm.structures import (
     ObjectiveStateName,
     emission_filter_for,
 )
-from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.structures import FibsemStagePosition
-
-EXCITATION_WAVELENGTHS = (365, 450, 550, 635)  # in nm, example wavelengths
-EMISSION_WAVELENGTHS = (None, "Fluorescence")  # in nm, example wavelengths
-
-SIM_OBJECTIVE_MAGNIFICATION = 100.0  # placeholder for simulation
-SIM_OBJECTIVE_NA = 0.8
-SIM_OBJECTIVE_INSERT_POSITION = 6.0e-3  # z-axis
-SIM_OBJECTIVE_RETRACT_POSITION = -10e-3  # z-axis
-SIM_OBJECTIVE_POSITION_LIMITS = (-12e-3, 10e-3)  # z-axis limits for the objective lens
-SIM_OBJECTIVE_USER_POSITION_LIMIT = 8.6e-3  # user-defined limits for the objective lens
-SIM_OBJECTIVE_FOCUS_POSITION = 8.0e-3
-# Insertion and retraction traverse the objective's whole range -- 16 mm here -- where a
-# focus nudge moves it by microns, so they are seconds of travel on a real system rather
-# than the fraction of one `move_absolute` simulates. Modelled because the difference is
-# what makes a second command *during* one reachable by hand (FIB-628); a delegating
-# `insert` that returned as fast as a nudge made that window too small to click into.
-# `sim_sleep`, so `FIBSEM_SIM_NO_DELAY=1` keeps it out of the test suite.
-SIM_OBJECTIVE_TRAVEL_SECONDS = 2.0
-
-SIM_CAMERA_EXPOSURE_TIME = 0.1  # seconds
-SIM_CAMERA_EXPOSURE_LIMITS = (1e-6, 60.0)  # seconds
-SIM_CAMERA_BINNING = 4
-SIM_CAMERA_GAIN = 0.01  # 1%
-SIM_CAMERA_OFFSET = 0.0
-SIM_CAMERA_PIXEL_SIZE = (
-    0.25 * 100e-9,
-    0.25 * 100e-9,
-)  # in meters (100 nm -> 0.25 um with 4x binning)
-SIM_CAMERA_RESOLUTION = (4 * 1024, 4 * 1024)  # default resolution
-
-UINT16_MIN = np.iinfo(np.uint16).min  # 0 for uint16
-UINT16_MAX = np.iinfo(np.uint16).max  # 65535 for uint16
-BINNING_VALUES = [1, 2, 4, 8]  # typical binning values
 
 RATE_LIMIT_DEFAULT = 0.05  # seconds between updates
 
@@ -94,11 +59,12 @@ class ObjectiveLens(ABC):
     # nothing is severed for you when the C++ object goes (FIB-550).
     position_changed = Signal(float, str)
 
-    """Abstract base class for objective lens control in fluorescence microscopy.
+    """The FM API's objective lens: what the FM UI and workflows call.
 
-    Provides a standardized interface for controlling objective lens positioning,
-    magnification, and numerical aperture across different microscope implementations.
-    Supports insertion/retraction operations for automated workflows.
+    Its position, magnification and numerical aperture, and moving it, inserting it and
+    retracting it; each implementation answers them from its own hardware (the FM
+    devices, ``fibsem.fm.api``, or the simulated FM, ``fibsem.microscopes.simulator``).
+    The saved focus position is the session's, not the hardware's, so it is kept here.
 
     Attributes:
         parent: Reference to the parent fluorescence microscope
@@ -112,19 +78,11 @@ class ObjectiveLens(ABC):
     half-succeeds. A driver whose objective differs overrides this."""
 
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
-        """Initialize the objective lens with default simulation parameters.
-
-        Args:
-            parent: Optional parent fluorescence microscope instance
+        """Args:
+        parent: Optional parent fluorescence microscope instance
         """
         self.parent = parent
-        self._position: float = SIM_OBJECTIVE_RETRACT_POSITION  # initial position
-        self._magnification: float = SIM_OBJECTIVE_MAGNIFICATION
-        self._numerical_aperture = SIM_OBJECTIVE_NA
-        self._insert_position = SIM_OBJECTIVE_INSERT_POSITION
-        self._retract_position = SIM_OBJECTIVE_RETRACT_POSITION
-        self._focus_position: Optional[float] = SIM_OBJECTIVE_FOCUS_POSITION
-        self._limit_position: float = SIM_OBJECTIVE_USER_POSITION_LIMIT
+        self._focus_position: Optional[float] = None
 
     def _notify_moved(self) -> None:
         """Announce where the objective ended up, for displays to refresh on (FIB-534).
@@ -169,32 +127,18 @@ class ObjectiveLens(ABC):
 
     @property
     def magnification(self) -> float:
-        """Get the magnification of the objective lens.
-
-        Returns:
-            The objective lens magnification (e.g., 100.0 for 100x)
-        """
-        return self._magnification
+        """The magnification of the objective lens (e.g. 100.0 for 100x)."""
+        raise NotImplementedError
 
     @property
     def numerical_aperture(self) -> float:
-        """Get the numerical aperture of the objective lens.
-
-        Returns:
-            The numerical aperture value (typically 0.1 to 1.4)
-        """
-        return self._numerical_aperture
+        """The numerical aperture of the objective lens."""
+        raise NotImplementedError
 
     @property
     def position(self) -> float:
-        """Get the current z-axis position of the objective lens.
-
-        Returns:
-            The current position in meters (negative values = retracted)
-        """
-        sim_sleep(0.1)
-        # logging.info(f"Objective position read: {self._position * 1e3:.3f} mm")
-        return self._position
+        """The objective's z position, in metres (negative = retracted)."""
+        raise NotImplementedError
 
     @property
     def focus_position(self) -> Optional[float]:
@@ -226,253 +170,93 @@ class ObjectiveLens(ABC):
 
     @property
     def limit_position(self) -> float:
-        """Get the user-defined z-axis position limit of the objective lens.
-
-        Returns:
-            The maximum allowable position in meters
-        """
-        return self._limit_position
+        """The user-defined z position limit of the objective lens, in metres."""
+        raise NotImplementedError
 
     @limit_position.setter
     def limit_position(self, position: float):
-        """Set the user-defined z-axis position limit of the objective lens.
-
-        Args:
-            position: The maximum allowable position in meters
-        """
-        self._limit_position = position
-        logging.info(
-            f"Objective user-defined position limit set to: {self._limit_position * 1e3:.3f} mm"
-        )
+        raise NotImplementedError
 
     def move_relative(self, delta: float):
-        """Move the objective lens by a relative distance.
+        """Move the objective by ``delta`` metres (positive = towards the sample).
 
-        Args:
-            delta: The distance to move in meters (positive = towards sample)
-        """
-        self._position += delta
-        logging.info(
-            f"Objective moved to new position: {self._position * 1e3:.3f} mm (delta: {delta * 1e3:.3f} mm)"
-        )
-        # Announced here rather than relying on `move_absolute`: this implementation
-        # adjusts the field itself instead of delegating.
-        self._notify_moved()
+        Every implementation announces the move (``_notify_moved``)."""
+        raise NotImplementedError
 
     def move_absolute(self, position: float):
-        """Move the objective lens to an absolute z-axis position.
-
-        Args:
-            position: The target position in meters
-        """
-        # clip to user-defined limits
-        if not position <= self._limit_position:
-            logging.warning(
-                f"Clipping position {position} to user-defined limits {self._limit_position}"
-            )
-            position = np.clip(position, 0, self._limit_position)
-
-        sim_sleep(0.5)  # Simulate time taken to move the objective
-        self._position = position
-        logging.info(
-            f"Objective moved to absolute position: {self._position * 1e3:.3f} mm"
-        )
-        self._notify_moved()
+        """Move the objective to ``position`` metres, announcing the move."""
+        raise NotImplementedError
 
     def insert(self):
-        """Insert the objective lens into the working position for imaging.
-
-        Moves the objective lens to the predefined insertion position,
-        typically at or near the sample focal plane.
-        """
-        sim_sleep(SIM_OBJECTIVE_TRAVEL_SECONDS)  # the traverse, on top of the move
-        self.move_absolute(self._insert_position)
-        logging.info(
-            f"Objective lens inserted to position: {self._insert_position:.3f} mm"
-        )
+        """Insert the objective into its working position, for imaging."""
+        raise NotImplementedError
 
     def retract(self):
-        """Retract the objective lens to a safe position away from the sample.
-
-        Moves the objective lens to the predefined retraction position
-        to prevent damage during stage movements or sample changes.
-        """
-        sim_sleep(SIM_OBJECTIVE_TRAVEL_SECONDS)
-        self.move_absolute(self._retract_position)
-        logging.info(
-            f"Objective lens retracted to position: {self._retract_position:.3f} mm"
-        )
+        """Retract the objective to a safe position away from the sample."""
+        raise NotImplementedError
 
     @property
     def limits(self) -> Tuple[float, float]:
-        """Get the z-axis position limits of the objective lens.
-
-        Returns:
-            A tuple of (minimum, maximum) positions in meters
-        """
-        return SIM_OBJECTIVE_POSITION_LIMITS
+        """The objective's (minimum, maximum) z positions, in metres."""
+        raise NotImplementedError
 
     @property
     def state(self) -> ObjectiveStateName:
-        """Get the current state of the objective lens.
-
-        Returns:
-            The objective lens state (RetractableDeviceState) (e.g., 'Inserted', 'Retracted', 'Busy', 'Error', 'Other')
-        """
-        state = "Inserted" if self.position >= self._insert_position else "Retracted"
-        return state
+        """The objective's state ('Inserted', 'Retracted', 'Busy', 'Error', ...)."""
+        raise NotImplementedError
 
 
 class Camera(ABC):
-    """Abstract base class for camera control in fluorescence microscopy.
-
-    Provides a standardized interface for camera operations including image acquisition,
-    exposure control, binning, gain, and offset adjustments. Handles pixel size and
-    resolution calculations with binning compensation.
-
-    Attributes:
-        parent: Reference to the parent fluorescence microscope
-    """
+    """The FM API's camera: acquiring a frame, and its exposure, binning, gain and
+    offset. Pixel size and resolution are as binned."""
 
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
-        """Initialize the camera with default simulation parameters.
-
-        Args:
-            parent: Optional parent fluorescence microscope instance
+        """Args:
+        parent: Optional parent fluorescence microscope instance
         """
         self.parent = parent
-        self._index: int = 0  # Image index for simulating sequential images
-        self._use_counter: bool = True
-        self._exposure_time: float = SIM_CAMERA_EXPOSURE_TIME
-        self._binning: int = SIM_CAMERA_BINNING
-        self._gain: float = SIM_CAMERA_GAIN
-        self._offset: float = SIM_CAMERA_OFFSET
-        self._pixel_size: Tuple[float, float] = SIM_CAMERA_PIXEL_SIZE
-        self._resolution: Tuple[int, int] = SIM_CAMERA_RESOLUTION
-        self._number_cache: dict = {}  # Cache for draw_number images by mod
         super().__init__()
 
     def acquire_image(self) -> np.ndarray:
-        """Acquire a single image from the camera.
-
-        Simulates camera acquisition by generating random noise with realistic
-        timing based on exposure time settings. Accounts for current binning
-        settings in the output resolution.
-
-        Returns:
-            A 16-bit numpy array representing the acquired image
-        """
-        sim_sleep(self.exposure_time)  # Simulate exposure time in seconds
-
-        # get min and max values for the image
-        noise = np.random.randint(
-            UINT16_MIN, UINT16_MAX, size=self.resolution[::-1], dtype=np.uint16
-        )
-        if not self._use_counter:
-            return noise
-
-        # Simulate a simple image with a number drawn in the center
-        mod = self._index % 10  # cycle through digits 0-9
-
-        # Cache the draw_number image by mod and resolution
-        cache_key = (mod, self.resolution)
-        if cache_key not in self._number_cache:
-            self._number_cache[cache_key] = draw_text(
-                f"FM{mod}",
-                size=(self.resolution[0] // 4, self.resolution[1] // 4),
-                thickness=min(64, self.resolution[0] // 16),
-                image_shape=self.resolution[::-1],
-            )
-
-        image = self._number_cache[cache_key]
-        self._index += 1  # increment index for next image
-        # use the image as an inverse mask for the noise
-        data = np.where(image > 0, image, noise)
-        return data
+        """Acquire a single frame from the camera, as a 16-bit array."""
+        raise NotImplementedError
 
     @property
     def exposure_time(self) -> float:
-        """Get the current exposure time of the camera.
-
-        Returns:
-            The exposure time in seconds
-        """
-        return self._exposure_time
+        """The exposure time, in seconds."""
+        raise NotImplementedError
 
     @exposure_time.setter
     def exposure_time(self, value: float):
-        """Set the exposure time of the camera.
-
-        Args:
-            value: The exposure time in seconds (must be positive)
-        """
-        self._exposure_time = value
+        raise NotImplementedError
 
     @property
     def binning(self) -> int:
-        """Get the current binning setting of the camera.
-
-        Returns:
-            The binning factor (1 = no binning, 2 = 2x2 binning, etc.)
-        """
-        return self._binning
+        """The binning factor (1 = no binning, 2 = 2x2 binning, ...)."""
+        raise NotImplementedError
 
     @binning.setter
     def binning(self, value: int):
-        """Set the binning of the camera.
-
-        Args:
-            value: The binning factor (must be in available_binnings)
-
-        Raises:
-            ValueError: If the binning value is not supported
-        """
-        if value not in self.available_binnings:
-            raise ValueError(
-                f"Binning must be one of {self.available_binnings}, got {value}"
-            )
-        self._binning = value
+        raise NotImplementedError
 
     @property
     def available_binnings(self) -> Tuple[int, ...]:
-        """Get the supported binning values for the camera.
-
-        Returns:
-            A tuple of supported binning factors (e.g., (1, 2, 4, 8))
-        """
-        return tuple(BINNING_VALUES)
+        """The binning factors the camera supports."""
+        raise NotImplementedError
 
     @property
     def exposure_time_limits(self) -> Tuple[float, float]:
-        """Get the valid exposure time range for the camera.
-
-        Returns:
-            A tuple of (minimum, maximum) exposure times in seconds
-        """
-        return SIM_CAMERA_EXPOSURE_LIMITS
+        """The (minimum, maximum) exposure times, in seconds."""
+        raise NotImplementedError
 
     @property
     def gain(self) -> float:
-        """Get the current gain setting of the camera.
-
-        Returns:
-            The gain value (amplification factor)
-        """
-        return self._gain
+        """The gain, as a fraction of the camera's maximum."""
+        raise NotImplementedError
 
     @gain.setter
     def gain(self, value: float):
-        """Set the gain of the camera.
-
-        Args:
-            value: The gain value (must be non-negative)
-
-        Raises:
-            ValueError: If gain is negative
-        """
-        if value < 0:
-            raise ValueError("Gain must be non-negative.")
-        self._gain = value
+        raise NotImplementedError
 
     @property
     def gain_native_scale(self) -> Optional[Tuple[float, Optional[str]]]:
@@ -482,47 +266,22 @@ class Camera(ABC):
 
     @property
     def offset(self) -> float:
-        """Get the current offset setting of the camera.
-
-        Returns:
-            The offset value (baseline signal level)
-        """
-        return self._offset
+        """The offset (baseline signal level)."""
+        raise NotImplementedError
 
     @offset.setter
     def offset(self, value: float):
-        """Set the offset of the camera.
-
-        Args:
-            value: The offset value (must be non-negative)
-
-        Raises:
-            ValueError: If offset is negative
-        """
-        if value < 0:
-            raise ValueError("Offset must be non-negative.")
-        self._offset = value
+        raise NotImplementedError
 
     @property
     def pixel_size(self) -> Tuple[float, float]:
-        """Get the effective pixel size accounting for current binning.
-
-        Returns:
-            A tuple of (x, y) pixel sizes in meters, scaled by binning factor
-        """
-        return (
-            self._pixel_size[0] * self.binning,
-            self._pixel_size[1] * self.binning,
-        )
+        """The (x, y) pixel size in metres, as binned."""
+        raise NotImplementedError
 
     @property
     def resolution(self) -> Tuple[int, int]:
-        """Get the effective image resolution accounting for current binning.
-
-        Returns:
-            A tuple of (width, height) in pixels, reduced by binning factor
-        """
-        return self._resolution[0] // self.binning, self._resolution[1] // self.binning
+        """The (width, height) image size in pixels, as binned."""
+        raise NotImplementedError
 
     @property
     def field_of_view(self) -> Tuple[float, float]:
@@ -538,42 +297,23 @@ class Camera(ABC):
 
 
 class LightSource(ABC):
-    """Abstract base class for light source control in fluorescence microscopy.
-
-    Provides a standardized interface for controlling illumination power across
-    different light source implementations (LEDs, lasers, arc lamps, etc.).
-
-    Attributes:
-        parent: Reference to the parent fluorescence microscope
-    """
+    """The FM API's light source: its power, as a fraction of full power."""
 
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
-        """Initialize the light source with default simulation parameters.
-
-        Args:
-            parent: Optional parent fluorescence microscope instance
+        """Args:
+        parent: Optional parent fluorescence microscope instance
         """
         self.parent = parent
-        self._power: float = 0.1  # W
         super().__init__()
 
     @property
     def power(self) -> float:
-        """Get the current power output of the light source.
-
-        Returns:
-            The power level in watts
-        """
-        return self._power
+        """The power, as a fraction of full power."""
+        raise NotImplementedError
 
     @power.setter
     def power(self, value: float):
-        """Set the power output of the light source.
-
-        Args:
-            value: The power level in watts (should be non-negative)
-        """
-        self._power = value
+        raise NotImplementedError
 
     @property
     def power_limits(self) -> Tuple[float, float]:
@@ -595,81 +335,47 @@ class LightSource(ABC):
 
 
 class FilterSet(ABC):
-    """Abstract base class for filter set control in fluorescence microscopy.
+    """The FM API's filter set: the excitation wavelength and the emission filter.
 
-    Manages excitation and emission wavelength selection for fluorescence imaging.
-    Provides standardized wavelength options and supports reflection mode (None emission).
-
-    Attributes:
-        parent: Reference to the parent fluorescence microscope
+    An emission filter is named by one value: None for reflection, a label for a
+    multi-band filter, or the band's bottom edge in nm.
     """
 
     def __init__(self, parent: Optional["FluorescenceMicroscope"] = None):
-        """Initialize the filter set with default wavelength settings.
-
-        Args:
-            parent: Optional parent fluorescence microscope instance
+        """Args:
+        parent: Optional parent fluorescence microscope instance
         """
         self.parent = parent
-        self._excitation_wavelength: float = EXCITATION_WAVELENGTHS[0]
-        self._emission_wavelength: Optional[Union[float, str]] = None
         super().__init__()
 
     @property
     def available_excitation_wavelengths(self) -> Tuple[float, ...]:
-        """Get the available excitation wavelengths for the filter set.
-
-        Returns:
-            A tuple of supported excitation wavelengths in nanometers
-        """
-        return EXCITATION_WAVELENGTHS
+        """The excitation wavelengths the filter set offers, in nm."""
+        raise NotImplementedError
 
     @property
     def available_emission_wavelengths(self) -> Tuple[Union[None, str, float], ...]:
-        """Get the available emission wavelengths for the filter set.
-
-        Returns:
-            A tuple of supported emission wavelengths in nanometers.
-            Includes None for reflection/pass-through mode.
-        """
-        return EMISSION_WAVELENGTHS
+        """The emission filters the filter set offers, each named by its value
+        (None for reflection)."""
+        raise NotImplementedError
 
     @property
     def excitation_wavelength(self) -> float:
-        """Get the current excitation wavelength of the filter set.
-
-        Returns:
-            The excitation wavelength in nanometers
-        """
-        return self._excitation_wavelength
+        """The excitation wavelength, in nm."""
+        raise NotImplementedError
 
     @excitation_wavelength.setter
     def excitation_wavelength(self, value: float):
-        """Set the excitation wavelength of the filter set.
-
-        Args:
-            value: The desired excitation wavelength in nanometers
-        """
-        self._excitation_wavelength = value
+        raise NotImplementedError
 
     @property
     def emission_wavelength(self) -> Optional[Union[float, str]]:
-        """Get the current emission wavelength of the filter set.
-
-        Returns:
-            The emission wavelength in nanometers, or None for reflection mode
-        """
-        return self._emission_wavelength
+        """The emission filter, by its value (None for reflection)."""
+        raise NotImplementedError
 
     @emission_wavelength.setter
     def emission_wavelength(self, value: Optional[Union[float, str]]):
-        """Set the emission wavelength of the filter set.
-
-        Args:
-            value: The desired emission wavelength in nanometers, or None
-                   for reflection/pass-through mode
-        """
-        self._emission_wavelength = value
+        raise NotImplementedError
 
     def emission_filter(self, value: Optional[Union[float, str]]) -> EmissionFilter:
         """The filter an emission value names, with its band's edges when this filter
@@ -736,7 +442,8 @@ class FluorescenceMicroscope(ABC):
     transform_changed = Signal(object)  # CameraImageTransform
 
     def __init__(self, parent: Optional["FibsemMicroscope"] = None):
-        """Initialize the fluorescence microscope with default components.
+        """Each implementation sets its parts (``objective``, ``filter_set``,
+        ``camera``, ``light_source``) after this.
 
         Args:
             parent: Optional parent FibsemMicroscope instance for stage access
@@ -756,10 +463,6 @@ class FluorescenceMicroscope(ABC):
 
         self.channel_name: str = "channel-01"
         self.channel_color: str = "gray"
-        self.objective = ObjectiveLens(parent=self)
-        self.filter_set = FilterSet(parent=self)
-        self.camera = Camera(parent=self)
-        self.light_source = LightSource(parent=self)
         self._last_updated_at: Optional[datetime] = datetime.now()
         self._rate_limit = RATE_LIMIT_DEFAULT  # seconds between updates
         self._transform: Optional[CameraImageTransform] = (

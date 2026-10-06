@@ -12,16 +12,16 @@ odemis-driver conformance is covered in test_odemis_fm_devices.py.
 import numpy as np
 import pytest
 
-from fibsem.fm.microscope import (
+from fibsem.microscopes.simulator import (
     BINNING_VALUES,
     SIM_CAMERA_EXPOSURE_LIMITS,
-    FluorescenceMicroscope,
+    SimulatedFluorescenceMicroscope,
 )
 
 
 @pytest.fixture()
 def fm():
-    return FluorescenceMicroscope()
+    return SimulatedFluorescenceMicroscope()
 
 
 class TestPromotedContract:
@@ -53,15 +53,15 @@ class TestPerInstanceAcquisitionState:
     """The stop event and thread handle must not be shared between instances."""
 
     def test_stop_events_are_independent(self):
-        fm_a = FluorescenceMicroscope()
-        fm_b = FluorescenceMicroscope()
+        fm_a = SimulatedFluorescenceMicroscope()
+        fm_b = SimulatedFluorescenceMicroscope()
         assert fm_a._stop_acquisition_event is not fm_b._stop_acquisition_event
         fm_a._stop_acquisition_event.set()
         assert not fm_b._stop_acquisition_event.is_set()
 
     def test_thread_handles_are_independent(self):
-        fm_a = FluorescenceMicroscope()
-        fm_b = FluorescenceMicroscope()
+        fm_a = SimulatedFluorescenceMicroscope()
+        fm_b = SimulatedFluorescenceMicroscope()
         fm_a._acquisition_thread = object()
         assert fm_b._acquisition_thread is None
 

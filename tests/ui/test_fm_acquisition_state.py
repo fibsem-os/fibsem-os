@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from PyQt5.QtWidgets import QApplication, QDialog
 
-from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
 if TYPE_CHECKING:
@@ -95,7 +95,7 @@ def no_worker(monkeypatch):
 class TestTheThreeQuestions:
     @pytest.fixture()
     def fm(self):
-        return FluorescenceMicroscope()
+        return SimulatedFluorescenceMicroscope()
 
     def test_an_idle_microscope(self, fm):
         assert (fm.is_streaming, fm.is_acquiring, fm.is_interactive) == (
@@ -295,7 +295,7 @@ class TestTheControlWidgetGuard:
 
     @pytest.fixture()
     def fm(self):
-        return FluorescenceMicroscope()
+        return SimulatedFluorescenceMicroscope()
 
     def test_an_idle_instrument_is_not_refused(self, fm):
         assert self._widget(fm)._refuse_to_start("live acquisition") is False
@@ -393,10 +393,9 @@ class TestTheControlWidgetWiring:
         z-stack or an autofocus sweep could be started from a beam pose with nothing but
         the button stopping it. The gate refuses travel states and permits a re-pose --
         the acquisition policy, in one place on the enum."""
-        from fibsem.fm.microscope import FluorescenceMicroscope
         from fibsem.structures import DeviceImagingState
 
-        fm = FluorescenceMicroscope()
+        fm = SimulatedFluorescenceMicroscope()
         widget = TestTheControlWidgetGuard._widget(
             fm, state=DeviceImagingState.NEEDS_TRAVEL
         )
@@ -408,11 +407,10 @@ class TestTheControlWidgetWiring:
         """The Arctis allowance, as gate policy: acquiring in place from a "wrong"
         pose is a harmless watch. A compustage can never need travel, so this row is
         the only refusable one it has -- and it does not refuse."""
-        from fibsem.fm.microscope import FluorescenceMicroscope
         from fibsem.structures import DeviceImagingState
 
         widget = TestTheControlWidgetGuard._widget(
-            FluorescenceMicroscope(), state=DeviceImagingState.NEEDS_REPOSE
+            SimulatedFluorescenceMicroscope(), state=DeviceImagingState.NEEDS_REPOSE
         )
 
         assert widget._refuse_to_start("image acquisition") is False

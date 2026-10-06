@@ -1,14 +1,14 @@
 """Simulated-hardware timing.
 
-The Demo microscope (``fibsem.microscopes.simulator``) and the simulated
-fluorescence-microscope base classes (``fibsem.fm.microscope``) sleep to emulate
+The Demo microscope and the simulated fluorescence microscope
+(``fibsem.microscopes.simulator``, and the Demo devices) sleep to emulate
 real acquisition, stage, objective and milling timing. Those sleeps dominate the
 test suite's wall-clock — most of it is spent asleep rather than computing — so
 the tests disable them via the ``FIBSEM_SIM_NO_DELAY`` environment variable (set
 in ``tests/conftest.py``).
 
-Real drivers (e.g. the odemis fluorescence microscope) override these methods and
-never call :func:`sim_sleep`, so the flag only affects simulated timing.
+Real drivers never call :func:`sim_sleep`, so the flag only affects simulated
+timing.
 """
 
 import os
