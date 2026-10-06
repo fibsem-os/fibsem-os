@@ -3047,6 +3047,12 @@ CONFIGURED_DEVICES: Dict[str, str] = {
 DEVICE_TYPES: Tuple[str, ...] = ("beam", "stage", "chamber", "manipulator", "fm")
 
 
+# The devices with records of their own whose entries also keep `required:`, and a
+# `driver:` with that driver's own keys, which the records have no place for
+# (`SystemSettings.device_entry_keys`). The FM's record has its own.
+DEVICES_KEEPING_DRIVER_KEYS: Tuple[str, ...] = ("stage", "electron", "ion")
+
+
 class UnknownDeviceType(ValueError):
     """A `hardware.devices` entry states no type, and its name is no device type."""
 
@@ -3228,6 +3234,11 @@ class SystemSettings:
     # The `roles:` the file gives those four, by device name. Their records have no
     # place for it, so it is kept here and written back onto their entries.
     device_roles: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    # The entry keys the file gives the stage and the beams that their records have no
+    # place for, by device name: `required:`, and a `driver:` with that driver's own
+    # keys (`driver: remote` with its `address` and `port`). Kept here and written
+    # back onto their entries. A key no driver is named for is not kept, as before.
+    device_entry_keys: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     #: What a column *is*: the keys that stay in `electron:` / `ion:`. Everything
     #: else a `BeamSystemSettings` writes -- voltage, current, hfw, detector, the
@@ -3278,6 +3289,7 @@ class SystemSettings:
         for entry in devices:
             if entry["name"] in self.device_roles:
                 entry["roles"] = self.device_roles[entry["name"]]
+            entry.update(self.device_entry_keys.get(entry["name"], {}))
         devices.extend(entry.to_dict() for entry in self.other_devices)
         self._write_stage_positions(devices)
         return {
@@ -3383,12 +3395,39 @@ class SystemSettings:
         fm.focus_position = objective.get("focus_position")
         fm.limit_position = objective.get("limit_position")
 
+        electron_settings = BeamSystemSettings.from_dict(electron)
+        ion_settings = BeamSystemSettings.from_dict(ion)
+        records = {
+            "stage": set(stage_settings.to_dict()) | set(calibration),
+            "electron": set(electron_settings.to_dict()),
+            "ion": set(ion_settings.to_dict()),
+        }
+        device_entry_keys = {}
+        for name in DEVICES_KEEPING_DRIVER_KEYS:
+            record_keys = records[name]
+            entry = entries.get(name)
+            if entry is None:
+                continue
+            kept: Dict[str, Any] = {}
+            if entry.driver is not None:
+                kept["driver"] = entry.driver
+            if entry.required is not None:
+                kept["required"] = entry.required
+            if entry.driver is not None:
+                kept.update(
+                    (key, value)
+                    for key, value in entry.options.items()
+                    if key not in record_keys
+                )
+            if kept:
+                device_entry_keys[name] = kept
+
         return SystemSettings(
             apply_defaults_on_connect=bool(defaults.get("apply_on_connect", False)),
             beams_on_at_connect=bool(defaults.get("beams_on_at_connect", False)),
             stage=stage_settings,
-            electron=BeamSystemSettings.from_dict(electron),
-            ion=BeamSystemSettings.from_dict(ion),
+            electron=electron_settings,
+            ion=ion_settings,
             # Not read from the file: filled in at connect by the backend.
             manipulator=ManipulatorSystemSettings(),
             info=SystemInfo.from_dict(settings.get("info") or {}),
@@ -3404,6 +3443,7 @@ class SystemSettings:
                 for name, entry in entries.items()
                 if name in CONFIGURED_DEVICES and entry.roles is not None
             },
+            device_entry_keys=device_entry_keys,
         )
 
 

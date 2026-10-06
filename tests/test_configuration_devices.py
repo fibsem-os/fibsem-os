@@ -318,6 +318,41 @@ def test_roles_are_kept_on_every_entry():
     assert utils.unrecognised_configuration_keys(written) == []
 
 
+def test_a_beam_or_the_stage_keeps_its_driver_and_its_drivers_keys():
+    """A beam on its own PC (`driver: remote`) keeps the driver and where it is on
+    save, though the beam's record has no place for them."""
+    remote = {"driver": "remote", "address": "10.0.0.2", "port": 8765}
+    config = {
+        "hardware": {
+            "devices": [
+                {"name": "electron", "required": True, **remote},
+                {"name": "stage", "required": False},
+            ]
+        }
+    }
+
+    written = SystemSettings.from_dict(config).to_dict()
+
+    electron = utils.configuration_device(written, "electron")
+    assert {key: electron[key] for key in remote} == remote
+    assert electron["required"] is True
+    assert utils.configuration_device(written, "stage")["required"] is False
+    assert "driver" not in utils.configuration_device(written, "ion")
+    assert utils.unrecognised_configuration_keys(written) == []
+    assert SystemSettings.from_dict(written).to_dict() == written
+
+
+def test_a_key_on_a_beam_without_a_driver_is_still_reported():
+    config = {"hardware": {"devices": [{"name": "electron", "address": "10.0.0.2"}]}}
+
+    written = SystemSettings.from_dict(config).to_dict()
+
+    assert "address" not in utils.configuration_device(written, "electron")
+    assert utils.unrecognised_configuration_keys(config) == [
+        "hardware.devices.electron.address"
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Where the stage travels for a device is on that device's entry
 # ---------------------------------------------------------------------------

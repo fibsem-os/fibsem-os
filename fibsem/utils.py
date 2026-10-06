@@ -19,6 +19,7 @@ from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
 from fibsem.structures import (
     CONFIGURATION_VERSION,
     CONFIGURED_DEVICES,
+    DEVICES_KEEPING_DRIVER_KEYS,
     STAGE_POSITION_KEYS,
     BeamType,
     DeviceEntry,
@@ -748,7 +749,9 @@ def _unrecognised_device_keys(entries: list, known: Set[str]) -> List[str]:
 
     Only the devices with records of their own are policed. Any other entry -- a
     manipulator given a driver, a plugin's device -- carries its driver's keys, which
-    are the driver's to know, and is written back as it was.
+    are the driver's to know, and is written back as it was. So does a beam or the
+    stage that names a driver (`DEVICES_KEEPING_DRIVER_KEYS`), and their `required:`
+    is kept too.
     """
     unknown: List[str] = []
     for item in entries:
@@ -763,10 +766,17 @@ def _unrecognised_device_keys(entries: list, known: Set[str]) -> List[str]:
         device = f"{DEVICE_LIST}.{name}"
         if device not in known:
             continue
+        kept: Set[str] = set()
+        if name in DEVICES_KEEPING_DRIVER_KEYS:
+            if item.get("driver") is not None:
+                continue
+            kept = {"required"}
         unknown.extend(
             f"{device}.{k}"
             for k in item
-            if k not in DeviceEntry.IDENTITY_KEYS and f"{device}.{k}" not in known
+            if k not in DeviceEntry.IDENTITY_KEYS
+            and k not in kept
+            and f"{device}.{k}" not in known
         )
     return unknown
 
