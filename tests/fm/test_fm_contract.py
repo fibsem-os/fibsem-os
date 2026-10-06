@@ -6,7 +6,7 @@ pin the members promoted into the ABCs and the per-instance acquisition
 state, using the simulated implementations directly.
 
 TFS-driver conformance can only run on machines with the autoscript SDK;
-odemis-driver conformance is covered in test_odemis_driver.py.
+odemis-driver conformance is covered in test_odemis_fm_devices.py.
 """
 
 import numpy as np

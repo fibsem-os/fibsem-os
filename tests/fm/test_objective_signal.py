@@ -203,7 +203,6 @@ class TestEveryDriverAnnounces:
             "fm/api.py:DeviceObjectiveLens",
             "fm/autoscript.py:ThermoFisherObjectiveLens",
             "fm/autoscript.py:DeviceThermoFisherObjectiveLens",
-            "fm/odemis.py:OdemisObjectiveLens",
             "fm/odemis.py:DeviceOdemisObjectiveLens",
         }, f"unexpected ObjectiveLens classes: {sorted(classes)}"
 
