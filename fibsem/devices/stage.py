@@ -41,7 +41,7 @@ from typing import Any, Dict, Iterator, Mapping
 from psygnal import Signal
 
 from fibsem.devices.core import Device, Parameter, command
-from fibsem.structures import FibsemStagePosition, RangeLimit
+from fibsem.structures import STAGE_FRAME_FIBSEM, FibsemStagePosition, RangeLimit
 
 STAGE_RESOURCE = "stage"
 AXIS_UNITS: Dict[str, str] = {"x": "m", "y": "m", "z": "m", "r": "rad", "t": "rad"}
@@ -96,6 +96,14 @@ def compustage_poses(
         r=math.radians(rotation_reference), t=math.radians(-180)
     )
     return poses
+
+
+def tilted_past_vertical(tilt: float) -> bool:
+    """Whether a stage tilt in radians has the sample turned over: past -90 degrees.
+
+    The default for `Stage.turned_over`, and for a backend without a stage device.
+    """
+    return tilt < math.radians(-90)
 
 
 def axis_limits_from_degrees(limits: Mapping[str, RangeLimit]) -> Dict[str, RangeLimit]:
@@ -185,6 +193,9 @@ class Stage(Device):
     )
     homed = Parameter(bool)
     linked = Parameter(bool, doc="z linked to the working distance.")
+
+    frame: str = STAGE_FRAME_FIBSEM
+    """The frame ``position`` is in, stamped on every image (FIB-1114)."""
 
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="stage", parent=parent, **kwargs)
@@ -277,6 +288,14 @@ class Stage(Device):
             fib_column_tilt,
             rotates="r" in self.axes,
         )
+
+    def turned_over(self, tilt: float) -> bool:
+        """Whether the sample is turned over at this stage tilt, in radians.
+
+        Past -90 degrees by default, which only a compustage reaches. A stage that
+        turns the sample over somewhere else overrides this.
+        """
+        return tilted_past_vertical(tilt)
 
     # -- what a backend implements -------------------------------------------------
 

@@ -234,7 +234,6 @@ def nominal_transform(
         fm_pixel_size=float(fm_pixel_size),
         fm_pixel_size_z=float(fm_pixel_size_z),
         fm_shape=fm_shape,
-        is_tescan=_is_tescan(fib_md),
     )
 
 
@@ -249,19 +248,12 @@ def nominal_transform_from_geometry(
     fm_pixel_size: float,
     fm_pixel_size_z: float,
     fm_shape: Tuple[int, int],
-    is_tescan: bool = False,
 ) -> NominalTransform:
     """The image-free form of :func:`nominal_transform`: every term given explicitly."""
-    if is_tescan:
-        logging.warning(
-            "Nominal correlation transform on a Tescan geometry is unverified: "
-            "the depth-axis sign was calibrated on ThermoFisher instruments only."
-        )
     beam = BeamStageProjection(
         geometry=fib_geometry,
         beam_type=BeamType.ION,
         scan_rotation=scan_rotation,
-        is_tescan=is_tescan,
     )
 
     def fib_px(position: FibsemStagePosition) -> np.ndarray:
@@ -371,14 +363,6 @@ def _complete_fm_pose(
         r=float(r) if recorded.r is None else recorded.r,
         t=float(t) if recorded.t is None else recorded.t,
     )
-
-
-def _is_tescan(fib_metadata) -> bool:
-    from fibsem import manufacturers
-
-    info = getattr(fib_metadata, "system_info", None)
-    manufacturer = getattr(info, "manufacturer", None)
-    return bool(manufacturer) and manufacturers.is_tescan(manufacturer)
 
 
 # ── rotation helpers ──────────────────────────────────────────────────────

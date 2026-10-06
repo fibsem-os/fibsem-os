@@ -31,8 +31,17 @@ def test_stage_device_is_an_alias_both_ways():
     assert microscope.stage is device
 
 
+def _bare_microscope() -> FibsemMicroscope:
+    """A microscope whose backend builds no devices."""
+    bare = type("Bare", (FibsemMicroscope,), {})
+    bare.__abstractmethods__ = frozenset()
+    return bare.__new__(bare)
+
+
 def test_a_backend_without_a_stage_device_has_none():
-    assert FibsemMicroscope.stage is None
+    microscope = _bare_microscope()
+    assert microscope.stage is None
+    assert dict(microscope.devices) == {}
 
 
 def test_the_stage_keys_route_to_the_stage():

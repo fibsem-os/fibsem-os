@@ -96,7 +96,7 @@ def test_a_compustage_needs_no_flag():
 def test_an_explicit_false_turns_a_compustage_fm_off(tmp_path):
     """Absent keeps the compustage default; `false` is a device switched off."""
     settings = utils.load_yaml(ARCTIS_CONFIG)
-    settings["hardware"]["fm"]["enabled"] = False
+    utils.configuration_device(settings, "fm")["enabled"] = False
 
     microscope = _from(settings, tmp_path)
 
@@ -132,7 +132,9 @@ def test_detected_but_not_configured_gets_nothing(tmp_path):
     """
     settings = utils.load_yaml(IFLM_CONFIG)
     assert settings["sim"]["has_fm"] is True  # the hardware is "there"
-    settings["hardware"]["fm"]["enabled"] = False  # the site has not said so
+    utils.configuration_device(settings, "fm")["enabled"] = (
+        False  # the site has not said so
+    )
 
     assert _from(settings, tmp_path).fm is None
 
@@ -144,7 +146,7 @@ def test_detected_with_no_fm_block_gets_nothing(tmp_path):
     """
     settings = utils.load_yaml(IFLM_CONFIG)
     assert settings["sim"]["has_fm"] is True
-    del settings["hardware"]["fm"]
+    settings["hardware"]["devices"].remove(utils.configuration_device(settings, "fm"))
 
     microscope = _from(settings, tmp_path)
 
@@ -179,7 +181,7 @@ def test_the_config_path_is_still_read_from_the_same_block():
     other is a path to imaging parameters. Neither should have eaten the other."""
     settings = utils.load_yaml(ARCTIS_CONFIG)
 
-    assert "enabled" in settings["hardware"]["fm"]
+    assert "enabled" in utils.configuration_device(settings, "fm")
     assert _microscope(ARCTIS_CONFIG).system.fm.enabled is True
 
 
@@ -230,7 +232,9 @@ def test_a_remote_fm_is_not_looked_for_on_the_beams_connection(tmp_path):
     from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 
     settings = utils.load_yaml(IFLM_CONFIG)
-    settings["hardware"]["fm"].update(driver="remote", address="127.0.0.1", port=1)
+    utils.configuration_device(settings, "fm").update(
+        driver="remote", address="127.0.0.1", port=1
+    )
 
     microscope = _from(settings, tmp_path)
 
@@ -246,7 +250,7 @@ def test_a_required_remote_fm_that_is_not_served_fails_the_connect(tmp_path):
     from fibsem.microscope import RequiredDeviceUnavailable
 
     settings = utils.load_yaml(IFLM_CONFIG)
-    settings["hardware"]["fm"].update(
+    utils.configuration_device(settings, "fm").update(
         driver="remote", address="127.0.0.1", port=1, required=True
     )
 
@@ -256,7 +260,7 @@ def test_a_required_remote_fm_that_is_not_served_fails_the_connect(tmp_path):
 
 def test_a_remote_fm_without_an_address_gets_no_fm(tmp_path, caplog):
     settings = utils.load_yaml(IFLM_CONFIG)
-    settings["hardware"]["fm"]["driver"] = "remote"
+    utils.configuration_device(settings, "fm")["driver"] = "remote"
 
     microscope = _from(settings, tmp_path)
 
@@ -269,7 +273,7 @@ def test_a_remote_fm_without_an_address_gets_no_fm(tmp_path, caplog):
 
 def test_an_unknown_driver_gets_no_fm(tmp_path, caplog):
     settings = utils.load_yaml(ARCTIS_CONFIG)
-    settings["hardware"]["fm"]["driver"] = "meteor"
+    utils.configuration_device(settings, "fm")["driver"] = "meteor"
 
     microscope = _from(settings, tmp_path)
 

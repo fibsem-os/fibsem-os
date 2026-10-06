@@ -129,7 +129,7 @@ def test_vertical_move_from_fib_sends_the_pure_delta(
         scan_rotation=scan_rotation,
         fib_column_tilt=microscope.system.ion.column_tilt,
         stage_tilt=pose.t,
-        is_compustage=microscope.stage_is_compustage,
+        turned_over=microscope._stage_turned_over(pose.t),
         relaxation=relaxation,
     )
 
@@ -163,7 +163,7 @@ def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(
         scan_rotation=scan_rotation,
         fib_column_tilt=microscope.system.ion.column_tilt,
         stage_tilt=pose.t,
-        is_compustage=microscope.stage_is_compustage,
+        turned_over=microscope._stage_turned_over(pose.t),
     )
     # approx: the move reads its dy back off the stage, as position minus position
     assert (vertical.x, vertical.y, vertical.z) == pytest.approx(
@@ -208,6 +208,37 @@ class TestTheBackViewMirror:
 
         monkeypatch.setattr(microscope, "get_stage_orientation", unread)
         microscope._view_stage_delta(0.0, 10e-6, view_tilt=0.0)
+
+
+def test_a_stage_turns_the_sample_over_past_minus_90_by_default(microscope):
+    turned_over = microscope.stage_device.turned_over
+    assert not turned_over(np.deg2rad(-89.0))
+    assert not turned_over(np.deg2rad(-90.0))
+    assert turned_over(np.deg2rad(-91.0))
+    assert turned_over(np.deg2rad(-180.0))
+
+
+def test_vertical_move_asks_the_stage_device_where_the_sample_is_turned_over(
+    microscope,
+):
+    """Not the stage type: a stage that says it is turned over at 0 gets the
+    reversed move there, and one that never is gets the plain move at -128."""
+    _pose(microscope, 0, 0, 0.0)
+    microscope.vertical_move(dy=1e-6)
+    plain = microscope.sent[-1]
+
+    microscope.stage_device.turned_over = lambda tilt: True
+    microscope.vertical_move(dy=1e-6)
+    reversed_ = microscope.sent[-1]
+    assert (reversed_.y, reversed_.z) == pytest.approx((-plain.y, -plain.z))
+
+    microscope.stage_device.turned_over = lambda tilt: False
+    _pose(microscope, -128, 0, 0.0)
+    microscope.vertical_move(dy=1e-6)
+    tilted = microscope.sent[-1]
+    t = np.deg2rad(-128)
+    chamber_vertical = tilted.y * np.sin(t) + tilted.z * np.cos(t)
+    assert chamber_vertical == pytest.approx(1e-6 / np.sin(np.deg2rad(52)))
 
 
 def test_undo_scan_rotation_inverts_only_a_half_turn():

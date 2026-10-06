@@ -1,23 +1,28 @@
-version: 1                                                  # configuration schema version
+version: 2                                                  # configuration schema version
 info:
     name: sim-tfs-arctis-configuration               
     ip_address: 192.168.0.1                                 
     manufacturer: Demo                                              
 hardware:                                                   # what the instrument is; cannot be asked
-    stage:
+    devices:
+      - name: stage
+        type: stage
         enabled:                    true                        
         rotation_reference:         0                           
-    electron:                                              
+      - name: electron
+        type: beam
         enabled:                    true                        
         column_tilt:                0                           
         eucentric_height:           7.0e-3                      
-    ion:
+      - name: ion
+        type: beam
         enabled:                    true                        
         column_tilt:                52                         
         eucentric_height:           16.5e-3                     
         plasma_gas:                 null                        
-    fm:
-      enabled: true
+      - name: fm
+        type: fm
+        enabled: true
     #   config: /home/patrick/github/fibsem/fibsem/config/fm/fm-configuration-default.yaml
 calibration:                                                # measured at this instrument
     shuttle_pre_tilt:           0                        

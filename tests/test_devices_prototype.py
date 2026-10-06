@@ -377,9 +377,16 @@ def test_actions_are_plain_methods_that_describe_themselves(beams):
     }
     assert commands["acquire"].signature.startswith("(image_settings")
     assert commands["blank"].available
-    # a driver without the imaging hooks doesn't have those commands
-    assert not commands["last_image"].available
-    assert not commands["auto_focus"].available
+    # the Demo has every imaging hook; a driver without one lacks that command
+    assert all(info.available for info in commands.values())
+
+    class Bare(Beam):
+        pass
+
+    bare = Bare(BeamType.ELECTRON).commands
+    assert not bare["last_image"].available
+    assert not bare["auto_focus"].available
+    assert not bare["start_live"].available
 
     sem.blank()
     assert sem.blanked.get_value() is True

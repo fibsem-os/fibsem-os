@@ -174,7 +174,7 @@ def test_vertical_move_goes_straight_up_as_today(stage):
             scan_rotation=0.0,
             fib_column_tilt=geometry.fib_column_tilt,
             stage_tilt=t,
-            is_compustage=True,
+            turned_over=turned_over,
         )
         flip = -1.0 if turned_over else 1.0
         assert vertical_move(model, flip * 1e-6, column, t) == pytest.approx(

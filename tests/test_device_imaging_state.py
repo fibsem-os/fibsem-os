@@ -194,12 +194,13 @@ def test_an_offset_fm_with_no_declared_geometry_warns_at_connect(tmp_path):
     just never true at the FM -- so connect is the one loud moment available."""
 
     def drop_devices(data):
-        del data["hardware"]["stage"]["devices"]
-        del data["hardware"]["stage"]["device_range"]
+        fm = utils.configuration_device(data, "fm")
+        for key in ("origin", "available_orientations", "range"):
+            del fm[key]
 
     path = _write_config(tmp_path, IFLM_CONFIG, drop_devices)
 
-    assert "no `stage.devices` block is declared" in _warnings_from(_microscope(path))
+    assert "declares no `origin`" in _warnings_from(_microscope(path))
 
 
 def test_a_compustage_with_a_phantom_offset_fm_warns_at_connect(tmp_path):
@@ -207,10 +208,7 @@ def test_a_compustage_with_a_phantom_offset_fm_warns_at_connect(tmp_path):
     from the beams describes a place its stage never travels to."""
 
     def add_phantom(data):
-        data["hardware"]["stage"]["devices"] = {
-            "FIBSEM": {"origin": {"x": 0.0}},
-            "FM": {"origin": {"x": 48.8e-3}},
-        }
+        utils.configuration_device(data, "fm")["origin"] = {"x": 48.8e-3}
 
     path = _write_config(tmp_path, ARCTIS_CONFIG, add_phantom)
 

@@ -57,9 +57,15 @@ class FibsemMillingStagesWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # Stage list. Tescan mills by preset — milling_current is a no-op on that backend —
-        # so it gets a Preset column where every other backend gets Current.
-        _show_preset = manufacturers.is_tescan(self.microscope.manufacturer)
+        # Stage list. A FIB set by preset (Tescan: milling_current is a no-op there) gets
+        # a Preset column where every other FIB gets Current. The ion beam device says
+        # so by having a preset parameter; a backend without beam devices goes by
+        # manufacturer.
+        _ion = (getattr(self.microscope, "beams", None) or {}).get(BeamType.ION)
+        if _ion is not None:
+            _show_preset = "preset" in _ion.parameters
+        else:
+            _show_preset = manufacturers.is_tescan(self.microscope.manufacturer)
         _current_values = self.microscope.get_available_values_cached(
             "current", BeamType.ION
         )
