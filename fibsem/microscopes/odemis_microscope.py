@@ -16,7 +16,6 @@ from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
-    _records_stage_move,
 )
 from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES
 from fibsem.microscopes.registry import DriverEntry
@@ -353,8 +352,8 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
         The moves, ``home``, ``pump`` and ``vent`` then go through the devices. A
         ``stage_link`` set stays with ``_set``: a false value unlinks there, and the
-        device's ``link`` command only links. A failure leaves every key on the old
-        code, as it was before the devices, and says so.
+        device's ``link`` command only links. There is no other code for these keys,
+        so a device that cannot be built fails the connection.
         """
         from fibsem.devices.drivers.odemis import (
             bind_odemis_beams,
@@ -362,20 +361,10 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             bind_odemis_stage,
         )
 
-        try:
-            beams = bind_odemis_beams(self)
-            stage = bind_odemis_stage(self)
-            chamber = bind_odemis_chamber(self)
-        except Exception as e:
-            logging.warning(
-                f"Could not build the beam, stage and chamber devices, using the old "
-                f"code: {e}"
-            )
-            return
-        self.beams = MappingProxyType(beams)
+        self.beams = MappingProxyType(bind_odemis_beams(self))
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
-        self.stage = stage
-        self.chamber_device = chamber
+        self.stage = bind_odemis_stage(self)
+        self.chamber_device = bind_odemis_chamber(self)
         self._device_routes = MappingProxyType(
             {
                 **{key: ("stage", name) for key, name in STAGE_ROUTES.items()},
@@ -430,94 +419,25 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     ) -> FibsemImage:
         """Acquire an image with `image_settings`, or with the current settings of
         `beam_type` when that is given instead."""
-        # The beam's acquire command, when the beams were built; a beam_type takes
-        # precedence and means the current settings, as below.
-        target = (
-            beam_type
-            if beam_type is not None
-            else getattr(image_settings, "beam_type", None)
-        )
-        beam = self.beams.get(target) if target is not None else None
-        if beam is not None:
-            return beam.acquire(None if beam_type is not None else image_settings)
-
+        # The beam's acquire command; a beam_type takes precedence and means the
+        # current settings.
         if beam_type is not None:
-            return self._acquire_current_image(beam_type)
+            return self._beam_device(beam_type).acquire(None)
         if image_settings is None:
             raise ValueError(
                 "Must provide image_settings to acquire a new image if beam_type is not specified."
             )
-
-        # TODO: migrate to updated api that allows acquiring without setting the imaging settings first
-        beam_type = image_settings.beam_type
-        channel = beam_type_to_odemis[beam_type]
-
-        # reduced area imaging
-        if image_settings.reduced_area is not None:
-            reduced_area = image_settings.reduced_area
-            self.connection.set_reduced_area_scan_mode(
-                channel=channel,
-                left=reduced_area.left,
-                top=reduced_area.top,
-                width=reduced_area.width,
-                height=reduced_area.height,
-            )
-        else:
-            self.connection.set_full_frame_scan_mode(channel=channel)
-
-        # set imaging settings
-        # TODO: this is a change in behaviour..., restore the previous conditions or use GrabFrameSettings?
-        # This is the source of the error with square resolutions.
-        # can't set square resolution, but can acquire an image with square
-        frame_settings = None
-        tmp_resolution = None
-        resolution = image_settings.resolution
-        if resolution[0] == resolution[1]:
-            # can't set square resolution directly
-            frame_settings = {"resolution": f"{resolution[0]}x{resolution[1]}"}
-            tmp_resolution = resolution
-            image_settings.resolution = self.get_resolution(beam_type=beam_type)
-        self.set_imaging_settings(image_settings)
-
-        # acquire image
-        image, _md = self.connection.acquire_image(
-            channel=channel, frame_settings=frame_settings
-        )
-
-        # restore to full frame imaging
-        if image_settings.reduced_area is not None:
-            self.connection.set_full_frame_scan_mode(channel=channel)
-
-        # restore the previous resolution
-        if tmp_resolution is not None:
-            image_settings.resolution = tmp_resolution
-
-        # store last imaging settings
-        self._last_imaging_settings = image_settings
-
-        return self._construct_image(image, image_settings)
-
-    def _acquire_current_image(self, beam_type: BeamType) -> FibsemImage:
-        """A frame with the beam's current settings, as ThermoMicroscope.acquire_image3."""
-        image, _md = self.connection.acquire_image(
-            channel=beam_type_to_odemis[beam_type], frame_settings=None
-        )
-        return self._construct_image(
-            image, self._current_image_settings(beam_type, image)
-        )
+        return self._beam_device(image_settings.beam_type).acquire(image_settings)
 
     def last_image(self, beam_type: BeamType) -> FibsemImage:
-        beam = self.beams.get(beam_type)
-        if beam is not None:
-            return beam.last_image()
-        image = self.connection.get_last_image(channel=beam_type_to_odemis[beam_type])
-        # The client is annotated as returning (image, metadata), but the AutoScript
-        # adapter (1.16.0) returns the bare array.
-        if isinstance(image, tuple):
-            image = image[0]
-        return self._construct_image(
-            image, self._current_image_settings(beam_type, image)
-        )
+        return self._beam_device(beam_type).last_image()
+
+    def _beam_device(self, beam_type: BeamType):
+        """The beam device for ``beam_type``; a column disabled in the config has none."""
+        device = self.beams.get(beam_type)
+        if device is None:
+            raise ValueError(f"The {beam_type.name} beam is not enabled.")
+        return device
 
     def _current_image_settings(
         self, beam_type: BeamType, image: np.ndarray
@@ -547,18 +467,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def autocontrast(
         self, beam_type: BeamType, reduced_area: FibsemRectangle = None
     ) -> None:
-        beam = self.beams.get(beam_type)
-        if beam is not None:
-            beam.autocontrast(reduced_area)
-            return
-        channel = beam_type_to_odemis[beam_type]
-        if reduced_area is not None:
-            self.connection.set_reduced_area_scan_mode(
-                channel, **reduced_area.to_dict()
-            )
-        self.connection.run_auto_contrast_brightness(channel=channel)
-        if reduced_area is not None:
-            self.connection.set_full_frame_scan_mode(channel)
+        self._beam_device(beam_type).autocontrast(reduced_area)
 
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
@@ -598,41 +507,16 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         return True
 
     def _get(self, key: str, beam_type: BeamType = None) -> str:
+        # The beam, stage and chamber keys are read by the devices; these are the keys
+        # they do not have.
         if beam_type is not None:
             channel = beam_type_to_odemis[beam_type]
 
-        # beam properties
-        if key == "on":
-            return self.connection.get_beam_is_on(channel)
-        if key == "blanked":
-            return self.connection.beam_is_blanked(channel)
-        if key == "working_distance":
-            return self.connection.get_working_distance(channel)
-
-        if key == "current":
-            return self.connection.get_beam_current(channel)
-        if key == "voltage":
-            return self.connection.get_high_voltage(channel)
-        if key == "hfw":
-            return self.connection.get_field_of_view(channel)
-        if key == "dwell_time":
-            return self.connection.get_dwell_time(channel)
-        if key == "scan_rotation":
-            return self.connection.get_scan_rotation(channel)
         if key == "voltage_limits":
             voltage_info = self.connection.high_voltage_info(channel)
             return [voltage_info["range"][0], voltage_info["range"][1]]
         if key == "voltage_controllable":
             return True
-        if key == "shift":  # beam shift
-            beam_shift = self.connection.get_beam_shift(channel)
-            return Point(beam_shift[0], beam_shift[1])
-        if key == "stigmation":
-            stigmation = self.connection.get_stigmator(channel)
-            return Point(stigmation[0], stigmation[1])
-        if key == "resolution":
-            width, height = self.connection.get_resolution(channel)
-            return [width, height]
 
         # ion beam properties
         if key == "plasma":
@@ -647,37 +531,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             else:
                 return None
 
-        # stage properties
-        if key == "stage_position":
-            pdict = self._vendor_stage.position.value
-            return FibsemStagePosition.from_odemis_dict(pdict)
-
-        if key == "stage_homed":
-            return self.connection.is_homed()
-        if key == "stage_linked":
-            return self.connection.is_linked()
-
-        # chamber properties
-        if key == "chamber_state":
-            state = self.connection.get_chamber_state()
-            # The AutoScript adapter passes AutoScript's names through ("Pumped",
-            # "Vented"); the odemis client documents the xT names ("vacuum",
-            # "vented"). Both read the way ThermoMicroscope reports them.
-            return ODEMIS_CHAMBER_STATES.get(str(state).lower(), state)
-
-        if key == "chamber_pressure":
-            return self.connection.get_pressure()
-
-        # detector mode and type
-        if key == "detector_type":
-            return self.connection.get_detector_type(channel)
-        if key == "detector_mode":
-            return self.connection.get_detector_mode(channel)
-        if key == "detector_brightness":
-            return self.connection.get_brightness(channel)
-        if key == "detector_contrast":
-            return self.connection.get_contrast(channel)
-
         # manipulator properties
         if key == "manipulator_position":
             raise NotImplementedError()
@@ -691,47 +544,8 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         return None
 
     def _set(self, key: str, value: str, beam_type: BeamType = None) -> None:
-        # get beam
-        if beam_type is not None:
-            channel = beam_type_to_odemis[beam_type]
-
-        # beam properties
-        if key == "working_distance":
-            self.connection.set_working_distance(value, channel)
-            logging.info(f"{beam_type.name} working distance set to {value} m.")
-            return
-        if key == "current":
-            self.connection.set_beam_current(value, channel)
-            logging.info(f"{beam_type.name} current set to {value} A.")
-            return
-        if key == "voltage":
-            self.connection.set_high_voltage(value, channel)
-            logging.info(f"{beam_type.name} voltage set to {value} V.")
-            return
-        if key == "hfw":
-            self.connection.set_field_of_view(value, channel)
-            logging.info(f"{beam_type.name} HFW set to {value} m.")
-            return
-        if key == "dwell_time":
-            self.connection.set_dwell_time(value, channel)
-            logging.info(f"{beam_type.name} dwell time set to {value} s.")
-            return
-        if key == "scan_rotation":
-            self.connection.set_scan_rotation(value, channel)
-            logging.info(f"{beam_type.name} scan rotation set to {value} radians.")
-            return
-        if key == "shift":
-            self.connection.set_beam_shift(value.x, value.y, channel)
-            logging.info(f"{beam_type.name} shift set to {value}.")
-            return
-        if key == "stigmation":
-            self.connection.set_stigmator(value.x, value.y, channel)
-            logging.info(f"{beam_type.name} stigmation set to {value}.")
-            return
-
-        if key == "resolution":
-            self.connection.set_resolution(value, channel)
-            return
+        # The beam, stage and chamber keys are written by the devices; these are the
+        # keys they do not have.
 
         # patterning
         if key == "patterning_mode":
@@ -749,62 +563,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             logging.info(f"Patterning beam type set to {value} - {channel} .")
             return
 
-        # beam control
-        if key == "on":
-            self.connection.set_beam_power(value, channel)
-            logging.info(f"{beam_type.name} beam turned {'on' if value else 'off'}.")
-            return
-        if key == "blanked":
-            self.connection.blank_beam(
-                channel
-            ) if value else self.connection.unblank_beam(channel)
-            logging.info(
-                f"{beam_type.name} beam {'blanked' if value else 'unblanked'}."
-            )
-            return
-
-        # detector properties
-        if key == "detector_mode":
-            if value in self.get_available_values("detector_mode", beam_type):
-                self.connection.set_detector_mode(value, channel)
-                logging.info(f"Detector mode set to {value}.")
-            else:
-                logging.warning(f"Detector mode {value} not available.")
-            return
-        if key == "detector_type":
-            if value in self.get_available_values("detector_type", beam_type):
-                self.connection.set_detector_type(value, channel)
-                logging.info(f"Detector type set to {value}.")
-            else:
-                logging.warning(f"Detector type {value} not available.")
-            return
-        if key == "detector_brightness":
-            if 0 < value <= 1:
-                self.connection.set_brightness(value, channel)
-                logging.info(f"Detector brightness set to {value}.")
-            else:
-                logging.warning(
-                    f"Detector brightness {value} not available, must be between 0 and 1."
-                )
-            return
-        if key == "detector_contrast":
-            if 0 < value <= 1:
-                self.connection.set_contrast(value, channel)
-                logging.info(f"Detector contrast set to {value}.")
-            else:
-                logging.warning(
-                    f"Detector contrast {value} not available, mut be between 0 and 1."
-                )
-            return
-
-        if key == "spot_mode":
-            self.connection.set_spot_scan_mode(channel=channel, x=value.x, y=value.y)
-            return
-
-        if key == "full_frame":
-            self.connection.set_full_frame_scan_mode(channel)
-            return
-
         # ion beam properties
         if beam_type is BeamType.ION:
             if key == "plasma_gas":
@@ -820,17 +578,8 @@ class OdemisThermoMicroscope(FibsemMicroscope):
                     f"Setting plasma gas to {value}... this may take some time..."
                 )
                 raise NotImplementedError()
-                logging.info(f"Plasma gas set to {value}.")
 
-                return
-
-        # stage properties
-        if key == "stage_home":
-            logging.info("Homing stage...")
-            self.connection.home_stage()
-            logging.info("Stage homed.")
-            return
-
+        # The device's link command only links, so unlinking is here.
         if key == "stage_link":
             if self.stage_is_compustage:
                 logging.debug("Compustage does not support linking.")
@@ -841,26 +590,10 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             logging.info(f"Stage {'linked' if value else 'unlinked'}.")
             return
 
-        # chamber properties
-        if key == "pump_chamber":
-            if value:
-                logging.info("Pumping chamber...")
-                self.connection.pump()
-                logging.info("Chamber pumped.")
-                return
-            else:
-                logging.warning(f"Invalid value for pump_chamber: {value}.")
-                return
-
-        if key == "vent_chamber":
-            if value:
-                logging.info("Venting chamber...")
-                self.connection.vent()
-                logging.info("Chamber vented.")
-                return
-            else:
-                logging.warning(f"Invalid value for vent_chamber: {value}.")
-                return
+        # A false pump or vent is not routed to the chamber's commands.
+        if key in ("pump_chamber", "vent_chamber"):
+            logging.warning(f"Invalid value for {key}: {value}.")
+            return
 
         if key == "active_view":
             self.connection.set_active_view(value.value)  # value == BeamType
@@ -938,28 +671,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
     def retract_manipulator(self) -> None:
         pass
-
-    # Through the stage device once it is built; the code below stays until a session
-    # on an instrument confirms the device's moves.
-
-    @_records_stage_move
-    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        if self.stage is not None:
-            return super().move_stage_absolute(position)
-        pdict = stage_position_to_odemis_dict(position)
-        f = self._vendor_stage.moveAbs(pdict)
-        f.result()
-        # TODO: implement compucentric rotation
-        return self.get_stage_position()
-
-    @_records_stage_move
-    def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        if self.stage is not None:
-            return super().move_stage_relative(position)
-        pdict = stage_position_to_odemis_dict(position)
-        f = self._vendor_stage.moveRel(pdict)
-        f.result()
-        return self.get_stage_position()
 
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.
