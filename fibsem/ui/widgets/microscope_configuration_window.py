@@ -206,7 +206,7 @@ def devices_rows(microscope: FibsemMicroscope) -> List[Tuple[str, bool, str, str
             "Stage",
             bool(microscope.is_available("stage")),
             "Instrument",
-            "CompuStage" if microscope.stage_is_compustage else "",
+            "" if microscope.system.stage.rotation else "No rotation",
         ),
         ("Manipulator", *probed("manipulator"), ""),
         ("GIS", *probed("gis"), ""),
