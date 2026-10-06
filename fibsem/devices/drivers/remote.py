@@ -48,7 +48,7 @@ import io
 import json
 import logging
 import threading
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import requests
@@ -62,6 +62,7 @@ from fibsem.devices.core import (
     ParameterUnavailable,
     command,
 )
+from fibsem.devices.entries import REMOTE_DRIVER
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
@@ -72,7 +73,12 @@ from fibsem.devices.wire import (
     from_wire,
     to_wire,
 )
+from fibsem.microscopes.registry import DeviceBuilder
 from fibsem.structures import BeamType, FibsemRectangle, Point, RangeLimit
+
+if TYPE_CHECKING:
+    from fibsem.microscopes.registry import BuildContext
+    from fibsem.structures import DeviceEntry
 
 READ_TIMEOUT = 5.0
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
@@ -601,3 +607,72 @@ def _remote_fm_devices(
             **{name: device for name, device in devices.items() if name != "fm"}
         )
     return devices
+
+
+# The remote device for each entry type a ``driver: remote`` entry can have. The FM's
+# group is not one: it comes from ``fm.driver: remote`` (``connect_remote_fm``).
+REMOTE_DEVICE_TYPES: Dict[str, type] = {
+    "beam": RemoteBeam,
+    **{name: part for name, part in REMOTE_FM_PARTS.items() if name != "fm"},
+}
+
+
+def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device:
+    """The device a ``driver: remote`` entry names, on the device server at its
+    ``address`` and ``port``.
+
+    The entry's name is the device's name on the server. Entries at one address share
+    one ``DeviceClient``, and the server is asked what it has once. A server that does
+    not answer, or has no device of that name, fails the build: the device is left out
+    with a warning, or connect fails when the entry is ``required``.
+    """
+    device_class = REMOTE_DEVICE_TYPES.get(entry.type)
+    if device_class is None:
+        raise ValueError(f"the remote driver has no '{entry.type}' device")
+    address, port = entry.options.get("address"), entry.options.get("port")
+    if address is None or port is None:
+        raise ValueError("a remote device needs an `address` and a `port`")
+    client, descriptions = _server(context, str(address), int(port))
+    description = descriptions.get(entry.name)
+    if description is None:
+        raise ValueError(
+            f"the device server at {address}:{port} has no device '{entry.name}' "
+            f"(it has {', '.join(descriptions) or 'none'})"
+        )
+    if device_class is RemoteBeam:
+        beam_type = BeamType.__members__.get(entry.name.upper())
+        if beam_type is None:
+            raise ValueError("a beam is named 'electron' or 'ion'")
+        device: RemoteDevice = RemoteBeam(beam_type, client=client)
+    else:
+        device = device_class(name=entry.name, client=client)
+    return device.connect(description)
+
+
+def _server(
+    context: "BuildContext", address: str, port: int
+) -> Tuple[DeviceClient, Dict[str, Any]]:
+    """The client for the server at *address*:*port* and what the server has, made
+    the first time this connect asks for it. A server that did not answer is not
+    asked again in this connect."""
+    servers = context.shared.setdefault(REMOTE_DRIVER, {})
+    key = (address, port)
+    if key not in servers:
+        client = DeviceClient(address, port)
+        try:
+            servers[key] = (client, client.describe())
+        except Exception as error:
+            client.close()
+            servers[key] = error
+    server = servers[key]
+    if isinstance(server, Exception):
+        raise server
+    return server
+
+
+DEVICE_BUILDERS = {
+    device_type: DeviceBuilder("fibsem.devices.drivers.remote:build_remote_device")
+    for device_type in REMOTE_DEVICE_TYPES
+}
+"""How the remote driver builds each type, as the registry gives a driver's builders
+(``fibsem.microscopes.registry.device_builder``)."""
