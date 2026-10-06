@@ -1,7 +1,7 @@
 """``microscope.devices``: every device a microscope built, by name.
 
 The typed attributes (``beams``, ``stage``, ``chamber_device``, ``manipulator_device``,
-``gis_device``, ``fm_devices``) are views of it, so the two can't disagree.
+``fm_devices``) are views of it, so the two can't disagree.
 """
 
 import os
@@ -36,7 +36,6 @@ def test_every_device_is_in_the_map_by_name():
         "stage",
         "chamber",
         "manipulator",
-        "gis",
     }
 
 
@@ -49,7 +48,6 @@ def test_the_typed_attributes_are_the_same_devices():
     assert devices["ion"] is microscope.beams[BeamType.ION]
     assert devices["chamber"] is microscope.chamber_device
     assert devices["manipulator"] is microscope.manipulator_device
-    assert devices["gis"] is microscope.gis_device
     assert devices["fm"] is microscope.fm_devices["fm"]
     assert devices["camera"] is microscope.fm_devices["camera"]
     assert list(microscope.fm_devices) == [
@@ -84,21 +82,6 @@ def test_assigning_a_typed_attribute_changes_the_map():
     microscope.beams = MappingProxyType({BeamType.ELECTRON: electron})
     assert "ion" not in microscope.devices
     assert dict(microscope.beams) == {BeamType.ELECTRON: electron}
-
-
-def test_several_gas_injectors_are_each_in_the_map():
-    """Thermo builds one injector per port and names the one a caller means."""
-    microscope = _demo()
-    one, two = object(), object()
-
-    microscope.gis_devices = {"Pt dep": one, "Multichem": two}
-    microscope.gis_device = two
-
-    assert microscope.devices["Pt dep"] is one
-    assert microscope.devices["Multichem"] is two
-    assert dict(microscope.gis_devices) == {"Pt dep": one, "Multichem": two}
-    assert microscope.gis_device is two
-    assert "gis" not in microscope.devices, "the Demo injector is replaced"
 
 
 def test_each_microscope_has_its_own_map():

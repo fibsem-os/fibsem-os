@@ -746,9 +746,9 @@ def _version_1_device_keys(written: Set[str]) -> Set[str]:
 def _unrecognised_device_keys(entries: list, known: Set[str]) -> List[str]:
     """The keys of `hardware.devices` entries this version will not write back.
 
-    Only the devices with records of their own are policed. Any other entry -- a GIS
-    given a driver, a plugin's device -- carries its driver's keys, which are the
-    driver's to know, and is written back as it was.
+    Only the devices with records of their own are policed. Any other entry -- a
+    manipulator given a driver, a plugin's device -- carries its driver's keys, which
+    are the driver's to know, and is written back as it was.
     """
     unknown: List[str] = []
     for item in entries:

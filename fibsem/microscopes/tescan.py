@@ -84,7 +84,6 @@ from fibsem.structures import (  # noqa
     FibsemCircleSettings,
     FibsemDetectorSettings,
     FibsemExperimentRef,
-    FibsemGasInjectionSettings,
     FibsemHardwareGeometry,
     FibsemImage,
     FibsemImageMetadata,
@@ -1717,21 +1716,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
             raise
         finally:
             self.clear_patterns()
-
-    def cryo_deposition_v2(self, gis_settings: FibsemGasInjectionSettings):
-        pass
-
-    def setup_sputter(self, protocol: dict):
-        pass
-
-    def draw_sputter_pattern(self, hfw, line_pattern_length, *args, **kwargs):
-        pass
-
-    def run_sputter(self, *args, **kwargs):
-        pass
-
-    def finish_sputter(self, *args, **kwargs):
-        pass
 
     def _beam_device(self, beam_type: BeamType):
         """The beam device for ``beam_type``; a column disabled in the config has none."""

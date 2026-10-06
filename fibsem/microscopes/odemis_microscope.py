@@ -283,15 +283,10 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
 
-    #: An Odemis system has no manipulator, and no GIS reachable from here: the Delmic
-    #: AutoScript adapter exposes no gas injection, so the GIS and sputter methods are
-    #: the base class's, which raise. Nothing here can ask the instrument, so this is
-    #: the backend's own answer.
+    #: An Odemis system has no manipulator. Nothing here can ask the instrument, so
+    #: this is the backend's own answer.
     DEFAULT_FITTED = {
         "manipulator": False,
-        "gis": False,
-        "gis_multichem": False,
-        "gis_sputter_coater": False,
     }
 
     milling_progress_signal = Signal(MillingProgress)
