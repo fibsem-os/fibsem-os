@@ -6,7 +6,8 @@ those branches made, in the same order, and logs the same messages
 (``tests/fixtures/tescan_beam_calls.json``). ``TescanMicroscope`` builds one per enabled
 column at connect and routes its beam keys to them, and builds a ``TescanStage``, which
 converts between fibsem's stage frame and Tescan's, and routes its stage keys and moves
-to it.
+to it. It builds both from its device entries (``fibsem.devices.entries``) with the
+builders at the end of this module, which the Tescan driver record names.
 
 The vendor beams are ``connection.SEM`` and ``connection.FIB``. SharkSEM is one socket,
 so every read and write holds the microscope's ``_connection_lock``, as ``_get`` and
@@ -38,7 +39,9 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
+    from fibsem.microscopes.registry import BuildContext
     from fibsem.microscopes.tescan import TescanMicroscope
+    from fibsem.structures import DeviceEntry
 
 # What the old get_available_values lists for "current".
 _CURRENT_CHOICES: Dict[BeamType, List[float]] = {
@@ -658,3 +661,17 @@ def bind_tescan_stage(
     if microscope.system.stage.enabled is False:
         return None
     return TescanStage(microscope, resources).connect()
+
+
+def build_tescan_beam(entry: DeviceEntry, context: BuildContext) -> TescanBeam:
+    """The column an ``electron`` or ``ion`` entry names."""
+    if entry.name not in ("electron", "ion"):
+        raise ValueError("a Tescan beam is named 'electron' or 'ion'")
+    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    return TescanBeam(beam_type, context.microscope).connect()
+
+
+def build_tescan_stage(entry: DeviceEntry, context: BuildContext) -> TescanStage:
+    stage = TescanStage(context.microscope)
+    stage.name = entry.name
+    return stage.connect()

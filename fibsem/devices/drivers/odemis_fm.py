@@ -487,7 +487,7 @@ class OdemisFM(FM):
         """The old ``set_channel``: excitation, emission, power, exposure, gain."""
         if channel is None:
             return
-        from fibsem.fm.api import emission_filter_named
+        from fibsem.fm.microscope import emission_filter_named
 
         settings = ChannelSettings.from_dict(channel)
         filters = self.filter_set

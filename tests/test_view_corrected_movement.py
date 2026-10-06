@@ -37,13 +37,13 @@ import numpy as np
 import pytest
 
 from fibsem import movement, utils
-from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import (
     AutoFocusMode,
     CameraImageTransform,
     ChannelSettings,
     OverviewParameters,
 )
+from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
 
 # sweep: stage tilt x pretilt x rotation x beam x compustage
@@ -723,7 +723,7 @@ class TestCameraImageTransformIsFlipOnly:
         Build an index grid, transform it as an image, and check that the pixel which
         ends up at a probe offset from centre is the one the delta mapping predicts.
         """
-        fm = FluorescenceMicroscope()
+        fm = SimulatedFluorescenceMicroscope()
         size = 9
         centre = size // 2
         ys, xs = np.mgrid[0:size, 0:size]
@@ -814,7 +814,7 @@ class TestFmStableMove:
         _configure(
             microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
         )
-        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        microscope.fm = SimulatedFluorescenceMicroscope(parent=microscope)
         moved = []
         microscope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
 
@@ -833,7 +833,7 @@ class TestFmStableMove:
         _configure(
             microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
         )
-        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        microscope.fm = SimulatedFluorescenceMicroscope(parent=microscope)
         moved = []
         microscope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
 
@@ -852,7 +852,7 @@ class TestFmStableMove:
         _configure(
             microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
         )
-        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        microscope.fm = SimulatedFluorescenceMicroscope(parent=microscope)
         moved = []
         microscope.move_stage_relative = lambda p: moved.append(p)  # type: ignore[method-assign]
 
@@ -867,7 +867,7 @@ class TestFmStableMove:
         _configure(
             microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
         )
-        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        microscope.fm = SimulatedFluorescenceMicroscope(parent=microscope)
         microscope.move_stage_relative = lambda p: None  # type: ignore[method-assign]
         calls = []
         microscope.set_working_distance = lambda *a, **k: calls.append((a, k))  # type: ignore[method-assign]
@@ -888,7 +888,7 @@ def compustage_fm():
     """The Arctis geometry: under-grid camera, no pre-tilt, FM pose at t = -180."""
     scope, _ = utils.setup_session(manufacturer="Demo")
     _configure(scope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True)
-    scope.fm = FluorescenceMicroscope(parent=scope)
+    scope.fm = SimulatedFluorescenceMicroscope(parent=scope)
     return scope
 
 
@@ -902,7 +902,7 @@ def offset_fm():
     """
     scope, _ = utils.setup_session(manufacturer="Demo")
     _configure(scope, pretilt_deg=35, rotation_deg=0, tilt_deg=0, compustage=False)
-    scope.fm = FluorescenceMicroscope(parent=scope)
+    scope.fm = SimulatedFluorescenceMicroscope(parent=scope)
     return scope
 
 
@@ -1052,7 +1052,7 @@ class TestFmConsumersUseTheFmProjection:
         _configure(
             microscope, pretilt_deg=0, rotation_deg=0, tilt_deg=-180, compustage=True
         )
-        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        microscope.fm = SimulatedFluorescenceMicroscope(parent=microscope)
         # A fresh objective is retracted, and a run refuses that (FIB-417) before it
         # projects anything. This test is about which projection tiles are placed with,
         # so it needs a run that gets as far as placing them.
@@ -1105,7 +1105,7 @@ class TestFmConsumersUseTheFmProjection:
         )
         microscope.system.electron.column_tilt = 0.0
         microscope.system.ion.column_tilt = 52.0
-        fm = FluorescenceMicroscope(parent=microscope)
+        fm = SimulatedFluorescenceMicroscope(parent=microscope)
 
         by_sem = microscope._view_corrected_stage_movement(25e-6, view_tilt=0.0)
         by_fm = microscope._view_corrected_stage_movement(
@@ -1125,17 +1125,17 @@ class TestCameraTilt:
     def test_offset_mount_matches_the_ion_column(self, microscope):
         # METEOR / iFLM: optical axis parallel to the FIB column, offset along x
         microscope.stage_is_compustage = False
-        fm = FluorescenceMicroscope(parent=microscope)
+        fm = SimulatedFluorescenceMicroscope(parent=microscope)
         assert fm.camera_tilt == pytest.approx(microscope.system.ion.column_tilt)
 
     def test_under_grid_mount_is_a_half_turn(self, microscope):
         # Arctis: camera mounted under the grid, looking up
         microscope.stage_is_compustage = True
-        fm = FluorescenceMicroscope(parent=microscope)
+        fm = SimulatedFluorescenceMicroscope(parent=microscope)
         assert fm.camera_tilt == pytest.approx(180.0)
 
     def test_no_parent_is_zero(self):
-        assert FluorescenceMicroscope().camera_tilt == 0.0
+        assert SimulatedFluorescenceMicroscope().camera_tilt == 0.0
 
     def test_under_grid_mount_cancels_the_stage_flip(self, microscope):
         """Arctis images FM with the stage flipped; the half-turn camera_tilt cancels it.
@@ -1148,7 +1148,7 @@ class TestCameraTilt:
         )
         microscope.system.electron.column_tilt = 0.0
 
-        fm = FluorescenceMicroscope(parent=microscope)
+        fm = SimulatedFluorescenceMicroscope(parent=microscope)
         move = microscope._view_corrected_stage_movement(
             25e-6, view_tilt=np.deg2rad(fm.camera_tilt)
         )
@@ -1161,10 +1161,13 @@ class TestMountTransform:
     """The mount correction is applied before the user's transform."""
 
     def test_defaults_to_no_correction(self):
-        assert FluorescenceMicroscope().mount_transform is CameraImageTransform.NONE
+        assert (
+            SimulatedFluorescenceMicroscope().mount_transform
+            is CameraImageTransform.NONE
+        )
 
     def test_default_pipeline_is_unchanged(self):
-        fm = FluorescenceMicroscope()
+        fm = SimulatedFluorescenceMicroscope()
         data = np.arange(12, dtype=np.uint16).reshape(3, 4)
         assert np.array_equal(fm._apply_image_transform(data), data)
 
@@ -1178,14 +1181,14 @@ class TestMountTransform:
         ],
     )
     def test_user_transform_still_applies(self, transform, expected):
-        fm = FluorescenceMicroscope()
+        fm = SimulatedFluorescenceMicroscope()
         fm.set_image_transform(transform)
         data = np.arange(12, dtype=np.uint16).reshape(3, 4)
         assert np.array_equal(fm._apply_image_transform(data), expected(data))
 
     def test_mount_correction_composes_before_user_transform(self, monkeypatch):
         """A driver overriding mount_transform gets it applied first."""
-        fm = FluorescenceMicroscope()
+        fm = SimulatedFluorescenceMicroscope()
         monkeypatch.setattr(
             type(fm),
             "mount_transform",

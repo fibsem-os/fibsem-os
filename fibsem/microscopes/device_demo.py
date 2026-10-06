@@ -38,17 +38,18 @@ imaging, the sample scene and milling, changing the beams only through
 ``get``/``set`` and so, here, through the beam devices.
 
 The FM is devices too: ``fm_devices`` are the Demo FM devices (``DemoCamera`` and
-the rest), each copied when it is built from the part the simulated FM built, and
-``fm`` is the FM API over them (``DemoFluorescenceMicroscope``), so today's
-FM API drives the devices. It keeps the simulated FM's share of the imaging
-channel with the beams, and the session's own state: the objective's saved focus,
-the channel name and colour, and the image transform. A remote FM
+the rest), and ``fm`` is the FM API over them (``DemoFluorescenceMicroscope``), so
+today's FM API drives the devices. The ``fm`` group holds the FM's share of the
+imaging channel with the beams (``DemoFMChannel``); the FM API keeps the session's
+own state: the objective's saved focus, the channel name and colour, and the image
+transform. A remote FM
 (``fm.driver: remote``) is already the FM API over devices, remote ones.
 """
 
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from types import MappingProxyType
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -60,10 +61,11 @@ from fibsem.devices.core import Device, resources_of
 from fibsem.devices.drivers.demo import bind_demo_fm
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
-from fibsem.fm.api import DeviceFluorescenceMicroscope
+from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
 from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.microscopes.simulator import (
+    SIM_OBJECTIVE_FOCUS_POSITION,
     SIMULATOR_KNOWN_UNKNOWN_KEYS,
     DemoConfiguration,
     DemoImaging,
@@ -71,7 +73,6 @@ from fibsem.microscopes.simulator import (
     DemoParts,
     DemoScene,
     DemoSession,
-    SimulatedFluorescenceMicroscope,
     initial_demo_parts,
 )
 from fibsem.services.drivers.demo import bind_demo_milling
@@ -114,11 +115,24 @@ def _routes(device: str, routes: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
 _BEAM_KEYS_WITHOUT_BEAM = ("plasma_gas", "preset")
 
 
-class DemoFluorescenceMicroscope(
-    DeviceFluorescenceMicroscope, SimulatedFluorescenceMicroscope
-):
-    """The FM API over the Demo FM devices, sharing the imaging channel with
-    the beams as the simulated FM does (``SimulatedFluorescenceMicroscope``)."""
+class DemoFluorescenceMicroscope(FluorescenceMicroscope):
+    """The FM API over the Demo FM devices, sharing the imaging channel with the
+    beams through the ``fm`` group's ``DemoFMChannel``, as the Thermo FM shares the
+    AutoScript connection through its group's channel."""
+
+    def __init__(self, devices: Dict[str, Device], parent: Optional[Any] = None):
+        super().__init__(devices, parent=parent)
+        self._channel = devices["fm"].channel
+        # The simulated FM starts with a saved focus; a session setting, so kept here.
+        self.objective._focus_position = SIM_OBJECTIVE_FOCUS_POSITION
+
+    def set_active_channel(self) -> None:
+        self._channel.set_active_channel()
+
+    @contextmanager
+    def active_channel(self):
+        with self._channel.scope():
+            yield
 
 
 def _needs_beam_type(key: str, beam_type: Optional[BeamType]) -> None:
@@ -181,8 +195,8 @@ class DemoMicroscope(
         and route their keys to them.
 
         The Demo has every device in ``DEMO_DEVICES``; ``hardware.devices`` switches
-        one off, or adds one (``fibsem.devices.entries``). The
-        FM is built after the FM API, in ``_fm_devices``.
+        one off, or adds one (``fibsem.devices.entries``). The FM is built with the
+        FM API, in ``_local_fluorescence``.
         """
         resolved = [
             item
@@ -211,21 +225,15 @@ class DemoMicroscope(
         )
         self.milling = bind_demo_milling(self)
 
+    def _local_fluorescence(self) -> DemoFluorescenceMicroscope:
+        """The FM as the Demo FM devices, and the FM API over them."""
+        devices = bind_demo_fm(self, config=self.system.fm.to_dict())
+        return DemoFluorescenceMicroscope(devices, parent=self)
+
     def _fm_devices(self) -> Dict[str, Device]:
-        """The FM's devices, and ``fm`` as the FM API over them."""
-        if self.fm is None:
-            return {}
-        # A remote FM (``fm.driver: remote``) is already the FM API over devices.
-        devices = getattr(self.fm, "devices", None)
-        if devices is not None:
-            return dict(devices)
-        simulated = self.fm
-        devices = bind_demo_fm(self, simulated, config=self.system.fm.to_dict())
-        self.fm = DemoFluorescenceMicroscope(devices, parent=self)
-        # The saved focus is the session's, so the FM API keeps it; the configured
-        # one was applied to the simulated FM's objective before the devices existed.
-        self.fm.objective.focus_position = simulated.objective.focus_position
-        return devices
+        """The FM's devices: the Demo FM's, or a remote FM's
+        (``fm.driver: remote``), which is the FM API over devices too."""
+        return dict(getattr(self.fm, "devices", None) or {})
 
     # The beam methods the shared demo code leaves to each demo, on the beam devices.
 
@@ -244,7 +252,7 @@ class DemoMicroscope(
         return beam.sim_scanning_mode_value, beam.sim_beam
 
     def _set(self, key: str, value, beam_type: Optional[BeamType] = None) -> None:
-        if self._set_imaging_key(key, value) or self._set_milling_key(key, value):
+        if self._set_imaging_key(key, value):
             return
         # The ion beam has a plasma gas only on a plasma column.
         if key == "plasma_gas" and beam_type is BeamType.ION:

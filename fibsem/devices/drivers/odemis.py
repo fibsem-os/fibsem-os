@@ -45,6 +45,8 @@ ODEMIS_VOLTAGE_CHOICES = {
 
 if TYPE_CHECKING:
     from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+    from fibsem.microscopes.registry import BuildContext
+    from fibsem.structures import DeviceEntry
 
 # The odemis client's name for each column (``beam_type_to_odemis``).
 ODEMIS_CHANNELS: Dict[BeamType, str] = {
@@ -469,3 +471,28 @@ def bind_odemis_chamber(
 ) -> OdemisChamber:
     """Build ``chamber`` for an Odemis microscope."""
     return OdemisChamber(microscope, resources).connect()
+
+
+# The builders the Odemis driver record names, one per device type: how
+# ``OdemisThermoMicroscope`` builds each device from its entry
+# (``fibsem.devices.entries``).
+
+
+def build_odemis_beam(entry: DeviceEntry, context: BuildContext) -> OdemisBeam:
+    """The column an ``electron`` or ``ion`` entry names."""
+    if entry.name not in ("electron", "ion"):
+        raise ValueError("an Odemis beam is named 'electron' or 'ion'")
+    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    return OdemisBeam(beam_type, context.microscope).connect()
+
+
+def build_odemis_stage(entry: DeviceEntry, context: BuildContext) -> OdemisStage:
+    stage = OdemisStage(context.microscope)
+    stage.name = entry.name
+    return stage.connect()
+
+
+def build_odemis_chamber(entry: DeviceEntry, context: BuildContext) -> OdemisChamber:
+    chamber = OdemisChamber(context.microscope)
+    chamber.name = entry.name
+    return chamber.connect()

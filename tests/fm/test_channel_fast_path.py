@@ -24,7 +24,7 @@ import time
 
 import pytest
 
-from fibsem.microscopes.simulator import FM_ACTIVE_VIEW
+from fibsem.microscopes.simulator import FM_ACTIVE_DEVICE, FM_ACTIVE_VIEW
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ class TestTheFastPath:
         fm = microscope.fm
         imaging = microscope.imaging_system
         imaging.active_view = FM_ACTIVE_VIEW
-        imaging.active_device = fm._active_device
+        imaging.active_device = FM_ACTIVE_DEVICE
 
         before = (imaging.active_view, imaging.active_device)
         with fm.active_channel():

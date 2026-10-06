@@ -111,10 +111,10 @@ _BEAM_CONFIG_KEYS: Mapping[str, str] = MappingProxyType(
 _INFO_KEYS = frozenset(
     ("manufacturer", "model", "serial_number", "software_version", "hardware_version")
 )
-# Set verbs whose old branch does nothing for a false value (it logs "Invalid
-# value"). Routed to a device command only for a true value; a false one still goes
-# to `_set`.
-_VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber"))
+# Set verbs whose device command only does the true thing (pump, vent, link; there is
+# no unlink). Routed to the command only for a true value; a false one still goes to
+# `_set`.
+_VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber", "stage_link"))
 # Keys only ever set: the old `_get` has no branch for them and returns None. A get
 # stays with `_get`, so it still returns None, rather than reading the device.
 _SET_ONLY_KEYS = frozenset(("angular_correction_tilt_correction",))
@@ -1336,6 +1336,18 @@ class FibsemMicroscope(ABC):
         """Make `channel` the active view and device, for the calls that act on it."""
         raise self._unsupported("set_channel")
 
+    def set_patterning_mode(self, mode: str) -> None:
+        """Pattern "Serial" or "Parallel" from now on."""
+        raise self._unsupported("set_patterning_mode")
+
+    def _set_default_patterning_beam_type(self, beam_type: BeamType) -> None:
+        """The beam new patterns are drawn for (`set_milling_settings`)."""
+        raise self._unsupported("_set_default_patterning_beam_type")
+
+    def _set_default_application_file(self, application_file: str) -> None:
+        """The application file new patterns use (`set_milling_settings`)."""
+        raise self._unsupported("_set_default_application_file")
+
     @abstractmethod
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
         pass
@@ -2185,29 +2197,15 @@ class FibsemMicroscope(ABC):
         return
 
     def set_milling_settings(self, mill_settings: FibsemMillingSettings) -> None:
-        self.set(
-            "active_view", mill_settings.milling_channel, mill_settings.milling_channel
-        )
-        self.set(
-            "active_device",
-            mill_settings.milling_channel,
-            mill_settings.milling_channel,
-        )
-        self.set(
-            "default_patterning_beam_type",
-            mill_settings.milling_channel,
-            mill_settings.milling_channel,
-        )
-        self.set(
-            "application_file",
-            mill_settings.application_file,
-            mill_settings.milling_channel,
-        )
-        self.set(
-            "patterning_mode",
-            mill_settings.patterning_mode,
-            mill_settings.milling_channel,
-        )
+        """Apply a recipe's channel, patterning defaults and beam conditions.
+
+        The channel and patterning steps are the backend's own plumbing, not keys.
+        """
+        channel = mill_settings.milling_channel
+        self.set_channel(channel)
+        self._set_default_patterning_beam_type(channel)
+        self._set_default_application_file(mill_settings.application_file)
+        self.set_patterning_mode(mill_settings.patterning_mode)
         self.set("hfw", mill_settings.hfw, mill_settings.milling_channel)
         self.set(
             "current", mill_settings.milling_current, mill_settings.milling_channel

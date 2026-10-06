@@ -421,7 +421,30 @@ REDUCED_AREA = {
     for key, call in CASES
     if key.startswith(("reduced area", "set reduced_area"))
 }
-SAME = tuple((key, call) for key, call in CASES if key not in REDUCED_AREA)
+
+
+# What the old branches did that the devices, and the "absent is unsupported" rule,
+# do differently: a beam key the beam does not have reads None quietly; a false
+# stage_link no longer unlinks (the stage has no unlink, and nothing called it); and
+# a false pump or vent is an unknown key.
+def _unknown(key):
+    return {
+        "result": None,
+        "calls": [],
+        "log": [["WARNING", f"Unknown key: {key} (None)"]],
+    }
+
+
+CHANGED = {
+    "get scanning_mode ELECTRON": {"result": None, "calls": [], "log": []},
+    "get scanning_mode ION": {"result": None, "calls": [], "log": []},
+    "set stage_link False": _unknown("stage_link"),
+    "set pump_chamber False": _unknown("pump_chamber"),
+    "set vent_chamber False": _unknown("vent_chamber"),
+}
+SAME = tuple(
+    (key, call) for key, call in CASES if key not in REDUCED_AREA and key not in CHANGED
+)
 
 with open(RECORDED) as f:
     EXPECTED = json.load(f)
@@ -433,6 +456,7 @@ with open(RECORDED) as f:
 _PRESSURE = ["get_pressure", [], {}]
 EXTRA_READS = {
     "set stage_home": [["is_homed", [], {}]],
+    "set stage_link True": [["is_linked", [], {}]],
     "pump": [_PRESSURE],
     "vent": [_PRESSURE],
     "set pump_chamber True": [_PRESSURE, ["get_chamber_state", [], {}]],
@@ -579,6 +603,51 @@ def test_a_device_that_cannot_be_built_fails_the_connection(odemis_cls):
         odemis_cls(_system())
 
 
+def test_the_odemis_driver_has_builders_for_its_devices():
+    from fibsem import manufacturers
+    from fibsem.microscopes.registry import device_builder
+
+    for device_type in ("beam", "stage", "chamber"):
+        assert device_builder(manufacturers.ODEMIS, device_type) is not None
+    assert device_builder(manufacturers.ODEMIS, "manipulator") is None
+
+
+def _with(odemis_cls, *entries, stage=True):
+    from fibsem.structures import DeviceEntry
+
+    system = _system()
+    system.stage.enabled = stage
+    system.other_devices = [DeviceEntry.from_dict(e) for e in entries]
+    stubs.use_components({"fibsem": FakeClient(), "stage-bare": FakeStage()})
+    return odemis_cls(system)
+
+
+def test_a_switched_off_stage_is_not_built(odemis_cls):
+    microscope = _with(odemis_cls, stage=False)
+
+    assert microscope.stage is None
+    assert "stage" not in microscope.devices
+    assert microscope._route("stage_position", None) is None
+    assert microscope.chamber_device is not None
+
+
+def test_a_device_odemis_has_no_builder_for_is_skipped_with_a_warning(
+    odemis_cls, caplog
+):
+    with caplog.at_level(logging.WARNING):
+        microscope = _with(odemis_cls, {"name": "laser", "type": "laser"})
+
+    assert "laser" not in microscope.devices
+    assert "driver 'Odemis' has no builder for a 'laser' device" in caplog.text
+
+
+def test_a_required_device_odemis_cannot_build_fails_the_connection(odemis_cls):
+    from fibsem.devices.entries import DeviceBuildError
+
+    with pytest.raises(DeviceBuildError, match="'laser'"):
+        _with(odemis_cls, {"name": "laser", "type": "laser", "required": True})
+
+
 def test_a_disabled_column_cannot_image(odemis_cls):
     microscope = make(odemis_cls, ion=False)
     with pytest.raises(ValueError, match="ION beam is not enabled"):
@@ -606,12 +675,19 @@ def test_an_unlisted_chamber_state_reads_unknown(odemis_cls):
         READS["get_chamber_state"] = "vacuum"
 
 
-def test_setting_the_plasma_gas_reaches_the_not_implemented_write(odemis_cls):
-    """It raised TypeError from the old one-argument check before getting there."""
+@pytest.mark.parametrize("key", sorted(CHANGED))
+def test_what_the_devices_do_differently(odemis_cls, key):
+    call = dict(CASES)[key]
+    assert run(make(odemis_cls), call) == CHANGED[key]
+
+
+def test_the_plasma_gas_is_unsupported(odemis_cls):
+    """The beam has no plasma_gas parameter: it reads None, and a write does nothing,
+    where the old branch raised NotImplementedError on a plasma column."""
     microscope = make(odemis_cls)
     microscope.system.ion.plasma_gas = "Xenon"
-    with pytest.raises(NotImplementedError):
-        microscope.set("plasma_gas", "Argon", BeamType.ION)
+    microscope.set("plasma_gas", "Argon", BeamType.ION)
+    assert microscope.get("plasma_gas", BeamType.ION) is None
 
 
 @pytest.mark.parametrize(

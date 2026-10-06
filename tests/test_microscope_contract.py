@@ -32,6 +32,7 @@ from fibsem.structures import (
     BeamType,
     FibsemImage,
     FibsemManipulatorPosition,
+    FibsemMillingSettings,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
@@ -678,7 +679,7 @@ def test_demo_reads_its_configuration_without_demo(monkeypatch):
     assert microscope._get_axis_limits()
 
 
-def test_demo_sets_its_imaging_and_milling_keys_without_demo(monkeypatch):
+def test_demo_sets_its_imaging_key_and_milling_recipe_without_demo(monkeypatch):
     from fibsem.microscopes.simulator import LegacyDemoMicroscope
 
     def refuse(self, key, value=None, beam_type=None):
@@ -688,17 +689,29 @@ def test_demo_sets_its_imaging_and_milling_keys_without_demo(monkeypatch):
     monkeypatch.setattr(LegacyDemoMicroscope, "_set", refuse)
     monkeypatch.setattr(LegacyDemoMicroscope, "get_available_values", refuse)
     files = microscope.get_available_values("application_file")
-    microscope.set("application_file", files[-1])
-    microscope.set("patterning_mode", "Parallel")
-    microscope.set("milling_channel", BeamType.ELECTRON)
-    microscope.set("default_patterning_beam_type", BeamType.ELECTRON)
+    microscope.set_milling_settings(
+        FibsemMillingSettings(
+            milling_channel=BeamType.ELECTRON,
+            application_file=files[-1],
+            patterning_mode="Parallel",
+        )
+    )
     microscope.set("active_view", BeamType.ION)
     milling = microscope.milling_system
     assert milling.default_application_file == files[-1]
     assert milling.patterning_mode == "Parallel"
-    assert microscope.milling_channel is BeamType.ELECTRON
     assert milling.default_beam_type is BeamType.ELECTRON
     assert microscope.imaging_system.active_view == BeamType.ION.value
+
+
+@pytest.mark.parametrize(
+    "key", ["patterning_mode", "application_file", "default_patterning_beam_type"]
+)
+def test_the_milling_keys_are_gone(microscope, key, caplog):
+    """A recipe sets them (`set_milling_settings`); as keys they are unknown."""
+    with caplog.at_level("WARNING"):
+        microscope.set(key, "Parallel")
+    assert f"Unknown key: {key}" in caplog.text
 
 
 def test_demo_is_not_built_on_the_legacy_demo():
@@ -1102,11 +1115,11 @@ def test_demo_fm_group_acquires_a_channel():
 def test_demo_fm_is_the_fm_api_over_devices():
     """`fm` is the same FM API over devices a remote FM is, over the Demo FM devices."""
     from fibsem.devices.drivers.demo import DemoCamera
-    from fibsem.fm.api import DeviceFluorescenceMicroscope
+    from fibsem.fm.microscope import FluorescenceMicroscope
 
     microscope = _connect("Demo", FM_CONFIGURATION)
     fm = microscope.fm
-    assert isinstance(fm, DeviceFluorescenceMicroscope)
+    assert isinstance(fm, FluorescenceMicroscope)
     assert fm.devices == dict(microscope.fm_devices)
     assert isinstance(microscope.fm_devices["camera"], DemoCamera)
     # the frame is the camera's, at its binned resolution

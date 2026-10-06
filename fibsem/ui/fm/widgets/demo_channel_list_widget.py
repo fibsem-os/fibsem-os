@@ -8,8 +8,8 @@ import sys
 
 from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
-from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
+from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
 
 
@@ -17,7 +17,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
-    fm = FluorescenceMicroscope()
+    fm = SimulatedFluorescenceMicroscope()
 
     channels = [
         ChannelSettings(

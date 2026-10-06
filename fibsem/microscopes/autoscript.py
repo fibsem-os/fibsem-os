@@ -3038,13 +3038,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
                 logging.warning(f"Invalid value for vent_chamber: {value}.")
                 return
 
-        # patterning
-        if key == "patterning_mode":
-            if value in ["Serial", "Parallel"]:
-                self.connection.patterning.mode = value
-                logging.info(f"Patterning mode set to {value}.")
-                return
-
         logging.warning(f"Unknown key: {key} ({beam_type})")
 
         return
