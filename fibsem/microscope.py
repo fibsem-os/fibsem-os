@@ -608,7 +608,45 @@ class FibsemMicroscope(ABC):
             else:
                 self.capability_sources[key] = "instrument"
             self.set_available(key, bool(present))
+            # A device for it from another driver is fitted whatever the backend
+            # says: a manipulator on its own controller is one the vendor never
+            # reports. `_set_device` does the same for a device built afterwards.
+            self._mark_device_fitted(key)
         self._read_plasma_source()
+
+    #: The fitted subsystems that are a device of the same name.
+    _FITTED_DEVICES: Tuple[str, ...] = ("manipulator",)
+
+    def _mark_device_fitted(self, name: str) -> None:
+        """Record *name* as fitted when its device was built by a driver other than
+        this backend's, from a `hardware.devices` entry.
+
+        The backend's own device follows the backend's answer: the Demo builds a
+        manipulator even where its simulated instrument has none."""
+        if name not in self._FITTED_DEVICES or self._devices.get(name) is None:
+            return
+        if not self._built_by_another_driver(name) or self.is_available(name):
+            return
+        self.set_available(name, True)
+        # Before the probes run there is nothing to record a source in; they call
+        # this again.
+        sources = getattr(self, "capability_sources", None)
+        if sources is not None:
+            sources[name] = "device"
+
+    def _built_by_another_driver(self, name: str) -> bool:
+        """Whether the configuration's entry for *name* names a driver other than
+        this backend's own."""
+        from fibsem.devices.entries import configured_device_entries
+
+        entry = configured_device_entries(self.system).get(name)
+        if entry is None or not entry.driver:
+            return False
+
+        def canonical(driver: Optional[str]) -> str:
+            return str(manufacturers.normalize_manufacturer(driver)).strip().casefold()
+
+        return canonical(entry.driver) != canonical(self.system.info.manufacturer)
 
     # ---- the ion column's plasma source ----------------------------------------
     #
@@ -1669,6 +1707,7 @@ class FibsemMicroscope(ABC):
             self._devices.pop(name, None)
         else:
             self._devices[name] = device
+            self._mark_device_fitted(name)
 
     @property
     def beams(self) -> Mapping[BeamType, Any]:
