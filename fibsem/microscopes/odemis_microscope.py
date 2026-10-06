@@ -11,7 +11,7 @@ import numpy as np
 from psygnal import Signal
 
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
+from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.microscope import (
     FibsemMicroscope,
@@ -538,10 +538,10 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
     def _build_devices(self) -> None:
         """Build the beam, stage and chamber devices and route their keys to them.
 
-        The moves, ``home``, ``pump`` and ``vent`` then go through the devices. A
-        ``stage_link`` set stays with ``_set``: a false value unlinks there, and the
-        device's ``link`` command only links. There is no other code for these keys,
-        so a device that cannot be built fails the connection.
+        The moves, ``home``, ``link``, ``pump`` and ``vent`` then go through the
+        devices; a false ``stage_link``, ``pump_chamber`` or ``vent_chamber`` runs
+        nothing. There is no other code for these keys, so a device that cannot be
+        built fails the connection.
         """
         from fibsem.devices.drivers.odemis import (
             bind_odemis_beams,
@@ -561,7 +561,7 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
         )
         self._command_routes = MappingProxyType(
             {
-                "stage_home": ("stage", "home"),
+                **{key: ("stage", n) for key, n in STAGE_COMMAND_ROUTES.items()},
                 **{
                     key: ("chamber_device", n)
                     for key, n in CHAMBER_COMMAND_ROUTES.items()
@@ -702,39 +702,21 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
         return True
 
     def _get(self, key: str, beam_type: BeamType = None) -> str:
-        # The beam, stage and chamber keys are read by the devices; these are the keys
-        # they do not have.
-        if beam_type is not None:
-            channel = beam_type_to_odemis[beam_type]
-
-        if key == "voltage_limits":
-            voltage_info = self.connection.high_voltage_info(channel)
-            return [voltage_info["range"][0], voltage_info["range"][1]]
-        if key == "voltage_controllable":
-            return True
-
-        # ion beam properties
-        if key == "plasma":
-            if beam_type is BeamType.ION:
-                return self.system.ion.plasma
-            else:
-                return False
-
-        if key == "plasma_gas":
-            if beam_type is BeamType.ION and self.system.ion.plasma:
-                raise NotImplementedError()
-            else:
-                return None
-
-        if key in ["preset"]:
+        # The devices read every key Odemis has. A beam key the beam does not have
+        # (preset, plasma_gas) is unsupported, and reads None.
+        if key in BEAM_ROUTES and beam_type is not None:
             return None
 
         logging.warning(f"Unknown key: {key} ({beam_type})")
         return None
 
     def _set(self, key: str, value: str, beam_type: BeamType = None) -> None:
-        # The beam, stage and chamber keys are written by the devices; these are the
-        # keys they do not have.
+        # The devices write every key Odemis has, but for the milling keys and the
+        # view and device selection below. A beam key the beam does not have (preset,
+        # plasma_gas) is unsupported, and is not written.
+        if key in BEAM_ROUTES and beam_type is not None:
+            logging.debug(f"{key} is not supported on the {beam_type.name} beam.")
+            return
 
         # patterning
         if key == "patterning_mode":
@@ -752,38 +734,6 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
             logging.info(f"Patterning beam type set to {value} - {channel} .")
             return
 
-        # ion beam properties
-        if beam_type is BeamType.ION:
-            if key == "plasma_gas":
-                if not self.system.ion.plasma:
-                    logging.debug("Plasma gas cannot be set on this microscope.")
-                    return
-                if value not in self.get_available_values("plasma_gas", beam_type):
-                    logging.warning(
-                        f"Plasma gas {value} not available. Available values: {self.get_available_values('plasma_gas', beam_type)}"
-                    )
-
-                logging.info(
-                    f"Setting plasma gas to {value}... this may take some time..."
-                )
-                raise NotImplementedError()
-
-        # The device's link command only links, so unlinking is here.
-        if key == "stage_link":
-            if self.stage_is_compustage:
-                logging.debug("Compustage does not support linking.")
-                return
-
-            logging.info("Linking stage...")
-            self.connection.link(value)
-            logging.info(f"Stage {'linked' if value else 'unlinked'}.")
-            return
-
-        # A false pump or vent is not routed to the chamber's commands.
-        if key in ("pump_chamber", "vent_chamber"):
-            logging.warning(f"Invalid value for {key}: {value}.")
-            return
-
         if key == "active_view":
             self.connection.set_active_view(value.value)  # value == BeamType
             return
@@ -791,13 +741,7 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
             self.connection.set_active_device(value.value)  # value == BeamType
             return
 
-        # known keys that are not implemented
-        if key in ["preset"]:
-            return
-
         logging.warning(f"Unknown key: {key} ({beam_type})")
-
-        return
 
     def get_available_values(self, key: str, beam_type: BeamType = None) -> list:
         values = []

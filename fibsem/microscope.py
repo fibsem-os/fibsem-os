@@ -111,10 +111,10 @@ _BEAM_CONFIG_KEYS: Mapping[str, str] = MappingProxyType(
 _INFO_KEYS = frozenset(
     ("manufacturer", "model", "serial_number", "software_version", "hardware_version")
 )
-# Set verbs whose old branch does nothing for a false value (it logs "Invalid
-# value"). Routed to a device command only for a true value; a false one still goes
-# to `_set`.
-_VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber"))
+# Set verbs whose device command only does the true thing (pump, vent, link; there is
+# no unlink). Routed to the command only for a true value; a false one still goes to
+# `_set`.
+_VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber", "stage_link"))
 # Keys only ever set: the old `_get` has no branch for them and returns None. A get
 # stays with `_get`, so it still returns None, rather than reading the device.
 _SET_ONLY_KEYS = frozenset(("angular_correction_tilt_correction",))
