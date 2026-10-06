@@ -14,6 +14,12 @@ from psygnal import Signal
 from fibsem import config as cfg
 from fibsem._timing import sim_sleep
 from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
+from fibsem.devices.sample_loader import (
+    GridExchangeError,
+    Magazine,
+    MagazineSlotState,
+    StageSample,
+)
 from fibsem.session_state import SessionState, session_state_for
 from fibsem.structures import (
     GRID_RADIUS,
@@ -27,11 +33,13 @@ from fibsem.structures import (
     default_sample_holder,
 )
 
-# Re-exported: these four moved into `structures.py` so `SystemSettings` could hold a
-# holder without closing an import loop. They are still part of this module's surface
-# -- around twenty call sites import them from here.
+# Re-exported: the grid structures moved into `structures.py` so `SystemSettings` could
+# hold a holder without closing an import loop, and `GridExchangeError` to the sample
+# loader device that raises it. They are still part of this module's surface -- around
+# twenty call sites import them from here.
 __all__ = [
     "GRID_RADIUS",
+    "GridExchangeError",
     "SampleGrid",
     "SlotCalibration",
     "GridSlot",
@@ -40,10 +48,6 @@ __all__ = [
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-
-
-class GridExchangeError(RuntimeError):
-    """A grid could not be moved into, or out of, the holder's working slot."""
 
 
 class GridSlotState(str, Enum):
@@ -341,6 +345,117 @@ class DemoSampleLoader(SampleGridLoader):
             self.fail_next_exchange = False
             raise GridExchangeError("Simulated autoloader exchange failure.")
         sim_sleep(self.exchange_delay)
+
+
+class DeviceSampleLoader(SampleGridLoader):
+    """The grid model over a ``SampleLoader`` device (``fibsem.devices.sample_loader``).
+
+    The device reports what the hardware knows -- numbered slots, their states and
+    descriptions, what is on the stage -- and does the exchanges. This turns that into
+    grids: a slot's description is its grid's name (``Grid-NN`` when blank), a grid
+    keeps its identity across reads, and the grid on the stage is the same object in
+    its home slot and the working slot.
+
+    Two hardware behaviours are absorbed here, whichever driver reports them: the home
+    slot of the grid on the stage reads ``LOADED`` (AutoScript 4.14) or ``EMPTY``
+    (up to 4.13, where only memory keeps the grid in its home slot); and the stage may
+    hold a grid nobody loaded through us, which ``on_stage`` reports.
+
+    ``read_at_connect`` reads the magazine once when built, for a loader whose read
+    is free (the simulator); otherwise nothing is known until ``get_inventory``.
+    """
+
+    def __init__(
+        self,
+        parent: "FibsemMicroscope",
+        device,
+        read_at_connect: bool = False,
+    ) -> None:
+        self.device = device
+        super().__init__(parent, capacity=int(device.capacity.get_value()))
+        if read_at_connect:
+            self.get_inventory()
+
+    @property
+    def exchange_seconds(self) -> float:
+        return float(self.device.exchange_time.cached)
+
+    def _read_magazine(self) -> None:
+        self._apply(self.device.magazine.get_value())
+
+    def _scan_magazine(self) -> None:
+        self._apply(self.device.scan())
+
+    def _do_load(self, slot: GridSlot) -> None:
+        self.device.load(slot.index + 1)
+
+    def _do_unload(self, working_slot: GridSlot) -> None:
+        self.device.unload()
+
+    def _write_slot_description(self, slot: GridSlot) -> None:
+        description = slot.loaded_grid.name if slot.loaded_grid is not None else ""
+        self.device.set_description(slot.index + 1, description)
+
+    def _on_stage(self) -> StageSample:
+        if "on_stage" not in self.device.parameters:
+            return StageSample()
+        return self.device.on_stage.get_value()
+
+    def _apply(self, magazine: Magazine) -> None:
+        if magazine.slots:
+            self.capacity = len(magazine.slots)
+        # A read at connect comes before the stage, and so the holder, exists.
+        holder = getattr(getattr(self.parent, "_stage", None), "holder", None)
+        loaded = (
+            {s.loaded_grid.name for s in holder.occupied_slots} if holder else set()
+        )
+        slots: dict = {}
+        unknown: set = set()
+        on_stage: Optional[SampleGrid] = None
+        for row in magazine.slots:
+            name = _slot_name(row.number - 1)
+            previous = self.slots.get(name)
+            grid: Optional[SampleGrid] = None
+            if row.state in (MagazineSlotState.OCCUPIED, MagazineSlotState.LOADED):
+                grid_name = row.description.strip() or f"Grid-{row.number:02d}"
+                if previous is not None and previous.loaded_grid is not None:
+                    if previous.loaded_grid.name == grid_name:
+                        grid = previous.loaded_grid  # keep identity across reads
+                if grid is None:
+                    grid = SampleGrid(name=grid_name)
+                if row.state is MagazineSlotState.LOADED:
+                    on_stage = grid  # its home slot, and it is on the stage
+            elif (
+                previous is not None
+                and previous.loaded_grid is not None
+                and previous.loaded_grid.name in loaded
+            ):
+                grid = (
+                    previous.loaded_grid
+                )  # <= 4.13: its home reads Empty while loaded
+            elif row.state is MagazineSlotState.UNKNOWN:
+                logging.warning(
+                    f"Sample loader slot {row.number} has not been scanned."
+                )
+                unknown.add(name)
+            slots[name] = GridSlot(name=name, index=row.number - 1, loaded_grid=grid)
+        self.slots = slots
+        self.unknown_slots = unknown
+        if holder is None:
+            return
+
+        working = self.working_slot
+        if on_stage is not None:
+            # The same object in both places, as a load through us leaves it.
+            working.loaded_grid = on_stage
+        # Something may be on the stage that we did not load: reflect the hardware.
+        reported = self._on_stage()
+        if working.loaded_grid is None and reported.present is True:
+            working.loaded_grid = SampleGrid(
+                name=reported.description.strip() or "Grid-on-stage"
+            )
+        elif working.loaded_grid is not None and reported.present is False:
+            working.loaded_grid = None
 
 
 def _slot_name(index: int) -> str:

@@ -66,6 +66,7 @@ from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.fm.api import DeviceFluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
+from fibsem.microscopes._stage import SampleGridLoader
 from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.microscopes.simulator import (
     SIMULATOR_KNOWN_UNKNOWN_KEYS,
@@ -102,6 +103,9 @@ DEMO_DEVICES = (
     DeviceEntry(name="manipulator", type="manipulator"),
     DeviceEntry(name="gis", type="gis"),
 )
+
+# A simulated compustage also has an autoloader, as an Arctis does.
+DEMO_SAMPLE_LOADER = DeviceEntry(name="sample_loader", type="sample_loader")
 
 # Today's scan-mode set keys, and the methods that run the beam commands for them.
 _SCAN_MODE_KEYS: Dict[str, Callable[[Any, Any, BeamType], None]] = {
@@ -151,7 +155,14 @@ DRIVER = DriverEntry(
         device_type: DeviceBuilder(
             f"fibsem.devices.drivers.demo:build_demo_{device_type}"
         )
-        for device_type in ("beam", "stage", "chamber", "manipulator", "gis")
+        for device_type in (
+            "beam",
+            "stage",
+            "chamber",
+            "manipulator",
+            "gis",
+            "sample_loader",
+        )
     },
 )
 
@@ -190,9 +201,12 @@ class DemoMicroscope(
         one off, or adds one, such as a second GIS (``fibsem.devices.entries``). The
         FM is built after the FM API, in ``_fm_devices``.
         """
+        defaults = DEMO_DEVICES
+        if self.stage_is_compustage:
+            defaults = (*DEMO_DEVICES, DEMO_SAMPLE_LOADER)
         resolved = [
             item
-            for item in resolve_system_devices(self.system, DEMO_DEVICES)
+            for item in resolve_system_devices(self.system, defaults)
             if item.type != "fm"
         ]
         # The builders start from this microscope's parts (``fibsem.devices.drivers
@@ -221,6 +235,26 @@ class DemoMicroscope(
             }
         )
         self.milling = bind_demo_milling(self)
+
+    def _create_grid_loader(self) -> Optional[SampleGridLoader]:
+        """The grid model over the ``sample_loader`` device, or None when there is
+        none (``enabled: false``): grids are then exchanged by hand."""
+        from fibsem.microscopes._stage import DeviceSampleLoader
+
+        device = self.devices.get("sample_loader")
+        if device is None and self.stage_is_compustage:
+            # Made a compustage after it was built, as tests do: build it now,
+            # unless the configuration switches it off.
+            resolved = resolve_system_devices(
+                self.system, (DEMO_SAMPLE_LOADER,), types=("sample_loader",)
+            )
+            for name, built in build_device_entries(resolved, self).items():
+                self._set_device(name, built)
+                device = built
+        if device is None:
+            logging.info("No sample loader: grids are exchanged by hand.")
+            return None
+        return DeviceSampleLoader(self, device, read_at_connect=True)
 
     def _fm_devices(self) -> Dict[str, Device]:
         """The FM's devices, and ``fm`` as the FM API over them."""

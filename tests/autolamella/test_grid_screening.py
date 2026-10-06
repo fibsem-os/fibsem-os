@@ -144,7 +144,7 @@ class TestOnTheAutoloader:
     def test_a_grid_that_will_not_load_does_not_stop_the_others(
         self, arctis, experiment, stub_tasks
     ):
-        arctis._stage.loader.fail_next_exchange = True
+        arctis._stage.loader.device.fail_next_exchange = True
         manager = screen_grids(arctis, experiment, task_names=["overview_sem"])
         assert stub_tasks == [("Grid-02", "overview_sem"), ("Grid-03", "overview_sem")]
         assert [i.status for i in manager.queue.items if i.item_name == "Grid-01"] == [

@@ -3071,7 +3071,15 @@ CONFIGURED_DEVICES: Dict[str, str] = {
 # Types a backend builds a device of by itself, so an entry named after one of them
 # needs no `type:` -- `name: gis` is the GIS. A plugin may configure a type not listed
 # here; such an entry states its `type`.
-DEVICE_TYPES: Tuple[str, ...] = ("beam", "stage", "chamber", "manipulator", "gis", "fm")
+DEVICE_TYPES: Tuple[str, ...] = (
+    "beam",
+    "stage",
+    "chamber",
+    "manipulator",
+    "gis",
+    "fm",
+    "sample_loader",
+)
 
 
 @dataclass
