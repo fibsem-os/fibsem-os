@@ -20,6 +20,7 @@ from fibsem.devices.entries import (
     build_device_entries,
     resolve_device_entries,
 )
+from fibsem.microscopes import registry
 from fibsem.structures import BeamType, DeviceEntry
 
 DEFAULTS = (
@@ -95,57 +96,83 @@ def test_without_a_driver_or_a_manufacturer_resolving_fails():
 # -- building them ---------------------------------------------------------------
 
 
-def _item(name, type_, required=None, driver="Demo"):
+def _item(name, type_, required=None, driver="Test"):
     return ResolvedEntry(DeviceEntry(name=name, type=type_, required=required), driver)
 
 
-def test_each_device_is_built_by_its_drivers_builder_in_order():
+class _Builder:
+    def __init__(self, build):
+        self.build = build
+
+    def load(self):
+        return self.build
+
+
+@pytest.fixture
+def builders(monkeypatch):
+    """The "Test" driver's builders by type, as the registry would give them; any
+    other driver is one nothing is registered as."""
+    table = {}
+
+    def device_builder(driver, type_):
+        if driver != "Test":
+            raise NotImplementedError(f"Manufacturer {driver} not supported.")
+        build = table.get(type_)
+        return None if build is None else _Builder(build)
+
+    monkeypatch.setattr(registry, "device_builder", device_builder)
+    return table
+
+
+def test_each_device_is_built_by_its_drivers_builder_in_order(builders):
     calls = []
 
-    def build(entry, built):
-        calls.append((entry.name, list(built)))
+    def build(entry, context):
+        calls.append((entry.name, list(context.built), context.microscope))
+        context.shared["seen"] = context.shared.get("seen", 0) + 1
         return entry.name.upper()
 
+    builders.update(stage=build, gis=build)
+    shared = {}
     built = build_device_entries(
-        [_item("stage", "stage"), _item("gis", "gis")],
-        {"Demo": {"stage": build, "gis": build}},
+        [_item("stage", "stage"), _item("gis", "gis")], "scope", shared=shared
     )
 
     assert built == {"stage": "STAGE", "gis": "GIS"}
-    # A later builder sees the devices built before it.
-    assert calls == [("stage", []), ("gis", ["stage"])]
+    # A later builder sees the devices built before it, and the same scratch space.
+    assert calls == [("stage", [], "scope"), ("gis", ["stage"], "scope")]
+    assert shared == {"seen": 2}
 
 
-def test_a_device_without_a_builder_is_skipped_with_a_warning(caplog):
+def test_a_device_without_a_builder_is_skipped_with_a_warning(builders, caplog):
+    builders["gis"] = lambda entry, context: "gis"
     with caplog.at_level(logging.WARNING):
         built = build_device_entries(
-            [_item("laser", "laser"), _item("gis", "gis", driver="remote")],
-            {"Demo": {"gis": lambda entry, built: "gis"}},
+            [_item("laser", "laser"), _item("gis", "gis", driver="remote")], None
         )
 
     assert built == {}
-    assert "'laser' was not built: driver 'Demo' has no builder" in caplog.text
+    assert "'laser' was not built: driver 'Test' has no builder" in caplog.text
     assert "'gis' was not built: driver 'remote' has no builder" in caplog.text
 
 
-def test_a_required_device_without_a_builder_fails_connect():
+def test_a_required_device_without_a_builder_fails_connect(builders):
     with pytest.raises(DeviceBuildError, match="'laser' was not built"):
-        build_device_entries([_item("laser", "laser", required=True)], {})
+        build_device_entries([_item("laser", "laser", required=True)], None)
 
 
-def test_a_builder_that_fails_skips_its_device_unless_it_is_required(caplog):
-    def broken(entry, built):
+def test_a_builder_that_fails_skips_its_device_unless_it_is_required(builders, caplog):
+    def broken(entry, context):
         raise RuntimeError("no answer")
 
+    builders["gis"] = broken
     with caplog.at_level(logging.WARNING):
-        built = build_device_entries([_item("gis", "gis")], {"Demo": {"gis": broken}})
+        built = build_device_entries([_item("gis", "gis")], None)
     assert built == {}
     assert "building it failed: no answer" in caplog.text
 
     with pytest.raises(DeviceBuildError, match="no answer"):
-        build_device_entries(
-            [_item("gis", "gis", required=True)], {"Demo": {"gis": broken}}
-        )
+        build_device_entries([_item("gis", "gis", required=True)], None)
 
 
 # -- on the Demo -------------------------------------------------------------------

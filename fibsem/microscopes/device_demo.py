@@ -55,13 +55,13 @@ from fibsem import manufacturers
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
-from fibsem.devices.core import Device
-from fibsem.devices.drivers.demo import bind_demo_fm, demo_device_builders
+from fibsem.devices.core import Device, resources_of
+from fibsem.devices.drivers.demo import bind_demo_fm
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.fm.api import DeviceFluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
-from fibsem.microscopes.registry import DriverEntry
+from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
 from fibsem.microscopes.simulator import (
     SIMULATOR_KNOWN_UNKNOWN_KEYS,
     DemoConfiguration,
@@ -140,6 +140,12 @@ DRIVER = DriverEntry(
     manufacturer=manufacturers.DEMO,
     microscope_class="fibsem.microscopes.device_demo:DemoMicroscope",
     config={"port": 7520, "ion-column-tilt": 52, "electron-column-tilt": 0},
+    devices={
+        device_type: DeviceBuilder(
+            f"fibsem.devices.drivers.demo:build_demo_{device_type}"
+        )
+        for device_type in ("beam", "stage", "chamber", "manipulator", "gis")
+    },
 )
 
 
@@ -181,8 +187,10 @@ class DemoMicroscope(
             for item in resolve_system_devices(self.system, DEMO_DEVICES)
             if item.type != "fm"
         ]
-        builders = {manufacturers.DEMO: demo_device_builders(self, start=parts)}
-        built = build_device_entries(resolved, builders)
+        # The builders start from this microscope's parts (``fibsem.devices.drivers
+        # .demo``), so the devices and the shared demo code begin the same.
+        shared = {manufacturers.DEMO: (resources_of(self), parts)}
+        built = build_device_entries(resolved, self, shared=shared)
         types = {item.name: item.type for item in resolved}
         gis = {name: device for name, device in built.items() if types[name] == "gis"}
         for name, device in built.items():
@@ -214,7 +222,7 @@ class DemoMicroscope(
         if devices is not None:
             return dict(devices)
         simulated = self.fm
-        devices = bind_demo_fm(self, simulated)
+        devices = bind_demo_fm(self, simulated, config=self.system.fm.to_dict())
         self.fm = DemoFluorescenceMicroscope(devices, parent=self)
         # The saved focus is the session's, so the FM API keeps it; the configured
         # one was applied to the simulated FM's objective before the devices existed.

@@ -70,6 +70,16 @@ def test_the_geometry_tab_shows_the_configured_numbers(qapp, microscope):
     assert f"{fm_origin * 1e3:.2f} mm" in text  # the plain position, not an offset
 
 
+def test_the_geometry_tab_shows_the_declared_fib_pose_rotation(qapp, microscope):
+    """Read from the pose the stage declares (FIB-1101), not `stage.rotation_180`."""
+    import math
+
+    microscope.get_orientation("FIB").r = math.radians(123.0)
+    window = MicroscopeConfigurationWindow(microscope)
+
+    assert "123°  (derived)" in _texts(window.tabs.widget(1))
+
+
 def test_devices_say_who_reported_them(microscope):
     """sim-iflm states `has_gis_multichem: false` -- the simulator's stand-in for the
     instrument answering -- and says nothing about the manipulator, so the backend's

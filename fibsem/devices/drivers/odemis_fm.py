@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 import numpy as np
 
@@ -531,11 +531,14 @@ class OdemisFM(FM):
 
 
 def bind_odemis_fm(
-    parent: Any = None, resources: Optional[Resources] = None
+    parent: Any = None,
+    resources: Optional[Resources] = None,
+    config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Device]:
     """The METEOR's FM parts and group, by device name, from the odemis backend on
     this computer: its components by role, and one ``FluoStream`` over them, as
-    ``OdemisFluorescenceMicroscope`` builds it."""
+    ``OdemisFluorescenceMicroscope`` builds it. *config* is the fm entry's own
+    keys (``mount_transform``)."""
     resources = resources if resources is not None else resources_of(parent)
     camera = model.getComponent(role="ccd")
     light_source = model.getComponent(role="light")
@@ -558,5 +561,6 @@ def bind_odemis_fm(
         "light_source": OdemisFMLightSource(stream, **common),
         "filter_set": OdemisFMFilterSet(stream, **common),
     }
+    parts["camera"].configure(config)
     group = OdemisFM(stream, **common).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}

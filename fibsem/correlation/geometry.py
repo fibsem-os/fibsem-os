@@ -337,14 +337,14 @@ def _complete_fm_pose(
 ) -> Optional[FibsemStagePosition]:
     """A usable FM pose from the recorded position, completing r and t from the geometry.
 
-    Both mountings image at a pose the hardware fixes, so a recorded position
-    missing rotation and tilt can be completed rather than refused:
+    Both mountings image at a pose the stage declares (FIB-1101), stamped on the
+    image or rebuilt for an older one (`FibsemHardwareGeometry.declared_poses`), so a
+    recorded position missing rotation and tilt can be completed rather than refused:
 
-    * a **compustage** turns the grid over to face the objective underneath it:
-      r = 0, t = -180 deg (``get_orientation("FM")``);
-    * an **offset mount** sits parallel to the ion column, so the sample is imaged
-      at the stage's FIB orientation: r = ``rotation_180``,
-      t = ``fib_column_tilt - shuttle_pre_tilt`` (``get_orientation("FIB")``). An
+    * a **compustage** declares an FM pose, the grid turned over to face the
+      objective underneath it (r at the reference, t = -180 deg);
+    * an **offset mount** declares none, and sits parallel to the ion column, so the
+      sample is imaged at the stage's FIB pose (``get_orientation("FIB")``). An
       odemis-written METEOR stack records its position in odemis's own frame with no
       r or t; with this pose the composed transform lands 5-6 degrees from all seven
       saved METEOR fits, versus 30 degrees with the FIB image's own (milling) pose.
@@ -353,11 +353,9 @@ def _complete_fm_pose(
         return None
     if recorded.r is not None and recorded.t is not None:
         return recorded
-    if fib_geometry.is_compustage:
-        r, t = 0.0, np.radians(-180.0)
-    else:
-        r = np.radians(fib_geometry.rotation_180)
-        t = np.radians(fib_geometry.fib_column_tilt - fib_geometry.shuttle_pre_tilt)
+    poses = fib_geometry.declared_poses()
+    pose = poses.get("FM", poses["FIB"])
+    r, t = pose.r, pose.t
     return dataclasses.replace(
         recorded,
         r=float(r) if recorded.r is None else recorded.r,

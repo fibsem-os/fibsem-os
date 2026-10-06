@@ -40,6 +40,7 @@ from typing import (
 
 import numpy as np
 
+from fibsem.devices.fm import mount_transform_from_name
 from fibsem.fm.microscope import (
     Camera,
     FilterSet,
@@ -53,6 +54,7 @@ from fibsem.fm.progress import (
 )
 from fibsem.fm.structures import (
     REFLECTION,
+    CameraImageTransform,
     ChannelSettings,
     EmissionFilter,
     FluorescenceChannelMetadata,
@@ -348,6 +350,17 @@ class DeviceFluorescenceMicroscope(FluorescenceMicroscope):
                 channel = channel_settings.to_dict()
             frame = self.devices["fm"].acquire_frame(channel)
             return self._construct_image(frame.data, frame.metadata)
+
+    @property
+    def mount_transform(self) -> CameraImageTransform:
+        """How the camera is mounted, as its device reports it, so an FM on another
+        computer brings its own. A camera without the parameter (a server from before
+        it) is mounted straight, as every FM was. Read once and kept: every frame
+        uses it, and a mount does not change."""
+        camera = self.devices["camera"]
+        if "mount_transform" not in camera.parameters:
+            return CameraImageTransform.NONE
+        return mount_transform_from_name(_param(camera, "mount_transform").cached)
 
     @property
     def runs_z_stack_on_device(self) -> bool:

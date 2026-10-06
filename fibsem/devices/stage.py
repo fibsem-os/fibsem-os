@@ -98,6 +98,14 @@ def compustage_poses(
     return poses
 
 
+def tilted_past_vertical(tilt: float) -> bool:
+    """Whether a stage tilt in radians has the sample turned over: past -90 degrees.
+
+    The default for `Stage.turned_over`, and for a backend without a stage device.
+    """
+    return tilt < math.radians(-90)
+
+
 def axis_limits_from_degrees(limits: Mapping[str, RangeLimit]) -> Dict[str, RangeLimit]:
     """Per-axis limits in the axes' units, from limits that give rotations in degrees
     (as today's ``_get_axis_limits`` does)."""
@@ -280,6 +288,14 @@ class Stage(Device):
             fib_column_tilt,
             rotates="r" in self.axes,
         )
+
+    def turned_over(self, tilt: float) -> bool:
+        """Whether the sample is turned over at this stage tilt, in radians.
+
+        Past -90 degrees by default, which only a compustage reaches. A stage that
+        turns the sample over somewhere else overrides this.
+        """
+        return tilted_past_vertical(tilt)
 
     # -- what a backend implements -------------------------------------------------
 

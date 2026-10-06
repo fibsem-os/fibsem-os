@@ -25,7 +25,15 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
-from fibsem.structures import BeamType, ChamberState, FibsemStagePosition, Point
+from fibsem.structures import (
+    BeamType,
+    ChamberState,
+    FibsemImage,
+    FibsemRectangle,
+    FibsemStagePosition,
+    ImageSettings,
+    Point,
+)
 
 if TYPE_CHECKING:
     from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
@@ -226,6 +234,75 @@ class OdemisBeam(Beam):
             logging.warning(
                 f"Detector contrast {value} not available, mut be between 0 and 1."
             )
+
+    # Imaging and autocontrast, moved from ``OdemisThermoMicroscope`` as they are; the
+    # FibsemImage is built by the microscope's ``_construct_image``, as before. No
+    # ``_auto_focus``: the client has no focus call, and the working-distance sweep
+    # stays ``microscope.auto_focus``'s. No ``_live``: Odemis has no live view.
+
+    def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
+        microscope, client, channel = self.parent, self._client, self.channel
+        if image_settings is None:
+            # acquire_image(beam_type=...): the beam's current settings
+            image, _md = client.acquire_image(channel=channel, frame_settings=None)
+            return microscope._construct_image(
+                image, microscope._current_image_settings(self.beam_type, image)
+            )
+
+        if image_settings.reduced_area is not None:
+            area = image_settings.reduced_area
+            client.set_reduced_area_scan_mode(
+                channel=channel,
+                left=area.left,
+                top=area.top,
+                width=area.width,
+                height=area.height,
+            )
+        else:
+            client.set_full_frame_scan_mode(channel=channel)
+
+        # A square resolution can't be set, but a frame can be grabbed at one: set
+        # the current resolution and ask for the square in the frame settings.
+        frame_settings = None
+        tmp_resolution = None
+        resolution = image_settings.resolution
+        if resolution[0] == resolution[1]:
+            frame_settings = {"resolution": f"{resolution[0]}x{resolution[1]}"}
+            tmp_resolution = resolution
+            image_settings.resolution = microscope.get_resolution(
+                beam_type=self.beam_type
+            )
+        microscope.set_imaging_settings(image_settings)
+
+        image, _md = client.acquire_image(
+            channel=channel, frame_settings=frame_settings
+        )
+
+        if image_settings.reduced_area is not None:
+            client.set_full_frame_scan_mode(channel=channel)
+        if tmp_resolution is not None:
+            image_settings.resolution = tmp_resolution
+        microscope._last_imaging_settings = image_settings
+        return microscope._construct_image(image, image_settings)
+
+    def _last_image(self) -> FibsemImage:
+        microscope = self.parent
+        image = self._client.get_last_image(channel=self.channel)
+        # The client is annotated as returning (image, metadata), but the AutoScript
+        # adapter (1.16.0) returns the bare array.
+        if isinstance(image, tuple):
+            image = image[0]
+        return microscope._construct_image(
+            image, microscope._current_image_settings(self.beam_type, image)
+        )
+
+    def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
+        client, channel = self._client, self.channel
+        if reduced_area is not None:
+            client.set_reduced_area_scan_mode(channel, **reduced_area.to_dict())
+        client.run_auto_contrast_brightness(channel=channel)
+        if reduced_area is not None:
+            client.set_full_frame_scan_mode(channel)
 
 
 def bind_odemis_beams(

@@ -2486,6 +2486,18 @@ class StageSystemSettings:
         So a value that was never chosen is now computed, and the one case it could not
         express without a coincidence -- a stage with no rotation axis -- is asked of
         the field named for it.
+
+        Readers move to the whole FIB pose (FIB-1101): a rotation alone does not say
+        where a stage faces the ion beam, which a stage can reach by tilting instead.
+        ``microscope.get_orientation("FIB")``, or an image's
+        ``hardware_geometry.declared_poses()["FIB"]``.
+        """
+        return self._fib_rotation()
+
+    def _fib_rotation(self) -> float:
+        """The FIB pose's rotation by the configured rule, in degrees.
+
+        What images stamp as ``rotation_180``, which old readers of an image still use.
         """
         if not self.rotation:
             return self.rotation_reference
@@ -2983,14 +2995,31 @@ class FluorescenceSystemSettings:
     focus_position: Optional[float] = None
     limit_position: Optional[float] = None
 
+    # The flip that puts the camera's frames into the stage's axes, from how it is
+    # mounted (`none`, `flip-x`, `flip-y`, `flip-xy`). A fact about this instrument,
+    # found by watching which way a feature moves in the FM view as the stage moves.
+    # Absent is none, as every FM has been. An FM on its own PC states its own on
+    # its server (`--mount-transform`), so this is not read for `driver: remote`.
+    mount_transform: "CameraImageTransform" = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.mount_transform is None:
+            self.mount_transform = CameraImageTransform.NONE
+
     def to_dict(self) -> dict:
-        return {
+        """The fm entry's own keys, as the configuration writes them and as every FM
+        binder receives them (``config``)."""
+        settings = {
             "enabled": self.enabled,
             "driver": self.driver,
             "address": self.address,
             "port": self.port,
             "required": self.required,
         }
+        # Written only when stated, so a file that never named it is saved unchanged.
+        if self.mount_transform is not CameraImageTransform.NONE:
+            settings["mount_transform"] = self.mount_transform.value
+        return settings
 
     def objective_to_dict(self) -> dict:
         return {
@@ -3016,7 +3045,17 @@ class FluorescenceSystemSettings:
                 if settings.get("required") is not None
                 else None
             ),
+            mount_transform=_mount_transform(settings.get("mount_transform")),
         )
+
+
+def _mount_transform(name: Optional[str]) -> "CameraImageTransform":
+    from fibsem.devices.fm import mount_transform_from_name
+
+    try:
+        return mount_transform_from_name(name)
+    except ValueError as e:
+        raise ValueError(f"hardware.devices: fm: {e}") from None
 
 
 # The devices configuration v1 had a block for, and their type. Each has its own record
@@ -3563,7 +3602,7 @@ class FibsemHardwareGeometry:
             fib_column_tilt=system.ion.column_tilt,
             shuttle_pre_tilt=system.stage.shuttle_pre_tilt,
             rotation_reference=system.stage.rotation_reference,
-            rotation_180=system.stage.rotation_180,
+            rotation_180=system.stage._fib_rotation(),
             is_compustage=is_compustage,
             rotation_centre=(
                 rotation_centre
