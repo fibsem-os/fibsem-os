@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import threading
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -63,7 +63,9 @@ if TYPE_CHECKING:
     from fibsem.fm.microscope import LightSource as FMClassLightSource
     from fibsem.fm.microscope import ObjectiveLens as FMClassObjectiveLens
     from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.microscopes.registry import BuildContext
     from fibsem.microscopes.simulator import DemoParts
+    from fibsem.structures import DeviceEntry
 
 
 class DemoBeam(Beam):
@@ -637,6 +639,58 @@ def bind_demo_gis(
     return DemoGasInjector(microscope, resources, start).connect()
 
 
+# -- Builders by entry --------------------------------------------------------------
+#
+# The Demo driver's device builders (``DRIVER.devices`` in ``device_demo``): each
+# builds one device from its ``hardware.devices`` entry. The devices of one connect
+# share their starting parts and resources, as the ``bind_demo_*`` calls above do,
+# through the build context, and each device is named after its entry.
+
+
+def _demo_start(context: "BuildContext") -> Tuple[Resources, "DemoParts"]:
+    from fibsem.microscopes.simulator import initial_demo_parts
+
+    if "Demo" not in context.shared:
+        microscope = context.microscope
+        context.shared["Demo"] = (
+            resources_of(microscope),
+            initial_demo_parts(microscope.system),
+        )
+    return context.shared["Demo"]
+
+
+def _named(device: Device, entry: "DeviceEntry") -> Device:
+    device.name = entry.name
+    return device.connect()
+
+
+def build_demo_beam(entry: "DeviceEntry", context: "BuildContext") -> DemoBeam:
+    """The beam an ``electron`` or ``ion`` entry names."""
+    if entry.name not in ("electron", "ion"):
+        raise ValueError("a Demo beam is named 'electron' or 'ion'")
+    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    resources, start = _demo_start(context)
+    return DemoBeam(beam_type, context.microscope, resources, start).connect()
+
+
+def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> DemoStage:
+    return _named(DemoStage(context.microscope, *_demo_start(context)), entry)
+
+
+def build_demo_chamber(entry: "DeviceEntry", context: "BuildContext") -> DemoChamber:
+    return _named(DemoChamber(context.microscope, *_demo_start(context)), entry)
+
+
+def build_demo_manipulator(
+    entry: "DeviceEntry", context: "BuildContext"
+) -> DemoManipulator:
+    return _named(DemoManipulator(context.microscope, *_demo_start(context)), entry)
+
+
+def build_demo_gis(entry: "DeviceEntry", context: "BuildContext") -> DemoGasInjector:
+    return _named(DemoGasInjector(context.microscope, *_demo_start(context)), entry)
+
+
 # -- The FM -------------------------------------------------------------------------
 #
 # The simulated FM's parts as devices. Each keeps its own simulated part in sim_*
@@ -937,9 +991,11 @@ def bind_demo_fm(
     microscope: DemoMicroscope,
     fm: FluorescenceMicroscope,
     resources: Optional[Resources] = None,
+    config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Device]:
     """Build the FM's parts and group for a connected Demo microscope, each starting
-    where the simulated FM ``fm``'s part is, by device name."""
+    where the simulated FM ``fm``'s part is, by device name. *config* is the fm
+    entry's own keys (``mount_transform``)."""
     resources = resources if resources is not None else resources_of(microscope)
     parts: Dict[str, Device] = {
         "camera": DemoCamera(fm.camera, microscope, resources),
@@ -947,5 +1003,6 @@ def bind_demo_fm(
         "filter_set": DemoFilterSet(fm.filter_set, microscope, resources),
         "objective": DemoObjective(fm.objective, microscope, resources),
     }
+    parts["camera"].configure(config)
     group = DemoFM(microscope, resources).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}

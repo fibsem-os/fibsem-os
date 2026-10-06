@@ -167,6 +167,11 @@ def _degrees(value: Optional[float]) -> str:
     return NOT_STATED if value is None else f"{value:g}°"
 
 
+def _fib_rotation(microscope: FibsemMicroscope) -> float:
+    """The rotation of the pose the stage declares for the ion beam, in degrees."""
+    return math.degrees(microscope.get_orientation("FIB").r) % 360
+
+
 # ---- the tabs -------------------------------------------------------------------------
 
 SOURCE_LABELS = {"instrument": "Instrument", "backend": "Backend default"}
@@ -299,7 +304,10 @@ def geometry_tab(microscope: FibsemMicroscope) -> QWidget:
     stage_form = _form(
         [
             ("Rotation reference", _degrees(stage.rotation_reference)),
-            ("Facing the ion beam", f"{_degrees(stage.rotation_180)}  (derived)"),
+            (
+                "Facing the ion beam",
+                f"{_degrees(_fib_rotation(microscope))}  (derived)",
+            ),
             (
                 "Rotation axis",
                 ("Yes" if stage.rotation else "No") + "  (reported by the stage)",

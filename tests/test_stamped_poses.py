@@ -70,3 +70,22 @@ def test_a_file_without_poses_loads_with_none():
     del ddict["poses"]
 
     assert FibsemHardwareGeometry.from_dict(ddict).poses == {}
+
+
+def test_an_fm_position_without_r_or_t_takes_the_stamped_pose():
+    """A stage that keeps its rotation and tilts to the ion beam (JEOL-style)
+    completes to the FIB pose it stamped, not to a half turn from the reference."""
+    from fibsem.correlation.geometry import _complete_fm_pose
+    from fibsem.structures import FibsemStagePosition
+
+    geometry = FibsemHardwareGeometry(
+        rotation_reference=0.0,
+        rotation_180=180.0,
+        fib_column_tilt=52.0,
+        shuttle_pre_tilt=0.0,
+        poses={"SEM": (0.0, 0.0), "FIB": (0.0, 52.0)},
+    )
+    completed = _complete_fm_pose(FibsemStagePosition(x=0, y=0, z=0), geometry)
+
+    assert math.degrees(completed.r) == pytest.approx(0.0)
+    assert math.degrees(completed.t) == pytest.approx(52.0)

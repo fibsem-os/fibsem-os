@@ -15,6 +15,7 @@ import os
 import sys
 from types import MappingProxyType
 
+import numpy as np
 import pytest
 
 import fibsem.config as cfg
@@ -22,6 +23,7 @@ from fibsem import utils
 from fibsem.structures import (
     BeamType,
     FibsemDetectorSettings,
+    FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
@@ -104,6 +106,11 @@ READS = {
     "get_pressure": 1e-5,
 }
 
+# The frames the fake client's imaging calls return.
+FRAME = np.full((4, 6), 7, dtype=np.uint8)
+READS["acquire_image"] = (FRAME, {})
+READS["get_last_image"] = FRAME
+
 
 class FakeClient:
     """The ``fibsem`` component: records every call, and answers reads from READS."""
@@ -175,6 +182,12 @@ def _plain(value):
         return value.to_dict()
     if isinstance(value, ImageSettings):
         return value.to_dict()
+    if isinstance(value, FibsemImage):
+        return {
+            "shape": list(value.data.shape),
+            "settings": value.metadata.image_settings.to_dict(),
+            "pixel_size": _plain(value.metadata.pixel_size),
+        }
     if isinstance(value, (list, tuple)):
         return [_plain(v) for v in value]
     return value
@@ -282,13 +295,23 @@ def _beam_cases():
         )
         yield (
             f"reduced area {name}",
-            lambda m, b=beam_type: m.set_reduced_area_scanning_mode(
-                FibsemRectangle(0.1, 0.1, 0.5, 0.5), b
-            ),
+            lambda m, b=beam_type: m.set_reduced_area_scanning_mode(AREA, b),
         )
         yield (
             f"full frame {name}",
             lambda m, b=beam_type: m.set_full_frame_scanning_mode(b),
+        )
+        yield (
+            f"set spot_mode {name}",
+            lambda m, b=beam_type: m.set("spot_mode", Point(0.25, 0.75), b),
+        )
+        yield (
+            f"set reduced_area {name}",
+            lambda m, b=beam_type: m.set("reduced_area", AREA, b),
+        )
+        yield (
+            f"set full_frame {name}",
+            lambda m, b=beam_type: m.set("full_frame", None, b),
         )
         for key in ("current", "voltage", "detector_type", "detector_mode"):
             yield (
@@ -296,6 +319,56 @@ def _beam_cases():
                 lambda m, k=key, b=beam_type: sorted(m.get_available_values(k, b)),
             )
 
+
+AREA = FibsemRectangle(0.25, 0.25, 0.5, 0.5)
+
+
+def _image_settings(beam_type, square=False, reduced=False):
+    return ImageSettings(
+        beam_type=beam_type,
+        resolution=(1024, 1024) if square else (1536, 1024),
+        dwell_time=2e-7,
+        hfw=80e-6,
+        reduced_area=FibsemRectangle(0.1, 0.2, 0.3, 0.4) if reduced else None,
+        path="/data",
+        filename="img",
+    )
+
+
+def _imaging_cases():
+    for b in (BeamType.ELECTRON, BeamType.ION):
+        name = b.name
+        yield (
+            f"acquire settings {name}",
+            lambda m, b=b: m.acquire_image(_image_settings(b)),
+        )
+        yield (
+            f"acquire square {name}",
+            lambda m, b=b: m.acquire_image(_image_settings(b, square=True)),
+        )
+        yield (
+            f"acquire reduced {name}",
+            lambda m, b=b: m.acquire_image(_image_settings(b, reduced=True)),
+        )
+        yield (f"acquire current {name}", lambda m, b=b: m.acquire_image(beam_type=b))
+        yield (
+            f"acquire both {name}",
+            lambda m, b=b: m.acquire_image(_image_settings(b), beam_type=b),
+        )
+        yield (
+            f"acquire last settings {name}",
+            lambda m, b=b: (
+                m.acquire_image(_image_settings(b, square=True)),
+                m._last_imaging_settings,
+            )[1],
+        )
+        yield (f"last image {name}", lambda m, b=b: m.last_image(b))
+        yield (f"autocontrast {name}", lambda m, b=b: m.autocontrast(b))
+        yield (f"autocontrast area {name}", lambda m, b=b: m.autocontrast(b, AREA))
+    yield ("acquire nothing", lambda m: m.acquire_image())
+
+
+IMAGING_CASES = tuple(_imaging_cases())
 
 STAGE_CASES = (
     ("get stage_position", lambda m: m.get("stage_position")),
@@ -342,7 +415,15 @@ CHAMBER_CASES = tuple(
     ("set vent_chamber False", lambda m: m.set("vent_chamber", False)),
 )
 
-CASES = tuple(_beam_cases()) + STAGE_CASES + CHAMBER_CASES
+CASES = tuple(_beam_cases()) + IMAGING_CASES + STAGE_CASES + CHAMBER_CASES
+# The old code had no reduced_area key: the set, and the method that made it, warned
+# and did nothing. The beam's reduced_area command makes the client call instead.
+REDUCED_AREA = {
+    key: call
+    for key, call in CASES
+    if key.startswith(("reduced area", "set reduced_area"))
+}
+SAME = tuple((key, call) for key, call in CASES if key not in REDUCED_AREA)
 
 # The calls the devices add, after the old call's first: the home command reads
 # back whether the stage is homed, as ``home()`` always has, so a bare
@@ -358,13 +439,29 @@ EXTRA_READS = {
 }
 
 
-@pytest.mark.parametrize("key,call", CASES, ids=[key for key, _ in CASES])
+@pytest.mark.parametrize("key,call", SAME, ids=[key for key, _ in SAME])
 def test_the_devices_make_the_same_odemis_calls_logs_and_results(odemis_cls, key, call):
     old = run(make(odemis_cls, devices=False), call)
     new = run(make(odemis_cls), call)
     READS["get_chamber_state"] = "vacuum"
     calls = old[1][:1] + EXTRA_READS.get(key, []) + old[1][1:]
     assert new == (old[0], calls, old[2])
+
+
+@pytest.mark.parametrize("key", sorted(REDUCED_AREA))
+def test_the_reduced_area_is_set_where_the_old_code_warned(odemis_cls, key):
+    call = REDUCED_AREA[key]
+    old = run(make(odemis_cls, devices=False), call)
+    assert old[1] == []
+    assert old[2][0][0] == "WARNING" and "Unknown key: reduced_area" in old[2][0][1]
+    new = run(make(odemis_cls), call)
+    channel = "electron" if key.endswith("ELECTRON") else "ion"
+    area = {"left": 0.25, "top": 0.25, "width": 0.5, "height": 0.5}
+    assert new == (
+        None,
+        [["set_reduced_area_scan_mode", [], {"channel": channel, **area}]],
+        [],
+    )
 
 
 def test_the_cases_make_odemis_calls(odemis_cls):
@@ -383,7 +480,7 @@ def test_creating_the_microscope_builds_the_beams_and_stage(odemis_cls):
     assert "plasma_gas" not in electron.parameters
     assert "preset" not in electron.parameters
     assert "scanning_mode" not in electron.parameters
-    assert not electron.commands["spot"].available
+    assert electron.commands["spot"].available  # with no read back
     assert electron.current.choices[0] == 1e-12
     assert electron.voltage.choices == sorted(electron.voltage.choices)
     assert sorted(electron.detector_type.choices) == ["ETD", "TLD"]
@@ -399,6 +496,7 @@ def test_the_calls_go_through_the_devices(odemis_cls):
     for device, hooks in (
         (microscope.stage, ("_move_absolute", "_move_relative", "_home")),
         (microscope.chamber_device, ("_pump", "_vent")),
+        (microscope.beams[BeamType.ION], ("_spot", "_reduced_area", "_full_frame")),
     ):
         for hook in hooks:
             original = getattr(device, hook)
@@ -414,9 +512,47 @@ def test_the_calls_go_through_the_devices(odemis_cls):
     microscope.pump()
     microscope.vent()
     assert used == ["_move_absolute", "_move_relative", "_home", "_pump", "_vent"]
+    used.clear()
+    microscope.set("spot_mode", Point(0.5, 0.5), BeamType.ION)
+    microscope.set("reduced_area", AREA, BeamType.ION)
+    microscope.set("full_frame", None, BeamType.ION)
+    microscope.set_full_frame_scanning_mode(BeamType.ION)
+    assert used == ["_spot", "_reduced_area", "_full_frame", "_full_frame"]
     beam = microscope.beams[BeamType.ION]
     microscope.set("hfw", 50e-6, BeamType.ION)
     assert beam.hfw.cached == 50e-6
+
+
+def test_imaging_goes_through_the_beam_commands(odemis_cls):
+    microscope = make(odemis_cls)
+    used = []
+    for beam in microscope.beams.values():
+        for command in ("acquire", "last_image", "autocontrast"):
+            original = getattr(beam, command)
+
+            def wrapper(*args, _name=f"{beam.name}.{command}", _f=original, **kw):
+                used.append(_name)
+                return _f(*args, **kw)
+
+            setattr(beam, command, wrapper)
+    sem, fib = microscope.beams[BeamType.ELECTRON], microscope.beams[BeamType.ION]
+    microscope.acquire_image(_image_settings(BeamType.ELECTRON))
+    microscope.acquire_image(beam_type=BeamType.ION)
+    microscope.last_image(BeamType.ION)
+    microscope.autocontrast(BeamType.ELECTRON, AREA)
+    assert used == [
+        f"{sem.name}.acquire",
+        f"{fib.name}.acquire",
+        f"{fib.name}.last_image",
+        f"{sem.name}.autocontrast",
+    ]
+    available = {n for n, info in sem.commands.items() if info.available}
+    assert {"acquire", "last_image", "autocontrast"} <= available
+    # the working-distance sweep is not the instrument's routine, and there is no
+    # live view: both stay on the microscope
+    assert not sem.commands["auto_focus"].available
+    assert not sem.commands["start_live"].available
+    assert microscope._live_beams() == []
 
 
 def test_a_disabled_column_gets_no_device(odemis_cls):

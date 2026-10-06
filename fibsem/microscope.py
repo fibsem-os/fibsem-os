@@ -30,6 +30,7 @@ from psygnal import Signal
 
 import fibsem.constants as constants
 from fibsem import manufacturers
+from fibsem.devices.beam import BEAM_COMMAND_ROUTES
 from fibsem.devices.core import IMAGING_CHANNEL, Resources
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import (
@@ -866,13 +867,14 @@ class FibsemMicroscope(ABC):
         wd = self.get_working_distance(beam_type=BeamType.ELECTRON)
 
         scan_rotation = self.get_scan_rotation(beam_type=BeamType.ION)
+        stage_tilt = self.get_stage_position().t
         stage_position = vertical_move_delta(
             dx=dx,
             dy=dy,
             scan_rotation=scan_rotation,
             fib_column_tilt=self.system.ion.column_tilt,
-            stage_tilt=self.get_stage_position().t,
-            is_compustage=self.stage_is_compustage,
+            stage_tilt=stage_tilt,
+            turned_over=self._stage_turned_over(stage_tilt),
             relaxation=relaxation,
         )
         logging.info(f"Vertical movement: {stage_position}")
@@ -1100,6 +1102,12 @@ class FibsemMicroscope(ABC):
         fm = self.system.fm
         if fm.driver != FM_DRIVER_REMOTE or not self._fluorescence_is_configured():
             return None
+        if fm.mount_transform is not CameraImageTransform.NONE:
+            logging.warning(
+                "The configuration states the FM's mount_transform, but this FM is "
+                "remote: its server states its own (--mount-transform), and that "
+                "is what is used."
+            )
         if fm.address is None or fm.port is None:
             message = (
                 "The fluorescence microscope is configured as remote but has no "
@@ -1823,6 +1831,23 @@ class FibsemMicroscope(ABC):
             return None
         return getattr(device, command_route[1])
 
+    def _route_scan_command(
+        self, key: str, beam_type: Optional[BeamType]
+    ) -> Optional[Callable[[Any], None]]:
+        """The beam's scan command a scan-mode set key (``spot_mode``,
+        ``reduced_area``, ``full_frame``) has moved to, taking the key's value, if the
+        beam has it; None leaves the key to `_set`."""
+        name = BEAM_COMMAND_ROUTES.get(key)
+        if name is None or beam_type is None:
+            return None
+        beam = self._scan_beam(beam_type)
+        if beam is None:
+            return None
+        run = getattr(beam, name)
+        if name == "full_frame":
+            return lambda _value: run()  # the old key ignored its value
+        return run
+
     def _unsupported(self, method: str) -> NotImplementedError:
         """The error an optional method raises on a backend that does not have it.
 
@@ -1872,7 +1897,10 @@ class FibsemMicroscope(ABC):
         command = self._route_command(key)
         if key in _VERBS_THAT_NEED_TRUE and not value:
             command = None
-        if command is not None:
+        scan = self._route_scan_command(key, beam_type)
+        if scan is not None:
+            scan(value)
+        elif command is not None:
             command()
         elif param is not None:
             param.write_through(value)
@@ -3090,6 +3118,17 @@ class FibsemMicroscope(ABC):
             raise ValueError(f"Orientation {orientation} not supported.")
 
         return self.orientations[orientation]
+
+    def _stage_turned_over(self, tilt: float) -> bool:
+        """Whether the stage has the sample turned over at this tilt, in radians.
+
+        The stage device says (FIB-1124); a backend without one gets its default.
+        """
+        if self.stage_device is not None:
+            return self.stage_device.turned_over(tilt)
+        from fibsem.devices.stage import tilted_past_vertical
+
+        return tilted_past_vertical(tilt)
 
     def _stage_poses(self) -> Dict[str, FibsemStagePosition]:
         """The stage's pose for each orientation name, from the configured geometry.

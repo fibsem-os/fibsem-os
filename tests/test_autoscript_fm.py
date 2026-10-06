@@ -240,6 +240,7 @@ def test_the_drivers_are_the_fm_devices(facts):
         "binning",
         "exposure_time",
         "gain",
+        "mount_transform",
         "offset",
         "pixel_size",
         "resolution",
@@ -366,4 +367,6 @@ def test_a_thermo_microscope_builds_its_fm_from_the_devices(facts):
         "live_timeout": None,
         "shares_the_microscope_lock": True,
         "parent": True,
+        # As the configuration's fm entry states it.
+        "mount_transform": "flip-y",
     }

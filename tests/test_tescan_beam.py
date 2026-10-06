@@ -160,6 +160,7 @@ def test_the_parity_cases_make_sdk_calls():
                 "dwell_time",
                 "hfw",
                 "on",
+                "preset",
                 "resolution",
                 "scan_rotation",
                 "shift",
@@ -194,7 +195,10 @@ def test_each_column_has_what_its_api_has(monkeypatch, beam_type, parameters):
     assert isinstance(beam, TescanBeam)
     assert sorted(beam.parameters) == parameters
     available = sorted(n for n, c in beam.commands.items() if c.available)
-    assert available == ["acquire"]
+    imaging = ["acquire", "autocontrast", "last_image", "start_live", "stop_live"]
+    # the ion column has no focus control
+    focus = ["auto_focus"] if beam_type is BeamType.ELECTRON else []
+    assert available == sorted(imaging + focus)
 
 
 def test_what_the_api_refuses_reads_as_not_settable(monkeypatch):
@@ -213,7 +217,7 @@ def test_what_the_api_refuses_reads_as_not_settable(monkeypatch):
         "scan_rotation",
         "shift",
     ]
-    assert settable[E] == sorted(common + ["voltage", "working_distance"])
+    assert settable[E] == sorted(common + ["preset", "voltage", "working_distance"])
     assert settable[I] == sorted(common + ["preset"])
 
 
@@ -221,10 +225,7 @@ def test_what_the_api_refuses_reads_as_not_settable(monkeypatch):
 @pytest.mark.parametrize("key", ["current", "detector_type", "preset"])
 def test_the_choices_are_get_available_values(monkeypatch, beam_type, key):
     microscope, _ = connect(monkeypatch, _system())
-    param = microscope.beams[beam_type].parameters.get(key)
-    if param is None:  # the electron column's preset
-        assert (beam_type, key) == (E, "preset")
-        return
+    param = microscope.beams[beam_type].parameters[key]
     assert list(param.choices) == microscope.get_available_values(key, beam_type)
 
 

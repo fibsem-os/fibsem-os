@@ -687,6 +687,7 @@ def test_the_drivers_are_the_fm_devices(odemis):
         "binning",
         "exposure_time",
         "gain",
+        "mount_transform",
         "offset",
         "pixel_size",
         "resolution",
@@ -923,10 +924,16 @@ def test_api_live_view_runs_the_stream_as_the_old_live_view(odemis, channel):
 
 
 def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
+    from types import SimpleNamespace
+
     import fibsem.microscopes.odemis_microscope as odemis_microscope
+    from fibsem.structures import CameraImageTransform, FluorescenceSystemSettings
 
     microscope = odemis_microscope.OdemisThermoMicroscope.__new__(
         odemis_microscope.OdemisThermoMicroscope
+    )
+    microscope.system = SimpleNamespace(
+        fm=FluorescenceSystemSettings(mount_transform=CameraImageTransform.FLIP_X)
     )
     world = _World(_components("inserted"))
     _CURRENT.append(world)
@@ -945,3 +952,5 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
     ]
     assert fm.devices["fm"].live_timeout is None
     assert all(d.parent is microscope for d in fm.devices.values())
+    # As the configuration's fm entry states it.
+    assert fm.mount_transform is CameraImageTransform.FLIP_X
