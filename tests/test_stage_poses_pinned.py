@@ -20,8 +20,8 @@ reported by AutoScript, so it is pinned here as connect leaves it on an Arctis, 
 those two facts set the way `ThermoMicroscope` sets them.
 
 Readers measured, with the stage at each declared pose:
-- `vertical_move`, whose compustage branch flips dy unless the stage is tilted past
-  -90 degrees (FIB-1124 step 2);
+- `vertical_move`, which reverses dy once the stage is tilted past -90 degrees (a
+  compustage at its FIB and FM poses; FIB-1124 step 2);
 - the geometry stamped onto images (`hardware_geometry`);
 - `transformations._projection_terms`, the pre-tilt sign of the view-corrected move;
 - `coincidence.geometry_from_images`, whether it warns about the flipped side;
