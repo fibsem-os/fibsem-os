@@ -158,8 +158,8 @@ def geometry_from_images(
     the projections the images record - so a saved pair is self-sufficient,
     usable offline with no microscope connection.
 
-    A pair taken nearer the flipped (rotation_180 / FIB-orientation) side
-    than the reference side is measured - the projections carry the
+    A pair taken with the shuttle nearer half a turn from the reference rotation
+    (the FIB orientation of a rotating stage) is measured - the projections carry the
     half-turn - but logged: validated on the simulator only, where the loop
     converges exactly at the FIB orientation, and not yet on hardware.
 
@@ -168,19 +168,15 @@ def geometry_from_images(
     """
     from copy import deepcopy
 
-    from fibsem.movement import angle_difference
+    from fibsem.geometry.frames import StageModel
     from fibsem.projection import BeamStageProjection, surface_foreshortening
 
     md = sem_image.metadata
     pixel_size = md.pixel_size.x
     stage_position = md.microscope_state.stage_position
 
-    stage_rotation = stage_position.r or 0.0
-    rotation_reference = np.deg2rad(md.hardware_geometry.rotation_reference)
-    rotation_180 = np.deg2rad(md.hardware_geometry.rotation_180)
-    if angle_difference(stage_rotation, rotation_180) < angle_difference(
-        stage_rotation, rotation_reference
-    ):
+    model = StageModel.from_geometry(md.hardware_geometry)
+    if model.turned_round(stage_position.r or 0.0):
         logging.warning(
             "Coincidence measurement on the flipped (FIB-orientation) side: "
             "validated on the simulator only, not yet on hardware (FIB-868)."
@@ -1038,16 +1034,16 @@ def _undo_surface_walk(
     the individual moves. One stable move follows the surface, so it does
     not cost the coincidence just restored.
     """
+    from fibsem.geometry.frames import StageModel
     from fibsem.projection import BeamStageProjection
     from fibsem.structures import BeamType
-    from fibsem.transformations import _projection_terms
 
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)
     if projection is None:
         logging.warning("Cannot undo the tilt walk: no SEM projection available")
         return
     now = microscope.get_stage_position()
-    _, pretilt, _ = _projection_terms(projection.geometry, now.r or 0.0, now.t or 0.0)
+    pretilt = StageModel.from_geometry(projection.geometry).surface_slope(now.r or 0.0)
     dy, dz = tilt_swing(
         tilt_axis_offset,
         float(start_pose.t or 0.0),

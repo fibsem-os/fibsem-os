@@ -46,6 +46,11 @@ def rotate_z(angle: float) -> np.ndarray:
 UP = np.array([0.0, 0.0, 1.0])
 
 
+def _wrap(angle: float) -> float:
+    """An angle in (-pi, pi]."""
+    return float(np.pi - (np.pi - angle) % (2 * np.pi))
+
+
 @dataclass(frozen=True)
 class StageModel:
     """A stage's kinematics: where its axes and the sample surface point in the chamber.
@@ -97,6 +102,20 @@ class StageModel:
         normal = self.shuttle(r) @ UP
         direction = np.array([normal[2], -normal[1]])
         return float(direction[0]), float(direction[1])
+
+    def surface_slope(self, r: float) -> float:
+        """The in-plane slide's angle below the stage y-axis, in radians.
+
+        The pre-tilt at the reference rotation, minus the pre-tilt half a turn round,
+        and in between whatever the shuttle's lean gives.
+        """
+        direction_y, direction_z = self.in_plane_direction(r)
+        return float(np.arctan2(-direction_z, direction_y))
+
+    def turned_round(self, r: float) -> bool:
+        """Whether the shuttle is nearer half a turn from the reference than the reference."""
+        from_reference = abs(_wrap(r - self.rotation_reference))
+        return from_reference > np.pi / 2
 
     def chamber_vertical(self, t: float) -> Tuple[float, float]:
         """The stage (y, z) move that goes straight up the chamber by one unit."""

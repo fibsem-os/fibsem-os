@@ -237,3 +237,24 @@ def test_a_click_between_the_poses_follows_the_shuttles_lean():
     dy, dz = view_corrected_stage_movement(20e-6, 0.0, geometry, np.pi / 2, 0.0)
     assert dy == pytest.approx(20e-6)
     assert dz == pytest.approx(0.0, abs=1e-18)
+
+
+def test_the_surface_slope_is_todays_corrected_pre_tilt(stage):
+    """What coincidence's tilt walk and the sim scene read: the pre-tilt with the
+    sign `_projection_terms` gave it, at every pose."""
+    from fibsem.transformations import _projection_terms
+
+    geometry, poses = stage
+    model = StageModel.from_geometry(geometry)
+    for name, r, t in _poses_to_check(geometry, poses):
+        _, pretilt, _ = _projection_terms(geometry, r, t)
+        assert model.surface_slope(r) == pytest.approx(pretilt, abs=1e-12), name
+
+
+def test_turned_round_is_the_half_turn_from_the_reference():
+    model = StageModel(rotation_reference=np.deg2rad(180.0))
+    assert not model.turned_round(np.deg2rad(180.0))
+    assert not model.turned_round(np.deg2rad(-95.0))
+    assert not model.turned_round(np.deg2rad(90.0))
+    assert model.turned_round(np.deg2rad(85.0))
+    assert model.turned_round(0.0)
