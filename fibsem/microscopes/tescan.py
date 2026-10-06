@@ -1656,18 +1656,13 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         """Get a property of the microscope.
 
         The keys the beam and stage devices answer are not here (FIB-1161). What is
-        left is what no device has yet: the chamber and the presets list.
+        left is the presets list. fibsem does not drive the Tescan chamber (its support
+        was removed), so its keys are unknown here.
         """
         # stage properties
         if key == "stage_position":
             # only reached without a stage device: an enabled stage answers it
             raise ValueError("Stage is not enabled.")
-
-        # chamber properties
-        if key == "chamber_state":
-            return self.connection.Chamber.GetStatus()
-        if key == "chamber_pressure":
-            return self.connection.Chamber.GetPressure(0)
 
         if key == "presets":
             return self._get_presets(beam_type=beam_type)
