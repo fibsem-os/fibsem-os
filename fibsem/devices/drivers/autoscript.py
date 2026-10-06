@@ -29,13 +29,14 @@ import numpy as np
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
-from fibsem.devices.core import ParameterMetadata, Resources
+from fibsem.devices.core import Device, ParameterMetadata, Resources
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
 from fibsem.structures import (
     BeamType,
     ChamberState,
+    DeviceEntry,
     FibsemImage,
     FibsemManipulatorPosition,
     FibsemRectangle,
@@ -49,6 +50,7 @@ from fibsem.structures import (
 
 if TYPE_CHECKING:
     from fibsem.microscopes.autoscript import ThermoMicroscope
+    from fibsem.microscopes.registry import BuildContext
 
 
 class AutoscriptStage(Stage):
@@ -968,3 +970,44 @@ def bind_autoscript_gis(
             microscope, MULTICHEM, resources
         ).connect()
     return devices
+
+
+# -- Builders by entry --------------------------------------------------------------
+#
+# The Thermo driver's device builders (``DRIVER.devices`` in ``autoscript``): each
+# builds one device from its ``hardware.devices`` entry, on the microscope's
+# connection, and names it after its entry. ``ThermoMicroscope`` builds them in steps,
+# as connect learns what is fitted (``_build_beams``, ``_build_stage``,
+# ``_build_parts``).
+
+
+def _named(device: Device, entry: DeviceEntry) -> Device:
+    device.name = entry.name
+    return device.connect()
+
+
+def build_autoscript_beam(entry: DeviceEntry, context: BuildContext) -> AutoscriptBeam:
+    """The column an ``electron`` or ``ion`` entry names."""
+    if entry.name not in ("electron", "ion"):
+        raise ValueError("a Thermo beam is named 'electron' or 'ion'")
+    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    return AutoscriptBeam(beam_type, context.microscope).connect()
+
+
+def build_autoscript_stage(
+    entry: DeviceEntry, context: BuildContext
+) -> AutoscriptStage:
+    microscope = context.microscope
+    return _named(autoscript_stage_class(microscope)(microscope), entry)
+
+
+def build_autoscript_chamber(
+    entry: DeviceEntry, context: BuildContext
+) -> AutoscriptChamber:
+    return _named(AutoscriptChamber(context.microscope), entry)
+
+
+def build_autoscript_manipulator(
+    entry: DeviceEntry, context: BuildContext
+) -> AutoscriptManipulator:
+    return _named(AutoscriptManipulator(context.microscope), entry)
