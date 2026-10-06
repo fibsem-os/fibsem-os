@@ -7,8 +7,8 @@ carry a type, a unit, and the limits and choices the instrument reports; its com
 are plain methods that a UI, the agent server or a remote client can list; and both
 emit events when something changes.
 
-This page covers using devices from a script or from the application, configuring
-which devices a microscope builds, and adding a device or a driver. The code examples
+This page covers using devices and services from a script or from the application,
+configuring which devices a microscope builds, and adding a device or a driver. The code examples
 run against the Demo microscope, and the test suite executes them
 (`tests/test_devices_guide.py`), so they stay correct.
 
@@ -268,6 +268,63 @@ left empty is an error at `connect()`, and reading an unfilled optional role rai
 
 Roles are references between devices in the flat `microscope.devices` map, not a
 tree: every device keeps its own unique name.
+
+## Services
+
+A service is something the instrument does with its devices over time, such as
+milling. It has the same shape as a device (parameters, commands, roles and change
+events) but is not hardware, so it is not in `microscope.devices`. The microscope holds
+each service as an attribute, built by its driver as devices are. One beam's own
+operation is a command on the beam (imaging, the scan modes); anything that
+coordinates devices or runs steps over time is a service. The base class is
+`fibsem.services.Service`.
+
+### Milling
+
+`microscope.milling` is the milling service. It reaches the beams through its roles,
+`ion` and, on a dual beam, `electron`:
+
+```python
+from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+
+microscope, settings = utils.setup_session(manufacturer="Demo")
+milling = microscope.milling
+ion = microscope.beams[BeamType.ION]
+imaging_current = ion.current.get_value()
+
+milling.prepare(
+    FibsemMillingSettings(milling_current=2e-9),
+    [FibsemRectangleSettings(width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0)],
+)
+milling.estimate()            # seconds
+milling.start()               # starts, and returns
+milling.state.get_value()     # MillingState.RUNNING
+milling.stop()
+
+milling.clear()
+milling.restore()             # the ion beam back as the first setup found it
+assert ion.current.get_value() == imaging_current
+```
+
+`setup(settings)` applies the recipe, `draw(patterns)` adds patterns, and `prepare`
+does both. `start`, `pause`, `resume` and `stop` run it, `state` says where it is,
+and `clear` removes the patterns. The first `setup` saves the milling beam's preset,
+voltage, current and field of view, and `restore` writes them back, so the beam ends
+as milling found it on every backend.
+
+Workflow code mills through `fibsem.milling` (milling stages, strategies and
+`fibsem.milling.tasks.run_milling_task`), as before. The microscope's named milling methods (`setup_milling`,
+`draw_rectangle`, `start_milling`, `finish_milling`, ...) keep their signatures and go
+to the service; `finish_milling` restores the beam. On a backend that has no milling
+service yet, or with the ion column disabled, `microscope.milling` is `None` and those
+methods use the backend's own milling code.
+
+A driver adds milling by subclassing `fibsem.services.milling.Milling` and
+implementing its hooks (`_setup`, `_draw`, `_start`, `_stop`, `_pause`, `_resume`,
+`_estimate`, `_clear` and `read_state`) the way its instrument mills. The driver also
+applies the recipe's beam conditions, since backends use different recipe fields.
+`bind_milling(MyMilling, microscope)` builds it over the microscope's beams.
+`fibsem/services/drivers/demo.py` is the reference.
 
 ## From get/set to devices
 
