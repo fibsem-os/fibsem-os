@@ -48,6 +48,7 @@ from fibsem.structures import (
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
     FM_DRIVER_REMOTE,
+    STAGE_FRAME_FIBSEM,
     BeamSettings,
     BeamSystemSettings,
     BeamType,
@@ -272,6 +273,14 @@ class _PerInstance:
             if self._name not in instance.__dict__:
                 instance.__dict__[self._name] = self._factory(instance)
             return instance.__dict__[self._name]
+
+
+# The names the beams have in `FibsemMicroscope.devices`, which are their
+# configuration entries' names.
+_BEAM_DEVICE_NAMES: Dict[BeamType, str] = {
+    BeamType.ELECTRON: "electron",
+    BeamType.ION: "ion",
+}
 
 
 class FibsemMicroscope(ABC):
@@ -744,9 +753,10 @@ class FibsemMicroscope(ABC):
         self.stage.move_through(position, relative=True)
         return self.get_stage_position()
 
-    # The view-corrected moves below are shared by every backend but Tescan, which has
-    # its own stage model. The geometry is in `fibsem.geometry.movement`; these read the
-    # instrument, command the move and look after the working distance.
+    # The view-corrected moves below are shared by every backend; Tescan's stage converts
+    # to this frame (FIB-1114) and keeps only its own SEM-view coincidence move. The
+    # geometry is in `fibsem.geometry.movement`; these read the instrument, command the
+    # move and look after the working distance.
 
     # TODO: migrate from stable_move vocab to sample_stage
     @_records_stage_move
@@ -825,7 +835,7 @@ class FibsemMicroscope(ABC):
                 the old hard-coded 0.9, which was found to be absorbing a
                 decomposition error rather than correcting perspective (FIB-773).
                 Every backend must accept it, because ensure_coincident passes it;
-                a backend may ignore it (Tescan does).
+                a backend may ignore it (Tescan's SEM-view move does).
 
         Raises:
             NotImplementedError: if this backend cannot correct from that view.
@@ -856,13 +866,14 @@ class FibsemMicroscope(ABC):
         wd = self.get_working_distance(beam_type=BeamType.ELECTRON)
 
         scan_rotation = self.get_scan_rotation(beam_type=BeamType.ION)
+        stage_tilt = self.get_stage_position().t
         stage_position = vertical_move_delta(
             dx=dx,
             dy=dy,
             scan_rotation=scan_rotation,
             fib_column_tilt=self.system.ion.column_tilt,
-            stage_tilt=self.get_stage_position().t,
-            is_compustage=self.stage_is_compustage,
+            stage_tilt=stage_tilt,
+            turned_over=self._stage_turned_over(stage_tilt),
             relaxation=relaxation,
         )
         logging.info(f"Vertical movement: {stage_position}")
@@ -1619,14 +1630,60 @@ class FibsemMicroscope(ABC):
     # new API's validation, so the old API behaves the same either way. Both mappings
     # are empty until a backend builds its devices, so today every key takes the old
     # path. They are read-only here; a backend replaces them, never mutates them.
-    beams: Mapping[BeamType, Any] = MappingProxyType({})
+    #
+    # Every device this microscope built, by name, in the order they were built:
+    # `electron`, `ion`, `stage`, `chamber`, `manipulator`, each gas injector by its
+    # name, and the FM group and parts by theirs (`fm`, `camera`, ...). The typed
+    # attributes below (`beams`, `stage`, `chamber_device`, ...) are views of it, and
+    # assigning one is how a backend adds its devices, so the two can't disagree.
+    _devices = _PerInstance(lambda _: {})
+
+    @property
+    def devices(self) -> Mapping[str, Any]:
+        """Every device this microscope built, by name. Read-only.
+
+        `devices["stage"] is microscope.stage`, `devices["electron"] is
+        microscope.beams[BeamType.ELECTRON]`, and the FM's parts are under the names
+        the device server serves them by. Empty on a backend that builds no devices.
+        """
+        return MappingProxyType(self._devices)
+
+    def _set_device(self, name: str, device: Optional[Any]) -> None:
+        """Put *device* in the map as *name*, or take *name* out when it is None."""
+        if device is None:
+            self._devices.pop(name, None)
+        else:
+            self._devices[name] = device
+
+    @property
+    def beams(self) -> Mapping[BeamType, Any]:
+        """The beam devices, by beam type: the `electron` and `ion` devices."""
+        return MappingProxyType(
+            {
+                beam_type: self._devices[_BEAM_DEVICE_NAMES[beam_type]]
+                for beam_type in _BEAM_DEVICE_NAMES
+                if _BEAM_DEVICE_NAMES[beam_type] in self._devices
+            }
+        )
+
+    @beams.setter
+    def beams(self, beams: Mapping[BeamType, Any]) -> None:
+        for beam_type, name in _BEAM_DEVICE_NAMES.items():
+            self._set_device(name, (beams or {}).get(beam_type))
+
     # The stage as a device (fibsem.devices.Stage), once a backend builds one. The
     # stage methods below use it when it is there and today's keys when it is not.
     # A backend whose stage device keeps its own state also routes the stage keys
     # (`_device_routes`, `_command_routes`), so `get("stage_position")` and the
     # device can't disagree. A backend keeps its vendor stage object private
     # (`_vendor_stage` on Thermo and Odemis).
-    stage: Optional[Any] = None
+    @property
+    def stage(self) -> Optional[Any]:
+        return self._devices.get("stage")
+
+    @stage.setter
+    def stage(self, device: Optional[Any]) -> None:
+        self._set_device("stage", device)
 
     @property
     def stage_device(self) -> Optional[Any]:
@@ -1641,15 +1698,92 @@ class FibsemMicroscope(ABC):
     # .Manipulator), named `*_device` because `chamber` is taken on Demo.
     # As with the stage, their keys are not routed: the methods that read them
     # (pump/vent, get_manipulator_state/position) use the device directly.
-    chamber_device: Optional[Any] = None
-    manipulator_device: Optional[Any] = None
-    # The gas injection system as a device (fibsem.devices.GasInjector); it has no
-    # keys, and `cryo_deposition_v2` runs its sequence through the device.
-    gis_device: Optional[Any] = None
+    @property
+    def chamber_device(self) -> Optional[Any]:
+        return self._devices.get("chamber")
+
+    @chamber_device.setter
+    def chamber_device(self, device: Optional[Any]) -> None:
+        self._set_device("chamber", device)
+
+    @property
+    def manipulator_device(self) -> Optional[Any]:
+        return self._devices.get("manipulator")
+
+    @manipulator_device.setter
+    def manipulator_device(self, device: Optional[Any]) -> None:
+        self._set_device("manipulator", device)
+
+    # The gas injectors as devices (fibsem.devices.GasInjector), by name; they have
+    # no keys. `gis_device` is the one a caller of the device API means -- the
+    # multichem, or a lone port -- and `cryo_deposition_v2` runs its sequence
+    # through it. A backend that builds one injector sets only `gis_device`.
+    _gis_names = _PerInstance(lambda _: [])
+    _gis_name: Optional[str] = None
+
+    @property
+    def gis_devices(self) -> Mapping[str, Any]:
+        names = list(self._gis_names)
+        if self._gis_name is not None and self._gis_name not in names:
+            names.append(self._gis_name)
+        return MappingProxyType(
+            {name: self._devices[name] for name in names if name in self._devices}
+        )
+
+    @gis_devices.setter
+    def gis_devices(self, devices: Mapping[str, Any]) -> None:
+        for name in self._gis_names:
+            if name != self._gis_name:
+                self._devices.pop(name, None)
+        self._gis_names[:] = list(devices or {})
+        for name, device in (devices or {}).items():
+            self._devices[name] = device
+
+    @property
+    def gis_device(self) -> Optional[Any]:
+        if self._gis_name is None:
+            return None
+        return self._devices.get(self._gis_name)
+
+    @gis_device.setter
+    def gis_device(self, device: Optional[Any]) -> None:
+        if self._gis_name is not None and self._gis_name not in self._gis_names:
+            self._devices.pop(self._gis_name, None)
+        if device is None:
+            self._gis_name = None
+            return
+        name = next(
+            (n for n in self._gis_names if self._devices.get(n) is device),
+            getattr(device, "name", None) or "gis",
+        )
+        self._gis_name = name
+        self._devices[name] = device
+
     # The FM's parts and its group as devices (fibsem.devices.fm), by device name,
     # beside `fm`. They drive the same FM objects `fm` holds, so the two share one
-    # state. Empty when there is no FM or the backend builds no devices.
-    fm_devices: Mapping[str, Any] = MappingProxyType({})
+    # state. Empty when there is no FM or the backend builds no devices. In
+    # `devices` they keep the names the device server serves them by (`fm`,
+    # `camera`, `light_source`, `filter_set`, `objective`).
+    _fm_names = _PerInstance(lambda _: [])
+
+    @property
+    def fm_devices(self) -> Mapping[str, Any]:
+        return MappingProxyType(
+            {
+                name: self._devices[name]
+                for name in self._fm_names
+                if name in self._devices
+            }
+        )
+
+    @fm_devices.setter
+    def fm_devices(self, devices: Mapping[str, Any]) -> None:
+        for name in self._fm_names:
+            self._devices.pop(name, None)
+        self._fm_names[:] = list(devices or {})
+        for name, device in (devices or {}).items():
+            self._devices[name] = device
+
     _beam_routes: Mapping[str, str] = MappingProxyType({})
     # Keys with no beam type that have moved to a device: key -> (device attribute,
     # parameter), e.g. "stage_position" -> ("stage", "position"). The
@@ -2220,11 +2354,6 @@ class FibsemMicroscope(ABC):
         logging.debug(
             {"msg": "apply_configuration", "system_settings": system_settings.to_dict()}
         )
-
-    def check_available_values(
-        self, key: str, values, beam_type: Optional[BeamType] = None
-    ) -> bool:
-        raise self._unsupported("check_available_values")
 
     def home(self) -> bool:
         """Home the stage."""
@@ -2963,6 +3092,17 @@ class FibsemMicroscope(ABC):
 
         return self.orientations[orientation]
 
+    def _stage_turned_over(self, tilt: float) -> bool:
+        """Whether the stage has the sample turned over at this tilt, in radians.
+
+        The stage device says (FIB-1124); a backend without one gets its default.
+        """
+        if self.stage_device is not None:
+            return self.stage_device.turned_over(tilt)
+        from fibsem.devices.stage import tilted_past_vertical
+
+        return tilted_past_vertical(tilt)
+
     def _stage_poses(self) -> Dict[str, FibsemStagePosition]:
         """The stage's pose for each orientation name, from the configured geometry.
 
@@ -3331,7 +3471,13 @@ class FibsemMicroscope(ABC):
             is_compustage=self.stage_is_compustage,
             rotation_centre=self.rotation_centre,
             poses=self._stage_poses(),
+            stage_frame=self.stage_frame,
         )
+
+    @property
+    def stage_frame(self) -> str:
+        """The frame the stage reports positions in: the stage device's, else fibsem's."""
+        return getattr(self.stage_device, "frame", STAGE_FRAME_FIBSEM)
 
     def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
         """Report a fact for the experiment's record on ``record_signal``.
@@ -3790,9 +3936,9 @@ class FibsemMicroscope(ABC):
         # every place-term answer is about somewhere its FM is not.
         if not self.stage_is_compustage and devices == DEFAULT_STAGE_DEVICES:
             logging.warning(
-                "A fluorescence microscope is enabled but no `stage.devices` block "
-                "is declared, so the FM defaults to the beams' origin. An offset "
-                "mount (METEOR, iFLM) must declare its traverse -- see "
+                "A fluorescence microscope is enabled but its device entry declares "
+                "no `origin`, so the FM defaults to the beams' origin. An offset "
+                "mount (METEOR, iFLM) must declare where it is -- see "
                 "sim-iflm-configuration.yaml."
             )
 

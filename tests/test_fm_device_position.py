@@ -65,7 +65,7 @@ def test_the_devices_come_from_the_configuration_file():
 
     assert microscope.get_device_origin("FIBSEM").x == pytest.approx(0.0)
     assert microscope.get_device_origin("FM").x == pytest.approx(48.8e-3)
-    # The file is version 1: its shared `device_range` is copied onto the FM.
+    # The FM entry states its own range: the 20 mm version 1 shared between devices.
     assert microscope.system.stage.devices["FM"].range.x == pytest.approx(20.0e-3)
     assert microscope.system.stage.devices["FIBSEM"].range is None
 
@@ -82,9 +82,8 @@ def test_a_configuration_that_says_nothing_gets_the_objective_under_the_grid():
     """
     default, _ = utils.setup_session(config_path=cfg.MICROSCOPE_CONFIGURATION_PATH)
 
-    assert (
-        "devices"
-        not in utils.load_yaml(cfg.MICROSCOPE_CONFIGURATION_PATH)["hardware"]["stage"]
+    assert "origin" not in utils.configuration_device(
+        utils.load_yaml(cfg.MICROSCOPE_CONFIGURATION_PATH), "fm"
     )
     assert default.system.stage.devices == DEFAULT_STAGE_DEVICES
 
@@ -274,13 +273,15 @@ def test_the_available_orientations_survive_a_round_trip():
 def test_a_configuration_that_says_nothing_can_still_see_the_sample():
     """The default has to be a working compustage, not an empty list.
 
-    Neither shipped compustage configuration declares a `devices:` block, so if the
+    Neither shipped compustage configuration declares an FM `origin`, so if the
     default said nothing about the pose the conjunction would be false at the one
     place an Arctis takes fluorescence images.
     """
     microscope = _microscope(ARCTIS_CONFIG)
 
-    assert "devices" not in utils.load_yaml(ARCTIS_CONFIG)["hardware"]["stage"]
+    assert "origin" not in utils.configuration_device(
+        utils.load_yaml(ARCTIS_CONFIG), "fm"
+    )
     assert microscope.system.stage.devices["FM"].available_orientations == ["FM"]
 
 

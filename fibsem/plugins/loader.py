@@ -1,7 +1,7 @@
 """Load fibsem's entry point groups, and remember what happened.
 
-fibsem exposes three plugin groups -- ``fibsem.patterns``,
-``fibsem.strategies`` and ``fibsem.tasks`` -- each loaded by what used to be
+fibsem's class plugin groups -- ``fibsem.patterns``,
+``fibsem.strategies`` and ``fibsem.tasks`` -- were each loaded by what used to be
 three near-identical private functions. They returned ``{name: class}`` and
 wrote every failure to a log line, which meant the two questions a user
 actually asks could not be answered:
@@ -29,17 +29,37 @@ module-level ``MILLING_PATTERNS = get_patterns()`` -- so this code runs while
 ``fibsem.milling.base`` is only half initialised, and any import reaching back
 into it raises. The base class and the name-extraction callable are therefore
 passed in as arguments rather than imported here.
+
+A group whose plugins are not classes passes ``resolve`` instead: it turns what
+the entry point loaded into the name and object to register, and raises
+:class:`PluginRejected` to refuse it. ``fibsem.drivers`` does, because its
+entry points are functions returning a ``DriverEntry``.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Type
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+)
 
 __all__ = [
     "PluginRecord",
+    "PluginRegistry",
+    "PluginRejected",
     "load_entry_point_group",
+    "subclass_of",
     "plugin_classes",
     "clear_cache",
 ]
@@ -50,7 +70,7 @@ class PluginRecord:
     """One declared entry point, and what became of it.
 
     A record exists whether or not the plugin loaded, so a failure is
-    reportable rather than only loggable. ``cls`` and ``name`` are ``None``
+    reportable rather than only loggable. ``obj`` and ``name`` are ``None``
     exactly when ``error`` is set.
     """
 
@@ -73,8 +93,9 @@ class PluginRecord:
     version: Optional[str] = None
     """The providing distribution's version, if it could be determined."""
 
-    cls: Optional[type] = None
-    """The loaded class, or ``None`` if it failed."""
+    obj: Any = None
+    """What it registered (a class, or a driver's ``DriverEntry``), or ``None``
+    if it failed."""
 
     name: Optional[str] = None
     """The name it registered under, or ``None`` if it failed."""
@@ -85,6 +106,15 @@ class PluginRecord:
     @property
     def loaded(self) -> bool:
         return self.error is None
+
+    @property
+    def cls(self) -> Any:
+        """``obj``, under the name the class groups read it by."""
+        return self.obj
+
+
+class PluginRejected(Exception):
+    """Raised by a ``resolve`` callable to refuse a plugin; the message says why."""
 
 
 # One load per group per process, mirroring the @cache the registries used to
@@ -133,11 +163,37 @@ def _distribution_of(entry_point: Any) -> Tuple[Optional[str], Optional[str]]:
         return None, None
 
 
+Resolver = Callable[[Any], Tuple[str, Any]]
+"""Turns what an entry point loaded into ``(name, object to register)``."""
+
+
+def subclass_of(base_cls: type, name_of: Callable[[type], str]) -> Resolver:
+    """The resolver for a group of classes: each must subclass ``base_cls``, and
+    registers under ``name_of(cls)``."""
+
+    def resolve(obj: Any) -> Tuple[str, Any]:
+        # issubclass() raises rather than returning False when handed a
+        # non-class, which an entry point pointing at a function or a constant
+        # does. Check first, so the reason names the real problem.
+        if not isinstance(obj, type):
+            raise PluginRejected(f"{type(obj).__name__} is not a class")
+        if not issubclass(obj, base_cls):
+            raise PluginRejected(f"not a subclass of {base_cls.__name__}")
+        try:
+            name = name_of(obj)
+        except Exception as exc:
+            raise PluginRejected(f"could not read its name: {exc}") from exc
+        return name, obj
+
+    return resolve
+
+
 def load_entry_point_group(
     group: str,
-    base_cls: type,
-    name_of: Callable[[type], str],
-    kind: str,
+    base_cls: Optional[type] = None,
+    name_of: Optional[Callable[[type], str]] = None,
+    kind: str = "plugin",
+    resolve: Optional[Resolver] = None,
 ) -> Tuple[PluginRecord, ...]:
     """Load every entry point in ``group``, returning a record for each.
 
@@ -147,6 +203,8 @@ def load_entry_point_group(
         name_of: Extracts the name a loaded class registers under. Patterns and
             strategies use ``cls.name``; tasks use ``cls.config_cls.task_type``.
         kind: Singular noun for log messages, e.g. ``"pattern"``.
+        resolve: In place of ``base_cls`` and ``name_of``, for a group whose
+            plugins are not classes: see :data:`Resolver`.
 
     Returns:
         One record per declared entry point, in discovery order. Never raises:
@@ -156,8 +214,25 @@ def load_entry_point_group(
     cached = _CACHE.get(group)
     if cached is not None:
         return cached
+    if resolve is None:
+        if base_cls is None or name_of is None:
+            raise TypeError("pass either resolve, or base_cls and name_of")
+        resolve = subclass_of(base_cls, name_of)
 
-    records = []
+    # Empty while loading, so a plugin that asks for its own group as it loads
+    # gets nothing rather than starting a second walk.
+    _CACHE[group] = ()
+    try:
+        loaded = tuple(_load(group, kind, resolve))
+    except BaseException:
+        del _CACHE[group]
+        raise
+    _CACHE[group] = loaded
+    return loaded
+
+
+def _load(group: str, kind: str, resolve: Resolver) -> List[PluginRecord]:
+    records: List[PluginRecord] = []
     for entry_point in _entry_points(group):
         distribution, version = _distribution_of(entry_point)
         record = PluginRecord(
@@ -180,50 +255,40 @@ def load_entry_point_group(
             records.append(replace(record, error=f"{type(exc).__name__}: {exc}"))
             continue
 
-        # issubclass() raises rather than returning False when handed a
-        # non-class, which an entry point pointing at a function or a constant
-        # does. Check first, so the reason names the real problem.
-        if not isinstance(obj, type):
-            reason = f"{type(obj).__name__} is not a class"
-            logging.warning("Invalid %s plugin found: '%s' %s", kind, entry_point.value, reason)
-            records.append(replace(record, error=reason))
-            continue
-
-        if not issubclass(obj, base_cls):
-            reason = f"not a subclass of {base_cls.__name__}"
-            logging.warning("Invalid %s plugin found: '%s' is %s", kind, entry_point.value, reason)
-            records.append(replace(record, error=reason))
-            continue
-
         try:
-            name = name_of(obj)
-        except Exception as exc:
+            name, registered = resolve(obj)
+        except PluginRejected as exc:
             logging.warning(
-                "Invalid %s plugin found: could not read the name of '%s': %s",
+                "Invalid %s plugin found: '%s': %s", kind, entry_point.value, exc
+            )
+            records.append(replace(record, error=str(exc)))
+            continue
+        except Exception as exc:
+            logging.error(
+                "Unexpected error raised while loading %s from '%s'",
                 kind,
                 entry_point.value,
-                exc,
+                exc_info=True,
             )
-            records.append(replace(record, error=f"could not read its name: {exc}"))
+            records.append(replace(record, error=f"{type(exc).__name__}: {exc}"))
             continue
 
         logging.info("Loaded %s plugin '%s'", kind, name)
-        records.append(replace(record, cls=obj, name=name))
+        records.append(replace(record, obj=registered, name=name))
 
-    loaded = tuple(records)
-    _CACHE[group] = loaded
-    return loaded
+    return records
 
 
 def plugin_classes(records: Tuple[PluginRecord, ...]) -> Dict[str, Type[Any]]:
-    """The ``{name: class}`` mapping the registries merge.
+    """The ``{name: class}`` mapping the registries merge (``{name: object}``
+    for a group with its own ``resolve``).
 
     Built in record order, so when two entry points claim the same name the
     last one wins -- the behaviour these registries have always had. The
     displaced record is still in ``records``, which is how the listing can
     report a collision the mapping cannot express.
     """
-    return {r.name: r.cls for r in records if r.loaded}  # type: ignore[misc]
+    return {r.name: r.obj for r in records if r.loaded}  # type: ignore[misc]
 
 
 def clear_cache() -> None:
@@ -234,3 +299,73 @@ def clear_cache() -> None:
     (``MILLING_PATTERNS``, ``TASK_REGISTRY``), which is worse than a stale list.
     """
     _CACHE.clear()
+
+
+T = TypeVar("T")
+
+
+def qualified_name(obj: Any) -> str:
+    """``module.QualName``, how a listing names a registered class."""
+    return f"{obj.__module__}.{obj.__qualname__}"
+
+
+class PluginRegistry(Generic[T]):
+    """One plugin group: its built-ins, what is registered at runtime, and its
+    entry points.
+
+    When two claim one name, the built-in wins, then the runtime registration,
+    then the plugin (the later plugin, between two). ``fibsem.plugins.report``
+    lists any registry from what it holds.
+    """
+
+    def __init__(
+        self,
+        group: str,
+        kind: str,
+        resolve: Resolver,
+        builtins: Optional[Mapping[str, T]] = None,
+        describe: Callable[[T], str] = qualified_name,
+    ) -> None:
+        self.group = group
+        """The entry point group, e.g. ``"fibsem.patterns"``."""
+        self.kind = kind
+        """Singular noun for log messages, e.g. ``"pattern"``."""
+        self.resolve = resolve
+        self.builtins: Mapping[str, T] = {} if builtins is None else builtins
+        self.registered: Dict[str, T] = {}
+        self.describe = describe
+        """What a listing shows for a registered object."""
+
+    def register(self, name: str, obj: T) -> None:
+        """Register *obj* under *name* at runtime, replacing an earlier one."""
+        self.registered[name] = obj
+        logging.info("Registered %s '%s'", self.kind, name)
+
+    def plugin_records(self) -> Tuple[PluginRecord, ...]:
+        """Every entry point in the group and what became of it, read once.
+
+        Includes the plugins that failed and the ones a built-in or a runtime
+        registration shadows, neither of which :meth:`all` returns.
+        """
+        return load_entry_point_group(self.group, kind=self.kind, resolve=self.resolve)
+
+    def plugins(self) -> Dict[str, T]:
+        """The plugins that loaded, by name."""
+        return plugin_classes(self.plugin_records())
+
+    def all(self) -> Dict[str, T]:
+        """Everything registered, by name, with clashes settled."""
+        return {**self.plugins(), **self.registered, **self.builtins}
+
+    def get(self, name: str) -> Optional[T]:
+        """What *name* is registered as, or ``None``. Looks at the plugins only
+        when neither a built-in nor a runtime registration has the name."""
+        if name in self.builtins:
+            return self.builtins[name]
+        if name in self.registered:
+            return self.registered[name]
+        return self.plugins().get(name)
+
+    def describe_builtin(self, name: str) -> str:
+        """What a listing shows for the built-in *name*."""
+        return self.describe(self.builtins[name])

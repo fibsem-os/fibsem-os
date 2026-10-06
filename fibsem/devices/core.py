@@ -55,6 +55,10 @@ class ParameterReadOnly(Exception):
     """The parameter is bound but cannot be set."""
 
 
+class RoleUnfilled(AttributeError):
+    """The device declares the role, but no device fills it."""
+
+
 Limits = Union[RangeLimit, Mapping[str, RangeLimit]]
 
 
@@ -146,6 +150,48 @@ class Parameter:
     def __repr__(self) -> str:
         unit = f", unit={self.unit!r}" if self.unit else ""
         return f"Parameter({self.type.__name__}{unit})"
+
+
+class Role:
+    """A place on a device that another device fills, typed by what it must be.
+
+    Declared on the class next to the parameters; a builder fills it per instance with
+    `Device.fill_roles`, and the device reaches the filler through the attribute::
+
+        class FM(Device):
+            camera = Role(Camera)
+
+        group.fill_roles(camera=camera)
+        group.camera.acquire()
+
+    The device talks to a role only through its interface, so it doesn't care which
+    driver's device fills it. A required role left unfilled is an error at
+    ``connect()``; reading any unfilled role raises `RoleUnfilled`.
+    """
+
+    def __init__(self, interface: type, required: bool = True, doc: str = ""):
+        self.interface = interface
+        self.required = required
+        self.doc = doc
+        self.name = ""
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = name
+
+    def __get__(self, device: Optional[Device], owner: type) -> Any:
+        if device is None:
+            return self
+        try:
+            return device._roles[self.name]
+        except KeyError:
+            raise RoleUnfilled(
+                f"{type(device).__name__} '{device.name}' has no device in its "
+                f"'{self.name}' role"
+            ) from None
+
+    def __repr__(self) -> str:
+        optional = "" if self.required else ", required=False"
+        return f"Role({self.interface.__name__}{optional})"
 
 
 MetadataSource = Union[ParameterMetadata, Callable[[], ParameterMetadata], None]
@@ -456,6 +502,7 @@ class Device:
         # Without one given, a device claims its parent microscope's resources.
         self.resources = resources if resources is not None else resources_of(parent)
         self._bound: Dict[str, BoundParameter] = {}
+        self._roles: Dict[str, Device] = {}
         self._select_channel: Optional[Callable[[], None]] = None
 
     # -- binding, done by a backend ------------------------------------------------
@@ -468,6 +515,47 @@ class Device:
                 if isinstance(attr, Parameter):
                     found[name] = attr
         return found
+
+    @classmethod
+    def declared_roles(cls) -> Dict[str, Role]:
+        found: Dict[str, Role] = {}
+        for klass in reversed(cls.__mro__):
+            for name, attr in vars(klass).items():
+                if isinstance(attr, Role):
+                    found[name] = attr
+        return found
+
+    def fill_roles(self, **devices: Device) -> Device:
+        """Put a device in each named role. A builder calls this before ``connect()``.
+
+        A name the class doesn't declare, or a device that isn't the role's interface,
+        is an error. Returns the device.
+        """
+        declared = self.declared_roles()
+        for name, device in devices.items():
+            role = declared.get(name)
+            if role is None:
+                raise TypeError(f"{type(self).__name__} has no '{name}' role")
+            if not isinstance(device, role.interface):
+                raise TypeError(
+                    f"{type(self).__name__}.{name} takes a {role.interface.__name__}, "
+                    f"not {type(device).__name__} '{device.name}'"
+                )
+        self._roles.update(devices)
+        return self
+
+    def check_roles(self) -> None:
+        """Raise `RoleUnfilled` if a required role has no device. ``connect()`` calls it."""
+        missing = [
+            name
+            for name, role in self.declared_roles().items()
+            if role.required and name not in self._roles
+        ]
+        if missing:
+            raise RoleUnfilled(
+                f"{type(self).__name__} '{self.name}' has no device in its required "
+                f"roles {missing}"
+            )
 
     def bind(
         self,
@@ -531,9 +619,10 @@ class Device:
         """Bind every parameter this class implements, reading its metadata once.
 
         A backend calls this after constructing its device. A parameter with no
-        ``read_<name>``, or whose ``available_<name>()`` is False, stays absent.
-        Returns the device.
+        ``read_<name>``, or whose ``available_<name>()`` is False, stays absent. A
+        required role with no device is an error. Returns the device.
         """
+        self.check_roles()
         for name in self.declared_parameters():
             read = getattr(self, f"read_{name}", None)
             if read is None:
@@ -564,6 +653,12 @@ class Device:
     def parameters(self) -> Dict[str, BoundParameter]:
         """The parameters this backend bound. A declared one missing here is absent."""
         return dict(self._bound)
+
+    @property
+    def roles(self) -> Dict[str, Device]:
+        """The devices in this device's roles, by role name. A declared one missing
+        here is unfilled."""
+        return dict(self._roles)
 
     @property
     def commands(self) -> Dict[str, CommandInfo]:

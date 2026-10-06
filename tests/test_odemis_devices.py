@@ -459,3 +459,11 @@ def test_an_unlisted_chamber_state_reads_unknown(odemis_cls):
         assert make(odemis_cls).get("chamber_state") == "Unknown"
     finally:
         READS["get_chamber_state"] = "vacuum"
+
+
+def test_setting_the_plasma_gas_reaches_the_not_implemented_write(odemis_cls):
+    """It raised TypeError from the old one-argument check before getting there."""
+    microscope = make(odemis_cls)
+    microscope.system.ion.plasma_gas = "Xenon"
+    with pytest.raises(NotImplementedError):
+        microscope.set("plasma_gas", "Argon", BeamType.ION)
