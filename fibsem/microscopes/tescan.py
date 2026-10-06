@@ -1669,9 +1669,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         if key == "chamber_pressure":
             return self.connection.Chamber.GetPressure(0)
 
-        if key == "presets":
-            return self._get_presets(beam_type=beam_type)
-
         if key == "detector_mode":
             logging.debug(f"Key {key} directly not supported by Tescan API.")
             return None

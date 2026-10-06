@@ -744,18 +744,10 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
         return None
 
     def _set(self, key: str, value: str, beam_type: BeamType = None) -> None:
-        # The devices write every key Odemis has, but for the view and device
-        # selection below. A beam key the beam does not have (preset,
-        # plasma_gas) is unsupported, and is not written.
+        # The devices write every key Odemis has. A beam key the beam does not have
+        # (preset, plasma_gas) is unsupported, and is not written.
         if key in BEAM_ROUTES and beam_type is not None:
             logging.debug(f"{key} is not supported on the {beam_type.name} beam.")
-            return
-
-        if key == "active_view":
-            self.connection.set_active_view(value.value)  # value == BeamType
-            return
-        if key == "active_device":
-            self.connection.set_active_device(value.value)  # value == BeamType
             return
 
         logging.warning(f"Unknown key: {key} ({beam_type})")
