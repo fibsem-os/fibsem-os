@@ -622,3 +622,16 @@ def test_each_fm_acquisition_with_what_and_how_long():
     # no start recorded: taken as when it was recorded
     assert (image["duration"], image["planes"]) == (0.0, 1)
     assert pd.isna(image["path"])
+
+
+def test_an_fm_start_with_an_offset_stays_on_the_instruments_clock():
+    """FM metadata records its start with its offset now (FIB-1190), as the records
+    carry theirs: both drop it, so neither moves into the reader's zone and the
+    acquisition still lasts 42 s, whatever zone this runs in."""
+    started = (T0 + timedelta(seconds=10)).isoformat() + "-03:30"
+    records = [_record("fm_image_acquired", 52, _fm_payload(started, planes=21))]
+
+    (stack,) = event_tables(records).fm.to_dict("records")
+
+    assert (stack["start"], stack["end"]) == tuple(_seconds(10, 52))
+    assert stack["duration"] == 42.0

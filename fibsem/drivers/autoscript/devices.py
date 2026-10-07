@@ -53,7 +53,6 @@ import logging
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -1572,12 +1571,11 @@ class AutoscriptFM(FM):
 
     def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
         # The metadata is read inside the scope too, as the old acquisition reads it,
-        # so it describes the state the frame was taken in.
+        # so it describes the state the frame was taken in. The time is
+        # `FM.acquire_frame`'s, taken before this runs (FIB-1190).
         with self._channel.scope():
-            acquisition_date = datetime.now().isoformat()
             data = self._frame(channel)
-            metadata = {"acquisition_date": acquisition_date, **self._frame_metadata()}
-            return Frame(data, metadata)
+            return Frame(data, self._frame_metadata())
 
     # -- live view: the old fast acquisition, pulled ------------------------------------
 

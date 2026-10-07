@@ -801,8 +801,15 @@ def _fm_file(path):
     return path
 
 
+@pytest.mark.parametrize(
+    "acquired_at",
+    [
+        "2026-09-21T14:00:10",  # before FIB-1190: the instrument's clock, no offset
+        "2026-09-21T14:00:10+10:00",  # after: with it, kept on the instrument's clock
+    ],
+)
 def test_a_recorded_fm_image_is_placed_when_it_started_and_where_its_record_says(
-    tmp_path,
+    tmp_path, acquired_at
 ):
     (tmp_path / "01-test").mkdir()
     recorded = _fm_file(tmp_path / "01-test" / "zstack.ome.tiff")
@@ -815,7 +822,7 @@ def test_a_recorded_fm_image_is_placed_when_it_started_and_where_its_record_says
                 "fm_image_acquired",
                 {
                     "path": "D:\\old-name\\01-test\\zstack.ome.tiff",
-                    "acquired_at": "2026-09-21T14:00:10",
+                    "acquired_at": acquired_at,
                     "channels": [{"name": "GFP"}],
                     "z_positions": [0.0, 1e-6],
                     "stage_position": {

@@ -783,14 +783,15 @@ def _fluorescence_event(path: Path) -> Optional[ReplayEvent]:
 
 
 def _acquisition_time(value: Any) -> Optional[datetime]:
-    """When an FM acquisition started, as its metadata records it."""
+    """When an FM acquisition started, as its metadata records it, on the
+    instrument's clock. An offset (FIB-1190) is dropped, not converted, as the
+    event records' own `t` is: converting put it in this machine's zone, hours
+    from the rest of the run when the two differ."""
     try:
         started = datetime.fromisoformat(str(value))
     except (TypeError, ValueError):
         return None
-    if started.tzinfo is not None:
-        started = started.astimezone().replace(tzinfo=None)
-    return started
+    return started.replace(tzinfo=None)
 
 
 def _fluorescence_what(channels: List[str], planes: int, overview: bool = False) -> str:

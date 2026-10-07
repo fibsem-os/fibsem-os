@@ -46,7 +46,6 @@ method that uses it, so the module still loads where odemis is not installed.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
 
 import numpy as np
@@ -1023,10 +1022,10 @@ class OdemisFM(FM):
     def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
         from fibsem.fm.odemis import _frame_metadata_from_data
 
-        acquisition_date = datetime.now().isoformat()
         data = self._acquire_channel(channel)
-        metadata = {"acquisition_date": acquisition_date, **self._frame_metadata()}
-        # What odemis stamped on the frame at exposure time, over the parts' state.
+        metadata = self._frame_metadata()
+        # What odemis stamped on the frame at exposure time, over the parts' state:
+        # its acquisition date among them, over the time `FM.acquire_frame` took.
         stamped = _frame_metadata_from_data(data) or {}
         metadata.update({key: to_wire(value) for key, value in stamped.items()})
         return Frame(data, metadata)
