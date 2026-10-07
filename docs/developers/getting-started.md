@@ -2,7 +2,7 @@
 
 This page covers the repository layout, how to run the application and the
 tests, and which extension point applies to a given goal. Contribution rules
-(pull request size, the Python 3.8 floor, formatting, tests) are in
+(pull request size, the Python 3.10 floor, formatting, tests) are in
 [CONTRIBUTING.md](../../CONTRIBUTING.md) and [AGENTS.md](../../AGENTS.md).
 The supported extension points are described on
 [Extending fibsemOS](extending.md). Other approaches are possible; open an

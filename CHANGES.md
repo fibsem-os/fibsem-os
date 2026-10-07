@@ -14,6 +14,13 @@ The entries below were first written into the v0.5.2 section, after v0.5.2rc2 wa
 and so describe work that is not in v0.5.2. Everything else since v0.5.2 still needs
 writing up.
 
+### Requirements
+
+- **Python 3.10 or newer is required.** 0.5.3 is the last release that supports
+  Python 3.8 and 3.9, and pip on those versions keeps installing it. Windows 7
+  cannot run Python 3.10: a Windows 7 support PC can stay on 0.5.3, or fibsemOS can
+  run on a Windows 10 or newer computer on the microscope network.
+
 ### Workflow (early access)
 
 - **Every task records what it did.** A task that proposes something (Setup
