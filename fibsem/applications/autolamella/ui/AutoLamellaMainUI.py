@@ -73,6 +73,7 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
+from fibsem.applications.autolamella.ui.quad_overview_page import QuadOverviewPage
 from fibsem.applications.autolamella.ui.review_tab_widget import (
     ReviewTabWidget,
     review_tab_icon,
@@ -2248,6 +2249,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # also re-answers whether the tab can be used, which is only knowable now --
         # whether this system has a fluorescence detector at all.
         self._refresh_overview_microscope()
+        if getattr(self, "quad_overview_page", None) is not None:
+            self.quad_overview_page.set_microscope(
+                self.autolamella_ui.microscope if self.autolamella_ui else None
+            )
         if (
             self.autolamella_ui is not None
             and self.autolamella_ui.microscope is not None
@@ -2454,6 +2459,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.view_controller = MicroscopeViewController(parent=self)
         splitter.addWidget(self.view_controller.widget)
         splitter.addWidget(self.autolamella_ui)
+        # The fourth cell's overview page: the experiment's overviews of the grid the
+        # stage is on. Fed from the same places as the Overview tabs, below.
+        self.quad_overview_page = QuadOverviewPage()
+        self.view_controller.widget.page_cell.add_page(
+            "overview",
+            "Overview",
+            self.quad_overview_page,
+            header=self.quad_overview_page.header,
+        )
+        self.view_controller.stage_updated.connect(self.quad_overview_page.set_stage)
+        self.quad_overview_page.lamella_selected.connect(
+            self._on_quad_overview_lamella_selected
+        )
 
         splitter.setSizes([700, 550])
         # set minimum width of right panel to 500
@@ -2506,6 +2524,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.review_tab.set_experiment(self.autolamella_ui.experiment)
         self.review_tab.set_microscope(self.autolamella_ui.microscope)
         experiment = self.autolamella_ui.experiment
+        self.quad_overview_page.set_experiment(experiment)
         self._listen_for_questions(experiment)
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
@@ -3264,6 +3283,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Sync card container and overviews when experiment-tab list selection changes."""
         self.fm_overview_tab.set_selected(lamella)
         self.beam_overview_tab.set_selected(lamella)
+        self.quad_overview_page.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         if not hasattr(self, "lamella_card_container"):
@@ -4196,6 +4216,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         self.overview_tab.refresh_microscope()
 
+    def _on_quad_overview_lamella_selected(self, lamella):
+        """A lamella clicked on the Microscope tab's overview page: select it in the
+        lists and the Overview tabs, as a click on either Overview tab does."""
+        self.fm_overview_tab.set_selected(lamella)
+        self.beam_overview_tab.set_selected(lamella)
+        if getattr(self, "_syncing_selection", False) or lamella is None:
+            return
+        self._syncing_selection = True
+        try:
+            self.autolamella_ui.lamella_list.select(lamella.name)
+            if hasattr(self, "lamella_card_container"):
+                self.lamella_card_container.select_lamella(lamella.name)
+        finally:
+            self._syncing_selection = False
+
     def _on_beam_overview_lamella_selected(self, lamella):
         """Sync the other lists when the rebuilt Overview tab's list changes.
 
@@ -4250,10 +4285,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             tab = getattr(self, name, None)
             if tab is not None:
                 tab.refresh_positions()
-        # The Microscope tab's stage map marks the same lamellae, from the same place.
+        # The Microscope tab's stage map and overview page mark the same lamellae,
+        # from the same place.
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        page = getattr(self, "quad_overview_page", None)
+        if page is not None:
+            if page.experiment is not experiment:
+                page.set_experiment(experiment)
+            else:
+                page.refresh_positions()
         controller = getattr(self, "view_controller", None)
         if controller is not None:
-            experiment = getattr(self.autolamella_ui, "experiment", None)
             controller.set_map_positions(
                 [lamella.stage_position for lamella in experiment.positions]
                 if experiment is not None
