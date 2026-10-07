@@ -101,7 +101,6 @@ class TestTheCoincidenceStrategy:
         strategy = CoincidenceMillingStrategy()
         strategy.microscope = microscope
         strategy.stage = FibsemMillingStage(name="Coincidence Mill")
-        strategy.parent_ui = None
         strategy.config = CoincidenceMillingStrategyConfig()
         strategy._drop_detected = False
         emitted = _collect(microscope)

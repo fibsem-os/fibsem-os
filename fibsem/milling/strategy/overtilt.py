@@ -82,7 +82,6 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         self,
         microscope: FibsemMicroscope,
         stage: "FibsemMillingStage",
-        parent_ui=None,
         stop_event: Optional[threading.Event] = None,
     ) -> None:
         """Mill a trench pattern with overtilt,

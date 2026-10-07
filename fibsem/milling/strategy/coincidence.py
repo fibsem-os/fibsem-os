@@ -191,7 +191,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self.pre_fib_acq: Optional["FibsemImage"] = None
         self.post_fib_acq: Optional["FibsemImage"] = None
         self._stop_event: Optional["threading.Event"] = None
-        self.parent_ui: Optional["FibsemMillingWidget2"] = None
         # why the last run's monitor loop ended: "stopped", "drop", "timeout"
         self.end_reason: Optional[str] = None
 
@@ -212,11 +211,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self,
         microscope: FibsemMicroscope,
         stage: FibsemMillingStage,
-        parent_ui: Optional["FibsemMillingWidget2"] = None,
     ):
         self.microscope = microscope
         self.stage = stage
-        self.parent_ui = parent_ui
 
         if self.microscope is None:
             raise ValueError(
@@ -276,14 +273,13 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self,
         microscope: FibsemMicroscope,
         stage: FibsemMillingStage,
-        parent_ui: Optional["FibsemMillingWidget2"] = None,
         stop_event: Optional["threading.Event"] = None,
     ) -> None:
         """Coincidence Milling Strategy"""
         logging.info(f"Running {self.name} Milling Strategy for {stage.name}")
 
         self._stop_event = stop_event
-        self._setup_strategy_components(microscope, stage, parent_ui)
+        self._setup_strategy_components(microscope, stage)
 
         # acquire pre-task fib image
         if self.config.acquire_fib_image:
@@ -366,17 +362,8 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
     @property
     def is_cancelled(self) -> bool:
-        """Whether the run has been cancelled, by the caller's stop event or the UI.
-
-        The stop event is what a task hands in when it runs this strategy without
-        the milling widget; until it was read here a headless run could not be
-        stopped at all.
-        """
-        if self._stop_event is not None and self._stop_event.is_set():
-            return True
-        if self.parent_ui and hasattr(self.parent_ui, "_milling_stop_event"):
-            return self.parent_ui._milling_stop_event.is_set()
-        return False
+        """Whether the caller's stop event (the milling widget's, from the GUI) is set."""
+        return self._stop_event is not None and self._stop_event.is_set()
 
     def _monitor_milling_progress(self, estimated_time: float):
         """Monitor milling progress, emit updates, and check for stop event."""
