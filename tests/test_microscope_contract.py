@@ -1039,7 +1039,7 @@ def test_a_compustage_is_never_linked_and_cannot_link(fm_microscope, caplog):
     """The Arctis simulator is a compustage: its stage has no link, so
     ``stage_linked`` is unsupported (None) and ``stage_link`` does nothing, without
     either being an unknown key."""
-    assert fm_microscope.stage_is_compustage
+    assert fm_microscope._fm_is_a_pose()
     with caplog.at_level(logging.WARNING):
         fm_microscope.set("stage_link", True)
         assert fm_microscope.get("stage_linked") is None

@@ -756,7 +756,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
         # initialise system settings
         self.system: SystemSettings = system_settings
         self.milling_channel: BeamType = BeamType.ION
-        self.stage_is_compustage: bool = False
         self._preserve_settings_on_preset_change: bool = (
             TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE
         )

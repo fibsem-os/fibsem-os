@@ -1520,12 +1520,10 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         if self.connection.specimen.compustage.is_installed:
             self._vendor_stage = self.connection.specimen.compustage
             self._compustage_installed = True
-            self.stage_is_compustage = True
             self._default_stage_coordinate_system = CoordinateSystem.SPECIMEN
         elif self.connection.specimen.stage.is_installed:
             self._vendor_stage = self.connection.specimen.stage
             self._compustage_installed = False
-            self.stage_is_compustage = False
             self._default_stage_coordinate_system = CoordinateSystem.RAW
         else:
             raise Exception(

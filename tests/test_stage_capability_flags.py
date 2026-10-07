@@ -171,7 +171,7 @@ def test_connecting_fills_the_capability_from_the_stage(
         config_path=os.path.join(cfg.CONFIG_PATH, filename), manufacturer="Demo"
     )
 
-    assert microscope.stage_is_compustage is compustage
+    assert microscope._fm_is_a_pose() is compustage
     assert microscope.system.stage.rotation is rotates
     assert microscope.system.stage.rotation_180 == opposite
 

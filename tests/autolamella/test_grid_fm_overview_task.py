@@ -41,7 +41,7 @@ def microscope():
         manufacturer="Demo",
         config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
     )
-    assert microscope.stage_is_compustage and microscope.fm is not None
+    assert microscope._fm_is_a_pose() and microscope.fm is not None
     # the working slot is the origin by construction; put a grid in it
     microscope._stage.holder.slots["Slot-01"].loaded_grid = SampleGrid(
         name="grid-aspen"

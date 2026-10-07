@@ -242,7 +242,6 @@ def make(compustage, fm_inserted=False):
     microscope._connection_lock = threading.RLock()
     microscope.system = copy.deepcopy(SYSTEM)
     microscope._compustage_installed = compustage
-    microscope.stage_is_compustage = compustage
     microscope.fm = _FM() if fm_inserted else None
     microscope._stage_position = None
     connection = Node("connection")

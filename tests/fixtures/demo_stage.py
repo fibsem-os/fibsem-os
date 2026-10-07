@@ -1,9 +1,8 @@
 """A Demo microscope that is a compustage, or not, by its configuration.
 
 A real backend learns its stage type at connect, and the Demo learns it from
-`sim.is_compustage`, its stand-in for that probe. Setting `stage_is_compustage` on a
-built microscope changes nothing any more, so a test that wants one stage type or the
-other builds it this way.
+`sim.is_compustage`, its stand-in for that probe, which its stage device keeps. A test
+that wants one stage type or the other builds it this way.
 """
 
 import os

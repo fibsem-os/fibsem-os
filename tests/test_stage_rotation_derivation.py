@@ -91,7 +91,7 @@ def test_a_connected_compustage_derives_no_opposite_rotation():
         manufacturer="Demo",
     )
 
-    assert microscope.stage_is_compustage
+    assert microscope._fm_is_a_pose()
     assert microscope.system.stage.rotation is False
     assert microscope.system.stage.rotation_180 == 0.0
 
@@ -103,7 +103,7 @@ def test_a_connected_rotating_stage_sits_half_a_turn_away():
         manufacturer="Demo",
     )
 
-    assert not microscope.stage_is_compustage
+    assert not microscope._fm_is_a_pose()
     assert microscope.system.stage.rotation is True
     assert microscope.system.stage.rotation_180 == 180.0
 

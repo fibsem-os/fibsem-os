@@ -50,7 +50,6 @@ def _tescan():
     microscope.system = utils.load_microscope_configuration(
         os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
     ).system
-    microscope.stage_is_compustage = False
     microscope.fm = None
     stage = _TescanStage()
     microscope.connection = SimpleNamespace(Stage=stage)
@@ -159,7 +158,6 @@ def _odemis(cls):
     microscope.system = utils.load_microscope_configuration(
         os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
     ).system
-    microscope.stage_is_compustage = False
     microscope._vendor_stage = _OdemisStage()
     microscope.stage = bind_odemis_stage(microscope)
     return microscope

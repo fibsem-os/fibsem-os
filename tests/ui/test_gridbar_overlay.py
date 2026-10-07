@@ -309,7 +309,7 @@ def microscope():
         "sim-arctis-configuration.yaml",
     )
     scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    assert scope.stage_is_compustage
+    assert scope._fm_is_a_pose()
     return scope
 
 
