@@ -561,17 +561,11 @@ class StageMap(QWidget):
             return
         x, y = frame.to_canvas(self._stage)
         arm = 7.0 if detailed else 4.0
+        # No rotation indicator. The map holds the holder still, so the stage has no
+        # heading in it; what a rotation changes is which side the ion beam comes
+        # from, and that also depends on the tilt (none when the beam is square on).
+        # The side view shows the half turn.
         colour = QColor(CURRENT_POSITION_COLOUR)
         painter.setPen(QPen(colour, 1.5 if detailed else 1.0))
         painter.drawLine(QPointF(x - arm, y), QPointF(x + arm, y))
         painter.drawLine(QPointF(x, y - arm), QPointF(x, y + arm))
-        # The rotation, relative to the frame's: a tick from the centre of the cross.
-        if self._stage.r is not None and self._origin.r is not None:
-            turn = self._stage.r - self._origin.r
-            tick = 16.0 if detailed else 8.0
-            colour.setAlphaF(0.8)
-            painter.setPen(QPen(colour, 1))
-            painter.drawLine(
-                QPointF(x, y),
-                QPointF(x + math.sin(turn) * tick, y - math.cos(turn) * tick),
-            )
