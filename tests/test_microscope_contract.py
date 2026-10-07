@@ -57,7 +57,7 @@ def _connect(backend: str, base: str = cfg.DEFAULT_CONFIGURATION_PATH):
 
 
 def test_backends_are_what_they_say():
-    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.drivers.demo.microscope import DemoMicroscope
 
     assert type(_connect("Demo")) is DemoMicroscope
 
@@ -627,7 +627,7 @@ def test_demo_beams_own_their_choices():
 
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_ion_currents_follow_the_plasma_gas(backend):
-    from fibsem.microscopes.simulator import SIMULATOR_BEAM_CURRENTS
+    from fibsem.drivers.demo.simulator import SIMULATOR_BEAM_CURRENTS
 
     currents = SIMULATOR_BEAM_CURRENTS[BeamType.ION]
     microscope = _connect(backend, _plasma_configuration())
@@ -1107,7 +1107,7 @@ def test_demo_fm_group_acquires_a_channel():
 
 def test_demo_fm_is_the_fm_api_over_devices():
     """`fm` is the same FM API over devices a remote FM is, over the Demo FM devices."""
-    from fibsem.devices.drivers.demo import DemoCamera
+    from fibsem.drivers.demo.devices import DemoCamera
     from fibsem.fm.microscope import FluorescenceMicroscope
 
     microscope = _connect("Demo", FM_CONFIGURATION)

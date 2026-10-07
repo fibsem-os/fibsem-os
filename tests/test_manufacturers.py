@@ -130,8 +130,8 @@ def test_system_info_missing_manufacturer_defaults_unknown():
 
 
 def test_thermo_property_is_canonical():
+    from fibsem.drivers.autoscript.microscope import ThermoMicroscope
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.microscopes.autoscript import ThermoMicroscope
 
     # the base-class property (which ThermoMicroscope inherits) -- evaluated
     # without an instance, since it returns a constant
@@ -140,7 +140,7 @@ def test_thermo_property_is_canonical():
 
 
 def test_tescan_property_is_canonical():
-    from fibsem.microscopes.tescan import TescanMicroscope
+    from fibsem.drivers.tescan.microscope import TescanMicroscope
 
     value = TescanMicroscope.manufacturer.fget(object.__new__(TescanMicroscope))
     assert value == TESCAN

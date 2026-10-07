@@ -8,7 +8,7 @@ override inside the coincidence milling strategy, which is timed by the estimate
 import pytest
 
 from fibsem import utils
-from fibsem.microscopes import simulator
+from fibsem.drivers.demo import simulator
 from fibsem.structures import MillingState
 
 

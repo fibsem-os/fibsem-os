@@ -1,6 +1,6 @@
 """The Demo's services.
 
-`DemoMilling` mills with the demo code (`fibsem.microscopes.simulator.DemoMilling`),
+`DemoMilling` mills with the demo code (`fibsem.drivers.demo.simulator.DemoMilling`),
 on the microscope's ``milling_system``, so the Demo mills as it did before the
 service. Each hook calls that code's
 method for the step, by its class: the microscope's own method of the same name goes
@@ -18,12 +18,11 @@ from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.core import ParameterMetadata
-from fibsem.microscopes.simulator import SIMULATOR_SCAN_DIRECTIONS
-from fibsem.microscopes.simulator import DemoMilling as DemoMillingCode
+from fibsem.drivers.demo.simulator import SIMULATOR_SCAN_DIRECTIONS
+from fibsem.drivers.demo.simulator import DemoMilling as DemoMillingCode
 from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import Milling, bind_milling, progress_update
 from fibsem.structures import (
-    BeamType,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemLineSettings,
@@ -35,7 +34,7 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.drivers.demo.microscope import DemoMicroscope
 
 # Each pattern type and the demo code that draws it, in the order
 # `FibsemMicroscope.draw_pattern` checks them.

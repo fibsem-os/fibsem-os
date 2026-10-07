@@ -12,9 +12,9 @@ import pytest
 
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError
+from fibsem.drivers.demo.services import DemoMilling
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services import milling as milling_module
-from fibsem.services.drivers.demo import DemoMilling
 from fibsem.services.milling import Milling, progress_update
 from fibsem.structures import (
     BeamType,

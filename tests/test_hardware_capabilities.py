@@ -250,7 +250,7 @@ def test_autoscript_asks_the_ion_source():
     """The call `get("plasma_gas")` already makes, asked once at connect."""
     from types import SimpleNamespace
 
-    from fibsem.microscopes.autoscript import ThermoMicroscope
+    from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 
     def probe(source) -> Optional[str]:
         fake = SimpleNamespace(

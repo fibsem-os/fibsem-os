@@ -24,7 +24,7 @@ import time
 
 import pytest
 
-from fibsem.microscopes.simulator import FM_ACTIVE_DEVICE, FM_ACTIVE_VIEW
+from fibsem.drivers.demo.simulator import FM_ACTIVE_DEVICE, FM_ACTIVE_VIEW
 
 
 @pytest.fixture
@@ -200,13 +200,13 @@ class TestBothDriversHaveIt:
         root = Path(fibsem.__file__).parent
         for module, cls_name, check, scope_name in (
             (
-                "devices/drivers/autoscript_fm.py",
+                "drivers/autoscript/devices.py",
                 "AutoscriptFMChannel",
                 "_is_ours",
                 "scope",
             ),
             (
-                "devices/drivers/demo.py",
+                "drivers/demo/devices.py",
                 "DemoFMChannel",
                 "_is_ours",
                 "scope",

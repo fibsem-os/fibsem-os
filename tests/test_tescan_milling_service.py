@@ -14,8 +14,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes import tescan as tescan_module
-from fibsem.services.drivers.tescan import TescanMilling
+from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan.services import TescanMilling
 from fibsem.structures import (
     BeamType,
     FibsemCircleSettings,

@@ -32,7 +32,7 @@ def _microscope(compustage: bool = True, with_fm: bool = True):
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     if with_fm and microscope.fm is None:
-        from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+        from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 
         microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
     if not with_fm:

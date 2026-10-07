@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from PyQt5.QtWidgets import QApplication, QDialog
 
-from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
 if TYPE_CHECKING:

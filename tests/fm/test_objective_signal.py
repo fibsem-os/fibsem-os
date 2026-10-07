@@ -27,9 +27,9 @@ from pathlib import Path
 import pytest
 
 import fibsem
-from fibsem.devices.drivers.demo import bind_demo_fm
+from fibsem.drivers.demo.devices import bind_demo_fm
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.fm.microscope import ObjectiveLens
-from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 
 
 @pytest.fixture
@@ -177,7 +177,7 @@ class TestEveryDriverAnnounces:
         found = {}
         modules = (
             "fm/microscope.py",
-            "microscopes/simulator.py",
+            "drivers/demo/simulator.py",
             "fm/autoscript.py",
             "fm/odemis.py",
         )
@@ -254,7 +254,7 @@ class TestTheGuardsStillReadTheDevice:
     def _method(class_name: str, method_name: str) -> ast.FunctionDef:
         module = {
             "FibsemMicroscope": Path("microscope.py"),
-            "AutoscriptStage": Path("devices") / "drivers" / "autoscript.py",
+            "AutoscriptStage": Path("drivers") / "autoscript" / "devices.py",
         }[class_name]
         source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
         cls = next(

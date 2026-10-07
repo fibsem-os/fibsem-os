@@ -1,7 +1,7 @@
 """The FM API over the Thermo FM devices (Arctis, Hydra, iFLM), and the AutoScript
 names and objective configurations the drivers take from here.
 
-The devices are ``fibsem.devices.drivers.autoscript_fm``.
+The devices are ``fibsem.drivers.autoscript.devices``.
 """
 
 from contextlib import contextmanager
@@ -127,7 +127,7 @@ class DeviceThermoFisherFilterSet(FilterSet):
 
 
 class DeviceThermoFisherFluorescenceMicroscope(FluorescenceMicroscope):
-    """The FM API over the Thermo FM devices (``fibsem.devices.drivers.autoscript_fm``).
+    """The FM API over the Thermo FM devices (``fibsem.drivers.autoscript.devices``).
 
     What the old ``ThermoFisherFluorescenceMicroscope`` did, through its devices: the channel
     scope is the devices' own (``AutoscriptFMChannel``), so a tileset that holds the

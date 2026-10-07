@@ -195,7 +195,7 @@ def _conditions(microscope):
 
 
 def facts():
-    from fibsem.services.drivers.autoscript import AutoScriptMilling
+    from fibsem.drivers.autoscript.services import AutoScriptMilling
 
     new = make(service=True)
     milling = new.milling

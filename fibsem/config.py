@@ -9,7 +9,7 @@ import yaml
 
 import fibsem
 from fibsem import manufacturers
-from fibsem.microscopes import registry
+from fibsem.drivers import registry
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445

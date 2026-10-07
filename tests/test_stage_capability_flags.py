@@ -23,7 +23,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes.simulator import (
+from fibsem.drivers.demo.simulator import (
     STAGE_LIMITS_COMPUSTAGE,
     STAGE_LIMITS_DEFAULT,
 )
@@ -216,7 +216,7 @@ def test_the_thermo_backend_reports_a_compustage_without_a_rotation_axis():
     import inspect
     import textwrap
 
-    from fibsem.microscopes.autoscript import ThermoMicroscope
+    from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 
     tree = ast.parse(
         textwrap.dedent(inspect.getsource(ThermoMicroscope._get_axis_limits))

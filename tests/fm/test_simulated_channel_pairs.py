@@ -25,7 +25,7 @@ import threading
 
 import pytest
 
-from fibsem.microscopes.simulator import CHAMBER_ACTIVE_VIEW, FM_ACTIVE_VIEW
+from fibsem.drivers.demo.simulator import CHAMBER_ACTIVE_VIEW, FM_ACTIVE_VIEW
 from fibsem.structures import BeamType
 
 STOLEN = "Imaging channel changed"
@@ -48,7 +48,9 @@ def steal_during(monkeypatch, thief) -> None:
     uses for the acquisition. Patched on the module, so it fires for whichever
     `sim_sleep` the operation under test reaches.
     """
-    monkeypatch.setattr("fibsem.microscopes.simulator.sim_sleep", lambda seconds: thief())
+    monkeypatch.setattr(
+        "fibsem.drivers.demo.simulator.sim_sleep", lambda seconds: thief()
+    )
 
 
 class TestTheAutofunctionsHoldTheChannel:

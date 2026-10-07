@@ -13,10 +13,10 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.devices.core import ParameterMetadata  # noqa: E402
-from fibsem.devices.drivers import demo  # noqa: E402
+from fibsem.drivers.demo import devices as demo  # noqa: E402
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
-from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope  # noqa: E402
 from fibsem.structures import RangeLimit  # noqa: E402
 from fibsem.ui.fm.widgets import fm_limits  # noqa: E402
 

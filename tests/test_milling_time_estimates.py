@@ -21,8 +21,8 @@ import threading
 
 import pytest
 
+from fibsem.drivers.tescan.microscope import TescanMicroscope, parse_current_from_preset
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.tescan import TescanMicroscope, parse_current_from_preset
 from fibsem.milling.base import (
     FibsemMillingStage,
     estimate_milling_time,
@@ -217,7 +217,7 @@ def _make_tescan(monkeypatch) -> TescanMicroscope:
 
     import fibsem.config as cfg
     from fibsem import utils
-    from fibsem.microscopes import tescan as tescan_module
+    from fibsem.drivers.tescan import microscope as tescan_module
 
     config_path = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
     system = utils.load_microscope_configuration(config_path).system

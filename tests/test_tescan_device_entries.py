@@ -12,9 +12,9 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import manufacturers, utils
-from fibsem.devices.drivers.tescan import TescanBeam, TescanStage
 from fibsem.devices.entries import DeviceBuildError
-from fibsem.microscopes.registry import device_builder
+from fibsem.drivers.registry import device_builder
+from fibsem.drivers.tescan.devices import TescanBeam, TescanStage
 from fibsem.structures import BeamType, DeviceEntry
 from tests.fixtures.tescan_sdk import connect
 

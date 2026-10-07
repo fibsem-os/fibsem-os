@@ -484,7 +484,7 @@ def setup_session(
 
     _report(progress, f"Connecting to {settings.system.info.ip_address}…")
 
-    from fibsem.microscopes.registry import connect_microscope
+    from fibsem.drivers.registry import connect_microscope
 
     microscope = connect_microscope(settings.system)
 

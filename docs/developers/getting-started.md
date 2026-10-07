@@ -14,12 +14,14 @@ issue before relying on internals that are not listed there.
 fibsem/                     the instrument library (no application logic)
   microscope.py             FibsemMicroscope, the abstract class every backend
                             implements
-  microscopes/              autoscript (ThermoMicroscope), tescan, odemis,
-                            device_demo (DemoMicroscope, the reference
-                            implementation), registry.py (the drivers)
   devices/                  the devices: beam, stage, chamber, manipulator,
                             fm; vendor-neutral, never imports a driver
-  devices/drivers/          each driver's device classes and builders
+  services/                 the services (milling); vendor-neutral
+  drivers/                  one package per driver: autoscript (Thermo),
+                            tescan, odemis, demo (the reference
+                            implementation), remote; registry.py (the drivers)
+  drivers/<driver>/         __init__.py (its DRIVER record), devices.py,
+                            services.py, microscope.py (its FibsemMicroscope)
   structures.py             shared types: FibsemImage, Point, FibsemRectangle,
                             stage positions, settings
   milling/, imaging/        beam operations built on the abstract class

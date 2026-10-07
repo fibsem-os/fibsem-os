@@ -1,7 +1,7 @@
 """Simulated-hardware timing.
 
 The Demo microscope and the simulated fluorescence microscope
-(``fibsem.microscopes.simulator``, and the Demo devices) sleep to emulate
+(``fibsem.drivers.demo.simulator``, and the Demo devices) sleep to emulate
 real acquisition, stage, objective and milling timing. Those sleeps dominate the
 test suite's wall-clock — most of it is spent asleep rather than computing — so
 the tests disable them via the ``FIBSEM_SIM_NO_DELAY`` environment variable (set

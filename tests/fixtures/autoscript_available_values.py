@@ -1,7 +1,7 @@
 """Record ThermoMicroscope's get_available_values over the fake AutoScript SDK.
 
 Run as a script, in its own interpreter, for the reason ``autoscript_beam_parity.py``
-gives: the fake SDK must be installed before ``fibsem.microscopes.autoscript`` is
+gives: the fake SDK must be installed before ``fibsem.drivers.autoscript.microscope`` is
 imported. It writes JSON to the path it is given: for a microscope with and without a
 plasma column, connected as the app connects it (beams built), the answer to every
 key in ``KEYS`` for no beam type and for each beam (or what it raised).

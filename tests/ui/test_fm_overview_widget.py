@@ -621,7 +621,7 @@ def test_channel_detail_fields_fill_the_panel(qapp):
     of these controls carry an Expanding policy."""
     from PyQt5.QtCore import Qt
 
-    from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
     from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
 
     widget = ChannelSettingsWidget(fm=DemoFluorescenceMicroscope())
@@ -653,7 +653,7 @@ def test_channel_rows_do_not_overflow_a_narrow_panel(qapp):
     the host. In the overview's controls column that pushed the excitation and emission
     combos past the right edge -- and the column keeps its horizontal scrollbar off, so
     they were unreachable rather than merely cramped."""
-    from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
     from fibsem.ui.fm.widgets.fm_multi_channel_widget import (
         FluorescenceMultiChannelWidget,
     )
@@ -2772,7 +2772,7 @@ def _microscope_at(tilt_deg: float):
     import numpy as np
 
     from fibsem import utils
-    from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
     from fibsem.structures import FibsemStagePosition
 
     microscope, _ = demo_session(compustage=True)

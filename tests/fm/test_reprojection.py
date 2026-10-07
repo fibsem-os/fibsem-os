@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from fibsem import utils
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.fm.reprojection import (
     project_image_point,
     project_stage_position,
@@ -21,7 +22,6 @@ from fibsem.fm.structures import (
     ChannelSettings,
     FibsemHardwareGeometry,
 )
-from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 from fibsem.structures import FibsemStagePosition, Point
 from fibsem.transformations import (
     inverse_view_corrected_dy,

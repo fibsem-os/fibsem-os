@@ -11,8 +11,8 @@ import pytest
 from fibsem import config as cfg
 from fibsem import utils
 from fibsem.devices.core import Device
+from fibsem.drivers.demo.services import DemoMilling
 from fibsem.services import Service
-from fibsem.services.drivers.demo import DemoMilling
 from fibsem.services.milling import Milling
 from fibsem.structures import (
     BeamType,
@@ -153,7 +153,7 @@ def test_without_an_ion_beam_the_demo_does_not_mill(microscope):
     and the state reads idle."""
     from copy import deepcopy
 
-    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.drivers.demo.microscope import DemoMicroscope
 
     system = deepcopy(microscope.system)
     system.ion.enabled = False
@@ -190,7 +190,7 @@ def test_the_demo_says_which_settings_it_mills_with(microscope):
 
 
 def test_the_demo_says_which_directions_it_scans(microscope):
-    from fibsem.microscopes.simulator import SIMULATOR_SCAN_DIRECTIONS
+    from fibsem.drivers.demo.simulator import SIMULATOR_SCAN_DIRECTIONS
 
     supported = microscope.milling.supported_pattern_settings()
     assert set(supported) == {"scan_direction"}

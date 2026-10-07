@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import QApplication
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes.tescan import TescanMicroscope
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import BeamType
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
 from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget
@@ -136,7 +136,7 @@ def test_a_demo_with_its_ion_column_off_builds_the_ion_controls_hidden():
     # populate without a current or voltage to read.
     from copy import deepcopy
 
-    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.drivers.demo.microscope import DemoMicroscope
 
     system = deepcopy(_demo().system)
     system.ion.enabled = False

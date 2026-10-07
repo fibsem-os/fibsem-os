@@ -1,6 +1,6 @@
 """The AutoScript FM drivers make the SDK calls Thermo's old FM class made.
 
-``fibsem.devices.drivers.autoscript_fm`` is the old ``ThermoFisherFluorescenceMicroscope``'s
+``fibsem.drivers.autoscript.devices`` is the old ``ThermoFisherFluorescenceMicroscope``'s
 parts moved onto the FM devices. Each case runs a device call over a fake AutoScript
 client that records every SDK call, read and write with the view that was active when it
 was made, and compares it with the pin of the matching old call: its result and SDK log,

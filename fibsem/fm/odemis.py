@@ -1,6 +1,6 @@
 """The FM API over the Odemis FM devices, as a METEOR runs it.
 
-The devices are ``fibsem.devices.drivers.odemis_fm``; this module is the FM API's parts
+The devices are ``fibsem.drivers.odemis.devices``; this module is the FM API's parts
 over them, and the odemis imports the drivers take from here, after the odemis path is
 set up.
 """
@@ -8,12 +8,12 @@ set up.
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
+from fibsem.drivers.odemis import add_odemis_path
 from fibsem.fm.microscope import (
     FilterSet,
     FluorescenceMicroscope,
     ObjectiveLens,
 )
-from fibsem.microscopes.odemis_microscope import add_odemis_path
 
 add_odemis_path()
 
@@ -99,7 +99,7 @@ class DeviceOdemisFilterSet(FilterSet):
 
 
 class DeviceOdemisFluorescenceMicroscope(FluorescenceMicroscope):
-    """The FM API over the Odemis FM devices (``fibsem.devices.drivers.odemis_fm``):
+    """The FM API over the Odemis FM devices (``fibsem.drivers.odemis.devices``):
     what the old ``OdemisFluorescenceMicroscope`` did, through its devices. Live view
     is the stream running, with each frame pulled."""
 

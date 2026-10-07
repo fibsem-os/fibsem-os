@@ -108,10 +108,10 @@ def _odemis():
     for name in stubs.ODEMIS_MODULE_NAMES + stubs.FIBSEM_ODEMIS_MODULE_NAMES:
         if name in sys.modules:
             saved[name] = sys.modules.pop(name)
-    sys.modules.pop("fibsem.devices.drivers.odemis", None)
+    sys.modules.pop("fibsem.drivers.odemis.devices", None)
     stubs.install_odemis_stubs()
     try:
-        from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+        from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
         return _answers("odemis", od.make(OdemisThermoMicroscope))
     finally:

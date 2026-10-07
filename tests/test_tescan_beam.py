@@ -27,7 +27,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.beam import BEAM_ROUTES
-from fibsem.devices.drivers.tescan import TescanBeam, bind_tescan_beams
+from fibsem.drivers.tescan.devices import TescanBeam, bind_tescan_beams
 from fibsem.structures import BeamType, Point
 from tests.fixtures.tescan_sdk import connect
 

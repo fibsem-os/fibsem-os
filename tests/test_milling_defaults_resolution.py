@@ -12,9 +12,9 @@ simulated ThermoFisher system) both call.
 
 import pytest
 
+from fibsem.drivers.autoscript.microscope import ThermoMicroscope
+from fibsem.drivers.demo.simulator import DemoMicroscope, DemoMilling
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.autoscript import ThermoMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope, DemoMilling
 from tests.fm import _odemis_stubs as stubs
 
 
@@ -28,7 +28,7 @@ def odemis_cls():
         if name in sys.modules
     }
     stubs.install_odemis_stubs()
-    from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
     yield OdemisThermoMicroscope
     stubs.remove_odemis_stubs()
@@ -41,7 +41,7 @@ def _owner(cls, name):
 
 
 def test_thermo_runs_and_finishes_milling_through_its_service():
-    from fibsem.microscopes.autoscript import ThermoMilling
+    from fibsem.drivers.autoscript.microscope import ThermoMilling
     from fibsem.services.milling import ServiceMilling
 
     assert _owner(ThermoMicroscope, "run_milling") is ServiceMilling

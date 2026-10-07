@@ -99,7 +99,7 @@ def test_move_to_orientation_round_trip(orientation):
 
 def _compustage_with_fm():
     """A compustage Demo microscope with fluorescence attached."""
-    from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 
     microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0

@@ -10,22 +10,22 @@ import pytest
 
 from fibsem import config as cfg
 from fibsem import manufacturers, utils
-from fibsem.microscopes import registry
-from fibsem.microscopes.registry import DriverEntry, get_driver, register_driver
+from fibsem.drivers import registry
+from fibsem.drivers.registry import DriverEntry, get_driver, register_driver
 from fibsem.structures import BeamType, DeviceEntry
 
 # What the old chain in setup_session did, per manufacturer.
 BUILT_IN = {
     manufacturers.THERMOFISHER: (
-        "fibsem.microscopes.autoscript:ThermoMicroscope",
+        "fibsem.drivers.autoscript.microscope:ThermoMicroscope",
         7520,
     ),
-    manufacturers.TESCAN: ("fibsem.microscopes.tescan:TescanMicroscope", 8300),
+    manufacturers.TESCAN: ("fibsem.drivers.tescan.microscope:TescanMicroscope", 8300),
     manufacturers.ODEMIS: (
-        "fibsem.microscopes.odemis_microscope:OdemisThermoMicroscope",
+        "fibsem.drivers.odemis.microscope:OdemisThermoMicroscope",
         None,
     ),
-    manufacturers.DEMO: ("fibsem.microscopes.device_demo:DemoMicroscope", 7520),
+    manufacturers.DEMO: ("fibsem.drivers.demo.microscope:DemoMicroscope", 7520),
 }
 
 
@@ -64,12 +64,15 @@ def test_built_in_drivers_keep_their_class_and_port(manufacturer):
 
 @pytest.mark.parametrize("manufacturer", list(BUILT_IN))
 def test_each_built_in_record_is_its_driver_modules_own(manufacturer):
-    """The record lives beside the class, and the module imports without its SDK
-    (none of the vendor SDKs are installed here, odemis included)."""
+    """The record is the ``__init__`` of the class's driver package, and the class's
+    module imports without its SDK (none of the vendor SDKs are installed here, odemis
+    included)."""
     import importlib
 
-    module = importlib.import_module(BUILT_IN[manufacturer][0].partition(":")[0])
-    assert get_driver(manufacturer) is module.DRIVER
+    module_name = BUILT_IN[manufacturer][0].partition(":")[0]
+    importlib.import_module(module_name)
+    package = importlib.import_module(module_name.rpartition(".")[0])
+    assert get_driver(manufacturer) is package.DRIVER
 
 
 def _tilts(values):
@@ -99,9 +102,9 @@ def test_the_configuration_constants_import_no_driver():
     code = (
         "import sys\n"
         "import fibsem.config\n"
-        "loaded = [m for m in ('fibsem.microscopes.autoscript', "
-        "'fibsem.microscopes.tescan', 'fibsem.microscopes.odemis_microscope', "
-        "'fibsem.microscopes.device_demo') if m in sys.modules]\n"
+        "loaded = [m for m in ('fibsem.drivers.autoscript.microscope', "
+        "'fibsem.drivers.tescan.microscope', 'fibsem.drivers.odemis.microscope', "
+        "'fibsem.drivers.demo.microscope') if m in sys.modules]\n"
         "assert not loaded, loaded\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
@@ -134,11 +137,11 @@ def test_listing_the_drivers_imports_no_driver():
 
     code = (
         "import sys\n"
-        "import fibsem.microscopes.registry as r\n"
+        "import fibsem.drivers.registry as r\n"
         "r.registered_manufacturers()\n"
-        "loaded = [m for m in ('fibsem.microscopes.autoscript', "
-        "'fibsem.microscopes.tescan', 'fibsem.microscopes.odemis_microscope', "
-        "'fibsem.microscopes.device_demo') if m in sys.modules]\n"
+        "loaded = [m for m in ('fibsem.drivers.autoscript.microscope', "
+        "'fibsem.drivers.tescan.microscope', 'fibsem.drivers.odemis.microscope', "
+        "'fibsem.drivers.demo.microscope') if m in sys.modules]\n"
         "assert not loaded, loaded\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
@@ -150,7 +153,7 @@ def test_any_known_spelling_finds_the_driver(spelling):
 
 
 def test_the_demo_driver_loads_its_class():
-    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.drivers.demo.microscope import DemoMicroscope
 
     assert get_driver(manufacturers.DEMO).load() is DemoMicroscope
 
@@ -161,7 +164,7 @@ def test_an_unknown_manufacturer_is_refused_as_before():
 
 
 def test_setup_session_connects_through_the_registry():
-    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.drivers.demo.microscope import DemoMicroscope
 
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
     assert type(microscope) is DemoMicroscope
@@ -404,7 +407,7 @@ DEMO_DEVICE_TYPES = ("beam", "stage", "chamber", "manipulator")
 def test_a_driver_offers_a_builder_by_device_type():
     for spelling in ("Demo", "demo"):
         builder = registry.device_builder(spelling, "stage")
-        assert builder.build == "fibsem.devices.drivers.demo:build_demo_stage"
+        assert builder.build == "fibsem.drivers.demo.devices:build_demo_stage"
     assert registry.device_builder(manufacturers.DEMO, "laser") is None
     with pytest.raises(NotImplementedError, match="Manufacturer acme not supported."):
         registry.device_builder("acme", "stage")
@@ -429,7 +432,7 @@ def _build_laser(entry, context):
 
 
 def test_the_demo_builders_build_each_device_from_its_entry():
-    from fibsem.devices.drivers import demo
+    from fibsem.drivers.demo import devices as demo
 
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
     context = registry.BuildContext(microscope=microscope)
@@ -515,3 +518,27 @@ def test_a_device_only_driver_builds_an_added_entry(restore_registry):
     )
     built = build_device_entries(resolved[1:], microscope=None)
     assert built["needle"][0] == "needle"
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("fibsem.microscopes.registry", "fibsem.drivers.registry"),
+        ("fibsem.microscopes.autoscript", "fibsem.drivers.autoscript.microscope"),
+        ("fibsem.microscopes.tescan", "fibsem.drivers.tescan.microscope"),
+        ("fibsem.microscopes.odemis_microscope", "fibsem.drivers.odemis.microscope"),
+        ("fibsem.microscopes.device_demo", "fibsem.drivers.demo.microscope"),
+        ("fibsem.microscopes.simulator", "fibsem.drivers.demo.simulator"),
+        ("fibsem.microscopes.sim_scene", "fibsem.drivers.demo.sim_scene"),
+    ],
+)
+def test_the_old_module_names_warn_and_give_the_moved_module(old, new):
+    """Scripts that import a driver by its old name keep working, with a warning;
+    ``OdemisTescanMicroscope`` in particular has an external consumer."""
+    import importlib
+    import sys
+
+    sys.modules.pop(old, None)
+    with pytest.warns(DeprecationWarning, match="has moved to"):
+        module = importlib.import_module(old)
+    assert module is importlib.import_module(new)

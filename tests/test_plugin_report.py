@@ -308,7 +308,7 @@ def test_the_group_table_matches_the_registries():
     not be importable -- so the duplication gets pinned here instead.
     """
     from fibsem.applications.autolamella.workflows.tasks import TASK_ENTRY_POINT_GROUP
-    from fibsem.microscopes.registry import DRIVER_ENTRY_POINT_GROUP
+    from fibsem.drivers.registry import DRIVER_ENTRY_POINT_GROUP
     from fibsem.milling.patterning import PATTERN_ENTRY_POINT_GROUP
     from fibsem.milling.strategy import STRATEGY_ENTRY_POINT_GROUP
 

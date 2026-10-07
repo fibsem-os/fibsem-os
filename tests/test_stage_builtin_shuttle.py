@@ -4,8 +4,8 @@
 so each driver answers for its own stage type.
 """
 
-from fibsem.devices.drivers.autoscript import AutoscriptCompustage, AutoscriptStage
 from fibsem.devices.stage import Stage
+from fibsem.drivers.autoscript.devices import AutoscriptCompustage, AutoscriptStage
 
 
 def test_only_the_thermo_compustage_carries_a_builtin_shuttle():

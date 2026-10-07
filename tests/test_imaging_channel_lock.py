@@ -43,7 +43,7 @@ def _class(module: str, name: str) -> ast.ClassDef:
 
 def _thermo_class() -> ast.ClassDef:
     """The `ThermoMicroscope` class body, parsed from source."""
-    return _class("microscopes/autoscript.py", "ThermoMicroscope")
+    return _class("drivers/autoscript/microscope.py", "ThermoMicroscope")
 
 
 def _calls_named(node: ast.AST, name: str) -> list:
@@ -86,7 +86,7 @@ def thermo() -> ast.Module:
     return ast.Module(
         body=[
             _thermo_class(),
-            _class("devices/drivers/autoscript.py", "AutoscriptBeam"),
+            _class("drivers/autoscript/devices.py", "AutoscriptBeam"),
         ],
         type_ignores=[],
     )

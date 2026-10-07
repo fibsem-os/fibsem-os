@@ -20,6 +20,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.drivers.autoscript.microscope import ThermoMicroscope
+from fibsem.drivers.demo.simulator import DemoMicroscope
 from fibsem.geometry.movement import (
     apply_delta,
     fib_offset_after_sem_move,
@@ -28,8 +30,6 @@ from fibsem.geometry.movement import (
     vertical_move_delta,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.autoscript import ThermoMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
 
 # -128 is the compustage FIB orientation at the default pretilt of 0
