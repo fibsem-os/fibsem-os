@@ -24,7 +24,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import config as fibsem_cfg
 from fibsem import constants, conversions
 from fibsem.applications.autolamella.image_positions import (
     ImagePosition,
@@ -774,17 +773,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         _select_filename(self.combobox_sem_filenames, default_sem_filename)
 
         # Where each image was taken, from its header -- a fraction of a millisecond
-        # each. With the preference on, a default taken somewhere the lamella has since
-        # moved from gives way to the newest image taken where it is now. Only here,
-        # where the editor chose the image: a pick from the picker is never replaced.
+        # each. The default above is chosen by filename; unless it was taken where the
+        # lamella is now, it gives way to the newest image that was, if there is one.
+        # Only here, where the editor chose the image: a pick from the picker is never
+        # replaced, only described.
         self._image_positions = {
             f: read_image_position(self._image_path(selected_lamella, f))
             for f in base_filenames + sem_base_filenames
         }
         self._switched_to = None
-        if self._fib_image_position().match is PositionMatch.MOVED and (
-            fibsem_cfg.load_user_preferences().display.show_reference_image_at_current_position
-        ):
+        if self._fib_image_position().match is not PositionMatch.SAME:
             self._switched_to = self._select_current_images()
         self.combobox_fib_filenames.blockSignals(False)
         self.combobox_sem_filenames.blockSignals(False)

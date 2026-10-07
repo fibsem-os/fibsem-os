@@ -2,8 +2,8 @@
 
 Images are acquired with the Demo microscope at two stage positions and saved into the
 lamella's folder, so each carries the metadata a real acquisition writes. The lamella's
-milling pose is set to the second position; the editor's default pick (newest by name)
-is the image taken at the first.
+milling pose is set to the second position; the editor's filename default (newest by
+name) is the image taken at the first.
 
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_lamella_editor_image_position.py -q
 """
@@ -25,7 +25,6 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QWidget
 
-from fibsem import config as fibsem_cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -34,9 +33,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
-from fibsem.config import UserPreferences
-from fibsem.structures import BeamType, MicroscopeState
-from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
+from fibsem.structures import BeamType, FibsemImage, MicroscopeState
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -55,21 +52,6 @@ class _Host(QWidget):
         super().__init__()
         self.microscope = microscope
         self.experiment = experiment
-
-
-@pytest.fixture
-def preferences(tmp_path, monkeypatch):
-    """A preferences file of the test's own, never the user's."""
-    monkeypatch.setattr(
-        fibsem_cfg, "USER_PREFERENCES_PATH", str(tmp_path / "prefs.yaml")
-    )
-
-    def _set(switch: bool) -> None:
-        prefs = UserPreferences()
-        prefs.display.show_reference_image_at_current_position = switch
-        fibsem_cfg.save_user_preferences(prefs)
-
-    return _set
 
 
 @pytest.fixture
@@ -100,7 +82,7 @@ def scene(tmp_path):
     lamella.milling_pose = microscope.get_microscope_state()
 
     def editor():
-        host = _Host(microscope, exp)
+        host = _Host(microscope, exp)  # selects the first lamella
         widget = AutoLamellaProtocolEditorWidget(parent=host)
         widget._host = host  # keep it alive
         return widget
@@ -127,10 +109,40 @@ def _hint(editor):
     return editor.view_controller.get_canvas(BeamType.ION)._hint_text
 
 
-def test_a_moved_lamella_is_named_and_the_current_image_offered(scene, preferences):
-    preferences(False)
+def test_the_default_gives_way_to_the_image_at_the_current_position(scene):
     scene["acquire_new"]()
     editor = scene["editor"]()
+
+    assert _shown(editor) == (NEW_IB, NEW_EB)
+    notice = editor.position_notice
+    assert not notice.isHidden()
+    # no tasks on this lamella, so the picker labels it by its stem
+    assert notice.label.text() == (
+        "Showing Rough Milling final res 01, the image taken at the lamella's "
+        "current position."
+    )
+    assert notice.switch_button.isHidden()
+    assert _hint(editor) is None
+
+
+def test_a_default_taken_where_the_lamella_is_is_kept(scene):
+    scene["acquire_new"]()
+    old = FibsemImage.load(os.path.join(scene["lamella"].path, OLD_IB))
+    scene["lamella"].milling_pose = old.metadata.microscope_state
+
+    editor = scene["editor"]()
+
+    assert _fib(editor) == OLD_IB
+    assert editor.position_notice.isHidden()
+    assert _hint(editor) is None
+
+
+def test_a_pick_is_described_not_replaced_and_the_current_image_offered(scene):
+    scene["acquire_new"]()
+    editor = scene["editor"]()
+
+    picker = editor.combobox_fib_filenames
+    picker.setCurrentIndex(picker.findData(OLD_IB))  # by hand
 
     assert _fib(editor) == OLD_IB
     notice = editor.position_notice
@@ -147,78 +159,41 @@ def test_a_moved_lamella_is_named_and_the_current_image_offered(scene, preferenc
     assert editor.image.filepath.endswith(NEW_IB)
 
 
-def test_no_image_at_the_current_position_is_said(scene, preferences):
-    preferences(True)  # nothing to switch to, preference or not
+def test_no_image_at_the_current_position_is_said(scene):
     editor = scene["editor"]()
 
-    assert _fib(editor) == OLD_IB
+    assert _fib(editor) == OLD_IB  # nothing to give way to
     notice = editor.position_notice
     assert not notice.isHidden()
     assert "No image has been taken at its current position." in notice.label.text()
     assert notice.switch_button.isHidden()
+    assert _hint(editor) == "Lamella moved since this image: ~50 µm"
 
 
-def test_the_preference_switches_a_default_but_not_a_pick(scene, preferences):
-    preferences(True)
+def test_an_image_with_no_position_is_unknown_not_moved(scene):
     scene["acquire_new"]()
-    editor = scene["editor"]()
-
-    assert _shown(editor) == (NEW_IB, NEW_EB)
-    notice = editor.position_notice
-    assert not notice.isHidden()
-    # no tasks on this lamella, so the picker labels it by its stem
-    assert notice.label.text() == (
-        "Showing Rough Milling final res 01, the image taken at the lamella's "
-        "current position."
-    )
-    assert _hint(editor) is None
-
-    # picked by hand: kept, and described
-    editor.combobox_fib_filenames.setCurrentIndex(
-        editor.combobox_fib_filenames.findData(OLD_IB)
-    )
-    assert _fib(editor) == OLD_IB
-    assert "has moved since this image was taken: ~50 µm" in notice.label.text()
-
-
-def test_the_preference_is_off_by_default(scene, preferences):
-    assert UserPreferences().display.show_reference_image_at_current_position is False
-    scene["acquire_new"]()
-    editor = scene["editor"]()  # no preferences file at all
-    assert _fib(editor) == OLD_IB
-
-
-def test_an_image_with_no_position_is_unknown_not_moved(scene, preferences):
-    preferences(True)
-    scene["acquire_new"]()
-    # sorts after everything else, so it is the default
+    bare = "ref_Spot Burn_ib.tif"  # sorts last, so it is the filename default
     tff.imwrite(
-        os.path.join(scene["lamella"].path, "ref_Spot Burn_ib.tif"),
+        os.path.join(scene["lamella"].path, bare),
         np.zeros((256, 384), dtype=np.uint8),
     )
     editor = scene["editor"]()
+    # an image known to be at the current position is preferred to an unknown one
+    assert _fib(editor) == NEW_IB
 
-    assert _fib(editor) == "ref_Spot Burn_ib.tif"  # not switched: not "moved"
+    picker = editor.combobox_fib_filenames
+    picker.setCurrentIndex(picker.findData(bare))
+
     notice = editor.position_notice
     assert notice.label.text() == "This image has no stage position recorded."
     assert not notice.switch_button.isHidden()
-    assert _hint(editor) is None
+    assert _hint(editor) is None  # not "moved"
 
 
-def test_a_lamella_with_no_position_shows_nothing(scene, preferences):
-    preferences(False)
+def test_a_lamella_with_no_position_shows_nothing(scene):
     scene["lamella"].milling_pose = MicroscopeState()
+    scene["acquire_new"]()
     editor = scene["editor"]()
+    assert _fib(editor) == OLD_IB  # nothing to compare with, so nothing switched
     assert editor.position_notice.isHidden()
     assert _hint(editor) is None
-
-
-def test_the_preference_round_trips_through_the_dialog():
-    prefs = UserPreferences()
-    prefs.display.show_reference_image_at_current_position = True
-    dialog = PreferencesDialog(prefs)
-    assert dialog.get_preferences().display.show_reference_image_at_current_position
-    dialog._chk_current_image.setChecked(False)
-    assert not (
-        dialog.get_preferences().display.show_reference_image_at_current_position
-    )
