@@ -979,20 +979,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_sound_toggle(self, checked: bool):
         """Handle sound toggle."""
         self._sound_enabled = checked
-        self._preferences.display.sound_enabled = checked
-        fibsem_cfg.save_user_preferences(self._preferences)
+        # Through the file, not this window's copy: another widget may have saved a
+        # setting of its own since start-up (the view bars' fields, FIB-1186).
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.display, "sound_enabled", checked)
+        )
 
     def _on_border_toggle(self, checked: bool):
         """Handle workflow border toggle."""
         self._border_enabled = checked
-        self._preferences.display.border_enabled = checked
-        fibsem_cfg.save_user_preferences(self._preferences)
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.display, "border_enabled", checked)
+        )
         self._set_border_state("idle")
 
     def _on_open_preferences(self):
         """Open the preferences dialog."""
         from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
 
+        # Fresh from disk, so saving the dialog's result does not put back anything
+        # another widget has changed since start-up.
+        self._preferences = fibsem_cfg.load_user_preferences()
         dialog = PreferencesDialog(self._preferences, parent=self)
         if dialog.exec_() == QDialog.Accepted:
             self._preferences = dialog.get_preferences()

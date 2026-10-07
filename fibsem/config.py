@@ -3,7 +3,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, Dict, List, Optional
 
 import yaml
 
@@ -372,6 +372,12 @@ class DisplayPreferences:
     # dismissing must not fake one: a person who intends to configure by hand has
     # still configured nothing.
     guided_setup_dismissed: bool = False
+    # Which fields the bar under each view shows, by view kind ("SEM", "FIB", "FM"),
+    # in order (FIB-1186). Only a kind someone has customised has an entry: an absent
+    # kind takes the bar's defaults, so a later change to those defaults still reaches
+    # everyone who never chose -- which a stored default would not, since every save
+    # writes every key.
+    info_bar_fields: Dict[str, List[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -565,6 +571,21 @@ def save_user_preferences(preferences) -> None:
         logging.warning(
             f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}"
         )
+
+
+def update_user_preferences(
+    change: Callable[[UserPreferences], None],
+) -> UserPreferences:
+    """Apply *change* to the preferences as they are on disk now, save, and return them.
+
+    For a widget that owns one setting. Reading just before writing means it keeps
+    whatever another window saved meanwhile, where saving a copy held since start-up
+    would put the rest of that copy back over it.
+    """
+    preferences = load_user_preferences()
+    change(preferences)
+    save_user_preferences(preferences)
+    return preferences
 
 
 @dataclass

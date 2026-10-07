@@ -268,24 +268,66 @@ DETECTOR_MODE_ABBREVIATIONS = {
 }
 
 
-def _add(fields: List[ExportField], key: str, name: str, label: str, value) -> None:
+# Every field either bar can show: its key, the name a checklist lists it under, and
+# the short label printed before its value (empty for those that read as themselves).
+# One table, so the export dialog, the canvas bar and its field picker all name a
+# field the same way.
+FIELD_CATALOGUE: Dict[str, Tuple[str, str]] = {
+    "detector": ("Detector", ""),
+    "objective": ("Objective", ""),
+    "hfw": ("HFW", "HFW"),
+    "pixel_size": ("Pixel size", "px"),
+    "voltage": ("Voltage", "HV"),
+    "current": ("Current", "I"),
+    "working_distance": ("Working distance", "WD"),
+    "dwell_time": ("Dwell time", "Dwell"),
+    "z": ("Z-stack", "Z"),
+    "experiment": ("Experiment", ""),
+    "item": ("Item", ""),
+    "task": ("Task", ""),
+    "date": ("Date", ""),
+    "instrument": ("Instrument", ""),
+    "user": ("User", ""),
+    "version": ("Version", ""),
+}
+
+# The fields each kind of image can record, in the order a checklist offers them.
+BEAM_FIELD_KEYS = (
+    "detector",
+    "hfw",
+    "pixel_size",
+    "voltage",
+    "current",
+    "working_distance",
+    "dwell_time",
+)
+FM_FIELD_KEYS = ("objective", "hfw", "pixel_size", "z")
+
+
+def field_keys_for(kind: str) -> Tuple[str, ...]:
+    """The fields an image of *kind* ("SEM", "FIB", "FM") can record."""
+    return FM_FIELD_KEYS if kind == "FM" else BEAM_FIELD_KEYS
+
+
+def _add(fields: List[ExportField], key: str, value) -> None:
     """Append a field only when there is a value to show."""
     if value is None or value == "":
         return
+    name, label = FIELD_CATALOGUE[key]
     fields.append(ExportField(key=key, name=name, label=label, value=str(value)))
 
 
 def _provenance(experiment, date, instrument, user, version) -> List[ExportField]:
     out: List[ExportField] = []
-    _add(out, "experiment", "Experiment", "", getattr(experiment, "name", None))
+    _add(out, "experiment", getattr(experiment, "name", None))
     # A lamella in a lamella task, a grid in a grid task. "Item", as the record calls
     # it: the file does not say which kind it is.
-    _add(out, "item", "Item", "", getattr(experiment, "item_name", None))
-    _add(out, "task", "Task", "", getattr(experiment, "task_name", None))
-    _add(out, "date", "Date", "", format_time(date))
-    _add(out, "instrument", "Instrument", "", instrument)
-    _add(out, "user", "User", "", user)
-    _add(out, "version", "Version", "", f"fibsem-os {version}" if version else None)
+    _add(out, "item", getattr(experiment, "item_name", None))
+    _add(out, "task", getattr(experiment, "task_name", None))
+    _add(out, "date", format_time(date))
+    _add(out, "instrument", instrument)
+    _add(out, "user", user)
+    _add(out, "version", f"fibsem-os {version}" if version else None)
     return out
 
 
@@ -342,24 +384,24 @@ def fibsem_image_fields(image: FibsemImage) -> ImageFields:
     if detector is not None:
         mode = DETECTOR_MODE_ABBREVIATIONS.get(detector.mode, detector.mode)
         parts = [p for p in (detector.type, mode) if p and p != "Unknown"]
-        _add(fields, "detector", "Detector", "", " · ".join(parts))
+        _add(fields, "detector", " · ".join(parts))
     if pixel_size:
         # From the pixel size, not image_settings.hfw: that is what was asked for,
         # this is what the image is (FIB-482).
         width = np.shape(image.data)[1]
-        _add(fields, "hfw", "HFW", "HFW", format_si(pixel_size * width, "m"))
-        _add(fields, "pixel_size", "Pixel size", "px", format_si(pixel_size, "m"))
+        _add(fields, "hfw", format_si(pixel_size * width, "m"))
+        _add(fields, "pixel_size", format_si(pixel_size, "m"))
     if beam is not None:
         if beam.voltage:
-            _add(fields, "voltage", "Voltage", "HV", format_si(beam.voltage, "V"))
+            _add(fields, "voltage", format_si(beam.voltage, "V"))
         if beam.beam_current:
-            _add(fields, "current", "Current", "I", format_si(beam.beam_current, "A"))
+            _add(fields, "current", format_si(beam.beam_current, "A"))
         if beam.working_distance:
             wd = format_si(beam.working_distance, "m")
-            _add(fields, "working_distance", "Working distance", "WD", wd)
+            _add(fields, "working_distance", wd)
     if md.image_settings.dwell_time:
         dwell = format_si(md.image_settings.dwell_time, "s")
-        _add(fields, "dwell_time", "Dwell time", "Dwell", dwell)
+        _add(fields, "dwell_time", dwell)
 
     system = md.system_info
     provenance = _provenance(
@@ -394,17 +436,17 @@ def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
         objective = f"{first.objective_magnification:g}×"
         if first.objective_numerical_aperture:
             objective += f" · {first.objective_numerical_aperture:g} NA"
-        _add(fields, "objective", "Objective", "", objective)
+        _add(fields, "objective", objective)
     shape = np.shape(image.data)
     if md.pixel_size_x:
         hfw = format_si(md.pixel_size_x * shape[-1], "m")
-        _add(fields, "hfw", "HFW", "HFW", hfw)
-        _add(fields, "pixel_size", "Pixel size", "px", format_si(md.pixel_size_x, "m"))
+        _add(fields, "hfw", hfw)
+        _add(fields, "pixel_size", format_si(md.pixel_size_x, "m"))
     # Slices counted from the data, not z_positions: some files list a position per
     # channel per slice -- 132 for a 4-channel, 33-slice stack on a real one.
     slices = shape[-3] if len(shape) >= 4 else 1  # (C, Z, Y, X) or (T, C, Z, Y, X)
     if slices > 1 and md.pixel_size_z:
-        _add(fields, "z", "Z-stack", "Z", z_value(slices, md.pixel_size_z))
+        _add(fields, "z", z_value(slices, md.pixel_size_z))
 
     system = md.system_info or {}
     provenance = _provenance(

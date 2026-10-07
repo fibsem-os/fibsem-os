@@ -11,35 +11,56 @@ A Qt child of the panel, below the canvas rather than drawn on it, so it can nei
 cover the image nor collide with the scalebar, and costs nothing to repaint when the
 canvas does. When the row is too narrow, whole fields drop from the right behind a
 ``+N`` chip that lists them on hover; a value is never cut off half way.
+
+The button at its end opens :class:`FieldPicker`, a checklist of what the bar shows.
+The choice is a display preference per kind of view (``display.info_bar_fields``):
+every bar of that kind follows it, now and after a restart.
 """
 
 from __future__ import annotations
 
+import logging
+import weakref
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import Qt
+from PyQt5 import sip
+from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLayout,
+    QPushButton,
     QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
+from fibsem import config as cfg
 from fibsem.imaging.export import (
+    FIELD_CATALOGUE,
     FIELD_TITLES,
     MAX_FIELDS,
     ExportField,
     ImageFields,
+    field_keys_for,
 )
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
+    CAPTION_STYLE,
     NUMBER_FONT,
+    PANEL_COLOR,
+    PANEL_TITLE_STYLE,
+    TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+
+_logger = logging.getLogger(__name__)
 
 BAR_HEIGHT = 26
 # A value reads a shade brighter than body text against the canvas background, as the
@@ -64,12 +85,67 @@ _CHIP_STYLE = (
     f" border: 1px solid {BORDER_COLOR}; border-radius: 7px;"
 )
 _TIME_TITLE = "Acquired at"
+_TIME_KEY = "date"  # the provenance field the time comes from
+_PICKER_STYLE = (
+    f"#fieldPicker {{ background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR};"
+    " border-radius: 4px; }"
+    f" QCheckBox {{ color: {TEXT_COLOR}; font-size: 12px; background: transparent; }}"
+    " QLabel { background: transparent; }"
+)
 
 
 # What a new bar shows. The export's defaults less the pixel size: under a live view,
 # HFW says the same thing more usefully, and the row has room for one fewer field
-# than an exported figure. The pixel size is a tick away in the picker.
-BAR_DEFAULT_FIELDS = ("detector", "objective", "hfw", "voltage", "current", "z")
+# than an exported figure. The pixel size is a tick away in the picker. Last, the
+# time the image was taken.
+BAR_DEFAULT_FIELDS = (
+    "detector",
+    "objective",
+    "hfw",
+    "voltage",
+    "current",
+    "z",
+    _TIME_KEY,
+)
+
+# Every open bar, so a choice made on one reaches the others of its kind at once: the
+# quad view and the lamella editor each have an SEM bar, and both should follow.
+_BARS: "weakref.WeakSet[ViewInfoBar]" = weakref.WeakSet()
+
+
+def stored_field_keys(kind: str) -> Optional[Tuple[str, ...]]:
+    """The fields someone chose for *kind*'s bar, or None to take the defaults."""
+    try:
+        chosen = cfg.load_user_preferences().display.info_bar_fields.get(kind)
+    except Exception:
+        _logger.warning("could not read the view bar's fields", exc_info=True)
+        return None
+    return tuple(chosen) if chosen is not None else None
+
+
+def choose_field_keys(kind: str, keys: Optional[Sequence[str]]) -> Tuple[str, ...]:
+    """Save *keys* as *kind*'s fields -- None goes back to the defaults -- and show
+    them on every open bar of that kind. Returns the keys now in effect."""
+
+    def change(preferences) -> None:
+        chosen = preferences.display.info_bar_fields
+        if keys is None:
+            chosen.pop(kind, None)
+        else:
+            chosen[kind] = list(keys)
+
+    try:
+        cfg.update_user_preferences(change)
+    except Exception:
+        _logger.warning("could not save the view bar's fields", exc_info=True)
+    effective = BAR_DEFAULT_FIELDS if keys is None else tuple(keys)
+    for bar in list(_BARS):
+        # A bar whose window has closed can outlive its widget in this set; touching
+        # it raises inside the picker's slot, which PyQt5 turns into an abort.
+        if sip.isdeleted(bar) or bar.kind != kind:
+            continue
+        bar.set_field_keys(effective)
+    return effective
 
 
 def field_title(item: ExportField) -> str:
@@ -96,7 +172,7 @@ class ViewInfoBar(QWidget):
         # The bar must never be what decides how wide a view can get.
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
 
-        self._keys: Tuple[str, ...] = BAR_DEFAULT_FIELDS
+        self._keys: Tuple[str, ...] = stored_field_keys(kind) or BAR_DEFAULT_FIELDS
         self._info: Optional[ImageFields] = None
         self._overrides: Dict[str, str] = {}
         # Values that come from the microscope, not the image: they outlive an image
@@ -146,6 +222,20 @@ class ViewInfoBar(QWidget):
         self.time_label.setToolTip(_TIME_TITLE)
         lay.addWidget(self.time_label)
 
+        self.fields_button = QToolButton()
+        self.fields_button.setIcon(
+            fibsem_icon("mdi:tune-variant", color=TEXT_MUTED_COLOR)
+        )
+        self.fields_button.setAutoRaise(True)
+        self.fields_button.setFixedSize(20, 20)
+        self.fields_button.setToolTip("Choose fields")
+        self.fields_button.setAccessibleName(f"Choose the {kind} bar's fields")
+        self.fields_button.setStyleSheet(f"QToolButton {{ {_CLEAR} border: none; }}")
+        self.fields_button.clicked.connect(self.open_picker)
+        lay.addWidget(self.fields_button)
+        self._picker: Optional["FieldPicker"] = None
+
+        _BARS.add(self)
         self._rebuild()
 
     # ── what to show ───────────────────────────────────────────────────────
@@ -196,6 +286,36 @@ class ViewInfoBar(QWidget):
     def field_keys(self) -> Tuple[str, ...]:
         return self._keys
 
+    def set_fields_button_visible(self, visible: bool) -> None:
+        """Show the field button: the quad view shows it on the selected view only,
+        as it does the canvas toolbar. Shown by default, for views without selection."""
+        self.fields_button.setVisible(visible)
+        self._fit()
+
+    def open_picker(self) -> "FieldPicker":
+        """Open the checklist of this bar's fields, just above the button.
+
+        One picker per bar, kept and reopened: closing a popup must not leave the bar
+        holding a deleted widget.
+        """
+        if self._picker is None:
+            self._picker = FieldPicker(self.kind, self._keys, parent=self)
+            self._picker.changed.connect(
+                lambda keys: choose_field_keys(self.kind, keys)
+            )
+            self._picker.reset.connect(self._on_picker_reset)
+        self._picker.set_keys(self._keys)
+        self._picker.adjustSize()
+        corner = self.fields_button.mapToGlobal(QPoint(self.fields_button.width(), 0))
+        self._picker.move(corner - QPoint(self._picker.width(), self._picker.height()))
+        self._picker.show()
+        return self._picker
+
+    def _on_picker_reset(self) -> None:
+        keys = choose_field_keys(self.kind, None)
+        if self._picker is not None:
+            self._picker.set_keys(keys)
+
     def clear(self) -> None:
         """Forget the image. Live values stay: they did not come from it."""
         self.set_image_fields(None)
@@ -239,7 +359,11 @@ class ViewInfoBar(QWidget):
                     labelled.append(item)
             else:
                 header.append(item)
-        time = next((p.value for p in self._info.provenance if p.key == "date"), None)
+        time = None
+        if _TIME_KEY in self._keys:
+            time = next(
+                (p.value for p in self._info.provenance if p.key == _TIME_KEY), None
+            )
         return header, labelled + live, time
 
     def _rebuild(self) -> None:
@@ -333,7 +457,12 @@ class ViewInfoBar(QWidget):
         margins = lay.contentsMargins()
         shown = [
             w
-            for w in (self.kind_label, self.header_label, self.divider)
+            for w in (
+                self.kind_label,
+                self.header_label,
+                self.divider,
+                self.fields_button,
+            )
             if not w.isHidden()
         ]
         if with_time:
@@ -351,3 +480,63 @@ class ViewInfoBar(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._fit()
+
+
+class FieldPicker(QFrame):
+    """The checklist behind a bar's button: which fields it shows.
+
+    Lists every field the kind of image can record, by the names the export dialog
+    uses, then the time. Each tick saves at once; Defaults forgets the choice.
+    """
+
+    changed = pyqtSignal(object)  # the chosen keys, in display order
+    reset = pyqtSignal()
+
+    def __init__(
+        self, kind: str, keys: Sequence[str], parent: Optional[QWidget] = None
+    ) -> None:
+        super().__init__(parent, Qt.Popup)
+        self.setObjectName("fieldPicker")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(_PICKER_STYLE)
+        self._kind = kind
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
+        title = QLabel(f"{kind} bar")
+        title.setStyleSheet(PANEL_TITLE_STYLE)
+        lay.addWidget(title)
+        caption = QLabel(f"Up to {MAX_FIELDS} values")
+        caption.setStyleSheet(CAPTION_STYLE)
+        lay.addWidget(caption)
+
+        self.checkboxes: Dict[str, QCheckBox] = {}
+        for key in field_keys_for(kind) + (_TIME_KEY,):
+            name = _TIME_TITLE if key == _TIME_KEY else FIELD_CATALOGUE[key][0]
+            label = FIELD_CATALOGUE[key][1] if key != _TIME_KEY else ""
+            checkbox = QCheckBox(
+                f"{name} ({label})" if label and label != name else name
+            )
+            checkbox.toggled.connect(self._on_toggled)
+            self.checkboxes[key] = checkbox
+            lay.addWidget(checkbox)
+
+        self.defaults_button = QPushButton("Defaults")
+        self.defaults_button.setToolTip("Show this bar's default fields")
+        self.defaults_button.clicked.connect(self.reset)
+        lay.addWidget(self.defaults_button, 0, Qt.AlignLeft)
+        self.set_keys(keys)
+
+    def set_keys(self, keys: Sequence[str]) -> None:
+        """Tick *keys* without announcing it."""
+        for key, checkbox in self.checkboxes.items():
+            checkbox.blockSignals(True)
+            checkbox.setChecked(key in keys)
+            checkbox.blockSignals(False)
+
+    def keys(self) -> Tuple[str, ...]:
+        return tuple(k for k, cb in self.checkboxes.items() if cb.isChecked())
+
+    def _on_toggled(self, _checked: bool) -> None:
+        self.changed.emit(self.keys())
