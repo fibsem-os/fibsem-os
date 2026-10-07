@@ -1,18 +1,22 @@
 from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QItemSelectionModel, Qt, pyqtSignal
+from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
+    QAbstractItemView,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QShortcut,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, Point
-from fibsem.ui.stylesheets import CANVAS_BG
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.stylesheets import CANVAS_BG, GRAY_ICON_COLOR
 from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
 )
@@ -52,7 +56,9 @@ class _SpotBurnRow(QWidget):
         layout.addWidget(y_lbl, stretch=1)
 
         btn_remove = IconToolButton(
-            "mdi:trash-can-outline", tooltip="Remove coordinate", size=24
+            "mdi:trash-can-outline",
+            tooltip="Remove coordinate (the whole selection, if this row is in it)",
+            size=24,
         )
         btn_remove.clicked.connect(lambda: self.remove_clicked.emit(self.index))
         layout.addWidget(btn_remove)
@@ -66,7 +72,8 @@ class SpotBurnCoordinatesWidget(QWidget):
     match the app's task / lamella lists. Coordinates are *placed and moved on the
     image* (right-click to add, drag to move, Delete to remove); the list mirrors the
     overlay and its selection both ways, and the on-image markers are numbered to match
-    the rows.
+    the rows. Several points can be selected at once — Ctrl/Shift-click in the list or
+    on the image, or Shift-drag a box on the image — then moved or removed together.
 
     Works with a :class:`SpotBurnSettings` payload — it edits ``.coordinates`` and passes
     current/exposure through untouched. Reusable by any host that owns a
@@ -76,20 +83,25 @@ class SpotBurnCoordinatesWidget(QWidget):
     settings_changed = pyqtSignal(SpotBurnSettings)
     OVERLAY_ID = "spot_burn"
 
-    def __init__(self,
-                 controller,
-                 beam: BeamType = BeamType.ION,
-                 settings: Optional[SpotBurnSettings] = None,
-                 parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        controller,
+        beam: BeamType = BeamType.ION,
+        settings: Optional[SpotBurnSettings] = None,
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
         self.controller = controller
         self.beam = beam
         self.settings = settings if settings is not None else SpotBurnSettings()
         self._coordinates: List[Point] = list(self.settings.coordinates)
         self._image_shape: Optional[Tuple[int, int]] = None  # (h, w) for 0-1 <-> px
+        # selected rows, ascending. Kept here rather than read off the list because the
+        # list is rebuilt on every edit, which would otherwise drop it
+        self._selection: List[int] = []
         self._updating = False  # guard against re-entrant list/overlay updates
-        self._active = False    # overlay armed + shown while the widget is visible
-        self._wired = False     # subscribed to controller signals
+        self._active = False  # overlay armed + shown while the widget is visible
+        self._wired = False  # subscribed to controller signals
 
         self._init_ui()
 
@@ -108,6 +120,18 @@ class SpotBurnCoordinatesWidget(QWidget):
         title.setStyleSheet("font-weight: bold; background: transparent;")
         hl.addWidget(title)
         hl.addStretch()
+        # one toggle, drawn as the selection: empty (none), minus (some), ticked (all).
+        # Ticked clears, the others select all. Removing the selection is the Delete
+        # key, in the list or on the image, or a selected row's trash button.
+        self.btn_select_all = IconToolButton(
+            "mdi:checkbox-blank-outline",
+            checked_icon="mdi:checkbox-marked-outline",
+            tooltip="Select all coordinates",
+            checked_tooltip="Clear the selection",
+            size=24,
+        )
+        self.btn_select_all.clicked.connect(self._toggle_select_all)
+        hl.addWidget(self.btn_select_all)
         self.btn_add = IconToolButton("mdi:plus", tooltip="Add coordinate", size=24)
         self.btn_add.clicked.connect(self._add_coordinate)
         hl.addWidget(self.btn_add)
@@ -124,7 +148,9 @@ class SpotBurnCoordinatesWidget(QWidget):
         lbl_x = QLabel("X (0-1)")
         lbl_y = QLabel("Y (0-1)")
         for lbl in (lbl_idx, lbl_x, lbl_y):
-            lbl.setStyleSheet(f"color: {_MUTED}; background: transparent; font-size: 11px;")
+            lbl.setStyleSheet(
+                f"color: {_MUTED}; background: transparent; font-size: 11px;"
+            )
         cl.addWidget(lbl_idx)
         cl.addWidget(lbl_x, stretch=1)
         cl.addWidget(lbl_y, stretch=1)
@@ -137,7 +163,13 @@ class SpotBurnCoordinatesWidget(QWidget):
         self._list = QListWidget()
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._list.setMinimumHeight(120)  # still readable in a short host
+        self._list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._list.itemSelectionChanged.connect(self._on_row_selection_changed)
+        # Delete is Backspace on a Mac keyboard
+        for key in (Qt.Key_Delete, Qt.Key_Backspace):
+            shortcut = QShortcut(QKeySequence(key), self._list)
+            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(self._remove_selected)
         outer.addWidget(self._list, 1)
 
         # footer summary + hint
@@ -152,13 +184,16 @@ class SpotBurnCoordinatesWidget(QWidget):
 
     def set_image_shape(self, shape) -> None:
         """Set the host FIB image shape (h, w), used for 0-1 <-> pixel conversion."""
-        self._image_shape = (int(shape[0]), int(shape[1])) if shape is not None else None
+        self._image_shape = (
+            (int(shape[0]), int(shape[1])) if shape is not None else None
+        )
         self._sync_overlay()
 
     def set_settings(self, settings: SpotBurnSettings):
         """Set the settings payload and update the rows + overlay."""
         self.settings = settings
         self._coordinates = list(settings.coordinates)
+        self._selection = []
         self._sync_overlay()
         self._rebuild_rows()
 
@@ -189,21 +224,41 @@ class SpotBurnCoordinatesWidget(QWidget):
             self._list.addItem(item)
             self._list.setItemWidget(item, row)
         self._updating = False
-        self._update_summary()
+        self._show_selection()
 
     def _add_coordinate(self):
-        """Add a coordinate at the image centre; the user then drags it into place."""
+        """Add a coordinate at the image centre, selected, so the user can drag it into
+        place (as a right-click on the image does)."""
         self._coordinates.append(Point(0.5, 0.5))
+        self._selection = [len(self._coordinates) - 1]
         self._sync_overlay()
         self._rebuild_rows()
         self._emit_settings_changed()
 
     def _remove_coordinate(self, index: int):
-        if 0 <= index < len(self._coordinates):
-            self._coordinates.pop(index)
-            self._sync_overlay()
-            self._rebuild_rows()
-            self._emit_settings_changed()
+        """A row's trash button. On a selected row it removes the whole selection, as
+        a file manager does; on any other row just that row, so a stray click cannot
+        take a selection made elsewhere with it."""
+        if index in self._selection:
+            self._remove_rows(self._selection)
+        elif 0 <= index < len(self._coordinates):
+            self._remove_rows([index])
+
+    def _remove_selected(self):
+        if self._selection:
+            self._remove_rows(self._selection)
+
+    def _remove_rows(self, rows) -> None:
+        gone = set(rows)
+        self._coordinates = [
+            p for i, p in enumerate(self._coordinates) if i not in gone
+        ]
+        self._selection = [
+            i - sum(1 for g in gone if g < i) for i in self._selection if i not in gone
+        ]
+        self._sync_overlay()
+        self._rebuild_rows()
+        self._emit_settings_changed()
 
     # --- overlay sync ---
 
@@ -224,6 +279,8 @@ class SpotBurnCoordinatesWidget(QWidget):
             removable=True,
             modal=True,
             numbered=True,
+            multi_select=True,
+            selection=tuple(self._selection),
         )
 
     def _sync_overlay(self):
@@ -236,48 +293,102 @@ class SpotBurnCoordinatesWidget(QWidget):
 
     def _on_overlay_edited(self, beam, overlay_id, points):
         """A point was added / moved / removed on the canvas -> refresh the rows."""
-        if beam != self.beam or overlay_id != self.OVERLAY_ID or self._image_shape is None:
+        if (
+            beam != self.beam
+            or overlay_id != self.OVERLAY_ID
+            or self._image_shape is None
+        ):
             return
         h, w = self._image_shape
-        # overlay already reflects the edit (incl. renumbering); just mirror it here
+        # overlay already reflects the edit (incl. renumbering); just mirror it here.
+        # An add or a delete also changed which indices are selected, and the model
+        # already holds the post-edit selection.
         self._coordinates = [Point(float(x / w), float(y / h)) for (x, y) in points]
+        self._selection = self._valid(
+            self.controller.overlay_selection(self.beam, self.OVERLAY_ID)
+        )
         self._rebuild_rows()
         self._emit_settings_changed()
 
     # --- selection sync (list <-> overlay) ---
 
-    def _on_row_selection_changed(self):
-        """A row was selected -> highlight the matching point on the canvas."""
-        if self._updating or not self._active:
-            return
-        row = self._list.currentRow()
-        self.controller.set_selected_point(
-            self.beam, self.OVERLAY_ID, row if row >= 0 else None
-        )
+    def _valid(self, indices) -> List[int]:
+        return sorted({i for i in indices if 0 <= i < len(self._coordinates)})
 
-    def _on_overlay_point_selected(self, beam, overlay_id, index):
-        """A point was selected on the canvas -> select the matching row."""
+    def _on_row_selection_changed(self):
+        """Rows were (de)selected -> select the matching points on the canvas."""
+        if self._updating:
+            return
+        self._selection = sorted(
+            self._list.row(it) for it in self._list.selectedItems()
+        )
+        self._update_summary()
+        if self._active:
+            self.controller.set_selected_points(
+                self.beam, self.OVERLAY_ID, self._selection
+            )
+
+    def _on_overlay_selection_changed(self, beam, overlay_id, indices):
+        """Points were (de)selected on the canvas -> select the matching rows."""
         if beam != self.beam or overlay_id != self.OVERLAY_ID:
             return
-        if 0 <= index < self._list.count():
-            self._updating = True
-            self._list.setCurrentRow(index)
+        self._selection = self._valid(indices)
+        self._show_selection()
+
+    def _show_selection(self) -> None:
+        """Make the list's selection match ``_selection``, without echoing it back."""
+        self._selection = self._valid(self._selection)
+        self._updating = True
+        try:
+            self._list.clearSelection()
+            for i in self._selection:
+                self._list.item(i).setSelected(True)
+            if self._selection:
+                # the anchor for the next Shift-click, and into view for a long list
+                last = self._list.item(self._selection[-1])
+                self._list.setCurrentItem(last, QItemSelectionModel.NoUpdate)
+                self._list.scrollToItem(last)
+        finally:
             self._updating = False
+        self._update_summary()
 
     # --- misc ---
 
     def _emit_settings_changed(self):
         self.settings_changed.emit(self.get_settings())
 
+    def _toggle_select_all(self):
+        n = len(self._coordinates)
+        if n and len(self._selection) == n:
+            self._list.clearSelection()
+        else:
+            self._list.selectAll()
+        self._update_summary()  # a click on an already-matching state changes nothing
+
     def _update_summary(self):
         n = len(self._coordinates)
+        k = len(self._selection)
+        # the button shows the selection, not its own click: Qt flips a checkable
+        # button on every click, so set it back to what is true
+        all_selected = n > 0 and k == n
+        self.btn_select_all.blockSignals(True)
+        self.btn_select_all.setChecked(all_selected)
+        self.btn_select_all.blockSignals(False)
+        self.btn_select_all.set_icon_state(all_selected)
+        if 0 < k < n:  # the third state, which the two-state button does not draw
+            self.btn_select_all.setIcon(
+                fibsem_icon("mdi:minus-box-outline", color=GRAY_ICON_COLOR)
+            )
+        self.btn_select_all.setEnabled(n > 0)
         if n == 0:
             self.label_summary.setText(
                 "No coordinates defined.  ·  right-click the image to add a burn point."
             )
         else:
+            selected = f"  ·  {k} selected" if k else ""
             self.label_summary.setText(
-                f"{n} coordinate{'s' if n != 1 else ''}  ·  drag to move, Delete to remove."
+                f"{n} coordinate{'s' if n != 1 else ''}{selected}  ·  drag to move, "
+                "Shift-drag to box-select, Delete to remove."
             )
 
     # --- activation (arming) driven by visibility ---
@@ -297,8 +408,8 @@ class SpotBurnCoordinatesWidget(QWidget):
         if active:
             if not self._wired:
                 self.controller.overlay_edited.connect(self._on_overlay_edited)
-                self.controller.overlay_point_selected.connect(
-                    self._on_overlay_point_selected
+                self.controller.overlay_selection_changed.connect(
+                    self._on_overlay_selection_changed
                 )
                 self._wired = True
             self._sync_overlay()
@@ -332,7 +443,10 @@ class SpotBurnCoordinatesWidget(QWidget):
         if self._wired:
             for sig, slot in (
                 (self.controller.overlay_edited, self._on_overlay_edited),
-                (self.controller.overlay_point_selected, self._on_overlay_point_selected),
+                (
+                    self.controller.overlay_selection_changed,
+                    self._on_overlay_selection_changed,
+                ),
             ):
                 try:
                     sig.disconnect(slot)
