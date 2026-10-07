@@ -34,7 +34,9 @@ def test_get_stage_position_for_orientation_none_returns_same_position(
 ) -> None:
     """When orientation is None the stage position is returned unchanged."""
     task = _make_trench_task(compustage_microscope, tmp_path)
-    pos = FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=np.radians(0), t=np.radians(-23))
+    pos = FibsemStagePosition(
+        x=1e-3, y=2e-3, z=3e-3, r=np.radians(0), t=np.radians(-23)
+    )
     result = task._get_stage_position_for_orientation(pos, None)
     assert result is pos
 
@@ -92,7 +94,9 @@ def test_record_output_skips_an_image_that_was_never_written(
     was not written. The FM task relies on this: its acquire swallows save errors."""
     task = _make_trench_task(compustage_microscope, tmp_path)
 
-    task._record_output("fluorescence", FibsemImage(data=np.zeros((4, 4), dtype=np.uint8)))
+    task._record_output(
+        "fluorescence", FibsemImage(data=np.zeros((4, 4), dtype=np.uint8))
+    )
     task._record_output("fluorescence", None)
 
     assert task.lamella.task_state.outputs == {}
@@ -107,7 +111,9 @@ def test_pre_task_clears_the_previous_runs_outputs_and_end_timestamp(
     task = _make_trench_task(compustage_microscope, tmp_path)
 
     # stand in for a completed previous run
-    task.lamella.task_state.outputs = {"final_sem": ["ref_Previous_final_res_01_eb.tif"]}
+    task.lamella.task_state.outputs = {
+        "final_sem": ["ref_Previous_final_res_01_eb.tif"]
+    }
     task.lamella.task_state.end_timestamp = 1234.0
 
     task.pre_task()
@@ -208,9 +214,11 @@ def test_task_is_cancellation_classifies_stop_vs_failure(tmp_path: Path):
         fm = None
 
     def _manager() -> TaskManager:
-        return TaskManager(microscope=_NoMicroscope(),
-                           experiment=Experiment(path=tmp_path, name="test-exp"),
-                           parent_ui=None)
+        return TaskManager(
+            microscope=_NoMicroscope(),
+            experiment=Experiment(path=tmp_path, name="test-exp"),
+            parent_ui=None,
+        )
 
     def _isc(exc, manager=None):
         s = types.SimpleNamespace(task_manager=manager)
@@ -270,8 +278,9 @@ def stub_acquisition(monkeypatch):
     monkeypatch.setattr(
         acquire,
         "acquire_set_of_channels",
-        lambda microscope, image_settings, hfws, filename="ref_image", **kwargs:
-            _fake_acquire_set_of_channels(image_settings, hfws, filename),
+        lambda microscope, image_settings, hfws, filename="ref_image", **kwargs: (
+            _fake_acquire_set_of_channels(image_settings, hfws, filename)
+        ),
     )
 
 
