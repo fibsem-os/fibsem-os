@@ -21,12 +21,13 @@ Thermo does not have. The fake SDK has to be in place before
 
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from tests.fixtures.autoscript_recording import load
 
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_beam_parity.py"
 PINS = Path(__file__).parent / "fixtures" / "available_values_pins.json"
@@ -67,11 +68,9 @@ def recording(tmp_path_factory):
         timeout=300,
     )
     assert result.returncode == 0, result.stderr[-4000:]
-    # numpy 2 writes a scalar as np.float64(x) in a repr, numpy 1 (Python 3.8)
-    # as x: the recording is compared without it
-    recording = json.loads(re.sub(r"np\.float64\(([^()]*)\)", r"\1", out.read_text()))
+    recording = load(out.read_text())
     # the old code's side, recorded before it was deleted
-    old = json.loads(RECORDED.read_text())["beam"]
+    old = load(RECORDED.read_text())["beam"]
     assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
     for case in recording["cases"]:
         case["old"] = old[case["key"]]
