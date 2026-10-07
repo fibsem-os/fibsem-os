@@ -1520,7 +1520,8 @@ class FibsemMicroscope(ABC):
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Union[str, float, int]]:
-        """The values a key can take.
+        """The values a key can take. Deprecated: a beam parameter's ``choices``
+        (``microscope.beams[beam_type].parameters[name].choices``) are the same list.
 
         A beam key's values are its beam parameter's choices (the device's metadata,
         read when the beam was built and again when a dependency changes, e.g. the
@@ -1529,33 +1530,21 @@ class FibsemMicroscope(ABC):
         have, has none: the milling keys' choices are the milling service's
         (``supported_settings``, ``supported_pattern_settings``).
         """
-        param = self._beam_parameter(key, beam_type) if key in BEAM_ROUTES else None
-        if param is not None and param.choices is not None:
-            return list(param.choices)
-        return []
+        self._warn_available_values("get_available_values", key, beam_type)
+        return self._available_values(key, beam_type)
 
     def get_available_values_cached(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Union[str, float, int]]:
-        """Get available values with caching to avoid repeated microscope queries.
-
-        Args:
-            key: The parameter key to get available values for.
-            beam_type: The beam type (optional).
-
-        Returns:
-            List of available values for the given key.
-        """
+        """``get_available_values``, cached per key and beam type. Deprecated: the
+        device keeps a parameter's choices (and refreshes them when a dependency
+        changes, which this cache never did)."""
+        self._warn_available_values("get_available_values_cached", key, beam_type)
         if not hasattr(self, "_available_values_cache"):
-            logging.info("Initializing available values cache.")
             self._available_values_cache: Dict[str, List[Union[str, float, int]]] = {}
-
         cache_key = f"{key}_{beam_type.name if beam_type else 'None'}"
         if cache_key not in self._available_values_cache:
-            logging.info(
-                f"Caching available values for key: {key}, beam_type: {beam_type}"
-            )
-            self._available_values_cache[cache_key] = self.get_available_values(
+            self._available_values_cache[cache_key] = self._available_values(
                 key, beam_type
             )
         return self._available_values_cache[cache_key]
@@ -1563,20 +1552,52 @@ class FibsemMicroscope(ABC):
     def clear_available_values_cache(
         self, key: Optional[str] = None, beam_type: Optional[BeamType] = None
     ) -> None:
-        """Clear the available values cache.
-
-        Args:
-            key: If provided, only clear cache for this key. Otherwise clear all.
-            beam_type: The beam type (used with key to clear specific entry).
-        """
+        """Clear ``get_available_values_cached``'s cache, all of it or one key's
+        entry. Deprecated with the cache."""
+        warnings.warn(
+            "microscope.clear_available_values_cache() is deprecated and will be "
+            "removed in the next minor release; the device parameters' choices need "
+            "no cache.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not hasattr(self, "_available_values_cache"):
             return
-
         if key is None:
             self._available_values_cache.clear()
         else:
             cache_key = f"{key}_{beam_type.name if beam_type else 'None'}"
             self._available_values_cache.pop(cache_key, None)
+
+    def _available_values(
+        self, key: str, beam_type: Optional[BeamType]
+    ) -> List[Union[str, float, int]]:
+        param = self._beam_parameter(key, beam_type) if key in BEAM_ROUTES else None
+        if param is not None and param.choices is not None:
+            return list(param.choices)
+        return []
+
+    def _warn_available_values(
+        self, method: str, key: str, beam_type: Optional[BeamType]
+    ) -> None:
+        """Warn that ``method`` is deprecated, naming the parameter whose choices
+        replace it (the milling service's settings for anything else)."""
+        if key in BEAM_ROUTES and beam_type is not None:
+            replacement = (
+                f"microscope.beams[BeamType.{beam_type.name}]"
+                f'.parameters["{BEAM_ROUTES[key]}"].choices'
+            )
+        else:
+            replacement = (
+                "a device parameter's choices, or microscope.milling."
+                "supported_settings() for a milling setting"
+            )
+        warnings.warn(
+            f'microscope.{method}("{key}", ...) is deprecated and will be removed in '
+            f"the next minor release; use {replacement} instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
 
     # ---- device routing ------------------------------------------------------
     #
