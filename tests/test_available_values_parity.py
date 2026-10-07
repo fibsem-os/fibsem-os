@@ -169,7 +169,15 @@ _ODEMIS_NO_PLASMA = {
     f"odemis {beam} plasma_gas": ["Argon", "Oxygen", "Xenon"]
     for beam in ("None", "ELECTRON", "ION")
 }
-CHANGED = {**_NO_BEAM, **_ODEMIS_DETECTOR_TYPES, **_ODEMIS_NO_PLASMA}
+# The default Demo is a Ga column, whose ion beam has no plasma gas parameter, so it
+# offers no gas, where before it listed the simulator's (a plasma Demo's ion beam
+# still lists them, as its parameter's choices).
+_DEMO_NO_PLASMA = {
+    f"demo {beam} plasma_gas": ["Oxygen", "Argon", "Nitrogen", "Xenon"]
+    for beam in ("None", "ELECTRON", "ION")
+}
+_NO_PLASMA = {**_ODEMIS_NO_PLASMA, **_DEMO_NO_PLASMA}
+CHANGED = {**_NO_BEAM, **_ODEMIS_DETECTOR_TYPES, **_NO_PLASMA}
 # The application files and scan directions moved to the milling service
 # (``supported_settings``, ``supported_pattern_settings``), so as keys they get no
 # values, where before the backends listed them.
@@ -201,7 +209,7 @@ def test_every_answer_is_the_pinned_one(answers):
     assert sorted(different) == sorted(CHANGED)
     for key, (before, now) in different.items():
         assert before == CHANGED[key], key
-        if key in _NO_BEAM or key in _ODEMIS_NO_PLASMA:
+        if key in _NO_BEAM or key in _NO_PLASMA:
             assert now == [], key
         else:
             assert sorted(now) == before["set"], key
