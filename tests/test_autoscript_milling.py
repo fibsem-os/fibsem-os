@@ -87,3 +87,17 @@ def test_an_imaging_current_given_still_wins(recording):
 
 def test_without_an_ion_beam_there_is_no_service(recording):
     assert recording["facts"]["no_ion"]
+
+
+def test_thermo_mills_with_the_settings_it_says(recording):
+    facts = recording["facts"]
+    assert facts["supported"] == [
+        "application_file",
+        "hfw",
+        "milling_channel",
+        "milling_current",
+        "milling_voltage",
+        "patterning_mode",
+    ]
+    assert facts["setup_reads"] == facts["supported"]
+    assert facts["application_files"] == ["Si", "Si-ccs", "Si-multipass", "Al"]

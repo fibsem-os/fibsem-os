@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
+from fibsem.devices.core import ParameterMetadata
 from fibsem.microscopes.autoscript import ThermoMilling
 from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
@@ -44,6 +45,21 @@ class AutoScriptMilling(Milling):
     """ThermoFisher milling, on ``connection.patterning``."""
 
     parent: ThermoMicroscope
+
+    setting_names = (
+        "milling_channel",
+        "hfw",
+        "milling_current",
+        "milling_voltage",
+        "application_file",
+        "patterning_mode",
+    )
+
+    def _setting_metadata(self, name: str) -> ParameterMetadata:
+        if name == "application_file":
+            files = self.parent.connection.patterning.list_all_application_files()
+            return ParameterMetadata(choices=tuple(files))
+        return super()._setting_metadata(name)
 
     def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
         # the milling view, the application file, the patterning mode, then hfw,

@@ -9,7 +9,6 @@ import sys
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
-    QComboBox,
     QFormLayout,
     QLabel,
     QPushButton,
@@ -42,10 +41,6 @@ def main() -> None:
     ctrl_layout = QFormLayout(controls)
     ctrl_layout.setContentsMargins(0, 0, 0, 0)
 
-    mfr_combo = QComboBox()
-    mfr_combo.addItems(["Demo (none)", "ThermoFisher", "Tescan"])
-    ctrl_layout.addRow("Manufacturer:", mfr_combo)
-
     adv_check = QCheckBox("Show advanced")
     ctrl_layout.addRow("Advanced:", adv_check)
 
@@ -64,10 +59,6 @@ def main() -> None:
     root.addWidget(btn_get)
 
     # --- connections ---
-    def on_mfr_changed(idx: int) -> None:
-        mfr_map = {0: "Demo", 1: "ThermoFisher", 2: "Tescan"}
-        widget.set_manufacturer(mfr_map[idx])
-
     def on_adv_changed(checked: bool) -> None:
         widget.set_advanced_visible(checked)
 
@@ -83,13 +74,9 @@ def main() -> None:
         s = widget.get_settings()
         print(s)
 
-    mfr_combo.currentIndexChanged.connect(on_mfr_changed)
     adv_check.toggled.connect(on_adv_changed)
     widget.settings_changed.connect(on_settings_changed)
     btn_get.clicked.connect(on_print)
-
-    # start with ThermoFisher selected
-    mfr_combo.setCurrentIndex(1)
 
     win.show()
     sys.exit(app.exec_())

@@ -14,6 +14,12 @@ milling beam's conditions (its preset where it has one, voltage, current and fie
 view), and ``restore`` writes them back; ``finish_milling`` restores, so the beam ends
 as milling found it on every backend, not as the caller guessed it was.
 
+Which recipe fields an instrument mills with differs too, and ``supported_settings``
+says: the fields its driver's ``setup`` reads, each with its choices and limits. A
+field that is a beam parameter (current, voltage, preset, hfw) has the beam's own
+metadata; the application file and the rest have what the driver reports. The milling
+form shows those fields and no others.
+
 `ServiceMilling` gives a microscope the old milling methods over its service, so
 ``setup_milling``, ``draw_patterns``, ``start_milling`` and the rest keep their
 signatures.
@@ -22,16 +28,17 @@ signatures.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence, Tuple, Type, TypeVar
 
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Parameter, Role, command
+from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
 from fibsem.services.core import Service
 from fibsem.structures import (
     BeamType,
     FibsemMillingSettings,
     FibsemPatternSettings,
     MillingState,
+    get_fields_with_metadata,
 )
 
 if TYPE_CHECKING:
@@ -68,15 +75,65 @@ class Milling(Service):
     # done behind its back, so the commands don't read it after themselves.
     state = Parameter(MillingState, doc="Idle, running, paused, ...; read-only.")
 
+    # The `FibsemMillingSettings` fields this driver's ``setup`` reads; it ignores
+    # the rest. A driver sets it.
+    setting_names: Tuple[str, ...] = ()
+
     def __init__(self, name: str = "milling", **kwargs: Any):
         super().__init__(name, **kwargs)
         # The beam conditions the first setup found, until restore puts them back.
         self._saved: Optional[Dict[str, Any]] = None
         self._saved_beam: Optional[Beam] = None
+        # What the driver says about its own fields, asked once.
+        self._driver_settings: Dict[str, ParameterMetadata] = {}
 
     def beam(self, channel: BeamType = BeamType.ION) -> Beam:
         """The beam that mills on ``channel``."""
         return self.electron if channel is BeamType.ELECTRON else self.ion
+
+    def supported_settings(
+        self, channel: BeamType = BeamType.ION
+    ) -> Dict[str, ParameterMetadata]:
+        """The recipe (`FibsemMillingSettings`) fields this instrument mills with on
+        ``channel``, each with its choices and limits; the fields left out it ignores.
+
+        A field whose ``microscope_parameter`` is one of the milling beam's parameters
+        (milling current and voltage, preset, hfw) has that parameter's own metadata, and is left out when that beam doesn't
+        have it or can't set it. The others (application file, patterning mode,
+        Tescan's rate and dwell, ...) have what the driver reports. A channel this
+        instrument doesn't mill on (no beam, or not one the driver mills with) has
+        no settings.
+        """
+        if channel not in (self._metadata_of("milling_channel").choices or ()):
+            return {}
+        beam = self.beam(channel)
+        available: Dict[str, ParameterMetadata] = {}
+        fields = get_fields_with_metadata(FibsemMillingSettings)
+        for name in self.setting_names:
+            beam_parameter = fields[name].get("microscope_parameter")
+            if beam_parameter not in beam.parameters:
+                available[name] = self._metadata_of(name)
+            elif _settable(beam, beam_parameter):
+                available[name] = beam.parameters[beam_parameter].metadata
+        return available
+
+    def _metadata_of(self, name: str) -> ParameterMetadata:
+        """The driver's metadata for its field *name*, asked for once."""
+        if name not in self._driver_settings:
+            self._driver_settings[name] = self._setting_metadata(name)
+        return self._driver_settings[name]
+
+    def _setting_metadata(self, name: str) -> ParameterMetadata:
+        """What the driver allows for its recipe field *name*. The base knows the
+        channel and the patterning mode; a driver adds its own fields."""
+        if name == "milling_channel":
+            channels = [BeamType.ION]
+            if getattr(self, "electron", None) is not None:
+                channels.append(BeamType.ELECTRON)
+            return ParameterMetadata(choices=tuple(channels))
+        if name == "patterning_mode":
+            return ParameterMetadata(choices=("Serial", "Parallel"))
+        return ParameterMetadata()
 
     # -- commands ----------------------------------------------------------------
 
