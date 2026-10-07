@@ -294,9 +294,6 @@ def __getattr__(name: str):
 HUGGINFACE_REPO = "patrickcleeve/autolamella"
 DEFAULT_CHECKPOINT = "autolamella-mega-20240107.pt"
 
-# feature flags
-APPLY_CONFIGURATION_ENABLED = True
-
 
 # ---------------------------------------------------------------------------
 # User Preferences
