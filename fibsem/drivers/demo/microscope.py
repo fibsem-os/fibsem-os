@@ -65,6 +65,7 @@ from fibsem.devices.entries import (
 )
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.drivers.demo.devices import bind_demo_fm
+from fibsem.drivers.demo.profiles import DemoProfile, demo_profile
 from fibsem.drivers.demo.services import bind_demo_milling
 from fibsem.drivers.demo.simulator import (
     SIM_OBJECTIVE_FOCUS_POSITION,
@@ -171,6 +172,9 @@ class DemoMicroscope(
     manipulator_move_types = ("relative", "corrected")
 
     def __init__(self, system_settings: SystemSettings):
+        # The instrument this Demo stands in for, from the configuration's
+        # manufacturer; before anything is built, since the devices show it.
+        self.profile: DemoProfile = demo_profile(system_settings.info.manufacturer)
         self._start_session(system_settings)
         # The ion beam's plasma gas is read before its device is built, which only
         # offers a gas on a plasma column, so it is read at connect.
@@ -193,7 +197,9 @@ class DemoMicroscope(
             defaults = (*DEMO_DEVICES, DEMO_SAMPLE_LOADER)
         resolved = [
             item
-            for item in resolve_system_devices(self.system, defaults)
+            for item in resolve_system_devices(
+                self.system, defaults, driver=self._own_driver()
+            )
             if item.type != "fm"
         ]
         # The builders start from this microscope's parts (``fibsem.drivers.demo
@@ -220,6 +226,15 @@ class DemoMicroscope(
             }
         )
         self.milling = bind_demo_milling(self)
+
+    @property
+    def manufacturer(self) -> str:
+        return self.profile.manufacturer
+
+    def _own_driver(self) -> str:
+        # Demo, whichever instrument it stands in for: a Tescan sim builds Demo
+        # devices, not Tescan's.
+        return manufacturers.DEMO
 
     def _create_grid_loader(self) -> Optional[SampleGridLoader]:
         """The grid model over the ``sample_loader`` device, or None when there is

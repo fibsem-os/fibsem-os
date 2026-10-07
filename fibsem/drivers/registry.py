@@ -267,14 +267,26 @@ def device_builder(driver: Optional[str], type: str) -> Optional[DeviceBuilder]:
     return get_driver(driver).devices.get(type)
 
 
+def is_simulated(system: "SystemSettings") -> bool:
+    """Whether the configuration asks for a simulated instrument (``sim: {enabled:
+    true}``), which the Demo driver stands in for, whatever its manufacturer."""
+    return bool((system.sim or {}).get("enabled", False))
+
+
 def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":
     """The microscope ``system.info.manufacturer`` names, built and connected.
+
+    A simulated one (:func:`is_simulated`) is the Demo, which simulates the
+    manufacturer's instrument (``fibsem.drivers.demo.profiles``).
 
     Connects to ``system.info.ip_address`` on ``system.info.port`` when the
     configuration names one, else on the driver's ``port``. With neither, the
     microscope is built and not connected.
     """
-    driver = get_driver(system.info.manufacturer)
+    if is_simulated(system):
+        driver = get_driver(manufacturers.DEMO)
+    else:
+        driver = get_driver(system.info.manufacturer)
     microscope = driver.load()(system)
     port = system.info.port
     if port is None:

@@ -52,6 +52,7 @@ from fibsem.devices.stage import (
     compustage_device_at_pose,
     compustage_poses,
 )
+from fibsem.drivers.demo.profiles import demo_profile_of
 from fibsem.drivers.demo.simulator import (
     BINNING_VALUES,
     EMISSION_WAVELENGTHS,
@@ -151,15 +152,11 @@ class DemoBeam(Beam):
             else:
                 choices = sim.SIMULATOR_BEAM_CURRENTS[BeamType.ELECTRON]
         elif key == "voltage":
-            choices = (
-                [2000, 5000, 10000, 20000, 30000]
-                if self.beam_type is BeamType.ELECTRON
-                else [500, 1000, 2000, 8000, 16000, 30000]
-            )
+            choices = demo_profile_of(self.parent).voltages[self.beam_type]
         elif key == "detector_type":
-            choices = ["ETD", "TLD", "EDS"]
+            choices = demo_profile_of(self.parent).detector_types
         elif key == "detector_mode":
-            choices = ["SecondaryElectrons", "BackscatteredElectrons", "EDS"]
+            choices = demo_profile_of(self.parent).detector_modes
         elif key == "plasma_gas":
             choices = sim.SIMULATOR_PLASMA_GASES
         else:

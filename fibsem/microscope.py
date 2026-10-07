@@ -637,7 +637,13 @@ class FibsemMicroscope(ABC):
         def canonical(driver: Optional[str]) -> str:
             return str(manufacturers.normalize_manufacturer(driver)).strip().casefold()
 
-        return canonical(entry.driver) != canonical(self.system.info.manufacturer)
+        return canonical(entry.driver) != canonical(self._own_driver())
+
+    def _own_driver(self) -> Optional[str]:
+        """The registry name of this backend's driver, which builds a device entry
+        that names none: the configuration's manufacturer's, unless the backend
+        stands in for another driver's instrument (the Demo)."""
+        return self.system.info.manufacturer
 
     # ---- the ion column's plasma source ----------------------------------------
     #
