@@ -110,6 +110,11 @@ if TYPE_CHECKING:
     from fibsem.structures import DeviceEntry
 
 
+# The ranges the simulated beams take: wide enough for any real column's values.
+_SIM_HFW_LIMITS = RangeLimit(min=100e-9, max=3e-3)
+_SIM_DWELL_TIME_LIMITS = RangeLimit(min=1e-9, max=1e-3)
+
+
 class DemoBeam(Beam):
     """A Demo beam.
 
@@ -198,6 +203,9 @@ class DemoBeam(Beam):
     def write_hfw(self, value: float) -> None:
         self.sim_beam.hfw = value
 
+    def metadata_hfw(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=_SIM_HFW_LIMITS)
+
     def read_scan_rotation(self) -> float:
         return float(self.sim_beam.scan_rotation)
 
@@ -253,6 +261,9 @@ class DemoBeam(Beam):
 
     def write_dwell_time(self, value: float) -> None:
         self.sim_beam.dwell_time = value
+
+    def metadata_dwell_time(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=_SIM_DWELL_TIME_LIMITS)
 
     # Reads hand back a new Point, as the Demo branch does, so a caller can't change
     # the simulator's state through the value it was given.
