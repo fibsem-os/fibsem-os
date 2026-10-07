@@ -126,7 +126,7 @@ def test_the_demo_mills_for_its_estimate_and_reports_as_it_goes(microscope):
     updates = []
     microscope.milling_progress_signal.connect(updates.append)
 
-    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    microscope.run_milling()
 
     assert isinstance(microscope.milling, DemoMilling)
     assert microscope.get_milling_state() is IDLE

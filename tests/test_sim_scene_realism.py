@@ -483,7 +483,7 @@ def test_milled_patterns_persist_in_the_world(microscope):
             width=30e-6, height=6e-6, depth=1e-6, centre_x=10e-6, centre_y=20e-6
         )
     )
-    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    microscope.run_milling()
     after = microscope.acquire_image(image_settings=settings)
     assert len(microscope._sample_scene.milled) == 1
 
@@ -558,7 +558,7 @@ def test_a_rotated_pattern_mills_the_footprint_it_was_drawn_with(microscope):
             rotation=np.deg2rad(45),
         )
     )
-    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    microscope.run_milling()
     image = microscope.acquire_image(image_settings=settings)
     trench = image.data < 100
 
@@ -601,7 +601,7 @@ def test_holes_and_trenches_are_dark_in_both_beams(microscope):
             width=20e-6, height=5e-6, depth=1e-6, centre_x=0.0, centre_y=-25e-6
         )
     )
-    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    microscope.run_milling()
     fib, sem = _fib_and_sem(microscope, hfw=100e-6)
     for name, image in (("FIB", fib), ("SEM", sem)):
         film = np.median(image)
