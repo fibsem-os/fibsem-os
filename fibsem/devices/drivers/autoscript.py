@@ -193,7 +193,7 @@ class AutoscriptCompustage(AutoscriptStage):
 
 def autoscript_stage_class(microscope: ThermoMicroscope) -> Type[AutoscriptStage]:
     """The driver class for the stage the Thermo backend found at connect."""
-    return AutoscriptCompustage if microscope.stage_is_compustage else AutoscriptStage
+    return AutoscriptCompustage if microscope._compustage_installed else AutoscriptStage
 
 
 def bind_autoscript_stage(

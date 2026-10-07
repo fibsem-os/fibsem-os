@@ -3204,11 +3204,11 @@ class FibsemMicroscope(ABC):
     def _stage_poses(self) -> Dict[str, FibsemStagePosition]:
         """The stage's pose for each orientation name, from the configured geometry.
 
-        The stage device declares them (FIB-1101). A backend without a stage device
-        yet (Odemis, Tescan) gets the same declarations here, chosen
-        by the stage type it reported; this branch goes once each has a stage device.
+        The stage device declares them (FIB-1101). A microscope built without one gets
+        a rotating stage's poses, rotating if the configuration says the stage has an r
+        axis; a compustage always has a stage device to declare its own.
         """
-        from fibsem.devices.stage import compustage_poses, rotating_stage_poses
+        from fibsem.devices.stage import rotating_stage_poses
 
         stage_settings = self.system.stage
         geometry = dict(
@@ -3218,10 +3218,6 @@ class FibsemMicroscope(ABC):
         )
         if self.stage_device is not None:
             return self.stage_device.poses(**geometry)
-        # Only the old Thermo paths' parity fixture builds a microscope with no stage
-        # device; this arm goes with those paths (#1301).
-        if self.stage_is_compustage:
-            return compustage_poses(**geometry)
         return rotating_stage_poses(**geometry, rotates=stage_settings.rotation)
 
     def _fm_is_a_pose(self) -> bool:

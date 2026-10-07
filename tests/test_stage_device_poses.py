@@ -69,14 +69,11 @@ def test_each_autoscript_stage_declares_its_own(cls, axes, expected):
 
 @pytest.mark.parametrize(
     "filename",
-    [
-        "microscope-configuration.yaml",
-        "tescan-configuration.yaml",
-        "sim-arctis-configuration.yaml",
-    ],
+    ["microscope-configuration.yaml", "tescan-configuration.yaml"],
 )
 def test_a_backend_without_a_stage_device_gets_the_same_table(filename):
-    """Odemis and Tescan have no stage device yet; they must not notice the move."""
+    """A rotating stage's table needs no stage device: the configuration's r axis is
+    enough. A compustage always has its stage device to declare its own poses."""
     microscope, _ = utils.setup_session(
         config_path=os.path.join(cfg.CONFIG_PATH, filename), manufacturer="Demo"
     )
