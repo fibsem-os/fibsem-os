@@ -1,20 +1,21 @@
-"""The AutoScript beam driver makes the SDK calls Thermo's beam keys make today.
+"""The AutoScript beam driver makes the SDK calls Thermo's beam keys made before it.
 
 ``AutoscriptBeam`` is ``ThermoMicroscope``'s beam branches moved onto the ``Beam``
-device. Each case runs an old ``get``/``set`` on one microscope, and the same call on
-another whose beam keys are routed to the drivers as ``ThermoMicroscope``'s connect
-routes them, both over a fake AutoScript client that records every SDK call
-and write. Each case requires the same result, the same calls in the same order, and
-the same logged messages. A ``set`` case reads the key back after the write.
+device. Each case runs a ``get``/``set`` on a microscope whose beam keys are routed to
+the drivers as ``ThermoMicroscope``'s connect routes them, over a fake AutoScript
+client that records every SDK call and write. It must give the result, the calls in
+order and the logged messages the old branches gave, recorded over the same fake in
+``tests/fixtures/autoscript_old_calls.json`` before they were deleted. A ``set`` case
+reads the key back after the write.
 
 Cases: every moved key on both beams, with and without a plasma column; the hfw
 clip; an unlisted plasma gas, which warns and is still set; the detector keys, which
 select the beam's channel first, and their refused values; the scan-mode methods,
 through the scan commands on one side and the old keys on the other; the electron
 beam's angular correction, whose tilt correction could only be set before: it reads
-on the new API, and the old key's get still returns None; and ``preset``,
-which has not moved, so both sides still answer it with the old branches. The fake SDK has to be in place before ``fibsem.microscopes.autoscript`` is
-first imported, so the recording runs in its own interpreter
+on the new API, and the old key's get still returns None; and ``preset``, which
+Thermo does not have. The fake SDK has to be in place before
+``fibsem.microscopes.autoscript`` is first imported, so the recording runs in its own interpreter
 (``tests/fixtures/autoscript_beam_parity.py``). Nothing here has run on an instrument.
 """
 
@@ -26,8 +27,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.autoscript_recording import load
+
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_beam_parity.py"
 PINS = Path(__file__).parent / "fixtures" / "available_values_pins.json"
+RECORDED = Path(__file__).parent / "fixtures" / "autoscript_old_calls.json"
 
 MOVED = [
     "blanked",
@@ -64,7 +68,13 @@ def recording(tmp_path_factory):
         timeout=300,
     )
     assert result.returncode == 0, result.stderr[-4000:]
-    return json.loads(out.read_text())
+    recording = load(out.read_text())
+    # the old code's side, recorded before it was deleted
+    old = load(RECORDED.read_text())["beam"]
+    assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
+    for case in recording["cases"]:
+        case["old"] = old[case["key"]]
+    return recording
 
 
 def test_the_recording_covers_both_beams_and_makes_sdk_calls(recording):
@@ -85,9 +95,24 @@ def test_no_old_call_raised(recording):
     assert raised == []
 
 
+def _quiet(old):
+    """The old side with its "Unknown key" warnings dropped: a key the column's
+    device does not have (``preset``, a plasma gas on a column without a source)
+    was unknown to the old ``_set`` and warned; with no ``_set`` of Thermo's own
+    it is unsupported, as on every backend, and logs at debug level."""
+    result, calls, messages = old
+    return [result, calls, [m for m in messages if not m[1].startswith("Unknown key")]]
+
+
 def test_routed_keys_make_the_same_sdk_calls_logs_and_results(recording):
-    different = [c for c in recording["cases"] if c["old"] != c["new"]]
+    different = [c for c in recording["cases"] if _quiet(c["old"]) != c["new"]]
     assert different == [], json.dumps(different[:3], indent=1)
+
+
+def test_only_the_unknown_key_warnings_are_gone(recording):
+    quietened = [c["key"] for c in recording["cases"] if c["old"] != c["new"]]
+    assert quietened
+    assert all(" set " in key for key in quietened), quietened
 
 
 @pytest.mark.parametrize("plasma", [False, True])
@@ -266,6 +291,5 @@ def test_the_tilt_correction_reads_on_the_new_api_only(recording):
         "before": False,
         "after": True,
         "key": None,
-        "old": None,
         "ion": None,
     }

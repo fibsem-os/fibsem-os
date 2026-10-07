@@ -5,8 +5,8 @@ does today, moved as-is, so the old call and the device make the same SDK calls 
 the same order. ``AutoscriptCompustage`` is the same for a compustage (Arctis,
 Hydra), ``AutoscriptBeam`` for the beam keys, and ``AutoscriptChamber`` and
 ``AutoscriptManipulator`` for the vacuum and the needle. ``ThermoMicroscope`` builds
-them at connect and routes its keys and moves to them; its old code stays until a
-session on an instrument confirms the devices.
+them at connect and routes its keys and moves to them; the old code they replaced is
+deleted.
 
 The vendor stage is ``microscope._vendor_stage``, which the Thermo backend sets at
 connect to ``specimen.stage`` or ``specimen.compustage`` (``microscope.stage`` is the
@@ -214,8 +214,7 @@ class AutoscriptBeam(Beam):
     ``acquire``, ``last_image``, ``autocontrast`` and ``auto_focus`` are the old
     methods, claiming the imaging channel for the vendor call.
 
-    Not here, so absent on the new API and still answered by the old branches:
-    ``preset`` (Thermo has none).
+    Not here: ``preset`` (Thermo has none), whose key reads None.
     """
 
     needs_channel = frozenset(
