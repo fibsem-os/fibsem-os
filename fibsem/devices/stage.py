@@ -36,12 +36,17 @@ milling angle setting, so the microscope builds it from the SEM rotation.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Iterator, Mapping
+from typing import Any, Dict, Iterator, Mapping, Optional
 
 from psygnal import Signal
 
 from fibsem.devices.core import Device, Parameter, command
-from fibsem.structures import STAGE_FRAME_FIBSEM, FibsemStagePosition, RangeLimit
+from fibsem.structures import (
+    BEAMS_STAGE_DEVICE,
+    STAGE_FRAME_FIBSEM,
+    FibsemStagePosition,
+    RangeLimit,
+)
 
 STAGE_RESOURCE = "stage"
 AXIS_UNITS: Dict[str, str] = {"x": "m", "y": "m", "z": "m", "r": "rad", "t": "rad"}
@@ -96,6 +101,15 @@ def compustage_poses(
         r=math.radians(rotation_reference), t=math.radians(-180)
     )
     return poses
+
+
+def compustage_device_at_pose(orientation: str) -> str:
+    """Which device a compustage is at in a pose: the FM in the FM pose, else the beams.
+
+    The objective is under the grid, so the stage reaches it by turning the grid over,
+    not by travelling. The pose says where it is, wherever x and y are.
+    """
+    return "FM" if orientation == "FM" else BEAMS_STAGE_DEVICE
 
 
 def tilted_past_vertical(tilt: float) -> bool:
@@ -288,6 +302,16 @@ class Stage(Device):
             fib_column_tilt,
             rotates="r" in self.axes,
         )
+
+    def device_at_pose(self, orientation: str) -> Optional[str]:
+        """The device this stage is at whenever it holds a pose, or None.
+
+        None by default: the stage travels between devices, so where it is decides
+        which one it is at (the nearest origin, `FibsemMicroscope.get_current_device`).
+        A stage that reaches a device by re-posing instead of travelling (a compustage
+        and its FM) overrides this, so the pose decides wherever x and y are.
+        """
+        return None
 
     def turned_over(self, tilt: float) -> bool:
         """Whether the sample is turned over at this stage tilt, in radians.

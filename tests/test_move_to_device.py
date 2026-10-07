@@ -337,3 +337,47 @@ def test_an_offset_mount_has_no_fm_orientation_to_ask_for():
         offset.get_orientation("FM")
 
     assert compustage.get_orientation("FM") is not None
+
+
+# ── which device the stage is at: the stage device says ───────────────
+
+
+def test_a_compustage_is_at_the_fm_in_the_fm_pose_wherever_it_is():
+    """The pose decides on a compustage: its objective is under the grid, so the FM
+    is reached by turning over, not by travelling."""
+    microscope = _microscope(ARCTIS_CONFIG)
+    at_fm = _off_centre(microscope, "FM")
+    at_fm.x = 5.0e-3
+
+    assert microscope.get_current_device(at_fm) == "FM"
+    for orientation in ("SEM", "FIB", "MILLING"):
+        position = _off_centre(microscope, orientation)
+        assert microscope.get_current_device(position) == "FIBSEM"
+
+
+def test_an_offset_mount_is_still_decided_by_where_the_stage_is():
+    microscope = _microscope()
+    assert microscope.stage_device.device_at_pose("FIB") is None
+
+    at_fm = _off_centre(microscope, "FIB")
+    at_fm.x += 48.8e-3
+    assert microscope.get_current_device(at_fm) == "FM"
+    assert microscope.get_current_device(_off_centre(microscope, "FIB")) == "FIBSEM"
+
+
+def test_the_thermo_compustage_says_the_same_as_the_demo_one():
+    from fibsem.devices.drivers.autoscript import AutoscriptCompustage, AutoscriptStage
+
+    compustage = object.__new__(AutoscriptCompustage)
+    assert compustage.device_at_pose("FM") == "FM"
+    assert compustage.device_at_pose("SEM") == "FIBSEM"
+    assert object.__new__(AutoscriptStage).device_at_pose("FIB") is None
+
+
+def test_a_device_with_no_stage_position_is_refused_not_false():
+    """`False` would read as "not there yet", for a place that does not exist."""
+    microscope = _microscope()
+    microscope.system.stage.devices["FM"].origin = FibsemStagePosition()
+
+    with pytest.raises(ValueError, match="no stage position"):
+        microscope.is_at_device("FM")

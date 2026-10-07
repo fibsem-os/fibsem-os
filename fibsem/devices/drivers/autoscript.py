@@ -38,7 +38,12 @@ from fibsem.devices.sample_loader import (
     SampleLoader,
     StageSample,
 )
-from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
+from fibsem.devices.stage import (
+    Stage,
+    axis_limits_from_degrees,
+    compustage_device_at_pose,
+    compustage_poses,
+)
 from fibsem.structures import (
     BeamType,
     ChamberState,
@@ -178,6 +183,9 @@ class AutoscriptCompustage(AutoscriptStage):
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
     ) -> Dict[str, FibsemStagePosition]:
         return compustage_poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
+
+    def device_at_pose(self, orientation: str) -> Optional[str]:
+        return compustage_device_at_pose(orientation)
 
 
 def autoscript_stage_class(microscope: ThermoMicroscope) -> Type[AutoscriptStage]:

@@ -44,7 +44,12 @@ from fibsem.devices.sample_loader import (
     SampleLoader,
     StageSample,
 )
-from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
+from fibsem.devices.stage import (
+    Stage,
+    axis_limits_from_degrees,
+    compustage_device_at_pose,
+    compustage_poses,
+)
 from fibsem.fm.microscope import emission_filter_named
 from fibsem.fm.structures import (
     REFLECTION,
@@ -393,6 +398,11 @@ class DemoStage(Stage):
                 rotation_reference, shuttle_pre_tilt, fib_column_tilt
             )
         return super().poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
+
+    def device_at_pose(self, orientation: str) -> Optional[str]:
+        if self.parent.stage_is_compustage:
+            return compustage_device_at_pose(orientation)
+        return super().device_at_pose(orientation)
 
     def read_linked(self) -> bool:
         return self.sim_linked
