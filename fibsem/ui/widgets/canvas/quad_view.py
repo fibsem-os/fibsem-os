@@ -29,6 +29,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import constants
+from fibsem.imaging.export import image_fields, z_value
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.stylesheets import (
     CANVAS_BG as _BG,
@@ -59,6 +60,7 @@ from fibsem.ui.widgets.canvas.canvas_state import (
 from fibsem.ui.widgets.canvas.chamber_view import ChamberView
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -87,36 +89,35 @@ _CYCLE_BUTTON_STYLE = (
     "QToolButton:disabled { color: #444; }"
 )
 _CYCLE_LABEL_STYLE = f"color: {TEXT_COLOR}; font-size: 11px;"
-
-_TITLE_STYLE = (
-    f"color: #888; font-size: 11px; padding: 2px 6px; background: {CANVAS_BG};"
-)
 # Selected-view border: the primary accent (matches PRIMARY_BUTTON_STYLESHEET), kept subtle.
 # A transparent border of the same width is always present so selection causes no layout shift,
-# and it's scoped via the #viewPanel object name so it never cascades onto the title / canvas.
+# and it's scoped via the #viewPanel object name so it never cascades onto the bar / canvas.
 _PANEL_QSS = "#viewPanel {{ background: {bg}; border: 2px solid {border}; }}"
 # Live-acquisition border: green, and it takes priority over the blue selected border so a
 # live view is obvious even when you've clicked away to another cell.
 _LIVE_ACCENT = GREEN_COLOR
 
 
-def _titled(title: str, inner: QWidget, header: Optional[QWidget] = None) -> QFrame:
-    """Wrap *inner* in a selectable panel frame with a small title label above it, or
-    with *header* in the title's place."""
+def _panel(inner: QWidget, bar: Optional[ViewInfoBar] = None) -> QFrame:
+    """Wrap *inner* in a selectable panel frame, with *bar* under it.
+
+    The bar names the view and says what its image is, so the panel has no title row
+    above (FIB-1186). Under the whole of *inner*: on FM that is below the z row, so every
+    bar sits on its panel's bottom edge and a row of views lines up.
+    """
     frame = QFrame()
     frame.setObjectName("viewPanel")
     frame.setAttribute(Qt.WA_StyledBackground, True)
     frame.setStyleSheet(_PANEL_QSS.format(bg=_BG, border="transparent"))
-    if header is None:
-        header = QLabel(title, alignment=Qt.AlignLeft)
-        header.setStyleSheet(_TITLE_STYLE)
     lay = QVBoxLayout(frame)
     lay.setContentsMargins(0, 0, 0, 0)
     lay.setSpacing(0)
-    lay.addWidget(header)
-    # All the stretch to the content: a header sharing it drifts down the cell when
-    # the content has nothing that wants to grow, such as a page's empty message.
+    # All the stretch to the content: a bar or header sharing it drifts away from
+    # the cell's edge when the content has nothing that wants to grow, such as a
+    # page's empty message.
     lay.addWidget(inner, 1)
+    if bar is not None:
+        lay.addWidget(bar)
     return frame
 
 
@@ -233,7 +234,8 @@ class PageCell(QWidget):
 
 
 class QuadViewWidget(QWidget):
-    """2x2 grid: SEM | FIB over FM | a cell of pages, each a titled panel.
+    """2x2 grid: SEM | FIB over FM | a cell of pages. SEM, FIB and FM are selectable
+    panels, each with a bar under it.
 
     The SEM/FIB cells are :class:`FibsemImageCanvas` instances (so they inherit
     the reset / scalebar / crosshair / contrast toolbar); the FM cell is an
@@ -260,11 +262,16 @@ class QuadViewWidget(QWidget):
         self.chamber_view = ChamberView()
         self.page_cell = PageCell()
         self.page_cell.add_page("chamber", "Chamber", self.chamber_view)
+        self.sem_bar = ViewInfoBar("SEM")
+        self.fib_bar = ViewInfoBar("FIB")
+        self.fm_bar = ViewInfoBar("FM")
 
-        sem_panel = _titled("SEM", self.sem_canvas)
-        fm_panel = _titled("FM", self.fm_widget)
-        fib_panel = _titled("FIB", self.fib_canvas)
-        page_panel = _titled("", self.page_cell, header=self.page_cell.header)
+        sem_panel = _panel(self.sem_canvas, self.sem_bar)
+        fm_panel = _panel(self.fm_widget, self.fm_bar)
+        fib_panel = _panel(self.fib_canvas, self.fib_bar)
+        page_panel = _panel(self.page_cell)
+        # The page selector keeps its row above the cell until the cell has a bar.
+        page_panel.layout().insertWidget(0, self.page_cell.header)
 
         left = _splitter(Qt.Vertical, sem_panel, fm_panel)
         right = _splitter(Qt.Vertical, fib_panel, page_panel)
@@ -442,17 +449,20 @@ class LamellaEditorView(QWidget):
         self.fib_canvas = FibsemImageCanvas()
         self.fm_widget = FMCanvasWidget()
         self.fm_canvas = self.fm_widget.canvas
+        self.sem_bar = ViewInfoBar("SEM")
+        self.fib_bar = ViewInfoBar("FIB")
+        self.fm_bar = ViewInfoBar("FM")
 
-        self._sem_panel = _titled("SEM", self.sem_canvas)
+        self._sem_panel = _panel(self.sem_canvas, self.sem_bar)
         self._sem_panel.setVisible(False)  # shown on demand via set_sem_visible()
         # SEM on the left, FIB on the right: the same order as the Microscope
         # tab's quad view, so a side-by-side pair reads the same everywhere.
-        self._fib_panel = _titled("FIB", self.fib_canvas)
+        self._fib_panel = _panel(self.fib_canvas, self.fib_bar)
         self._beams_page = _splitter(Qt.Horizontal, self._sem_panel, self._fib_panel)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._beams_page)  # index 0: beams
-        self._stack.addWidget(_titled("Fluorescence", self.fm_widget))  # index 1: FM
+        self._stack.addWidget(_panel(self.fm_widget, self.fm_bar))  # index 1: FM
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -560,6 +570,18 @@ class MicroscopeViewController(QObject):
         # the poll this replaced.
         self._objective_seeded = False
 
+        # The bar under each view (FIB-1186): the displayed image's metadata, never the
+        # microscope's live state. Optional, so a view without bars still drives.
+        self._bars: Dict[BeamType, Optional[ViewInfoBar]] = {
+            BeamType.ELECTRON: getattr(self._widget, "sem_bar", None),
+            BeamType.ION: getattr(self._widget, "fib_bar", None),
+        }
+        self._fm_bar: Optional[ViewInfoBar] = getattr(self._widget, "fm_bar", None)
+        # (slices, z step in metres) of the FM stack on screen, so the bar's Z can name
+        # the plane as the user scrubs; None when there is no stack to scrub.
+        self._fm_z: Optional[Tuple[int, float]] = None
+        self._widget.fm_widget.z_display_changed.connect(self._refresh_fm_z)
+
     @property
     def widget(self) -> QWidget:
         """The view widget (``QuadViewWidget`` or a ``LamellaEditorView``)."""
@@ -642,6 +664,21 @@ class MicroscopeViewController(QObject):
         canvas.set_image(image)
         self._states[canvas].image = image
         self._mark_dirty(canvas)
+        self._show_fields(self._bars.get(beam), image)
+
+    @staticmethod
+    def _show_fields(bar: Optional[ViewInfoBar], image) -> None:
+        """Put *image*'s metadata on *bar*. Metadata only, so cheap on every frame."""
+        if bar is None:
+            return
+        try:
+            bar.set_image_fields(image_fields(image))
+        except Exception:
+            # A file with metadata nobody anticipated must not stop the image showing.
+            _logger.warning(
+                "could not read the image's fields for its bar", exc_info=True
+            )
+            bar.clear()
 
     def set_fm_channel(self, name: str, data, color: Optional[str] = None) -> None:
         """Upsert one fluorescence channel into the FM composite (by *name*)."""
@@ -655,11 +692,28 @@ class MicroscopeViewController(QObject):
         """Composite an acquired ``FluorescenceImage`` (all channels) onto the FM
         canvas. See :meth:`FMCanvasWidget.set_fm_image`."""
         self._widget.fm_widget.set_fm_image(image)
+        self._show_fields(self._fm_bar, image)
+        shape = getattr(image.data, "shape", ())
+        slices = shape[-3] if len(shape) >= 4 else 1  # as the export counts them
+        step = getattr(image.metadata, "pixel_size_z", None)
+        self._fm_z = (slices, step) if slices > 1 and step else None
+        self._refresh_fm_z()
+
+    def _refresh_fm_z(self) -> None:
+        """The FM bar's Z names the plane on screen: the projection, or `11 of 21`."""
+        if self._fm_bar is None or self._fm_z is None:
+            return
+        fm = self._widget.fm_widget
+        plane = None if fm.max_projection else fm.current_z
+        self._fm_bar.set_field_value("z", z_value(*self._fm_z, plane=plane))
 
     def clear_fm(self) -> None:
         """Drop all composited FM channels. Used on a lamella/task swap so a prior
         selection's channels (esp. differently-named ones) don't linger."""
         self._widget.fm_widget.clear()
+        self._fm_z = None
+        if self._fm_bar is not None:
+            self._fm_bar.clear()
 
     # ── overlay reducer ───────────────────────────────────────────────────
     def set_overlay(self, beam: BeamType, spec: OverlaySpec) -> None:
@@ -1208,4 +1262,7 @@ class MicroscopeViewController(QObject):
             state.armed_icon = ""
         self.sem_canvas.clear()
         self.fib_canvas.clear()
-        self._widget.fm_widget.clear()
+        self.clear_fm()
+        for bar in self._bars.values():
+            if bar is not None:
+                bar.clear()

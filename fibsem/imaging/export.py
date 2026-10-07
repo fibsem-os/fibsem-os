@@ -142,6 +142,16 @@ DEFAULT_FIELDS = (
 )
 DEFAULT_PROVENANCE = ("item", "task", "date")
 
+# What a short label stands for, where its name alone does not say: the canvas bar
+# shows it on hover. A key missing here reads as its field's name.
+FIELD_TITLES = {
+    "hfw": "Horizontal field width",
+    "voltage": "Accelerating voltage",
+    "current": "Beam current",
+    "detector": "Detector · mode",
+    "objective": "Objective · numerical aperture",
+}
+
 
 def default_options(image: ExportImage) -> ExportOptions:
     """Options a new export starts from: the defaults this image has values for."""
@@ -364,6 +374,17 @@ def fibsem_image_fields(image: FibsemImage) -> ImageFields:
     )
 
 
+def z_value(slices: int, step: float, plane: Optional[int] = None) -> str:
+    """The Z field: `MIP · 21 × 568 nm`, or `11 of 21 × 568 nm` for one plane.
+
+    *plane* is 0-based, as the FM canvas counts it; None is the max projection.
+    """
+    step_text = format_si(step, "m")
+    if plane is None:
+        return f"MIP · {slices} × {step_text}"
+    return f"{plane + 1} of {slices} × {step_text}"
+
+
 def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
     """A fluorescence stack's fields. Z reads as the projection the export draws."""
     md = image.metadata
@@ -383,8 +404,7 @@ def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
     # channel per slice -- 132 for a 4-channel, 33-slice stack on a real one.
     slices = shape[-3] if len(shape) >= 4 else 1  # (C, Z, Y, X) or (T, C, Z, Y, X)
     if slices > 1 and md.pixel_size_z:
-        z = f"MIP · {slices} × {format_si(md.pixel_size_z, 'm')}"
-        _add(fields, "z", "Z-stack", "Z", z)
+        _add(fields, "z", "Z-stack", "Z", z_value(slices, md.pixel_size_z))
 
     system = md.system_info or {}
     provenance = _provenance(
