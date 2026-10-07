@@ -649,7 +649,7 @@ def test_demo_reads_its_configuration():
 def test_demo_sets_its_milling_recipe():
     microscope = _connect("Demo")
     files = microscope.milling_system.application_files
-    microscope.set_milling_settings(
+    microscope.setup_milling(
         FibsemMillingSettings(
             milling_channel=BeamType.ELECTRON,
             application_file=files[-1],

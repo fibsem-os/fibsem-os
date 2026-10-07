@@ -6,7 +6,6 @@ import logging
 import os
 import random
 import threading
-import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from itertools import cycle
@@ -20,24 +19,16 @@ from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.fm.microscope import (
     FluorescenceMicroscope,
 )
-from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.projection import FMStageProjection
 from fibsem.structures import (
-    ACTIVE_MILLING_STATES,
     BeamSettings,
     BeamType,
-    FibsemBitmapSettings,
-    FibsemCircleSettings,
     FibsemDetectorSettings,
     FibsemExperimentRef,
     FibsemImage,
-    FibsemLineSettings,
     FibsemManipulatorPosition,
-    FibsemMillingSettings,
     FibsemPatternSettings,
-    FibsemPolygonSettings,
     FibsemRectangle,
-    FibsemRectangleSettings,
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
@@ -46,7 +37,6 @@ from fibsem.structures import (
     RangeLimit,
     SystemSettings,
 )
-from fibsem.util.application_file import match_application_file
 from fibsem.util.draw_numbers import draw_text
 
 ######################## SIMULATOR ########################
@@ -1013,137 +1003,6 @@ class DemoScene:
             beam_shift=(float(shift.x), float(shift.y)),
             beam_current=float(beam.beam_current) if beam.beam_current else None,
         )
-
-
-class DemoMilling:
-    """Simulated milling.
-
-    The patterns, the milling state and the application files are
-    ``milling_system``'s, which the demo sets up at construction; the beams
-    change only through the microscope's API.
-    """
-
-    milling_system: MillingSystem
-
-    # Whether the mill running now was started by `start_milling`, which never ends
-    # on its own here.
-    _async_milling: bool = False
-
-    def setup_milling(self, mill_settings: FibsemMillingSettings):
-        """Setup the milling parameters."""
-
-        self.milling_system.default_application_file = mill_settings.application_file
-        self.milling_channel = mill_settings.milling_channel
-        self.set_milling_settings(mill_settings=mill_settings)
-        self.clear_patterns()
-
-        logging.debug(
-            {"msg": "setup_milling", "mill_settings": mill_settings.to_dict()}
-        )
-
-    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        """Finish milling by restoring the imaging current and voltage."""
-        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
-        self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
-        self.clear_patterns()
-
-    def clear_patterns(self) -> None:
-        self.milling_system.patterns = []
-
-    def start_milling(self) -> None:
-        """Start milling by setting the state to RUNNING."""
-        # TODO: support this by properly estimating the end time
-        if self.get_milling_state() is MillingState.IDLE:
-            self.milling_system.state = MillingState.RUNNING
-            self._async_milling = True
-            logging.info("Milling started.")
-
-    def stop_milling(self) -> None:
-        self.milling_system.state = MillingState.IDLE
-        self._async_milling = False
-
-    def pause_milling(self) -> None:
-        self.milling_system.state = MillingState.PAUSED
-
-    def resume_milling(self) -> None:
-        self.milling_system.state = MillingState.RUNNING
-
-    def get_milling_state(self) -> MillingState:
-        return self.milling_system.state
-
-    def estimate_milling_time(self) -> float:
-        """Estimate the milling time for the specified patterns.
-
-        While an asynchronous mill is running, which only a stop ends here, the
-        estimate adds `SIM_ASYNC_MILLING_EXTRA_TIME`.
-        """
-        PATTERN_SLEEP_TIME = 5
-        estimate = PATTERN_SLEEP_TIME * len(self.milling_system.patterns)
-        if self._async_milling and self.get_milling_state() in ACTIVE_MILLING_STATES:
-            estimate += SIM_ASYNC_MILLING_EXTRA_TIME
-        return estimate
-
-    def set_default_application_file(
-        self, application_file: str, strict: bool = True
-    ) -> str:
-        # Demo models a ThermoFisher system, so it matches application files as one.
-        application_file = match_application_file(
-            application_file, self.milling_system.application_files, strict
-        )
-        self.milling_system.default_application_file = application_file
-        return application_file
-
-    def set_patterning_mode(self, patterning_mode: str) -> None:
-        """Set the patterning mode for milling."""
-        if patterning_mode not in ["Serial", "Parallel"]:
-            raise ValueError(
-                f"Invalid patterning mode: {patterning_mode}. Must be 'Serial' or 'Parallel'."
-            )
-        self.milling_system.patterning_mode = patterning_mode
-        logging.debug(
-            {"msg": "set_patterning_mode", "patterning_mode": patterning_mode}
-        )
-
-    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings) -> None:
-        logging.debug(
-            {"msg": "draw_rectangle", "pattern_settings": pattern_settings.to_dict()}
-        )
-        if pattern_settings.time != 0:
-            logging.info(f"Setting pattern time to {pattern_settings.time}.")
-        self.milling_system.patterns.append(pattern_settings)
-
-    def draw_line(self, pattern_settings: FibsemLineSettings) -> None:
-        logging.debug(
-            {"msg": "draw_line", "pattern_settings": pattern_settings.to_dict()}
-        )
-        self.milling_system.patterns.append(pattern_settings)
-
-    def draw_circle(self, pattern_settings: FibsemCircleSettings) -> None:
-        logging.debug(
-            {"msg": "draw_circle", "pattern_settings": pattern_settings.to_dict()}
-        )
-        self.milling_system.patterns.append(pattern_settings)
-
-    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
-        logging.debug(
-            {"msg": "draw_polygon", "pattern_settings": pattern_settings.to_dict()}
-        )
-        self.milling_system.patterns.append(pattern_settings)
-
-    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
-        logging.debug(
-            {
-                "msg": "draw_bitmap_pattern",
-                "pattern_settings": pattern_settings.to_dict(),
-            }
-        )
-        self.milling_system.patterns.append(pattern_settings)
-
-    def _set_default_application_file(self, application_file: str) -> None:
-        self.milling_system.default_application_file = application_file
-
-    def _set_default_patterning_beam_type(self, beam_type: BeamType) -> None:
-        self.milling_system.default_beam_type = beam_type
 
 
 @dataclass
