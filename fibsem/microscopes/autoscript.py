@@ -1993,6 +1993,8 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
             dy (float): distance along the y-axis (image corodinates)
             beam_type (BeamType, optional): the beam type to move in. Defaults to BeamType.ELECTRON.
         """
+        if self.manipulator_device is None:
+            raise self._unsupported("move_manipulator_corrected")
         stage_tilt = self.get_stage_position().t
 
         # xy

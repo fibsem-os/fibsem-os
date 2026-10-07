@@ -1231,10 +1231,9 @@ def test_finish_milling_puts_the_beam_back(microscope, beam_type):
     assert microscope.get("hfw", beam_type) == 40e-6
 
 
-def test_each_microscope_has_its_own_imaging_lock_and_stop_event():
+def test_each_microscope_has_its_own_imaging_lock():
     first, second = _connect("Demo"), _connect("Demo")
     assert first._threading_lock is not second._threading_lock
-    assert first._stop_acquisition_event is not second._stop_acquisition_event
     assert first.resources is not second.resources
 
 

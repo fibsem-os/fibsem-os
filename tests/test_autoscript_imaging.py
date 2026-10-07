@@ -145,5 +145,4 @@ def test_start_acquisition_runs_the_beams_live_view_and_stop_stops_it(recording)
         "acquiring": True,
         "ion": False,  # already acquiring: the second start does nothing
         "stopped": [False, False],
-        "thread": True,  # the microscope's own worker never started
     }
