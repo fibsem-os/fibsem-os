@@ -131,6 +131,18 @@ def test_a_beam_without_a_device_shows_no_controls(monkeypatch, beam_type):
     }
 
 
+def test_a_demo_with_its_ion_column_off_builds_the_ion_controls_hidden():
+    # The image settings panel builds both beams' widgets, so the missing one must
+    # populate without a current or voltage to read.
+    from copy import deepcopy
+
+    from fibsem.microscopes.device_demo import DemoMicroscope
+
+    system = deepcopy(_demo().system)
+    system.ion.enabled = False
+    assert set(_state(_widget(DemoMicroscope(system), I)).values()) == {"hidden"}
+
+
 @pytest.mark.parametrize(
     "make, show_preset",
     [

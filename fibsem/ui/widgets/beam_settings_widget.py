@@ -440,8 +440,11 @@ class FibsemBeamSettingsWidget(QWidget):
         """Populate beam current and voltage comboboxes from the microscope.
 
         Call this once after construction (or whenever the beam type changes)
-        so the comboboxes contain the correct available values.
+        so the comboboxes contain the correct available values. A beam the
+        microscope has not got has no values to list.
         """
+        if self._beam_device() is None:
+            return
         self.beam_current_combo.blockSignals(True)
         self.beam_current_combo.clear()
         current = self.microscope.get_beam_current(self.beam_type)
