@@ -761,13 +761,17 @@ class FMOverviewWidget(QWidget):
             return None
         return (there[0] - here[0], there[1] - here[1])
 
-    def _refresh_tile_grid(self) -> None:
+    def _refresh_tile_grid(self, redraw_context: bool = True) -> None:
         """Redraw the planned grid on the canvas.
 
         Needs a tile field of view and the camera geometry. It does *not* need an image:
         the grid is anchored to the canvas origin -- the stage position the tileset is
         planned around -- so it can be drawn before anything is acquired, which is when
         a planned grid is worth the most.
+
+        *redraw_context* False leaves the stage context alone unless the canvas scale
+        changed under it. For a stage move, which redraws the context itself when the
+        pose changes and has nothing to redraw when it does not.
         """
         fov = self.settings_widget._tile_fov
         if fov is None:
@@ -801,7 +805,7 @@ class FMOverviewWidget(QWidget):
         # Give the canvas a scale before the first image, so the grid has a real frame
         # to be drawn in rather than arbitrary units. No-op once an image has landed --
         # by then the image has set it, and changing it would move what is already drawn.
-        self.canvas.canvas.set_reference_pixel_size(pixel_size)
+        rescaled = self.canvas.canvas.set_reference_pixel_size(pixel_size)
         # Centred on the position the run will be centred on -- a dragged target, or
         # the stage itself -- not on whatever happens to be displayed. It used to be
         # pinned to the canvas origin, which is where the stage was the *first* time
@@ -832,7 +836,12 @@ class FMOverviewWidget(QWidget):
         # all fixed to the stage -- so redrawing them on every motion event is wasted,
         # and it is a *full* canvas repaint, which costs far more than the grid it was
         # called alongside. The beam tab skips its equivalent for the same reason.
-        if not self.tile_grid_overlay.is_dragging:
+        #
+        # Nor on a stage move, unless the scale just changed: a translation moves none
+        # of them either, and this runs on every stage update. Redrawing here put four
+        # frame conversions and a full repaint on each one, for shapes that had not
+        # moved -- `_on_stage_moved` redraws them itself when the pose changes.
+        if not self.tile_grid_overlay.is_dragging and (redraw_context or rescaled):
             self._refresh_stage_metadata()
 
         span_x = parameters.cols * fov[0] * (1 - parameters.overlap) + fov[0]
@@ -1974,7 +1983,7 @@ class FMOverviewWidget(QWidget):
         # mid-run. During a run the stage visits every tile in turn, and a grid that
         # followed would crawl across the canvas describing nothing.
         if self._target is None and not self.is_acquiring:
-            self._refresh_tile_grid()
+            self._refresh_tile_grid(redraw_context=False)
 
     def _pose_changed(self, position: FibsemStagePosition) -> bool:
         """Whether *position* is at a different rotation or tilt from the last one.
