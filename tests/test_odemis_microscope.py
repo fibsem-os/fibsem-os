@@ -345,16 +345,6 @@ def test_current_choices(microscope):
     assert all(b == pytest.approx(2 * a) for a, b in zip(electron, electron[1:]))
 
 
-def test_the_scan_is_set_only_to_the_non_square_resolutions(microscope):
-    """Odemis grabs a square frame through the frame settings, so a square is a
-    resolution choice but not one the scan can be set to."""
-    beam = microscope.beams[BeamType.ELECTRON]
-    assert (1024, 1024) in beam.resolution.choices
-    assert beam.scan_resolutions() == [
-        r for r in beam.resolution.choices if r[0] != r[1]
-    ]
-
-
 def test_voltage_choices(microscope):
     assert microscope.get_available_values("voltage", BeamType.ELECTRON) == [
         1000,

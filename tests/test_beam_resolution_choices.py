@@ -1,5 +1,5 @@
-"""A beam's resolution choices are the sizes an image can be acquired at, and its
-dwell time and field of view have limits where the driver knows them.
+"""A beam's resolution choices are what its scan can be set to, and its dwell time
+and field of view have limits where the driver knows them.
 
 Thermo's, from the scan, are in ``tests/test_autoscript_beam.py``.
 """
@@ -10,7 +10,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.devices.beam import ACQUISITION_RESOLUTIONS
+from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.structures import BeamType
 
 E, I = BeamType.ELECTRON, BeamType.ION
@@ -22,34 +22,29 @@ def _demo():
 
 
 @pytest.mark.parametrize("beam_type", [E, I])
-def test_demo_offers_the_acquisition_resolutions_and_its_ranges(beam_type):
+def test_demo_offers_the_standard_resolutions_and_its_ranges(beam_type):
     beam = _demo().beams[beam_type]
-    assert list(beam.resolution.choices) == list(ACQUISITION_RESOLUTIONS)
+    assert list(beam.resolution.choices) == list(STANDARD_RESOLUTIONS)
     assert beam.dwell_time.limits is not None
     assert beam.hfw.limits is not None
-
-
-def test_demo_scans_at_every_acquisition_resolution():
-    beam = _demo().beams[E]
-    assert beam.scan_resolutions() == list(beam.resolution.choices)
 
 
 def test_the_old_wrapper_still_writes_without_checking():
     """``set_resolution`` writes as the old key did; only the device API checks."""
     microscope = _demo()
-    microscope.set_resolution((1000, 1000), E)
-    assert tuple(microscope.get_resolution(E)) == (1000, 1000)
+    microscope.set_resolution((1024, 1024), E)
+    assert tuple(microscope.get_resolution(E)) == (1024, 1024)
 
 
 def test_a_resolution_off_the_list_is_refused():
     beam = _demo().beams[E]
-    with pytest.raises(ValueError, match="1000"):
-        beam.resolution.set_value((1000, 1000))
+    with pytest.raises(ValueError, match="1024"):
+        beam.resolution.set_value((1024, 1024))
 
 
-def test_tescan_offers_the_acquisition_resolutions_read_only(monkeypatch):
-    """Tescan acquires at any size it is given, but the scan's resolution is not
-    settable on its own: the choices are listed, and the parameter stays read-only."""
+def test_tescan_offers_the_standard_resolutions_read_only(monkeypatch):
+    """Tescan's scan resolution is not settable on its own: the choices are listed
+    for acquisition, and the parameter stays read-only."""
     from tests.fixtures.tescan_sdk import connect
 
     system = utils.load_microscope_configuration(
@@ -57,5 +52,5 @@ def test_tescan_offers_the_acquisition_resolutions_read_only(monkeypatch):
     ).system
     microscope, _ = connect(monkeypatch, system)
     for beam in microscope.beams.values():
-        assert list(beam.resolution.choices) == list(ACQUISITION_RESOLUTIONS)
+        assert list(beam.resolution.choices) == list(STANDARD_RESOLUTIONS)
         assert not beam.resolution.settable

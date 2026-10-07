@@ -28,16 +28,10 @@ from fibsem.structures import (
     ScanMode,
 )
 
-# The sizes an image can be acquired at, for a driver whose instrument can't list its
-# own: the square frames and the standard 3:2 ones. A beam's resolution choices are
-# what an acquisition can be taken at, not only what the scan can be set to.
-ACQUISITION_RESOLUTIONS: Tuple[Tuple[int, int], ...] = (
-    (256, 256),
-    (512, 512),
-    (1024, 1024),
-    (2048, 2048),
-    (4096, 4096),
-    (8192, 8192),
+# The resolutions a scan is set to on a driver whose instrument can't list its own:
+# the standard 3:2 frames. A beam's resolution choices are what its scan can be set
+# to; square frames are left out until acquisition can ask for them on its own.
+STANDARD_RESOLUTIONS: Tuple[Tuple[int, int], ...] = (
     (384, 256),
     (768, 512),
     (1536, 1024),
@@ -62,8 +56,8 @@ class Beam(Device):
     resolution = Parameter(
         tuple,
         unit="px",
-        choices=ACQUISITION_RESOLUTIONS,
-        doc="(width, height). The choices are the sizes an image can be acquired at.",
+        choices=STANDARD_RESOLUTIONS,
+        doc="(width, height). The choices are what the scan can be set to.",
     )
     dwell_time = Parameter(float, unit="s")
     stigmation = Parameter(Point)
@@ -95,13 +89,6 @@ class Beam(Device):
         self._live_lock = threading.Lock()
         self._live_stop = threading.Event()
         self._live_thread: Optional[threading.Thread] = None
-
-    def scan_resolutions(self) -> list:
-        """The resolution choices the scan itself can be set to, live. The choices
-        are what an acquisition can be taken at; a driver whose scan takes fewer
-        (a grab can ask for a frame the scan isn't set to) narrows them here."""
-        parameter = self.parameters.get("resolution")
-        return [] if parameter is None else list(parameter.choices or ())
 
     @command(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:

@@ -68,7 +68,7 @@ from typing import (
 
 import numpy as np
 
-from fibsem.devices.beam import ACQUISITION_RESOLUTIONS, Beam
+from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
@@ -391,15 +391,6 @@ class AutoscriptBeam(Beam):
         self._beam.scanning.dwell_time.value = value
         self._set_log("dwell time", value, " s")
 
-    def _scan_sizes(self) -> List[Tuple[int, int]]:
-        return [
-            tuple(int(px) for px in r.split("x"))
-            for r in self._beam.scanning.resolution.available_values
-        ]
-
-    def scan_resolutions(self) -> list:
-        return self._scan_sizes()
-
     def metadata_dwell_time(self) -> ParameterMetadata:
         limits = self._beam.scanning.dwell_time.limits
         return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
@@ -440,11 +431,12 @@ class AutoscriptBeam(Beam):
         self._beam.scanning.resolution.value = f"{value[0]}x{value[1]}"
 
     def metadata_resolution(self) -> ParameterMetadata:
-        # The scan's own sizes, then the frames a grab is taken at that it doesn't
-        # list (the squares): which of those it takes is not yet checked on hardware.
-        listed = self._scan_sizes()
-        extra = [r for r in ACQUISITION_RESOLUTIONS if r not in listed]
-        return ParameterMetadata(choices=listed + extra)
+        return ParameterMetadata(
+            choices=[
+                tuple(int(px) for px in r.split("x"))
+                for r in self._beam.scanning.resolution.available_values
+            ]
+        )
 
     # The detector: the active device's, so these run with this beam's channel
     # selected (needs_channel). The writes check as the old branches do.
