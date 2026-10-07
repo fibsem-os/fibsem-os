@@ -449,7 +449,7 @@ def cases():
         add(
             "unlink",
             lambda m: m.set("stage_link", False),
-            lambda s, m: m.set("stage_link", False),  # no device unlink: the old path
+            lambda s, m: m.set("stage_link", False),  # no device unlinks
         )
 
         for i, position in enumerate(positions(compustage)):

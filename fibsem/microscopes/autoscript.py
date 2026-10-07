@@ -22,7 +22,7 @@ from packaging.version import parse as parse_version
 from skimage import transform
 
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
+from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
@@ -1616,15 +1616,17 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
     def _build_stage(self) -> None:
         """Build the stage device and route the stage keys to it.
 
-        The moves, ``home`` and ``link_stage`` then go through the device. A
-        ``stage_link`` set stays with ``_set``: a false value unlinks there, and the
-        device's ``link`` command only links.
+        The moves, ``home`` and ``link_stage`` then go through the device. Its
+        ``link`` command only links: a false ``stage_link`` does nothing, and a
+        compustage has no ``linked`` (its ``stage_linked`` reads None).
         """
         self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
         self._device_routes = MappingProxyType(
             {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
         )
-        self._command_routes = MappingProxyType({"stage_home": ("stage", "home")})
+        self._command_routes = MappingProxyType(
+            {key: ("stage", name) for key, name in STAGE_COMMAND_ROUTES.items()}
+        )
 
     def _build_parts(self) -> None:
         """Build the chamber, and the manipulator when it is fitted, and route the
@@ -2067,55 +2069,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         logging.debug({"msg": "get_available_values", "key": key, "values": values})
 
         return values
-
-    def _get(self, key: str, beam_type: Optional[BeamType] = None) -> Optional[bool]:
-        """Get a property of the microscope.
-
-        The keys the beam, stage, chamber and manipulator devices answer are not
-        here. A key a device would answer comes here only when that device was not
-        built (a column disabled in the config, no manipulator fitted), and reads
-        None. A compustage has no ``linked`` parameter, and is never linked.
-        """
-        if key == "stage_linked" and self.stage_is_compustage:
-            return False
-        return None
-
-    def _set(
-        self,
-        key: str,
-        value: Union[str, int, float, BeamType, Point, FibsemRectangle],
-        beam_type: Optional[BeamType] = None,
-    ) -> None:
-        """Set a property of the microscope.
-
-        The keys the beam, stage and chamber devices answer are not here. What is
-        left is what no device does: unlinking the stage (the device's ``link`` only
-        links), the plasma gas of an ion column without a plasma source (ignored),
-        and a false pump or vent (warns).
-        """
-        if key == "stage_link":
-            if self.stage_is_compustage:
-                logging.debug("Compustage does not support linking.")
-                return
-
-            logging.info("Linking stage...")
-            self._vendor_stage.link() if value else self._vendor_stage.unlink()
-            logging.info(f"Stage {'linked' if value else 'unlinked'}.")
-            return
-
-        # a plasma source's gas is set through the ion beam device
-        if key == "plasma_gas" and beam_type is BeamType.ION:
-            logging.debug("Plasma gas cannot be set on this microscope.")
-            return
-
-        # a true value is the chamber device's pump or vent command
-        if key in ("pump_chamber", "vent_chamber") and not value:
-            logging.warning(f"Invalid value for {key}: {value}.")
-            return
-
-        logging.warning(f"Unknown key: {key} ({beam_type})")
-
-        return
 
     def _beam_device(self, beam_type: BeamType) -> Any:
         """The beam device for ``beam_type``; a column disabled in the config has none."""

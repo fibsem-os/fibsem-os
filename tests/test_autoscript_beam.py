@@ -21,6 +21,7 @@ Thermo does not have. The fake SDK has to be in place before
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -66,7 +67,9 @@ def recording(tmp_path_factory):
         timeout=300,
     )
     assert result.returncode == 0, result.stderr[-4000:]
-    recording = json.loads(out.read_text())
+    # numpy 2 writes a scalar as np.float64(x) in a repr, numpy 1 (Python 3.8)
+    # as x: the recording is compared without it
+    recording = json.loads(re.sub(r"np\.float64\(([^()]*)\)", r"\1", out.read_text()))
     # the old code's side, recorded before it was deleted
     old = json.loads(RECORDED.read_text())["beam"]
     assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
@@ -93,9 +96,24 @@ def test_no_old_call_raised(recording):
     assert raised == []
 
 
+def _quiet(old):
+    """The old side with its "Unknown key" warnings dropped: a key the column's
+    device does not have (``preset``, a plasma gas on a column without a source)
+    was unknown to the old ``_set`` and warned; with no ``_set`` of Thermo's own
+    it is unsupported, as on every backend, and logs at debug level."""
+    result, calls, messages = old
+    return [result, calls, [m for m in messages if not m[1].startswith("Unknown key")]]
+
+
 def test_routed_keys_make_the_same_sdk_calls_logs_and_results(recording):
-    different = [c for c in recording["cases"] if c["old"] != c["new"]]
+    different = [c for c in recording["cases"] if _quiet(c["old"]) != c["new"]]
     assert different == [], json.dumps(different[:3], indent=1)
+
+
+def test_only_the_unknown_key_warnings_are_gone(recording):
+    quietened = [c["key"] for c in recording["cases"] if c["old"] != c["new"]]
+    assert quietened
+    assert all(" set " in key for key in quietened), quietened
 
 
 @pytest.mark.parametrize("plasma", [False, True])

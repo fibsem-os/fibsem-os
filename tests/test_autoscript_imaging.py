@@ -15,6 +15,7 @@ instrument.
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -37,7 +38,9 @@ def recording(tmp_path_factory):
         timeout=300,
     )
     assert result.returncode == 0, result.stderr[-4000:]
-    recording = json.loads(out.read_text())
+    # numpy 2 writes a scalar as np.float64(x) in a repr, numpy 1 (Python 3.8)
+    # as x: the recording is compared without it
+    recording = json.loads(re.sub(r"np\.float64\(([^()]*)\)", r"\1", out.read_text()))
     # the old code's side, recorded before it was deleted
     old = json.loads(RECORDED.read_text())["imaging"]
     assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
