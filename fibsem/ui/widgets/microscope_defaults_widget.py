@@ -36,6 +36,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSystemSettings, BeamType, ImageSettings
 from fibsem.ui import notification_service
 from fibsem.ui.icon import ICON_READ_FROM_ACQUIRE_TAB, ICON_READ_FROM_MICROSCOPE
+from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -154,11 +155,7 @@ class BeamDefaultsForm(QWidget):
         beam = self.beam_type
 
         def available(key: str) -> list:
-            try:
-                return list(microscope.get_available_values_cached(key, beam) or [])
-            except Exception as e:  # a backend that cannot list this key
-                logging.debug(f"No available values for {key} ({beam.name}): {e}")
-                return []
+            return beam_choices(microscope, key, beam)
 
         record = getattr(microscope.system, beam.name.lower())
         self._show_rows_for_presets(bool(microscope.beam_uses_presets(beam)))

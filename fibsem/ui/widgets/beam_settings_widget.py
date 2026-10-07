@@ -18,7 +18,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Point
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.utils import beam_choices, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import _create_combobox_control
 
 # Working-distance step per Shift+scroll notch (mm). 1 um — fine focus control.
@@ -471,7 +471,7 @@ class FibsemBeamSettingsWidget(QWidget):
 
         self.preset_combo.blockSignals(True)
         self.preset_combo.clear()
-        presets = self.microscope.get_available_values_cached("preset", self.beam_type)
+        presets = beam_choices(self.microscope, "preset", self.beam_type)
         if presets:
             for preset in presets:
                 self.preset_combo.addItem(str(preset), str(preset))
@@ -583,7 +583,7 @@ class FibsemBeamSettingsWidget(QWidget):
         parameter = self._beam_parameter(key)
         if parameter is not None and not parameter.settable:
             return [] if value is None else [value]
-        return self.microscope.get_available_values_cached(key, self.beam_type)
+        return beam_choices(self.microscope, key, self.beam_type)
 
     def _update_visibility(self):
         """Apply visibility from the beam device's parameters and advanced mode.

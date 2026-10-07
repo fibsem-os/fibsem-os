@@ -23,6 +23,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
@@ -109,7 +110,7 @@ class FibsemSpotBurnWidget(QWidget):
         layout.addWidget(self.coord_editor)
 
         # beam current + exposure
-        beam_currents = self.microscope.get_available_values("current", BeamType.ION)
+        beam_currents = beam_choices(self.microscope, "current", BeamType.ION)
         closest = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
         self.comboBox_beam_current = ValueComboBox(
             items=beam_currents,

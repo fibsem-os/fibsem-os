@@ -13,6 +13,7 @@ from fibsem.milling.base import FibsemMillingStage, MillingStrategy, get_strateg
 from fibsem.milling.patterning import get_pattern
 from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import BeamType, FibsemMillingSettings
+from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.milling_settings_widget import FibsemMillingSettingsWidget
 from fibsem.ui.widgets.milling_stage_list_widget import MillingStageListWidget
@@ -63,12 +64,8 @@ class FibsemMillingStagesWidget(QWidget):
         _show_preset = _milling is not None and "preset" in _milling.supported_settings(
             BeamType.ION
         )
-        _current_values = self.microscope.get_available_values_cached(
-            "current", BeamType.ION
-        )
-        _preset_values = self.microscope.get_available_values_cached(
-            "preset", BeamType.ION
-        )
+        _current_values = beam_choices(self.microscope, "current", BeamType.ION)
+        _preset_values = beam_choices(self.microscope, "preset", BeamType.ION)
         self._list = MillingStageListWidget(
             current_values=_current_values,
             preset_values=_preset_values,
