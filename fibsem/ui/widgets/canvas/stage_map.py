@@ -31,7 +31,7 @@ import math
 from typing import List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QPainter, QPen
+from PyQt5.QtGui import QColor, QPainter, QPen, QPolygonF
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.projection import BeamStageProjection
@@ -48,10 +48,10 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import GRID_BOUNDARY_RADIUS_M
 from fibsem.ui.widgets.canvas.overlays.stage_context import (
+    BEAMS_DEVICE,
     boundary_shapes,
     holder_is_calibrated,
     holder_slots,
-    landmark,
     limit_shapes,
     slot_landmark,
 )
@@ -71,6 +71,15 @@ _GRID_SPAN_M = 2.6 * GRID_BOUNDARY_RADIUS_M
 # The travel step never shows more than this across: a 200 mm envelope at thumbnail
 # size leaves a grid a pixel wide, and the stage rarely goes that far.
 _TRAVEL_MAX_SPAN_M = 100e-3
+# Nor less than this: a single grid would otherwise fill the travel step, and it would
+# repeat the holder step rather than say where in the chamber the stage is.
+_TRAVEL_MIN_SPAN_M = 20e-3
+# How far inside the view's edge an off-screen place's arrow sits, in pixels.
+_OFFSCREEN_INSET_PX = 12.0
+# Arrows that land closer than this share one, with both names.
+_MERGE_PX = 30.0
+# The diamond marking a device station, in pixels from centre to corner.
+_STATION_PX = (6.0, 3.0)  # detailed, thumbnail
 # A lamella the stage is within this distance of (in the map's plane) is "here".
 _HERE_M = 20e-6
 # The ring drawn round the lamella the stage is on, over the stage cross so it shows.
@@ -172,20 +181,6 @@ class StageMap(QWidget):
     def _plane(self, position: FibsemStagePosition) -> Tuple[float, float]:
         return self._projection.to_plane(position, self._origin)
 
-    def _travel_box(self) -> Optional[Tuple[float, float, float, float]]:
-        """The travel limits in the plane, as (min x, min y, max x, max y)."""
-        limits = getattr(getattr(self._microscope, "_stage", None), "limits", None)
-        if not limits or "x" not in limits or "y" not in limits:
-            return None
-        frame = StageFrame(_Viewport(1.0), self._origin, self._projection)
-        points = [
-            self._plane(landmark(frame, x, y))
-            for x in (limits["x"].min, limits["x"].max)
-            for y in (limits["y"].min, limits["y"].max)
-        ]
-        xs, ys = [p[0] for p in points], [p[1] for p in points]
-        return min(xs), min(ys), max(xs), max(ys)
-
     def _slot_points(self) -> List[Tuple[float, float]]:
         if not holder_is_calibrated(self._microscope):
             return []
@@ -216,16 +211,56 @@ class StageMap(QWidget):
             return stage, min(width, height) / span
         return stage, min(width, height) / _GRID_SPAN_M
 
+    def _device_stations(self) -> List[Tuple[str, FibsemStagePosition]]:
+        """The places the stage travels to for a device other than the beams: an offset
+        fluorescence microscope's station, say. Not the beams' own, which is where the
+        holder already is, and not a device that sits at the beams' origin (an Arctis
+        FM), which has nowhere separate to draw.
+
+        A station is a place in the chamber, so it is stated at the stage's current
+        rotation: the map is the holder's frame, and with the stage turned a half turn
+        the station is on the other side of the holder. Drawn at the frame's rotation
+        instead, a stage at the station in its FIB pose would sit 100 mm from it.
+        """
+        try:
+            devices = self._microscope.system.stage.devices
+            beams = self._microscope.get_device_origin(BEAMS_DEVICE)
+        except Exception:
+            return []
+        rotation = self._stage.r if self._stage is not None else self._origin.r
+        stations = []
+        for name in devices:
+            if name == BEAMS_DEVICE:
+                continue
+            try:
+                origin = self._microscope.get_device_origin(name)
+            except Exception:
+                continue
+            x = origin.x if origin.x is not None else beams.x
+            y = origin.y if origin.y is not None else beams.y
+            if x is None or y is None or (x == beams.x and y == beams.y):
+                continue
+            stations.append(
+                (
+                    name,
+                    FibsemStagePosition(
+                        x=x, y=y, z=self._origin.z, r=rotation, t=self._origin.t
+                    ),
+                )
+            )
+        return stations
+
     def _travel_view(
         self, width: float, height: float, stage: Tuple[float, float]
     ) -> Tuple[Tuple[float, float], float]:
-        """The travel step: the limits, every grid and the stage, at most
+        """The travel step: the places the stage goes -- every grid, every device
+        station -- and the stage itself, between `_TRAVEL_MIN_SPAN_M` and
         `_TRAVEL_MAX_SPAN_M` across.
 
-        The grids are fitted as well as the limits because a compustage's limits can
-        sit inside its grid, and fitting the limits alone cropped the grid. Past the
-        cap the view is centred on what it fits, then shifted just enough to keep the
-        stage in it.
+        Not the travel limits. They say how far the stage *could* go, and fitted they
+        left half the view as empty chamber; they are still drawn, as an edge where
+        they fall inside. A stage out at a load position stretches the view to reach
+        it, up to the cap; past the cap the view slides to keep the stage in it.
         """
         points = [stage]
         for x, y in self._slot_points():
@@ -233,17 +268,14 @@ class StageMap(QWidget):
                 (x - GRID_BOUNDARY_RADIUS_M, y - GRID_BOUNDARY_RADIUS_M),
                 (x + GRID_BOUNDARY_RADIUS_M, y + GRID_BOUNDARY_RADIUS_M),
             ]
-        box = self._travel_box()
-        if box is not None:
-            points += [(box[0], box[1]), (box[2], box[3])]
-        else:
-            # No limits configured: room around the slots and the stage instead.
-            pad = _HOLDER_MIN_SPAN_M
-            points += [(x + d, y + d) for x, y in list(points) for d in (-pad, pad)]
+        points += [self._plane(place) for _, place in self._device_stations()]
         xs, ys = [p[0] for p in points], [p[1] for p in points]
 
-        span_x = min((max(xs) - min(xs)) * (1 + _MARGIN), _TRAVEL_MAX_SPAN_M)
-        span_y = min((max(ys) - min(ys)) * (1 + _MARGIN), _TRAVEL_MAX_SPAN_M)
+        def span(low: float, high: float) -> float:
+            fitted = (high - low) * (1 + _MARGIN)
+            return min(max(fitted, _TRAVEL_MIN_SPAN_M), _TRAVEL_MAX_SPAN_M)
+
+        span_x, span_y = span(min(xs), max(xs)), span(min(ys), max(ys))
         scale = min(width / span_x, height / span_y)
         # The cap holds along the view's long side too, not only the side that fits.
         scale = max(scale, max(width, height) / _TRAVEL_MAX_SPAN_M)
@@ -283,17 +315,22 @@ class StageMap(QWidget):
         (centre_x, centre_y), scale = view
         frame = StageFrame(_Viewport(scale), self._origin, self._projection)
         # Centre the view on the rectangle: the frame's coordinates are a scale only.
-        painter.translate(
-            rect.center().x() - centre_x * scale, rect.center().y() - centre_y * scale
-        )
+        shift_x = rect.center().x() - centre_x * scale
+        shift_y = rect.center().y() - centre_y * scale
+        painter.translate(shift_x, shift_y)
+        # The rectangle on screen, in the frame's coordinates.
+        visible = rect.translated(-shift_x, -shift_y)
         try:
             self._paint_limits(painter, frame)
+            self._paint_stations(painter, frame, zoom, detailed, visible)
             self._paint_slots(painter, frame, zoom, detailed)
             if detailed and zoom == ZOOM_GRID:
                 self._paint_positions(painter, frame)
             self._paint_stage(painter, frame, detailed)
             if detailed and zoom == ZOOM_GRID:
                 self._paint_here(painter, frame)
+            if detailed:
+                self._paint_offscreen(painter, rect, zoom, scale, visible)
         except Exception:
             logger.debug("The stage map could not be drawn", exc_info=True)
         painter.restore()
@@ -311,6 +348,130 @@ class StageMap(QWidget):
                     shape.width,
                     shape.height,
                 )
+            )
+
+    def _paint_stations(
+        self,
+        painter: QPainter,
+        frame: StageFrame,
+        zoom: int,
+        detailed: bool,
+        visible: QRectF,
+    ) -> None:
+        """Device stations as diamonds, named on the large map."""
+        size = _STATION_PX[0] if detailed else _STATION_PX[1]
+        painter.setBrush(Qt.NoBrush)
+        font = painter.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+        for name, place in self._device_stations():
+            x, y = frame.to_canvas(place)
+            painter.setPen(QPen(QColor(SLOT_COLOUR), 1))
+            painter.drawPolygon(
+                QPolygonF(
+                    [
+                        QPointF(x, y - size),
+                        QPointF(x + size, y),
+                        QPointF(x, y + size),
+                        QPointF(x - size, y),
+                    ]
+                )
+            )
+            if detailed and zoom != ZOOM_GRID:
+                painter.setPen(QColor(NEUTRAL_550))
+                # Right of the diamond, unless that runs off the view.
+                text_width = painter.fontMetrics().horizontalAdvance(name)
+                left = x + size + 4
+                if left + text_width > visible.right() - 4:
+                    left = x - size - 4 - text_width
+                painter.drawText(QPointF(left, y + 4), name)
+
+    def offscreen_places(
+        self, rect: QRectF, zoom: int
+    ) -> List[Tuple[str, Tuple[float, float]]]:
+        """The named places -- device stations, holder slots -- outside what *zoom*
+        shows of *rect*, as (name, point in the plane)."""
+        view = self._view(rect, zoom)
+        if view is None:
+            return []
+        (centre_x, centre_y), scale = view
+        inset = _OFFSCREEN_INSET_PX / scale
+        half_w = rect.width() / 2 / scale - inset
+        half_h = rect.height() / 2 / scale - inset
+        places = [(name, self._plane(place)) for name, place in self._device_stations()]
+        if holder_is_calibrated(self._microscope):
+            for slot in holder_slots(self._microscope):
+                place = slot_landmark(self._microscope, slot)
+                if place is not None:
+                    places.append((place.name or slot.name, self._plane(place)))
+        return [
+            (name, point)
+            for name, point in places
+            if abs(point[0] - centre_x) > half_w or abs(point[1] - centre_y) > half_h
+        ]
+
+    def _paint_offscreen(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        zoom: int,
+        scale: float,
+        visible: QRectF,
+    ) -> None:
+        """An arrow on the edge of the view for each place outside it, pointing the
+        way to it, with its name: how far the stage has to go is the travel step's
+        business, which way is this one's."""
+        centre = visible.center()
+        half_w = visible.width() / 2 - _OFFSCREEN_INSET_PX
+        half_h = visible.height() / 2 - _OFFSCREEN_INSET_PX
+        font = painter.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+
+        # Where each arrow lands, then one arrow per cluster: two slots off the same
+        # side would otherwise draw their arrows and names over each other.
+        arrows: List[Tuple[List[str], QPointF, float, float]] = []
+        for name, (px, py) in self.offscreen_places(rect, zoom):
+            dx, dy = px * scale - centre.x(), py * scale - centre.y()
+            length = math.hypot(dx, dy)
+            if length == 0:
+                continue
+            ux, uy = dx / length, dy / length
+            # Along the line from the centre, to where it leaves the inset rectangle.
+            reach = min(
+                half_w / abs(ux) if ux else math.inf,
+                half_h / abs(uy) if uy else math.inf,
+            )
+            tip = QPointF(centre.x() + ux * reach, centre.y() + uy * reach)
+            for names, other, _, _ in arrows:
+                if math.hypot(tip.x() - other.x(), tip.y() - other.y()) < _MERGE_PX:
+                    names.append(name)
+                    break
+            else:
+                arrows.append(([name], tip, ux, uy))
+
+        metrics = painter.fontMetrics()
+        for names, tip, ux, uy in arrows:
+            back = QPointF(tip.x() - ux * 9, tip.y() - uy * 9)
+            side = QPointF(-uy * 5, ux * 5)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(SLOT_COLOUR))
+            painter.drawPolygon(QPolygonF([tip, back + side, back - side]))
+
+            # The name inward of the arrow, far enough along the arrow's line that its
+            # own width or height clears the arrowhead.
+            text = ", ".join(names)
+            width, height = metrics.horizontalAdvance(text), metrics.height()
+            gap = 14 + abs(ux) * width / 2 + abs(uy) * height / 2
+            label = QPointF(tip.x() - ux * gap, tip.y() - uy * gap)
+            painter.setPen(QColor(NEUTRAL_550))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawText(
+                QRectF(
+                    label.x() - width / 2 - 2, label.y() - height / 2, width + 4, height
+                ),
+                Qt.AlignCenter,
+                text,
             )
 
     def _paint_slots(

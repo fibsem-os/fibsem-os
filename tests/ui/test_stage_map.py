@@ -28,6 +28,17 @@ from fibsem.ui.widgets.canvas.stage_map import ZOOM_GRID, ZOOM_HOLDER, ZOOM_TRAV
 RECT = QRectF(0, 0, 400, 300)
 
 
+def _config(name: str) -> str:
+    return os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "fibsem",
+        "config",
+        f"{name}-configuration.yaml",
+    )
+
+
 @pytest.fixture
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -107,11 +118,26 @@ def test_closer_steps_follow_the_stage(controller, microscope):
     assert scales == sorted(scales), "each step closer than the last"
 
 
-def test_travel_zoom_is_capped_and_keeps_the_stage_in_view(controller, microscope):
-    """The Demo's limits are +/-100 mm; the view stops at 100 mm across, and slides
-    to keep a stage near the edge of travel in it."""
+def test_travel_zoom_reaches_a_stage_out_at_the_load_position(controller, microscope):
+    """The view fits where the stage is, not the limits: out at y = 30 mm, the grids
+    and the stage are both in it."""
+    _calibrate(microscope)
     z = microscope.get_stage_position().z
-    microscope.move_stage_absolute(FibsemStagePosition(x=80e-3, y=-70e-3, z=z))
+    microscope.move_stage_absolute(FibsemStagePosition(x=0.0, y=30e-3, z=z))
+    stage_map = _update(controller, microscope).map
+
+    box = _visible(stage_map, ZOOM_TRAVEL)
+    assert _inside(stage_map._plane(stage_map._stage), box)
+    for slot in stage_map._slot_points():
+        assert _inside(slot, box, pad=GRID_BOUNDARY_RADIUS_M)
+    assert max(box[2] - box[0], box[3] - box[1]) < 100e-3, "not the +/-100 mm limits"
+
+
+def test_travel_zoom_is_capped_and_keeps_the_stage_in_view(controller, microscope):
+    """Past 100 mm across the view stops growing, and slides to keep the stage in."""
+    _calibrate(microscope)
+    z = microscope.get_stage_position().z
+    microscope.move_stage_absolute(FibsemStagePosition(x=95e-3, y=-70e-3, z=z))
     stage_map = _update(controller, microscope).map
 
     box = _visible(stage_map, ZOOM_TRAVEL)
@@ -119,19 +145,50 @@ def test_travel_zoom_is_capped_and_keeps_the_stage_in_view(controller, microscop
     assert _inside(stage_map._plane(stage_map._stage), box)
 
 
+def test_travel_zoom_is_never_closer_than_20_mm(controller, microscope):
+    stage_map = _update(controller, microscope).map
+    box = _visible(stage_map, ZOOM_TRAVEL)
+    assert min(box[2] - box[0], box[3] - box[1]) >= 20e-3 - 1e-9
+
+
+def test_no_station_where_every_device_shares_the_beams_place(controller, microscope):
+    assert _update(controller, microscope).map._device_stations() == []
+
+
+@pytest.mark.parametrize("pose", ["MILLING", "FIB"])
+def test_an_offset_fm_station_is_drawn_where_the_stage_goes_for_it(qapp, pose):
+    """The stage sent to the FM, in either pose, is drawn at the station marker: the
+    station is a place in the chamber, and turns over with the stage on the map."""
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo", config_path=_config("sim-iflm")
+    )
+    controller = MicroscopeViewController()
+    lamella = deepcopy(microscope.get_orientation("MILLING"))
+    lamella.x, lamella.y = -0.3e-3, 0.2e-3
+    lamella.z = microscope.get_stage_position().z
+    at_fm = microscope.get_target_position(
+        lamella,
+        target_orientation=None if pose == "MILLING" else pose,
+        target_device="FM",
+    )
+    microscope.move_stage_absolute(at_fm)
+    stage_map = _update(controller, microscope).map
+    assert microscope.get_current_device(microscope.get_stage_position()) == "FM"
+
+    stations = stage_map._device_stations()
+    assert [name for name, _ in stations] == ["FM"]
+    station = stage_map._plane(stations[0][1])
+    stage = stage_map._plane(stage_map._stage)
+    assert math.dist(station, stage) < 1e-3, "the lamella's offset, not 100 mm"
+    assert _inside(station, _visible(stage_map, ZOOM_TRAVEL))
+
+
 def test_travel_zoom_shows_a_compustage_grid_whole(qapp):
     """A compustage's limits can sit inside its grid; fitting the limits alone cropped
     the grid in the inset."""
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "..",
-            "fibsem",
-            "config",
-            "sim-arctis-configuration.yaml",
-        ),
+        config_path=_config("sim-arctis"),
     )
     controller = MicroscopeViewController()
     stage_map = _update(controller, microscope).map
@@ -228,3 +285,28 @@ def test_the_window_hands_the_map_the_experiment_s_lamellae(controller, microsco
     window.autolamella_ui.experiment = None
     AutoLamellaSingleWindowUI._refresh_overview_positions(window)
     assert controller.widget.chamber_view.map._positions == []
+
+
+def test_places_outside_the_view_are_pointed_to(controller, microscope):
+    """At grid zoom on one slot, the other slot is off the view, and only it."""
+    _calibrate(microscope)
+    slot = holder_slots(microscope)[0].position
+    microscope.move_stage_absolute(FibsemStagePosition(x=slot.x, y=slot.y, z=slot.z))
+    stage_map = _update(controller, microscope).map
+
+    names = [name for name, _ in stage_map.offscreen_places(RECT, ZOOM_GRID)]
+    assert names == [holder_slots(microscope)[1].name]
+    assert stage_map.offscreen_places(RECT, ZOOM_TRAVEL) == []
+
+
+def test_the_fm_station_is_pointed_to_from_the_beams(qapp):
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo", config_path=_config("sim-iflm")
+    )
+    stage_map = _update(MicroscopeViewController(), microscope).map
+
+    held = dict(stage_map.offscreen_places(RECT, ZOOM_HOLDER))
+    assert "FM" in held
+    # To the right: the station is +48.8 mm in x, and the map is not mirrored here.
+    assert held["FM"][0] > stage_map._plane(stage_map._stage)[0]
+    assert "FM" not in dict(stage_map.offscreen_places(RECT, ZOOM_TRAVEL))
