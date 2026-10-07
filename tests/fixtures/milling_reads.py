@@ -39,7 +39,6 @@ def fields_setup_reads(milling, settings: FibsemMillingSettings) -> Set[str]:
     return read
 
 
-
 def own_milling_code(microscope):
     """*microscope*, milling with its backend's own code (``ThermoMilling``,
     ``TescanDrawBeam``, ``OdemisPatterning``): the code its milling service drives,
