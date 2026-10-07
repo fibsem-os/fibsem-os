@@ -642,14 +642,13 @@ def test_ion_currents_follow_the_plasma_gas(backend):
 def test_demo_reads_its_configuration():
     """The configured keys and capabilities read the configuration."""
     microscope = _connect("Demo", _plasma_configuration())
-    for key in ("plasma_gas", "scan_direction"):
-        assert microscope.get_available_values(key)
+    assert microscope.get_available_values("plasma_gas")
     assert microscope._get_axis_limits()
 
 
 def test_demo_sets_its_milling_recipe():
     microscope = _connect("Demo")
-    files = microscope.get_available_values("application_file")
+    files = microscope.milling_system.application_files
     microscope.set_milling_settings(
         FibsemMillingSettings(
             milling_channel=BeamType.ELECTRON,
@@ -703,11 +702,26 @@ def test_demo_has_no_simulated_parts_beside_its_devices():
         assert not hasattr(microscope, part)
 
 
-@pytest.mark.parametrize("key", ["plasma_gas", "application_file", "scan_direction"])
 @pytest.mark.parametrize("beam_type", BEAMS)
-def test_choice_only_keys_list_strings(microscope, key, beam_type):
-    choices = microscope.get_available_values(key, beam_type)
+def test_plasma_gases_list_strings(microscope, beam_type):
+    choices = microscope.get_available_values("plasma_gas", beam_type)
     assert choices and all(isinstance(c, str) for c in choices)
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_milling_choices_are_the_milling_services(microscope, beam_type):
+    """The milling service lists the application files (``supported_settings``) and
+    scan directions (``supported_pattern_settings``); as keys they are unknown."""
+    milling = microscope.milling
+    for key, choices in (
+        ("application_file", milling.supported_settings()["application_file"].choices),
+        (
+            "scan_direction",
+            milling.supported_pattern_settings()["scan_direction"].choices,
+        ),
+    ):
+        assert microscope.get_available_values(key, beam_type) == []
+        assert choices and all(isinstance(c, str) for c in choices)
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)

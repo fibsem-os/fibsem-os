@@ -15,7 +15,11 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata
-from fibsem.microscopes.tescan import DEFAULT_IMAGING_PRESET, TescanDrawBeam
+from fibsem.microscopes.tescan import (
+    DEFAULT_IMAGING_PRESET,
+    TESCAN_SCAN_DIRECTIONS,
+    TescanDrawBeam,
+)
 from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
     BeamType,
@@ -59,6 +63,7 @@ class TescanMilling(Milling):
         "spacing",
         "patterning_mode",
     )
+    scan_directions = TESCAN_SCAN_DIRECTIONS
 
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "milling_channel":

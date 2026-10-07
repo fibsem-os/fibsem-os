@@ -211,10 +211,8 @@ def test_the_container_rebuilds_both(self_calls):
     else:
         pytest.fail("the container has no refresh_microscope; this test is stale")
 
-    # Walked rather than unparsed: `ast.unparse` is 3.9+ and CI still builds on 3.8,
-    # where it is an AttributeError at run time rather than anything a local run or a
-    # linter would show. Matching the node is also stricter than a substring -- it finds
-    # `self._tabs` as an actual attribute access and not as a mention in a comment.
+    # Matching the node is stricter than a substring: it finds `self._tabs` as an
+    # actual attribute access and not as a mention in a comment.
     reaches_both = any(
         isinstance(inner, ast.Attribute)
         and inner.attr == "_tabs"

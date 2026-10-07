@@ -159,6 +159,16 @@ STAGE_LIMITS_COMPUSTAGE = {
 # hack, do this properly @patrick
 
 
+def sim_is_compustage(system: SystemSettings) -> bool:
+    """Whether a simulated configuration describes a compustage.
+
+    ``sim.is_compustage`` stands in for the hardware probe a real backend makes at
+    connect (``specimen.compustage.is_installed`` on Thermo), so it is read from the
+    configuration, never from a flag set on the microscope afterwards.
+    """
+    return bool(system.sim.get("is_compustage", False))
+
+
 @dataclass
 class DemoMicroscopeClient:
     connected: bool = False
@@ -344,7 +354,6 @@ class DemoConfiguration:
     """
 
     system: SystemSettings
-    stage_is_compustage: bool
 
     # ---- fitted subsystems, as the simulated instrument reports them ---------
     #
@@ -360,7 +369,7 @@ class DemoConfiguration:
 
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the axis limits for the stage."""
-        if self.stage_is_compustage:
+        if sim_is_compustage(self.system):
             return STAGE_LIMITS_COMPUSTAGE
         return STAGE_LIMITS_DEFAULT
 
@@ -396,8 +405,6 @@ class DemoConfiguration:
 
     def _configured_values(self, key: str) -> Optional[List[str]]:
         """The values of a key that come from the simulator's constants alone."""
-        if key == "scan_direction":
-            return SIMULATOR_SCAN_DIRECTIONS
         if key == "plasma_gas":
             return SIMULATOR_PLASMA_GASES
         return None
@@ -422,10 +429,6 @@ class DemoConfiguration:
             elif beam_type is BeamType.ION:
                 values = [500, 1000, 2000, 8000, 16000, 30000]
                 # FIB: [500, 1000, 2000, 8000, 1600, 30000]
-
-        milling = self._milling_values(key)
-        if milling is not None:
-            values = milling
 
         if key == "detector_type":
             values = ["ETD", "TLD", "EDS"]
@@ -1242,7 +1245,7 @@ class DemoMilling:
     ) -> str:
         # Demo models a ThermoFisher system, so it matches application files as one.
         application_file = match_application_file(
-            application_file, self.get_available_values("application_file"), strict
+            application_file, self.milling_system.application_files, strict
         )
         self.milling_system.default_application_file = application_file
         return application_file
@@ -1292,12 +1295,6 @@ class DemoMilling:
             }
         )
         self.milling_system.patterns.append(pattern_settings)
-
-    def _milling_values(self, key: str) -> Optional[List[str]]:
-        """The values of a milling key, or None for any other key."""
-        if key == "application_file":
-            return self.milling_system.application_files
-        return None
 
     def _set_default_application_file(self, application_file: str) -> None:
         self.milling_system.default_application_file = application_file
@@ -1381,7 +1378,7 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         scanning_mode="full_frame",
         scanning_mode_value=None,
     )
-    compustage = system.sim.get("is_compustage", False)
+    compustage = sim_is_compustage(system)
     # A compustage can't link (`set("stage_link")` refuses), so it is never linked.
     stage_system.is_linked = not compustage
     if not compustage:
@@ -1411,7 +1408,7 @@ class DemoSession:
         # initialise system
         self.connection = DemoMicroscopeClient()
         self.system = system_settings
-        self.stage_is_compustage: bool = self.system.sim.get("is_compustage", False)
+        self.stage_is_compustage: bool = sim_is_compustage(self.system)
         self.milling_system = MillingSystem(patterns=[])
         self.imaging_system = ImagingSystem()
 
@@ -1436,9 +1433,9 @@ class DemoSession:
         # present but nothing is configured for it" stays representable -- that is the
         # state an existing site hits on upgrade, and the one worth testing (FIB-830).
         #
-        # Defaults to `stage_is_compustage`, which is what this branched on before, so
+        # Defaults to `sim.is_compustage`, which is what this branched on before, so
         # every simulator configuration keeps its current behaviour without the key.
-        has_fm = bool(self.system.sim.get("has_fm", self.stage_is_compustage))
+        has_fm = bool(self.system.sim.get("has_fm", sim_is_compustage(self.system)))
 
         # Two independent questions, and the simulator is the only place both can be
         # posed. `_fluorescence_is_configured` is whether the site said its instrument

@@ -352,7 +352,7 @@ class FibsemClient:
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> list:
-        """Get the list of available values for a given key (e.g. 'detector_type', 'application_file')."""
+        """Get the list of available values for a given key (e.g. 'detector_type', 'scan_direction')."""
         body = {"key": key, "beam_type": beam_type.name if beam_type else None}
         return self._post("available_values", body)["values"]
 

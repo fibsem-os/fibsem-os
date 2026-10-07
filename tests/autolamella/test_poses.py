@@ -24,11 +24,11 @@ from fibsem.applications.autolamella.poses import (
     sync_fluorescence_pose,
 )
 from fibsem.structures import FibsemStagePosition
+from tests.fixtures.demo_stage import demo_session
 
 
 def _microscope(compustage: bool = True, with_fm: bool = True):
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = compustage
+    microscope, _ = demo_session(compustage=compustage)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     if with_fm and microscope.fm is None:
