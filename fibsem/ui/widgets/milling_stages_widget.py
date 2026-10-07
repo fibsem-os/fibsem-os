@@ -8,7 +8,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import manufacturers
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategy, get_strategy
 from fibsem.milling.patterning import get_pattern
@@ -58,14 +57,12 @@ class FibsemMillingStagesWidget(QWidget):
         layout.setSpacing(4)
 
         # Stage list. A FIB set by preset (Tescan: milling_current is a no-op there) gets
-        # a Preset column where every other FIB gets Current. The ion beam device says
-        # so by having a preset parameter; a backend without beam devices goes by
-        # manufacturer.
-        _ion = (getattr(self.microscope, "beams", None) or {}).get(BeamType.ION)
-        if _ion is not None:
-            _show_preset = "preset" in _ion.parameters
-        else:
-            _show_preset = manufacturers.is_tescan(self.microscope.manufacturer)
+        # a Preset column where every other FIB gets Current. The milling service says
+        # so by milling with a preset.
+        _milling = getattr(self.microscope, "milling", None)
+        _show_preset = _milling is not None and "preset" in _milling.supported_settings(
+            BeamType.ION
+        )
         _current_values = self.microscope.get_available_values_cached(
             "current", BeamType.ION
         )
@@ -241,9 +238,6 @@ class FibsemMillingStagesWidget(QWidget):
 
     def get_enabled_stages(self) -> List[FibsemMillingStage]:
         return self._list.get_enabled_stages()
-
-    def set_manufacturer(self, manufacturer: Optional[str]) -> None:
-        self._milling_widget.set_manufacturer(manufacturer)
 
     def set_advanced_visible(self, show: bool) -> None:
         """Advanced fields in all three detail panels: one switch for one idea."""

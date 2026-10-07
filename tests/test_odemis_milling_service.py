@@ -150,3 +150,14 @@ def test_an_imaging_current_and_voltage_given_win(odemis_cls):
         ["set_high_voltage", [16e3, "ion"]],
         ["set_beam_current", [2e-11, "ion"]],
     ]
+
+
+def test_odemis_mills_with_the_settings_it_says(odemis_cls, monkeypatch):
+    from tests.fixtures.milling_reads import fields_setup_reads
+
+    files = ["Si", "Si-ccs"]
+    monkeypatch.setitem(READS, "get_available_application_files", files)
+    microscope = make(odemis_cls)
+    supported = microscope.milling.supported_settings()
+    assert list(supported["application_file"].choices) == files
+    assert set(supported) == fields_setup_reads(microscope.milling, SETTINGS)

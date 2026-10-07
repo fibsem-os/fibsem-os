@@ -220,3 +220,21 @@ def test_stop_uses_a_second_connection(connect):
     microscope.start_milling()
     microscope.stop_milling()  # Automation is patched to return the same fake
     assert fake.DrawBeam.status == DBStatus.ProjectLoadedExpositionIdle
+
+
+def test_tescan_mills_with_the_settings_it_says(connect):
+    from tests.fixtures.milling_reads import fields_setup_reads
+
+    microscope, _ = connect(service=True)
+    supported = microscope.milling.supported_settings()
+    # the preset sets the current and voltage, so the recipe's are not used
+    assert "milling_current" not in supported
+    assert "milling_voltage" not in supported
+    assert MILL_PRESET in supported["preset"].choices
+    assert supported["milling_channel"].choices == (BeamType.ION,)
+    read = fields_setup_reads(
+        microscope.milling, FibsemMillingSettings(preset=MILL_PRESET, hfw=80e-6)
+    )
+    assert set(supported) == read
+    # an electron beam it can't mill with
+    assert microscope.milling.supported_settings(BeamType.ELECTRON) == {}

@@ -11,7 +11,6 @@ import glob
 import logging
 import os
 import sys
-import time
 from copy import deepcopy
 from functools import wraps
 from types import MappingProxyType
@@ -23,7 +22,7 @@ from packaging.version import parse as parse_version
 from skimage import transform
 
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
+from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
@@ -31,15 +30,12 @@ from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
     _records_beam_shift,
-    _records_stage_move,
 )
 from fibsem.microscopes._stage import (
     GridExchangeError,
     GridSlot,
     SampleGrid,
     SampleGridLoader,
-    SampleHolder,
-    Stage,
     _slot_name,
 )
 from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
@@ -539,70 +535,6 @@ def fibsem_image_from_adorned_image(
         microscope_state=state,
     )
     return FibsemImage(data=adorned.data, metadata=metadata)
-
-
-class AutoscriptManipulator:
-    """Manipulator interface for AutoScript-based microscopes."""
-
-    def __init__(
-        self,
-        parent: "ThermoMicroscope",
-    ) -> None:
-        self.parent = parent
-
-    def __repr__(self) -> str:
-        return f"<Manipulator: position={self.position}>"
-
-    @property
-    def position(self) -> FibsemManipulatorPosition:
-        return self.parent.get_manipulator_position()
-
-    def insert(self) -> None:
-        """Insert the manipulator."""
-        self.parent.insert_manipulator()
-
-    def retract(self) -> None:
-        """Retract the manipulator."""
-        self.parent.retract_manipulator()
-
-    def move_absolute(
-        self, position: FibsemManipulatorPosition
-    ) -> FibsemManipulatorPosition:
-        pass
-
-    def move_relative(
-        self, position: FibsemManipulatorPosition
-    ) -> FibsemManipulatorPosition:
-        pass
-
-    def move_corrected(
-        self, dx: float, dy: float, beam_type: BeamType
-    ) -> FibsemManipulatorPosition:
-        pass
-
-
-class AutoscriptStage(Stage):
-    """Stage interface for AutoScript-based microscopes."""
-
-    def __init__(
-        self,
-        parent: "ThermoMicroscope",
-        holder: SampleHolder,
-        loader: Optional["SampleGridLoader"] = None,
-    ) -> None:
-        super().__init__(parent, holder, loader)
-
-
-class AutoscriptCompustage(Stage):
-    """Compustage interface for AutoScript-based microscopes."""
-
-    def __init__(
-        self,
-        parent: "ThermoMicroscope",
-        holder: SampleHolder,
-        loader: Optional["SampleGridLoader"] = None,
-    ) -> None:
-        super().__init__(parent, holder, loader)
 
 
 class AutoscriptSampleLoader(SampleGridLoader):
@@ -1662,9 +1594,8 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         """Build the beam devices and route the beam keys that have moved to them.
 
         The scan-mode methods then use the beam's scan commands, and acquire_image,
-        last_image, autocontrast and auto_focus its imaging commands. ``preset`` is still
-        answered by ``_get``/``_set``. A disabled column gets no device, so its keys
-        stay with the old branches too.
+        last_image, autocontrast and auto_focus its imaging commands. A disabled column
+        gets no device: its keys read None, and its imaging raises.
         """
         self._build_devices(
             [
@@ -1685,15 +1616,17 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
     def _build_stage(self) -> None:
         """Build the stage device and route the stage keys to it.
 
-        The moves, ``home`` and ``link_stage`` then go through the device. A
-        ``stage_link`` set stays with ``_set``: a false value unlinks there, and the
-        device's ``link`` command only links.
+        The moves, ``home`` and ``link_stage`` then go through the device. Its
+        ``link`` command only links: a false ``stage_link`` does nothing, and a
+        compustage has no ``linked`` (its ``stage_linked`` reads None).
         """
         self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
         self._device_routes = MappingProxyType(
             {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
         )
-        self._command_routes = MappingProxyType({"stage_home": ("stage", "home")})
+        self._command_routes = MappingProxyType(
+            {key: ("stage", name) for key, name in STAGE_COMMAND_ROUTES.items()}
+        )
 
     def _build_parts(self) -> None:
         """Build the chamber, and the manipulator when it is fitted, and route the
@@ -1807,218 +1740,15 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         Returns:
             FibsemImage: A new FibsemImage object representing the acquired image.
         """
-        # The beam's acquire command, once connect has built the beam; a beam_type
-        # takes precedence and means the current settings, as below.
-        target = (
-            beam_type
-            if beam_type is not None
-            else getattr(image_settings, "beam_type", None)
-        )
-        beam = self.beams.get(target) if target is not None else None
-        if beam is not None:
-            return beam.acquire(None if beam_type is not None else image_settings)
-
+        # The beam's acquire command; a beam_type takes precedence and means the
+        # current settings.
         if beam_type is not None:
-            return self.acquire_image3(image_settings=None, beam_type=beam_type)
-
+            return self._beam_device(beam_type).acquire(None)
         if image_settings is None:
             raise ValueError(
                 "Must provide image_settings to acquire a new image if beam_type is not specified."
             )
-
-        # set reduced area settings
-        if image_settings.reduced_area is not None:
-            rect = image_settings.reduced_area
-            reduced_area = Rectangle(rect.left, rect.top, rect.width, rect.height)
-            logging.debug(
-                f"Set reduced are: {reduced_area} for beam type {image_settings.beam_type}"
-            )
-        else:
-            reduced_area = None
-            self.set_full_frame_scanning_mode(image_settings.beam_type)
-
-        # set the imaging hfw
-        self.set_field_of_view(
-            hfw=image_settings.hfw, beam_type=image_settings.beam_type
-        )
-
-        logging.info(f"acquiring new {image_settings.beam_type.name} image.")
-
-        # set the imaging frame settings
-        frame_settings = GrabFrameSettings(
-            resolution=f"{image_settings.resolution[0]}x{image_settings.resolution[1]}",
-            dwell_time=image_settings.dwell_time,
-            reduced_area=reduced_area,
-            line_integration=image_settings.line_integration,
-            scan_interlacing=image_settings.scan_interlacing,
-            frame_integration=image_settings.frame_integration,
-            drift_correction=image_settings.drift_correction,
-        )
-
-        # One lock over both RPCs. `grab_frame` reads the active view's buffer, so a
-        # channel that is not still ours when the grab lands returns whoever took it in
-        # between -- silently, since the metadata below is built from `image_settings`
-        # rather than from what came back. That is FIB-517 on the beam side (FIB-542),
-        # and it is the discipline every other set-then-act pair here already keeps.
-        #
-        # Deliberately just the pair: `_threading_lock` is shared by every caller on
-        # this microscope (live view, workflows, the FM), so holding it over the
-        # metadata reads or the state fetch below would block all of them for the
-        # length of a frame.
-        with self._threading_lock:
-            self.set_channel(image_settings.beam_type)
-            image = self.connection.imaging.grab_frame(frame_settings)
-
-        # restore to full frame imaging
-        if image_settings.reduced_area is not None:
-            self.set_full_frame_scanning_mode(image_settings.beam_type)
-
-        # get the microscope state (for metadata)
-        # TODO: convert to using fromAdornedImage, we dont need to full state
-        # we should just get the 'state' of the image beam, e.g. stage, beam, detector for electron
-        # therefore we don't trigger the view to switch
-        state = self.get_microscope_state(beam_type=image_settings.beam_type)
-
-        fibsem_image = fibsem_image_from_adorned_image(
-            copy.deepcopy(image),
-            copy.deepcopy(image_settings),
-            copy.deepcopy(state),
-        )
-
-        self._set_additional_metadata(fibsem_image)
-
-        # store last imaging settings
-        self._last_imaging_settings = image_settings
-
-        logging.debug(
-            {"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()}
-        )
-
-        return fibsem_image
-
-    def acquire_image3(
-        self,
-        image_settings: Optional[ImageSettings] = None,
-        beam_type: Optional[BeamType] = None,
-    ) -> FibsemImage:
-        """
-        Acquire a new image with the specified settings or current settings for the given beam type.
-
-        Args:
-            image_settings (ImageSettings, optional): The settings for the new image.
-                Takes precedence if both parameters are provided.
-            beam_type (BeamType, optional): The beam type to use with current settings.
-                Used only if image_settings is not provided.
-
-        Returns:
-            FibsemImage: A new FibsemImage representing the acquired image.
-
-        Raises:
-            ValueError: If neither image_settings nor beam_type is provided.
-
-        Examples:
-            # Acquire with specific settings
-            settings = ImageSettings(beam_type=BeamType.ELECTRON, hfw=1e-6, resolution=(1024, 1024))
-            image = microscope.acquire_image3(image_settings=settings)
-
-            # Acquire with current settings for a specific beam type
-            image = microscope.acquire_image3(beam_type=BeamType.ION)
-
-            # If both provided, image_settings takes precedence
-            image = microscope.acquire_image3(image_settings=settings, beam_type=BeamType.ION)  # Uses settings
-        """
-
-        # Validate parameters - at least one must be provided
-        if image_settings is None and beam_type is None:
-            raise ValueError(
-                "Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
-            )
-
-        if image_settings is not None:
-            # Use provided image settings (takes precedence)
-            effective_beam_type = image_settings.beam_type
-            effective_image_settings = image_settings
-
-            # apply specified image settings, create frame settings
-            self._apply_image_settings(image_settings)
-            frame_settings = self._create_frame_settings(image_settings)
-        else:
-            # Use current settings for the specified beam type
-            effective_beam_type = beam_type
-            effective_image_settings = self.get_imaging_settings(beam_type=beam_type)
-            frame_settings = None
-
-        logging.info(f"acquiring new {effective_beam_type.name} image.")
-
-        # Locked for the same reason as `acquire_image`, and just as narrowly: this is
-        # the path every `beam_type=`-only call takes, including the live worker's.
-        with self._threading_lock:
-            self.set_channel(effective_beam_type)
-            adorned_image: AdornedImage = self.connection.imaging.grab_frame(
-                frame_settings
-            )
-
-        # QUERY: is this required, reduced area is only set for the grab_frame?
-        # Restore full frame if reduced area was used (same as acquire_image)
-        if image_settings is not None and image_settings.reduced_area is not None:
-            self.set_full_frame_scanning_mode(image_settings.beam_type)
-
-        logging.info(f"acquiring new {effective_beam_type.name} image.")
-
-        # Create FibsemImage with metadata (common for both paths)
-        state = self.get_microscope_state(beam_type=effective_beam_type)
-        fibsem_image = fibsem_image_from_adorned_image(
-            copy.deepcopy(adorned_image),
-            copy.deepcopy(effective_image_settings),
-            copy.deepcopy(state),
-        )
-
-        # Set additional metadata
-        self._set_additional_metadata(fibsem_image)
-
-        # Store last imaging settings if image_settings was provided
-        if image_settings is not None:
-            self._last_imaging_settings = image_settings
-
-        logging.debug(
-            {"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()}
-        )
-
-        return fibsem_image
-
-    def _apply_image_settings(self, image_settings: ImageSettings) -> None:
-        """Apply imaging settings to the microscope."""
-        # Set reduced area or full frame
-        if image_settings.reduced_area is not None:
-            logging.debug(
-                f"Set reduced area: {image_settings.reduced_area} for beam type {image_settings.beam_type}"
-            )
-        else:
-            self.set_full_frame_scanning_mode(image_settings.beam_type)
-
-        # Set the imaging hfw
-        self.set_field_of_view(
-            hfw=image_settings.hfw, beam_type=image_settings.beam_type
-        )
-
-    def _create_frame_settings(
-        self, image_settings: ImageSettings
-    ) -> "GrabFrameSettings":
-        """Create GrabFrameSettings from ImageSettings."""
-        reduced_area = None
-        if image_settings.reduced_area is not None:
-            rect = image_settings.reduced_area
-            reduced_area = Rectangle(rect.left, rect.top, rect.width, rect.height)
-
-        return GrabFrameSettings(
-            resolution=f"{image_settings.resolution[0]}x{image_settings.resolution[1]}",
-            dwell_time=image_settings.dwell_time,
-            reduced_area=reduced_area,
-            line_integration=image_settings.line_integration,
-            scan_interlacing=image_settings.scan_interlacing,
-            frame_integration=image_settings.frame_integration,
-            drift_correction=image_settings.drift_correction,
-        )
+        return self._beam_device(image_settings.beam_type).acquire(image_settings)
 
     def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
         """
@@ -2030,42 +1760,8 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
 
         Returns:
             FibsemImage: A new FibsemImage object representing the last acquired image.
-
-        Raises:
-            Exception: If there's an error while getting the last image.
         """
-        beam = self.beams.get(beam_type)
-        if beam is not None:
-            return beam.last_image()
-        # One lock over the channel and the read, as `acquire_image` holds it over
-        # `set_channel` + `grab_frame` (FIB-542). `get_image` retrieves the image "in the
-        # active view", so this is the same pair on the retrieval path: a channel that is
-        # not still ours when the read lands returns whoever took it, and the metadata
-        # below is built from `beam_type` rather than from what came back, so it is
-        # labelled as though nothing happened (FIB-569).
-        with self._threading_lock:
-            self.set_channel(beam_type)
-            image = self.connection.imaging.get_image()
-        image = AdornedImage(data=image.data.astype(np.uint8), metadata=image.metadata)
-
-        # get the microscope state (for metadata)
-        state = self.get_microscope_state(beam_type=beam_type)
-
-        # create the fibsem image
-        fibsem_image = fibsem_image_from_adorned_image(
-            adorned=image,
-            image_settings=None,
-            state=state,
-            beam_type=beam_type,
-        )
-
-        self._set_additional_metadata(fibsem_image)
-
-        logging.debug(
-            {"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()}
-        )
-
-        return fibsem_image
+        return self._beam_device(beam_type).last_image()
 
     def acquire_chamber_image(self) -> FibsemImage:
         """Acquire an image of the chamber inside."""
@@ -2085,63 +1781,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
                 self.connection.imaging.set_active_view(restore_view)
         logging.debug({"msg": "acquire_chamber_image"})
         return FibsemImage(data=image.data, metadata=None)
-
-    def _acquisition_worker(self, beam_type: BeamType):
-        """Worker thread for image acquisition."""
-        # TODO: add lock
-        self.set_channel(channel=beam_type)
-
-        try:
-            while True:
-                if self._stop_acquisition_event.is_set():
-                    break
-
-                # fast continuous acquisition
-                USE_FAST_ACQUISITION = True
-                if USE_FAST_ACQUISITION:
-                    self._fast_acquisition_worker(beam_type=beam_type)
-                    if self._stop_acquisition_event.is_set():
-                        break
-
-                # acquire image using current beam settings # TODO: migrate to start_acquisition while loop
-                image = self.acquire_image(beam_type=beam_type, image_settings=None)
-
-                # emit the acquired image
-                if beam_type is BeamType.ELECTRON:
-                    self.sem_acquisition_signal.emit(image)
-                if beam_type is BeamType.ION:
-                    self.fib_acquisition_signal.emit(image)
-
-        except Exception as e:
-            logging.error(f"Error in acquisition worker: {e}")
-
-    def _fast_acquisition_worker(self, beam_type: BeamType):
-        try:
-            with self._threading_lock:
-                self.set_channel(channel=beam_type)  # re-force active channel...?
-                self.connection.imaging.start_acquisition()
-
-            while self.connection.imaging.state == ImagingState.ACQUIRING:
-                if self._stop_acquisition_event.is_set():
-                    self.connection.imaging.stop_acquisition()
-                    break
-                with self._threading_lock:
-                    self.set_channel(channel=beam_type)  # re-force active channel...?
-                    adorned_image = self.connection.imaging.get_image(
-                        GetImageSettings(wait_for_frame=True)
-                    )
-                    image = self._construct_image(adorned_image, beam_type=beam_type)
-
-                    logging.info(f"Acquired Image: {image.data.shape}")
-                    # emit the acquired image
-                    if beam_type is BeamType.ELECTRON:
-                        self.sem_acquisition_signal.emit(image)
-                    if beam_type is BeamType.ION:
-                        self.fib_acquisition_signal.emit(image)
-        except Exception as e:
-            logging.error(f"Exception occurred during fast acquisition: {e}")
-        finally:
-            self.connection.imaging.stop_acquisition()
 
     def _construct_image(
         self, adorned_image: AdornedImage, beam_type: BeamType
@@ -2170,33 +1809,7 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         Args:
             beam_type (BeamType) The imaging beam type for which to adjust the contrast.
         """
-        beam = self.beams.get(beam_type)
-        if beam is not None:
-            beam.autocontrast(reduced_area)
-            return
-        logging.debug(f"Running autocontrast on {beam_type.name}.")
-        # `run_auto_cb` optimises "the active detector in the active view", so the
-        # channel has to be ours for the whole routine, not just when it starts. Unlike
-        # a stolen grab this is a *write*: a routine that runs on the wrong view tunes
-        # the other column's brightness and contrast and leaves it that way (FIB-569).
-        #
-        # The reduced-area write is inside for the same reason -- outside it, the
-        # routine could run on the right view with someone else's scan region.
-        #
-        # A longer hold than FIB-542's single grab, and deliberately so: the operation
-        # itself is what needs the channel, so there is no narrower correct scope. It is
-        # seconds, and anything wanting the microscope during an autocontrast conflicts
-        # with it physically in any case.
-        with self._threading_lock:
-            self.set_channel(beam_type)
-            if reduced_area is not None:
-                self.set_reduced_area_scanning_mode(reduced_area, beam_type)
-
-            self.connection.auto_functions.run_auto_cb()
-        if reduced_area is not None:
-            self.set_full_frame_scanning_mode(beam_type)
-
-        logging.debug({"msg": "autocontrast", "beam_type": beam_type.name})
+        self._beam_device(beam_type).autocontrast(reduced_area)
 
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
@@ -2206,28 +1819,7 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         Args:
             beam_type (BeamType): The imaging beam type for which to focus.
         """
-        beam = self.beams.get(beam_type)
-        if beam is not None:
-            beam.auto_focus(reduced_area)
-            return
-        logging.debug(f"Running auto-focus on {beam_type.name}.")
-        # Held for the same reason as `autocontrast`, and it matters more here:
-        # `run_auto_focus` runs "in the active view", and `imaging/tiled.py` calls this
-        # once per tile of an unattended tileset -- exactly the long run interleaved
-        # with GUI-thread reads that stopped a workflow task in FIB-517. Losing the
-        # channel focuses the other column and every later acquisition inherits it.
-        with self._threading_lock:
-            self.set_channel(beam_type)
-            if reduced_area is not None:
-                self.set_reduced_area_scanning_mode(reduced_area, beam_type)
-
-            # run the auto focus
-            self.connection.auto_functions.run_auto_focus()
-
-        # restore the full frame scanning mode
-        if reduced_area is not None:
-            self.set_full_frame_scanning_mode(beam_type)
-        logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
+        self._beam_device(beam_type).auto_focus(reduced_area)
 
     @_records_beam_shift
     def beam_shift(
@@ -2269,73 +1861,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         )
 
         return self.get_beam_shift(beam_type=beam_type)
-
-    @_records_stage_move
-    def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        """
-        Move the stage to the specified coordinates.
-
-        Args:
-            position: The raw stage position to move to.
-
-        Returns:
-            FibsemStagePosition: The stage position after movement.
-        """
-
-        # through the stage device once connect has built it; the code below stays
-        # until a session on an instrument confirms the device's moves
-        if self.stage is not None:
-            return super().move_stage_absolute(position)
-
-        # get current working distance, to be restored later
-        wd = self.get_working_distance(BeamType.ELECTRON)
-
-        # convert to autoscript position, leaving alone the axes the microscope
-        # would refuse (the objective inserted, or entering the FM pose)
-        autoscript_position = stage_position_to_autoscript(
-            self._without_blocked_axes(position), compustage=self.stage_is_compustage
-        )  # TODO: apply compucentric/raw coordinate offset here?
-
-        logging.info(f"Moving stage to {position}.")
-        self._vendor_stage.absolute_move(
-            autoscript_position, MoveSettings(rotate_compucentric=True)
-        )  # TODO: This needs at least an optional safe move to prevent collision?
-
-        # restore working distance to adjust for microscope compenstation
-        if not self.stage_is_compustage:
-            self.set_working_distance(wd, BeamType.ELECTRON)
-
-        logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
-
-        return self.get_stage_position()
-
-    @_records_stage_move
-    def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        """
-        Move the stage by the specified relative move.
-
-        Args:
-            position: the relative stage position to move by.
-        """
-
-        # through the stage device once connect has built it; the code below stays
-        # until a session on an instrument confirms the device's moves
-        if self.stage is not None:
-            return super().move_stage_relative(position)
-
-        logging.info(f"Moving stage by {position}.")
-
-        # convert to autoscript position
-        thermo_position = stage_position_to_autoscript(
-            position, self.stage_is_compustage
-        )
-
-        # move stage
-        self._vendor_stage.relative_move(thermo_position)
-
-        logging.debug({"msg": "move_stage_relative", "position": position.to_dict()})
-
-        return self.get_stage_position()
 
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.
@@ -2402,102 +1927,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
                 max=360,
             )
         return limits
-
-    def insert_manipulator(self, name: str = "PARK") -> FibsemManipulatorPosition:
-        """Insert the manipulator to the specified position"""
-        # through the manipulator device once connect has built it; the code below
-        # stays until a session on an instrument confirms the device
-        if self.manipulator_device is not None:
-            return super().insert_manipulator(name)
-
-        if not self.is_available("manipulator"):
-            raise ValueError("Manipulator not available.")
-
-        if name not in ["PARK", "EUCENTRIC"]:
-            raise ValueError(f"insert position {name} not supported.")
-
-        # get the saved position name
-        saved_position = (
-            ManipulatorSavedPosition.PARK
-            if name == "PARK"
-            else ManipulatorSavedPosition.EUCENTRIC
-        )
-
-        # get the insert position
-        insert_position = self.connection.specimen.manipulator.get_saved_position(
-            saved_position, ManipulatorCoordinateSystem.RAW
-        )
-        # insert the manipulator
-        logging.info("inserting manipulator to {saved_position}: {insert_position}.")
-        self.connection.specimen.manipulator.insert(insert_position)
-        logging.info("insert manipulator complete.")
-
-        # return the manipulator position
-        manipulator_position = self.get_manipulator_position()
-        logging.debug(
-            {
-                "msg": "insert_manipulator",
-                "name": name,
-                "position": manipulator_position.to_dict(),
-            }
-        )
-        return manipulator_position
-
-    def retract_manipulator(self) -> FibsemManipulatorPosition:
-        """Retract the manipulator"""
-        if self.manipulator_device is not None:
-            return super().retract_manipulator()
-
-        if not self.is_available("manipulator"):
-            raise NotImplementedError("Manipulator not available.")
-
-        # Retract the needle, preserving the correct parking postiion
-        needle = self.connection.specimen.manipulator
-        park_position = needle.get_saved_position(
-            ManipulatorSavedPosition.PARK, ManipulatorCoordinateSystem.RAW
-        )
-
-        logging.info(f"retracting needle to {park_position}")
-        needle.absolute_move(park_position)
-        time.sleep(1)  # AutoScript sometimes throws errors if you retract too quick?
-        logging.info("retracting needle...")
-        needle.retract()
-        logging.info("retract needle complete")
-        return self.get_manipulator_position()
-
-    def move_manipulator_relative(
-        self, position: FibsemManipulatorPosition
-    ) -> FibsemManipulatorPosition:
-        if self.manipulator_device is not None:
-            return super().move_manipulator_relative(position)
-        logging.info(f"moving manipulator by {position}")
-
-        # convert to autoscript position
-        autoscript_position = manipulator_position_to_autoscript(position)
-        # move manipulator relative
-        self.connection.specimen.manipulator.relative_move(autoscript_position)
-        logging.debug(
-            {"msg": "move_manipulator_relative", "position": position.to_dict()}
-        )
-        return self.get_manipulator_position()
-
-    def move_manipulator_absolute(
-        self, position: FibsemManipulatorPosition
-    ) -> FibsemManipulatorPosition:
-        """Move the manipulator to the specified coordinates."""
-        if self.manipulator_device is not None:
-            return super().move_manipulator_absolute(position)
-        logging.info(f"moving manipulator to {position}")
-
-        # convert to autoscript
-        autoscript_position = manipulator_position_to_autoscript(position)
-
-        # move manipulator
-        self.connection.specimen.manipulator.absolute_move(autoscript_position)
-        logging.debug(
-            {"msg": "move_manipulator_absolute", "position": position.to_dict()}
-        )
-        return self.get_manipulator_position()
 
     def _x_corrected_needle_movement(
         self, expected_x: float
@@ -2617,42 +2046,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
 
     manipulator_move_types = ("relative", "corrected")
 
-    def manipulator_named_positions(self) -> List[str]:
-        if self.manipulator_device is not None:
-            return super().manipulator_named_positions()
-        return ["PARK", "EUCENTRIC"]
-
-    def _get_saved_manipulator_position(
-        self, name: str = "PARK"
-    ) -> FibsemManipulatorPosition:
-        if self.manipulator_device is not None:
-            return super()._get_saved_manipulator_position(name)
-
-        if name not in ["PARK", "EUCENTRIC"]:
-            raise ValueError(f"saved position {name} not supported.")
-        named_position = (
-            ManipulatorSavedPosition.PARK
-            if name == "PARK"
-            else ManipulatorSavedPosition.EUCENTRIC
-        )
-        autoscript_position = self.connection.specimen.manipulator.get_saved_position(
-            named_position,
-            ManipulatorCoordinateSystem.STAGE,  # TODO: why is this STAGE not RAW?
-        )
-
-        # convert to FibsemManipulatorPosition
-        manipulator_position = manipulator_position_from_autoscript(autoscript_position)
-
-        logging.debug(
-            {
-                "msg": "get_saved_manipulator_position",
-                "name": name,
-                "position": manipulator_position.to_dict(),
-            }
-        )
-
-        return manipulator_position
-
     def _get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[str]:
@@ -2677,327 +2070,12 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
 
         return values
 
-    def _get(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> Union[
-        int,
-        float,
-        str,
-        list,
-        Point,
-        FibsemStagePosition,
-        FibsemManipulatorPosition,
-        None,
-    ]:
-        """Get a property of the microscope."""
-        # TODO: make the list of get and set keys available to the user
-        if beam_type is not None:
-            beam = self._get_beam(beam_type)
-
-        # beam properties
-        if key == "on":
-            return beam.is_on
-        if key == "blanked":
-            return beam.is_blanked
-        if key == "working_distance":
-            return beam.working_distance.value
-        if key == "current":
-            return beam.beam_current.value
-        if key == "voltage":
-            return beam.high_voltage.value
-        if key == "hfw":
-            return beam.horizontal_field_width.value
-        if key == "dwell_time":
-            return beam.scanning.dwell_time.value
-        if key == "scan_rotation":
-            return beam.scanning.rotation.value
-        if key == "shift":  # beam shift
-            return Point(beam.beam_shift.value.x, beam.beam_shift.value.y)
-        if key == "stigmation":
-            return Point(beam.stigmator.value.x, beam.stigmator.value.y)
-        if key == "resolution":
-            resolution = beam.scanning.resolution.value
-            width, height = (
-                int(resolution.split("x")[0]),
-                int(resolution.split("x")[-1]),
-            )
-            return [width, height]
-
-        # electron beam properties
-        if beam_type is BeamType.ELECTRON:
-            if key == "angular_correction_angle":
-                return beam.angular_correction.angle.value
-
-        # ion beam properties
-        if key == "plasma_gas":
-            if beam_type is BeamType.ION and self.system.ion.plasma:
-                return (
-                    beam.source.plasma_gas.value
-                )  # might need to check if this is available?
-            else:
-                return None
-
-        # stage properties
-        if key == "stage_position":
-            # get stage position in raw coordinates
-            self._vendor_stage.set_default_coordinate_system(
-                self._default_stage_coordinate_system
-            )  # TODO: remove this once testing is done
-            stage_position = stage_position_from_autoscript(
-                self._vendor_stage.current_position
-            )  # TODO: apply compucentric/raw coordinate system conversion here
-            return stage_position
-
-        if key == "stage_homed":
-            return self._vendor_stage.is_homed
-        if key == "stage_linked":
-            # A compustage can't link (`set("stage_link")` refuses, and
-            # `AutoscriptCompustage` has no `linked`), so it is never linked.
-            if self.stage_is_compustage:
-                return False
-            return self._vendor_stage.is_linked
-
-        # chamber properties
-        if key == "chamber_state":
-            return self.connection.vacuum.chamber_state
-
-        if key == "chamber_pressure":
-            return self.connection.vacuum.chamber_pressure.value
-
-        # detector mode and type
-        if key in [
-            "detector_mode",
-            "detector_type",
-            "detector_brightness",
-            "detector_contrast",
-        ]:
-            # `connection.detector` resolves against the active device, so the channel
-            # is set and read under the lock, as for a grab (FIB-544)
-            with self._threading_lock:
-                self.set_channel(beam_type)
-
-                if key == "detector_type":
-                    return self.connection.detector.type.value
-                if key == "detector_mode":
-                    return self.connection.detector.mode.value
-                if key == "detector_brightness":
-                    return self.connection.detector.brightness.value
-                if key == "detector_contrast":
-                    return self.connection.detector.contrast.value
-
-        # manipulator properties
-        if key == "manipulator_position":
-            position = self.connection.specimen.manipulator.current_position
-            return manipulator_position_from_autoscript(position)
-        if key == "manipulator_state":
-            state = self.connection.specimen.manipulator.state
-            return True if state == ManipulatorState.INSERTED else False
-
-        # logging.warning(f"Unknown key: {key} ({beam_type})")
-        return None
-
-    def _set(
-        self,
-        key: str,
-        value: Union[str, int, float, BeamType, Point, FibsemRectangle],
-        beam_type: Optional[BeamType] = None,
-    ) -> None:
-        """Set a property of the microscope."""
-        # required for setting shift, stigmation
-        from autoscript_sdb_microscope_client.structures import Point as ThermoPoint
-
-        # get beam
-        if beam_type is not None:
-            beam = self._get_beam(beam_type)
-
-        # beam properties
-        if key == "working_distance":
-            beam.working_distance.value = value
-            logging.info(f"{beam_type.name} working distance set to {value} m.")
-            return
-        if key == "current":
-            beam.beam_current.value = value
-            logging.info(f"{beam_type.name} current set to {value} A.")
-            return
-        if key == "voltage":
-            beam.high_voltage.value = value
-            logging.info(f"{beam_type.name} voltage set to {value} V.")
-            return
-        if key == "hfw":
-            limits = beam.horizontal_field_width.limits
-            value = np.clip(value, limits.min, limits.max - 10e-6)
-            beam.horizontal_field_width.value = value
-            logging.info(f"{beam_type.name} HFW set to {value} m.")
-            return
-        if key == "dwell_time":
-            beam.scanning.dwell_time.value = value
-            logging.info(f"{beam_type.name} dwell time set to {value} s.")
-            return
-        if key == "scan_rotation":
-            beam.scanning.rotation.value = value
-            logging.info(f"{beam_type.name} scan rotation set to {value} radians.")
-            return
-        if key == "shift":
-            beam.beam_shift.value = ThermoPoint(
-                value.x, value.y
-            )  # TODO: resolve this coordinate system
-            logging.info(f"{beam_type.name} shift set to {value}.")
-            return
-        if key == "stigmation":
-            beam.stigmator.value = ThermoPoint(value.x, value.y)
-            logging.info(f"{beam_type.name} stigmation set to {value}.")
-            return
-
-        if key == "resolution":
-            resolution = f"{value[0]}x{value[1]}"  # WidthxHeight e.g. 1536x1024
-            beam.scanning.resolution.value = resolution
-            return
-
-        # scanning modes
-        if key == "reduced_area":
-            beam.scanning.mode.set_reduced_area(
-                left=value.left, top=value.top, width=value.width, height=value.height
-            )
-            return
-
-        if key == "spot_mode":
-            # value: Point, image pixels
-            beam.scanning.mode.set_spot(x=value.x, y=value.y)
-            return
-
-        if key == "full_frame":
-            beam.scanning.mode.set_full_frame()
-            return
-
-        # beam control
-        if key == "on":
-            beam.turn_on() if value else beam.turn_off()
-            logging.info(f"{beam_type.name} beam turned {'on' if value else 'off'}.")
-            return
-        if key == "blanked":
-            beam.blank() if value else beam.unblank()
-            logging.info(
-                f"{beam_type.name} beam {'blanked' if value else 'unblanked'}."
-            )
-            return
-
-        # detector properties
-        if key in [
-            "detector_mode",
-            "detector_type",
-            "detector_brightness",
-            "detector_contrast",
-        ]:
-            # the write half: with the channel moved it would land on the other
-            # column's detector and stay there (FIB-544)
-            with self._threading_lock:
-                self.set_channel(beam_type)
-
-                if key == "detector_mode":
-                    if value in self.connection.detector.mode.available_values:
-                        self.connection.detector.mode.value = value
-                        logging.info(f"Detector mode set to {value}.")
-                    else:
-                        logging.warning(f"Detector mode {value} not available.")
-                    return
-                if key == "detector_type":
-                    if value in self.connection.detector.type.available_values:
-                        self.connection.detector.type.value = value
-                        logging.info(f"Detector type set to {value}.")
-                    else:
-                        logging.warning(f"Detector type {value} not available.")
-                    return
-                if key == "detector_brightness":
-                    if 0 < value <= 1:
-                        self.connection.detector.brightness.value = value
-                        logging.info(f"Detector brightness set to {value}.")
-                    else:
-                        logging.warning(
-                            f"Detector brightness {value} not available, must be between 0 and 1."
-                        )
-                    return
-                if key == "detector_contrast":
-                    if 0 < value <= 1:
-                        self.connection.detector.contrast.value = value
-                        logging.info(f"Detector contrast set to {value}.")
-                    else:
-                        logging.warning(
-                            f"Detector contrast {value} not available, mut be between 0 and 1."
-                        )
-                    return
-
-        # electron beam properties
-        if beam_type is BeamType.ELECTRON:
-            if key == "angular_correction_angle":
-                beam.angular_correction.angle.value = value
-                logging.info(f"Angular correction angle set to {value} radians.")
-                return
-
-            if key == "angular_correction_tilt_correction":
-                beam.angular_correction.tilt_correction.turn_on() if value else beam.angular_correction.tilt_correction.turn_off()
-                return
-
-        # ion beam properties
-        if beam_type is BeamType.ION:
-            if key == "plasma_gas":
-                if not self.system.ion.plasma:
-                    logging.debug("Plasma gas cannot be set on this microscope.")
-                    return
-                gases = beam.source.plasma_gas.available_values
-                if value not in gases:
-                    logging.warning(
-                        f"Plasma gas {value} not available. Available values: {gases}"
-                    )
-
-                logging.info(
-                    f"Setting plasma gas to {value}... this may take some time..."
-                )
-                beam.source.plasma_gas.value = value
-                logging.info(f"Plasma gas set to {value}.")
-
-                return
-
-        # stage properties
-        if key == "stage_home":
-            logging.info("Homing stage...")
-            self._vendor_stage.home()
-            logging.info("Stage homed.")
-            return
-
-        if key == "stage_link":
-            if self.stage_is_compustage:
-                logging.debug("Compustage does not support linking.")
-                return
-
-            logging.info("Linking stage...")
-            self._vendor_stage.link() if value else self._vendor_stage.unlink()
-            logging.info(f"Stage {'linked' if value else 'unlinked'}.")
-            return
-
-        # chamber properties
-        if key == "pump_chamber":
-            if value:
-                logging.info("Pumping chamber...")
-                self.connection.vacuum.pump()
-                logging.info("Chamber pumped.")
-                return
-            else:
-                logging.warning(f"Invalid value for pump_chamber: {value}.")
-                return
-
-        if key == "vent_chamber":
-            if value:
-                logging.info("Venting chamber...")
-                self.connection.vacuum.vent()
-                logging.info("Chamber vented.")
-                return
-            else:
-                logging.warning(f"Invalid value for vent_chamber: {value}.")
-                return
-
-        logging.warning(f"Unknown key: {key} ({beam_type})")
-
-        return
+    def _beam_device(self, beam_type: BeamType) -> Any:
+        """The beam device for ``beam_type``; a column disabled in the config has none."""
+        device = self.beams.get(beam_type)
+        if device is None:
+            raise ValueError(f"The {beam_type.name} beam is not enabled.")
+        return device
 
     def _get_beam(self, beam_type: BeamType) -> Union["ElectronBeam", "IonBeam"]:
         """Get the beam connection api for the given beam type.

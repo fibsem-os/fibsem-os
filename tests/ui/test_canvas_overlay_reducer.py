@@ -417,6 +417,113 @@ def test_in_progress_drag_survives_unrelated_reconcile():
     print("ok: in-progress drag survives an unrelated reconcile")
 
 
+def _multi(points=((5.0, 5.0), (9.0, 9.0), (20.0, 20.0)), **kw):
+    app = _app()
+    ctl = MicroscopeViewController()
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_overlay(
+        BeamType.ION,
+        PointsSpec(id="spot", points=list(points), multi_select=True, **kw),
+    )
+    _flush(app)
+    return app, ctl, ctl._overlay_objs[ctl.fib_canvas]["spot"]
+
+
+def _user_selects(ov, indices):
+    """What the overlay does on a canvas click: change the selection, then announce it."""
+    ov.set_selection(indices)
+    ov.selection_changed.emit(ov.selected_indices())
+
+
+def test_multi_select_spec_reaches_the_overlay():
+    _, _, ov = _multi()
+    assert ov._multi_select is True
+    print("ok: PointsSpec.multi_select configures the overlay")
+
+
+def test_canvas_multi_selection_is_recorded_and_announced():
+    _, ctl, ov = _multi()
+    heard = []
+    ctl.overlay_selection_changed.connect(lambda b, i, idx: heard.append((b, i, idx)))
+
+    _user_selects(ov, [0, 2])
+
+    assert heard == [(BeamType.ION, "spot", [0, 2])]
+    assert ctl.overlay_selection(BeamType.ION, "spot") == [0, 2]
+    ctl._reconcile(ctl.fib_canvas)  # unrelated reconcile: no rebuild, selection kept
+    assert ov.selected_indices() == [0, 2]
+    print("ok: a canvas multi-selection is in the model and survives a reconcile")
+
+
+def test_group_removal_is_one_edit_with_the_selection_current():
+    _, ctl, ov = _multi()
+    _user_selects(ov, [0, 2])
+    seen = []
+    ctl.overlay_edited.connect(
+        lambda b, i, pts: seen.append((pts, ctl.overlay_selection(b, i)))
+    )
+
+    ov.remove_points([0, 2])
+
+    assert seen == [([(9.0, 9.0)], [])], "one edit, and the model already reads empty"
+    print("ok: removing a group is one overlay_edited with a current selection")
+
+
+def test_set_selected_points_applies_and_survives_a_points_rebuild():
+    app, ctl, ov = _multi()
+    ctl.set_selected_points(BeamType.ION, "spot", [1, 2])
+    assert ov.selected_indices() == [1, 2]
+
+    ctl.set_points(BeamType.ION, "spot", [(1.0, 1.0), (2.0, 2.0), (3.0, 3.0)])
+    _flush(app)  # set_points on the overlay is destructive; the spec re-applies it
+    assert ov.get_points() == [(1.0, 1.0), (2.0, 2.0), (3.0, 3.0)]
+    assert ov.selected_indices() == [1, 2]
+    print("ok: set_selected_points persists across a points rebuild")
+
+
+def test_single_select_spec_does_not_record_canvas_selection():
+    """A single-select producer re-sets its spec without a selection; that must keep
+    leaving a canvas-made selection alone, as it did before multi-selection existed."""
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    pts = [(5.0, 5.0), (9.0, 9.0)]
+    ctl.set_overlay(BeamType.ION, PointsSpec(id="poi", points=pts))
+    _flush(app)
+    ov = ctl._overlay_objs[fib]["poi"]
+
+    _user_selects(ov, [1])
+    assert ctl.overlay_selection(BeamType.ION, "poi") == []
+
+    ctl.set_overlay(
+        BeamType.ION, PointsSpec(id="poi", points=pts)
+    )  # re-set, same points
+    _flush(app)
+    assert ov.selected_indices() == [1]
+    print("ok: a single-select spec leaves the canvas selection to the canvas")
+
+
+def test_set_selected_point_and_the_deprecated_field_still_work():
+    app = _app()
+    ctl = MicroscopeViewController()
+    fib = ctl.fib_canvas
+    ctl.set_image(BeamType.ION, _image())
+    ctl.set_overlay(
+        BeamType.ION, PointsSpec(id="poi", points=[(5.0, 5.0), (9.0, 9.0)], selected=1)
+    )
+    _flush(app)
+    ov = ctl._overlay_objs[fib]["poi"]
+    assert ov.selected_indices() == [1], "PointsSpec.selected is honoured"
+
+    ctl.set_selected_point(BeamType.ION, "poi", 0)
+    assert ov.selected_indices() == [0]
+    ctl.set_selected_point(BeamType.ION, "poi", None)
+    assert ov.selected_indices() == []
+    assert ctl.overlay_selection(BeamType.ION, "poi") == []
+    print("ok: set_selected_point and PointsSpec.selected keep working")
+
+
 def test_mask_overlay_displays_and_removes():
     app = _app()
     ctl = MicroscopeViewController()
@@ -530,6 +637,12 @@ def _run_all():
         test_points_remove_disarms,
         test_points_visible_toggle_keeps_points,
         test_set_points_partial_keeps_config,
+        test_multi_select_spec_reaches_the_overlay,
+        test_canvas_multi_selection_is_recorded_and_announced,
+        test_group_removal_is_one_edit_with_the_selection_current,
+        test_set_selected_points_applies_and_survives_a_points_rebuild,
+        test_single_select_spec_does_not_record_canvas_selection,
+        test_set_selected_point_and_the_deprecated_field_still_work,
         test_mask_overlay_displays_and_removes,
         test_detection_features_colors_labels_and_move,
         test_info_bar_renders_ordered_fields_per_canvas,

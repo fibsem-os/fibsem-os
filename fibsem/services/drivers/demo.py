@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
+from fibsem.devices.core import ParameterMetadata
 from fibsem.microscopes.simulator import DemoMilling as DemoMillingCode
 from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
@@ -44,6 +45,21 @@ class DemoMilling(Milling):
     """The Demo's milling, on the microscope's simulated ``milling_system``."""
 
     parent: DemoMicroscope
+
+    setting_names = (
+        "milling_channel",
+        "hfw",
+        "milling_current",
+        "milling_voltage",
+        "application_file",
+        "patterning_mode",
+    )
+
+    def _setting_metadata(self, name: str) -> ParameterMetadata:
+        if name == "application_file":
+            files = self.parent.milling_system.application_files
+            return ParameterMetadata(choices=tuple(files))
+        return super()._setting_metadata(name)
 
     def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
         # The recipe's beam conditions go through the beam devices (`set`).

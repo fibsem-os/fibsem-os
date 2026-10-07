@@ -931,7 +931,7 @@ class FluorescenceMicroscope:
         """
         if self.parent is None:
             return 0.0  # simulator without a parent microscope
-        if self.parent.stage_is_compustage:
+        if self.parent._fm_is_a_pose():
             return 180.0
         return self.parent.system.ion.column_tilt
 

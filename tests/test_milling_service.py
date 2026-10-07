@@ -163,3 +163,38 @@ def test_without_an_ion_beam_the_demo_mills_with_its_own_code(microscope):
     assert electron_only.get_milling_state() is MillingState.IDLE
     electron_only.clear_patterns()
     assert electron_only.milling_system.patterns == []
+
+
+def test_the_demo_says_which_settings_it_mills_with(microscope):
+    supported = microscope.milling.supported_settings()
+    assert set(supported) == {
+        "milling_channel",
+        "hfw",
+        "milling_current",
+        "milling_voltage",
+        "application_file",
+        "patterning_mode",
+    }
+    ion = microscope.beams[BeamType.ION]
+    # a beam's own parameter carries the beam's metadata, not a copy
+    assert supported["milling_current"] is ion.parameters["current"].metadata
+    assert list(supported["application_file"].choices) == list(
+        microscope.milling_system.application_files
+    )
+    assert supported["patterning_mode"].choices == ("Serial", "Parallel")
+    assert supported["milling_channel"].choices == (BeamType.ION, BeamType.ELECTRON)
+
+
+def test_the_demo_mills_with_the_settings_it_says(microscope):
+    from tests.fixtures.milling_reads import fields_setup_reads
+
+    read = fields_setup_reads(microscope.milling, _recipe())
+    assert read == set(microscope.milling.supported_settings())
+
+
+def test_a_channel_with_no_beam_has_no_settings(microscope):
+    del microscope.milling._roles["electron"]
+    assert microscope.milling.supported_settings(BeamType.ELECTRON) == {}
+    assert microscope.milling.supported_settings()["milling_channel"].choices == (
+        BeamType.ION,
+    )

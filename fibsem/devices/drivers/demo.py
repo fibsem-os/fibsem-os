@@ -12,6 +12,7 @@ it is given (``start``, a ``DemoParts``), and never touches the microscope's aga
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from contextlib import contextmanager
 from copy import deepcopy
@@ -44,6 +45,7 @@ from fibsem.devices.sample_loader import (
     SampleLoader,
     StageSample,
 )
+from fibsem.devices.scanner import Scanner
 from fibsem.devices.stage import (
     Stage,
     axis_limits_from_degrees,
@@ -389,6 +391,9 @@ class DemoStage(Stage):
     def available_linked(self) -> bool:
         return not self.parent.stage_is_compustage
 
+    def has_builtin_shuttle(self) -> bool:
+        return self.parent.stage_is_compustage
+
     # The simulator is a compustage or an offset stage by its configuration.
     def poses(
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
@@ -709,6 +714,45 @@ DEMO_SAMPLE_LOADER_KEYS: Dict[str, Any] = {
 }
 
 
+# -- The scan generator ------------------------------------------------------------
+
+
+class DemoScanGenerator(Scanner):
+    """A simulated external scan generator, for testing a beam's ``scanner`` binding
+    without hardware. Each frame is noise with "SG" drawn on it, so an image it
+    scanned is told apart from the vendor's "SEM"/"FIB". A frame takes its dwell
+    time per pixel (``sim_sleep``'s rule: none under the tests), and ``stop`` ends a
+    frame in flight."""
+
+    def __init__(self, name: str, parent: Any = None, **kwargs: Any):
+        super().__init__(name=name, parent=parent, **kwargs)
+        self._stop_event = threading.Event()
+        self._frames: Dict[Tuple[int, int], np.ndarray] = {}
+        self.sim_frames = 0
+        """How many frames it has scanned, for tests to see that it was used."""
+
+    def _acquire(self, resolution: Tuple[int, int], dwell_time: float) -> np.ndarray:
+        self._stop_event.clear()
+        duration = dwell_time * resolution[0] * resolution[1]
+        if os.environ.get("FIBSEM_SIM_NO_DELAY") != "1":
+            self._stop_event.wait(duration)
+        shape = (resolution[1], resolution[0])
+        if resolution not in self._frames:
+            self._frames[resolution] = draw_text(
+                "SG",
+                size=(resolution[0] // 4, resolution[1] // 4),
+                thickness=max(1, min(48, resolution[0] // 16)),
+                image_shape=shape,
+            )
+        noise = np.random.randint(0, 255, size=shape, dtype=np.uint8)
+        text = self._frames[resolution]
+        self.sim_frames += 1
+        return np.where(text > 0, text, noise).astype(np.uint8)
+
+    def _stop(self) -> None:
+        self._stop_event.set()
+
+
 # -- Builders by entry --------------------------------------------------------------
 #
 # The Demo driver's device builders (``DRIVER.devices`` in ``device_demo``): each
@@ -783,6 +827,16 @@ def build_demo_sample_loader(
         ),
         entry,
     )
+
+
+def build_demo_scan_generator(
+    entry: "DeviceEntry", context: "BuildContext"
+) -> DemoScanGenerator:
+    """A simulated scan generator. It has resources of its own, as a unit on its own
+    cable would: scanning with it doesn't hold the microscope's locks."""
+    return DemoScanGenerator(
+        entry.name, context.microscope, resources=Resources()
+    ).connect()
 
 
 # -- The FM -------------------------------------------------------------------------

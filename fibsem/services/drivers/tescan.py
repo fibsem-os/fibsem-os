@@ -14,9 +14,11 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple
 
 from fibsem.devices.beam import Beam
+from fibsem.devices.core import ParameterMetadata
 from fibsem.microscopes.tescan import DEFAULT_IMAGING_PRESET, TescanDrawBeam
 from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
+    BeamType,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemLineSettings,
@@ -45,6 +47,24 @@ class TescanMilling(Milling):
     """Tescan milling, on a DrawBeam layer."""
 
     parent: TescanMicroscope
+
+    # The preset sets the current and voltage; the rest go into the DrawBeam layer.
+    setting_names = (
+        "milling_channel",
+        "hfw",
+        "preset",
+        "spot_size",
+        "rate",
+        "dwell_time",
+        "spacing",
+        "patterning_mode",
+    )
+
+    def _setting_metadata(self, name: str) -> ParameterMetadata:
+        if name == "milling_channel":
+            # the DrawBeam layer is on the ion column only
+            return ParameterMetadata(choices=(BeamType.ION,))
+        return super()._setting_metadata(name)
 
     def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
         # ion only: the milling preset, then a DrawBeam layer from the recipe

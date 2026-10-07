@@ -230,7 +230,15 @@ def facts():
     traced.estimate_milling_time()
     traced.clear_patterns()
 
+    from milling_reads import fields_setup_reads
+
+    supported = make(service=True).milling.supported_settings()
+    reads = fields_setup_reads(make(service=True).milling, RECIPE)
+
     return {
+        "supported": sorted(supported),
+        "application_files": list(supported["application_file"].choices),
+        "setup_reads": sorted(reads),
         "type": type(milling).__name__,
         "is_autoscript": isinstance(milling, AutoScriptMilling),
         "roles": [milling.ion.name, milling.electron.name],

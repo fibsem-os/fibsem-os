@@ -488,6 +488,3 @@ class MillingTaskViewerWidget(QWidget):
     def set_background_milling_stages(self, stages: List[FibsemMillingStage]) -> None:
         self._background_milling_stages = stages
         self._schedule_pattern_update()
-
-    def set_manufacturer(self, manufacturer: Optional[str]) -> None:
-        self.config_widget.milling_stages_widget.set_manufacturer(manufacturer)
