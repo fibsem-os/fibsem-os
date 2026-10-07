@@ -346,8 +346,6 @@ class FibsemMicroscope(ABC):
     # live acquisition
     sem_acquisition_signal = Signal(FibsemImage)
     fib_acquisition_signal = Signal(FibsemImage)
-    _stop_acquisition_event = _PerInstance(lambda _: threading.Event())
-    _acquisition_thread: threading.Thread = None
     # The beams whose live_frame already forwards to the signals above.
     _live_forwarded = _PerInstance(lambda _: set())
     # One acquisition at a time on this microscope's imaging view. Devices claim the
@@ -413,10 +411,7 @@ class FibsemMicroscope(ABC):
     @property
     def is_acquiring(self) -> bool:
         """Check if the microscope is currently acquiring an image."""
-        acquiring = self._acquisition_thread and self._acquisition_thread.is_alive()
-        if not acquiring and any(beam.is_live for beam in self._live_beams()):
-            return True
-        return acquiring
+        return any(beam.is_live for beam in self._live_beams())
 
     def _live_beams(self) -> List[Any]:
         """The beam devices whose driver has live view (`start_live`)."""
@@ -436,48 +431,29 @@ class FibsemMicroscope(ABC):
             logging.warning("Acquisition thread is already running.")
             return
 
-        # The beam's live view, once a backend's beam has it: its frames reach the
-        # old signals, so a viewer listening there sees no difference.
+        # The beam's live view: its frames reach the old signals, so a viewer
+        # listening there sees no difference. A beam with no live view (Odemis), or
+        # no such beam, has nothing to start.
         beam = self.beams.get(beam_type)
-        if beam is not None and beam in self._live_beams():
-            if beam_type not in self._live_forwarded:
-                signal = (
-                    self.sem_acquisition_signal
-                    if beam_type is BeamType.ELECTRON
-                    else self.fib_acquisition_signal
-                )
-                # A function, not signal.emit: psygnal calls a connected emit once
-                # as it connects it.
-                beam.live_frame.connect(lambda image, signal=signal: signal.emit(image))
-                self._live_forwarded.add(beam_type)
-            beam.start_live()
+        if beam is None or beam not in self._live_beams():
+            logging.warning(f"The {beam_type.name} beam has no live view here.")
             return
-
-        # reset stop event if needed
-        self._stop_acquisition_event.clear()
-
-        # start acquisition thread
-        self._acquisition_thread = threading.Thread(
-            target=self._acquisition_worker, args=(beam_type,), daemon=True
-        )
-        self._acquisition_thread.start()
+        if beam_type not in self._live_forwarded:
+            signal = (
+                self.sem_acquisition_signal
+                if beam_type is BeamType.ELECTRON
+                else self.fib_acquisition_signal
+            )
+            # A function, not signal.emit: psygnal calls a connected emit once
+            # as it connects it.
+            beam.live_frame.connect(lambda image, signal=signal: signal.emit(image))
+            self._live_forwarded.add(beam_type)
+        beam.start_live()
 
     def stop_acquisition(self) -> None:
         """Stop the image acquisition process."""
         for beam in self._live_beams():
             beam.stop_live()
-        if self._stop_acquisition_event and not self._stop_acquisition_event.is_set():
-            self._stop_acquisition_event.set()
-            if self._acquisition_thread:
-                self._acquisition_thread.join(timeout=2)
-            # Disconnect signal handler
-            # self.sem_acquisition_signal.disconnect()
-            # self.fib_acquisition_signal.disconnect()
-
-    def _acquisition_worker(self, beam_type: BeamType) -> None:
-        """The worker function for the acquisition thread.
-        Acquires images from the microscope, and emits them as signals."""
-        pass
 
     def acquire_chamber_image(self) -> FibsemImage:
         raise self._unsupported("acquire_chamber_image")
@@ -514,10 +490,9 @@ class FibsemMicroscope(ABC):
             FibsemStagePosition: The current stage position.
         """
 
-        if self.stage is not None:
-            stage_position = self.stage.position.get_value()
-        else:
-            stage_position = self._get("stage_position")
+        if self.stage is None:
+            raise self._unsupported("get_stage_position")
+        stage_position = self.stage.position.get_value()
 
         if not isinstance(stage_position, FibsemStagePosition):
             raise TypeError(f"Expected FibsemStagePosition, got {type(stage_position)}")
@@ -841,7 +816,7 @@ class FibsemMicroscope(ABC):
 
         # A linked stage's z moves the working distance with it, so put it back. An
         # unlinked stage (a compustage never links) leaves it where it was.
-        if self._stage_value("linked", "stage_linked"):
+        if self._stage_value("linked"):
             self.set_working_distance(wd, BeamType.ELECTRON)
 
         # logging
@@ -1310,19 +1285,20 @@ class FibsemMicroscope(ABC):
 
         return
 
-    def get_manipulator_state(self) -> bool:
-        """Get the manipulator state (Inserted = True, Retracted = False)"""
+    def get_manipulator_state(self) -> Optional[bool]:
+        """Get the manipulator state (Inserted = True, Retracted = False), or None
+        when there is no manipulator."""
         # TODO: convert to enum
-        if self.manipulator_device is not None:
-            state = self.manipulator_device.state.get_value()
-            return state is InsertableDeviceState.INSERTED
-        return self._get("manipulator_state")
+        if self.manipulator_device is None:
+            return None
+        state = self.manipulator_device.state.get_value()
+        return state is InsertableDeviceState.INSERTED
 
-    def get_manipulator_position(self) -> FibsemManipulatorPosition:
-        """Get the manipulator position."""
-        if self.manipulator_device is not None:
-            return self.manipulator_device.position.get_value()
-        return self._get("manipulator_position")
+    def get_manipulator_position(self) -> Optional[FibsemManipulatorPosition]:
+        """Get the manipulator position, or None when there is no manipulator."""
+        if self.manipulator_device is None:
+            return None
+        return self.manipulator_device.position.get_value()
 
     # Every manipulator move returns where the needle is afterwards, as the
     # Manipulator device's commands do. The raw moves go through the device when the
@@ -1617,19 +1593,14 @@ class FibsemMicroscope(ABC):
 
         A beam key's values are its beam parameter's choices (the device's metadata,
         read when the beam was built and again when a dependency changes, e.g. the
-        ion currents when the plasma gas does). A key with no device home, or a beam
-        parameter with no choices (the detector modes), is the backend's
-        ``_get_available_values``.
+        ion currents when the plasma gas does, or the detector modes when the
+        detector type does). Any other key, or a beam parameter the beam does not
+        have, has none: the milling keys' choices are the milling service's
+        (``supported_settings``, ``supported_pattern_settings``).
         """
         param = self._beam_parameter(key, beam_type) if key in BEAM_ROUTES else None
         if param is not None and param.choices is not None:
             return list(param.choices)
-        return self._get_available_values(key, beam_type)
-
-    def _get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[Union[str, float, int]]:
-        """The values of a key the devices don't answer: none, unless a backend says."""
         return []
 
     def get_available_values_cached(
@@ -2420,39 +2391,39 @@ class FibsemMicroscope(ABC):
             {"msg": "apply_configuration", "system_settings": system_settings.to_dict()}
         )
 
-    def _stage_value(self, name: str, key: str) -> Any:
-        """The stage device's parameter `name`, or the backend's `_get` of the old
-        `key` where the backend builds no stage or the stage has no such parameter."""
+    def _stage_value(self, name: str) -> Any:
+        """The stage device's parameter `name`, or None where there is no stage or
+        the stage has no such parameter (a compustage is never linked)."""
         param = None if self.stage is None else self.stage.parameters.get(name)
-        return self._get(key) if param is None else param.get_value()
+        return None if param is None else param.get_value()
 
-    def home(self) -> bool:
-        """Home the stage."""
+    def home(self) -> Optional[bool]:
+        """Home the stage. A stage that cannot home is left alone; returns whether
+        it is homed (None when it cannot say)."""
         if self.stage is not None and self.stage.commands["home"].available:
             return self.stage.home()
-        self._set("stage_home", True)
-        return self._stage_value("homed", "stage_homed")
+        return self._stage_value("homed")
 
-    def link_stage(self) -> bool:
-        """Link the stage to the working distance"""
+    def link_stage(self) -> Optional[bool]:
+        """Link the stage to the working distance. A stage that cannot link is left
+        alone; returns whether it is linked (None when it cannot say)."""
         if self.stage is not None and self.stage.commands["link"].available:
             return self.stage.link()
-        self._set("stage_link", True)
-        return self._stage_value("linked", "stage_linked")
+        return self._stage_value("linked")
 
-    def pump(self) -> str:
-        """ "Pump the chamber."""
-        if self.chamber_device is not None:
-            return _chamber_state_name(self.chamber_device.pump())
-        self._set("pump_chamber", True)
-        return self._get("chamber_state")
+    def pump(self) -> Optional[str]:
+        """Pump the chamber; returns its state, or None where there is no chamber."""
+        if self.chamber_device is None:
+            logging.debug("There is no chamber to pump here.")
+            return None
+        return _chamber_state_name(self.chamber_device.pump())
 
-    def vent(self) -> str:
-        """Vent the chamber."""
-        if self.chamber_device is not None:
-            return _chamber_state_name(self.chamber_device.vent())
-        self._set("vent_chamber", True)
-        return self._get("chamber_state")
+    def vent(self) -> Optional[str]:
+        """Vent the chamber; returns its state, or None where there is no chamber."""
+        if self.chamber_device is None:
+            logging.debug("There is no chamber to vent here.")
+            return None
+        return _chamber_state_name(self.chamber_device.vent())
 
     def _beam_parameter(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
         """The beam device's parameter for an old beam key, or None when the backend
@@ -2460,22 +2431,31 @@ class FibsemMicroscope(ABC):
         beam = self.beams.get(beam_type)
         return None if beam is None else beam.parameters.get(BEAM_ROUTES[key])
 
+    def _beam_device(self, beam_type: BeamType) -> Any:
+        """The beam device for ``beam_type``; a column disabled in the config has none."""
+        device = self.beams.get(beam_type)
+        if device is None:
+            raise ValueError(f"The {beam_type.name} beam is not enabled.")
+        return device
+
     def _read_beam(self, key: str, beam_type: BeamType) -> Any:
         """A beam wrapper's read: the beam device's parameter, as the old key returns
-        it, or the backend's `_get` where there is no parameter."""
+        it, or None where there is no such beam or parameter (absent = unsupported)."""
         param = self._beam_parameter(key, beam_type)
         if param is None:
-            return self._get(key, beam_type)
+            self._no_key(key, beam_type)
+            return None
         return _old_key_value(key, param.get_value())
 
     def _write_beam(self, key: str, value: Any, beam_type: BeamType) -> None:
         """A beam wrapper's write: to the beam device's parameter, as the old key
-        wrote it (no validation), or the backend's `_set` where there is none."""
+        wrote it (no validation), or nothing where there is no such beam or
+        parameter (absent = unsupported)."""
         param = self._beam_parameter(key, beam_type)
         if param is None:
-            self._set(key, value, beam_type)
-        else:
-            param.write_through(value)
+            self._no_key(key, beam_type)
+            return
+        param.write_through(value)
 
     def turn_on(self, beam_type: BeamType) -> bool:
         """Turn on the specified beam type."""
@@ -2517,8 +2497,8 @@ class FibsemMicroscope(ABC):
     def _scan_beam(self, beam_type: BeamType) -> Optional[Any]:
         """The beam device whose scan commands the scan-mode methods use, if any.
 
-        Without one, the methods set today's keys (spot_mode, reduced_area,
-        full_frame) through the backend's chain.
+        Without one (no such beam, or a beam with no scan modes, as on TESCAN) the
+        scan-mode methods do nothing.
         """
         beam = self.beams.get(beam_type)
         if beam is None or not beam.commands["spot"].available:
@@ -2528,31 +2508,28 @@ class FibsemMicroscope(ABC):
     def set_spot_scanning_mode(self, point: Point, beam_type: BeamType) -> None:
         """Set the spot scanning mode for the specified beam type."""
         beam = self._scan_beam(beam_type)
-        if beam is not None:
-            beam.spot(point)
+        if beam is None:
+            logging.debug(f"No spot scan mode here ({beam_type}).")
             return
-        self._set("spot_mode", point, beam_type)
-        return
+        beam.spot(point)
 
     def set_reduced_area_scanning_mode(
         self, reduced_area: FibsemRectangle, beam_type: BeamType
     ) -> None:
         """Set the reduced area scanning mode for the specified beam type."""
         beam = self._scan_beam(beam_type)
-        if beam is not None:
-            beam.reduced_area(reduced_area)
+        if beam is None:
+            logging.debug(f"No reduced area scan mode here ({beam_type}).")
             return
-        self._set("reduced_area", reduced_area, beam_type)
-        return
+        beam.reduced_area(reduced_area)
 
     def set_full_frame_scanning_mode(self, beam_type: BeamType) -> None:
         """Set the full frame scanning mode for the specified beam type."""
         beam = self._scan_beam(beam_type)
-        if beam is not None:
-            beam.full_frame()
+        if beam is None:
+            logging.debug(f"No full frame scan mode here ({beam_type}).")
             return
-        self._set("full_frame", None, beam_type)
-        return
+        beam.full_frame()
 
     def run_spot_burn(
         self,
@@ -3193,32 +3170,26 @@ class FibsemMicroscope(ABC):
     def _stage_turned_over(self, tilt: float) -> bool:
         """Whether the stage has the sample turned over at this tilt, in radians.
 
-        The stage device says (FIB-1124); a backend without one gets its default.
+        The stage device says (FIB-1124); with no stage, nothing is turned over.
         """
-        if self.stage_device is not None:
-            return self.stage_device.turned_over(tilt)
-        from fibsem.devices.stage import tilted_past_vertical
-
-        return tilted_past_vertical(tilt)
+        if self.stage_device is None:
+            return False
+        return self.stage_device.turned_over(tilt)
 
     def _stage_poses(self) -> Dict[str, FibsemStagePosition]:
         """The stage's pose for each orientation name, from the configured geometry.
 
-        The stage device declares them (FIB-1101). A microscope built without one gets
-        a rotating stage's poses, rotating if the configuration says the stage has an r
-        axis; a compustage always has a stage device to declare its own.
+        The stage device declares them (FIB-1101). With no stage there are none.
         """
-        from fibsem.devices.stage import rotating_stage_poses
-
+        if self.stage_device is None:
+            return {}
         stage_settings = self.system.stage
         geometry = dict(
             rotation_reference=stage_settings.rotation_reference,
             shuttle_pre_tilt=stage_settings.shuttle_pre_tilt,
             fib_column_tilt=self.system.ion.column_tilt,
         )
-        if self.stage_device is not None:
-            return self.stage_device.poses(**geometry)
-        return rotating_stage_poses(**geometry, rotates=stage_settings.rotation)
+        return self.stage_device.poses(**geometry)
 
     def _fm_is_a_pose(self) -> bool:
         """Does the stage reach the FM by re-posing rather than by travelling?
@@ -3233,6 +3204,10 @@ class FibsemMicroscope(ABC):
 
     def _update_orientations(self) -> None:
         """Update the stage orientations based on the current system settings."""
+        # With no stage there is nothing to orient.
+        if self.stage_device is None:
+            self.orientations = {}
+            return
 
         milling_angle = self.system.stage.milling_angle  # deg
 

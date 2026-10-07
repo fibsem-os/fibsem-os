@@ -188,8 +188,7 @@ def _live(microscope, beam_type, frames=4):
     imaging idle, then a grab)."""
     object.__setattr__(microscope.connection.imaging, "_acquiring", 2)
     seen, done = [], threading.Event()
-    beam = microscope.beams.get(beam_type)
-    stop = microscope._stop_acquisition_event if beam is None else beam._live_stop
+    stop = microscope.beams[beam_type]._live_stop
 
     def on_frame(image):
         seen.append([list(image.data.shape), str(image.data.dtype)])
@@ -207,10 +206,7 @@ def _live(microscope, beam_type, frames=4):
     def call():
         microscope.start_acquisition(beam_type)
         assert done.wait(10), "live view never reached its frames"
-        threads = [microscope._acquisition_thread] + [
-            b._live_thread for b in microscope.beams.values()
-        ]
-        for thread in threads:
+        for thread in [b._live_thread for b in microscope.beams.values()]:
             if thread is not None:
                 thread.join(10)
         return [seen, bool(microscope.is_acquiring)]
@@ -290,7 +286,6 @@ def facts():
     live["ion"] = microscope.beams[BeamType.ION].is_live
     microscope.stop_acquisition()
     live["stopped"] = [sem.is_live, bool(microscope.is_acquiring)]
-    live["thread"] = microscope._acquisition_thread is None
     out["live"] = live
 
     # the new API refuses settings for the other beam

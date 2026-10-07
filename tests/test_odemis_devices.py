@@ -446,7 +446,7 @@ CHANGED.update(
         key: {**EXPECTED[key], "calls": []}
         for key in (
             f"available {k} {n}"
-            for k in ("current", "voltage", "detector_type")
+            for k in ("current", "voltage", "detector_type", "detector_mode")
             for n in ("ELECTRON", "ION")
         )
     }
@@ -474,12 +474,30 @@ def test_every_case_was_recorded():
     assert sorted(key for key, _ in CASES) == sorted(EXPECTED)
 
 
+# A write of the detector type reads the type's modes again (the mode's choices
+# depend on it), as does a read that finds the type changed.
+_MODE_READS = ("detector_mode_info",)
+MODES_READ_AGAIN = tuple(
+    key
+    for key, _ in CASES
+    if key.startswith(("set detector_type", "set detector settings"))
+)
+
+
+def _without_mode_reads(calls):
+    return [call for call in calls if call[0] not in _MODE_READS]
+
+
 @pytest.mark.parametrize("key,call", SAME, ids=[key for key, _ in SAME])
 def test_the_devices_make_the_same_odemis_calls_logs_and_results(odemis_cls, key, call):
     new = run(make(odemis_cls), call)
     READS["get_chamber_state"] = "vacuum"
     old = EXPECTED[key]
     calls = old["calls"][:1] + EXTRA_READS.get(key, []) + old["calls"][1:]
+    if key in MODES_READ_AGAIN:
+        assert any(call[0] in _MODE_READS for call in new["calls"]), key
+        new["calls"] = _without_mode_reads(new["calls"])
+        calls = _without_mode_reads(calls)
     assert new == {**old, "calls": calls}
 
 

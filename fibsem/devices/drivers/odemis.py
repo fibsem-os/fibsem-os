@@ -213,7 +213,6 @@ class OdemisBeam(Beam):
     def metadata_detector_type(self) -> ParameterMetadata:
         return ParameterMetadata(choices=list(self._detector_choices("type")))
 
-    # No choices for the mode: they are the detector type's, which can change.
     def read_detector_mode(self) -> str:
         return self._client.get_detector_mode(self.channel)
 
@@ -223,6 +222,10 @@ class OdemisBeam(Beam):
             logging.info(f"Detector mode set to {value}.")
         else:
             logging.warning(f"Detector mode {value} not available.")
+
+    def metadata_detector_mode(self) -> ParameterMetadata:
+        # the detector type's modes, read again when the type changes
+        return ParameterMetadata(choices=list(self._detector_choices("mode")))
 
     def read_detector_brightness(self) -> float:
         return self._client.get_brightness(self.channel)

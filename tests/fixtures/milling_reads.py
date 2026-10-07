@@ -37,3 +37,26 @@ def fields_setup_reads(milling, settings: FibsemMillingSettings) -> Set[str]:
     quiet.pop()
     milling.setup(recording)
     return read
+
+
+def own_milling_code(microscope):
+    """*microscope*, milling with its backend's own code (``ThermoMilling``,
+    ``TescanDrawBeam``, ``OdemisPatterning``): the code its milling service drives,
+    which it milled with before the service. The parity tests hold the service to it.
+
+    ``ServiceMilling`` raises without a service now, rather than falling through to
+    that code, so the microscope's class becomes a subclass whose milling methods
+    are the ones after ``ServiceMilling`` in its order.
+    """
+    from fibsem.services.milling import ServiceMilling
+
+    cls = type(microscope)
+    after = cls.__mro__[cls.__mro__.index(ServiceMilling) + 1 :]
+    own = {}
+    for name, value in vars(ServiceMilling).items():
+        if not callable(value) or name.startswith("__") or name == "_milling_service":
+            continue
+        own[name] = next(vars(base)[name] for base in after if name in vars(base))
+    microscope.__class__ = type(f"Own{cls.__name__}", (cls,), own)
+    microscope.milling = None
+    return microscope

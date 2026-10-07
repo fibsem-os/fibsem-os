@@ -17,6 +17,7 @@ from fibsem.devices import (
     Beam,
     Device,
     Parameter,
+    ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
     Resources,
@@ -180,6 +181,42 @@ def test_dependent_metadata_is_refreshed_and_announced():
     assert metadatas == [fib.current.metadata]
     with pytest.raises(ValueError):
         fib.plasma_gas.set_value("Helium")
+
+
+def test_a_dependency_changed_outside_refreshes_the_dependent_metadata():
+    """A read (or report) that finds a dependency changed behind the device, in the
+    vendor UI, reads the dependent's metadata again, as a write does. A read that
+    finds it unchanged reads nothing more."""
+    kind = {"value": "ETD"}
+    modes = {"ETD": ["SE", "BSE"], "ICE": ["SE"]}
+    metadata_reads = []
+
+    class Detector(Device):
+        kind = Parameter(str)
+        mode = Parameter(str, depends_on=("kind",))
+
+    def mode_metadata():
+        metadata_reads.append(kind["value"])
+        return ParameterMetadata(choices=modes[kind["value"]])
+
+    det = Detector("detector")
+    det.bind("kind", read=lambda: kind["value"])
+    det.bind("mode", read=lambda: "SE", metadata=mode_metadata)
+    det.kind.get_value()
+    assert det.mode.choices == ["SE", "BSE"]
+    metadata_reads.clear()
+
+    det.kind.get_value()
+    assert metadata_reads == []  # unchanged: nothing read again
+
+    kind["value"] = "ICE"  # changed behind the device
+    det.kind.get_value()
+    assert det.mode.choices == ["SE"]
+    assert metadata_reads == ["ICE"]
+
+    kind["value"] = "ETD"
+    det.kind.report("ETD")
+    assert det.mode.choices == ["SE", "BSE"]
 
 
 def test_needs_channel_claims_the_resource_and_selects_the_channel():

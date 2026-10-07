@@ -253,7 +253,6 @@ def test_live_view_runs_on_the_beam_and_reaches_the_old_signal(connected, beam_t
     try:
         microscope.start_acquisition(beam_type)
         assert beam.is_live and microscope.is_acquiring
-        assert microscope._acquisition_thread is None  # the beam's, not the old
         assert done.wait(10)
     finally:
         microscope.stop_acquisition()
