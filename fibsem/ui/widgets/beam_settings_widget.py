@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
 from superqt.utils import qdebounced
 
 from fibsem import config as cfg
-from fibsem import constants, manufacturers, utils
+from fibsem import constants, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Point
 from fibsem.ui import notification_service
@@ -565,9 +565,8 @@ class FibsemBeamSettingsWidget(QWidget):
         self._update_visibility()
 
     def _beam_device(self):
-        """This beam's device, or None on a backend without beam devices."""
-        beams = getattr(self.microscope, "beams", None) or {}
-        return beams.get(self.beam_type)
+        """This beam's device, or None when the microscope has no such beam."""
+        return self.microscope.beams.get(self.beam_type)
 
     def _beam_parameter(self, name: str):
         """The beam device's parameter, or None when the beam does not have it."""
@@ -587,16 +586,12 @@ class FibsemBeamSettingsWidget(QWidget):
         """Apply visibility from the beam device's parameters and advanced mode.
 
         A control is hidden when the beam has no such parameter, and shown read-only
-        when the beam reports it not settable. A backend without beam devices keeps
-        the manufacturer rules."""
+        when the beam reports it not settable. A beam the microscope has not got (a
+        disabled column) has none of them."""
         adv = self._advanced_visible
 
         for w in self._adv_widgets:
             w.setVisible(adv)
-
-        if self._beam_device() is None:
-            self._update_visibility_by_manufacturer()
-            return
 
         def apply(name, widgets, advanced=False):
             parameter = self._beam_parameter(name)
@@ -625,44 +620,6 @@ class FibsemBeamSettingsWidget(QWidget):
         )
         self.working_distance_spinbox.setToolTip(
             "" if wd is None or wd.settable else "Not settable on this beam"
-        )
-
-    def _update_visibility_by_manufacturer(self):
-        """The rules for a backend without beam devices."""
-        is_tescan = manufacturers.is_tescan(self.microscope.manufacturer)
-        adv = self._advanced_visible
-
-        # Stigmation: also hidden for TESCAN
-        for w in [self.stigmation_label, self.stigmation_row]:
-            w.setVisible(adv and not is_tescan)
-            w.setEnabled(not is_tescan)
-
-        # Beam voltage: also hidden for TESCAN
-        for w in [self.beam_voltage_label, self.beam_voltage_combo]:
-            w.setVisible(adv and not is_tescan)
-
-        # Beam current: always visible, hidden for TESCAN
-        for w in [self.beam_current_label, self.beam_current_combo]:
-            w.setVisible(not is_tescan)
-
-        # Preset: TESCAN ION only, and only when presets exist. Enumerability is not
-        # settability: the simulator's SEM enumerates presets but activating one raises
-        # PresetNotFound, and the hardware session found SEM presets cannot be set --
-        # so the SEM never shows the control, regardless of what Enum() returns. An
-        # empty FIB combo also hides (it reads as a control the user failed to set).
-        has_presets = self.preset_combo.count() > 0
-        show_preset = is_tescan and self.beam_type is BeamType.ION and has_presets
-        for w in [self.preset_label, self.preset_combo]:
-            w.setVisible(show_preset)
-
-        # Working distance: not settable on the TESCAN FIB -- _set("working_distance")
-        # is a no-op there -- so show it read-only rather than as a live control.
-        wd_settable = not (is_tescan and self.beam_type is BeamType.ION)
-        self.working_distance_spinbox.setEnabled(wd_settable)
-        self.working_distance_spinbox.setToolTip(
-            ""
-            if wd_settable
-            else "Not settable on the TESCAN FIB (use the TESCAN autofocus)"
         )
 
     @staticmethod

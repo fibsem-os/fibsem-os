@@ -239,21 +239,13 @@ def test_the_rotation_range_is_the_stage_devices(flat_widget):
     assert flat_widget.spinbox_rotation.maximum() == pytest.approx(np.degrees(r.max))
 
 
-@pytest.mark.parametrize(
-    "configuration, rotates",
-    [(FLAT_STAGE, True), (COMPUSTAGE, False)],
-    ids=["flat-stage", "compustage"],
-)
-def test_without_a_stage_device_the_stage_limits_decide(
-    qapp, monkeypatch, configuration, rotates
-):
-    microscope = _microscope(configuration)
+def test_without_a_stage_device_no_axis_shows(qapp, monkeypatch):
+    microscope = _microscope(FLAT_STAGE)
     monkeypatch.setattr(microscope, "stage", None)
     form = StagePositionWidget(microscope=microscope)
-    tilt = microscope._stage.limits["t"]
-    assert form.spinbox_rotation.isVisibleTo(form) is rotates
-    assert form.spinbox_tilt.minimum() == pytest.approx(tilt.min)
-    assert form.spinbox_tilt.maximum() == pytest.approx(tilt.max)
+    for axis, spinbox in form._spinboxes().items():
+        assert not spinbox.isVisibleTo(form), axis
+        assert not form._labels()[axis].isVisibleTo(form), axis
     form.deleteLater()
 
 

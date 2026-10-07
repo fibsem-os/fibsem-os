@@ -54,7 +54,8 @@ def test_the_milling_service_says_which_fields_show(qapp, microscope):
     assert items == list(supported["application_file"].choices)
 
 
-def test_without_a_milling_service_every_field_shows(qapp, microscope, monkeypatch):
+def test_without_a_milling_service_no_field_shows(qapp, microscope, monkeypatch):
+    # no ion beam, so nothing mills
     monkeypatch.setattr(microscope, "milling", None)
     widget = _widget(microscope)
-    assert _shown(widget) == {row.field for row in widget._rows}
+    assert _shown(widget) == set()

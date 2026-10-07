@@ -2,8 +2,8 @@
 
 A control is hidden when the beam has no such parameter, shown read-only when the beam
 reports it not settable, and a read-only combo lists only the value the beam reads. A
-backend without beam devices keeps the manufacturer rules. Tescan runs over the fake
-SDK (``tests/fixtures/tescan_sdk.py``), connected with and without its beam devices.
+beam the microscope has not got shows none of them. Tescan runs over the fake SDK
+(``tests/fixtures/tescan_sdk.py``), connected with and without its beam devices.
 """
 
 from __future__ import annotations
@@ -120,18 +120,14 @@ def test_advanced_controls_hide_outside_advanced_mode(monkeypatch):
 
 
 @pytest.mark.parametrize("beam_type", [E, I])
-def test_tescan_without_beam_devices_keeps_the_manufacturer_rules(
-    monkeypatch, beam_type
-):
-    # An enabled Tescan column always has its device, and the old get/set branches
-    # that read one without it are gone (FIB-1161), so the widget alone is shown none.
-    monkeypatch.setattr(FibsemBeamSettingsWidget, "_beam_device", lambda self: None)
-    assert _state(_widget(_tescan(monkeypatch), beam_type)) == {
+def test_a_beam_without_a_device_shows_no_controls(monkeypatch, beam_type):
+    # A disabled column (a single-beam system) has no device: nothing to set.
+    assert _state(_widget(_tescan(monkeypatch, devices=False), beam_type)) == {
         "current": "hidden",
         "voltage": "hidden",
         "stigmation": "hidden",
-        "preset": "settable" if beam_type is I else "hidden",
-        "working_distance": "settable" if beam_type is E else "read-only",
+        "preset": "hidden",
+        "working_distance": "hidden",
     }
 
 
