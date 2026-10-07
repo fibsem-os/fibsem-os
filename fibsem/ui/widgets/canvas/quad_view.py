@@ -18,16 +18,18 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QComboBox,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QSplitter,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from fibsem import constants
+from fibsem.imaging.export import image_fields, z_value
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.stylesheets import (
     CANVAS_BG as _BG,
@@ -39,7 +41,13 @@ from fibsem.ui.stylesheets import (
     PRIMARY_ACCENT as _SELECT_ACCENT,
 )
 from fibsem.ui.tokens import (
+    ACCENT_COLOR,
+    BORDER_COLOR,
     CANVAS_BG,
+    PANEL_COLOR,
+    ROW_ALT_COLOR,
+    TEXT_COLOR,
+    TEXT_STRONG_COLOR,
 )
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
@@ -53,6 +61,7 @@ from fibsem.ui.widgets.canvas.canvas_state import (
 from fibsem.ui.widgets.canvas.chamber_view import ChamberView
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -61,33 +70,59 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
-_TITLE_STYLE = (
-    f"color: #888; font-size: 11px; padding: 2px 6px; background: {CANVAS_BG};"
+# The fourth cell's selectors, popup included. On macOS a combo box opens a native
+# menu -- white frame, a checkmark column that clips the text, no dark palette --
+# unless `combobox-popup: 0` asks for a plain list, which the item-view rule styles.
+CELL_SELECTOR_STYLE = f"""
+QComboBox {{ background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 2px 6px;
+    combobox-popup: 0; }}
+QComboBox QAbstractItemView {{ background: {PANEL_COLOR}; color: {TEXT_COLOR};
+    border: 1px solid {BORDER_COLOR}; selection-background-color: {ACCENT_COLOR};
+    outline: none; }}
+"""
+
+# The page cycler: a label between two flat arrows. It starts the cell's bar, so the
+# label is bold as the other bars' view names are.
+_CYCLE_BUTTON_STYLE = (
+    "QToolButton { background: transparent; color: #888; border: none;"
+    " font-size: 14px; padding: 0 4px; }"
+    f"QToolButton:hover {{ color: {TEXT_COLOR}; }}"
+    "QToolButton:disabled { color: #444; }"
+)
+_CYCLE_LABEL_STYLE = (
+    f"color: {TEXT_STRONG_COLOR}; font-size: 12px; font-weight: 700;"
+    " background: transparent;"
 )
 # Selected-view border: the primary accent (matches PRIMARY_BUTTON_STYLESHEET), kept subtle.
 # A transparent border of the same width is always present so selection causes no layout shift,
-# and it's scoped via the #viewPanel object name so it never cascades onto the title / canvas.
+# and it's scoped via the #viewPanel object name so it never cascades onto the bar / canvas.
 _PANEL_QSS = "#viewPanel {{ background: {bg}; border: 2px solid {border}; }}"
 # Live-acquisition border: green, and it takes priority over the blue selected border so a
 # live view is obvious even when you've clicked away to another cell.
 _LIVE_ACCENT = GREEN_COLOR
 
 
-def _titled(title: str, inner: QWidget, header: Optional[QWidget] = None) -> QFrame:
-    """Wrap *inner* in a selectable panel frame with a small title label above it, or
-    with *header* in the title's place."""
+def _panel(inner: QWidget, bar: Optional[ViewInfoBar] = None) -> QFrame:
+    """Wrap *inner* in a selectable panel frame, with *bar* under it.
+
+    The bar names the view and says what its image is, so the panel has no title row
+    above (FIB-1186). Under the whole of *inner*: on FM that is below the z row, so every
+    bar sits on its panel's bottom edge and a row of views lines up.
+    """
     frame = QFrame()
     frame.setObjectName("viewPanel")
     frame.setAttribute(Qt.WA_StyledBackground, True)
     frame.setStyleSheet(_PANEL_QSS.format(bg=_BG, border="transparent"))
-    if header is None:
-        header = QLabel(title, alignment=Qt.AlignLeft)
-        header.setStyleSheet(_TITLE_STYLE)
     lay = QVBoxLayout(frame)
     lay.setContentsMargins(0, 0, 0, 0)
     lay.setSpacing(0)
-    lay.addWidget(header)
-    lay.addWidget(inner)
+    # All the stretch to the content: a bar or header sharing it drifts away from
+    # the cell's edge when the content has nothing that wants to grow, such as a
+    # page's empty message.
+    lay.addWidget(inner, 1)
+    if bar is not None:
+        lay.addWidget(bar)
     return frame
 
 
@@ -104,33 +139,74 @@ class PageCell(QWidget):
     """The 4th quad-view cell: pages of non-canvas content, one shown at a time.
 
     The other three cells are fixed (SEM, FIB, FM). This one holds whatever is useful
-    beside them, and the operator picks which from the selector in its title row --
-    the same arrangement as a multi-viewport tool, where the spare pane is a slot
-    rather than a fixed thing. Pages are added by key; the selector is the cell's
-    header, so it sits where the other cells have their title.
+    beside them, and the operator picks which from :attr:`cycler` -- the same
+    arrangement as a multi-viewport tool, where the spare pane is a slot rather than a
+    fixed thing. Pages are added by key. The cycler starts the cell's bar, where the
+    other cells have their view's name (FIB-1186).
+
+    A page with controls of its own (which grid, which view) hands them over as its
+    header, shown in :attr:`header` above the page and switching with it. A page
+    without them has no row there, so the chamber drawing keeps the cell's height.
+
+    The cycler is ``‹ Chamber ›``, not a drop-down: there are a few pages, one click
+    steps to the next, and it wraps round. The label is as wide as the longest page
+    name, so the arrows don't move as the name changes.
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.selector = QComboBox()
-        self.selector.setStyleSheet("font-size: 11px;")
-        self.selector.currentIndexChanged.connect(self._on_selector_changed)
+        self.btn_previous = self._cycle_button("‹", "Previous page", -1)
+        self.btn_next = self._cycle_button("›", "Next page", 1)
+        self.label = QLabel()
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setStyleSheet(_CYCLE_LABEL_STYLE)
         self._stack = QStackedWidget()
         self._keys: List[str] = []
+        self._labels: List[str] = []
+        self._has_header: List[bool] = []
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self._stack)
 
+        self._headers = QStackedWidget()
         self.header = QWidget()
         self.header.setStyleSheet(f"background: {CANVAS_BG};")
-        header_lay = QVBoxLayout(self.header)
+        header_lay = QHBoxLayout(self.header)
         header_lay.setContentsMargins(4, 2, 4, 2)
-        header_lay.addWidget(self.selector, 0, Qt.AlignLeft)
+        header_lay.setSpacing(6)
+        header_lay.addWidget(self._headers, 1)
 
-    def add_page(self, key: str, label: str, widget: QWidget) -> None:
+        self.cycler = QWidget()
+        # Clear over the bar: the app stylesheet gives a bare widget a background.
+        self.cycler.setStyleSheet("background: transparent;")
+        cycler = QHBoxLayout(self.cycler)
+        cycler.setContentsMargins(0, 0, 0, 0)
+        cycler.setSpacing(0)
+        cycler.addWidget(self.btn_previous)
+        cycler.addWidget(self.label)
+        cycler.addWidget(self.btn_next)
+        self._update_cycler()
+
+    def _cycle_button(self, text: str, tooltip: str, step: int) -> QToolButton:
+        button = QToolButton()
+        button.setText(text)
+        button.setToolTip(tooltip)
+        button.setAutoRaise(True)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setStyleSheet(_CYCLE_BUTTON_STYLE)
+        button.clicked.connect(lambda: self.step(step))
+        return button
+
+    def add_page(
+        self, key: str, label: str, widget: QWidget, header: Optional[QWidget] = None
+    ) -> None:
+        """Add a page; *header* is its own controls, shown above it."""
         self._keys.append(key)
+        self._labels.append(label)
+        self._has_header.append(header is not None)
         self._stack.addWidget(widget)
-        self.selector.addItem(label, key)
+        self._headers.addWidget(header if header is not None else QWidget())
+        self._update_cycler()
 
     @property
     def page(self) -> Optional[str]:
@@ -140,15 +216,39 @@ class PageCell(QWidget):
 
     def set_page(self, key: str) -> None:
         if key in self._keys:
-            self.selector.setCurrentIndex(self._keys.index(key))
+            self._show(self._keys.index(key))
 
-    def _on_selector_changed(self, index: int) -> None:
-        if 0 <= index < len(self._keys):
-            self._stack.setCurrentIndex(index)
+    def step(self, step: int) -> None:
+        """Show the next (+1) or previous (-1) page, wrapping round."""
+        if self._keys:
+            self._show((self._stack.currentIndex() + step) % len(self._keys))
+
+    def _show(self, index: int) -> None:
+        self._stack.setCurrentIndex(index)
+        self._headers.setCurrentIndex(index)
+        self._update_cycler()
+
+    def _update_cycler(self) -> None:
+        index = self._stack.currentIndex()
+        self.label.setText(
+            self._labels[index] if 0 <= index < len(self._labels) else ""
+        )
+        metrics = self.label.fontMetrics()
+        self.label.setFixedWidth(
+            max((metrics.horizontalAdvance(text) for text in self._labels), default=0)
+            + 8
+        )
+        several = len(self._keys) > 1
+        self.btn_previous.setEnabled(several)
+        self.btn_next.setEnabled(several)
+        self.header.setVisible(
+            0 <= index < len(self._has_header) and self._has_header[index]
+        )
 
 
 class QuadViewWidget(QWidget):
-    """2x2 grid: SEM | FIB over FM | a cell of pages, each a titled panel.
+    """2x2 grid: SEM | FIB over FM | a cell of pages. SEM, FIB and FM are selectable
+    panels, each with a bar under it.
 
     The SEM/FIB cells are :class:`FibsemImageCanvas` instances (so they inherit
     the reset / scalebar / crosshair / contrast toolbar); the FM cell is an
@@ -175,11 +275,20 @@ class QuadViewWidget(QWidget):
         self.chamber_view = ChamberView()
         self.page_cell = PageCell()
         self.page_cell.add_page("chamber", "Chamber", self.chamber_view)
+        # The cell's, not a page's: the stage readout stays whichever page is on show.
+        self.stage_bar = ViewInfoBar(
+            "Stage", title=self.page_cell.cycler, choosable=False
+        )
+        self.sem_bar = ViewInfoBar("SEM")
+        self.fib_bar = ViewInfoBar("FIB")
+        self.fm_bar = ViewInfoBar("FM")
 
-        sem_panel = _titled("SEM", self.sem_canvas)
-        fm_panel = _titled("FM", self.fm_widget)
-        fib_panel = _titled("FIB", self.fib_canvas)
-        page_panel = _titled("", self.page_cell, header=self.page_cell.header)
+        sem_panel = _panel(self.sem_canvas, self.sem_bar)
+        fm_panel = _panel(self.fm_widget, self.fm_bar)
+        fib_panel = _panel(self.fib_canvas, self.fib_bar)
+        page_panel = _panel(self.page_cell, self.stage_bar)
+        # A page's own controls, when it has any, in a row above it.
+        page_panel.layout().insertWidget(0, self.page_cell.header)
 
         left = _splitter(Qt.Vertical, sem_panel, fm_panel)
         right = _splitter(Qt.Vertical, fib_panel, page_panel)
@@ -205,6 +314,11 @@ class QuadViewWidget(QWidget):
         self._saved_sizes: dict = {}
 
         # ── selected-view state ───────────────────────────────────────────
+        self._bars: Dict[object, ViewInfoBar] = {
+            BeamType.ELECTRON: self.sem_bar,
+            BeamType.ION: self.fib_bar,
+            "fm": self.fm_bar,
+        }
         self._panels: Dict[object, QFrame] = {
             BeamType.ELECTRON: sem_panel,
             BeamType.ION: fib_panel,
@@ -241,6 +355,10 @@ class QuadViewWidget(QWidget):
         self._refresh_borders()
         for canvas, k in self._canvas_keys.items():
             canvas.set_toolbar_visible(k == key)
+        # The bars' field buttons follow the toolbars: controls on the selected view
+        # only, so three idle buttons do not compete with the images.
+        for k, bar in self._bars.items():
+            bar.set_fields_button_visible(k == key)
         self.view_selected.emit(key)
 
     def _panel_border(self, key: object) -> str:
@@ -357,17 +475,20 @@ class LamellaEditorView(QWidget):
         self.fib_canvas = FibsemImageCanvas()
         self.fm_widget = FMCanvasWidget()
         self.fm_canvas = self.fm_widget.canvas
+        self.sem_bar = ViewInfoBar("SEM")
+        self.fib_bar = ViewInfoBar("FIB")
+        self.fm_bar = ViewInfoBar("FM")
 
-        self._sem_panel = _titled("SEM", self.sem_canvas)
+        self._sem_panel = _panel(self.sem_canvas, self.sem_bar)
         self._sem_panel.setVisible(False)  # shown on demand via set_sem_visible()
         # SEM on the left, FIB on the right: the same order as the Microscope
         # tab's quad view, so a side-by-side pair reads the same everywhere.
-        self._fib_panel = _titled("FIB", self.fib_canvas)
+        self._fib_panel = _panel(self.fib_canvas, self.fib_bar)
         self._beams_page = _splitter(Qt.Horizontal, self._sem_panel, self._fib_panel)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._beams_page)  # index 0: beams
-        self._stack.addWidget(_titled("Fluorescence", self.fm_widget))  # index 1: FM
+        self._stack.addWidget(_panel(self.fm_widget, self.fm_bar))  # index 1: FM
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -420,6 +541,10 @@ class MicroscopeViewController(QObject):
     # overlay_point_selected; producers mirroring a multi-selection subscribe to this.
     overlay_selection_changed = pyqtSignal(object, str, object)
 
+    # Emitted with the stage position each time the info bar is given one, so a page of
+    # the fourth cell can follow the stage on the same updates, reading nothing itself.
+    stage_updated = pyqtSignal(object)
+
     # Forwarded from the view when the selected view changes (BeamType or "fm"). Only the
     # quad view emits this; the lamella editor view has no selection concept.
     view_selected = pyqtSignal(object)
@@ -470,6 +595,23 @@ class MicroscopeViewController(QObject):
         # itself so a read that *fails* is not retried on every stage update, which is
         # the poll this replaced.
         self._objective_seeded = False
+
+        # The bar under each view (FIB-1186): the displayed image's metadata, never the
+        # microscope's live state. Optional, so a view without bars still drives.
+        self._bars: Dict[BeamType, Optional[ViewInfoBar]] = {
+            BeamType.ELECTRON: getattr(self._widget, "sem_bar", None),
+            BeamType.ION: getattr(self._widget, "fib_bar", None),
+        }
+        self._fm_bar: Optional[ViewInfoBar] = getattr(self._widget, "fm_bar", None)
+        # Where the stage is, shown once rather than on every view: under the quad
+        # view's fourth cell. The lamella editor has none and needs none.
+        self._stage_bar: Optional[ViewInfoBar] = getattr(
+            self._widget, "stage_bar", None
+        )
+        # (slices, z step in metres) of the FM stack on screen, so the bar's Z can name
+        # the plane as the user scrubs; None when there is no stack to scrub.
+        self._fm_z: Optional[Tuple[int, float]] = None
+        self._widget.fm_widget.z_display_changed.connect(self._refresh_fm_z)
 
     @property
     def widget(self) -> QWidget:
@@ -553,6 +695,21 @@ class MicroscopeViewController(QObject):
         canvas.set_image(image)
         self._states[canvas].image = image
         self._mark_dirty(canvas)
+        self._show_fields(self._bars.get(beam), image)
+
+    @staticmethod
+    def _show_fields(bar: Optional[ViewInfoBar], image) -> None:
+        """Put *image*'s metadata on *bar*. Metadata only, so cheap on every frame."""
+        if bar is None:
+            return
+        try:
+            bar.set_image_fields(image_fields(image))
+        except Exception:
+            # A file with metadata nobody anticipated must not stop the image showing.
+            _logger.warning(
+                "could not read the image's fields for its bar", exc_info=True
+            )
+            bar.clear()
 
     def set_fm_channel(self, name: str, data, color: Optional[str] = None) -> None:
         """Upsert one fluorescence channel into the FM composite (by *name*)."""
@@ -566,11 +723,28 @@ class MicroscopeViewController(QObject):
         """Composite an acquired ``FluorescenceImage`` (all channels) onto the FM
         canvas. See :meth:`FMCanvasWidget.set_fm_image`."""
         self._widget.fm_widget.set_fm_image(image)
+        self._show_fields(self._fm_bar, image)
+        shape = getattr(image.data, "shape", ())
+        slices = shape[-3] if len(shape) >= 4 else 1  # as the export counts them
+        step = getattr(image.metadata, "pixel_size_z", None)
+        self._fm_z = (slices, step) if slices > 1 and step else None
+        self._refresh_fm_z()
+
+    def _refresh_fm_z(self) -> None:
+        """The FM bar's Z names the plane on screen: the projection, or `11 of 21`."""
+        if self._fm_bar is None or self._fm_z is None:
+            return
+        fm = self._widget.fm_widget
+        plane = None if fm.max_projection else fm.current_z
+        self._fm_bar.set_field_value("z", z_value(*self._fm_z, plane=plane))
 
     def clear_fm(self) -> None:
         """Drop all composited FM channels. Used on a lamella/task swap so a prior
         selection's channels (esp. differently-named ones) don't linger."""
         self._widget.fm_widget.clear()
+        self._fm_z = None
+        if self._fm_bar is not None:
+            self._fm_bar.clear()
 
     # ── overlay reducer ───────────────────────────────────────────────────
     def set_overlay(self, beam: BeamType, spec: OverlaySpec) -> None:
@@ -775,11 +949,12 @@ class MicroscopeViewController(QObject):
     def update_info(
         self, microscope, stage_position=None, objective_position=None
     ) -> None:
-        """Refresh the info bar from microscope state (what the old napari text
-        overlay used to show): STAGE on SEM+FIB, MILLING ANGLE on FIB, OBJECTIVE on
-        FM. It goes through the model + debounced render, so it is safe to call from an
-        ``@ensure_main_thread`` ``update_ui`` — there is no synchronous draw to re-enter
-        (which is what froze the original info bar)."""
+        """Refresh the live readouts from microscope state: the stage and milling
+        angle on the stage bar, and the objective position on the FM bar. A view
+        without a stage bar keeps them in the canvas info text, STAGE on every canvas
+        and MILLING ANGLE on FIB. It goes through the model + debounced render, so it
+        is safe to call from an ``@ensure_main_thread`` ``update_ui`` — there is no
+        synchronous draw to re-enter (which is what froze the original info bar)."""
         try:
             if microscope.stage is None:
                 return  # no stage, so no stage position to show
@@ -789,19 +964,23 @@ class MicroscopeViewController(QObject):
                 stage_position=stage_position
             )
             self._update_chamber_view(microscope, stage_position, orientation)
+            self.stage_updated.emit(stage_position)
             grid = microscope.current_grid
             milling_angle = microscope.get_current_milling_angle(
                 stage_position=stage_position
             )
-            stage_txt = (
-                f"STAGE: {stage_position.pretty_string} [{orientation}] [{grid}]"
-            )
-            self.set_info(BeamType.ELECTRON, "stage", stage_txt)
-            self.set_info(BeamType.ION, "stage", stage_txt)
-            self.set_fm_info("stage", stage_txt)  # universal context (before objective)
-            self.set_info(
-                BeamType.ION, "milling", f"MILLING ANGLE: {milling_angle:.1f}°"
-            )
+            if self._stage_bar is not None:
+                self._show_stage(stage_position, orientation, grid, milling_angle)
+            else:
+                stage_txt = (
+                    f"STAGE: {stage_position.pretty_string} [{orientation}] [{grid}]"
+                )
+                self.set_info(BeamType.ELECTRON, "stage", stage_txt)
+                self.set_info(BeamType.ION, "stage", stage_txt)
+                self.set_fm_info("stage", stage_txt)  # universal context
+                self.set_info(
+                    BeamType.ION, "milling", f"MILLING ANGLE: {milling_angle:.1f}°"
+                )
             if microscope.fm is not None:
                 # Remembered rather than read. This runs on every stage-position update
                 # (`FibsemMovementWidget._update_position_readout`, which passes no
@@ -827,14 +1006,58 @@ class MicroscopeViewController(QObject):
                     self._objective_seeded = True
                     self._objective_position = microscope.fm.objective.position
                 if self._objective_position is not None:
-                    self.set_fm_info(
-                        "objective",
-                        f"OBJECTIVE: {self._objective_position * constants.METRE_TO_MICRON:.1f} µm",
-                    )
+                    self._show_objective(self._objective_position)
         except Exception:
             _logger.warning(
                 "MicroscopeViewController.update_info failed", exc_info=True
             )
+
+    def _show_stage(self, position, orientation, grid, milling_angle) -> None:
+        """Where the stage is, on the stage bar: `SEM · GRID-01 | X 1.230 mm ...`.
+
+        The orientation and grid unlabelled in the header, as an image bar has its
+        detector; then the axes, millimetres to the micrometre and degrees to a
+        tenth, and the milling angle as `MA`. An axis the stage did not report is
+        dropped, as an image's missing value is.
+        """
+        bar = self._stage_bar
+        bar.set_live_field("orientation", "", orientation or None, "Stage orientation")
+        # `current_grid` says "NONE" when no grid is loaded, as the old text did.
+        has_grid = grid and str(grid) != "NONE"
+        bar.set_live_field("grid", "", str(grid) if has_grid else None, "Grid")
+        mm, deg = constants.METRE_TO_MILLIMETRE, constants.RADIANS_TO_DEGREES
+        for axis, scale, unit, digits in (
+            ("x", mm, " mm", 3),
+            ("y", mm, " mm", 3),
+            ("z", mm, " mm", 3),
+            ("r", deg, "°", 1),
+            ("t", deg, "°", 1),
+        ):
+            value = getattr(position, axis, None)
+            text = None if value is None else f"{value * scale:.{digits}f}{unit}"
+            label = axis.upper()
+            bar.set_live_field(f"stage_{axis}", label, text, f"Stage {label}")
+        ma = None if milling_angle is None else f"{milling_angle:.1f}°"
+        bar.set_live_field("milling_angle", "MA", ma, "Milling angle")
+
+    def _show_objective(self, position: float) -> None:
+        """The objective's position on the FM bar: `OBJ 200.0 µm` (FIB-1186).
+
+        `OBJ` and µm, as the canvas flashes it while focusing, so the same value reads
+        the same in both places.
+
+        The one live value in a bar that otherwise describes the image: where the
+        objective is now, not where it was for the stack on screen. It moved off the
+        canvas, where it was `OBJECTIVE: ...` in the bottom-left info text. A view
+        without bars keeps that text.
+        """
+        text = f"{position * constants.METRE_TO_MICRON:.1f} µm"
+        if self._fm_bar is None:
+            self.set_fm_info("objective", f"OBJECTIVE: {text}")
+            return
+        self._fm_bar.set_live_field(
+            "objective_position", "OBJ", text, name="Objective position (now)"
+        )
 
     def _update_chamber_view(self, microscope, stage_position, orientation) -> None:
         """Hand the quad view's chamber drawing the position the info bar just got.
@@ -1118,4 +1341,7 @@ class MicroscopeViewController(QObject):
             state.armed_icon = ""
         self.sem_canvas.clear()
         self.fib_canvas.clear()
-        self._widget.fm_widget.clear()
+        self.clear_fm()
+        for bar in self._bars.values():
+            if bar is not None:
+                bar.clear()

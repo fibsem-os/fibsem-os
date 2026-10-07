@@ -142,6 +142,16 @@ DEFAULT_FIELDS = (
 )
 DEFAULT_PROVENANCE = ("item", "task", "date")
 
+# What a short label stands for, where its name alone does not say: the canvas bar
+# shows it on hover. A key missing here reads as its field's name.
+FIELD_TITLES = {
+    "hfw": "Horizontal field width",
+    "voltage": "Accelerating voltage",
+    "current": "Beam current",
+    "detector": "Detector · mode",
+    "objective": "Objective · numerical aperture",
+}
+
 
 def default_options(image: ExportImage) -> ExportOptions:
     """Options a new export starts from: the defaults this image has values for."""
@@ -258,24 +268,66 @@ DETECTOR_MODE_ABBREVIATIONS = {
 }
 
 
-def _add(fields: List[ExportField], key: str, name: str, label: str, value) -> None:
+# Every field either bar can show: its key, the name a checklist lists it under, and
+# the short label printed before its value (empty for those that read as themselves).
+# One table, so the export dialog, the canvas bar and its field picker all name a
+# field the same way.
+FIELD_CATALOGUE: Dict[str, Tuple[str, str]] = {
+    "detector": ("Detector", ""),
+    "objective": ("Objective", ""),
+    "hfw": ("HFW", "HFW"),
+    "pixel_size": ("Pixel size", "px"),
+    "voltage": ("Voltage", "HV"),
+    "current": ("Current", "I"),
+    "working_distance": ("Working distance", "WD"),
+    "dwell_time": ("Dwell time", "Dwell"),
+    "z": ("Z-stack", "Z"),
+    "experiment": ("Experiment", ""),
+    "item": ("Item", ""),
+    "task": ("Task", ""),
+    "date": ("Date", ""),
+    "instrument": ("Instrument", ""),
+    "user": ("User", ""),
+    "version": ("Version", ""),
+}
+
+# The fields each kind of image can record, in the order a checklist offers them.
+BEAM_FIELD_KEYS = (
+    "detector",
+    "hfw",
+    "pixel_size",
+    "voltage",
+    "current",
+    "working_distance",
+    "dwell_time",
+)
+FM_FIELD_KEYS = ("objective", "hfw", "pixel_size", "z")
+
+
+def field_keys_for(kind: str) -> Tuple[str, ...]:
+    """The fields an image of *kind* ("SEM", "FIB", "FM") can record."""
+    return FM_FIELD_KEYS if kind == "FM" else BEAM_FIELD_KEYS
+
+
+def _add(fields: List[ExportField], key: str, value) -> None:
     """Append a field only when there is a value to show."""
     if value is None or value == "":
         return
+    name, label = FIELD_CATALOGUE[key]
     fields.append(ExportField(key=key, name=name, label=label, value=str(value)))
 
 
 def _provenance(experiment, date, instrument, user, version) -> List[ExportField]:
     out: List[ExportField] = []
-    _add(out, "experiment", "Experiment", "", getattr(experiment, "name", None))
+    _add(out, "experiment", getattr(experiment, "name", None))
     # A lamella in a lamella task, a grid in a grid task. "Item", as the record calls
     # it: the file does not say which kind it is.
-    _add(out, "item", "Item", "", getattr(experiment, "item_name", None))
-    _add(out, "task", "Task", "", getattr(experiment, "task_name", None))
-    _add(out, "date", "Date", "", format_time(date))
-    _add(out, "instrument", "Instrument", "", instrument)
-    _add(out, "user", "User", "", user)
-    _add(out, "version", "Version", "", f"fibsem-os {version}" if version else None)
+    _add(out, "item", getattr(experiment, "item_name", None))
+    _add(out, "task", getattr(experiment, "task_name", None))
+    _add(out, "date", format_time(date))
+    _add(out, "instrument", instrument)
+    _add(out, "user", user)
+    _add(out, "version", f"fibsem-os {version}" if version else None)
     return out
 
 
@@ -292,13 +344,32 @@ def _instrument(model: Optional[str], serial: Optional[str]) -> Optional[str]:
 # Reading
 
 
-def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportImage:
-    """An SEM or FIB image, with whatever its metadata records."""
-    rgb = _to_uint8(image.data)
-    gray = _normalize(image.data)
+@dataclass
+class ImageFields:
+    """What an image's metadata says, formatted: the bar without the picture.
+
+    The export renders it under the image; the canvas shows it under the view. Built
+    from the metadata and the array's shape alone, never its pixels, so it is cheap
+    enough to rebuild on every image the canvas is handed.
+    """
+
+    kind: str  # "SEM", "FIB", "FM", or "Image" when the file does not say
+    fields: List[ExportField] = field(default_factory=list)
+    provenance: List[ExportField] = field(default_factory=list)
+
+
+def image_fields(image) -> ImageFields:
+    """The fields of a beam or fluorescence image, without touching its pixels."""
+    if isinstance(image, FluorescenceImage):
+        return fluorescence_image_fields(image)
+    return fibsem_image_fields(image)
+
+
+def fibsem_image_fields(image: FibsemImage) -> ImageFields:
+    """An SEM or FIB image's fields, with whatever its metadata records."""
     md = image.metadata
     if md is None:
-        return ExportImage(rgb=rgb, pixel_size=None, kind="Image", path=path, gray=gray)
+        return ImageFields(kind="Image")
 
     is_ion = md.image_settings.beam_type is BeamType.ION
     state = md.microscope_state
@@ -313,23 +384,26 @@ def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportI
     if detector is not None:
         mode = DETECTOR_MODE_ABBREVIATIONS.get(detector.mode, detector.mode)
         parts = [p for p in (detector.type, mode) if p and p != "Unknown"]
-        _add(fields, "detector", "Detector", "", " · ".join(parts))
+        _add(fields, "detector", " · ".join(parts))
     if pixel_size:
         # From the pixel size, not image_settings.hfw: that is what was asked for,
         # this is what the image is (FIB-482).
-        _add(fields, "hfw", "HFW", "HFW", format_si(pixel_size * rgb.shape[1], "m"))
-        _add(fields, "pixel_size", "Pixel size", "px", format_si(pixel_size, "m"))
+        width = np.shape(image.data)[1]
+        _add(fields, "hfw", format_si(pixel_size * width, "m"))
+        _add(fields, "pixel_size", format_si(pixel_size, "m"))
     if beam is not None:
         if beam.voltage:
-            _add(fields, "voltage", "Voltage", "HV", format_si(beam.voltage, "V"))
+            _add(fields, "voltage", format_si(beam.voltage, "V"))
         if beam.beam_current:
-            _add(fields, "current", "Current", "I", format_si(beam.beam_current, "A"))
+            _add(fields, "current", format_si(beam.beam_current, "A"))
         if beam.working_distance:
-            wd = format_si(beam.working_distance, "m")
-            _add(fields, "working_distance", "Working distance", "WD", wd)
+            # Fixed in mm, not three figures: at the ion beam's 16.5 mm that is a
+            # 100 µm step, coarser than focusing moves it.
+            wd = f"{beam.working_distance * 1e3:.2f} mm"
+            _add(fields, "working_distance", wd)
     if md.image_settings.dwell_time:
         dwell = format_si(md.image_settings.dwell_time, "s")
-        _add(fields, "dwell_time", "Dwell time", "Dwell", dwell)
+        _add(fields, "dwell_time", dwell)
 
     system = md.system_info
     provenance = _provenance(
@@ -339,12 +413,68 @@ def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportI
         md.user.name if md.user is not None else None,
         system.fibsem_version if system else None,
     )
+    return ImageFields(
+        kind="FIB" if is_ion else "SEM", fields=fields, provenance=provenance
+    )
+
+
+def z_value(slices: int, step: float, plane: Optional[int] = None) -> str:
+    """The Z field: `MIP · 21 × 568 nm`, or `11 of 21 × 568 nm` for one plane.
+
+    *plane* is 0-based, as the FM canvas counts it; None is the max projection.
+    """
+    step_text = format_si(step, "m")
+    if plane is None:
+        return f"MIP · {slices} × {step_text}"
+    return f"{plane + 1} of {slices} × {step_text}"
+
+
+def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
+    """A fluorescence stack's fields. Z reads as the projection the export draws."""
+    md = image.metadata
+    fields: List[ExportField] = []
+    first = md.channels[0] if md.channels else None
+    if first is not None and first.objective_magnification:
+        objective = f"{first.objective_magnification:g}×"
+        if first.objective_numerical_aperture:
+            objective += f" · {first.objective_numerical_aperture:g} NA"
+        _add(fields, "objective", objective)
+    shape = np.shape(image.data)
+    if md.pixel_size_x:
+        hfw = format_si(md.pixel_size_x * shape[-1], "m")
+        _add(fields, "hfw", hfw)
+        _add(fields, "pixel_size", format_si(md.pixel_size_x, "m"))
+    # Slices counted from the data, not z_positions: some files list a position per
+    # channel per slice -- 132 for a 4-channel, 33-slice stack on a real one.
+    slices = shape[-3] if len(shape) >= 4 else 1  # (C, Z, Y, X) or (T, C, Z, Y, X)
+    if slices > 1 and md.pixel_size_z:
+        _add(fields, "z", z_value(slices, md.pixel_size_z))
+
+    system = md.system_info or {}
+    provenance = _provenance(
+        md.experiment,
+        acquisition_datetime_of(md),
+        _instrument(system.get("model"), system.get("serial_number")),
+        None,
+        system.get("fibsem_version"),
+    )
+    return ImageFields(kind="FM", fields=fields, provenance=provenance)
+
+
+def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportImage:
+    """An SEM or FIB image, with whatever its metadata records."""
+    rgb = _to_uint8(image.data)
+    gray = _normalize(image.data)
+    if image.metadata is None:
+        return ExportImage(rgb=rgb, pixel_size=None, kind="Image", path=path, gray=gray)
+    md = image.metadata
+    info = fibsem_image_fields(image)
     return ExportImage(
         rgb=rgb,
-        pixel_size=pixel_size,
-        kind="FIB" if is_ion else "SEM",
-        fields=fields,
-        provenance=provenance,
+        pixel_size=md.pixel_size.x if md.pixel_size is not None else None,
+        kind=info.kind,
+        fields=info.fields,
+        provenance=info.provenance,
         path=path,
         gray=gray,
     )
@@ -354,7 +484,6 @@ def from_fluorescence_image(
     image: FluorescenceImage, path: Optional[str] = None
 ) -> ExportImage:
     """A fluorescence stack: each channel max-projected over z and blended by colour."""
-    md = image.metadata
     layers = projection_layers(image)
     rgb = composite_fm_layers(layers)
     if rgb is None:
@@ -366,39 +495,13 @@ def from_fluorescence_image(
         rgb_255 = (int(round(r * 255)), int(round(g * 255)), int(round(b * 255)))
         channels.append(ExportChannel(name=layer.name, color=rgb_255))
 
-    fields: List[ExportField] = []
-    first = md.channels[0] if md.channels else None
-    if first is not None and first.objective_magnification:
-        objective = f"{first.objective_magnification:g}×"
-        if first.objective_numerical_aperture:
-            objective += f" · {first.objective_numerical_aperture:g} NA"
-        _add(fields, "objective", "Objective", "", objective)
-    if md.pixel_size_x:
-        hfw = format_si(md.pixel_size_x * rgb.shape[1], "m")
-        _add(fields, "hfw", "HFW", "HFW", hfw)
-        _add(fields, "pixel_size", "Pixel size", "px", format_si(md.pixel_size_x, "m"))
-    # Slices counted from the data, not z_positions: some files list a position per
-    # channel per slice -- 132 for a 4-channel, 33-slice stack on a real one.
-    shape = np.shape(image.data)
-    slices = shape[-3] if len(shape) >= 4 else 1  # (C, Z, Y, X) or (T, C, Z, Y, X)
-    if slices > 1 and md.pixel_size_z:
-        z = f"MIP · {slices} × {format_si(md.pixel_size_z, 'm')}"
-        _add(fields, "z", "Z-stack", "Z", z)
-
-    system = md.system_info or {}
-    provenance = _provenance(
-        md.experiment,
-        acquisition_datetime_of(md),
-        _instrument(system.get("model"), system.get("serial_number")),
-        None,
-        system.get("fibsem_version"),
-    )
+    info = fluorescence_image_fields(image)
     return ExportImage(
         rgb=rgb,
-        pixel_size=md.pixel_size_x or None,
-        kind="FM",
-        fields=fields,
-        provenance=provenance,
+        pixel_size=image.metadata.pixel_size_x or None,
+        kind=info.kind,
+        fields=info.fields,
+        provenance=info.provenance,
         channels=channels,
         layers=layers,
         path=path,

@@ -26,6 +26,7 @@ from fibsem.imaging.export import (
     format_si,
     from_fibsem_image,
     from_fluorescence_image,
+    image_fields,
     load_export_image,
     render_export,
     save_export,
@@ -128,9 +129,43 @@ def test_beam_image_fields():
         "pixel_size": "97.7 nm",
         "voltage": "2 kV",
         "current": "50 pA",
-        "working_distance": "4 mm",
+        "working_distance": "4.00 mm",
         "dwell_time": "1 µs",
     }
+
+
+@pytest.mark.parametrize(
+    "make, export",
+    [(_sem_image, from_fibsem_image), (_fm_image, from_fluorescence_image)],
+)
+def test_image_fields_are_the_export_bar(make, export):
+    """The canvas reads the same fields the export draws, from one place."""
+    image = make()
+    info = image_fields(image)
+    exported = export(image)
+    assert info.kind == exported.kind
+    assert info.fields == exported.fields
+    assert info.provenance == exported.provenance
+
+
+def test_image_fields_never_read_the_pixels(monkeypatch):
+    """Cheap enough for every image the canvas is handed: no conversion, no projection."""
+    import fibsem.imaging.export as export_module
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("image_fields touched the pixels")
+
+    for name in ("_to_uint8", "_normalize", "projection_layers", "composite_fm_layers"):
+        monkeypatch.setattr(export_module, name, refuse)
+    assert _values(image_fields(_sem_image()).fields)["hfw"] == "150 µm"
+    assert image_fields(_fm_image()).kind == "FM"
+
+
+def test_image_fields_without_metadata():
+    image = _sem_image()
+    image.metadata = None
+    info = image_fields(image)
+    assert (info.kind, info.fields, info.provenance) == ("Image", [], [])
 
 
 def test_hfw_comes_from_the_pixel_size_not_the_request():

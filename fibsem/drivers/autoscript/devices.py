@@ -53,7 +53,6 @@ import logging
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -391,6 +390,10 @@ class AutoscriptBeam(Beam):
         self._beam.scanning.dwell_time.value = value
         self._set_log("dwell time", value, " s")
 
+    def metadata_dwell_time(self) -> ParameterMetadata:
+        limits = self._beam.scanning.dwell_time.limits
+        return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
+
     def read_scan_rotation(self) -> float:
         return self._beam.scanning.rotation.value
 
@@ -425,6 +428,14 @@ class AutoscriptBeam(Beam):
 
     def write_resolution(self, value: Tuple[int, int]) -> None:
         self._beam.scanning.resolution.value = f"{value[0]}x{value[1]}"
+
+    def metadata_resolution(self) -> ParameterMetadata:
+        return ParameterMetadata(
+            choices=[
+                tuple(int(px) for px in r.split("x"))
+                for r in self._beam.scanning.resolution.available_values
+            ]
+        )
 
     # The detector: the active device's, so these run with this beam's channel
     # selected (needs_channel). The writes check as the old branches do.
@@ -1572,12 +1583,11 @@ class AutoscriptFM(FM):
 
     def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
         # The metadata is read inside the scope too, as the old acquisition reads it,
-        # so it describes the state the frame was taken in.
+        # so it describes the state the frame was taken in. The time is
+        # `FM.acquire_frame`'s, taken before this runs (FIB-1190).
         with self._channel.scope():
-            acquisition_date = datetime.now().isoformat()
             data = self._frame(channel)
-            metadata = {"acquisition_date": acquisition_date, **self._frame_metadata()}
-            return Frame(data, metadata)
+            return Frame(data, self._frame_metadata())
 
     # -- live view: the old fast acquisition, pulled ------------------------------------
 

@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, RangeLimit
 
 
 def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -> list:
@@ -35,6 +35,28 @@ def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -
     if parameter is None or parameter.choices is None:
         return []
     return list(parameter.choices)
+
+
+def beam_limits(
+    microscope: FibsemMicroscope, name: str, beam_type: BeamType
+) -> Optional[RangeLimit]:
+    """The range a beam parameter can take, from its device's limits, as
+    ``beam_choices`` reads its choices. None when there is no such beam or parameter,
+    or the parameter reports no single range."""
+    beam = microscope.beams.get(beam_type)
+    parameter = None if beam is None else beam.parameters.get(name)
+    limits = None if parameter is None else parameter.limits
+    return limits if isinstance(limits, RangeLimit) else None
+
+
+def set_range_from_limits(
+    spinbox: QAbstractSpinBox, limits: Optional[RangeLimit], scale: float = 1.0
+) -> None:
+    """Bound ``spinbox`` to ``limits`` (SI) shown times ``scale``; no limits leaves
+    the box's own range."""
+    if limits is None:
+        return
+    spinbox.setRange(limits.min * scale, limits.max * scale)
 
 
 def open_path_in_file_explorer(path: str) -> bool:

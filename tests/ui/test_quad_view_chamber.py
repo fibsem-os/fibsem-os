@@ -47,7 +47,7 @@ def _show(controller, microscope, orientation: str):
 def test_cell_opens_on_the_chamber_page_with_nothing_drawn(controller):
     cell = controller.widget.page_cell
     assert cell.page == "chamber"
-    assert cell.selector.currentData() == "chamber"
+    assert cell.label.text() == "Chamber"
     assert not controller.widget.chamber_view.has_position
 
 

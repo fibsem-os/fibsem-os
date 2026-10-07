@@ -73,6 +73,7 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
+from fibsem.applications.autolamella.ui.quad_overview_page import QuadOverviewPage
 from fibsem.applications.autolamella.ui.review_tab_widget import (
     ReviewTabWidget,
     review_tab_icon,
@@ -978,20 +979,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_sound_toggle(self, checked: bool):
         """Handle sound toggle."""
         self._sound_enabled = checked
-        self._preferences.display.sound_enabled = checked
-        fibsem_cfg.save_user_preferences(self._preferences)
+        # Through the file, not this window's copy: another widget may have saved a
+        # setting of its own since start-up (the view bars' fields, FIB-1186).
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.display, "sound_enabled", checked)
+        )
 
     def _on_border_toggle(self, checked: bool):
         """Handle workflow border toggle."""
         self._border_enabled = checked
-        self._preferences.display.border_enabled = checked
-        fibsem_cfg.save_user_preferences(self._preferences)
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.display, "border_enabled", checked)
+        )
         self._set_border_state("idle")
 
     def _on_open_preferences(self):
         """Open the preferences dialog."""
         from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
 
+        # Fresh from disk, so saving the dialog's result does not put back anything
+        # another widget has changed since start-up.
+        self._preferences = fibsem_cfg.load_user_preferences()
         dialog = PreferencesDialog(self._preferences, parent=self)
         if dialog.exec_() == QDialog.Accepted:
             self._preferences = dialog.get_preferences()
@@ -2248,6 +2256,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # also re-answers whether the tab can be used, which is only knowable now --
         # whether this system has a fluorescence detector at all.
         self._refresh_overview_microscope()
+        if getattr(self, "quad_overview_page", None) is not None:
+            self.quad_overview_page.set_microscope(
+                self.autolamella_ui.microscope if self.autolamella_ui else None
+            )
         if (
             self.autolamella_ui is not None
             and self.autolamella_ui.microscope is not None
@@ -2454,6 +2466,19 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.view_controller = MicroscopeViewController(parent=self)
         splitter.addWidget(self.view_controller.widget)
         splitter.addWidget(self.autolamella_ui)
+        # The fourth cell's overview page: the experiment's overviews of the grid the
+        # stage is on. Fed from the same places as the Overview tabs, below.
+        self.quad_overview_page = QuadOverviewPage()
+        self.view_controller.widget.page_cell.add_page(
+            "overview",
+            "Overview",
+            self.quad_overview_page,
+            header=self.quad_overview_page.header,
+        )
+        self.view_controller.stage_updated.connect(self.quad_overview_page.set_stage)
+        self.quad_overview_page.lamella_selected.connect(
+            self._on_quad_overview_lamella_selected
+        )
 
         splitter.setSizes([700, 550])
         # set minimum width of right panel to 500
@@ -2506,6 +2531,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.review_tab.set_experiment(self.autolamella_ui.experiment)
         self.review_tab.set_microscope(self.autolamella_ui.microscope)
         experiment = self.autolamella_ui.experiment
+        self.quad_overview_page.set_experiment(experiment)
         self._listen_for_questions(experiment)
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
@@ -3011,14 +3037,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             loader.loader_changed.connect(self.grid_workflow_widget.refresh)
             loader.loader_changed.connect(self._refresh_grid_context)
         self._refresh_grid_context()
-        # Calibrating a slot from the Sample view changes what the Overview
-        # tabs should draw by default; they re-resolve rather than wait for a
-        # reconnect.
+        # Renaming a grid in the Sample view has to follow the experiment's records.
+        # Calibrating a slot there needs nothing here: the Overview tabs hear of it
+        # from `microscope.holder_changed`, whichever window ran the calibration.
         holder_panel = getattr(sample, "holder_widget", None)
         if holder_panel is not None:
             holder_panel.set_rename_check(self._grid_rename_refusal)
             holder_panel.grid_renamed.connect(self._on_slot_grid_renamed)
-            holder_panel.holder_changed.connect(self._on_holder_changed)
 
     def _grid_rename_refusal(self, old: str, new: str) -> str:
         """Why the Sample view may not rename grid *old* to *new*, or "".
@@ -3095,14 +3120,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         sample = getattr(self.autolamella_ui, "sample_widget", None)
         if sample is not None:
             sample.refresh()
-
-    def _on_holder_changed(self, _holder) -> None:
-        for tab in (
-            getattr(self, "beam_overview_tab", None),
-            getattr(self, "fm_overview_tab", None),
-        ):
-            if tab is not None and hasattr(tab, "reset_context_overlay_defaults"):
-                tab.reset_context_overlay_defaults()
 
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""
@@ -3264,6 +3281,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Sync card container and overviews when experiment-tab list selection changes."""
         self.fm_overview_tab.set_selected(lamella)
         self.beam_overview_tab.set_selected(lamella)
+        self.quad_overview_page.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         if not hasattr(self, "lamella_card_container"):
@@ -4196,6 +4214,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         self.overview_tab.refresh_microscope()
 
+    def _on_quad_overview_lamella_selected(self, lamella):
+        """A lamella clicked on the Microscope tab's overview page: select it in the
+        lists and the Overview tabs, as a click on either Overview tab does."""
+        self.fm_overview_tab.set_selected(lamella)
+        self.beam_overview_tab.set_selected(lamella)
+        if getattr(self, "_syncing_selection", False) or lamella is None:
+            return
+        self._syncing_selection = True
+        try:
+            self.autolamella_ui.lamella_list.select(lamella.name)
+            if hasattr(self, "lamella_card_container"):
+                self.lamella_card_container.select_lamella(lamella.name)
+        finally:
+            self._syncing_selection = False
+
     def _on_beam_overview_lamella_selected(self, lamella):
         """Sync the other lists when the rebuilt Overview tab's list changes.
 
@@ -4250,10 +4283,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             tab = getattr(self, name, None)
             if tab is not None:
                 tab.refresh_positions()
-        # The Microscope tab's stage map marks the same lamellae, from the same place.
+        # The Microscope tab's stage map and overview page mark the same lamellae,
+        # from the same place.
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        page = getattr(self, "quad_overview_page", None)
+        if page is not None:
+            if page.experiment is not experiment:
+                page.set_experiment(experiment)
+            else:
+                page.refresh_positions()
         controller = getattr(self, "view_controller", None)
         if controller is not None:
-            experiment = getattr(self.autolamella_ui, "experiment", None)
             controller.set_map_positions(
                 [lamella.stage_position for lamella in experiment.positions]
                 if experiment is not None

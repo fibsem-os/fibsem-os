@@ -11,7 +11,7 @@ import copy
 import logging
 import threading
 from math import pi
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from psygnal import Signal
 
@@ -29,6 +29,17 @@ from fibsem.structures import (
 )
 from fibsem.util.timestamps import now
 
+# The resolutions a scan is set to on a driver whose instrument can't list its own:
+# the standard 3:2 frames. A beam's resolution choices are what its scan can be set
+# to; square frames are left out until acquisition can ask for them on its own.
+STANDARD_RESOLUTIONS: Tuple[Tuple[int, int], ...] = (
+    (384, 256),
+    (768, 512),
+    (1536, 1024),
+    (3072, 2048),
+    (6144, 4096),
+)
+
 
 class Beam(Device):
     voltage = Parameter(float, unit="V")
@@ -43,7 +54,12 @@ class Beam(Device):
     detector_mode = Parameter(str, depends_on=("detector_type",))
     detector_contrast = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
     detector_brightness = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
-    resolution = Parameter(tuple, unit="px", doc="(width, height)")
+    resolution = Parameter(
+        tuple,
+        unit="px",
+        choices=STANDARD_RESOLUTIONS,
+        doc="(width, height). The choices are what the scan can be set to.",
+    )
     dwell_time = Parameter(float, unit="s")
     stigmation = Parameter(Point)
     shift = Parameter(Point, unit="m", doc="Beam shift.")

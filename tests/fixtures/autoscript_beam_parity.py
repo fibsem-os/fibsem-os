@@ -204,6 +204,10 @@ def facts():
                 ),
                 "choices": {name: _choices(beam, name) for name in CHOICE_KEYS},
                 "hfw_limits": S._plain([beam.hfw.limits.min, beam.hfw.limits.max]),
+                "resolution_choices": S._plain(beam.resolution.choices),
+                "dwell_time_limits": S._plain(
+                    [beam.dwell_time.limits.min, beam.dwell_time.limits.max]
+                ),
             }
 
     # the keys the routed microscope sends to a driver, and the ones it leaves

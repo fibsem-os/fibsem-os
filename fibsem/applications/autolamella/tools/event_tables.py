@@ -375,15 +375,15 @@ def _fm(time: datetime, record: Dict[str, Any], payload: Dict[str, Any]):
 
 def _acquired_at(value: Any) -> Optional[datetime]:
     """An FM acquisition's start, as its metadata records it: the instrument's
-    local time, converted to it when the value carries an offset (as the
-    replay reads it)."""
+    local time. A value with an offset (FIB-1190) drops it, as `_time` drops the
+    record's, so both stay on the instrument's clock wherever this is read;
+    converting to this machine's zone first put an FM acquisition hours away from
+    the rest of the run (as the replay reads it)."""
     try:
         started = datetime.fromisoformat(str(value))
     except (TypeError, ValueError):
         return None
-    if started.tzinfo is not None:
-        started = started.astimezone().replace(tzinfo=None)
-    return started
+    return started.replace(tzinfo=None)
 
 
 def _waited(

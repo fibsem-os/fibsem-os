@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field, replace
-from datetime import datetime
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -38,6 +37,7 @@ from fibsem.fm.structures import (
     safe_ome_from_tiff,
     to_czyx,
 )
+from fibsem.util.timestamps import iso_from_posix, now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -382,10 +382,12 @@ def build_image(
             )
         )
         channels.append(replace(base, name=str(name), color=str(colour)))
+    # The file's modification time, which is all an imported file says: not an
+    # acquisition time, so `acquisition_datetime` is left unset (FIB-1190).
     try:
-        stamp = datetime.fromtimestamp(os.path.getmtime(source.path)).isoformat()
+        stamp = iso_from_posix(os.path.getmtime(source.path))
     except OSError:
-        stamp = datetime.now().isoformat()
+        stamp = now_iso()
     metadata = FluorescenceImageMetadata(
         acquisition_date=stamp,
         pixel_size_x=float(pixel_size),

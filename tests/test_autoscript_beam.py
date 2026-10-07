@@ -229,6 +229,13 @@ def test_the_choices_are_get_available_values(recording, plasma, beam):
         assert facts["choices"]["plasma_gas"] is None  # no gas on this column
 
 
+@pytest.mark.parametrize("beam", ["ELECTRON", "ION"])
+def test_the_resolutions_and_dwell_limits_are_the_scans(recording, beam):
+    facts = recording["facts"][f"plasma=False {beam}"]
+    assert facts["resolution_choices"] == [[768, 512], [1536, 1024], [3072, 2048]]
+    assert facts["dwell_time_limits"] == [25e-9, 1e-3]
+
+
 def test_new_api_refuses_a_voltage_off_the_list_before_any_sdk_call(recording):
     facts = recording["facts"]["voltage_off_the_list"]
     assert facts["refused"] is not None and "1234" in facts["refused"]
