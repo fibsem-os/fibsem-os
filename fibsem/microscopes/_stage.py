@@ -582,8 +582,9 @@ class Stage:
         return entries
 
     @property
-    def is_homed(self) -> bool:
-        return self.parent.get("stage_homed")  # type: ignore
+    def is_homed(self) -> Optional[bool]:
+        stage = self.parent.stage
+        return None if stage is None else stage.is_homed
 
     def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         return self.parent.move_stage_absolute(position)

@@ -230,6 +230,20 @@ def test_stop_uses_a_second_connection(connect):
     assert fake.DrawBeam.status == DBStatus.ProjectLoadedExpositionIdle
 
 
+def test_stop_connects_on_the_port_the_microscope_connected_on(connect, monkeypatch):
+    microscope, fake = connect()
+    microscope.connect_to_microscope(ip_address="localhost", port=8301)
+    opened = []
+
+    def automation(*args, **kwargs):
+        opened.append((args, kwargs))
+        return fake
+
+    monkeypatch.setattr(tescan_module, "Automation", automation, raising=False)
+    microscope.stop_milling()
+    assert opened == [(("localhost",), {"port": 8301})]
+
+
 def test_tescan_mills_with_the_settings_it_says(connect):
     from tests.fixtures.milling_reads import fields_setup_reads
 

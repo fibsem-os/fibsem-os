@@ -165,7 +165,7 @@ class TescanMilling(Milling):
         thread_connection = None
         try:
             thread_connection = tescan.Automation(
-                self.parent.system.info.ip_address, port=8300
+                self.parent.system.info.ip_address, port=self.parent._port
             )
             if (
                 thread_connection.DrawBeam.GetStatus()[0]

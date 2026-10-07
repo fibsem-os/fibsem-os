@@ -225,6 +225,12 @@ class Stage(Device):
         self.axes = Axes(axes)
         return self
 
+    @property
+    def is_homed(self) -> Optional[bool]:
+        """Whether the stage is homed; None where its driver can't say."""
+        param = self.parameters.get("homed")
+        return None if param is None else param.get_value()
+
     # -- commands -----------------------------------------------------------------
 
     @command

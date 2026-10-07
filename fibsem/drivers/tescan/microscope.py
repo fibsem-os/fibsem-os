@@ -434,6 +434,10 @@ class TescanMicroscope(FibsemMicroscope):
     # ion image that follows an electron one.
     _last_requested_beam_type: Optional[BeamType] = None
 
+    # The port connect_to_microscope used: info.port, or the driver's default. The
+    # milling service's stop opens a second connection on it.
+    _port: Optional[int] = None
+
     @staticmethod
     def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
         # TESCAN milling is preset-driven: the dose model (stage rate x preset
@@ -513,6 +517,7 @@ class TescanMicroscope(FibsemMicroscope):
         """
         logging.info(f"Microscope client connecting to [{ip_address}:{port}]")
         self.connection = Automation(ip_address, port)
+        self._port = port
         logging.info(f"Microscope client connected to [{ip_address}:{port}]")
 
         # set up detectors
