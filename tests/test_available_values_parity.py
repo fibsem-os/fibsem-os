@@ -147,10 +147,10 @@ _ODEMIS_DETECTOR_TYPES = {
     "odemis ION detector_type": {"set": ["ETD", "ICE"]},
 }
 CHANGED = {**_NO_BEAM, **_ODEMIS_DETECTOR_TYPES}
-# The application files moved to the milling service (``supported_settings``), so as
-# a key they get no values, where before the backends with application files listed
-# them.
-MOVED = ("application_file",)
+# The application files and scan directions moved to the milling service
+# (``supported_settings``, ``supported_pattern_settings``), so as keys they get no
+# values, where before the backends listed them.
+MOVED = ("application_file", "scan_direction")
 
 
 def _moved(key):

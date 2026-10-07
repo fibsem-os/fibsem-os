@@ -257,6 +257,8 @@ beam_type_to_odemis = {
 
 # Pattern settings the Delmic AutoScript adapter (xtadapter 1.16.0) does not pass on.
 ODEMIS_DROPPED_PATTERN_SETTINGS = ("is_exclusion", "passes", "time")
+# The scan directions a pattern can take through the adapter.
+ODEMIS_SCAN_DIRECTIONS = ("TopToBottom", "BottomToTop", "LeftToRight", "RightToLeft")
 
 # xT's vacuum states, as the odemis client documents them, by the names
 # ThermoMicroscope reports. A state not listed here is passed through.
@@ -735,13 +737,11 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
         return True
 
     def _get_available_values(self, key: str, beam_type: BeamType = None) -> list:
-        """The values of the keys the beam devices don't answer: scan_direction,
-        detector_mode (the detector type's, which can change) and plasma_gas (there is
-        no plasma gas parameter). The application files are the milling service's
-        (``milling.supported_settings()``)."""
+        """The values of the keys the beam devices don't answer: detector_mode (the
+        detector type's, which can change) and plasma_gas (there is no plasma gas
+        parameter). The application files and scan directions are the milling
+        service's (``supported_settings``, ``supported_pattern_settings``)."""
         values = []
-        if key == "scan_direction":
-            values = ["TopToBottom", "BottomToTop", "LeftToRight", "RightToLeft"]
         if key == "detector_mode":
             values = self.connection.detector_mode_info(beam_type_to_odemis[beam_type])[
                 "choices"

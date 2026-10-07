@@ -161,3 +161,10 @@ def test_odemis_mills_with_the_settings_it_says(odemis_cls, monkeypatch):
     supported = microscope.milling.supported_settings()
     assert list(supported["application_file"].choices) == files
     assert set(supported) == fields_setup_reads(microscope.milling, SETTINGS)
+    directions = microscope.milling.supported_pattern_settings()["scan_direction"]
+    assert directions.choices == (
+        "TopToBottom",
+        "BottomToTop",
+        "LeftToRight",
+        "RightToLeft",
+    )

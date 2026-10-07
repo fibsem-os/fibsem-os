@@ -15,9 +15,13 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem import utils  # noqa: E402
+from fibsem.milling.patterning import get_pattern  # noqa: E402
 from fibsem.structures import FibsemMillingSettings  # noqa: E402
 from fibsem.ui.widgets.milling_settings_widget import (  # noqa: E402
     FibsemMillingSettingsWidget,
+)
+from fibsem.ui.widgets.pattern_settings_widget import (  # noqa: E402
+    FibsemPatternSettingsWidget,
 )
 
 
@@ -58,3 +62,12 @@ def test_without_a_milling_service_every_field_shows(qapp, microscope, monkeypat
     monkeypatch.setattr(microscope, "milling", None)
     widget = _widget(microscope)
     assert _shown(widget) == {row.field for row in widget._rows}
+
+
+def test_a_patterns_scan_directions_are_the_milling_services(qapp, microscope):
+    widget = FibsemPatternSettingsWidget(microscope, get_pattern("Rectangle"))
+    (row,) = [r for r in widget._rows if r.field == "scan_direction"]
+    combo = row.control.widget
+    items = [combo.itemText(i) for i in range(combo.count())]
+    supported = microscope.milling.supported_pattern_settings()
+    assert items == list(supported["scan_direction"].choices)

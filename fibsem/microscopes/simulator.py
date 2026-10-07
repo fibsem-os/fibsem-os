@@ -396,8 +396,6 @@ class DemoConfiguration:
 
     def _configured_values(self, key: str) -> Optional[List[str]]:
         """The values of a key that come from the simulator's constants alone."""
-        if key == "scan_direction":
-            return SIMULATOR_SCAN_DIRECTIONS
         if key == "plasma_gas":
             return SIMULATOR_PLASMA_GASES
         return None

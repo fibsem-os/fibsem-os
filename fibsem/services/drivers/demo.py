@@ -13,6 +13,7 @@ import logging
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 from fibsem.devices.core import ParameterMetadata
+from fibsem.microscopes.simulator import SIMULATOR_SCAN_DIRECTIONS
 from fibsem.microscopes.simulator import DemoMilling as DemoMillingCode
 from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
@@ -54,6 +55,7 @@ class DemoMilling(Milling):
         "application_file",
         "patterning_mode",
     )
+    scan_directions = tuple(SIMULATOR_SCAN_DIRECTIONS)
 
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "application_file":
