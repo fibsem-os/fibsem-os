@@ -427,7 +427,6 @@ class FibsemMillingTask:
             stage.strategy.run(
                 microscope=self.microscope,
                 stage=stage,
-                asynch=False,
                 parent_ui=self.parent_ui,
                 stop_event=self._stop_event,
             )

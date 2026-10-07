@@ -276,7 +276,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self,
         microscope: FibsemMicroscope,
         stage: FibsemMillingStage,
-        asynch: bool = False,
         parent_ui: Optional["FibsemMillingWidget2"] = None,
         stop_event: Optional["threading.Event"] = None,
     ) -> None:
