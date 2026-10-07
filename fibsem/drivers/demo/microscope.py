@@ -2,7 +2,7 @@
 
 ``DemoMicroscope`` is the simulated microscope every Demo session gets. It is its
 devices plus the demo code in ``fibsem.drivers.demo.simulator`` (``DemoSession``,
-``DemoConfiguration``, ``DemoImaging``, ``DemoScene`` and ``DemoMilling``).
+``DemoConfiguration``, ``DemoImaging`` and ``DemoScene``).
 ``fibsem.drivers.demo.simulator.DemoMicroscope`` is this class too.
 
 ``tests/test_microscope_contract.py`` pins its behaviour, which is what the Demo
@@ -27,13 +27,13 @@ method that reads or changes a part goes to its device:
   the old API moves the needle with methods, which use the device.
 
 Milling is a service, ``milling`` (``fibsem.drivers.demo.services.DemoMilling``),
-and the milling methods go to it (``ServiceMilling``): it mills with the shared demo
-code, and ``finish_milling`` puts the milling beam back as ``setup_milling`` found it.
-The run loop is still the shared demo code's.
+which holds the Demo's milling code, and the milling methods go to it
+(``ServiceMilling``); ``finish_milling`` puts the milling beam back as
+``setup_milling`` found it.
 
 The shared code answers what the configuration alone does (the fitted parts, the
 stage's limits, the grid loader and the constant value lists), and runs
-imaging, the sample scene and milling, changing the beams only through the
+imaging and the sample scene, changing the beams only through the
 microscope's beam methods and so through the beam devices.
 
 The FM is devices too: ``fm_devices`` are the Demo FM devices (``DemoCamera`` and
@@ -70,7 +70,6 @@ from fibsem.drivers.demo.simulator import (
     SIM_OBJECTIVE_FOCUS_POSITION,
     DemoConfiguration,
     DemoImaging,
-    DemoMilling,
     DemoParts,
     DemoScene,
     DemoSession,
@@ -154,7 +153,6 @@ class DemoMicroscope(
     DemoConfiguration,
     DemoImaging,
     DemoScene,
-    DemoMilling,
     FibsemMicroscope,
 ):
     """The demo microscope built from devices, with the shared demo code."""

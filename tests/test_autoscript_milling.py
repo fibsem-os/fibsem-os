@@ -1,14 +1,14 @@
 """Thermo's milling methods make the same SDK calls through the milling service.
 
-``AutoScriptMilling`` runs the code ``ThermoMicroscope`` milled with
-(``ThermoMilling``). Each case runs a milling method on a microscope with its beams
-built and no milling service, and the same call on one with the service built as
-connect builds it, both over a fake AutoScript client that records every SDK call
-and write, and requires the same result, the same calls in the same order and the
-same logged messages. ``finish_milling`` is the change: it puts back what
-``setup_milling`` found, field of view included. The recording runs in its own
-interpreter (``tests/fixtures/autoscript_milling_parity.py``). Nothing here has run
-on an instrument.
+``AutoScriptMilling`` holds the code ``ThermoMicroscope`` milled with. Each case runs
+a milling method on a microscope with the service built as connect builds it, over a
+fake AutoScript client that records every SDK call and write, and requires the
+result, the calls in their order and the logged messages that the microscope's own
+code gave before it moved into the service (``fixtures/autoscript_milling_calls.json``).
+``finish_milling`` is the change: it puts back what ``setup_milling`` found, field of
+view included. The recording runs in its own interpreter
+(``tests/fixtures/autoscript_milling_parity.py``). Nothing here has run on an
+instrument.
 """
 
 import json
@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_milling_parity.py"
+OLD_CALLS = Path(__file__).parent / "fixtures" / "autoscript_milling_calls.json"
 
 
 @pytest.fixture(scope="module")
@@ -40,13 +41,19 @@ def recording(tmp_path_factory):
 def test_the_recording_makes_sdk_calls(recording):
     cases = recording["cases"]
     assert len(cases) == 16
-    assert all(c["old"][1] for c in cases)
-    raised = [c["key"] for c in cases if str(c["old"][0]).startswith("EXC")]
+    assert all(c["new"][1] for c in cases)
+    raised = [c["key"] for c in cases if str(c["new"][0]).startswith("EXC")]
     assert raised == []
 
 
 def test_the_service_makes_the_same_sdk_calls_logs_and_results(recording):
-    different = [c for c in recording["cases"] if c["old"] != c["new"]]
+    old = json.loads(OLD_CALLS.read_text())
+    assert [c["key"] for c in recording["cases"]] == list(old)
+    different = [
+        {"key": c["key"], "old": old[c["key"]], "new": c["new"]}
+        for c in recording["cases"]
+        if c["new"] != old[c["key"]]
+    ]
     assert different == [], json.dumps(different[:2], indent=1)
 
 

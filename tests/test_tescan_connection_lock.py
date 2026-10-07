@@ -8,9 +8,9 @@ was added while reference images were being acquired.
 
 Two guards here:
 
-* an AST rule: every SDK call site in ``tescan.py`` must sit lexically inside a
-  ``with self._connection_lock:`` block, so a new unlocked call site fails this test
-  rather than shipping as a latent race. There are no exceptions.
+* an AST rule: every SDK call site in the driver and its milling service must sit
+  lexically inside a ``with self._connection_lock:`` block, so a new unlocked call
+  site fails this test rather than shipping as a latent race. There are no exceptions.
 * a behavioural check: real driver methods hammered from two threads against a fake
   connection that detects overlapping SDK entry.
 """
@@ -20,10 +20,13 @@ import inspect
 import threading
 import time
 
+import pytest
+
 from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan import services as tescan_services
 from fibsem.drivers.tescan.microscope import TescanMicroscope
+from fibsem.drivers.tescan.services import TescanMilling
 from fibsem.structures import BeamType, MillingState
-from tests.fixtures.milling_reads import own_milling_code
 
 # ---------------------------------------------------------------------------
 # AST rule
@@ -44,6 +47,12 @@ def _is_sdk_call(func_node) -> bool:
     if isinstance(root, ast.Name):
         # self.connection.X.Y(...) has root `self` and chain starting "connection"
         if root.id == "self" and chain and chain[0] == "connection":
+            return True
+        # the milling service's: self.parent.connection.X(...), or the parent as
+        # `microscope`
+        if root.id == "self" and chain[:2] == ["parent", "connection"]:
+            return True
+        if root.id == "microscope" and chain and chain[0] == "connection":
             return True
         # beam = self._get_beam(...); beam.X.Y(...)
         if root.id in ("beam", "sem", "fib") and chain:
@@ -91,8 +100,11 @@ class _LockAudit(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def test_every_sdk_call_site_is_under_the_connection_lock():
-    tree = ast.parse(inspect.getsource(tescan_module))
+@pytest.mark.parametrize(
+    "module", [tescan_module, tescan_services], ids=lambda m: m.__name__
+)
+def test_every_sdk_call_site_is_under_the_connection_lock(module):
+    tree = ast.parse(inspect.getsource(module))
     audit = _LockAudit()
     audit.visit(tree)
     assert audit.violations == [], (
@@ -162,7 +174,8 @@ def make_microscope(monkeypatch):
         {"IDLE": MillingState.IDLE},
         raising=False,
     )
-    return own_milling_code(m), detector
+    m.milling = TescanMilling(parent=m)
+    return m, detector
 
 
 def test_concurrent_driver_calls_never_overlap_on_the_connection(monkeypatch):
@@ -171,16 +184,16 @@ def test_concurrent_driver_calls_never_overlap_on_the_connection(monkeypatch):
 
     def hammer():
         while not stop.is_set():
-            m.get_milling_state()
-            m.clear_patterns()
-            m.estimate_milling_time()
+            m.milling.read_state()
+            m.milling._clear()
+            m.milling._estimate()
 
     thread = threading.Thread(target=hammer, daemon=True)
     thread.start()
     deadline = time.monotonic() + 1.0
     while time.monotonic() < deadline:
-        assert m.get_milling_state() is MillingState.IDLE
-        m.estimate_milling_time()
+        assert m.milling.read_state() is MillingState.IDLE
+        m.milling._estimate()
     stop.set()
     thread.join(timeout=5)
 

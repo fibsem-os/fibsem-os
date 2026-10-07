@@ -1,28 +1,30 @@
 """The Demo's services.
 
-`DemoMilling` mills with the demo code (`fibsem.drivers.demo.simulator.DemoMilling`),
-on the microscope's ``milling_system``, so the Demo mills as it did before the
-service. Each hook calls that code's
-method for the step, by its class: the microscope's own method of the same name goes
-to this service, so calling it would come straight back here.
+`DemoMilling` mills on the microscope's simulated ``milling_system``: the patterns, the
+milling state and the application files the demo sets up at construction. The beams
+change only through the microscope's beam methods, so through the beam devices.
 
 Nothing on the Demo ends a mill but the clock, so a ``run`` is timed by the estimate
 it starts with, on simulated time: each wait is ``sim_sleep``, which the test suite
-turns off, and the time counts as it would have passed.
+turns off, and the time counts as it would have passed. A ``start`` alone runs until
+something stops it.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable, Optional, Tuple
+from typing import TYPE_CHECKING, Optional
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.core import ParameterMetadata
-from fibsem.drivers.demo.simulator import SIMULATOR_SCAN_DIRECTIONS
-from fibsem.drivers.demo.simulator import DemoMilling as DemoMillingCode
+from fibsem.drivers.demo.simulator import (
+    SIM_ASYNC_MILLING_EXTRA_TIME,
+    SIMULATOR_SCAN_DIRECTIONS,
+)
 from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import Milling, bind_milling, progress_update
 from fibsem.structures import (
+    ACTIVE_MILLING_STATES,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemLineSettings,
@@ -36,15 +38,17 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.drivers.demo.microscope import DemoMicroscope
 
-# Each pattern type and the demo code that draws it, in the order
-# `FibsemMicroscope.draw_pattern` checks them.
-_DRAW: Tuple[Tuple[type, Callable], ...] = (
-    (FibsemRectangleSettings, DemoMillingCode.draw_rectangle),
-    (FibsemLineSettings, DemoMillingCode.draw_line),
-    (FibsemCircleSettings, DemoMillingCode.draw_circle),
-    (FibsemBitmapSettings, DemoMillingCode.draw_bitmap_pattern),
-    (FibsemPolygonSettings, DemoMillingCode.draw_polygon),
+# The patterns the Demo draws, in the order `FibsemMicroscope.draw_pattern` checks them.
+_DRAWN = (
+    FibsemRectangleSettings,
+    FibsemLineSettings,
+    FibsemCircleSettings,
+    FibsemBitmapSettings,
+    FibsemPolygonSettings,
 )
+_PATTERNING_MODES = ("Serial", "Parallel")
+# simulated seconds each pattern takes
+_PATTERN_TIME = 5
 
 
 class DemoMilling(Milling):
@@ -68,6 +72,9 @@ class DemoMilling(Milling):
         # time it has run for. None outside a run (`start` alone runs until stopped).
         self._run_total: Optional[float] = None
         self._run_elapsed = 0.0
+        # Whether the mill running now was started by `start`, which never ends on
+        # its own here; its estimate adds `SIM_ASYNC_MILLING_EXTRA_TIME`.
+        self._open_ended = False
 
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "application_file":
@@ -76,26 +83,49 @@ class DemoMilling(Milling):
         return super()._setting_metadata(name)
 
     def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
-        # The recipe's beam conditions go through the beam devices (`set`).
-        DemoMillingCode.setup_milling(self.parent, settings)
+        if settings.patterning_mode not in _PATTERNING_MODES:
+            raise ValueError(
+                f"Invalid patterning mode: {settings.patterning_mode}. "
+                f"Must be one of {_PATTERNING_MODES}."
+            )
+        microscope = self.parent
+        system = microscope.milling_system
+        channel = settings.milling_channel
+        microscope.milling_channel = channel
+        microscope.set_channel(channel)
+        system.default_beam_type = channel
+        system.default_application_file = settings.application_file
+        system.patterning_mode = settings.patterning_mode
+        # the recipe's beam conditions go through the beam devices
+        microscope._write_beam("hfw", settings.hfw, channel)
+        microscope._write_beam("current", settings.milling_current, channel)
+        microscope._write_beam("voltage", settings.milling_voltage, channel)
+        self._clear()
+        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
 
     def _draw(self, pattern: FibsemPatternSettings) -> None:
-        for kind, draw in _DRAW:
-            if isinstance(pattern, kind):
-                draw(self.parent, pattern)
-                return
-        logging.warning(f"The Demo does not draw {type(pattern).__name__}.")
+        if not isinstance(pattern, _DRAWN):
+            logging.warning(f"The Demo does not draw {type(pattern).__name__}.")
+            return
+        logging.debug({"msg": "draw_pattern", "pattern_settings": pattern.to_dict()})
+        self.parent.milling_system.patterns.append(pattern)
 
     def read_state(self) -> MillingState:
-        return DemoMillingCode.get_milling_state(self.parent)
+        return self.parent.milling_system.state
+
+    def _set_state(self, state: MillingState) -> None:
+        self.parent.milling_system.state = state
 
     def _start(self) -> None:
-        if self._run_total is None:
-            DemoMillingCode.start_milling(self.parent)
+        if self._run_total is not None:
+            # a timed run, which ends by itself: not an open-ended start
+            self._open_ended = False
+            self._set_state(MillingState.RUNNING)
             return
-        # a timed run, which ends by itself: not an open-ended start
-        self.parent._async_milling = False
-        self.parent.milling_system.state = MillingState.RUNNING
+        if self.read_state() is MillingState.IDLE:
+            self._set_state(MillingState.RUNNING)
+            self._open_ended = True
+            logging.info("Milling started.")
 
     def _before_run(self) -> None:
         # Into the simulated sample from the start, so the scene shows the mill
@@ -104,8 +134,8 @@ class DemoMilling(Milling):
         current = microscope.get_beam_current(microscope.milling_channel)
         microscope._mill_into_sample_scene(current)
         # a stale `start` mustn't stretch a timed run's estimate
-        microscope._async_milling = False
-        self._run_total = DemoMillingCode.estimate_milling_time(microscope)
+        self._open_ended = False
+        self._run_total = self._estimate()
         self._run_elapsed = 0.0
 
     def _poll(self) -> MillingProgress:
@@ -113,7 +143,8 @@ class DemoMilling(Milling):
         if self._run_total is None:
             return progress_update(state=state)
         if state is MillingState.RUNNING and self._run_elapsed >= self._run_total:
-            self.parent.milling_system.state = state = MillingState.IDLE
+            self._set_state(MillingState.IDLE)
+            state = MillingState.IDLE
         return progress_update(
             state=state,
             total=self._run_total,
@@ -127,22 +158,26 @@ class DemoMilling(Milling):
 
     def _after_run(self) -> None:
         self._run_total = None
-        self.parent.milling_system.state = MillingState.IDLE
+        self._set_state(MillingState.IDLE)
 
     def _stop(self) -> None:
-        DemoMillingCode.stop_milling(self.parent)
+        self._set_state(MillingState.IDLE)
+        self._open_ended = False
 
     def _pause(self) -> None:
-        DemoMillingCode.pause_milling(self.parent)
+        self._set_state(MillingState.PAUSED)
 
     def _resume(self) -> None:
-        DemoMillingCode.resume_milling(self.parent)
+        self._set_state(MillingState.RUNNING)
 
     def _estimate(self) -> float:
-        return DemoMillingCode.estimate_milling_time(self.parent)
+        estimate = _PATTERN_TIME * len(self.parent.milling_system.patterns)
+        if self._open_ended and self.read_state() in ACTIVE_MILLING_STATES:
+            estimate += SIM_ASYNC_MILLING_EXTRA_TIME
+        return estimate
 
     def _clear(self) -> None:
-        DemoMillingCode.clear_patterns(self.parent)
+        self.parent.milling_system.patterns = []
 
 
 def bind_demo_milling(microscope: DemoMicroscope) -> Optional[DemoMilling]:

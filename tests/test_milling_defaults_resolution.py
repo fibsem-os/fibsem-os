@@ -13,7 +13,7 @@ simulated ThermoFisher system) both call.
 import pytest
 
 from fibsem.drivers.autoscript.microscope import ThermoMicroscope
-from fibsem.drivers.demo.simulator import DemoMicroscope, DemoMilling
+from fibsem.drivers.demo.simulator import DemoMicroscope
 from fibsem.microscope import FibsemMicroscope
 from tests.fm import _odemis_stubs as stubs
 
@@ -41,14 +41,12 @@ def _owner(cls, name):
 
 
 def test_thermo_runs_and_finishes_milling_through_its_service():
-    from fibsem.drivers.autoscript.microscope import ThermoMilling
     from fibsem.services.milling import ServiceMilling
 
     assert _owner(ThermoMicroscope, "run_milling") is ServiceMilling
     assert _owner(ThermoMicroscope, "finish_milling") is ServiceMilling
-    # without a service, ThermoFisher's own finish, which resets the patterning mode
-    assert "finish_milling" in vars(ThermoMilling)
-    assert _owner(ThermoMicroscope, "get_application_file") is ThermoMilling
+    # application files are its milling service's, not the microscope's
+    assert not hasattr(ThermoMicroscope, "get_application_file")
 
 
 def test_odemis_inherits_rather_than_borrows(odemis_cls):
@@ -63,9 +61,11 @@ def test_demo_runs_and_finishes_milling_through_its_service():
     from fibsem.services.milling import ServiceMilling
 
     assert _owner(DemoMicroscope, "run_milling") is ServiceMilling
-    # the old timed loop is gone: the service's run loop times the Demo's mill
-    assert "run_milling" not in vars(DemoMilling)
     assert _owner(DemoMicroscope, "finish_milling") is ServiceMilling
+    # the Demo's milling code is its service's: the microscope has none of its own
+    assert not hasattr(DemoMicroscope, "set_patterning_mode") or (
+        _owner(DemoMicroscope, "set_patterning_mode") is FibsemMicroscope
+    )
 
 
 def test_application_files_stay_off_the_base_class():
@@ -79,15 +79,16 @@ def test_the_milling_loop_is_each_backend_s_service():
     assert "finish_milling" not in FibsemMicroscope.__abstractmethods__
 
 
-def test_demo_application_file_falls_back_to_the_closest_match():
+def test_an_application_file_falls_back_to_the_closest_match():
     from fibsem import utils
+    from fibsem.util.application_file import match_application_file
 
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
     available = microscope.milling_system.application_files
-    assert microscope.set_default_application_file(available[0]) == available[0]
+    assert match_application_file(available[0], available) == available[0]
     with pytest.raises(ValueError):
-        microscope.set_default_application_file("not-an-application-file")
+        match_application_file("not-an-application-file", available)
     assert (
-        microscope.set_default_application_file(available[0] + "x", strict=False)
+        match_application_file(available[0] + "x", available, strict=False)
         == available[0]
     )
