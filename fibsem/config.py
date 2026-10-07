@@ -33,7 +33,12 @@ from fibsem.drivers import registry
 # v10 added `hardware_geometry.stage_frame` -- the frame the stage position is in,
 # "fibsem" or "tescan_native" (FIB-1114). Absent in earlier files, whose positions
 # are in the frame their backend reported: Tescan's own on a Tescan image.
-METADATA_VERSION = "v10"
+# v11 added `acquisition_datetime` -- when the image was acquired, as ISO 8601 with
+# the acquiring machine's UTC offset (FIB-1190). Absent in earlier files, whose time
+# is `microscope_state.timestamp`: a POSIX float, or AutoScript's naive
+# `%m/%d/%Y %H:%M:%S` string on a ThermoFisher image. Read either through
+# `fibsem.util.timestamps.acquisition_datetime_of`.
+METADATA_VERSION = "v11"
 # What an unversioned file is. Absent means written before versioning existed, i.e.
 # older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
 UNVERSIONED_METADATA = "v0"

@@ -27,6 +27,7 @@ from fibsem.structures import (
     RangeLimit,
     ScanMode,
 )
+from fibsem.util.timestamps import now
 
 
 class Beam(Device):
@@ -143,9 +144,21 @@ class Beam(Device):
                 f"{self.name} can't acquire an image for the "
                 f"{image_settings.beam_type.name} beam"
             )
+        # When the image was acquired, taken just before the driver runs, so every
+        # backend's image carries it (FIB-1190). A driver that reads a time off the
+        # instrument has already set its own, and keeps it.
+        started = now()
         if "scanner" in self.roles:
-            return self._acquire_with_scanner(image_settings)
-        return self._acquire(image_settings)
+            image = self._acquire_with_scanner(image_settings)
+        else:
+            image = self._acquire(image_settings)
+        metadata = getattr(image, "metadata", None)
+        if (
+            hasattr(metadata, "acquisition_datetime")
+            and not metadata.acquisition_datetime
+        ):
+            metadata.acquisition_datetime = started
+        return image
 
     @command(available=lambda beam: implements(beam, "_last_image"))
     def last_image(self) -> FibsemImage:

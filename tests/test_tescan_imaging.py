@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import threading
+from datetime import datetime
 
 import pytest
 
@@ -263,3 +264,17 @@ def test_live_view_runs_on_the_beam_and_reaches_the_old_signal(connected, beam_t
     assert len(fake.calls(f"{column}.Scan.AcquireImage")) >= 3
     # every SDK call of the loop held the connection lock
     assert not [p for p in fake.unlocked if p.endswith("AcquireImage")]
+
+
+@pytest.mark.parametrize("beam_type", [E, I])
+def test_an_image_records_the_headers_time_with_this_machines_offset(
+    connected, beam_type
+):
+    """The header's date and time are the instrument's clock; the image records them
+    as ISO 8601 with the local offset, ahead of the default `Beam.acquire` stamps
+    (FIB-1190). The fake header says 2026-10-05 12:00:00."""
+    microscope, _ = connected
+    image = microscope.acquire_image(_settings(beam_type))
+    expected = datetime(2026, 10, 5, 12, 0, 0).astimezone()
+    assert image.metadata.acquisition_datetime == expected
+    assert microscope.last_image(beam_type).metadata.acquisition_datetime == expected

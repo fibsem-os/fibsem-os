@@ -111,7 +111,7 @@ def make():
 
 
 def _image(image):
-    """An image as plain data: its pixels, settings and state."""
+    """An image as plain data: its pixels, settings, state and acquisition time."""
     metadata = image.metadata
     return {
         "shape": list(image.data.shape),
@@ -119,6 +119,12 @@ def _image(image):
         "settings": metadata.image_settings.to_dict(),
         "pixel_size": [metadata.pixel_size.x, metadata.pixel_size.y],
         "timestamp": metadata.microscope_state.timestamp,
+        # Not in the old recording: added with the field (FIB-1190).
+        "acquisition_datetime": (
+            metadata.acquisition_datetime.isoformat()
+            if metadata.acquisition_datetime is not None
+            else None
+        ),
     }
 
 

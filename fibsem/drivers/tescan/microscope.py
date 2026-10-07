@@ -108,6 +108,7 @@ from fibsem.structures import (  # noqa
     Point,
     SystemSettings,
 )
+from fibsem.util.timestamps import from_posix
 
 
 def _get_beam_settings_from_tescan_md(md: dict, beam_type: BeamType) -> BeamSettings:
@@ -224,6 +225,9 @@ def fromTescanImage(
         image_settings=image_settings,
         microscope_state=ms,
         pixel_size=pixelsize,
+        # The header's date and time, the instrument's clock, read as this machine's
+        # local time when the state was built (FIB-1190).
+        acquisition_datetime=from_posix(ms.timestamp),
     )
 
     return FibsemImage(data=image_data, metadata=deepcopy(md))

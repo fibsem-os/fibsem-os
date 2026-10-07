@@ -13,10 +13,12 @@ recording runs in its own interpreter
 instrument.
 """
 
+import ast
 import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -64,9 +66,54 @@ def test_the_old_methods_did_not_raise(recording):
     assert raised == ["acquire nothing"]
 
 
+# The one deliberate difference from the old methods (FIB-1190): they overwrote the
+# state's timestamp with AutoScript's acquisition_datetime string, so a float field
+# held a string (FIB-487). The state now keeps its own, and the vendor time is the
+# image's acquisition_datetime. Compared separately, below.
+TIMES = ("timestamp", "acquisition_datetime")
+
+
+def _image(result):
+    """A recorded image, which the recording keeps as its dict's repr."""
+    if isinstance(result, str) and result.startswith("{'shape'"):
+        return ast.literal_eval(result)
+    return None
+
+
+def _without_times(case):
+    result, *rest = case
+    image = _image(result)
+    if image is not None:
+        result = {k: v for k, v in image.items() if k not in TIMES}
+    return [result, *rest]
+
+
 def test_the_beam_commands_make_the_same_sdk_calls_logs_and_results(recording):
-    different = [c for c in recording["cases"] if c["old"] != c["new"]]
+    different = [
+        c
+        for c in recording["cases"]
+        if _without_times(c["old"]) != _without_times(c["new"])
+    ]
     assert different == [], json.dumps(different[:2], indent=1)
+
+
+def _images(recording, side):
+    images = (_image(c[side][0]) for c in recording["cases"])
+    return [image for image in images if image is not None]
+
+
+def test_the_vendor_time_is_the_acquisition_time_and_the_state_keeps_its_own(
+    recording,
+):
+    # The fake frame's AutoScript time, read as this machine's local time.
+    vendor = datetime(2026, 10, 5, 6, 0, 0).astimezone().isoformat()
+    new = _images(recording, "new")
+    assert len(new) == 10  # acquire settings, reduced, current, both, last; per beam
+    assert {image["timestamp"] for image in new} == {0.0}  # the state, as read
+    assert {image["acquisition_datetime"] for image in new} == {vendor}
+    # What the old methods wrote in the state instead.
+    old = _images(recording, "old")
+    assert {image["timestamp"] for image in old} == {"2026-10-05 06:00:00"}
 
 
 def test_the_old_methods_go_through_the_beams(recording):
