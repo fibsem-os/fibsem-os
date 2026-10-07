@@ -291,14 +291,12 @@ class DemoMicroscope(
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Any]:
-        # A beam key's values are its parameter's choices, then the configured and
-        # milling ones; a beam key asked without a beam type gets the shared answer.
+        # A beam key's values are its parameter's choices, then the configured ones;
+        # a beam key asked without a beam type gets the shared answer.
         param = self._route(key, beam_type)
         if param is not None and param.choices is not None:
             return list(param.choices)
         configured = self._configured_values(key)
-        if configured is None:
-            configured = self._milling_values(key)
         if configured is not None:
             return configured
         return super().get_available_values(key, beam_type)

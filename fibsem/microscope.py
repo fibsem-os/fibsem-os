@@ -1617,19 +1617,14 @@ class FibsemMicroscope(ABC):
 
         A beam key's values are its beam parameter's choices (the device's metadata,
         read when the beam was built and again when a dependency changes, e.g. the
-        ion currents when the plasma gas does). A key with no device home, or a beam
-        parameter with no choices (the detector modes), is the backend's
-        ``_get_available_values``.
+        ion currents when the plasma gas does, or the detector modes when the
+        detector type does). Any other key, or a beam parameter the beam does not
+        have, has none: the milling keys' choices are the milling service's
+        (``supported_settings``, ``supported_pattern_settings``).
         """
         param = self._beam_parameter(key, beam_type) if key in BEAM_ROUTES else None
         if param is not None and param.choices is not None:
             return list(param.choices)
-        return self._get_available_values(key, beam_type)
-
-    def _get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[Union[str, float, int]]:
-        """The values of a key the devices don't answer: none, unless a backend says."""
         return []
 
     def get_available_values_cached(

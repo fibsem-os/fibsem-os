@@ -257,6 +257,8 @@ beam_type_to_odemis = {
 
 # Pattern settings the Delmic AutoScript adapter (xtadapter 1.16.0) does not pass on.
 ODEMIS_DROPPED_PATTERN_SETTINGS = ("is_exclusion", "passes", "time")
+# The scan directions a pattern can take through the adapter.
+ODEMIS_SCAN_DIRECTIONS = ("TopToBottom", "BottomToTop", "LeftToRight", "RightToLeft")
 
 # xT's vacuum states, as the odemis client documents them, by the names
 # ThermoMicroscope reports. A state not listed here is passed through.
@@ -733,21 +735,6 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
     def _fluorescence_default(self) -> bool:
         """The Odemis stack drives its own FM, and has always built one unasked."""
         return True
-
-    def _get_available_values(self, key: str, beam_type: BeamType = None) -> list:
-        """The values of the keys the beam devices don't answer: application_file,
-        scan_direction and plasma_gas (there is no plasma gas parameter)."""
-        values = []
-        if key == "application_file":
-            values = self.connection.get_available_application_files()
-        if key == "scan_direction":
-            values = ["TopToBottom", "BottomToTop", "LeftToRight", "RightToLeft"]
-        if key == "plasma_gas":
-            values = ["Argon", "Oxygen", "Xenon"]
-
-        logging.debug({"msg": "get_available_values", "key": key, "values": values})
-
-        return values
 
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.

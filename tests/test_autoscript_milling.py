@@ -101,3 +101,6 @@ def test_thermo_mills_with_the_settings_it_says(recording):
     ]
     assert facts["setup_reads"] == facts["supported"]
     assert facts["application_files"] == ["Si", "Si-ccs", "Si-multipass", "Al"]
+    assert (
+        "TopToBottom" in facts["scan_directions"]
+    )  # the fallback a pattern draws with

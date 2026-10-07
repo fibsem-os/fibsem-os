@@ -892,7 +892,9 @@ class ThermoMilling:
             ValueError: If the application file is not available.
         """
         return match_application_file(
-            application_file, self.get_available_values("application_file"), strict
+            application_file,
+            self.connection.patterning.list_all_application_files(),
+            strict,
         )
 
     def set_application_file(
@@ -999,7 +1001,7 @@ class ThermoMilling:
         pattern.is_exclusion_zone = pattern_settings.is_exclusion
 
         # set scan direction
-        available_scan_directions = self.get_available_values("scan_direction")
+        available_scan_directions = TFS_SCAN_DIRECTIONS
 
         if pattern_settings.scan_direction in available_scan_directions:
             pattern.scan_direction = pattern_settings.scan_direction
@@ -1182,7 +1184,7 @@ class ThermoMilling:
         pattern.is_exclusion_zone = pattern_settings.is_exclusion
 
         # set scan direction
-        available_scan_directions = self.get_available_values("scan_direction")
+        available_scan_directions = TFS_SCAN_DIRECTIONS
 
         if pattern_settings.scan_direction in available_scan_directions:
             pattern.scan_direction = pattern_settings.scan_direction
@@ -2045,22 +2047,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         return self.move_manipulator_absolute(saved_position)
 
     manipulator_move_types = ("relative", "corrected")
-
-    def _get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[str]:
-        """The values of the keys the beam devices don't answer: application_file
-        and scan_direction."""
-        values = []
-        if key == "application_file":
-            values = self.connection.patterning.list_all_application_files()
-
-        if key == "scan_direction":
-            values = TFS_SCAN_DIRECTIONS
-
-        logging.debug({"msg": "get_available_values", "key": key, "values": values})
-
-        return values
 
     def _beam_device(self, beam_type: BeamType) -> Any:
         """The beam device for ``beam_type``; a column disabled in the config has none."""

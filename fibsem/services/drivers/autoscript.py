@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 from fibsem.devices.core import ParameterMetadata
-from fibsem.microscopes.autoscript import ThermoMilling
+from fibsem.microscopes.autoscript import TFS_SCAN_DIRECTIONS, ThermoMilling
 from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
     FibsemBitmapSettings,
@@ -54,6 +54,7 @@ class AutoScriptMilling(Milling):
         "application_file",
         "patterning_mode",
     )
+    scan_directions = tuple(TFS_SCAN_DIRECTIONS)
 
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "application_file":
