@@ -43,7 +43,7 @@ _app = QApplication.instance() or QApplication(sys.argv)
 
 def _microscope():
     from fibsem import utils
-    from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 
     microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0

@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from fibsem.microscopes.autoscript import THERMO_API_AVAILABLE
+from fibsem.drivers.autoscript.microscope import THERMO_API_AVAILABLE
 from fibsem.structures import (
     AutoFocusMode,
     BeamSettings,

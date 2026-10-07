@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 import fibsem.config as cfg
-import fibsem.microscopes
+import fibsem.drivers
 from fibsem import microscope as microscope_module
 from fibsem import utils
 from fibsem.applications.autolamella.event_recording import (
@@ -25,13 +25,13 @@ from fibsem.applications.autolamella.event_recording import (
     EventRecorder,
     read_events,
 )
+from fibsem.drivers.autoscript.microscope import ThermoMicroscope
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
     _records_stage_move,
 )
-from fibsem.microscopes.autoscript import ThermoMicroscope
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition
 
 
@@ -249,17 +249,19 @@ def test_a_tescan_stable_move_is_one_event_not_three(monkeypatch):
 
 
 def _backends():
-    """Every concrete microscope class in ``fibsem.microscopes``."""
-    for module in pkgutil.iter_modules(fibsem.microscopes.__path__):
+    """Every concrete microscope class in a driver's ``microscope.py``."""
+    for driver in pkgutil.iter_modules(fibsem.drivers.__path__):
+        if not driver.ispkg:
+            continue
         try:
-            importlib.import_module(f"fibsem.microscopes.{module.name}")
-        except ImportError:  # a vendor SDK this machine lacks (odemis)
+            importlib.import_module(f"fibsem.drivers.{driver.name}.microscope")
+        except ImportError:  # remote has none, or a vendor SDK this machine lacks
             continue
     found, pending = set(), [FibsemMicroscope]
     while pending:
         for cls in pending.pop().__subclasses__():
             pending.append(cls)
-            if cls.__module__.startswith("fibsem.microscopes."):
+            if cls.__module__.startswith("fibsem.drivers."):
                 found.add(cls)
     return sorted(
         (cls for cls in found if not inspect.isabstract(cls)),

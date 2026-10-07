@@ -16,9 +16,9 @@ from typing import List, Optional, Tuple
 
 import pytest
 
+from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.imaging.spot import SpotBurnSettings
-from fibsem.microscopes import tescan as tescan_module
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, MillingState, Point
 from tests.fixtures.milling_reads import own_milling_code
 

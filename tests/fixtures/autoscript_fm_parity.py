@@ -92,7 +92,7 @@ def _install_fake_sdk():
         setattr(enums, name, value)
     structs.GrabFrameSettings = GrabFrameSettings
     structs.Limits = Limits
-    # Anything else fibsem.microscopes.autoscript imports, by name.
+    # Anything else fibsem.drivers.autoscript.microscope imports, by name.
     for module in (proxies, enums, structs):
         module.__getattr__ = lambda name: type(name, (), {})
     for module in (package, build, proxies, enums, structs):
@@ -263,7 +263,7 @@ def make_connection(objective, filter_mode):
 # -- the drivers, over a fake connection ------------------------------------------------
 
 from fibsem.devices.core import IMAGING_CHANNEL, Resources  # noqa: E402
-from fibsem.devices.drivers.autoscript_fm import (  # noqa: E402
+from fibsem.drivers.autoscript.devices import (  # noqa: E402
     MULTI_BAND,
     bind_autoscript_fm,
 )
@@ -842,7 +842,7 @@ def _thermo_microscope_fm():
     """What a Thermo microscope builds its FM from."""
     from types import SimpleNamespace
 
-    import fibsem.microscopes.autoscript as A
+    import fibsem.drivers.autoscript.microscope as A
     from fibsem.structures import CameraImageTransform, FluorescenceSystemSettings
 
     microscope = object.__new__(A.ThermoMicroscope)

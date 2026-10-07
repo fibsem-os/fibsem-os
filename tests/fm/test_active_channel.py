@@ -6,8 +6,8 @@ read the objective on every stage poll, a beam acquisition that had set its own 
 found the FM instead. It stopped a workflow task.
 
 The Thermo FM devices' channel (`AutoscriptFMChannel` in
-`fibsem/devices/drivers/autoscript_fm.py`) cannot be imported without the AutoScript SDK,
-which is not installed off the microscope, so the scope is exercised against a stub
+`fibsem/drivers/autoscript/devices.py`) needs the AutoScript SDK to run, which is not
+installed off the microscope, so the scope is exercised against a stub
 connection through a stub of it rather than the real import. What is under test is the contract --
 capture, set, restore, restore-on-failure -- not the SDK.
 """
@@ -43,8 +43,8 @@ class _Connection:
 class _FM:
     """`AutoscriptFMChannel`'s channel handling, without the SDK import.
 
-    Copied rather than imported: `fibsem/devices/drivers/autoscript_fm.py` imports
-    `autoscript_sdb_microscope_client` at module scope, which is absent off the
+    Copied rather than imported: `fibsem/drivers/autoscript/devices.py` imports
+    `autoscript_sdb_microscope_client` when it runs, which is absent off the
     microscope. `TestTheDeviceChannelMatches` pins the real source's shape so the two
     cannot drift.
     """
@@ -224,11 +224,11 @@ class TestTheDeviceChannelMatches:
         import ast
         from pathlib import Path
 
-        import fibsem.devices.drivers as drivers
+        import fibsem
 
-        source = (Path(drivers.__file__).parent / "autoscript_fm.py").read_text(
-            encoding="utf-8"
-        )
+        source = (
+            Path(fibsem.__file__).parent / "drivers" / "autoscript" / "devices.py"
+        ).read_text(encoding="utf-8")
         cls = next(
             node
             for node in ast.walk(ast.parse(source))

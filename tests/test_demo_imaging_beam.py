@@ -110,7 +110,7 @@ def test_a_disabled_beam_does_not_image(microscope):
     the other backends, rather than running the Demo's imaging code without one."""
     from copy import deepcopy
 
-    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.drivers.demo.microscope import DemoMicroscope
 
     system = deepcopy(microscope.system)
     system.ion.enabled = False

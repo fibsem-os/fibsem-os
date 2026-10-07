@@ -1,6 +1,6 @@
 """The Odemis FM drivers make the odemis calls the old Odemis FM class made.
 
-``fibsem.devices.drivers.odemis_fm`` is the old ``OdemisFluorescenceMicroscope``'s
+``fibsem.drivers.odemis.devices`` is the old ``OdemisFluorescenceMicroscope``'s
 parts moved onto the FM devices. Each case runs a device call over a stub odemis
 (``_odemis_stubs``) whose components and stream record every read, write and call, and
 compares it with the pin of the matching old call: its result and its odemis calls,
@@ -163,7 +163,7 @@ def odemis():
     sys.modules["odemis.model"].hasVA = _has_va
     sys.modules["odemis.acq.stream"].FluoStream = _fluo_stream
     sys.modules["odemis.acq.acqmng"].acquire = _acquire
-    import fibsem.devices.drivers.odemis_fm as drivers
+    import fibsem.drivers.odemis.devices as drivers
     import fibsem.fm.odemis as fm_odemis
 
     yield fm_odemis, drivers
@@ -921,7 +921,7 @@ def test_api_live_view_runs_the_stream_as_the_old_live_view(odemis, channel):
 def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
     from types import SimpleNamespace
 
-    import fibsem.microscopes.odemis_microscope as odemis_microscope
+    import fibsem.drivers.odemis.microscope as odemis_microscope
     from fibsem.structures import CameraImageTransform, FluorescenceSystemSettings
 
     microscope = odemis_microscope.OdemisThermoMicroscope.__new__(

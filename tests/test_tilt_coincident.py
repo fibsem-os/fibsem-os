@@ -18,7 +18,7 @@ from fibsem.alignment.coincidence import (
     check_coincidence,
     tilt_coincident,
 )
-from fibsem.microscopes.sim_scene import SampleScene
+from fibsem.drivers.demo.sim_scene import SampleScene
 
 # The geometry under test is a pre-tilted TFS shuttle; pin it rather than
 # inherit whatever configuration an earlier test left as the default

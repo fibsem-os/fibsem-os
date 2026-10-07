@@ -14,14 +14,14 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.devices.drivers.tescan import (
+from fibsem.devices.stage import UNLIMITED
+from fibsem.drivers.tescan.devices import (
     TILT_AXIS_Z,
     TescanStage,
     bind_tescan_stage,
     from_tescan_frame,
     to_tescan_frame,
 )
-from fibsem.devices.stage import UNLIMITED
 from fibsem.structures import STAGE_FRAME_FIBSEM, BeamType, FibsemStagePosition
 from tests.fixtures.tescan_sdk import connect
 

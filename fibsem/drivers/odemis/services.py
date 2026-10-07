@@ -2,7 +2,7 @@
 
 `OdemisMilling` mills on the Delmic AutoScript adapter with the code
 ``OdemisThermoMicroscope`` has always milled with
-(`fibsem.microscopes.odemis_microscope.OdemisPatterning`): the per-pattern application
+(`fibsem.drivers.odemis.microscope.OdemisPatterning`): the per-pattern application
 file, and the patterning state read on the milling channel. Each hook calls that
 code's method for the step, by its class: the microscope's own method of the same name
 goes to this service, so calling it would come straight back here.
@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 from fibsem.devices.core import ParameterMetadata
-from fibsem.microscopes.odemis_microscope import (
+from fibsem.drivers.odemis.microscope import (
     ODEMIS_SCAN_DIRECTIONS,
     OdemisPatterning,
 )
@@ -30,7 +30,7 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
 # Each pattern type and the code that draws it, in the order
 # `FibsemMicroscope.draw_pattern` checks them.

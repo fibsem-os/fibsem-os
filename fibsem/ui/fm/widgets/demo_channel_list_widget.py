@@ -8,8 +8,8 @@ import sys
 
 from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
-from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
 
 

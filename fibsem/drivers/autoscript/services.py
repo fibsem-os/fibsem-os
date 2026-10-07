@@ -1,7 +1,7 @@
 """ThermoFisher's services.
 
 `AutoScriptMilling` mills on AutoScript's ``connection.patterning`` with the code
-``ThermoMicroscope`` has always milled with (`fibsem.microscopes.autoscript.ThermoMilling`):
+``ThermoMicroscope`` has always milled with (`fibsem.drivers.autoscript.microscope.ThermoMilling`):
 the per-pattern application file, the Serial mode cross-sections need, and the
 patterning state read in the milling view, under the imaging channel's lock. Each
 hook calls that code's method for the step, by its class: the microscope's own
@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 from fibsem.devices.core import ParameterMetadata
-from fibsem.microscopes.autoscript import TFS_SCAN_DIRECTIONS, ThermoMilling
+from fibsem.drivers.autoscript.microscope import TFS_SCAN_DIRECTIONS, ThermoMilling
 from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
     FibsemBitmapSettings,
@@ -28,7 +28,7 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.microscopes.autoscript import ThermoMicroscope
+    from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 
 # Each pattern type and the code that draws it, in the order
 # `FibsemMicroscope.draw_pattern` checks them.

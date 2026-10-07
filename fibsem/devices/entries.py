@@ -7,7 +7,7 @@ the devices to build, in order, each with the driver that builds it, and
 `build_device_entries` builds each with its driver's builder for its type.
 
 Which builders a driver has is the driver's own record (`DriverEntry.devices`,
-`fibsem.microscopes.registry.device_builder`). A builder takes the entry and a
+`fibsem.drivers.registry.device_builder`). A builder takes the entry and a
 `BuildContext`: the microscope being connected, the devices built before it, and
 scratch space its driver's builders share for the connect.
 """
@@ -31,8 +31,8 @@ from fibsem import manufacturers
 from fibsem.structures import DeviceEntry, read_device_entries
 
 if TYPE_CHECKING:
+    from fibsem.drivers.registry import DeviceBuilder
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.microscopes.registry import DeviceBuilder
     from fibsem.structures import SystemSettings
 
 # The driver for a device on its own PC, reached through the device server.
@@ -151,7 +151,7 @@ def build_device_entries(
     a `required` one (`DeviceBuildError`), and logs a warning and goes on without it
     for any other. Returns the built devices by name, in the order they were built.
     """
-    from fibsem.microscopes.registry import BuildContext
+    from fibsem.drivers.registry import BuildContext
 
     built: Dict[str, Any] = {}
     context = BuildContext(
@@ -176,7 +176,7 @@ def build_device_entries(
 def _builder(item: ResolvedEntry) -> Optional["DeviceBuilder"]:
     """The builder *item*'s driver has for its type; None for a driver nothing is
     registered as, too."""
-    from fibsem.microscopes.registry import device_builder
+    from fibsem.drivers.registry import device_builder
 
     try:
         return device_builder(item.driver, item.type)

@@ -144,7 +144,12 @@ _DEVICE_KEYS = frozenset(
 _BEAM_KEYS_WITHOUT_BEAM = frozenset(("plasma_gas", "preset"))
 # Modules that implement the old API, whose own get/set calls are not deprecated: the
 # named wrappers here, the backends, and the device router.
-_KEY_API_MODULES = ("fibsem.microscope", "fibsem.microscopes.", "fibsem.devices.")
+_KEY_API_MODULES = (
+    "fibsem.microscope",
+    "fibsem.microscopes.",
+    "fibsem.drivers.",
+    "fibsem.devices.",
+)
 
 
 # Whether a stage move is being recorded on this thread. A move is often made of
@@ -4271,7 +4276,7 @@ class FibsemMicroscope(ABC):
         return manufacturers.THERMOFISHER
 
 
-# `ThermoMicroscope` moved to `fibsem.microscopes.autoscript`. These names are served
+# `ThermoMicroscope` moved to `fibsem.drivers.autoscript.microscope`. These names are served
 # lazily so `from fibsem.microscope import ThermoMicroscope` keeps working for external
 # scripts and plugins, without this module importing the AutoScript backend at load.
 _MOVED_TO_AUTOSCRIPT = frozenset(
@@ -4282,12 +4287,12 @@ _MOVED_TO_AUTOSCRIPT = frozenset(
 def __getattr__(name: str) -> Any:
     if name in _MOVED_TO_AUTOSCRIPT:
         warnings.warn(
-            f"fibsem.microscope.{name} has moved to fibsem.microscopes.autoscript; "
+            f"fibsem.microscope.{name} has moved to fibsem.drivers.autoscript.microscope; "
             "import it from there.",
             DeprecationWarning,
             stacklevel=2,
         )
-        from fibsem.microscopes import autoscript
+        from fibsem.drivers.autoscript import microscope as autoscript
 
         return getattr(autoscript, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

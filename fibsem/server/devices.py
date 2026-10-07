@@ -17,7 +17,7 @@ The far side of a remote device (the METEOR PC, say). It wraps any
     WS   /events                               {"device", "parameter", "kind", "value"},
                                                with pings as a heartbeat
 
-The coordinator side is ``fibsem.devices.drivers.remote``. A write runs the device's
+The coordinator side is ``fibsem.drivers.remote.devices``. A write runs the device's
 ``set_value``, so the server checks every value itself, whatever the client did.
 Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
@@ -36,7 +36,7 @@ INSTALLATION.md, "Delmic METEOR"):
 
     python -m fibsem.server.devices --serve odemis-fm --host 0.0.0.0
 
-    from fibsem.devices.drivers.remote import connect_remote_beams   # terminal 2
+    from fibsem.drivers.remote.devices import connect_remote_beams   # terminal 2
     beams = connect_remote_beams("127.0.0.1", 8765)
 """
 
@@ -373,7 +373,7 @@ def demo_devices() -> List[Device]:
 def demo_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
     """The Demo FM's parts and group, on their own, as a METEOR PC would serve its
     FM. *config* is the FM's configuration keys, as an fm entry states them."""
-    from fibsem.devices.drivers.demo import bind_demo_fm
+    from fibsem.drivers.demo.devices import bind_demo_fm
 
     return list(bind_demo_fm(config=config).values())
 
@@ -393,7 +393,7 @@ def odemis_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device
     """
     try:
         import fibsem.fm.odemis  # noqa: F401
-        from fibsem.devices.drivers.odemis_fm import bind_odemis_fm
+        from fibsem.drivers.odemis.devices import bind_odemis_fm
     except ImportError as e:
         raise RuntimeError(
             f"odemis cannot be imported here ({e}). Serve the odemis FM from the "

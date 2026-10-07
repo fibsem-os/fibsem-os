@@ -139,9 +139,9 @@ def odemis_cls():
     for name in stubs.ODEMIS_MODULE_NAMES + stubs.FIBSEM_ODEMIS_MODULE_NAMES:
         if name in sys.modules:
             saved[name] = sys.modules.pop(name)
-    sys.modules.pop("fibsem.devices.drivers.odemis", None)
+    sys.modules.pop("fibsem.drivers.odemis.devices", None)
     stubs.install_odemis_stubs()
-    from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
     yield OdemisThermoMicroscope
 
@@ -524,7 +524,7 @@ def test_the_cases_make_odemis_calls():
 
 
 def test_creating_the_microscope_builds_the_beams_and_stage(odemis_cls):
-    from fibsem.devices.drivers.odemis import OdemisBeam, OdemisChamber, OdemisStage
+    from fibsem.drivers.odemis.devices import OdemisBeam, OdemisChamber, OdemisStage
 
     microscope = make(odemis_cls)
     assert set(microscope.beams) == {BeamType.ELECTRON, BeamType.ION}
@@ -629,7 +629,7 @@ def test_a_device_that_cannot_be_built_fails_the_connection(odemis_cls):
 
 def test_the_odemis_driver_has_builders_for_its_devices():
     from fibsem import manufacturers
-    from fibsem.microscopes.registry import device_builder
+    from fibsem.drivers.registry import device_builder
 
     for device_type in ("beam", "stage", "chamber"):
         assert device_builder(manufacturers.ODEMIS, device_type) is not None

@@ -2,7 +2,7 @@
 without an odemis installation or a running backend.
 
 Install with install_odemis_stubs() BEFORE importing fibsem.fm.odemis (or
-fibsem.microscopes.odemis_microscope). The stubs mimic the odemis conventions
+fibsem.drivers.odemis.microscope). The stubs mimic the odemis conventions
 that matter to the driver:
 
 - excitation/emission/power stream VAs in SI units (bands in metres, power in
@@ -57,9 +57,9 @@ ODEMIS_MODULE_NAMES = (
 # fibsem modules bound to the odemis import; must be re-imported against stubs
 FIBSEM_ODEMIS_MODULE_NAMES = (
     "fibsem.fm.odemis",
-    "fibsem.microscopes.odemis_microscope",
-    "fibsem.devices.drivers.odemis_fm",
-    "fibsem.services.drivers.odemis",
+    "fibsem.drivers.odemis.microscope",
+    "fibsem.drivers.odemis.devices",
+    "fibsem.drivers.odemis.services",
 )
 
 

@@ -229,7 +229,7 @@ def test_a_remote_fm_is_not_looked_for_on_the_beams_connection(tmp_path):
     remote FM offline, waiting for its server; without it, none. Either way, never
     the simulated iFLM. The remote FM itself is `tests/server/test_remote_fm_api.py`.
     """
-    from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 
     settings = utils.load_yaml(IFLM_CONFIG)
     utils.configuration_device(settings, "fm").update(

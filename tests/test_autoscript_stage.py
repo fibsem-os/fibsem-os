@@ -11,7 +11,7 @@ Cases: the limits read at connect, position/homed/linked reads, home and link, a
 absolute and relative moves over the orientations, partial poses, and the compustage
 axis restrictions with and without an inserted objective.
 
-The fake SDK has to be in place before ``fibsem.microscopes.autoscript`` is first
+The fake SDK has to be in place before ``fibsem.drivers.autoscript.microscope`` is first
 imported, so the recording runs in its own interpreter
 (``tests/fixtures/autoscript_stage_parity.py``). Nothing here has run on an
 instrument.

@@ -174,7 +174,7 @@ class TestARotatedCompustagePoseIsUnreachable:
     """
 
     def test_a_compustage_has_no_rotation_axis(self):
-        from fibsem.microscopes.simulator import STAGE_LIMITS_COMPUSTAGE
+        from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
 
         assert "r" not in STAGE_LIMITS_COMPUSTAGE
         assert set(STAGE_LIMITS_COMPUSTAGE) == {"x", "y", "z", "t"}
@@ -187,7 +187,7 @@ class TestARotatedCompustagePoseIsUnreachable:
         read the source. Located through the module rather than by relative path, which
         would depend on pytest's working directory.
         """
-        from fibsem.microscopes import autoscript as autoscript_module
+        from fibsem.drivers.autoscript import microscope as autoscript_module
 
         with io.open(autoscript_module.__file__, encoding="utf-8") as handle:
             source = handle.read()

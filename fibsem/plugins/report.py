@@ -300,7 +300,7 @@ _GROUPS: Tuple[Tuple[str, str, str, Callable[[], ExtensionGroup]], ...] = (
     _group(
         "fibsem.drivers",
         "Microscope drivers",
-        "fibsem.microscopes.registry",
+        "fibsem.drivers.registry",
         "DRIVER_PLUGINS",
     ),
 )

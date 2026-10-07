@@ -156,8 +156,8 @@ class TestTheCoincidenceStrategy:
 # has somewhere honest to sit.
 EMITTERS = {
     "microscope.py": True,
-    "microscopes/simulator.py": True,
-    "microscopes/tescan.py": True,
+    "drivers/demo/simulator.py": True,
+    "drivers/tescan/microscope.py": True,
     "milling/strategy/standard.py": True,
     "milling/strategy/coincidence.py": True,
     "milling/tasks.py": True,

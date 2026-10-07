@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 
 from fibsem.devices.core import ParameterReadOnly
-from fibsem.devices.drivers.demo import bind_demo_fm
+from fibsem.drivers.demo.devices import bind_demo_fm
+from fibsem.drivers.demo.simulator import SIM_CAMERA_EXPOSURE_LIMITS
 from fibsem.fm.structures import (
     OBJECTIVE_STATES,
     REFLECTION,
@@ -16,7 +17,6 @@ from fibsem.fm.structures import (
     objective_device_state,
     objective_state_name,
 )
-from fibsem.microscopes.simulator import SIM_CAMERA_EXPOSURE_LIMITS
 from fibsem.structures import InsertableDeviceState
 
 

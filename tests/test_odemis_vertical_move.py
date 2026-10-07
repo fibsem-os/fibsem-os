@@ -23,8 +23,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition
 from tests.fm import _odemis_stubs as stubs
 
@@ -40,7 +40,7 @@ def odemis_microscope_cls():
             saved[name] = sys.modules.pop(name)
 
     stubs.install_odemis_stubs()
-    from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
     yield OdemisThermoMicroscope
 

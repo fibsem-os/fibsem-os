@@ -1,5 +1,5 @@
 """A `hardware.devices` entry with `driver: remote` builds a device served by a device
-server at its `address` and `port` (``fibsem.devices.drivers.remote``), over
+server at its `address` and `port` (``fibsem.drivers.remote.devices``), over
 localhost.
 
 The entry's name is the device's name on the server, and entries at one address
@@ -19,17 +19,17 @@ import yaml  # noqa: E402
 
 import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
-from fibsem.devices.drivers.remote import (  # noqa: E402
-    RemoteBeam,
-    RemoteCamera,
-    RemoteObjective,
-)
 from fibsem.devices.entries import (  # noqa: E402
     DeviceBuildError,
     build_device_entries,
     resolve_device_entries,
 )
-from fibsem.microscopes.registry import device_builder  # noqa: E402
+from fibsem.drivers.registry import device_builder  # noqa: E402
+from fibsem.drivers.remote.devices import (  # noqa: E402
+    RemoteBeam,
+    RemoteCamera,
+    RemoteObjective,
+)
 from fibsem.server.devices import (  # noqa: E402
     DeviceServer,
     demo_devices,

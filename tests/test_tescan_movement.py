@@ -20,7 +20,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes.tescan import TescanMicroscope
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition
 
 TESCAN_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")

@@ -1,7 +1,7 @@
 """Tescan's services.
 
 `TescanMilling` mills on DrawBeam with the code ``TescanMicroscope`` has always milled
-with (`fibsem.microscopes.tescan.TescanDrawBeam`): a layer made from the milling
+with (`fibsem.drivers.tescan.microscope.TescanDrawBeam`): a layer made from the milling
 preset on the ion column, and a second connection to stop it from another thread.
 Each hook calls that code's method for the step, by its class: the microscope's own
 method of the same name goes to this service, so calling it would come straight back
@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata
-from fibsem.microscopes import tescan
-from fibsem.microscopes.tescan import (
+from fibsem.drivers.tescan import microscope as tescan
+from fibsem.drivers.tescan.microscope import (
     DEFAULT_IMAGING_PRESET,
     TESCAN_SCAN_DIRECTIONS,
     TescanDrawBeam,
@@ -40,7 +40,7 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.microscopes.tescan import TescanMicroscope
+    from fibsem.drivers.tescan.microscope import TescanMicroscope
 
 # Each pattern type and the code that draws it, in the order
 # `FibsemMicroscope.draw_pattern` checks them.

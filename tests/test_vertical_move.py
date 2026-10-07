@@ -39,7 +39,7 @@ def microscope():
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = 0.0
     microscope._setup_sample_scene()
-    from fibsem.microscopes.sim_scene import SampleScene
+    from fibsem.drivers.demo.sim_scene import SampleScene
 
     microscope._sample_scene = SampleScene(
         coincidence_offset=0.0,

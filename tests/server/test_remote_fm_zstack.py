@@ -14,8 +14,8 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
-from fibsem.devices.drivers.demo import bind_demo_fm  # noqa: E402
-from fibsem.devices.drivers.remote import DeviceClient  # noqa: E402
+from fibsem.drivers.demo.devices import bind_demo_fm  # noqa: E402
+from fibsem.drivers.remote.devices import DeviceClient  # noqa: E402
 from fibsem.fm.acquisition import acquire_z_stack  # noqa: E402
 from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
 from fibsem.fm.progress import FluorescenceAcquisitionStatus  # noqa: E402

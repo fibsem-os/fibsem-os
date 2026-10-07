@@ -3,7 +3,7 @@
 Run as a script, in its own interpreter, for the same reason as
 ``autoscript_stage_parity.py``, whose fake SDK and recorder it reuses: the fake
 ``autoscript_sdb_microscope_client`` must be in ``sys.modules`` before
-``fibsem.microscopes.autoscript`` is imported. It writes JSON to the path it is given:
+``fibsem.drivers.autoscript.microscope`` is imported. It writes JSON to the path it is given:
 ``cases``, each holding what a ``get``/``set`` returned, the SDK calls and writes it
 made and the messages it logged on the microscope with its beam keys routed to
 ``AutoscriptBeam`` (the old branches' are in ``autoscript_old_calls.json``, recorded
@@ -24,7 +24,7 @@ import autoscript_stage_parity as S  # noqa: E402  (installs the fake SDK)
 logging.disable(logging.NOTSET)
 
 from fibsem.devices.beam import BEAM_ROUTES  # noqa: E402
-from fibsem.devices.drivers.autoscript import bind_autoscript_beams  # noqa: E402
+from fibsem.drivers.autoscript.devices import bind_autoscript_beams  # noqa: E402
 from fibsem.structures import BeamType, FibsemRectangle, Point  # noqa: E402
 
 A, LOG, STRUCTS, Node = S.A, S.LOG, S.STRUCTS, S.Node

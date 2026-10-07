@@ -2,7 +2,7 @@
 
 Run as a script, in its own interpreter: it installs a fake
 ``autoscript_sdb_microscope_client`` in ``sys.modules`` before importing
-``fibsem.microscopes.autoscript``, which must see the SDK at import. It writes JSON to
+``fibsem.drivers.autoscript.microscope``, which must see the SDK at import. It writes JSON to
 the path it is given: ``cases``, each holding the driver's result and SDK log, and the
 old call's on a microscope routed as connect routes it, for the test to compare with
 the old code's (``autoscript_old_calls.json``, recorded over this fake before it was
@@ -27,7 +27,7 @@ logging.disable(logging.CRITICAL)
 
 import numpy as np  # noqa: E402
 
-# -- a fake AutoScript SDK, just enough for fibsem.microscopes.autoscript ------------
+# -- a fake AutoScript SDK, just enough for fibsem.drivers.autoscript.microscope ------------
 
 
 class _Struct:
@@ -206,9 +206,9 @@ class FakeStage(Node):
 
 
 import fibsem.config as cfg  # noqa: E402
-import fibsem.microscopes.autoscript as A  # noqa: E402
+import fibsem.drivers.autoscript.microscope as A  # noqa: E402
 from fibsem import utils  # noqa: E402
-from fibsem.devices.drivers.autoscript import (  # noqa: E402
+from fibsem.drivers.autoscript.devices import (  # noqa: E402
     AutoscriptCompustage,
     bind_autoscript_stage,
 )

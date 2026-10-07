@@ -17,10 +17,10 @@ import pytest
 
 import fibsem.config as fibsem_config
 from fibsem import utils
+from fibsem.drivers.autoscript.microscope import ThermoMicroscope
+from fibsem.drivers.demo.simulator import DemoMicroscope
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.autoscript import ThermoMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType
 
 CONFIG_PATH = os.path.join(

@@ -448,7 +448,7 @@ class FibsemStagePosition:
     Methods:
         to_dict(): Convert the stage position object to a dictionary.
         from_dict(data: dict): Create a new stage position object from a dictionary.
-        See fibsem.microscopes.autoscript for AutoScript conversion utilities (stage_position_to_autoscript, stage_position_from_autoscript).
+        See fibsem.drivers.autoscript.microscope for AutoScript conversion utilities (stage_position_to_autoscript, stage_position_from_autoscript).
     """
 
     name: Optional[str] = None
@@ -682,7 +682,7 @@ class FibsemManipulatorPosition:
     Methods:
         to_dict(): Convert the manipulator position object to a dictionary.
         from_dict(data: dict): Create a new manipulator position object from a dictionary.
-        See fibsem.microscopes.autoscript for AutoScript conversion utilities (manipulator_position_to_autoscript, manipulator_position_from_autoscript).
+        See fibsem.drivers.autoscript.microscope for AutoScript conversion utilities (manipulator_position_to_autoscript, manipulator_position_from_autoscript).
         to_tescan_position(): Convert the manipulator position to a format that is compatible with Tescan.
         from_tescan_position(): Create a new FibsemManipulatorPosition object from a Tescan-compatible manipulator position.
     """
@@ -2831,7 +2831,7 @@ class SystemInfo:
     # happens on first use rather than at import of this module.
     fibsem_revision: Optional[str] = field(default_factory=get_revision)
     # The port the driver connects on. None uses the port its driver registers
-    # (``fibsem.microscopes.registry``): 7520 for ThermoFisher, 8300 for Tescan.
+    # (``fibsem.drivers.registry``): 7520 for ThermoFisher, 8300 for Tescan.
     port: Optional[int] = None
 
     def to_dict(self):

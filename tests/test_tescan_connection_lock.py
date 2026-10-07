@@ -20,8 +20,8 @@ import inspect
 import threading
 import time
 
-from fibsem.microscopes import tescan as tescan_module
-from fibsem.microscopes.tescan import TescanMicroscope
+from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import BeamType, MillingState
 from tests.fixtures.milling_reads import own_milling_code
 

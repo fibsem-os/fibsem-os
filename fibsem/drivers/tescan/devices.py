@@ -39,8 +39,8 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.microscopes.registry import BuildContext
-    from fibsem.microscopes.tescan import TescanMicroscope
+    from fibsem.drivers.registry import BuildContext
+    from fibsem.drivers.tescan.microscope import TescanMicroscope
     from fibsem.structures import DeviceEntry
 
 # What get_available_values lists for "current" (the old method's hard-coded list).
@@ -185,7 +185,7 @@ class TescanBeam(Beam):
             return self._beam.Optics.GetViewfield() * constants.MILLIMETRE_TO_METRE
 
     def write_hfw(self, value: float) -> None:
-        from fibsem.microscopes.tescan import LIMITS
+        from fibsem.drivers.tescan.microscope import LIMITS
 
         with self._lock:
             beam = self._prepared()
@@ -195,7 +195,7 @@ class TescanBeam(Beam):
             logging.info(f"{self.beam_type.name} HFW set to {value} m.")
 
     def metadata_hfw(self) -> ParameterMetadata:
-        from fibsem.microscopes.tescan import LIMITS
+        from fibsem.drivers.tescan.microscope import LIMITS
 
         low, high = LIMITS[self.beam_type]["hfw"]
         return ParameterMetadata(limits=RangeLimit(min=low, max=high))
@@ -349,7 +349,7 @@ class TescanBeam(Beam):
     # before, and the SDK call holds the connection lock for the whole frame (FIB-786).
 
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
-        from fibsem.microscopes import tescan
+        from fibsem.drivers.tescan import microscope as tescan
 
         microscope = self.parent
         beam_type = self.beam_type
@@ -599,7 +599,7 @@ class TescanStage(Stage):
         )
 
     def read_position(self) -> FibsemStagePosition:
-        from fibsem.microscopes.tescan import from_tescan_stage_position
+        from fibsem.drivers.tescan.microscope import from_tescan_stage_position
 
         with self._lock:
             position = self.parent.connection.Stage.GetPosition()
@@ -631,7 +631,7 @@ class TescanStage(Stage):
         return FibsemStagePosition(x=x, y=y, z=z, r=position.r, t=position.t)
 
     def _move_absolute(self, position: FibsemStagePosition) -> None:
-        from fibsem.microscopes.tescan import to_tescan_stage_position
+        from fibsem.drivers.tescan.microscope import to_tescan_stage_position
 
         logging.info(f"Moving stage to {position}.")
         x, y, z, r, t = to_tescan_stage_position(position=self._native(position))

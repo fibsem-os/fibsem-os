@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
-from fibsem.devices.drivers.remote import (  # noqa: E402
+from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
     RemoteCamera,
     RemoteFM,
@@ -101,7 +101,7 @@ def test_an_objective_move_runs_on_the_server_and_its_state_follows(served):
 
 
 def test_a_guard_read_fails_closed_when_the_fm_computer_is_gone(served):
-    from fibsem.devices.drivers.remote import RemoteDeviceUnreachable
+    from fibsem.drivers.remote.devices import RemoteDeviceUnreachable
 
     _, remote = served
     remote["fm"].client._session.close()

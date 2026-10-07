@@ -19,7 +19,7 @@ import threading
 
 import pytest
 
-from fibsem.microscopes.simulator import FM_ACTIVE_DEVICE, FM_ACTIVE_VIEW
+from fibsem.drivers.demo.simulator import FM_ACTIVE_DEVICE, FM_ACTIVE_VIEW
 from fibsem.structures import BeamType, ImageSettings
 
 STOLEN = "Imaging channel changed"
@@ -169,7 +169,7 @@ class TestTheBeamNoticesATheft:
             if seconds == during_the_frame:
                 microscope.fm.set_active_channel()
 
-        monkeypatch.setattr("fibsem.microscopes.simulator.sim_sleep", steal)
+        monkeypatch.setattr("fibsem.drivers.demo.simulator.sim_sleep", steal)
 
         with caplog.at_level(logging.WARNING):
             microscope.acquire_image(image_settings=settings)
@@ -209,7 +209,7 @@ class TestTheBeamNoticesATheft:
             # Long enough that a thief who could get in, would have.
             blocked_during_the_frame.append(not got_in.wait(timeout=0.5))
 
-        monkeypatch.setattr("fibsem.microscopes.simulator.sim_sleep", frame)
+        monkeypatch.setattr("fibsem.drivers.demo.simulator.sim_sleep", frame)
 
         with caplog.at_level(logging.WARNING):
             microscope.acquire_image(image_settings=settings)

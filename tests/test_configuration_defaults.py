@@ -333,7 +333,7 @@ def test_applying_at_connect_sets_only_the_defaults(tmp_path, monkeypatch):
 
 def _beams_off(monkeypatch):
     """Connect to a simulator whose columns start off, and count what turns on."""
-    from fibsem.microscopes.simulator import DemoMicroscope
+    from fibsem.drivers.demo.simulator import DemoMicroscope
 
     turned_on = []
     original = DemoMicroscope.connect_to_microscope
@@ -378,7 +378,7 @@ def test_connecting_turns_the_beams_on_when_the_file_says(tmp_path, monkeypatch)
 
 def test_a_beam_that_is_on_is_left_alone(tmp_path, monkeypatch):
     """Only ever on: a column already running is not turned on again."""
-    from fibsem.microscopes.simulator import DemoMicroscope
+    from fibsem.drivers.demo.simulator import DemoMicroscope
 
     calls = []
     monkeypatch.setattr(

@@ -133,9 +133,9 @@ def test_connect_builds_the_parts_after_it_reads_what_is_fitted():
 
     import fibsem
 
-    source = (Path(fibsem.__file__).parent / "microscopes" / "autoscript.py").read_text(
-        encoding="utf-8"
-    )
+    source = (
+        Path(fibsem.__file__).parent / "drivers" / "autoscript" / "microscope.py"
+    ).read_text(encoding="utf-8")
     connect = next(
         node
         for node in ast.walk(ast.parse(source))

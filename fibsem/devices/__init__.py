@@ -20,7 +20,7 @@ emit ``changed``; its commands are plain methods it lists in ``commands``:
     microscope.stage.move_absolute(FibsemStagePosition(x=1e-3))  # refused outside limits
 
 This package is vendor-neutral and never imports a driver; each driver's device
-classes and builders are in ``fibsem.devices.drivers``. ``docs/developers/devices.md``
+classes and builders are in ``fibsem.drivers.<driver>.devices``. ``docs/developers/devices.md``
 is the guide, including where each deprecated ``get``/``set`` key went.
 """
 

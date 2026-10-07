@@ -21,7 +21,7 @@ from fibsem.devices.entries import (
     build_device_entries,
     resolve_device_entries,
 )
-from fibsem.microscopes import registry
+from fibsem.drivers import registry
 from fibsem.structures import BeamType, DeviceEntry
 
 DEFAULTS = (

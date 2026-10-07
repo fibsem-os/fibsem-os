@@ -6,7 +6,7 @@ source, filter set and objective, and the ``fm`` group that runs a channel. It d
 know which driver built them, or whether they run in this process or on another
 computer:
 
-- the Demo's FM is this over the Demo FM devices (``fibsem.devices.drivers.demo``);
+- the Demo's FM is this over the Demo FM devices (``fibsem.drivers.demo.devices``);
 - the Thermo and Odemis FMs add their hardware's extras (``fibsem.fm.autoscript``,
   ``fibsem.fm.odemis``);
 - ``RemoteFluorescenceMicroscope`` (``fibsem.fm.remote``) is this over remote devices,
@@ -84,7 +84,7 @@ def _param(device: Device, name: str) -> BoundParameter:
     feature. A local part is always online.
     """
     if not getattr(device, "online", True):
-        from fibsem.devices.drivers.remote import RemoteDeviceUnreachable
+        from fibsem.drivers.remote.devices import RemoteDeviceUnreachable
 
         raise RemoteDeviceUnreachable(
             f"{device.name} at {device.client.base_url} has not connected yet"

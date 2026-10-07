@@ -8,8 +8,8 @@ and on reading for any.
 import pytest
 
 from fibsem.devices.core import Device, Parameter, Role, RoleUnfilled
-from fibsem.devices.drivers.demo import bind_demo_fm
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
+from fibsem.drivers.demo.devices import bind_demo_fm
 
 
 class Sensor(Device):

@@ -37,13 +37,13 @@ import numpy as np
 import pytest
 
 from fibsem import movement, utils
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.fm.structures import (
     AutoFocusMode,
     CameraImageTransform,
     ChannelSettings,
     OverviewParameters,
 )
-from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
 
 # sweep: stage tilt x pretilt x rotation x beam x compustage

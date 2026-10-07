@@ -1,5 +1,5 @@
-from fibsem.microscopes.autoscript import THERMO_API_AVAILABLE
-from fibsem.microscopes.tescan import TESCAN_API_AVAILABLE, TESCAN_API_VERSION
+from fibsem.drivers.autoscript.microscope import THERMO_API_AVAILABLE
+from fibsem.drivers.tescan.microscope import TESCAN_API_AVAILABLE, TESCAN_API_VERSION
 
 
 def main():
@@ -55,7 +55,7 @@ def main():
         f"ThermoFisher API {'Available' if THERMO_API_AVAILABLE else 'Not Available'}"
     )
     if THERMO_API_AVAILABLE:
-        from fibsem.microscopes.autoscript import AUTOSCRIPT_VERSION
+        from fibsem.drivers.autoscript.microscope import AUTOSCRIPT_VERSION
 
         print(f"AutoScript v{AUTOSCRIPT_VERSION}")
     print("-" * 80)

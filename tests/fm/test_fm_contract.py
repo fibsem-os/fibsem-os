@@ -12,8 +12,8 @@ odemis-driver conformance is covered in test_odemis_fm_devices.py.
 import numpy as np
 import pytest
 
-from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
-from fibsem.microscopes.simulator import BINNING_VALUES, SIM_CAMERA_EXPOSURE_LIMITS
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
+from fibsem.drivers.demo.simulator import BINNING_VALUES, SIM_CAMERA_EXPOSURE_LIMITS
 
 
 @pytest.fixture()

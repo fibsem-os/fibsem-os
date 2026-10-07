@@ -9,8 +9,8 @@ import threading
 import pytest
 
 from fibsem import utils
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType
 
 

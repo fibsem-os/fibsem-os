@@ -19,6 +19,7 @@ SCANNED = ["fibsem", "example", "docs", "scripts"]
 ALLOWED = [
     "fibsem/microscope.py",
     "fibsem/microscopes/",
+    "fibsem/drivers/",
     "fibsem/devices/",
 ]
 

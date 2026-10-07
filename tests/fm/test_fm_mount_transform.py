@@ -8,8 +8,8 @@ to every frame before the user's own transform, as the old FM classes did.
 import numpy as np
 import pytest
 
-from fibsem.devices.drivers.demo import bind_demo_fm
 from fibsem.devices.fm import mount_transform_from_name, mount_transform_name
+from fibsem.drivers.demo.devices import bind_demo_fm
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import CameraImageTransform
 
