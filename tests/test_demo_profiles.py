@@ -11,7 +11,11 @@ from fibsem.devices import entries
 from fibsem.drivers import registry
 from fibsem.drivers.demo.devices import DemoBeam, DemoStage
 from fibsem.drivers.demo.microscope import DemoMicroscope
-from fibsem.drivers.demo.profiles import THERMOFISHER_PROFILE, demo_profile
+from fibsem.drivers.demo.profiles import (
+    THERMOFISHER_PROFILE,
+    demo_profile,
+    simulated_profile,
+)
 from fibsem.structures import BeamType, DeviceEntry
 
 
@@ -22,17 +26,21 @@ def _system(manufacturer, sim_enabled=True):
     return system
 
 
-@pytest.mark.parametrize(
-    "manufacturer", ["ThermoFisher", "thermo", "Demo", "demo", None, "Unknown"]
-)
-def test_demo_and_thermofisher_are_the_thermofisher_profile(manufacturer):
+@pytest.mark.parametrize("manufacturer", ["ThermoFisher", "thermo", "Demo", "demo"])
+def test_demo_and_thermofisher_simulate_thermofisher(manufacturer):
+    assert simulated_profile(manufacturer) is THERMOFISHER_PROFILE
     assert demo_profile(manufacturer) is THERMOFISHER_PROFILE
 
 
-@pytest.mark.parametrize("manufacturer", ["Tescan", "Odemis", "JEOL"])
-def test_an_instrument_without_a_profile_is_refused_by_name(manufacturer):
+@pytest.mark.parametrize("manufacturer", ["Tescan", "Odemis", "JEOL", None])
+def test_an_instrument_without_a_profile_is_not_simulated(manufacturer):
     with pytest.raises(NotImplementedError, match=f"cannot simulate a {manufacturer}"):
-        demo_profile(manufacturer)
+        simulated_profile(manufacturer)
+
+
+def test_a_demo_built_under_another_name_is_the_thermofisher_demo():
+    # A plugin driver may build the Demo under its own manufacturer.
+    assert demo_profile("Fixture Microscopes") is THERMOFISHER_PROFILE
 
 
 def test_sim_enabled_is_what_makes_a_configuration_simulated():

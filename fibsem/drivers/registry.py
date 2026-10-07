@@ -284,6 +284,9 @@ def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":
     microscope is built and not connected.
     """
     if is_simulated(system):
+        from fibsem.drivers.demo.profiles import simulated_profile
+
+        simulated_profile(system.info.manufacturer)  # refuses one it can't simulate
         driver = get_driver(manufacturers.DEMO)
     else:
         driver = get_driver(system.info.manufacturer)

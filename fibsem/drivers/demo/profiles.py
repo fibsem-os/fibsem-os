@@ -45,30 +45,39 @@ THERMOFISHER_PROFILE = DemoProfile(
 )
 
 # Each profile, by the manufacturer a configuration names. Demo is ThermoFisher's,
-# as it always was; so is a configuration that names none.
-_PROFILES: Mapping[Optional[str], DemoProfile] = {
+# as it always was.
+_PROFILES: Mapping[str, DemoProfile] = {
     manufacturers.THERMOFISHER: THERMOFISHER_PROFILE,
     manufacturers.DEMO: THERMOFISHER_PROFILE,
-    None: THERMOFISHER_PROFILE,
 }
 
 
-def demo_profile(manufacturer: Optional[str]) -> DemoProfile:
-    """The profile for a configuration's ``info.manufacturer``, in any spelling.
+def simulated_profile(manufacturer: Optional[str]) -> DemoProfile:
+    """The profile that simulates a configuration's ``info.manufacturer``, in any
+    spelling, for a configuration with the sim enabled.
 
     Raises ``NotImplementedError`` for an instrument the Demo cannot simulate yet.
     """
-    name = manufacturers.normalize_manufacturer(manufacturer)
-    if name == "Unknown":
-        name = None
-    profile = _PROFILES.get(name)
+    profile = _PROFILES.get(manufacturers.normalize_manufacturer(manufacturer))
     if profile is None:
-        simulated = sorted(n for n in _PROFILES if n not in (None, manufacturers.DEMO))
+        simulated = sorted(n for n in _PROFILES if n != manufacturers.DEMO)
         raise NotImplementedError(
             f"The Demo cannot simulate a {manufacturer} instrument yet. "
             f"Simulated instruments: {', '.join(simulated)}."
         )
     return profile
+
+
+def demo_profile(manufacturer: Optional[str]) -> DemoProfile:
+    """The profile a Demo shows for a configuration's ``info.manufacturer``.
+
+    A manufacturer with no profile gets ThermoFisher's, the Demo as it always was: a
+    plugin driver may build the Demo under its own name, and the sim refuses the
+    instruments it cannot simulate before it builds one (``simulated_profile``).
+    """
+    return _PROFILES.get(
+        manufacturers.normalize_manufacturer(manufacturer), THERMOFISHER_PROFILE
+    )
 
 
 def demo_profile_of(microscope: object) -> DemoProfile:
