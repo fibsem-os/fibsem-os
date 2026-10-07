@@ -677,6 +677,7 @@ class FibsemOverviewWidget(QWidget):
         # torn down was a segfault.
         self.microscope.tiled_acquisition_signal.connect(self._on_progress)
         self.microscope.stage_position_changed.connect(self._on_stage_signal)
+        self.microscope.holder_changed.connect(self._on_holder_changed)
 
         self._refresh_current_position()
         self._refresh_context_overlays()
@@ -1383,6 +1384,18 @@ class FibsemOverviewWidget(QWidget):
             self.microscope
         ):
             self.overlay_controls.set_visible(key, shown)
+
+    @ensure_main_thread
+    def _on_holder_changed(self, _holder) -> None:
+        """Slots calibrated, or another holder fitted: redraw where they are.
+
+        Always, not only when the overlay defaults flip -- recalibrating a slot on a
+        holder that was already calibrated changes nothing `reset_context_overlay_defaults`
+        looks at, and moves the slot all the same. Until now the next stage move
+        redrew it, which is the only reason that went unnoticed.
+        """
+        self.reset_context_overlay_defaults()
+        self._refresh_context_overlays()
 
     def _on_overlay_toggled(self, key: str, checked: bool) -> None:
         """One overlay turned on or off.
@@ -4214,6 +4227,7 @@ class FibsemOverviewWidget(QWidget):
         for signal, slot in (
             (self.microscope.tiled_acquisition_signal, self._on_progress),
             (self.microscope.stage_position_changed, self._on_stage_signal),
+            (self.microscope.holder_changed, self._on_holder_changed),
         ):
             try:
                 signal.disconnect(slot)

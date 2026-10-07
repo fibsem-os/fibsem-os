@@ -4340,6 +4340,41 @@ def test_translating_the_stage_leaves_the_stage_context_alone(qapp):
     widget.close()
 
 
+def test_recalibrating_a_slot_moves_its_marker_without_a_stage_move(qapp):
+    """A translation no longer redraws the stage context, and until the holder said
+    it had changed, the next stage move was the only thing that picked a recalibrated
+    slot up. With the holder already calibrated the overlay defaults do not flip, so
+    nothing else redrew it either."""
+    from dataclasses import replace
+
+    microscope = _microscope_at(-180.0)
+    widget = FMOverviewWidget(microscope)
+    widget._refresh_tile_grid()
+    _show_holder_overlays(widget)
+    qapp.processEvents()
+
+    holder = microscope._stage.holder
+    slot = next(s for s in holder.slots.values() if s.position is not None)
+
+    def marker():
+        return [
+            (spec.cx, spec.cy)
+            for spec in widget.stage_overlay._specs
+            if spec.kind == "crosshair" and spec.label == slot.position.name
+        ]
+
+    before = marker()
+    assert before, "no slot marker drawn to move"
+
+    slot.position = replace(slot.position, x=slot.position.x + 300e-6)
+    microscope.holder_changed.emit(holder)
+    qapp.processEvents()
+
+    assert marker() and marker() != before, "the recalibrated slot did not move"
+
+    widget.close()
+
+
 def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
     """Drawn from the same frame, so they had the same bug.
 

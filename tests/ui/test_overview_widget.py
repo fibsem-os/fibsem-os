@@ -1753,6 +1753,34 @@ class TestTheHolderIsDrawnOnEveryStage:
             (crosshairs[0].cx, crosshairs[0].cy)
         )
 
+    def test_a_recalibrated_slot_moves_without_a_stage_move(self, widget, monkeypatch):
+        """Calibrating a slot on a holder that already had one flips no overlay
+        default, so `reset_context_overlay_defaults` redraws nothing. The holder
+        saying it changed is what moves the marker, not the next stage move.
+
+        Calibrated slots, as the wizard leaves them: uncalibrated ones would flip the
+        defaults to off, and the redraw would correctly hide them."""
+        from fibsem.structures import SlotCalibration
+
+        def calibrated(name, x):
+            slot = self._slot(name, x)
+            slot.calibration = SlotCalibration.builtin(0.0, 0.0)
+            return slot
+
+        slots = self._two_slots(widget, monkeypatch)
+        for name, slot in list(slots.items()):
+            slots[name] = calibrated(name, slot.position.x)
+        widget._refresh_context_overlays()
+        before = [(s.cx, s.cy) for s in self._specs(widget, "crosshair", "Slot-02")]
+        assert before, "no slot marker drawn to move"
+
+        slots["Slot-02"] = calibrated("Slot-02", 3.0e-3)
+        widget.microscope.holder_changed.emit(widget.microscope._stage.holder)
+        _app.processEvents()
+
+        after = [(s.cx, s.cy) for s in self._specs(widget, "crosshair", "Slot-02")]
+        assert after and after != before, "the recalibrated slot did not move"
+
 
 class TestLifecycle:
     def test_closing_releases_every_microscope_subscription(self, microscope):
@@ -1763,6 +1791,7 @@ class TestLifecycle:
         signals = (
             microscope.tiled_acquisition_signal,
             microscope.stage_position_changed,
+            microscope.holder_changed,
         )
         before = [len(s) for s in signals]
         widget.close()

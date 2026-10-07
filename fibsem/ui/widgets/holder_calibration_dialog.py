@@ -800,6 +800,9 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
             f"Saved sample holder '{holder.name}' with {len(self._captured)} "
             f"recalibrated slot(s) to {self._configuration_path}."
         )
+        # On the microscope as well as here: this dialog is opened from more than one
+        # place, and what draws the slots is not told by whichever opened it.
+        self._microscope.holder_changed.emit(holder)
         self.holder_saved.emit(holder)
         self.accept()
 
