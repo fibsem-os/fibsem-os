@@ -243,6 +243,10 @@ class FMCanvasWidget(QWidget):
     see :class:`FMRealSpaceCanvasWidget`.
     """
 
+    # The plane on screen changed: a z step, or max projection toggled. The bar under
+    # the view follows it (`current_z`, `max_projection`), as its Z reads the plane.
+    z_display_changed = pyqtSignal()
+
     def _make_canvas(self) -> FibsemCanvasBase:
         """The canvas this widget composites onto."""
         return FibsemImageCanvas()
@@ -641,15 +645,22 @@ class FMCanvasWidget(QWidget):
             max(0, min(self._z_max, self._z_slider.value() + int(delta)))
         )
 
+    @property
+    def max_projection(self) -> bool:
+        """Whether the max projection is shown, rather than one plane."""
+        return self._max_projection
+
     def _on_z_changed(self, value: int) -> None:
         self._z_index = value
         self._z_label.setText(f"{value + 1}/{self._z_max + 1}")
         self._apply_z_mode()
+        self.z_display_changed.emit()
 
     def _on_max_projection_toggled(self, on: bool) -> None:
         self._max_projection = bool(on)
         self._update_z_visibility()
         self._apply_z_mode()
+        self.z_display_changed.emit()
 
     def set_max_projection(self, on: bool) -> None:
         """Show the max projection, or a single z-plane.
