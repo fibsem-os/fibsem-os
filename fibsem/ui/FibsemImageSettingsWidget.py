@@ -194,9 +194,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         )
         self.dual_beam_widget.populate_combos()
         self.dual_beam_widget.sync_from_microscope()
+        self._use_selected_beam()
 
         self.gridLayout_2.addWidget(self.dual_beam_widget, 2, 0, 1, 3)
         self.gridLayout_2.addWidget(self.image_group, 3, 0, 1, 3)
+
+    def _use_selected_beam(self, *_) -> None:
+        self.image_settings_widget.use_beam(
+            self.microscope, self.dual_beam_widget.beam_type
+        )
 
     def setup_connections(self) -> None:
         """Set up the connections for the UI components, signals and initialise the UI"""
@@ -224,6 +230,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             )
         except Exception as e:
             logging.debug(f"Error connecting to lamella selection changes: {e}")
+
+        # the image settings offer what the selected beam can acquire
+        self.dual_beam_widget.sem_radio.toggled.connect(self._use_selected_beam)
 
         # image advanced toggle
         self._btn_advanced_image.toggled.connect(

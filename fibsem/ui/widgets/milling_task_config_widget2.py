@@ -15,7 +15,9 @@ from PyQt5.QtWidgets import (
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.structures import BeamType
 from fibsem.ui import stylesheets
+from fibsem.ui.utils import beam_limits, set_range_from_limits
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -117,6 +119,11 @@ class MillingTaskConfigWidget2(QWidget):
             maximum=fov["range"][1],
             step=fov["step"],
             decimals=fov["decimals"],
+        )
+        set_range_from_limits(
+            self.field_of_view_spinbox,
+            beam_limits(self.microscope, "hfw", BeamType.ION),
+            constants.SI_TO_MICRO,
         )
         self.field_of_view_spinbox.setValue(fov["default"])
         self.field_of_view_spinbox.setToolTip(fov["tooltip"])

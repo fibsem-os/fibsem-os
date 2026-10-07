@@ -36,7 +36,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSystemSettings, BeamType, ImageSettings
 from fibsem.ui import notification_service
 from fibsem.ui.icon import ICON_READ_FROM_ACQUIRE_TAB, ICON_READ_FROM_MICROSCOPE
-from fibsem.ui.utils import beam_choices
+from fibsem.ui.utils import beam_choices, beam_limits, set_range_from_limits
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -165,7 +165,10 @@ class BeamDefaultsForm(QWidget):
         self._set_choices(self.current, available("current"), record.beam.beam_current)
         self._set_choices(
             self.resolution,
-            [_resolution_key(r) for r in STANDARD_RESOLUTIONS],
+            [
+                _resolution_key(r)
+                for r in available("resolution") or STANDARD_RESOLUTIONS
+            ],
             _resolution_key(record.beam.resolution) if record.beam.resolution else None,
         )
         self._set_choices(
@@ -174,6 +177,10 @@ class BeamDefaultsForm(QWidget):
         self._set_choices(
             self.detector_mode, available("detector_mode"), record.detector.mode
         )
+        for name, spinbox in (("hfw", self.hfw), ("dwell_time", self.dwell_time)):
+            set_range_from_limits(
+                spinbox, beam_limits(microscope, name, beam), METRE_TO_MICRON
+            )
 
     @staticmethod
     def _set_choices(combo: ValueComboBox, choices: list, current) -> None:

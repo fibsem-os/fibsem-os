@@ -18,12 +18,18 @@ from PyQt5.QtWidgets import (
 
 from fibsem.config import STANDARD_RESOLUTIONS_ZIP
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
-from fibsem.structures import ImageSettings
+from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import BeamType, ImageSettings
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     NEUTRAL_400,
 )
-from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.utils import (
+    beam_choices,
+    beam_limits,
+    install_wheel_blocker,
+    set_range_from_limits,
+)
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     QDirectoryLineEdit,
@@ -49,7 +55,7 @@ WIDGET_CONFIG = {
     "line_integration": {"range": (1, 255), "default": 1},
     "scan_interlacing": {"range": (1, 8), "default": 1},
     "frame_integration": {"range": (1, 512), "default": 1},
-    "resolution": {"default": [1536, 1024]},
+    "resolution": {"default": (1536, 1024)},
 }
 
 
@@ -122,7 +128,7 @@ class ImageSettingsWidget(QWidget):
         self.resolution_label = QLabel("Resolution")
         self.resolution_combo = QComboBox()
         for res_str, res in STANDARD_RESOLUTIONS_ZIP:
-            self.resolution_combo.addItem(res_str, res)
+            self.resolution_combo.addItem(res_str, tuple(res))
         # Set default resolution
         default_resolution = WIDGET_CONFIG["resolution"]["default"]
         default_index = self.resolution_combo.findData(default_resolution)
@@ -364,12 +370,31 @@ class ImageSettingsWidget(QWidget):
         self.resolution_combo.blockSignals(True)
         self.resolution_combo.clear()
         for res_str, res in resolutions:
-            self.resolution_combo.addItem(res_str, res)
+            self.resolution_combo.addItem(res_str, tuple(res))
         if default is not None:
             idx = self.resolution_combo.findText(default)
             if idx >= 0:
                 self.resolution_combo.setCurrentIndex(idx)
         self.resolution_combo.blockSignals(False)
+
+    def use_beam(self, microscope: FibsemMicroscope, beam_type: BeamType) -> None:
+        """Offer what ``beam_type`` can acquire: its resolutions, and its field of view
+        and dwell time limits. What the beam doesn't report keeps the standard values."""
+        resolutions = beam_choices(microscope, "resolution", beam_type)
+        if resolutions:
+            selected = self.resolution_combo.currentText()
+            self.set_available_resolutions(
+                [(f"{w}x{h}", (w, h)) for w, h in resolutions], default=selected
+            )
+        for name, spinbox in (
+            ("hfw", self.hfw_spinbox),
+            ("dwell_time", self.dwell_time_spinbox),
+        ):
+            spinbox.blockSignals(True)
+            set_range_from_limits(
+                spinbox, beam_limits(microscope, name, beam_type), SI_TO_MICRO
+            )
+            spinbox.blockSignals(False)
 
     def set_show_autocontrast(self, show: bool):
         """Show or hide the auto contrast controls."""
@@ -460,10 +485,15 @@ class ImageSettingsWidget(QWidget):
         self.save_image_check.blockSignals(True)
 
         # Set resolution
-        resolution_list = list(settings.resolution)
-        index = self.resolution_combo.findData(resolution_list)
-        if index >= 0:
-            self.resolution_combo.setCurrentIndex(index)
+        # a value the beam doesn't list is added rather than snapped to a neighbour
+        resolution = tuple(settings.resolution)
+        index = self.resolution_combo.findData(resolution)
+        if index < 0:
+            self.resolution_combo.addItem(
+                f"{resolution[0]}x{resolution[1]}", resolution
+            )
+            index = self.resolution_combo.count() - 1
+        self.resolution_combo.setCurrentIndex(index)
 
         self.dwell_time_spinbox.setValue(
             settings.dwell_time * SI_TO_MICRO
