@@ -98,7 +98,8 @@ def test_a_backend_without_an_optional_part_says_so():
     minimal = Minimal.__new__(Minimal)
     with pytest.raises(NotImplementedError, match="Minimal does not support"):
         minimal.insert_manipulator("PARK")
-    with pytest.raises(NotImplementedError, match="draw_polygon"):
+    # milling goes to the milling service, and there is none
+    with pytest.raises(ValueError, match="There is no milling"):
         minimal.draw_polygon(None)
     # the raw moves go through the devices, so a backend with none says so too
     minimal.stage_device = minimal.manipulator_device = None
@@ -666,7 +667,7 @@ def test_demo_sets_its_milling_recipe():
     "key", ["patterning_mode", "application_file", "default_patterning_beam_type"]
 )
 def test_the_milling_keys_are_gone(microscope, key, caplog):
-    """A recipe sets them (`set_milling_settings`); as keys they are unknown."""
+    """A recipe sets them (`setup_milling`); as keys they are unknown."""
     with caplog.at_level("WARNING"):
         microscope.set(key, "Parallel")
     assert f"Unknown key: {key}" in caplog.text

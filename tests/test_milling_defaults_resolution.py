@@ -2,9 +2,9 @@
 
 Odemis and Demo used to call ThermoMicroscope's `run_milling`, `finish_milling`,
 `get_orientation` and `get_application_file` unbound, which fails only at runtime when
-the borrowed body reaches something the borrower lacks (FIB-1154). The milling bodies
-use only base-class members, so they are base-class defaults now, and this pins which
-class each backend gets them from. Application files are a ThermoFisher setting, so
+the borrowed body reaches something the borrower lacks (FIB-1154). The milling methods
+are the base class's now, over each backend's milling service, and this pins that no
+backend has its own. Application files are a ThermoFisher setting, so
 their matching stays off the base class: it is
 `fibsem.util.application_file.match_application_file`, which ThermoFisher and Demo (a
 simulated ThermoFisher system) both call.
@@ -40,32 +40,27 @@ def _owner(cls, name):
     return next(klass for klass in cls.__mro__ if name in vars(klass))
 
 
-def test_thermo_runs_and_finishes_milling_through_its_service():
-    from fibsem.services.milling import ServiceMilling
+MILLING = ("setup_milling", "run_milling", "finish_milling", "draw_rectangle")
 
-    assert _owner(ThermoMicroscope, "run_milling") is ServiceMilling
-    assert _owner(ThermoMicroscope, "finish_milling") is ServiceMilling
+
+def test_thermo_mills_with_the_base_class_methods():
+    for name in MILLING:
+        assert _owner(ThermoMicroscope, name) is FibsemMicroscope
     # application files are its milling service's, not the microscope's
     assert not hasattr(ThermoMicroscope, "get_application_file")
 
 
 def test_odemis_inherits_rather_than_borrows(odemis_cls):
-    from fibsem.services.milling import ServiceMilling
-
-    assert _owner(odemis_cls, "run_milling") is ServiceMilling
-    assert _owner(odemis_cls, "finish_milling") is ServiceMilling
+    for name in MILLING:
+        assert _owner(odemis_cls, name) is FibsemMicroscope
     assert _owner(odemis_cls, "get_orientation") is FibsemMicroscope
 
 
-def test_demo_runs_and_finishes_milling_through_its_service():
-    from fibsem.services.milling import ServiceMilling
-
-    assert _owner(DemoMicroscope, "run_milling") is ServiceMilling
-    assert _owner(DemoMicroscope, "finish_milling") is ServiceMilling
+def test_demo_mills_with_the_base_class_methods():
+    for name in MILLING:
+        assert _owner(DemoMicroscope, name) is FibsemMicroscope
     # the Demo's milling code is its service's: the microscope has none of its own
-    assert not hasattr(DemoMicroscope, "set_patterning_mode") or (
-        _owner(DemoMicroscope, "set_patterning_mode") is FibsemMicroscope
-    )
+    assert not hasattr(DemoMicroscope, "set_patterning_mode")
 
 
 def test_application_files_stay_off_the_base_class():
@@ -73,10 +68,9 @@ def test_application_files_stay_off_the_base_class():
     assert not hasattr(FibsemMicroscope, "get_application_file")
 
 
-def test_the_milling_loop_is_each_backend_s_service():
-    # no shared loop on the base class: every backend runs its milling service's
-    assert "run_milling" in FibsemMicroscope.__abstractmethods__
-    assert "finish_milling" not in FibsemMicroscope.__abstractmethods__
+def test_the_milling_methods_go_to_each_backend_s_service():
+    # concrete on the base class, over ``microscope.milling``: none is abstract
+    assert not set(MILLING) & FibsemMicroscope.__abstractmethods__
 
 
 def test_an_application_file_falls_back_to_the_closest_match():

@@ -20,7 +20,6 @@ from fibsem.microscope import (
     _records_beam_shift,
 )
 from fibsem.milling.progress import MillingProgress
-from fibsem.services.milling import ServiceMilling
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -243,7 +242,7 @@ ODEMIS_DEVICES = (
 _FM_TYPES = ("fm",)
 
 
-class OdemisThermoMicroscope(ServiceMilling, FibsemMicroscope):
+class OdemisThermoMicroscope(FibsemMicroscope):
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
 
@@ -350,7 +349,7 @@ class OdemisThermoMicroscope(ServiceMilling, FibsemMicroscope):
 
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
-        (``ServiceMilling``). Without an ion beam there is none, and they raise."""
+        (`FibsemMicroscope`). Without an ion beam there is none, and they raise."""
         from fibsem.drivers.odemis.services import bind_odemis_milling
 
         self.milling = bind_odemis_milling(self)

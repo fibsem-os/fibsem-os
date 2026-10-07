@@ -96,6 +96,7 @@ if TYPE_CHECKING:
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.microscopes._stage import SampleGridLoader
     from fibsem.milling.base import FibsemMillingStage
+    from fibsem.services.milling import Milling
 
 
 # The device the orientation transform is defined at. `_get_compucentric_rotation_position`
@@ -334,8 +335,11 @@ class FibsemMicroscope(ABC):
     spot_burn_progress_signal = Signal(SpotBurnProgress)
     _last_imaging_settings: ImageSettings
     system: SystemSettings
-    _patterns: List
     milling_channel: BeamType = BeamType.ION
+    #: The milling service over the beams (`fibsem.services.milling.Milling`); the
+    #: milling methods go to it. None when no ion beam was built: they raise then,
+    #: a stop has nothing to stop, and the state reads idle.
+    milling: Optional[Milling] = None
     #: The file `system` was loaded from, when it was loaded from one. Set by
     #: `utils.setup_session`; what a calibration action writes back to.
     configuration_path: Optional[str] = None
@@ -1390,23 +1394,20 @@ class FibsemMicroscope(ABC):
         """Make `channel` the active view and device, for the calls that act on it."""
         raise self._unsupported("set_channel")
 
-    def set_patterning_mode(self, mode: str) -> None:
-        """Pattern "Serial" or "Parallel" from now on."""
-        raise self._unsupported("set_patterning_mode")
+    def _milling_service(self) -> Milling:
+        """The milling service, or the error for a microscope with none."""
+        if self.milling is None:
+            raise ValueError(
+                "There is no milling: the ION beam is not enabled on this microscope."
+            )
+        return self.milling
 
-    def _set_default_patterning_beam_type(self, beam_type: BeamType) -> None:
-        """The beam new patterns are drawn for (`set_milling_settings`)."""
-        raise self._unsupported("_set_default_patterning_beam_type")
-
-    def _set_default_application_file(self, application_file: str) -> None:
-        """The application file new patterns use (`set_milling_settings`)."""
-        raise self._unsupported("_set_default_application_file")
-
-    @abstractmethod
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
-        pass
+        """Apply a milling recipe: the channel, the patterning defaults and the beam
+        conditions. The first setup saves the beam conditions `finish_milling` puts
+        back."""
+        self._milling_service().setup(mill_settings)
 
-    @abstractmethod
     def run_milling(
         self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
     ) -> None:
@@ -1414,20 +1415,37 @@ class FibsemMicroscope(ABC):
         return when the mill ends. Progress is reported on ``milling_progress_signal``.
         A set ``stop_event`` stops the beam and raises `OperationCancelledError`. To
         start a mill and return at once, use `start_milling`."""
+        logging.info("running milling now...")
+        self._milling_service().run(stop_event=stop_event)
 
-    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        """
-        Finalises the milling process by clearing the microscope of any patterns and returning the current to the imaging current.
+    def finish_milling(
+        self,
+        imaging_current: Optional[float] = None,
+        imaging_voltage: Optional[float] = None,
+    ) -> None:
+        """Clear the patterns and put the milling beam back as ``setup_milling`` found
+        it. An imaging current or voltage given wins over what was saved."""
+        milling = self._milling_service()
+        milling.clear()
+        milling.restore()
+        # only what the beam can set: a Tescan ion column takes both from its preset
+        beam = milling.beam(self.milling_channel)
 
-        Args:
-            imaging_current (float): The current to use for imaging in amps.
-            imaging_voltage (float): The voltage to use for imaging in volts.
-        """
-        self.clear_patterns()
-        self.set_beam_voltage(voltage=imaging_voltage, beam_type=self.milling_channel)
-        self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)
-        # TODO: store initial imaging settings in setup_milling, restore here, rather than hybrid
+        def settable(name: str) -> bool:
+            return (
+                beam is not None
+                and name in beam.parameters
+                and getattr(beam, name).settable
+            )
 
+        if imaging_voltage is not None and settable("voltage"):
+            self.set_beam_voltage(
+                voltage=imaging_voltage, beam_type=self.milling_channel
+            )
+        if imaging_current is not None and settable("current"):
+            self.set_beam_current(
+                current=imaging_current, beam_type=self.milling_channel
+            )
         logging.debug(
             {
                 "msg": "finish_milling",
@@ -1436,36 +1454,30 @@ class FibsemMicroscope(ABC):
             }
         )
 
-    def finish_milling2(self):
-        pass
-
-    @abstractmethod
     def clear_patterns(self) -> None:
-        pass
+        self._milling_service().clear()
 
-    @abstractmethod
     def stop_milling(self) -> None:
-        return
+        if self.milling is None:
+            return  # nothing is milling
+        self.milling.stop()
 
-    @abstractmethod
     def start_milling(self) -> None:
-        pass
+        self._milling_service().start()
 
-    @abstractmethod
     def pause_milling(self) -> None:
-        return
+        self._milling_service().pause()
 
-    @abstractmethod
     def resume_milling(self) -> None:
-        return
+        self._milling_service().resume()
 
-    @abstractmethod
     def get_milling_state(self) -> MillingState:
-        pass
+        if self.milling is None:
+            return MillingState.IDLE
+        return self.milling.state.get_value()
 
-    @abstractmethod
     def estimate_milling_time(self) -> float:
-        pass
+        return self._milling_service().estimate()
 
     @staticmethod
     def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
@@ -1510,23 +1522,20 @@ class FibsemMicroscope(ABC):
         elif isinstance(pattern, FibsemPolygonSettings):
             self.draw_polygon(pattern)
 
-    @abstractmethod
-    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings):
-        pass
+    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings) -> None:
+        self._milling_service().draw([pattern_settings])
 
-    @abstractmethod
-    def draw_line(self, pattern_settings: FibsemLineSettings):
-        pass
+    def draw_line(self, pattern_settings: FibsemLineSettings) -> None:
+        self._milling_service().draw([pattern_settings])
 
-    @abstractmethod
-    def draw_circle(self, pattern_settings: FibsemCircleSettings):
-        pass
+    def draw_circle(self, pattern_settings: FibsemCircleSettings) -> None:
+        self._milling_service().draw([pattern_settings])
 
     def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
-        raise self._unsupported("draw_bitmap_pattern")
+        self._milling_service().draw([pattern_settings])
 
     def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
-        raise self._unsupported("draw_polygon")
+        self._milling_service().draw([pattern_settings])
 
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
@@ -2239,20 +2248,6 @@ class FibsemMicroscope(ABC):
         )
 
         return
-
-    def set_milling_settings(self, mill_settings: FibsemMillingSettings) -> None:
-        """Apply a recipe's channel, patterning defaults and beam conditions.
-
-        The channel and patterning steps are the backend's own plumbing, not keys.
-        """
-        channel = mill_settings.milling_channel
-        self.set_channel(channel)
-        self._set_default_patterning_beam_type(channel)
-        self._set_default_application_file(mill_settings.application_file)
-        self.set_patterning_mode(mill_settings.patterning_mode)
-        self._write_beam("hfw", mill_settings.hfw, channel)
-        self._write_beam("current", mill_settings.milling_current, channel)
-        self._write_beam("voltage", mill_settings.milling_voltage, channel)
 
     def is_available(self, system: str) -> bool:
 
