@@ -50,15 +50,19 @@ def test_the_fm_is_a_pose_on_a_compustage_and_a_place_on_an_offset_mount():
 
 
 def test_a_stage_that_declares_an_fm_pose_reaches_the_fm_by_re_posing(monkeypatch):
+    """With its FM at the beams' origin. An FM origin of its own is an offset the
+    stage travels by after the flip (`test_device_moves_one_path.py`)."""
     microscope = _microscope(IFLM_CONFIG)
     assert not microscope.stage_is_compustage
     _declare(microscope, compustage_poses)
+    microscope.system.stage.devices["FM"].origin = FibsemStagePosition(x=0.0)
     taken = _routes(microscope, monkeypatch)
 
     microscope.move_to_device("FM")
 
     assert taken == ["FM"]
-    assert microscope._device_translation("FIBSEM", "FM") == FibsemStagePosition()
+    translation = microscope._device_translation("FIBSEM", "FM")
+    assert not any(getattr(translation, axis) for axis in ("x", "y", "z"))
 
 
 def test_at_a_pose_there_is_no_parking_at_the_fm_to_refuse_a_rotation_at():

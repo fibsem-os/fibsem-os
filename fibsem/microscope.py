@@ -255,6 +255,11 @@ def _old_key_value(key: str, value: Any) -> Any:
     return value
 
 
+def _moves(translation: FibsemStagePosition) -> bool:
+    """Whether a relative move moves anything: an axis set and non-zero."""
+    return any(getattr(translation, axis) for axis in DEVICE_AXES)
+
+
 def _distance_from_origin(
     origin: FibsemStagePosition, position: FibsemStagePosition
 ) -> float:
@@ -2908,7 +2913,7 @@ class FibsemMicroscope(ABC):
         translation = self._device_translation(source, target)
         for axis in DEVICE_AXES:
             delta = getattr(translation, axis)
-            if delta is None:
+            if not delta:
                 continue
             value = getattr(stage_position, axis)
             if value is None:
@@ -2977,6 +2982,13 @@ class FibsemMicroscope(ABC):
         # leg below can move x and y most of the way across the grid, so asking
         # afterwards would sometimes name a different device, or none.
         source_device = self.get_current_device(stage_position)
+
+        # Where a pose puts the stage at a device, asking for the pose is asking for
+        # the device: on a compustage, MILLING from the FM is back at the beams, and
+        # FM from the beams is at the FM, offset by its origin.
+        if target_device is None and target_orientation is not None:
+            target_device = self._device_at_pose(target_orientation)
+
         if target_device is not None and source_device is None:
             raise ValueError(
                 f"The stage is not at any configured device "
@@ -3845,7 +3857,9 @@ class FibsemMicroscope(ABC):
 
         Each device has its own range, and the beams' is unbounded, so the stage can be
         within more than one; it is at the one `get_current_device` picks, the nearest
-        origin. Within the beams' range but nearer the FM's origin is at the FM.
+        origin. Within the beams' range but nearer the FM's origin is at the FM. Where
+        the stage device says a pose puts it at a device (`Stage.device_at_pose`), the
+        pose decides and no range is checked.
         """
         target = self._get_device(device)
         if all(getattr(target.origin, axis) is None for axis in DEVICE_AXES):
@@ -3857,6 +3871,11 @@ class FibsemMicroscope(ABC):
             return True
         if stage_position is None:
             stage_position = self.get_stage_position()
+        # Where the pose says, the range does not: a compustage's FM reaches the whole
+        # grid by moving the stage, so its stage limits bound it, not a window.
+        by_pose = self._device_at_position_pose(stage_position)
+        if by_pose is not None:
+            return by_pose == device
         if not target.contains(stage_position):
             return False
         return self.get_current_device(stage_position) == device
@@ -3906,11 +3925,9 @@ class FibsemMicroscope(ABC):
         if stage_position is None:
             stage_position = self.get_stage_position()
 
-        # A partial position (no r or t) has no pose to ask about.
-        if stage_position.r is not None and stage_position.t is not None:
-            by_pose = self._device_at_pose(self.get_stage_orientation(stage_position))
-            if by_pose is not None:
-                return by_pose
+        by_pose = self._device_at_position_pose(stage_position)
+        if by_pose is not None:
+            return by_pose
 
         containing = [
             name
@@ -3925,6 +3942,15 @@ class FibsemMicroscope(ABC):
                 self._resolved_origin(self.system.stage.devices[name]), stage_position
             ),
         )
+
+    def _device_at_position_pose(
+        self, stage_position: FibsemStagePosition
+    ) -> Optional[str]:
+        """`_device_at_pose` for the pose a position is in. A partial position (no r
+        or t) has no pose to ask about."""
+        if stage_position.r is None or stage_position.t is None:
+            return None
+        return self._device_at_pose(self.get_stage_orientation(stage_position))
 
     def _device_at_pose(self, orientation: str) -> Optional[str]:
         """The configured device the stage device says a pose puts it at, or None
@@ -4064,19 +4090,6 @@ class FibsemMicroscope(ABC):
                 "sim-iflm-configuration.yaml."
             )
 
-        # A compustage FM declared away from the beams is a phantom: the stage
-        # reaches its FM by flipping, not travelling, so a distinct origin is
-        # somewhere it never goes and `is_at_device(\"FM\")` is False at the
-        # objective itself.
-        if self._fm_is_a_pose() and "FM" in devices and "FIBSEM" in devices:
-            if self._resolved_origin(devices["FM"]) != devices["FIBSEM"].origin:
-                logging.warning(
-                    "This compustage declares an FM device origin away from the "
-                    "beams. Its objective is under the grid: the FM shares the "
-                    "beams' origin, and a distinct origin is a place the stage "
-                    "never travels to."
-                )
-
     def _device_translation(self, source: str, target: str) -> FibsemStagePosition:
         """The relative stage move from one device to another.
 
@@ -4085,16 +4098,11 @@ class FibsemMicroscope(ABC):
         rather than absolute on purpose: the devices constrain x only, and a relative
         move carries y, z, r and t across unchanged.
 
-        **Nothing where the FM is a pose** (a compustage). There the objective is under
-        the grid, so the beams and the FM are the same place and the stage reaches one
-        from the other by flipping, not travelling -- the configured origins describe
-        an offset chamber and do not apply. Answering here rather than at each call site is the
-        same arrangement `_get_compucentric_rotation_position` already uses: the
-        primitive is the no-op, so no caller needs a stage-type branch.
+        The same where the FM is a pose (a compustage): the stage turns the grid over
+        to face the objective, and the FM's origin is the offset between the beams'
+        coincidence point and the objective's centre, in stage coordinates at the FM
+        pose. Zero unless one is configured.
         """
-        if self._fm_is_a_pose():
-            return FibsemStagePosition()
-
         source_origin = self._resolved_origin(self._get_device(source))
         target_origin = self._resolved_origin(self._get_device(target))
 
@@ -4176,7 +4184,7 @@ class FibsemMicroscope(ABC):
         """
         target_device = self._get_device(device)  # refuses by name
 
-        if self._fm_is_a_pose():
+        if self._keeps_the_compustage_route(target_device):
             self._move_to_device_compustage(device, orientation)
             return
 
@@ -4237,24 +4245,40 @@ class FibsemMicroscope(ABC):
                     at_the_beams = None
 
                 self._retract_objective_to_move(device)
-                if source != "FIBSEM":
-                    self.move_stage_relative(self._device_translation(source, "FIBSEM"))
+                self._travel(source, "FIBSEM")
                 if at_the_beams is not None:
                     self.safe_absolute_stage_movement(at_the_beams)
                 else:
                     self.move_to_orientation(desired)
-                if device != "FIBSEM":
-                    self.move_stage_relative(self._device_translation("FIBSEM", device))
-            else:
-                translation = self._device_translation(source, device)
+                self._travel("FIBSEM", device)
+            elif _moves(self._device_translation(source, device)):
                 self._retract_objective_to_move(device)
-                self.move_stage_relative(translation)
+                self._travel(source, device)
 
         # Unconditional, so that the postcondition is the device *and* the objective
         # state together: asking again for a device the stage is already at cannot
         # leave the FM blind.
         if device == "FM":
             self.fm.objective.insert()
+
+    def _keeps_the_compustage_route(self, target: StageDeviceSettings) -> bool:
+        """Whether a move to *target* takes `_move_to_device_compustage`.
+
+        A compustage whose FM shares the beams' origin keeps that route until the one
+        in `move_to_device` has been checked on an instrument; both arrive at the same
+        place. One with an FM origin configured needs the translation, so it takes
+        the one path.
+        """
+        return self._fm_is_a_pose() and self._is_the_only_place(target)
+
+    def _travel(self, source: str, target: str) -> None:
+        """Move the stage by the translation from one device to another, if any.
+
+        Nothing is commanded between two devices at one place (a compustage's beams
+        and an FM without an origin of its own)."""
+        translation = self._device_translation(source, target)
+        if _moves(translation):
+            self.move_stage_relative(translation)
 
     def _retract_objective_to_move(self, device: str) -> None:
         """Retract the objective immediately before the stage moves, and only then.
@@ -4352,7 +4376,14 @@ class FibsemMicroscope(ABC):
 
     def move_to_microscope(self, target: str) -> None:
         """Deprecated name for `move_to_device(target)` -- the last place a device
-        was called a microscope. Kept as a shim for its many callers."""
+        was called a microscope. Kept as a shim for its many callers.
+
+        Where the FM is a pose, the beams are reached at SEM, as they always were here;
+        `move_to_device` keeps the pose instead when it can.
+        """
+        if target == BEAMS_STAGE_DEVICE and self._fm_is_a_pose():
+            self.move_to_device(target, orientation="SEM")
+            return
         self.move_to_device(target)
 
     def move_to_microscope_compustage(self, target: str) -> None:
@@ -4362,8 +4393,7 @@ class FibsemMicroscope(ABC):
             raise ValueError(
                 "This method is only available for Compustage microscopes."
             )
-        self._get_device(target)  # refuses by name if it is not a configured device
-        self._move_to_device_compustage(target)
+        self.move_to_microscope(target)
 
     @property
     def current_grid(self) -> str:

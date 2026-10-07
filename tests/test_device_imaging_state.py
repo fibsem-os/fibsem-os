@@ -203,16 +203,18 @@ def test_an_offset_fm_with_no_declared_geometry_warns_at_connect(tmp_path):
     assert "declares no `origin`" in _warnings_from(_microscope(path))
 
 
-def test_a_compustage_with_a_phantom_offset_fm_warns_at_connect(tmp_path):
-    """The pre-flip world, declared explicitly: a compustage whose FM origin is away
-    from the beams describes a place its stage never travels to."""
+def test_a_compustage_fm_origin_is_an_offset_not_a_phantom(tmp_path):
+    """A compustage FM origin is the offset between the beams' coincidence point and
+    the objective's centre, travelled by after the flip, so it no longer warns."""
 
-    def add_phantom(data):
-        utils.configuration_device(data, "fm")["origin"] = {"x": 48.8e-3}
+    def add_offset(data):
+        utils.configuration_device(data, "fm")["origin"] = {"x": 50e-6}
 
-    path = _write_config(tmp_path, ARCTIS_CONFIG, add_phantom)
+    path = _write_config(tmp_path, ARCTIS_CONFIG, add_offset)
+    microscope = _microscope(path)
 
-    assert "a place the stage never travels to" in _warnings_from(_microscope(path))
+    assert _warnings_from(microscope) == ""
+    assert microscope._device_translation("FIBSEM", "FM").x == pytest.approx(50e-6)
 
 
 @pytest.mark.parametrize(
