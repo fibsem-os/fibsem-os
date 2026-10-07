@@ -47,6 +47,7 @@ from fibsem.ui.tokens import (
     PANEL_COLOR,
     ROW_ALT_COLOR,
     TEXT_COLOR,
+    TEXT_STRONG_COLOR,
 )
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
@@ -81,14 +82,18 @@ QComboBox QAbstractItemView {{ background: {PANEL_COLOR}; color: {TEXT_COLOR};
     outline: none; }}
 """
 
-# The page cycler: a label between two flat arrows, in the title row's grey.
+# The page cycler: a label between two flat arrows. It starts the cell's bar, so the
+# label is bold as the other bars' view names are.
 _CYCLE_BUTTON_STYLE = (
     "QToolButton { background: transparent; color: #888; border: none;"
     " font-size: 14px; padding: 0 4px; }"
     f"QToolButton:hover {{ color: {TEXT_COLOR}; }}"
     "QToolButton:disabled { color: #444; }"
 )
-_CYCLE_LABEL_STYLE = f"color: {TEXT_COLOR}; font-size: 11px;"
+_CYCLE_LABEL_STYLE = (
+    f"color: {TEXT_STRONG_COLOR}; font-size: 12px; font-weight: 700;"
+    " background: transparent;"
+)
 # Selected-view border: the primary accent (matches PRIMARY_BUTTON_STYLESHEET), kept subtle.
 # A transparent border of the same width is always present so selection causes no layout shift,
 # and it's scoped via the #viewPanel object name so it never cascades onto the bar / canvas.
@@ -134,18 +139,18 @@ class PageCell(QWidget):
     """The 4th quad-view cell: pages of non-canvas content, one shown at a time.
 
     The other three cells are fixed (SEM, FIB, FM). This one holds whatever is useful
-    beside them, and the operator picks which from the selector in its title row --
-    the same arrangement as a multi-viewport tool, where the spare pane is a slot
-    rather than a fixed thing. Pages are added by key; the selector is the cell's
-    header, so it sits where the other cells have their title.
+    beside them, and the operator picks which from :attr:`cycler` -- the same
+    arrangement as a multi-viewport tool, where the spare pane is a slot rather than a
+    fixed thing. Pages are added by key. The cycler starts the cell's bar, where the
+    other cells have their view's name (FIB-1186).
 
     A page with controls of its own (which grid, which view) hands them over as its
-    header, and they share the selector's row, switching with the page. A second row
-    of chrome would take a quarter-screen cell's height for nothing.
+    header, shown in :attr:`header` above the page and switching with it. A page
+    without them has no row there, so the chamber drawing keeps the cell's height.
 
-    The selector is a cycler, ``‹ Chamber ›``, not a drop-down: there are a few pages,
-    one click steps to the next, and it wraps round. The label is as wide as the
-    longest page name, so the arrows don't move as the name changes.
+    The cycler is ``‹ Chamber ›``, not a drop-down: there are a few pages, one click
+    steps to the next, and it wraps round. The label is as wide as the longest page
+    name, so the arrows don't move as the name changes.
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -158,6 +163,7 @@ class PageCell(QWidget):
         self._stack = QStackedWidget()
         self._keys: List[str] = []
         self._labels: List[str] = []
+        self._has_header: List[bool] = []
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self._stack)
@@ -168,14 +174,17 @@ class PageCell(QWidget):
         header_lay = QHBoxLayout(self.header)
         header_lay.setContentsMargins(4, 2, 4, 2)
         header_lay.setSpacing(6)
-        cycler = QHBoxLayout()
+        header_lay.addWidget(self._headers, 1)
+
+        self.cycler = QWidget()
+        # Clear over the bar: the app stylesheet gives a bare widget a background.
+        self.cycler.setStyleSheet("background: transparent;")
+        cycler = QHBoxLayout(self.cycler)
         cycler.setContentsMargins(0, 0, 0, 0)
         cycler.setSpacing(0)
         cycler.addWidget(self.btn_previous)
         cycler.addWidget(self.label)
         cycler.addWidget(self.btn_next)
-        header_lay.addLayout(cycler)
-        header_lay.addWidget(self._headers, 1)
         self._update_cycler()
 
     def _cycle_button(self, text: str, tooltip: str, step: int) -> QToolButton:
@@ -191,9 +200,10 @@ class PageCell(QWidget):
     def add_page(
         self, key: str, label: str, widget: QWidget, header: Optional[QWidget] = None
     ) -> None:
-        """Add a page; *header* is its own controls, shown beside the selector."""
+        """Add a page; *header* is its own controls, shown above it."""
         self._keys.append(key)
         self._labels.append(label)
+        self._has_header.append(header is not None)
         self._stack.addWidget(widget)
         self._headers.addWidget(header if header is not None else QWidget())
         self._update_cycler()
@@ -231,6 +241,9 @@ class PageCell(QWidget):
         several = len(self._keys) > 1
         self.btn_previous.setEnabled(several)
         self.btn_next.setEnabled(several)
+        self.header.setVisible(
+            0 <= index < len(self._has_header) and self._has_header[index]
+        )
 
 
 class QuadViewWidget(QWidget):
@@ -262,6 +275,10 @@ class QuadViewWidget(QWidget):
         self.chamber_view = ChamberView()
         self.page_cell = PageCell()
         self.page_cell.add_page("chamber", "Chamber", self.chamber_view)
+        # The cell's, not a page's: the stage readout stays whichever page is on show.
+        self.stage_bar = ViewInfoBar(
+            "Stage", title=self.page_cell.cycler, choosable=False
+        )
         self.sem_bar = ViewInfoBar("SEM")
         self.fib_bar = ViewInfoBar("FIB")
         self.fm_bar = ViewInfoBar("FM")
@@ -269,8 +286,8 @@ class QuadViewWidget(QWidget):
         sem_panel = _panel(self.sem_canvas, self.sem_bar)
         fm_panel = _panel(self.fm_widget, self.fm_bar)
         fib_panel = _panel(self.fib_canvas, self.fib_bar)
-        page_panel = _panel(self.page_cell)
-        # The page selector keeps its row above the cell until the cell has a bar.
+        page_panel = _panel(self.page_cell, self.stage_bar)
+        # A page's own controls, when it has any, in a row above it.
         page_panel.layout().insertWidget(0, self.page_cell.header)
 
         left = _splitter(Qt.Vertical, sem_panel, fm_panel)
@@ -586,6 +603,11 @@ class MicroscopeViewController(QObject):
             BeamType.ION: getattr(self._widget, "fib_bar", None),
         }
         self._fm_bar: Optional[ViewInfoBar] = getattr(self._widget, "fm_bar", None)
+        # Where the stage is, shown once rather than on every view: under the quad
+        # view's fourth cell. The lamella editor has none and needs none.
+        self._stage_bar: Optional[ViewInfoBar] = getattr(
+            self._widget, "stage_bar", None
+        )
         # (slices, z step in metres) of the FM stack on screen, so the bar's Z can name
         # the plane as the user scrubs; None when there is no stack to scrub.
         self._fm_z: Optional[Tuple[int, float]] = None
@@ -927,11 +949,12 @@ class MicroscopeViewController(QObject):
     def update_info(
         self, microscope, stage_position=None, objective_position=None
     ) -> None:
-        """Refresh the live readouts from microscope state: STAGE on every canvas
-        and MILLING ANGLE on FIB in the canvas info text, and the objective position
-        on the FM bar. It goes through the model + debounced render, so it is safe to call from an
-        ``@ensure_main_thread`` ``update_ui`` — there is no synchronous draw to re-enter
-        (which is what froze the original info bar)."""
+        """Refresh the live readouts from microscope state: the stage and milling
+        angle on the stage bar, and the objective position on the FM bar. A view
+        without a stage bar keeps them in the canvas info text, STAGE on every canvas
+        and MILLING ANGLE on FIB. It goes through the model + debounced render, so it
+        is safe to call from an ``@ensure_main_thread`` ``update_ui`` — there is no
+        synchronous draw to re-enter (which is what froze the original info bar)."""
         try:
             if microscope.stage is None:
                 return  # no stage, so no stage position to show
@@ -946,15 +969,18 @@ class MicroscopeViewController(QObject):
             milling_angle = microscope.get_current_milling_angle(
                 stage_position=stage_position
             )
-            stage_txt = (
-                f"STAGE: {stage_position.pretty_string} [{orientation}] [{grid}]"
-            )
-            self.set_info(BeamType.ELECTRON, "stage", stage_txt)
-            self.set_info(BeamType.ION, "stage", stage_txt)
-            self.set_fm_info("stage", stage_txt)  # universal context (before objective)
-            self.set_info(
-                BeamType.ION, "milling", f"MILLING ANGLE: {milling_angle:.1f}°"
-            )
+            if self._stage_bar is not None:
+                self._show_stage(stage_position, orientation, grid, milling_angle)
+            else:
+                stage_txt = (
+                    f"STAGE: {stage_position.pretty_string} [{orientation}] [{grid}]"
+                )
+                self.set_info(BeamType.ELECTRON, "stage", stage_txt)
+                self.set_info(BeamType.ION, "stage", stage_txt)
+                self.set_fm_info("stage", stage_txt)  # universal context
+                self.set_info(
+                    BeamType.ION, "milling", f"MILLING ANGLE: {milling_angle:.1f}°"
+                )
             if microscope.fm is not None:
                 # Remembered rather than read. This runs on every stage-position update
                 # (`FibsemMovementWidget._update_position_readout`, which passes no
@@ -985,6 +1011,34 @@ class MicroscopeViewController(QObject):
             _logger.warning(
                 "MicroscopeViewController.update_info failed", exc_info=True
             )
+
+    def _show_stage(self, position, orientation, grid, milling_angle) -> None:
+        """Where the stage is, on the stage bar: `SEM · GRID-01 | X 1.230 mm ...`.
+
+        The orientation and grid unlabelled in the header, as an image bar has its
+        detector; then the axes, millimetres to the micrometre and degrees to a
+        tenth, and the milling angle as `MA`. An axis the stage did not report is
+        dropped, as an image's missing value is.
+        """
+        bar = self._stage_bar
+        bar.set_live_field("orientation", "", orientation or None, "Stage orientation")
+        # `current_grid` says "NONE" when no grid is loaded, as the old text did.
+        has_grid = grid and str(grid) != "NONE"
+        bar.set_live_field("grid", "", str(grid) if has_grid else None, "Grid")
+        mm, deg = constants.METRE_TO_MILLIMETRE, constants.RADIANS_TO_DEGREES
+        for axis, scale, unit, digits in (
+            ("x", mm, " mm", 3),
+            ("y", mm, " mm", 3),
+            ("z", mm, " mm", 3),
+            ("r", deg, "°", 1),
+            ("t", deg, "°", 1),
+        ):
+            value = getattr(position, axis, None)
+            text = None if value is None else f"{value * scale:.{digits}f}{unit}"
+            label = axis.upper()
+            bar.set_live_field(f"stage_{axis}", label, text, f"Stage {label}")
+        ma = None if milling_angle is None else f"{milling_angle:.1f}°"
+        bar.set_live_field("milling_angle", "MA", ma, "Milling angle")
 
     def _show_objective(self, position: float) -> None:
         """The objective's position on the FM bar: `OBJ 200.0 µm` (FIB-1186).

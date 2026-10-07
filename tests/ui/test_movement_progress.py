@@ -118,13 +118,21 @@ def test_every_canvas_carries_it(movement):
         assert dict(controller._states[canvas].info).get("move") == "Moving the stage…"
 
 
+def _stage_readout(widget) -> list:
+    """The stage bar's fields, as (label, value) -- the readout is there, not in the
+    canvas text, since FIB-1186 shows it once under the chamber cell."""
+    bar = widget._view_controller().widget.stage_bar
+    bar.resize(2000, bar.height())
+    return [(f.label, f.value) for f in bar.visible_fields()]
+
+
 def test_it_does_not_disturb_the_stage_readout(movement):
-    """The info bar is shared. `STAGE:` is what this widget already writes there, and a
-    status that replaced it would trade one reading for another."""
-    before = _info(movement).get("stage")
+    """A status that replaced the stage readout would trade one reading for another."""
+    before = _stage_readout(movement)
     assert before, "no stage readout to begin with"
     movement._set_move_status("Moving the stage…")
-    assert _info(movement).get("stage") == before
+    assert _stage_readout(movement) == before
+    assert "stage" not in _info(movement), "the readout left the canvas text"
 
 
 # --- the reason it is not on the Movement tab ---------------------------------
