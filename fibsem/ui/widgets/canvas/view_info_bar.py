@@ -95,15 +95,17 @@ _PICKER_STYLE = (
 
 
 # What a new bar shows. The export's defaults less the pixel size: under a live view,
-# HFW says the same thing more usefully, and the row has room for one fewer field
-# than an exported figure. The pixel size is a tick away in the picker. Last, the
-# time the image was taken.
+# HFW says the same thing more usefully. Plus the working distance: every frame of a
+# live view records it, so the bar follows focusing -- at the vendor's console too,
+# which nothing announces, so a truly live readout would have to poll. Last, the time
+# the image was taken. Anything else is a tick away in the picker.
 BAR_DEFAULT_FIELDS = (
     "detector",
     "objective",
     "hfw",
     "voltage",
     "current",
+    "working_distance",
     "z",
     _TIME_KEY,
 )

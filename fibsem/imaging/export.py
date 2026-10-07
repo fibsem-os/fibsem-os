@@ -397,7 +397,9 @@ def fibsem_image_fields(image: FibsemImage) -> ImageFields:
         if beam.beam_current:
             _add(fields, "current", format_si(beam.beam_current, "A"))
         if beam.working_distance:
-            wd = format_si(beam.working_distance, "m")
+            # Fixed in mm, not three figures: at the ion beam's 16.5 mm that is a
+            # 100 µm step, coarser than focusing moves it.
+            wd = f"{beam.working_distance * 1e3:.2f} mm"
             _add(fields, "working_distance", wd)
     if md.image_settings.dwell_time:
         dwell = format_si(md.image_settings.dwell_time, "s")
