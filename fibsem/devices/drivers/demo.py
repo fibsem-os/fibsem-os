@@ -384,6 +384,9 @@ class DemoStage(Stage):
     def available_linked(self) -> bool:
         return not self.parent.stage_is_compustage
 
+    def has_builtin_shuttle(self) -> bool:
+        return self.parent.stage_is_compustage
+
     # The simulator is a compustage or an offset stage by its configuration.
     def poses(
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
