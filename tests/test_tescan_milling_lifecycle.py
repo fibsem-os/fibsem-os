@@ -9,13 +9,16 @@ connection is stubbed, and the SDK names the driver imports are monkeypatched in
 """
 
 import threading
+from types import MappingProxyType
 from typing import List, Optional
 
 import pytest
 
+from fibsem.devices.beam import BEAM_ROUTES
 from fibsem.microscopes import tescan as tescan_module
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings
+from tests.fixtures.milling_reads import own_milling_code
 
 
 class FakeDrawBeam:
@@ -38,13 +41,35 @@ class FakeConnection:
         self.DrawBeam = FakeDrawBeam(unload_error)
 
 
+class FakeParameter:
+    def __init__(self, state, key):
+        self.state, self.key = state, key
+
+    def get_value(self):
+        return self.state[self.key]
+
+    def write_through(self, value):
+        self.state["set_calls"].append((self.key, value))
+        if self.key == "preset" and self.state["fail_preset"]:
+            raise RuntimeError("preset unavailable")
+        self.state[self.key] = value
+
+
+class FakeIonBeam:
+    def __init__(self, state):
+        self.parameters = {
+            key: FakeParameter(state, key) for key in ("preset", "current")
+        }
+
+
 def make_microscope(monkeypatch, current_preset="30 keV; 20 pA", unload_error=None):
     """Create a TescanMicroscope with the SDK and connection stubbed out.
 
-    finish_milling restores the preset through the base set_preset() -> _set("preset"),
-    so preset changes are captured in state["set_calls"] rather than a raw SDK call.
-    state["fail_preset"] arms a failure on the next _set("preset") to simulate the restore
-    step raising while leaving setup's own preset set intact.
+    The ion beam device is a fake whose preset and current are ``state``: every write
+    of the preset (setup's, and finish_milling's restore through set_preset) is
+    captured in state["set_calls"] rather than a raw SDK call. state["fail_preset"]
+    arms a failure on the next preset write to simulate the restore step raising
+    while leaving setup's own preset set intact.
     """
     microscope = object.__new__(TescanMicroscope)
     microscope._connection_lock = threading.RLock()
@@ -53,31 +78,26 @@ def make_microscope(monkeypatch, current_preset="30 keV; 20 pA", unload_error=No
     microscope._preset_before_milling = None
     microscope._prepare_beam = lambda beam_type: None
 
-    state = {"preset": current_preset, "set_calls": [], "fail_preset": False}
+    state = {
+        "preset": current_preset,
+        "current": 1e-9,
+        "set_calls": [],
+        "fail_preset": False,
+    }
     microscope._test_state = state
 
-    def fake_get(key, beam_type=None):
-        return {"preset": state["preset"], "current": 1e-9}[key]
-
-    def fake_set(key, value, beam_type=None):
-        state["set_calls"].append((key, value))
-        if key == "preset":
-            if state["fail_preset"]:
-                raise RuntimeError("preset unavailable")
-            state["preset"] = value
-
-    microscope._get = fake_get
-    microscope._set = fake_set
-    # with no beam devices, the base set_preset() falls back to _set, the fake here
+    microscope._set_device("ion", FakeIonBeam(state))
+    microscope._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
 
     monkeypatch.setattr(
         tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
     )
-    return microscope
+    # no ion beam device, so no milling service: the DrawBeam code directly
+    return own_milling_code(microscope)
 
 
 def preset_restores(m) -> List[str]:
-    """The preset values passed to _set("preset"), in order (setup + finish restores)."""
+    """The preset values written to the ion beam, in order (setup + finish restores)."""
     return [v for k, v in m._test_state["set_calls"] if k == "preset"]
 
 

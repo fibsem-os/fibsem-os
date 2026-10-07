@@ -35,12 +35,27 @@ def _pump(ms: int = 50) -> None:
     loop.exec_()
 
 
+class FakeParameter:
+    settable = True
+    choices = None
+
+
+class FakeBeam:
+    def __init__(self, parameters):
+        self.parameters = {name: FakeParameter() for name in parameters}
+
+
 class FakeTescan:
-    """The slice of the microscope the beam-settings widget touches, Tescan-flavoured."""
+    """The slice of the microscope the beam-settings widget touches, Tescan-flavoured:
+    the FIB's device has a preset, the SEM's has none (its presets cannot be set)."""
 
     manufacturer = "Tescan"
 
     def __init__(self, presets, current_preset, fail_activation=False):
+        self.beams = {
+            BeamType.ELECTRON: FakeBeam(["current", "working_distance"]),
+            BeamType.ION: FakeBeam(["current", "preset"]),
+        }
         self.presets = presets
         self.current_preset = current_preset
         self.fail_activation = fail_activation

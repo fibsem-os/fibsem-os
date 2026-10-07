@@ -49,7 +49,7 @@ def fm_microscope(demo_microscope):
     """Fixture providing a demo microscope configured for FM operations."""
     microscope = demo_microscope
     microscope.system.stage.shuttle_pre_tilt = 0
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope.move_to_microscope("FM")
     return microscope
 

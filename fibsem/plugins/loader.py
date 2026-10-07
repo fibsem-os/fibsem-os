@@ -126,10 +126,6 @@ _CACHE: Dict[str, Tuple[PluginRecord, ...]] = {}
 def _entry_points(group: str) -> Iterator[Any]:
     """Iterate the entry points in ``group``.
 
-    Guard on the version, not on ImportError: ``importlib.metadata`` exists
-    from 3.8, so a try/except import succeeds on 3.8/3.9 and then fails at the
-    call -- the ``group=`` filter only arrived in 3.10.
-
     Note that the objects returned are not necessarily
     ``importlib.metadata.EntryPoint``. The ``importlib_metadata`` backport
     installs its own finder on ``sys.meta_path``, so on a Python where the
@@ -137,12 +133,7 @@ def _entry_points(group: str) -> Iterator[Any]:
     and distributions. Both expose the attributes used here, but nothing should
     assume the concrete class.
     """
-    import sys
-
-    if sys.version_info < (3, 10):
-        from importlib_metadata import entry_points
-    else:
-        from importlib.metadata import entry_points
+    from importlib.metadata import entry_points
 
     return iter(entry_points(group=group))
 

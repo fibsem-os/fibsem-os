@@ -193,7 +193,7 @@ class AutoscriptCompustage(AutoscriptStage):
 
 def autoscript_stage_class(microscope: ThermoMicroscope) -> Type[AutoscriptStage]:
     """The driver class for the stage the Thermo backend found at connect."""
-    return AutoscriptCompustage if microscope.stage_is_compustage else AutoscriptStage
+    return AutoscriptCompustage if microscope._compustage_installed else AutoscriptStage
 
 
 def bind_autoscript_stage(
@@ -392,7 +392,6 @@ class AutoscriptBeam(Beam):
             self.parent.set_channel(self.beam_type)
             return ParameterMetadata(choices=list(self._detector.type.available_values))
 
-    # No choices for the mode: they are the detector type's, which can change.
     def read_detector_mode(self) -> str:
         return self._detector.mode.value
 
@@ -403,6 +402,13 @@ class AutoscriptBeam(Beam):
             logging.info(f"Detector mode set to {value}.")
         else:
             logging.warning(f"Detector mode {value} not available.")
+
+    def metadata_detector_mode(self) -> ParameterMetadata:
+        # the detector type's modes, read again when the type changes; read outside a
+        # parameter's claim, so it selects the channel itself
+        with self.parent._threading_lock:
+            self.parent.set_channel(self.beam_type)
+            return ParameterMetadata(choices=list(self._detector.mode.available_values))
 
     def read_detector_brightness(self) -> float:
         return self._detector.brightness.value

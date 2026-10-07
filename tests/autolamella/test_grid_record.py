@@ -162,7 +162,7 @@ class TestLamellaLink:
 class TestSyncFromInventory:
     def _compustage(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
+        microscope.stage_device.compustage = True
         microscope._stage = _create_sample_stage(microscope)
         microscope._stage.loader = DemoSampleLoader(
             microscope, occupied=(1, 3), names={3: "grid-cedar"}
@@ -193,7 +193,7 @@ class TestSyncFromInventory:
 
     def test_fixed_holder_syncs_named_slots(self, tmp_path):
         microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
+        microscope.stage_device.compustage = False
         microscope._stage = _create_sample_stage(microscope)
         microscope._stage.assign_grid(
             "Slot-02", SampleGrid(name="grid-birch"), persist=False

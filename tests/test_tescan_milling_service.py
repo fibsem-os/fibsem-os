@@ -25,6 +25,7 @@ from fibsem.structures import (
     MillingState,
 )
 from tests.fixtures import tescan_sdk
+from tests.fixtures.milling_reads import own_milling_code
 
 MILL_PRESET = "30 keV; 1 nA"
 IMAGING_PRESET = "30 keV; 100 pA"
@@ -107,7 +108,7 @@ def connect(monkeypatch, tescan_system):
         ]
         microscope, fake = tescan_sdk.connect(monkeypatch, tescan_system, fake)
         if not service:
-            microscope.milling = None
+            own_milling_code(microscope)
         return microscope, fake
 
     return make

@@ -1,12 +1,11 @@
 """get_available_values gives the answers it gave before it read the device choices.
 
 Each backend that builds beam devices answers a beam key's values from the beam
-parameter's choices; only the keys with no device home stay in the backend
-(``_get_available_values``). The answers the backends gave before, for every key on
-no beam type and on each beam, over the fake SDKs, are pinned in
-``tests/fixtures/available_values_pins.json``; each must still be the same, except
-the ones in ``CHANGED``, which say what they answer now and why, and the keys in
-``MOVED``, which now answer nothing. Thermo runs in its
+parameter's choices; any other key has none (the backends' ``_get_available_values``
+is gone). The answers the backends gave before, for every key on no beam type and on
+each beam, over the fake SDKs, are pinned in ``tests/fixtures/available_values_pins.json``;
+each must still be the same, except the ones in ``CHANGED``, which say what they answer
+now and why, and the keys in ``MOVED``, which now answer nothing. Thermo runs in its
 own interpreter (``tests/fixtures/autoscript_available_values.py``).
 
 Not caught by the pins, because each case is a fresh microscope: a beam key's values
@@ -129,24 +128,56 @@ def _demo():
 
 # A beam key asked with no beam type has no beam device to answer it, so it now
 # gets no values, as the keys with no device home already did, where before the
-# backend raised or (Thermo's detector types) answered for the active channel.
+# backend raised or (Thermo's detector types and modes) answered for the active
+# channel.
 _NO_BEAM = {
+    "demo None current": "EXC KeyError: None",
+    "demo None detector_mode": ["SecondaryElectrons", "BackscatteredElectrons", "EDS"],
+    "demo None detector_type": ["ETD", "TLD", "EDS"],
     "odemis None current": "EXC KeyError: None",
+    "odemis None detector_mode": "EXC KeyError: None",
     "odemis None detector_type": "EXC KeyError: None",
     "odemis None voltage": "EXC KeyError: None",
     "tescan None preset": "EXC ValueError: Invalid beam type: None",
+    "thermo plasma=False None detector_mode": [
+        "SecondaryElectrons",
+        "BackscatterElectrons",
+    ],
     "thermo plasma=False None detector_type": ["ETD", "TLD", "ICE"],
     "thermo plasma=False None voltage": "EXC ValueError: Unknown beam type: None",
+    "thermo plasma=True None detector_mode": [
+        "SecondaryElectrons",
+        "BackscatterElectrons",
+    ],
     "thermo plasma=True None detector_type": ["ETD", "TLD", "ICE"],
     "thermo plasma=True None voltage": "EXC ValueError: Unknown beam type: None",
 }
-# The Odemis client gives the detector types as a set; the device lists them, in the
-# set's order.
+# The Odemis client gives the detector types and modes as sets; the device lists
+# them, in the set's order.
 _ODEMIS_DETECTOR_TYPES = {
     "odemis ELECTRON detector_type": {"set": ["ETD", "TLD"]},
     "odemis ION detector_type": {"set": ["ETD", "ICE"]},
+    "odemis ELECTRON detector_mode": {
+        "set": ["BackscatterElectrons", "SecondaryElectrons"]
+    },
+    "odemis ION detector_mode": {"set": ["BackscatterElectrons", "SecondaryElectrons"]},
 }
-CHANGED = {**_NO_BEAM, **_ODEMIS_DETECTOR_TYPES}
+# The Odemis beams have no plasma gas parameter (a plasma gas reads None and a write
+# does nothing), so no gas is offered, where before the backend listed three it
+# could not set.
+_ODEMIS_NO_PLASMA = {
+    f"odemis {beam} plasma_gas": ["Argon", "Oxygen", "Xenon"]
+    for beam in ("None", "ELECTRON", "ION")
+}
+# The default Demo is a Ga column, whose ion beam has no plasma gas parameter, so it
+# offers no gas, where before it listed the simulator's (a plasma Demo's ion beam
+# still lists them, as its parameter's choices).
+_DEMO_NO_PLASMA = {
+    f"demo {beam} plasma_gas": ["Oxygen", "Argon", "Nitrogen", "Xenon"]
+    for beam in ("None", "ELECTRON", "ION")
+}
+_NO_PLASMA = {**_ODEMIS_NO_PLASMA, **_DEMO_NO_PLASMA}
+CHANGED = {**_NO_BEAM, **_ODEMIS_DETECTOR_TYPES, **_NO_PLASMA}
 # The application files and scan directions moved to the milling service
 # (``supported_settings``, ``supported_pattern_settings``), so as keys they get no
 # values, where before the backends listed them.
@@ -178,7 +209,7 @@ def test_every_answer_is_the_pinned_one(answers):
     assert sorted(different) == sorted(CHANGED)
     for key, (before, now) in different.items():
         assert before == CHANGED[key], key
-        if key in _NO_BEAM:
+        if key in _NO_BEAM or key in _NO_PLASMA:
             assert now == [], key
         else:
             assert sorted(now) == before["set"], key

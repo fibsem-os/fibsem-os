@@ -39,7 +39,7 @@ class Beam(Device):
     blanked = Parameter(bool)
     preset = Parameter(str)
     detector_type = Parameter(str)
-    detector_mode = Parameter(str)
+    detector_mode = Parameter(str, depends_on=("detector_type",))
     detector_contrast = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
     detector_brightness = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
     resolution = Parameter(tuple, unit="px", doc="(width, height)")

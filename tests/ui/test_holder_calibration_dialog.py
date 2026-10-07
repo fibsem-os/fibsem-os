@@ -22,7 +22,7 @@ from fibsem.ui.widgets.holder_calibration_dialog import (
 @pytest.fixture
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     return microscope
 

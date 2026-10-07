@@ -42,6 +42,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.structures import BeamType, FibsemStagePosition
+from tests.fixtures.demo_stage import demo_session
 
 # The probes `get_stage_orientation` is asked about, relative to each declared pose:
 # the pose itself, then nudged in r and t either side of today's tolerances (5 degrees
@@ -60,15 +61,16 @@ PROBES = {
 
 def _microscope(stage_type: str):
     filename = stage_type.split(" ")[0]
-    microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, filename),
-        manufacturer="Demo",
-    )
     if stage_type.endswith("as an Arctis"):
         # What ThermoMicroscope's connect reads from an Arctis: AutoScript says the
-        # compustage is installed, and its axes have no r.
-        microscope.stage_is_compustage = True
-        microscope.system.stage.rotation = False
+        # compustage is installed, and its axes have no r. The Demo reads the same
+        # from `sim.is_compustage`.
+        microscope, _ = demo_session(compustage=True, config=filename)
+    else:
+        microscope, _ = utils.setup_session(
+            config_path=os.path.join(cfg.CONFIG_PATH, filename),
+            manufacturer="Demo",
+        )
     microscope._update_orientations()
     return microscope
 

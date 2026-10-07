@@ -10,7 +10,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from itertools import cycle
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from skimage.transform import resize
@@ -48,9 +48,6 @@ from fibsem.structures import (
 )
 from fibsem.util.application_file import match_application_file
 from fibsem.util.draw_numbers import draw_text
-
-if TYPE_CHECKING:
-    from fibsem.microscopes._stage import DemoSampleLoader
 
 ######################## SIMULATOR ########################
 
@@ -157,6 +154,16 @@ STAGE_LIMITS_COMPUSTAGE = {
     "t": RangeLimit(min=-195.0, max=15.0),
 }
 # hack, do this properly @patrick
+
+
+def sim_is_compustage(system: SystemSettings) -> bool:
+    """Whether a simulated configuration describes a compustage.
+
+    ``sim.is_compustage`` stands in for the hardware probe a real backend makes at
+    connect (``specimen.compustage.is_installed`` on Thermo), so it is read from the
+    configuration, never from a flag set on the microscope afterwards.
+    """
+    return bool(system.sim.get("is_compustage", False))
 
 
 @dataclass
@@ -344,7 +351,6 @@ class DemoConfiguration:
     """
 
     system: SystemSettings
-    stage_is_compustage: bool
 
     # ---- fitted subsystems, as the simulated instrument reports them ---------
     #
@@ -360,77 +366,9 @@ class DemoConfiguration:
 
     def _get_axis_limits(self) -> Dict[str, RangeLimit]:
         """Get the axis limits for the stage."""
-        if self.stage_is_compustage:
+        if sim_is_compustage(self.system):
             return STAGE_LIMITS_COMPUSTAGE
         return STAGE_LIMITS_DEFAULT
-
-    def _create_grid_loader(self) -> "DemoSampleLoader":
-        """An in-memory autoloader, populated from the ``sim.loader`` block.
-
-        Only reached on a compustage configuration (the Arctis simulator). Keys:
-        ``capacity`` (default 12), ``occupied`` (1-based slot numbers), ``names``
-        (slot number -> grid name), ``exchange_delay`` (seconds, default 0),
-        ``start_unscanned`` (default false), ``scan_delay`` (seconds, default 0),
-        ``grid_position`` ([x, y, z] metres from the stage origin where a loaded
-        grid really sits; default none, the origin).
-        """
-        from fibsem.microscopes._stage import DemoSampleLoader
-
-        cfg = self.system.sim.get("loader") or {}
-        return DemoSampleLoader(
-            parent=self,
-            capacity=int(cfg.get("capacity", 12)),
-            occupied=cfg.get("occupied") or (),
-            names=cfg.get("names") or {},
-            exchange_delay=float(cfg.get("exchange_delay", 0.0)),
-            start_unscanned=bool(cfg.get("start_unscanned", False)),
-            scan_delay=float(cfg.get("scan_delay", 0.0)),
-            grid_position=cfg.get("grid_position") or None,
-        )
-
-    def _read_plasma(self, beam_type: Optional[BeamType]) -> bool:
-        """Whether the ion column is a plasma one; an electron beam never is."""
-        if beam_type is BeamType.ION:
-            return self.system.ion.plasma
-        return False
-
-    def _configured_values(self, key: str) -> Optional[List[str]]:
-        """The values of a key that come from the simulator's constants alone."""
-        if key == "plasma_gas":
-            return SIMULATOR_PLASMA_GASES
-        return None
-
-    def get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[Union[str, int, float]]:
-        """Get the available values for a given key."""
-        values = []
-        if key == "current":
-            # return values based on beam type, and plasma gas
-            if beam_type is BeamType.ION:
-                plasma_gas = self._read_beam("plasma_gas", beam_type)
-                values = SIMULATOR_BEAM_CURRENTS[beam_type][plasma_gas]
-            else:
-                values = SIMULATOR_BEAM_CURRENTS[beam_type]
-
-        if key == "voltage":
-            if beam_type is BeamType.ELECTRON:
-                # SEM: [1000, 2000, 3000, 5000, 10000, 20000, 30000]
-                values = [2000, 5000, 10000, 20000, 30000]
-            elif beam_type is BeamType.ION:
-                values = [500, 1000, 2000, 8000, 16000, 30000]
-                # FIB: [500, 1000, 2000, 8000, 1600, 30000]
-
-        if key == "detector_type":
-            values = ["ETD", "TLD", "EDS"]
-        if key == "detector_mode":
-            values = ["SecondaryElectrons", "BackscatteredElectrons", "EDS"]
-
-        configured = self._configured_values(key)
-        if configured is not None:
-            values = configured
-
-        return values
 
 
 class DemoImaging:
@@ -513,21 +451,16 @@ class DemoImaging:
             )
         # The beam's acquire command, on a demo whose beams have it; settings win.
         target = image_settings.beam_type if image_settings is not None else beam_type
-        beam = self._imaging_beam(target, "_acquire")
-        if beam is not None:
-            return beam.acquire(image_settings)
-        return self._demo_acquire(image_settings, beam_type)
+        return self._imaging_beam(target).acquire(image_settings)
 
-    def _imaging_beam(self, beam_type: Optional[BeamType], hook: str):
-        """The beam device whose driver implements *hook*, or None for the code here.
-
-        The Demo's beams run imaging as commands, which call back into the
-        ``_demo_*`` methods below.
-        """
-        from fibsem.devices.beam import implements
-
-        beam = self.beams.get(beam_type) if beam_type is not None else None
-        return beam if beam is not None and implements(beam, hook) else None
+    def _imaging_beam(self, beam_type: BeamType):
+        """The beam device that images, as on the other backends. The Demo's beams
+        run imaging as commands, which call back into the ``_demo_*`` methods below;
+        a column disabled in the config has none."""
+        beam = self.beams.get(beam_type)
+        if beam is None:
+            raise ValueError(f"The {beam_type.name} beam is not enabled.")
+        return beam
 
     def _demo_acquire(
         self,
@@ -782,10 +715,7 @@ class DemoImaging:
         Returns:
             FibsemImage: The last acquired image.
         """
-        beam = self._imaging_beam(beam_type, "_last_image")
-        if beam is not None:
-            return beam.last_image()
-        return self._demo_last_image(beam_type)
+        return self._imaging_beam(beam_type).last_image()
 
     def _demo_last_image(self, beam_type: BeamType) -> Optional[FibsemImage]:
         # `ThermoMicroscope.last_image` sets the channel and then reads the *active
@@ -831,15 +761,6 @@ class DemoImaging:
         logging.debug({"msg": "acquire_chamber_image"})
         return image
 
-    def _acquisition_worker(self, beam_type: BeamType):
-        """Worker thread for image acquisition."""
-        signal = (
-            self.sem_acquisition_signal
-            if beam_type is BeamType.ELECTRON
-            else self.fib_acquisition_signal
-        )
-        self._demo_live(beam_type, self._stop_acquisition_event, signal.emit)
-
     def _demo_live(
         self,
         beam_type: BeamType,
@@ -875,11 +796,7 @@ class DemoImaging:
     def autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
-        beam = self._imaging_beam(beam_type, "_autocontrast")
-        if beam is not None:
-            beam.autocontrast(reduced_area)
-            return
-        self._demo_autocontrast(beam_type, reduced_area)
+        self._imaging_beam(beam_type).autocontrast(reduced_area)
 
     def _demo_autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle]
@@ -908,11 +825,7 @@ class DemoImaging:
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
-        beam = self._imaging_beam(beam_type, "_auto_focus")
-        if beam is not None:
-            beam.auto_focus(reduced_area)
-            return
-        self._demo_auto_focus(beam_type, reduced_area)
+        self._imaging_beam(beam_type).auto_focus(reduced_area)
 
     def _demo_auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle]
@@ -1020,13 +933,8 @@ class DemoScene:
         # Where the simulated autoloader really puts a grid, if it is told: the
         # scene draws the grid there whatever the working slot is calibrated to,
         # as on a real Arctis, where a loaded grid sits off the origin (FIB-1144).
-        device = getattr(self, "devices", {}).get("sample_loader")
-        if device is not None:
-            grid_position = getattr(device, "sim_grid_position", None)
-        else:
-            grid_position = getattr(
-                getattr(stage, "loader", None), "grid_position", None
-            )
+        device = self.devices.get("sample_loader")
+        grid_position = getattr(device, "sim_grid_position", None)
         try:
             return [
                 (
@@ -1369,7 +1277,7 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         scanning_mode="full_frame",
         scanning_mode_value=None,
     )
-    compustage = system.sim.get("is_compustage", False)
+    compustage = sim_is_compustage(system)
     # A compustage can't link (`set("stage_link")` refuses), so it is never linked.
     stage_system.is_linked = not compustage
     if not compustage:
@@ -1399,7 +1307,7 @@ class DemoSession:
         # initialise system
         self.connection = DemoMicroscopeClient()
         self.system = system_settings
-        self.stage_is_compustage: bool = self.system.sim.get("is_compustage", False)
+        self.stage_is_compustage: bool = sim_is_compustage(self.system)
         self.milling_system = MillingSystem(patterns=[])
         self.imaging_system = ImagingSystem()
 
@@ -1424,9 +1332,9 @@ class DemoSession:
         # present but nothing is configured for it" stays representable -- that is the
         # state an existing site hits on upgrade, and the one worth testing (FIB-830).
         #
-        # Defaults to `stage_is_compustage`, which is what this branched on before, so
+        # Defaults to `sim.is_compustage`, which is what this branched on before, so
         # every simulator configuration keeps its current behaviour without the key.
-        has_fm = bool(self.system.sim.get("has_fm", self.stage_is_compustage))
+        has_fm = bool(self.system.sim.get("has_fm", sim_is_compustage(self.system)))
 
         # Two independent questions, and the simulator is the only place both can be
         # posed. `_fluorescence_is_configured` is whether the site said its instrument
