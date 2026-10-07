@@ -18,7 +18,12 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Point
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.utils import beam_choices, install_wheel_blocker
+from fibsem.ui.utils import (
+    beam_choices,
+    beam_limits,
+    install_wheel_blocker,
+    set_range_from_limits,
+)
 from fibsem.ui.widgets.custom_widgets import _create_combobox_control
 
 # Working-distance step per Shift+scroll notch (mm). 1 um — fine focus control.
@@ -42,7 +47,7 @@ WIDGET_CONFIG = {
     },
     "scan_rotation": {
         "label": "Scan Rotation",
-        "range": (0, 180),
+        "range": (0, 360),
         "decimals": 0,
         "step": 180,
         "suffix": f" {constants.DEGREE_SYMBOL}",
@@ -445,6 +450,9 @@ class FibsemBeamSettingsWidget(QWidget):
         """
         if self._beam_device() is None:
             return
+        self._populate_resolutions()
+        self._apply_limits()
+
         self.beam_current_combo.blockSignals(True)
         self.beam_current_combo.clear()
         current = self.microscope.get_beam_current(self.beam_type)
@@ -485,6 +493,35 @@ class FibsemBeamSettingsWidget(QWidget):
         # whether this beam has presets is only known once they are populated
         # (Tescan exposes them on the FIB but not the SEM), so re-apply visibility
         self._update_visibility()
+
+    def _populate_resolutions(self) -> None:
+        """List the beam's resolutions, keeping the selection; a beam that lists none
+        keeps the standard ones."""
+        choices = beam_choices(self.microscope, "resolution", self.beam_type)
+        if not choices:
+            return
+        selected = self.resolution_combo.currentData()
+        self.resolution_combo.blockSignals(True)
+        self.resolution_combo.clear()
+        for width, height in choices:
+            self.resolution_combo.addItem(f"{width}x{height}", (width, height))
+        idx = self.resolution_combo.findData(selected)
+        if idx != -1:
+            self.resolution_combo.setCurrentIndex(idx)
+        self.resolution_combo.blockSignals(False)
+
+    def _apply_limits(self) -> None:
+        """Bound the boxes to the beam's limits, where it reports them."""
+        for name, spinbox, scale in (
+            ("hfw", self.hfw_spinbox, constants.SI_TO_MICRO),
+            ("dwell_time", self.dwell_time_spinbox, constants.SI_TO_MICRO),
+            ("scan_rotation", self.scan_rotation_spinbox, constants.RADIANS_TO_DEGREES),
+        ):
+            spinbox.blockSignals(True)
+            set_range_from_limits(
+                spinbox, beam_limits(self.microscope, name, self.beam_type), scale
+            )
+            spinbox.blockSignals(False)
 
     def get_settings(self) -> BeamSettings:
         """Return a BeamSettings built from the current widget values."""
