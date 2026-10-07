@@ -4,6 +4,7 @@ Qt-free, like the module, so this runs on every CI job rather than only ui-tests
 """
 
 import os
+import time
 from datetime import datetime
 
 import numpy as np
@@ -90,6 +91,18 @@ def _values(fields):
     return {f.key: f.value for f in fields}
 
 
+@pytest.fixture
+def viewer_utc(monkeypatch):
+    """Read times as a viewer in UTC would."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is POSIX-only")
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
 @pytest.mark.parametrize(
     "value, unit, expected",
     [
@@ -170,6 +183,35 @@ def test_the_date_reads_from_any_recorded_timestamp(timestamp):
     image = _sem_image()
     image.metadata.microscope_state.timestamp = timestamp
     assert _values(from_fibsem_image(image).provenance)["date"] == "2026-08-19 15:44"
+
+
+def test_the_recorded_acquisition_time_wins_over_the_states(viewer_utc):
+    """`acquisition_datetime` is when the image was acquired; the state's timestamp
+    is when the state was read (FIB-1190)."""
+    image = _sem_image()
+    image.metadata.microscope_state.timestamp = 0.0
+    image.metadata.acquisition_datetime = datetime.fromisoformat(
+        "2026-10-02T14:31:00-06:00"
+    )
+    assert _values(from_fibsem_image(image).provenance)["date"] == "2026-10-02 20:31"
+
+
+def test_a_fluorescence_image_reads_its_acquisition_time(viewer_utc):
+    image = _fm_image()
+    image.metadata.acquisition_datetime = datetime.fromisoformat(
+        "2026-10-02T14:48:00-06:00"
+    )
+    image.metadata.acquisition_date = image.metadata.acquisition_datetime.isoformat()
+    assert _values(from_fluorescence_image(image).provenance)["date"] == (
+        "2026-10-02 20:48"
+    )
+
+
+def test_an_older_fluorescence_image_shows_its_clock_time_unmoved():
+    """A naive acquisition_date: the acquiring machine's clock, zone unknown."""
+    assert _values(from_fluorescence_image(_fm_image()).provenance)["date"] == (
+        "2026-10-02 14:48"
+    )
 
 
 def test_an_unreadable_timestamp_is_left_out():

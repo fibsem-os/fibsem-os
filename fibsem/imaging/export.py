@@ -31,7 +31,7 @@ from fibsem.fm.preview import is_fluorescence_image, projection_layers
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.imaging.drawing import _get_font, draw_crosshair, draw_scalebar
 from fibsem.structures import BeamType, FibsemImage
-from fibsem.util.timestamps import format_time
+from fibsem.util.timestamps import acquisition_datetime_of, format_time
 
 RGB = Tuple[int, int, int]
 
@@ -334,7 +334,7 @@ def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportI
     system = md.system_info
     provenance = _provenance(
         md.experiment,
-        state.timestamp if state is not None else None,
+        acquisition_datetime_of(md),
         _instrument(system.model, system.serial_number) if system else None,
         md.user.name if md.user is not None else None,
         system.fibsem_version if system else None,
@@ -388,7 +388,7 @@ def from_fluorescence_image(
     system = md.system_info or {}
     provenance = _provenance(
         md.experiment,
-        md.acquisition_date,
+        acquisition_datetime_of(md),
         _instrument(system.get("model"), system.get("serial_number")),
         None,
         system.get("fibsem_version"),
