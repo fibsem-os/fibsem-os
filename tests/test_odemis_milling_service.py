@@ -1,13 +1,16 @@
-"""Odemis milling through the milling service, against the code it always milled with.
+"""Odemis milling through the milling service, against the calls it always made.
 
 Each case runs on an ``OdemisThermoMicroscope`` built as it is when created, over the
-recording fake client of tests/test_odemis_devices.py: once through
-``microscope.milling`` (OdemisMilling), once with the service taken away so the
-microscope's own code (OdemisPatterning) mills, as it did before the service
-(``own_milling_code``). Both
-must make the same odemis calls and return the same. What the service changes on
-purpose, putting the beam back at the end, is asserted on its own.
+recording fake client of tests/test_odemis_devices.py, through ``microscope.milling``
+(OdemisMilling). tests/fixtures/odemis_milling_calls.json holds what the microscope's
+own milling code returned and called for the same cases before that code moved into
+the service; the service must make the same odemis calls and return the same. What
+the service changes on purpose, putting the beam back at the end, is asserted on its
+own.
 """
+
+import json
+from pathlib import Path
 
 import pytest
 
@@ -19,7 +22,6 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     MillingState,
 )
-from tests.fixtures.milling_reads import own_milling_code
 from tests.test_odemis_devices import READS, make, odemis_cls, run  # noqa: F401
 
 SETTINGS = FibsemMillingSettings(
@@ -47,11 +49,8 @@ def patterning(monkeypatch):
     monkeypatch.setitem(READS, "create_circle", {"id": 3, "time": 1.0})
 
 
-def both(odemis_cls, call):
-    new = make(odemis_cls)
-    old = own_milling_code(make(odemis_cls))
-    ran, old_ran = run(new, call), run(old, call)
-    return (ran["result"], ran["calls"]), (old_ran["result"], old_ran["calls"])
+with open(Path(__file__).parent / "fixtures" / "odemis_milling_calls.json") as f:
+    OLD_CALLS = json.load(f)
 
 
 def test_odemis_builds_its_milling_service(odemis_cls):
@@ -104,20 +103,24 @@ SAVES = [
 
 @pytest.mark.parametrize("call", [_setup, _draw, _run], ids=lambda c: c.__name__)
 def test_milling_makes_the_same_odemis_calls(odemis_cls, call):
-    (result, calls), (old_result, old_calls) = both(odemis_cls, call)
-    assert result == old_result
+    ran = run(make(odemis_cls), call)
+    result, calls = ran["result"], ran["calls"]
+    old = OLD_CALLS[call.__name__]
+    assert result == old["result"]
     if call is not _draw:
         assert calls[: len(SAVES)] == SAVES
         calls = calls[len(SAVES) :]
-    assert calls == old_calls
+    assert calls == old["calls"]
 
 
 def test_the_state_is_read_on_the_milling_channel(odemis_cls):
-    (result, calls), (old_result, old_calls) = both(
-        odemis_cls, lambda m: m.get_milling_state()
-    )
-    assert result == old_result == repr(MillingState.IDLE)
-    assert calls == old_calls
+    ran = run(make(odemis_cls), lambda m: m.get_milling_state())
+    assert ran["result"] == repr(MillingState.IDLE)
+    assert [c[0] for c in ran["calls"]] == [
+        "set_active_view",
+        "set_active_device",
+        "get_patterning_state",
+    ]
 
 
 WRITES = ("set_high_voltage", "set_beam_current", "set_field_of_view")
