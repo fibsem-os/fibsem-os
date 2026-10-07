@@ -7,6 +7,7 @@ to its parameter (``BEAM_ROUTES``), and every other key to the backend's chain.
 
 from __future__ import annotations
 
+import copy
 import logging
 import threading
 from math import pi
@@ -14,10 +15,12 @@ from typing import Any, Dict, Optional
 
 from psygnal import Signal
 
-from fibsem.devices.core import Device, Parameter, command
+from fibsem.devices.core import Device, Parameter, Role, command
+from fibsem.devices.scanner import Scanner
 from fibsem.structures import (
     BeamType,
     FibsemImage,
+    FibsemImageMetadata,
     FibsemRectangle,
     ImageSettings,
     Point,
@@ -52,6 +55,13 @@ class Beam(Device):
     )
     tilt_correction = Parameter(
         bool, doc="The angular correction's tilt correction is on."
+    )
+
+    scanner = Role(
+        Scanner,
+        required=False,
+        doc="An external scan generator that images in place of the vendor's scan, "
+        "when the configuration binds one (``roles: {scanner: <entry>}``).",
     )
 
     live_frame = Signal(object)
@@ -133,6 +143,8 @@ class Beam(Device):
                 f"{self.name} can't acquire an image for the "
                 f"{image_settings.beam_type.name} beam"
             )
+        if "scanner" in self.roles:
+            return self._acquire_with_scanner(image_settings)
         return self._acquire(image_settings)
 
     @command(available=lambda beam: implements(beam, "_last_image"))
@@ -162,6 +174,39 @@ class Beam(Device):
             return self.parent.acquire_image(beam_type=self.beam_type)
         return self.parent.acquire_image(image_settings)
 
+    # A bound scanner images instead of the driver: the beam's settings (or the
+    # given ones) say what to scan, the scanner scans it, and the beam builds the
+    # image. Only the frame comes from the scanner; hfw is still the column's.
+
+    def _acquire_with_scanner(
+        self, image_settings: Optional[ImageSettings]
+    ) -> FibsemImage:
+        if image_settings is None:
+            settings = ImageSettings(
+                resolution=tuple(self.resolution.get_value()),
+                dwell_time=self.dwell_time.get_value(),
+                hfw=self.hfw.get_value(),
+                beam_type=self.beam_type,
+            )
+        else:
+            settings = copy.deepcopy(image_settings)
+            if "hfw" in self.parameters:
+                self.hfw.set_value(settings.hfw)
+        frame = self.scanner.acquire(settings.resolution, settings.dwell_time)
+        width = settings.resolution[0]
+        state = None
+        get_state = getattr(self.parent, "get_microscope_state", None)
+        if get_state is not None:
+            state = get_state(beam_type=self.beam_type)
+        return FibsemImage(
+            data=frame,
+            metadata=FibsemImageMetadata(
+                image_settings=settings,
+                microscope_state=state,
+                pixel_size=Point(settings.hfw / width, settings.hfw / width),
+            ),
+        )
+
     def _last_image(self) -> FibsemImage:
         raise NotImplementedError
 
@@ -181,7 +226,9 @@ class Beam(Device):
     # sets the event it is given. Frames are pushed, as the SEM and FIB viewers take
     # them today.
 
-    @command(available=lambda beam: implements(beam, "_live"))
+    @command(
+        available=lambda beam: implements(beam, "_live") or "scanner" in beam.roles
+    )
     def start_live(self) -> None:
         """Acquire continuously with the current settings, each image on
         ``live_frame``, until `stop_live`. Warns and does nothing when already live."""
@@ -195,13 +242,17 @@ class Beam(Device):
             )
             self._live_thread.start()
 
-    @command(available=lambda beam: implements(beam, "_live"))
+    @command(
+        available=lambda beam: implements(beam, "_live") or "scanner" in beam.roles
+    )
     def stop_live(self) -> None:
         """Stop live view, waiting briefly for its last frame. Safe when not live."""
         thread = self._live_thread
         if thread is None or self._live_stop.is_set():
             return
         self._live_stop.set()
+        if "scanner" in self.roles:
+            self.scanner.stop()
         if thread is not threading.current_thread():
             thread.join(timeout=2)
 
@@ -211,13 +262,20 @@ class Beam(Device):
         return thread is not None and thread.is_alive()
 
     def _run_live(self) -> None:
+        live = self._live_with_scanner if "scanner" in self.roles else self._live
         try:
-            self._live(self._live_stop)
+            live(self._live_stop)
         except Exception as e:
             logging.error(f"{self.name} live view stopped: {e}")
 
     def _live(self, stop: threading.Event) -> None:
         raise NotImplementedError
+
+    def _live_with_scanner(self, stop: threading.Event) -> None:
+        while not stop.is_set():
+            image = self._acquire_with_scanner(None)
+            if not stop.is_set():
+                self.live_frame.emit(image)
 
 
 def implements(beam: Beam, hook: str) -> bool:

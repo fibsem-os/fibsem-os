@@ -45,7 +45,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -102,7 +102,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -276,7 +276,7 @@
     }
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Retracted",
   "orientation": "FM",
   "position": {
@@ -417,7 +417,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -477,7 +477,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -564,7 +564,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -621,7 +621,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -785,7 +785,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -829,7 +829,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -841,7 +841,7 @@
   }
  },
  "arctis_beam_side|FM+1|queries": {
-  "current_device": "FIBSEM",
+  "current_device": "FM",
   "get_target_position(FIB)": {
    "r": 0.0,
    "t": -2.234021442552742,
@@ -1003,7 +1003,7 @@
     }
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Retracted",
   "orientation": "FM",
   "position": {
@@ -1144,7 +1144,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -1191,7 +1191,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -1265,7 +1265,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -1309,7 +1309,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -1321,7 +1321,7 @@
   }
  },
  "arctis_beam_side|FM|queries": {
-  "current_device": "FIBSEM",
+  "current_device": "FM",
   "get_target_position(FIB)": {
    "r": 0.0,
    "t": -2.234021442552742,
@@ -1691,7 +1691,7 @@
     }
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Retracted",
   "orientation": "FM",
   "position": {
@@ -1832,7 +1832,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -2379,7 +2379,7 @@
     }
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Retracted",
   "orientation": "FM",
   "position": {
@@ -2520,7 +2520,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -2862,7 +2862,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -2919,7 +2919,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -3093,7 +3093,7 @@
     }
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Retracted",
   "orientation": "FM",
   "position": {
@@ -3234,7 +3234,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -3294,7 +3294,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -3381,7 +3381,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -3438,7 +3438,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -3602,7 +3602,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -3646,7 +3646,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -3658,7 +3658,7 @@
   }
  },
  "arctis|FM+1|queries": {
-  "current_device": "FIBSEM",
+  "current_device": "FM",
   "get_target_position(FIB)": {
    "r": 0.0,
    "t": -2.234021442552742,
@@ -3820,7 +3820,7 @@
     }
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Retracted",
   "orientation": "FM",
   "position": {
@@ -3961,7 +3961,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -4008,7 +4008,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -4082,7 +4082,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -4126,7 +4126,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -4138,7 +4138,7 @@
   }
  },
  "arctis|FM|queries": {
-  "current_device": "FIBSEM",
+  "current_device": "FM",
   "get_target_position(FIB)": {
    "r": 0.0,
    "t": -2.234021442552742,
@@ -4303,7 +4303,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -4360,7 +4360,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -4534,7 +4534,7 @@
     }
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Retracted",
   "orientation": "FM",
   "position": {
@@ -4675,7 +4675,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -4735,7 +4735,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -4822,7 +4822,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -4879,7 +4879,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -5056,7 +5056,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -5113,7 +5113,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -5287,7 +5287,7 @@
     }
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Retracted",
   "orientation": "FM",
   "position": {
@@ -5428,7 +5428,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -5488,7 +5488,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -5575,7 +5575,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {
@@ -5632,7 +5632,7 @@
     "insert"
    ]
   ],
-  "device": "FIBSEM",
+  "device": "FM",
   "objective": "Inserted",
   "orientation": "FM",
   "position": {

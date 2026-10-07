@@ -3832,9 +3832,9 @@ class FibsemMicroscope(ABC):
         it on an offset mount -- the FM orientation there is byte-identical to the FIB
         one -- because it is not a question about orientation at all.
 
-        Only meaningful for a device the stage *travels to*. A device that comes to
-        the sample instead has no origin, and answers `False` rather than pretending
-        position decides it.
+        Only meaningful for a device the stage goes to. A device whose entry gives no
+        origin has no stage position to be at, and is refused: `False` would read as
+        "not there yet".
 
         Where every device shares one origin -- the objective under the grid, which
         is also what a configuration that declares no devices describes -- there is
@@ -3848,6 +3848,11 @@ class FibsemMicroscope(ABC):
         origin. Within the beams' range but nearer the FM's origin is at the FM.
         """
         target = self._get_device(device)
+        if all(getattr(target.origin, axis) is None for axis in DEVICE_AXES):
+            raise ValueError(
+                f"The {device} device has no stage position (its entry gives no "
+                "origin), so the stage cannot be at it."
+            )
         if self._is_the_only_place(target):
             return True
         if stage_position is None:
@@ -3894,15 +3899,18 @@ class FibsemMicroscope(ABC):
         means no device contains the position, which with the beams unbounded only a
         position missing an axis an origin sets can be.
 
-        Positional, so it is the wrong question on a compustage, where the beams and
-        the FM are the same place reached by flipping and the devices fully overlap.
-        It answers the first device there, wherever the stage is, which is enough for
-        a conversion (the translation between one place and itself is zero); nothing
-        decides a device by it: `move_to_microscope` branches to the compustage path
-        first, and the device is decided by orientation instead.
+        A stage that reaches a device by re-posing rather than travelling says so
+        (`Stage.device_at_pose`), and then the pose decides: a compustage is at the FM
+        in the FM pose and at the beams in any other, wherever x and y are.
         """
         if stage_position is None:
             stage_position = self.get_stage_position()
+
+        # A partial position (no r or t) has no pose to ask about.
+        if stage_position.r is not None and stage_position.t is not None:
+            by_pose = self._device_at_pose(self.get_stage_orientation(stage_position))
+            if by_pose is not None:
+                return by_pose
 
         containing = [
             name
@@ -3917,6 +3925,14 @@ class FibsemMicroscope(ABC):
                 self._resolved_origin(self.system.stage.devices[name]), stage_position
             ),
         )
+
+    def _device_at_pose(self, orientation: str) -> Optional[str]:
+        """The configured device the stage device says a pose puts it at, or None
+        when its position decides (`Stage.device_at_pose`)."""
+        if self.stage_device is None:
+            return None
+        device = self.stage_device.device_at_pose(orientation)
+        return device if device in self.system.stage.devices else None
 
     def get_device_imaging_state(
         self, device: str, stage_position: Optional[FibsemStagePosition] = None
