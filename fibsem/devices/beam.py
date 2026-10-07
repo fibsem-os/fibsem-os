@@ -11,7 +11,7 @@ import copy
 import logging
 import threading
 from math import pi
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from psygnal import Signal
 
@@ -28,6 +28,23 @@ from fibsem.structures import (
     ScanMode,
 )
 
+# The sizes an image can be acquired at, for a driver whose instrument can't list its
+# own: the square frames and the standard 3:2 ones. A beam's resolution choices are
+# what an acquisition can be taken at, not only what the scan can be set to.
+ACQUISITION_RESOLUTIONS: Tuple[Tuple[int, int], ...] = (
+    (256, 256),
+    (512, 512),
+    (1024, 1024),
+    (2048, 2048),
+    (4096, 4096),
+    (8192, 8192),
+    (384, 256),
+    (768, 512),
+    (1536, 1024),
+    (3072, 2048),
+    (6144, 4096),
+)
+
 
 class Beam(Device):
     voltage = Parameter(float, unit="V")
@@ -42,7 +59,12 @@ class Beam(Device):
     detector_mode = Parameter(str, depends_on=("detector_type",))
     detector_contrast = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
     detector_brightness = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
-    resolution = Parameter(tuple, unit="px", doc="(width, height)")
+    resolution = Parameter(
+        tuple,
+        unit="px",
+        choices=ACQUISITION_RESOLUTIONS,
+        doc="(width, height). The choices are the sizes an image can be acquired at.",
+    )
     dwell_time = Parameter(float, unit="s")
     stigmation = Parameter(Point)
     shift = Parameter(Point, unit="m", doc="Beam shift.")

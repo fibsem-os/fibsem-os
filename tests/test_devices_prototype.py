@@ -69,7 +69,8 @@ def test_parameters_describe_themselves(beams):
     assert sem.scan_rotation.limits == RangeLimit(
         min=0.0, max=2 * math.pi
     )  # static, from the class
-    assert sem.hfw.limits is None and sem.hfw.settable
+    assert sem.hfw.limits == RangeLimit(min=100e-9, max=3e-3)  # from the driver
+    assert sem.working_distance.limits is None and sem.working_distance.settable
     assert sem.describe()["voltage"] == {
         "type": "float",
         "unit": "V",

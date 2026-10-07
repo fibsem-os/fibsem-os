@@ -80,9 +80,9 @@ def test_the_old_imaging_methods_go_through_the_beams(microscope):
 
 def test_the_beam_acquires_with_its_current_settings(microscope):
     fib = microscope.beams[BeamType.ION]
-    fib.resolution.set_value((512, 256))
+    fib.resolution.set_value((768, 512))
     image = fib.acquire()
-    assert image.data.shape == (256, 512)
+    assert image.data.shape == (512, 768)
     assert image.metadata.image_settings.beam_type is BeamType.ION
 
 

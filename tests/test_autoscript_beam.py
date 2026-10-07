@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from fibsem.devices.beam import ACQUISITION_RESOLUTIONS
 from tests.fixtures.autoscript_recording import load
 
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_beam_parity.py"
@@ -227,6 +228,19 @@ def test_the_choices_are_get_available_values(recording, plasma, beam):
         assert facts["choices"]["plasma_gas"] == old["plasma_gas"]
     else:
         assert facts["choices"]["plasma_gas"] is None  # no gas on this column
+
+
+@pytest.mark.parametrize("beam", ["ELECTRON", "ION"])
+def test_the_resolutions_are_the_scans_then_the_frames_it_does_not_list(
+    recording, beam
+):
+    """The scan's own sizes first, then the acquisition frames it doesn't list (the
+    squares and the other standard ones), which a grab may still take."""
+    facts = recording["facts"][f"plasma=False {beam}"]
+    listed = [[768, 512], [1536, 1024], [3072, 2048]]
+    extra = [list(r) for r in ACQUISITION_RESOLUTIONS if list(r) not in listed]
+    assert facts["resolution_choices"] == listed + extra
+    assert facts["dwell_time_limits"] == [25e-9, 1e-3]
 
 
 def test_new_api_refuses_a_voltage_off_the_list_before_any_sdk_call(recording):
