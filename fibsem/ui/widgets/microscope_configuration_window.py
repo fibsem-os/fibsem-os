@@ -174,7 +174,11 @@ def _fib_rotation(microscope: FibsemMicroscope) -> float:
 
 # ---- the tabs -------------------------------------------------------------------------
 
-SOURCE_LABELS = {"instrument": "Instrument", "backend": "Backend default"}
+SOURCE_LABELS = {
+    "instrument": "Instrument",
+    "backend": "Backend default",
+    "device": "Configured device",
+}
 
 
 def devices_rows(microscope: FibsemMicroscope) -> List[Tuple[str, bool, str, str]]:

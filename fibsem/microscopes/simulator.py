@@ -54,7 +54,6 @@ if TYPE_CHECKING:
 
 ######################## SIMULATOR ########################
 
-SIMULATOR_KNOWN_UNKNOWN_KEYS = ["preset"]
 
 # simulator constants
 SIMULATOR_PLASMA_GASES = ["Oxygen", "Argon", "Nitrogen", "Xenon"]
