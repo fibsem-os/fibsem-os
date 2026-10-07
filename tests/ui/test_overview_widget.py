@@ -5008,7 +5008,7 @@ def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
     from fibsem.ui.widgets.canvas.overlays import stage_context
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     assert not stage_context.holder_is_calibrated(microscope)
     widget = FibsemOverviewWidget(microscope)

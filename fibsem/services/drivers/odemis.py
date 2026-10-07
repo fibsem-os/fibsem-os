@@ -13,7 +13,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 from fibsem.devices.core import ParameterMetadata
-from fibsem.microscopes.odemis_microscope import OdemisPatterning
+from fibsem.microscopes.odemis_microscope import (
+    ODEMIS_SCAN_DIRECTIONS,
+    OdemisPatterning,
+)
 from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
     FibsemBitmapSettings,
@@ -53,6 +56,7 @@ class OdemisMilling(Milling):
         "application_file",
         "patterning_mode",
     )
+    scan_directions = ODEMIS_SCAN_DIRECTIONS
 
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "application_file":

@@ -10,7 +10,7 @@ server's `/capabilities` reports, and the server enforces scopes regardless.
 ## Install
 
 ```bash
-pip install -e ".[server,mcp]"    # sidecar needs Python 3.10+
+pip install -e ".[server,mcp]"
 ```
 
 ## 1. Start the bench server

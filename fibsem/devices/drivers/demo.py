@@ -46,7 +46,12 @@ from fibsem.devices.sample_loader import (
     StageSample,
 )
 from fibsem.devices.scanner import Scanner
-from fibsem.devices.stage import Stage, axis_limits_from_degrees, compustage_poses
+from fibsem.devices.stage import (
+    Stage,
+    axis_limits_from_degrees,
+    compustage_device_at_pose,
+    compustage_poses,
+)
 from fibsem.fm.microscope import emission_filter_named
 from fibsem.fm.structures import (
     REFLECTION,
@@ -75,8 +80,11 @@ from fibsem.microscopes.simulator import (
     SIM_OBJECTIVE_RETRACT_POSITION,
     SIM_OBJECTIVE_TRAVEL_SECONDS,
     SIM_OBJECTIVE_USER_POSITION_LIMIT,
+    STAGE_LIMITS_COMPUSTAGE,
+    STAGE_LIMITS_DEFAULT,
     UINT16_MAX,
     UINT16_MIN,
+    sim_is_compustage,
 )
 from fibsem.structures import (
     BeamSettings,
@@ -362,8 +370,12 @@ class DemoStage(Stage):
         self.sim_position: FibsemStagePosition = deepcopy(start.position)
         self.sim_homed: bool = start.is_homed
         self.sim_linked: bool = start.is_linked
-        # Read once when built, as a vendor's limits would be at connect.
-        self._axis_limits = parent._get_axis_limits()
+        # Read once when built, as a vendor's stage type and limits would be at
+        # connect. The `sim:` block stands in for the hardware probe.
+        self.compustage: bool = sim_is_compustage(parent.system)
+        self._axis_limits = (
+            STAGE_LIMITS_COMPUSTAGE if self.compustage else STAGE_LIMITS_DEFAULT
+        )
 
     # -- position ----------------------------------------------------------------
 
@@ -384,20 +396,25 @@ class DemoStage(Stage):
     # A compustage can't link: the old set("stage_link") logs and does nothing there,
     # so on the new API "linked" is absent and link() is unavailable.
     def available_linked(self) -> bool:
-        return not self.parent.stage_is_compustage
+        return not self.compustage
 
     def has_builtin_shuttle(self) -> bool:
-        return self.parent.stage_is_compustage
+        return self.compustage
 
     # The simulator is a compustage or an offset stage by its configuration.
     def poses(
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
     ) -> Dict[str, FibsemStagePosition]:
-        if self.parent.stage_is_compustage:
+        if self.compustage:
             return compustage_poses(
                 rotation_reference, shuttle_pre_tilt, fib_column_tilt
             )
         return super().poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
+
+    def device_at_pose(self, orientation: str) -> Optional[str]:
+        if self.parent.stage_is_compustage:
+            return compustage_device_at_pose(orientation)
+        return super().device_at_pose(orientation)
 
     def read_linked(self) -> bool:
         return self.sim_linked

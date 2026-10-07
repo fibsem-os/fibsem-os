@@ -128,7 +128,7 @@ class FakeConnection:
 
 def _microscope_with(autoloader: FakeAutoloader):
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope._stage = _create_sample_stage(microscope)
     microscope.connection = FakeConnection(autoloader)
     if _KIND == "old":

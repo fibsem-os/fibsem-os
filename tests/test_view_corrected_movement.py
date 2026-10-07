@@ -76,7 +76,7 @@ def _reference_y_corrected(microscope, expected_y: float, beam_type: BeamType):
     stage_rotation = current_stage_position.r % (2 * np.pi)
     stage_tilt = current_stage_position.t
 
-    if microscope.stage_is_compustage:
+    if microscope.stage_device.compustage:
         expected_y *= -1.0
         stage_tilt += np.pi
 
@@ -90,7 +90,10 @@ def _reference_y_corrected(microscope, expected_y: float, beam_type: BeamType):
     ):
         PRETILT_SIGN = -1.0
 
-    if microscope.stage_is_compustage and microscope.get_stage_orientation() == "FIB":
+    if (
+        microscope.stage_device.compustage
+        and microscope.get_stage_orientation() == "FIB"
+    ):
         expected_y *= -1.0
         PRETILT_SIGN = -1.0
 
@@ -148,7 +151,7 @@ def _reference_inverse_y_corrected(
     )
 
     compustage_sign = 1.0
-    if microscope.stage_is_compustage:
+    if microscope.stage_device.compustage:
         if stage_tilt <= 0:
             compustage_sign = -1.0
         stage_tilt += np.pi
@@ -180,7 +183,7 @@ def _reference_inverse_y_corrected(
 
     expected_y = y_sample_move * np.cos(stage_tilt + perspective_tilt_adjustment)
 
-    if microscope.stage_is_compustage:
+    if microscope.stage_device.compustage:
         expected_y *= compustage_sign
 
     return expected_y
@@ -193,8 +196,12 @@ def microscope():
 
 
 def _configure(microscope, *, pretilt_deg, rotation_deg, tilt_deg, compustage):
-    """Pin the microscope into a known geometry (pure math, no stage motion)."""
-    microscope.stage_is_compustage = compustage
+    """Pin the microscope into a known geometry (pure math, no stage motion).
+
+    The stage type is the Demo stage device's, read from the configuration when it
+    was built; setting it here stands in for connecting to the other kind of stage.
+    """
+    microscope.stage_device.compustage = compustage
     microscope.system.stage.shuttle_pre_tilt = pretilt_deg
     microscope._update_orientations()
 
@@ -1124,13 +1131,13 @@ class TestCameraTilt:
 
     def test_offset_mount_matches_the_ion_column(self, microscope):
         # METEOR / iFLM: optical axis parallel to the FIB column, offset along x
-        microscope.stage_is_compustage = False
+        microscope.stage_device.compustage = False
         fm = DemoFluorescenceMicroscope(parent=microscope)
         assert fm.camera_tilt == pytest.approx(microscope.system.ion.column_tilt)
 
     def test_under_grid_mount_is_a_half_turn(self, microscope):
         # Arctis: camera mounted under the grid, looking up
-        microscope.stage_is_compustage = True
+        microscope.stage_device.compustage = True
         fm = DemoFluorescenceMicroscope(parent=microscope)
         assert fm.camera_tilt == pytest.approx(180.0)
 

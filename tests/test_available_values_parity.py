@@ -5,7 +5,8 @@ parameter's choices; only the keys with no device home stay in the backend
 (``_get_available_values``). The answers the backends gave before, for every key on
 no beam type and on each beam, over the fake SDKs, are pinned in
 ``tests/fixtures/available_values_pins.json``; each must still be the same, except
-the ones in ``CHANGED``, which say what they answer now and why. Thermo runs in its
+the ones in ``CHANGED``, which say what they answer now and why, and the keys in
+``MOVED``, which now answer nothing. Thermo runs in its
 own interpreter (``tests/fixtures/autoscript_available_values.py``).
 
 Not caught by the pins, because each case is a fresh microscope: a beam key's values
@@ -150,6 +151,14 @@ _ODEMIS_DETECTOR_TYPES = {
     "odemis ION detector_type": {"set": ["ETD", "ICE"]},
 }
 CHANGED = {**_NO_BEAM, **_ODEMIS_DETECTOR_TYPES}
+# The application files and scan directions moved to the milling service
+# (``supported_settings``, ``supported_pattern_settings``), so as keys they get no
+# values, where before the backends listed them.
+MOVED = ("application_file", "scan_direction")
+
+
+def _moved(key):
+    return key.rsplit(" ", 1)[-1] in MOVED
 
 
 @pytest.fixture(scope="module")
@@ -168,6 +177,8 @@ def test_every_answer_is_the_pinned_one(answers):
     pinned = json.loads(PINS.read_text())
     assert sorted(answers) == sorted(pinned)
     different = {k: (pinned[k], answers[k]) for k in pinned if answers[k] != pinned[k]}
+    moved = {k for k in different if _moved(k)}
+    assert moved and all(different.pop(k)[1] == [] for k in moved)
     assert sorted(different) == sorted(CHANGED)
     for key, (before, now) in different.items():
         assert before == CHANGED[key], key

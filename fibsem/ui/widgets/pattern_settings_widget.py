@@ -126,7 +126,14 @@ class FibsemPatternSettingsWidget(QWidget):
         self._update_visibility()
 
     def _dynamic_items(self, parameter: str):
-        """Resolve an `items: "dynamic"` field against the microscope."""
+        """Resolve an `items: "dynamic"` field: the milling service's choices for the
+        pattern field (named as its microscope parameter), else the microscope's
+        available values."""
+        milling = getattr(self.microscope, "milling", None)
+        if milling is not None:
+            supported = milling.supported_pattern_settings().get(parameter)
+            if supported is not None and supported.choices is not None:
+                return list(supported.choices)
         return self.microscope.get_available_values_cached(parameter, BeamType.ION)
 
     # ------------------------------------------------------------------
