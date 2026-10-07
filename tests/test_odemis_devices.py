@@ -426,21 +426,15 @@ REDUCED_AREA = {
 # What the old branches did that the devices, and the "absent is unsupported" rule,
 # do differently: a beam key the beam does not have reads None quietly; a false
 # stage_link no longer unlinks (the stage has no unlink, and nothing called it); and
-# a false pump or vent is an unknown key.
-def _unknown(key):
-    return {
-        "result": None,
-        "calls": [],
-        "log": [["WARNING", f"Unknown key: {key} (None)"]],
-    }
-
+# a false pump or vent is unsupported, so it does nothing, quietly.
+UNSUPPORTED = {"result": None, "calls": [], "log": []}
 
 CHANGED = {
-    "get scanning_mode ELECTRON": {"result": None, "calls": [], "log": []},
-    "get scanning_mode ION": {"result": None, "calls": [], "log": []},
-    "set stage_link False": _unknown("stage_link"),
-    "set pump_chamber False": _unknown("pump_chamber"),
-    "set vent_chamber False": _unknown("vent_chamber"),
+    "get scanning_mode ELECTRON": UNSUPPORTED,
+    "get scanning_mode ION": UNSUPPORTED,
+    "set stage_link False": UNSUPPORTED,
+    "set pump_chamber False": UNSUPPORTED,
+    "set vent_chamber False": UNSUPPORTED,
 }
 with open(RECORDED) as f:
     EXPECTED = json.load(f)

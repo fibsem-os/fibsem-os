@@ -10,8 +10,7 @@ Two guards here:
 
 * an AST rule: every SDK call site in ``tescan.py`` must sit lexically inside a
   ``with self._connection_lock:`` block, so a new unlocked call site fails this test
-  rather than shipping as a latent race. ``_get_impl``/``_set_impl`` are the one
-  allowed exception -- their public wrappers ``_get``/``_set`` hold the lock.
+  rather than shipping as a latent race. There are no exceptions.
 * a behavioural check: real driver methods hammered from two threads against a fake
   connection that detects overlapping SDK entry.
 """
@@ -24,12 +23,6 @@ import time
 from fibsem.microscopes import tescan as tescan_module
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, MillingState
-
-# Their callers (_get/_set) take the lock around the whole dispatch, so these two are
-# exempt from the lexical rule. Nothing else may join this list without the same
-# always-locked-caller property.
-LOCKED_BY_CALLER = {"_get_impl", "_set_impl"}
-
 
 # ---------------------------------------------------------------------------
 # AST rule
@@ -92,9 +85,8 @@ class _LockAudit(ast.NodeVisitor):
     def visit_Call(self, node):
         if _is_sdk_call(node.func) and self._lock_depth == 0:
             func = self._func_stack[-1] if self._func_stack else "<module>"
-            if func not in LOCKED_BY_CALLER:
-                _, chain = _chain_of(node.func)
-                self.violations.append(f"{func}:{node.lineno} {'.'.join(chain)}")
+            _, chain = _chain_of(node.func)
+            self.violations.append(f"{func}:{node.lineno} {'.'.join(chain)}")
         self.generic_visit(node)
 
 
@@ -107,12 +99,6 @@ def test_every_sdk_call_site_is_under_the_connection_lock():
         "(one socket -- unlocked calls tear the protocol):\n  "
         + "\n  ".join(audit.violations)
     )
-
-
-def test_the_allowlist_is_only_the_impl_pair():
-    """The exemption exists for _get_impl/_set_impl alone; growing it silently would
-    reopen the hole the lexical rule closes."""
-    assert LOCKED_BY_CALLER == {"_get_impl", "_set_impl"}
 
 
 # ---------------------------------------------------------------------------
