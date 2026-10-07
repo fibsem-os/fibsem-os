@@ -12,6 +12,7 @@ from fibsem.applications.autolamella.workflows.tasks.trench import (
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemImage, FibsemStagePosition
+from tests.fixtures.demo_stage import demo_session
 
 
 def _make_trench_task(microscope: FibsemMicroscope, tmp_path: Path) -> MillTrenchTask:
@@ -22,8 +23,7 @@ def _make_trench_task(microscope: FibsemMicroscope, tmp_path: Path) -> MillTrenc
 
 @pytest.fixture
 def compustage_microscope() -> FibsemMicroscope:
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     return microscope

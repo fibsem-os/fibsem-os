@@ -5,6 +5,7 @@ import pytest
 
 from fibsem import utils
 from fibsem.structures import BeamType, FibsemStagePosition
+from tests.fixtures.demo_stage import demo_session
 
 
 def test_microscope():
@@ -34,8 +35,7 @@ def test_microscope():
 )
 def test_get_stage_orientation_compustage(tilt_deg, expected):
     """Test get_stage_orientation for compustage (pretilt=0)."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
 
@@ -56,8 +56,7 @@ def test_get_stage_orientation_compustage(tilt_deg, expected):
 )
 def test_get_stage_orientation_non_compustage(rotation_deg, tilt_deg, expected):
     """Test get_stage_orientation for non-compustage (pretilt=35°)."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope, _ = demo_session(compustage=False)
     microscope.system.stage.shuttle_pre_tilt = 35
     microscope.system.stage.rotation_reference = 0
     microscope.system.stage.rotation = True  # so FIB derives to 180 (FIB-834)
@@ -102,8 +101,7 @@ def _compustage_with_fm():
     """A compustage Demo microscope with fluorescence attached."""
     from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     if microscope.fm is None:
@@ -135,8 +133,7 @@ def test_move_to_microscope_compustage_round_trip():
 
 def test_get_target_position_milling_to_fm_compustage():
     """MILLING -> FM is now supported on compustage systems."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
 
@@ -155,8 +152,7 @@ def test_get_target_position_milling_to_fm_compustage():
 
 def test_get_target_position_fm_to_milling_compustage():
     """FM -> MILLING is now supported on compustage systems."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
 
@@ -172,8 +168,7 @@ def test_get_target_position_fm_to_milling_compustage():
 
 def test_get_target_position_milling_to_fm_non_compustage_raises():
     """MILLING -> FM still raises on non-compustage systems."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope, _ = demo_session(compustage=False)
     microscope.system.stage.shuttle_pre_tilt = 35
     microscope._update_orientations()
 
@@ -186,8 +181,7 @@ def test_get_target_position_milling_to_fm_non_compustage_raises():
 
 def test_get_target_position_milling_same_orientation_noop():
     """MILLING -> MILLING returns the position unchanged."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
 

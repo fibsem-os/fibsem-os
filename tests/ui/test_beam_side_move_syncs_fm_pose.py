@@ -36,6 +36,7 @@ from fibsem.applications.autolamella.poses import (
     build_lamella_poses,
 )
 from fibsem.structures import FibsemStagePosition
+from tests.fixtures.demo_stage import demo_session
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -44,8 +45,7 @@ def _microscope():
     from fibsem import utils
     from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
 
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     if microscope.fm is None:

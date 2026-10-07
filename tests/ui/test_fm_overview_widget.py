@@ -2113,6 +2113,7 @@ from fibsem.applications.autolamella.ui.overview_container_tab import (
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     MODALITY_FLUORESCENCE as TAB_MODALITY_FLUORESCENCE,
 )
+from tests.fixtures.demo_stage import demo_session
 
 
 class _StubHost:
@@ -2774,8 +2775,7 @@ def _microscope_at(tilt_deg: float):
     from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
     from fibsem.structures import FibsemStagePosition
 
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     if microscope.fm is None:

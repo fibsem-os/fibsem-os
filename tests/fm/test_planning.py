@@ -31,7 +31,7 @@ def fm_microscope():
     """A demo microscope posed for fluorescence, as the FM overview tab leaves it."""
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
     microscope.system.stage.shuttle_pre_tilt = 0
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope._update_orientations()
     microscope.move_to_microscope("FM")
     return microscope

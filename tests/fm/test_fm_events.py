@@ -40,7 +40,7 @@ def microscope():
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
     microscope.system.stage.shuttle_pre_tilt = 0
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope.move_to_microscope("FM")
     return microscope
 
