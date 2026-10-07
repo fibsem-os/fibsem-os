@@ -324,7 +324,6 @@ class FibsemMicroscope(ABC):
     _last_imaging_settings: ImageSettings
     system: SystemSettings
     _patterns: List
-    stage_is_compustage: bool = False
     milling_channel: BeamType = BeamType.ION
     #: The file `system` was loaded from, when it was loaded from one. Set by
     #: `utils.setup_session`; what a calibration action writes back to.
@@ -518,7 +517,7 @@ class FibsemMicroscope(ABC):
         `sim-arctis-configuration.yaml` was, for as long as nothing read the flag.
 
         The axes are the honest form of the question: a compustage has no `r` limit
-        because it has no rotation axis. It agrees with `stage_is_compustage` on every
+        because it has no rotation axis. It agrees with the stage type on every
         backend today, and deliberately does not ask that instead -- "has a rotation
         axis" is the property the derivation needs, and a future stage that lacks one
         without being a compustage would answer correctly here for free.
@@ -1078,7 +1077,7 @@ class FibsemMicroscope(ABC):
         partly right. Probing also touches the shared imaging channel on machines that
         have never had an FM.
 
-        **A compustage keeps its answer.** `stage_is_compustage` is read from the
+        **A compustage keeps its answer.** The stage type is read from the
         hardware (`compustage.is_installed`), not from configuration, and no shipped
         Arctis configuration carries the flag -- `tfs-arctis-configuration.yaml` has
         no `fm:` block at all. Replacing the old check rather than widening it would

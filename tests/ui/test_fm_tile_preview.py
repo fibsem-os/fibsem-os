@@ -285,8 +285,8 @@ def test_the_pane_draws_both_the_travel_limits_and_the_grid_boundary(pane):
 def test_the_travel_limits_are_not_gated_on_the_stage_type(pane, monkeypatch):
     """A stage whose travel is far wider than the grid draws its box off the edge of
     the view, which is fixed to the grid, so there is nothing to gate. (The preview
-    is only built on a compustage today; the flag is flipped after it is built.)"""
-    monkeypatch.setattr(pane.microscope, "stage_is_compustage", False)
+    is only built on a compustage today; the stage type is flipped after it is built.)"""
+    monkeypatch.setattr(pane.microscope, "_fm_is_a_pose", lambda: False)
     pane._draw_stage_context()
 
     assert "Stage Limits" in {spec.label for spec in pane.stage_overlay._specs}

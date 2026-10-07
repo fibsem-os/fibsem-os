@@ -536,7 +536,6 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
         )
 
         # internal parameters
-        self.stage_is_compustage = False
         self.milling_channel: BeamType = BeamType.ION
         self._default_application_file: str = "Si"
         self._last_imaging_settings: ImageSettings = ImageSettings()

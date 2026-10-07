@@ -51,7 +51,7 @@ def test_an_offset_mount_with_the_objective_in_blocks_z_and_t():
     microscope.move_to_orientation("FIB")
     microscope.fm.objective.insert()
 
-    assert microscope.stage_is_compustage is False
+    assert microscope._fm_is_a_pose() is False
     assert microscope._blocked_axes() == ("z", "t")
 
 

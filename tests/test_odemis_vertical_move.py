@@ -52,7 +52,6 @@ def make_microscope(cls, tilt_deg: float = 18.0):
     """Create a microscope without __init__, with a stubbed, recording stage."""
     microscope = object.__new__(cls)  # skip __init__ (requires hardware)
     microscope.system = utils.load_microscope_configuration(ODEMIS_CONFIG_PATH).system
-    microscope.stage_is_compustage = False
 
     microscope._position = FibsemStagePosition(
         x=0, y=0, z=0, r=0, t=np.deg2rad(tilt_deg), coordinate_system="RAW"

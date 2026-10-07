@@ -44,7 +44,6 @@ def make_microscope(
     microscope = object.__new__(TescanMicroscope)  # skip __init__ (requires SDK)
     microscope._connection_lock = threading.RLock()
     microscope.system = system
-    microscope.stage_is_compustage = False
 
     if stage_position is None:
         stage_position = FibsemStagePosition(

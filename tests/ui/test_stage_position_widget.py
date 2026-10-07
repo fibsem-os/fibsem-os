@@ -219,13 +219,13 @@ def test_any_other_stage_is(flat_widget):
     assert flat_widget.label_rotation.isVisibleTo(flat_widget)
 
 
-# --- the stage device decides, not stage_is_compustage ----------------------
+# --- the stage device decides, not the stage type ---------------------------
 
 
 def test_the_axes_shown_are_the_stage_devices(qapp, monkeypatch):
-    """The flag says compustage, the device still has r: the device wins."""
+    """The microscope says compustage, the device still has r: the device wins."""
     microscope = _microscope(FLAT_STAGE)
-    monkeypatch.setattr(microscope, "stage_is_compustage", True)
+    monkeypatch.setattr(microscope, "_fm_is_a_pose", lambda: True)
     form = StagePositionWidget(microscope=microscope)
     assert "r" in microscope.stage.axes
     assert form.spinbox_rotation.isVisibleTo(form)

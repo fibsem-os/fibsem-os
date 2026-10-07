@@ -81,6 +81,9 @@ class TestGeometry:
 
     def test_without_one_the_legacy_centre_is_recorded(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.rotation_centre = (
+            None  # the Demo names one; this is a driver that does not
+        )
 
         assert microscope.hardware_geometry().rotation_centre == LEGACY_ROTATION_CENTRE
 
@@ -96,6 +99,9 @@ class TestStageMoves:
 
     def test_without_one_it_reflects_through_the_origin_as_before(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.rotation_centre = (
+            None  # the Demo names one; this is a driver that does not
+        )
         pos = FibsemStagePosition(x=1e-3, y=2e-3, z=0.0, r=0.0, t=0.0)
         target = microscope._get_compucentric_rotation_position(pos)
 
@@ -122,6 +128,48 @@ class TestStageMoves:
         drawn = _transform_position(pos, microscope.hardware_geometry().rotation_centre)
 
         assert (moved.x, moved.y) == pytest.approx((drawn.x, drawn.y))
+
+
+class TestTheDemo:
+    """The Demo names the centre its stage turns about, so its moves and its drawings
+    agree with nothing set by the caller."""
+
+    def test_it_turns_about_its_origin(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        pos = FibsemStagePosition(x=1e-3, y=2e-3, z=0.0, r=0.0, t=0.0)
+        target = microscope._get_compucentric_rotation_position(pos)
+
+        assert microscope.rotation_centre == (0.0, 0.0)
+        assert (target.x, target.y) == pytest.approx((-pos.x, -pos.y))
+
+    def test_its_images_record_that_centre(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+
+        assert microscope.hardware_geometry().rotation_centre == (0.0, 0.0)
+
+    def test_a_position_from_the_other_side_is_drawn_where_a_move_goes(self):
+        """The 1.6 mm the overview and the stage map were apart on the Demo: a lamella
+        saved at MILLING, with the stage at FIB over it."""
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        lamella = deepcopy(microscope.get_orientation("MILLING"))
+        lamella.x, lamella.y, lamella.z = -2.8e-3, 0.2e-3, 0.0
+        at_fib = microscope.get_target_position(lamella, "FIB")
+
+        sem = microscope.get_orientation("SEM")
+        origin = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=sem.r, t=sem.t)
+        projection = BeamStageProjection(
+            geometry=microscope.hardware_geometry(),
+            beam_type=BeamType.ELECTRON,
+            scan_rotation=0.0,
+        )
+        drawn_lamella = projection._compucentric_corrected(lamella, origin, (0.0, 0.0))
+        drawn_stage = projection._compucentric_corrected(
+            at_fib, origin, microscope.hardware_geometry().rotation_centre
+        )
+
+        assert (drawn_stage.x, drawn_stage.y) == pytest.approx(
+            (drawn_lamella.x, drawn_lamella.y)
+        )
 
 
 @pytest.fixture()

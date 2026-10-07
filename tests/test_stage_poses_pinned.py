@@ -13,7 +13,7 @@ rather than recomputed so that it cannot follow the code it guards.
 
 The stage types are the shipped configurations, on the Demo backend. The orientation
 table is built by `FibsemMicroscope` from the system settings and two facts the
-instrument reports at connect (`stage_is_compustage`, `system.stage.rotation`), and no
+instrument reports at connect (its stage type, `system.stage.rotation`), and no
 backend overrides it, so Demo builds the same table a Thermo, Tescan or Odemis
 connection would. `tfs-arctis` is the exception that needs help: its compustage is
 reported by AutoScript, so it is pinned here as connect leaves it on an Arctis, with
