@@ -42,6 +42,14 @@ SPOT_BURN_PRESET = "30 keV; 100 pA"  # Beam conditions used for spot burning
 DEFAULT_IMAGING_PRESET = (
     "30 keV; 10 pA"  # Fallback for finish_milling when no preset was snapshotted
 )
+# The DrawBeam scanning paths a pattern can take.
+TESCAN_SCAN_DIRECTIONS = (
+    "ZigZag",
+    "Flyback",
+    "RLE",
+    "SpiralInsideOut",
+    "SpiralOutsideIn",
+)
 
 try:
     import tescanautomation
@@ -568,8 +576,7 @@ class TescanDrawBeam:
 
             The created pattern can be added to the patterning queue and executed using the layer methods in Automation.
         """
-        scan_directions = self.get_available_values(key="scan_direction")
-        if pattern_settings.scan_direction in scan_directions:
+        if pattern_settings.scan_direction in TESCAN_SCAN_DIRECTIONS:
             scanning_path = pattern_settings.scan_direction
         else:
             scanning_path = "Flyback"
@@ -1624,14 +1631,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
                 logging.debug(f"Found detector {detector.name}, index {detector.index}")
                 return detector
         return None
-
-    def _get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[str]:
-        """The values of the keys the beam devices don't answer: scan_direction."""
-        if key == "scan_direction":
-            return ["ZigZag", "Flyback", "RLE", "SpiralInsideOut", "SpiralOutsideIn"]
-        return []
 
     def _activate_preset(
         self,
