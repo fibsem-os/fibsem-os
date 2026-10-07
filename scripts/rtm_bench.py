@@ -68,7 +68,7 @@ def run_case(microscope, case, args):
             for (w, h, x), cs in LAYOUTS[layout]
         ]
     )
-    result = {"drawn_ids": [p.id for p in microscope._patterns]}
+    result = {"drawn_ids": [p.id for p in microscope.milling._patterns]}
 
     rtm.mode = RtmMode.HIGH_RESOLUTION if mode == "high" else RtmMode.LOW_RESOLUTION
     settings = GetRtmDataSettings(None, wait)

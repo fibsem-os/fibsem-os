@@ -41,14 +41,12 @@ def _owner(cls, name):
 
 
 def test_thermo_runs_and_finishes_milling_through_its_service():
-    from fibsem.drivers.autoscript.microscope import ThermoMilling
     from fibsem.services.milling import ServiceMilling
 
     assert _owner(ThermoMicroscope, "run_milling") is ServiceMilling
     assert _owner(ThermoMicroscope, "finish_milling") is ServiceMilling
-    # without a service, ThermoFisher's own finish, which resets the patterning mode
-    assert "finish_milling" in vars(ThermoMilling)
-    assert _owner(ThermoMicroscope, "get_application_file") is ThermoMilling
+    # application files are its milling service's, not the microscope's
+    assert not hasattr(ThermoMicroscope, "get_application_file")
 
 
 def test_odemis_inherits_rather_than_borrows(odemis_cls):

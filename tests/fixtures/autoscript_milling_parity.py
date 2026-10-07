@@ -1,12 +1,12 @@
-"""Record the AutoScript calls of Thermo's milling methods, old and through the service.
+"""Record the AutoScript calls of Thermo's milling methods, through the service.
 
 Run as a script, in its own interpreter, for the same reason as
 ``autoscript_beam_parity.py``, whose fake SDK, microscope and recorder it reuses. It
 writes JSON to the path it is given: ``cases``, each holding what a milling method
 returned, the SDK calls and writes it made and the messages it logged, on a
-microscope with its beams built and no milling service ("old") and on one with the
-service built as connect builds it ("new"); and ``facts``, what the new API makes of
-the service.
+microscope with the service built as connect builds it; and ``facts``, what the new
+API makes of the service. ``autoscript_milling_calls.json`` holds the same cases as
+the microscope's own milling code ran them, before that code moved into the service.
 """
 
 import json
@@ -77,22 +77,15 @@ class FakePatterning(S.Node):
         return self.__dict__.get("_state", "Idle")
 
 
-def make(service):
+def make():
     microscope = B.make(plasma=False)
     object.__setattr__(
         microscope.connection, "patterning", FakePatterning("connection.patterning")
     )
-    microscope._patterns = []
-    microscope._default_application_file = "Si"
-    microscope._current_application_file = "Si"
     microscope.milling_channel = BeamType.ION
     microscope._build_beams()
-    if service:
-        microscope._build_milling()
-        return microscope
-    from milling_reads import own_milling_code
-
-    return own_milling_code(microscope)
+    microscope._build_milling()
+    return microscope
 
 
 def _state(microscope, state):
@@ -139,7 +132,7 @@ PATTERNS = (
 
 
 def _drawn(microscope):
-    return [p._path for p in microscope._patterns]
+    return [p._path for p in microscope.milling._patterns]
 
 
 def _calls():
@@ -174,14 +167,8 @@ def _calls():
 def cases():
     out = []
     for name, call in _calls():
-        old, new = make(service=False), make(service=True)
-        out.append(
-            {
-                "key": name,
-                "old": B.run(lambda: call(old)),
-                "new": B.run(lambda: call(new)),
-            }
-        )
+        microscope = make()
+        out.append({"key": name, "new": B.run(lambda: call(microscope))})
     return out
 
 
@@ -197,7 +184,7 @@ def _conditions(microscope):
 def facts():
     from fibsem.drivers.autoscript.services import AutoScriptMilling
 
-    new = make(service=True)
+    new = make()
     milling = new.milling
     before = _conditions(new)
     new.setup_milling(RECIPE)
@@ -205,20 +192,16 @@ def facts():
     finish = B.run(lambda: new.finish_milling())
     after = _conditions(new)
 
-    given = make(service=True)
+    given = make()
     given.setup_milling(RECIPE)
     given.finish_milling(imaging_current=1e-10, imaging_voltage=30e3)
-
-    # an old finish: the caller's current and voltage, and Serial
-    old = make(service=False)
-    old_finish = B.run(lambda: old.finish_milling(1e-10, 30e3))
 
     no_ion = B.make(plasma=False, ion=False)
     no_ion._build_beams()
     no_ion._build_milling()
 
     used = []
-    traced = make(service=True)
+    traced = make()
     for hook in ("_setup", "_draw", "_start", "_estimate", "_clear"):
         original = getattr(traced.milling, hook)
 
@@ -235,16 +218,14 @@ def facts():
 
     from milling_reads import fields_setup_reads
 
-    supported = make(service=True).milling.supported_settings()
-    reads = fields_setup_reads(make(service=True).milling, RECIPE)
+    supported = make().milling.supported_settings()
+    reads = fields_setup_reads(make().milling, RECIPE)
 
     return {
         "supported": sorted(supported),
         "application_files": list(supported["application_file"].choices),
         "scan_directions": list(
-            make(service=True)
-            .milling.supported_pattern_settings()["scan_direction"]
-            .choices
+            make().milling.supported_pattern_settings()["scan_direction"].choices
         ),
         "setup_reads": sorted(reads),
         "type": type(milling).__name__,
@@ -254,7 +235,6 @@ def facts():
         "during": during,
         "after": after,
         "finish": finish,
-        "old_finish": old_finish,
         "given": _conditions(given),
         "no_ion": no_ion.milling is None,
         "used": used,
