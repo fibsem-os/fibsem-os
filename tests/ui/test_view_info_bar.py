@@ -281,6 +281,79 @@ def test_the_lamella_editor_gets_the_same_bars():
     assert controller.widget.fm_bar.kind == "FM"
 
 
+class _Objective:
+    position = 0.0
+
+
+class _FM:
+    objective = _Objective()
+
+
+class _Microscope:
+    """What `update_info` reads, and an FM whose objective nobody should read."""
+
+    fm = _FM()
+    stage = object()  # a stage is fitted, so update_info shows it
+    current_grid = "GRID-01"
+
+    def __init__(self):
+        from fibsem.structures import FibsemStagePosition
+
+        self._stage_position = FibsemStagePosition(x=0, y=0, z=0, r=0, t=0)
+
+    def get_stage_orientation(self, stage_position=None):
+        return "SEM"
+
+    def get_current_milling_angle(self, stage_position=None):
+        return 10.0
+
+
+def _obj(bar):
+    return {f.label: f for f in bar.visible_fields()}.get("OBJ")
+
+
+def test_the_fm_bar_shows_the_objective_it_is_told(controller):
+    controller.update_info(_Microscope(), objective_position=200e-6)
+    bar = controller.widget.fm_bar
+    bar.resize(2000, 26)
+    obj = _obj(bar)
+    assert obj.value == "200.0 µm"
+    # live, and the hover says so: this is not the stack's recorded position
+    assert "Objective position (now): 200.0 µm" in [
+        l.toolTip() for l in bar.field_labels
+    ]
+
+    controller.update_info(_Microscope(), objective_position=-1.5e-6)
+    assert _obj(bar).value == "-1.5 µm"
+
+
+def test_the_objective_is_off_the_canvas_text(controller):
+    controller.update_info(_Microscope(), objective_position=200e-6)
+    info = dict(controller._states[controller.widget.fm_canvas].info)
+    assert "objective" not in info
+    assert "stage" in info  # the stage stays there until it has a home of its own
+
+
+def test_a_new_stack_or_a_clear_keeps_the_objective(controller):
+    """Live values did not come from the image, so an image change leaves them."""
+    controller.update_info(_Microscope(), objective_position=200e-6)
+    controller.set_fm_image(_fm_image())
+    bar = controller.widget.fm_bar
+    bar.resize(2000, 26)
+    labels = [f.label for f in bar.visible_fields()]
+    assert labels[-1] == "OBJ", "live values sit after the image's fields"
+    controller.clear()
+    assert _obj(bar).value == "200.0 µm"
+
+
+def test_a_live_value_can_be_removed():
+    bar = ViewInfoBar("FM")
+    bar.set_live_field("objective_position", "OBJ", "1.0 µm", name="Objective")
+    assert [f.label for f in bar.visible_fields()] == ["OBJ"]
+    bar.set_live_field("objective_position", "OBJ", None, name="Objective")
+    assert bar.visible_fields() == []
+
+
 @pytest.mark.parametrize(
     "plane, expected",
     [(None, "MIP · 21 × 568 nm"), (0, "1 of 21 × 568 nm"), (10, "11 of 21 × 568 nm")],

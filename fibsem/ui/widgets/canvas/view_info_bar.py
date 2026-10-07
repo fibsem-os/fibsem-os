@@ -99,6 +99,9 @@ class ViewInfoBar(QWidget):
         self._keys: Tuple[str, ...] = BAR_DEFAULT_FIELDS
         self._info: Optional[ImageFields] = None
         self._overrides: Dict[str, str] = {}
+        # Values that come from the microscope, not the image: they outlive an image
+        # change and a clear, and sit after the image's fields.
+        self._live: Dict[str, ExportField] = {}
         self._shown: Optional[Tuple] = None  # what the labels were last built from
         self._labelled: List[ExportField] = []
         self._label_keys: List[str] = []  # the fields the labels were built for
@@ -168,6 +171,22 @@ class ViewInfoBar(QWidget):
             self._overrides[key] = value
         self._rebuild()
 
+    def set_live_field(
+        self, key: str, label: str, value: Optional[str], name: str
+    ) -> None:
+        """Show a value the microscope pushed, rather than one the image recorded:
+        the FM objective's position now. None removes it.
+
+        The one kind of value in this bar that is not the image's. It is kept apart
+        from the image's fields so that a new image, or a cleared view, leaves it be;
+        *name* says on hover that it is the present value.
+        """
+        if value is None:
+            self._live.pop(key, None)
+        else:
+            self._live[key] = ExportField(key=key, name=name, label=label, value=value)
+        self._rebuild()
+
     def set_field_keys(self, keys: Sequence[str]) -> None:
         """Which fields to show, in order. Unlabelled ones (the detector, the
         objective) go in the header; at most :data:`MAX_FIELDS` labelled ones follow."""
@@ -178,6 +197,7 @@ class ViewInfoBar(QWidget):
         return self._keys
 
     def clear(self) -> None:
+        """Forget the image. Live values stay: they did not come from it."""
         self.set_image_fields(None)
 
     def visible_fields(self) -> List[ExportField]:
@@ -198,9 +218,11 @@ class ViewInfoBar(QWidget):
 
     # ── building ───────────────────────────────────────────────────────────
     def _selected(self) -> Tuple[List[ExportField], List[ExportField], Optional[str]]:
-        """(header fields, labelled fields, time) for the current image and keys."""
+        """(header fields, labelled fields, time) for the current image and keys,
+        with the live values after the image's fields."""
+        live = list(self._live.values())
         if self._info is None:
-            return [], [], None
+            return [], live, None
         by_key = {item.key: item for item in self._info.fields}
         header: List[ExportField] = []
         labelled: List[ExportField] = []
@@ -218,7 +240,7 @@ class ViewInfoBar(QWidget):
             else:
                 header.append(item)
         time = next((p.value for p in self._info.provenance if p.key == "date"), None)
-        return header, labelled, time
+        return header, labelled + live, time
 
     def _rebuild(self) -> None:
         header, labelled, time = self._selected()
