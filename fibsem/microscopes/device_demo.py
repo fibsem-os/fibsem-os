@@ -188,6 +188,12 @@ class DemoMicroscope(
     """The demo microscope built from devices, with the shared demo code."""
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+    # The simulated stage turns about its origin: a move half a turn round reflects x and
+    # y through zero, which is what the base class does for a driver that names no
+    # centre. Named here so its images record it too. Without it they record the
+    # ThermoFisher constant, and the overview draws a position from the other side of
+    # the stage about 1.6 mm from where a move there goes (FIB-1081, FIB-655).
+    rotation_centre = (0.0, 0.0)
     # The needle moves as the Demo's did before devices, with no correction on a corrected
     # move (``move_manipulator_corrected``); its named positions are the device's.
     manipulator_move_types = ("relative", "corrected")
