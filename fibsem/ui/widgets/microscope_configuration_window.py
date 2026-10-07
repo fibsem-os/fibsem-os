@@ -59,6 +59,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.microscope_defaults_widget import MicroscopeDefaultsWidget
+from fibsem.util.timestamps import format_time
 
 NOT_STATED = "—"
 
@@ -376,7 +377,8 @@ def slot_rows(holder) -> List[Tuple[str, str, str, str, str]]:
                 f"x {position.x * 1e3:.2f}  y {position.y * 1e3:.2f} mm"
                 if position is not None and slot.is_calibrated
                 else NOT_STATED,
-                calibration.captured_at.replace("T", " ")
+                format_time(calibration.captured_at, "%Y-%m-%d %H:%M:%S")
+                or calibration.captured_at
                 if calibration is not None and calibration.captured_at
                 else NOT_STATED,
             )

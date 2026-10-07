@@ -1,6 +1,7 @@
 """The configuration window: what the connected instrument is, and its defaults."""
 
 import os
+from datetime import datetime, timezone
 
 import pytest
 
@@ -418,3 +419,14 @@ def test_apply_follows_the_application_s_switch(qapp, site, toasts, monkeypatch)
     window = MicroscopeConfigurationWindow(site)
 
     assert not window.pushButton_apply.isEnabled()
+
+
+def test_a_calibration_with_an_offset_shows_in_the_viewers_zone(qapp, microscope):
+    """New records carry their UTC offset (FIB-1190); the fake slot's does not."""
+    _fake_calibrated_slot(microscope)
+    holder = microscope._stage.holder
+    holder.slots["Slot-01"].calibration.captured_at = "2026-09-24T17:51:10+00:00"
+    local = datetime(2026, 9, 24, 17, 51, 10, tzinfo=timezone.utc).astimezone()
+
+    rows = slot_rows(holder)
+    assert rows[0][4] == f"{local:%Y-%m-%d %H:%M:%S}"

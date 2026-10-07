@@ -42,6 +42,7 @@ from fibsem.ui.tokens import (
     TEXT_STRONG_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel, style_with_tooltip
+from fibsem.util.timestamps import to_datetime
 
 _ROW_HEIGHT = 40
 _SLOT_LABEL_WIDTH = 64
@@ -70,15 +71,15 @@ def _captured_when(slot: GridSlot) -> str:
     record = slot.calibration
     if record is None:
         return ""
-    when = record.captured_at
-    if len(when) >= 16 and when[10] == "T":
-        # 2026-09-02T11:24:09 -> 2 Sep 2026 11:24, without a datetime round trip
-        months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
-        try:
-            when = f"{int(when[8:10])} {months[int(when[5:7]) - 1]} {when[:4]} {when[11:16]}"
-        except (ValueError, IndexError):
-            pass
-    return when
+    # In the viewer's zone when the record has an offset (FIB-1190); as written when
+    # it has none, as records from before that do.
+    when = to_datetime(record.captured_at)
+    if when is None:
+        return record.captured_at
+    if when.tzinfo is not None:
+        when = when.astimezone()  # displayed in the viewer's zone, as format_time does
+    months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+    return f"{when.day} {months[when.month - 1]} {when:%Y %H:%M}"
 
 
 def slot_status(slot: GridSlot) -> str:

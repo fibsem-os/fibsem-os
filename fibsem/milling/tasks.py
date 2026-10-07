@@ -6,7 +6,6 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -23,6 +22,7 @@ from fibsem.structures import (
     MillingAlignment,
     Point,
 )
+from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp_v3
 
 if TYPE_CHECKING:
@@ -441,7 +441,7 @@ class FibsemMillingTask:
                 "stage": stage.to_dict(),
                 "start_time": start_time,
                 "end_time": time.time(),
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_iso(),
             }
             logging.debug(f"{msgd}")
 
