@@ -125,6 +125,34 @@ def test_the_default_gives_way_to_the_image_at_the_current_position(scene):
     assert _hint(editor) is None
 
 
+def test_the_note_stays_when_the_lamella_is_selected_again(scene):
+    """Selected again, the switched image is now the previous selection, so nothing
+    switches; it is still not the filename default, and the note still says why."""
+    scene["acquire_new"]()
+    editor = scene["editor"]()
+    note = editor.position_notice.label.text()
+    assert note.startswith("Showing Rough Milling final res 01")
+
+    editor.select_lamella(scene["lamella"].name)
+
+    assert _shown(editor) == (NEW_IB, NEW_EB)
+    assert not editor.position_notice.isHidden()
+    assert editor.position_notice.label.text() == note
+
+
+def test_no_note_for_an_image_chosen_with_the_button(scene):
+    scene["acquire_new"]()
+    editor = scene["editor"]()
+    picker = editor.combobox_fib_filenames
+    picker.setCurrentIndex(picker.findData(OLD_IB))
+    editor.position_notice.switch_button.click()
+
+    editor.select_lamella(scene["lamella"].name)
+
+    assert _fib(editor) == NEW_IB
+    assert editor.position_notice.isHidden()
+
+
 def test_a_default_taken_where_the_lamella_is_is_kept(scene):
     scene["acquire_new"]()
     old = FibsemImage.load(os.path.join(scene["lamella"].path, OLD_IB))

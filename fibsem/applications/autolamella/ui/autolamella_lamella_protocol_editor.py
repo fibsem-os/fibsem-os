@@ -314,8 +314,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # Where each of the selected lamella's FIB/SEM images was taken, by filename,
         # read from their headers on selection (FIB-1170).
         self._image_positions: Dict[str, ImagePosition] = {}
-        # The FIB image the editor switched to itself, to say so while it is shown.
+        # The FIB image the editor switched to itself, and the lamella (by id) it did
+        # so for, to say so while it is shown.
         self._switched_to: Optional[str] = None
+        self._switched_for: Optional[str] = None
 
         # Coalesces a burst of edits into one write -- see `_save_experiment`. Built
         # before the microscope check below, because edits are not the only thing that
@@ -781,9 +783,17 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             f: read_image_position(self._image_path(selected_lamella, f))
             for f in base_filenames + sem_base_filenames
         }
+        switched_before = (
+            self._switched_to if self._switched_for == selected_lamella.id else None
+        )
         self._switched_to = None
         if self._fib_image_position().match is not PositionMatch.SAME:
             self._switched_to = self._select_current_images()
+        elif self.combobox_fib_filenames.currentData() == switched_before:
+            # Selected again and still on the image the editor switched to (now the
+            # previous selection): keep saying why it is shown.
+            self._switched_to = switched_before
+        self._switched_for = selected_lamella.id
         self.combobox_fib_filenames.blockSignals(False)
         self.combobox_sem_filenames.blockSignals(False)
 
