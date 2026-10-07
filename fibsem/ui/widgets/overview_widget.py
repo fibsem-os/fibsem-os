@@ -881,6 +881,7 @@ class FibsemOverviewWidget(QWidget):
         self.canvas.cursor_moved.connect(self._on_cursor_moved)
 
         self.settings_widget = FibsemOverviewSettingsWidget(self)
+        self.settings_widget.set_microscope(self.microscope)
         self.settings_widget.settings_changed.connect(self._on_settings_changed)
 
         # Which way of looking at the sample the canvas is showing. Attached to the

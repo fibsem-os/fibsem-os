@@ -129,3 +129,22 @@ def test_a_listed_resolution_is_found_when_built_elsewhere():
 
     assert widget.resolution_combo.count() == count
     assert widget.get_settings().resolution == (768, 512)
+
+
+def test_the_overview_offers_the_selected_beams_resolutions():
+    microscope = _demo()
+    _report(microscope, I, "resolution", choices=RESOLUTIONS)
+    widget = FibsemOverviewSettingsWidget()
+    widget.set_microscope(microscope)
+
+    widget.combo_beam.set_value(I)
+    assert _items(widget.combo_resolution) == RESOLUTIONS
+    # the electron beam's 1536x1024 is not the ion beam's: the nearest one is
+    assert widget.get_settings().image_settings.resolution == (1024, 884)
+
+    settings = widget.get_settings()
+    settings.image_settings.beam_type = E
+    settings.image_settings.resolution = (768, 512)
+    widget.update_from_settings(settings)
+    assert _items(widget.combo_resolution) == list(STANDARD_RESOLUTIONS)
+    assert widget.get_settings().image_settings.resolution == (768, 512)
