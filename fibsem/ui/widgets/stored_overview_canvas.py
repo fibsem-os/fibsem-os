@@ -32,11 +32,22 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures import FibsemImage, FibsemStagePosition
 from fibsem.ui.tokens import (
+    CURRENT_POSITION_COLOUR,
     DRAFT_POSITION_COLOUR,
+    GRID_BOUNDARY_COLOUR,
     SAVED_POSITION_COLOUR,
     SELECTED_POSITION_COLOUR,
 )
-from fibsem.ui.widgets.canvas.overlays.point_overlay import FieldOfViewOverlay
+from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
+    GRID_BOUNDARY_RADIUS_M,
+    MinimapShapesOverlay,
+    ShapeSpec,
+)
+from fibsem.ui.widgets.canvas.overlays.point_overlay import (
+    FieldOfViewOverlay,
+    PointsOverlay,
+)
+from fibsem.ui.widgets.canvas.overlays.stage_context import canvas_span
 from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
 from fibsem.ui.widgets.canvas.stage_frame import StageFrame
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
@@ -136,6 +147,8 @@ class StoredOverviewCanvas(QWidget):
         self._placing = True
         self._drafts: List[FibsemStagePosition] = []
         self._selected: Optional[str] = None
+        self._current: Optional[FibsemStagePosition] = None
+        self._boundary: Optional[FibsemStagePosition] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -144,6 +157,9 @@ class StoredOverviewCanvas(QWidget):
         self.canvas.canvas_clicked.connect(self._on_canvas_clicked)
         self.canvas.canvas_right_clicked.connect(self._on_canvas_right_clicked)
 
+        # Under the marks: the grid's rim, for an owner that knows where it is.
+        self.boundary_overlay = MinimapShapesOverlay(zorder=4.0)
+        self.canvas.add_overlay(self.boundary_overlay)
         self.position_overlay = FieldOfViewOverlay(
             color=SAVED_POSITION_COLOUR,
             marker="+",
@@ -158,6 +174,12 @@ class StoredOverviewCanvas(QWidget):
             extent=(POSITION_FOV_WIDTH, POSITION_FOV_HEIGHT),
         )
         self.canvas.add_overlay(self.selected_position_overlay)
+        # Where the stage is now, for an owner that knows: off unless it is given one.
+        # The overviews are stored and this is live, so it is the owner's to set.
+        self.current_position_overlay = PointsOverlay(
+            color=CURRENT_POSITION_COLOUR, marker="+", size=15, edge_width=2.8
+        )
+        self.canvas.add_overlay(self.current_position_overlay)
         # On top: a draft sits over what is already there, because it is the
         # thing being worked on.
         self.draft_overlay = FieldOfViewOverlay(
@@ -291,6 +313,7 @@ class StoredOverviewCanvas(QWidget):
                 self._place(record)
         self.canvas.reset_view()
         self._refresh_positions()
+        self._refresh_boundary()
         self.view_changed.emit(view)
 
     def remove_overview(self, record_id: str) -> bool:
@@ -315,6 +338,7 @@ class StoredOverviewCanvas(QWidget):
         self._view = None
         self.canvas.clear_images()
         self._refresh_positions()
+        self._refresh_boundary()
 
     def record_at(self, x: float, y: float) -> Optional[StoredOverview]:
         """The shown overview under a canvas point, or None over bare canvas."""
@@ -382,8 +406,56 @@ class StoredOverviewCanvas(QWidget):
     def selected_position(self) -> Optional[str]:
         return self._selected
 
+    def set_current_position(self, position: Optional[FibsemStagePosition]) -> None:
+        """Mark where the stage is, placed by the shown view's frame like any other
+        position; None marks nothing. Nothing here reads the stage."""
+        self._current = position
+        self._refresh_current(self._frame())
+
+    def set_grid_boundary(self, centre: Optional[FibsemStagePosition]) -> None:
+        """Draw a grid's rim around *centre*, a stage position in the shown view's
+        frame (where the grid's slot is, as that view sees it); None draws nothing.
+
+        A circle on the sample, so an ellipse in a view that foreshortens it, sized
+        as the Overview tab sizes its boundaries. The owner says where: this canvas
+        knows the images, not the holder.
+        """
+        self._boundary = centre
+        self._refresh_boundary()
+
+    def _refresh_boundary(self) -> None:
+        frame = self._frame()
+        shapes = []
+        if frame is not None and self._boundary is not None:
+            try:
+                cx, cy = frame.to_canvas(self._boundary)
+                span_x, span_y = canvas_span(frame, GRID_BOUNDARY_RADIUS_M)
+                shapes.append(
+                    ShapeSpec(
+                        kind="ellipse",
+                        cx=cx,
+                        cy=cy,
+                        width=2 * span_x,
+                        height=2 * span_y,
+                        color=GRID_BOUNDARY_COLOUR,
+                    )
+                )
+            except Exception:
+                logger.debug("Could not draw the grid boundary", exc_info=True)
+        self.boundary_overlay.set_shapes(shapes)
+
+    def _refresh_current(self, frame: Optional[StageFrame]) -> None:
+        current = []
+        if frame is not None and self._current is not None:
+            try:
+                current.append(frame.to_canvas(self._current))
+            except Exception:
+                logger.debug("Could not mark the stage position", exc_info=True)
+        self.current_position_overlay.set_points(current)
+
     def _refresh_positions(self) -> None:
         frame = self._frame()
+        self._refresh_current(frame)
         if frame is None:
             self.position_overlay.set_points([])
             self.selected_position_overlay.set_points([])

@@ -18,11 +18,12 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QComboBox,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QSplitter,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -39,7 +40,12 @@ from fibsem.ui.stylesheets import (
     PRIMARY_ACCENT as _SELECT_ACCENT,
 )
 from fibsem.ui.tokens import (
+    ACCENT_COLOR,
+    BORDER_COLOR,
     CANVAS_BG,
+    PANEL_COLOR,
+    ROW_ALT_COLOR,
+    TEXT_COLOR,
 )
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
@@ -60,6 +66,27 @@ if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 _logger = logging.getLogger(__name__)
+
+# The fourth cell's selectors, popup included. On macOS a combo box opens a native
+# menu -- white frame, a checkmark column that clips the text, no dark palette --
+# unless `combobox-popup: 0` asks for a plain list, which the item-view rule styles.
+CELL_SELECTOR_STYLE = f"""
+QComboBox {{ background: {ROW_ALT_COLOR}; color: {TEXT_COLOR}; font-size: 11px;
+    border: 1px solid {BORDER_COLOR}; border-radius: 4px; padding: 2px 6px;
+    combobox-popup: 0; }}
+QComboBox QAbstractItemView {{ background: {PANEL_COLOR}; color: {TEXT_COLOR};
+    border: 1px solid {BORDER_COLOR}; selection-background-color: {ACCENT_COLOR};
+    outline: none; }}
+"""
+
+# The page cycler: a label between two flat arrows, in the title row's grey.
+_CYCLE_BUTTON_STYLE = (
+    "QToolButton { background: transparent; color: #888; border: none;"
+    " font-size: 14px; padding: 0 4px; }"
+    f"QToolButton:hover {{ color: {TEXT_COLOR}; }}"
+    "QToolButton:disabled { color: #444; }"
+)
+_CYCLE_LABEL_STYLE = f"color: {TEXT_COLOR}; font-size: 11px;"
 
 _TITLE_STYLE = (
     f"color: #888; font-size: 11px; padding: 2px 6px; background: {CANVAS_BG};"
@@ -87,7 +114,9 @@ def _titled(title: str, inner: QWidget, header: Optional[QWidget] = None) -> QFr
     lay.setContentsMargins(0, 0, 0, 0)
     lay.setSpacing(0)
     lay.addWidget(header)
-    lay.addWidget(inner)
+    # All the stretch to the content: a header sharing it drifts down the cell when
+    # the content has nothing that wants to grow, such as a page's empty message.
+    lay.addWidget(inner, 1)
     return frame
 
 
@@ -108,29 +137,65 @@ class PageCell(QWidget):
     the same arrangement as a multi-viewport tool, where the spare pane is a slot
     rather than a fixed thing. Pages are added by key; the selector is the cell's
     header, so it sits where the other cells have their title.
+
+    A page with controls of its own (which grid, which view) hands them over as its
+    header, and they share the selector's row, switching with the page. A second row
+    of chrome would take a quarter-screen cell's height for nothing.
+
+    The selector is a cycler, ``‹ Chamber ›``, not a drop-down: there are a few pages,
+    one click steps to the next, and it wraps round. The label is as wide as the
+    longest page name, so the arrows don't move as the name changes.
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.selector = QComboBox()
-        self.selector.setStyleSheet("font-size: 11px;")
-        self.selector.currentIndexChanged.connect(self._on_selector_changed)
+        self.btn_previous = self._cycle_button("‹", "Previous page", -1)
+        self.btn_next = self._cycle_button("›", "Next page", 1)
+        self.label = QLabel()
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setStyleSheet(_CYCLE_LABEL_STYLE)
         self._stack = QStackedWidget()
         self._keys: List[str] = []
+        self._labels: List[str] = []
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self._stack)
 
+        self._headers = QStackedWidget()
         self.header = QWidget()
         self.header.setStyleSheet(f"background: {CANVAS_BG};")
-        header_lay = QVBoxLayout(self.header)
+        header_lay = QHBoxLayout(self.header)
         header_lay.setContentsMargins(4, 2, 4, 2)
-        header_lay.addWidget(self.selector, 0, Qt.AlignLeft)
+        header_lay.setSpacing(6)
+        cycler = QHBoxLayout()
+        cycler.setContentsMargins(0, 0, 0, 0)
+        cycler.setSpacing(0)
+        cycler.addWidget(self.btn_previous)
+        cycler.addWidget(self.label)
+        cycler.addWidget(self.btn_next)
+        header_lay.addLayout(cycler)
+        header_lay.addWidget(self._headers, 1)
+        self._update_cycler()
 
-    def add_page(self, key: str, label: str, widget: QWidget) -> None:
+    def _cycle_button(self, text: str, tooltip: str, step: int) -> QToolButton:
+        button = QToolButton()
+        button.setText(text)
+        button.setToolTip(tooltip)
+        button.setAutoRaise(True)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setStyleSheet(_CYCLE_BUTTON_STYLE)
+        button.clicked.connect(lambda: self.step(step))
+        return button
+
+    def add_page(
+        self, key: str, label: str, widget: QWidget, header: Optional[QWidget] = None
+    ) -> None:
+        """Add a page; *header* is its own controls, shown beside the selector."""
         self._keys.append(key)
+        self._labels.append(label)
         self._stack.addWidget(widget)
-        self.selector.addItem(label, key)
+        self._headers.addWidget(header if header is not None else QWidget())
+        self._update_cycler()
 
     @property
     def page(self) -> Optional[str]:
@@ -140,11 +205,31 @@ class PageCell(QWidget):
 
     def set_page(self, key: str) -> None:
         if key in self._keys:
-            self.selector.setCurrentIndex(self._keys.index(key))
+            self._show(self._keys.index(key))
 
-    def _on_selector_changed(self, index: int) -> None:
-        if 0 <= index < len(self._keys):
-            self._stack.setCurrentIndex(index)
+    def step(self, step: int) -> None:
+        """Show the next (+1) or previous (-1) page, wrapping round."""
+        if self._keys:
+            self._show((self._stack.currentIndex() + step) % len(self._keys))
+
+    def _show(self, index: int) -> None:
+        self._stack.setCurrentIndex(index)
+        self._headers.setCurrentIndex(index)
+        self._update_cycler()
+
+    def _update_cycler(self) -> None:
+        index = self._stack.currentIndex()
+        self.label.setText(
+            self._labels[index] if 0 <= index < len(self._labels) else ""
+        )
+        metrics = self.label.fontMetrics()
+        self.label.setFixedWidth(
+            max((metrics.horizontalAdvance(text) for text in self._labels), default=0)
+            + 8
+        )
+        several = len(self._keys) > 1
+        self.btn_previous.setEnabled(several)
+        self.btn_next.setEnabled(several)
 
 
 class QuadViewWidget(QWidget):
@@ -419,6 +504,10 @@ class MicroscopeViewController(QObject):
     # clearing it: (beam, overlay_id, indices). The multi-select counterpart of
     # overlay_point_selected; producers mirroring a multi-selection subscribe to this.
     overlay_selection_changed = pyqtSignal(object, str, object)
+
+    # Emitted with the stage position each time the info bar is given one, so a page of
+    # the fourth cell can follow the stage on the same updates, reading nothing itself.
+    stage_updated = pyqtSignal(object)
 
     # Forwarded from the view when the selected view changes (BeamType or "fm"). Only the
     # quad view emits this; the lamella editor view has no selection concept.
@@ -789,6 +878,7 @@ class MicroscopeViewController(QObject):
                 stage_position=stage_position
             )
             self._update_chamber_view(microscope, stage_position, orientation)
+            self.stage_updated.emit(stage_position)
             grid = microscope.current_grid
             milling_angle = microscope.get_current_milling_angle(
                 stage_position=stage_position
