@@ -371,6 +371,11 @@ class FibsemMicroscope(ABC):
 
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None
+    # The sample holder changed: slots calibrated, or the stage rebuilt around another
+    # holder. Carries the holder. On the microscope rather than the `Stage`, because
+    # applying a configuration that names a holder rebuilds the `Stage`, and a signal
+    # on it would take every subscriber with it.
+    holder_changed = Signal(object)
 
     # (kind, payload): a fact for the experiment's record -- an image acquired, a
     # task step. Emit through record_event, which never raises; the app records it
@@ -544,6 +549,7 @@ class FibsemMicroscope(ABC):
         self._read_hardware_capabilities()
 
         self._stage = _create_sample_stage(self)
+        self.holder_changed.emit(self._stage.holder)
 
     # ---- fitted subsystems ---------------------------------------------------
     #

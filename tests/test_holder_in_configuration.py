@@ -324,7 +324,13 @@ def test_a_configuration_that_names_holders_wins_over_the_live_one():
     incoming = SystemSettings.from_dict(utils.load_yaml(path))
     incoming.stage.holders = {chosen.name: chosen}
     incoming.stage.active_holder = chosen.name
+    announced = []
+    microscope.holder_changed.connect(announced.append)
     microscope.apply_configuration(incoming)
+
+    # Said on the microscope, which outlives the `Stage` that was just rebuilt: what
+    # draws the slots has to hear that they are now another holder's.
+    assert announced == [microscope._stage.holder]
 
     assert microscope.system.stage.active_holder == "Flat Shuttle"
     assert set(microscope.system.stage.holders) == {"Flat Shuttle"}

@@ -360,6 +360,9 @@ class FMOverviewWidget(QWidget):
         # input to every projection this widget draws through, and the projection is kept
         # rather than re-read, so nothing else would notice it moved (FIB-521).
         self.fm.transform_changed.connect(self._on_transform_changed)
+        # Same contract again. The holder's slots are drawn from its calibration, and
+        # a stage move no longer redraws them, so a recalibration has to say so.
+        self.microscope.holder_changed.connect(self._on_holder_changed)
         self._refresh_current_position()
         self._refresh_objective_info()
         self._refresh_orientation_banner()
@@ -1525,6 +1528,17 @@ class FMOverviewWidget(QWidget):
             self.microscope
         ):
             self.overlay_controls.set_visible(key, shown)
+
+    @ensure_main_thread
+    def _on_holder_changed(self, _holder) -> None:
+        """Slots calibrated, or another holder fitted: redraw where they are.
+
+        Always, not only when the overlay defaults flip -- recalibrating a slot on a
+        holder that was already calibrated changes nothing `reset_context_overlay_defaults`
+        looks at, and moves the slot all the same.
+        """
+        self.reset_context_overlay_defaults()
+        self._refresh_stage_metadata()
 
     def _refresh_stage_metadata(self) -> None:
         """Draw where the sample and the stage can physically go.
@@ -3079,6 +3093,7 @@ class FMOverviewWidget(QWidget):
             # has always claimed "without exception".
             (self.fm.acquiring_changed, self._on_fm_acquiring_signal),
             (self.fm.transform_changed, self._on_transform_changed),
+            (self.microscope.holder_changed, self._on_holder_changed),
         ):
             try:
                 signal.disconnect(slot)
