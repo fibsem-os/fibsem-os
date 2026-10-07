@@ -3208,6 +3208,63 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
         )
 
 
+class TestATranslationRedrawsOnlyWhatFollowsTheStage:
+    """The stage is polled constantly, and a translation inside a view moves only what
+    is placed from the stage position: the planned grid, the working area and the
+    marker. The limits, holder slots, grid bars, aligned images and view chips are
+    drawn in the view's frame, which it leaves where it was -- and rebuilding them was
+    a third of the time each update took."""
+
+    @staticmethod
+    def _count(monkeypatch, owner, name):
+        calls = []
+        original = getattr(owner, name)
+        monkeypatch.setattr(
+            owner, name, lambda *a, **k: calls.append(1) or original(*a, **k)
+        )
+        return calls
+
+    def test_a_translation_leaves_the_frame_drawn_overlays_alone(
+        self, widget, microscope, monkeypatch
+    ):
+        _show_holder_overlays(widget)
+        here = microscope.get_stage_position()
+        widget._on_stage_moved(here)
+        chips = dict(widget._view_chip_buttons)
+        marker = list(widget.current_position_overlay._points)
+
+        shapes = self._count(monkeypatch, widget.context_overlay, "set_shapes")
+        aligned = self._count(monkeypatch, widget.aligned_images, "refresh")
+        gridbars = self._count(monkeypatch, widget, "_refresh_gridbars")
+        grid = self._count(monkeypatch, widget, "_refresh_tile_grid")
+
+        widget._on_stage_moved(_at(here, dx=300e-6, dy=-120e-6))
+
+        assert shapes == [], "redrew the stage context for a translation"
+        assert aligned == [] and gridbars == []
+        assert all(
+            widget._view_chip_buttons.get(view) is chip for view, chip in chips.items()
+        ), "rebuilt the view chips for a translation"
+        # ...and what does follow the stage still does.
+        assert grid, "the planned grid stopped following the stage"
+        assert list(widget.current_position_overlay._points) != marker
+
+    def test_a_re_pose_redraws_them(self, widget, microscope, monkeypatch):
+        """A change of orientation changes the view the next run lands in, and with
+        it the frame -- so everything is drawn again."""
+        _show_holder_overlays(widget)
+        widget._on_stage_moved(microscope.get_stage_position())
+        shapes = self._count(monkeypatch, widget.context_overlay, "set_shapes")
+
+        pose = microscope.get_orientation("MILLING")
+        widget._on_stage_moved(
+            FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+        )
+
+        assert shapes, "a re-pose did not redraw the stage context"
+        assert widget.acquisition_view in widget._view_chip_buttons
+
+
 class TestTheViewChips:
     """The view selector rides with the canvas, and says which view is which.
 
