@@ -167,6 +167,10 @@ filterwarnings = [
     # when they move or go; tests/test_get_set_deprecation.py checks the warning.
     # Code outside tests is kept off it by tests/test_no_direct_get_set.py.
     "ignore:microscope\\.(get|set)\\(.* is deprecated:DeprecationWarning",
+    # get_available_values and its cache, deprecated the same way: tests still pin
+    # the old answers until it is removed. tests/test_available_values_deprecation.py
+    # checks the warning and keeps code outside tests off it.
+    "ignore:microscope\\.(get_available_values|get_available_values_cached|clear_available_values_cache)\\(.* is deprecated:DeprecationWarning",
 ]
 
 [tool.ruff]
