@@ -120,6 +120,7 @@ def test_the_bar_says_what_the_export_says(controller):
         ("HFW", exported["hfw"]),
         ("HV", exported["voltage"]),
         ("I", exported["current"]),
+        ("WD", exported["working_distance"]),
     ]
 
 
@@ -188,18 +189,19 @@ def test_a_narrow_bar_drops_whole_fields_behind_a_chip():
     bar.show()
 
     _sized(bar, 2000)
-    assert len(bar.visible_fields()) == 3
+    assert len(bar.visible_fields()) == 4
     assert bar.more_chip.isHidden()
 
     _sized(bar, 280)
     visible, hidden = bar.visible_fields(), bar.hidden_fields()
-    assert hidden, "280 px cannot hold three fields beside the header"
-    assert len(visible) + len(hidden) == 3
+    assert hidden, "280 px cannot hold four fields beside the header"
+    assert len(visible) + len(hidden) == 4
     # dropped from the right, whole
     assert [f.key for f in visible + hidden] == [
         "hfw",
         "voltage",
         "current",
+        "working_distance",
     ]
     # the time goes first, and is counted and listed with the fields
     assert bar.time_label.isHidden()
@@ -221,7 +223,7 @@ def test_the_time_drops_before_any_field():
     bar.set_image_fields(image_fields(_beam_image()))
     bar.show()
     _sized(bar, 2000)
-    fields = sum(label.sizeHint().width() for label in bar.field_labels) + 12 * 2
+    fields = sum(label.sizeHint().width() for label in bar.field_labels) + 12 * 3
     exact = bar.width() - bar._room(with_time=True) + fields
     _sized(bar, exact - 1)  # one pixel short of fitting the time as well
     assert bar.hidden_fields() == []

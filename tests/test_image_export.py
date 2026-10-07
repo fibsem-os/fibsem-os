@@ -116,7 +116,7 @@ def test_beam_image_fields():
         "pixel_size": "97.7 nm",
         "voltage": "2 kV",
         "current": "50 pA",
-        "working_distance": "4 mm",
+        "working_distance": "4.00 mm",
         "dwell_time": "1 µs",
     }
 
