@@ -188,7 +188,7 @@ extend-exclude = [
 exclude = ["**/*.md"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I"]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
 # E501 (line-length) is deliberately absent. A formatter is what wraps code, and
 # most of the ~5.6k current hits are long strings and comments nothing can wrap.
 #
@@ -249,6 +249,24 @@ ignore = [
     "E731",
     "F402",
     "F601",
+    # pyupgrade, switched on with the Python 3.10 floor. Every rule below is old
+    # syntax that still runs; none is a bug. The five annotation rules touch most
+    # of the tree, so burn those down one package per pull request.
+    "UP045",  # Optional[X] -> X | None
+    "UP006",  # List[X] -> list[X]
+    "UP035",  # deprecated typing imports
+    "UP037",  # quoted annotations
+    "UP007",  # Union[X, Y] -> X | Y
+    "UP015",
+    "UP031",  # no autofix: each %-format is rewritten by hand
+    "UP032",
+    "UP004",
+    # The sys.version_info branches for Pythons below the floor -- dead code.
+    "UP036",
+    "UP009",
+    "UP020",
+    "UP024",
+    "UP034",
 ]
 
 # F401 is not a mechanical fix in this codebase, and `--fix` alone is enough to
