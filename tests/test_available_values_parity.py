@@ -128,8 +128,12 @@ def _demo():
 
 # A beam key asked with no beam type has no beam device to answer it, so it now
 # gets no values, as the keys with no device home already did, where before the
-# backend raised or (Thermo's detector types) answered for the active channel.
+# backend raised or (Thermo's detector types, the Demo's tables) answered for the
+# active channel.
 _NO_BEAM = {
+    "demo None current": "EXC KeyError: None",
+    "demo None detector_mode": ["SecondaryElectrons", "BackscatteredElectrons", "EDS"],
+    "demo None detector_type": ["ETD", "TLD", "EDS"],
     "odemis None current": "EXC KeyError: None",
     "odemis None detector_type": "EXC KeyError: None",
     "odemis None voltage": "EXC KeyError: None",
