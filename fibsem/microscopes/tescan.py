@@ -460,6 +460,88 @@ class TescanDrawBeam:
         with self._connection_lock:
             self.layer = self.connection.DrawBeam.Layer("Layer1", layer_settings)
 
+    def run_milling(
+        self, milling_current: float, milling_voltage: float, asynch: bool = False
+    ) -> None:
+        """
+        Run ion beam milling using the specified milling current.
+
+        Args:
+            milling_current: float (unused, use preset instead)
+            milling_voltage: float (unused, use preset instead)
+            asynch (bool, optional): If True, the milling will be run asynchronously.
+                            Defaults to False, in which case it will run synchronously.
+        """
+        self._prepare_beam(self.milling_channel)
+
+        with self._connection_lock:
+            self.connection.DrawBeam.LoadLayer(self.layer)
+        logging.info("running ion beam milling now...")
+
+        # estimate milling time (must be done before starting milling, but after loading layer)
+        start_time = time.time()
+        estimated_time = self.estimate_milling_time()
+        remaining_time = estimated_time
+
+        # start milling
+        with self._connection_lock:
+            self.connection.DrawBeam.Start()
+
+            # display progress bar in tescan ui
+            self.connection.Progress.Show(
+                Title="DrawBeam Milling (OpenFIBSEM)",
+                Text="Layer 1 in progress",
+                HideButton=True,
+                Marquee=False,
+                ProgressMin=0,
+                ProgressMax=100,
+            )
+
+        if asynch:
+            return  # up to the user to monitor the milling process/progress
+
+        MILLING_SLEEP_TIME = 1
+        err = None
+        try:
+            while self.get_milling_state() in ACTIVE_MILLING_STATES:
+                # lock per call, never across the sleep: the poll loop runs for the
+                # whole mill and must let other threads' calls through between polls
+                with self._connection_lock:
+                    status = (
+                        self.connection.DrawBeam.GetStatus()
+                    )  # status, total, elapsed
+                milling_status, total_time, elapsed_time = status
+                if self.get_milling_state() is MillingState.RUNNING:
+                    progress = 0
+                    if total_time > 0:
+                        progress = min(100, elapsed_time / total_time * 100)
+                    with self._connection_lock:
+                        self.connection.Progress.SetPercents(progress)
+                    remaining_time -= MILLING_SLEEP_TIME
+                time.sleep(MILLING_SLEEP_TIME)
+
+                # update milling progress via signal
+                self.milling_progress_signal.emit(
+                    MillingProgress(
+                        status=MillingProgressStatus.STAGE_UPDATE,
+                        milling_state=self.get_milling_state(),
+                        start_time=start_time,
+                        estimated_time=estimated_time,
+                        remaining_time=remaining_time,
+                    )
+                )
+
+        except Exception as err:
+            logging.error(f"Error in run_milling: {err}")
+            pass
+        finally:
+            with self._connection_lock:
+                self.connection.Progress.Hide()
+            if err:
+                with self._connection_lock:
+                    self.connection.DrawBeam.Stop()
+                self.clear_patterns()
+
     def finish_milling(
         self, imaging_current: float = None, imaging_voltage: float = None
     ):
@@ -1143,88 +1225,6 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
             }
         )
         return self.get_stage_position()
-
-    def run_milling(
-        self, milling_current: float, milling_voltage: float, asynch: bool = False
-    ) -> None:
-        """
-        Run ion beam milling using the specified milling current.
-
-        Args:
-            milling_current: float (unused, use preset instead)
-            milling_voltage: float (unused, use preset instead)
-            asynch (bool, optional): If True, the milling will be run asynchronously.
-                            Defaults to False, in which case it will run synchronously.
-        """
-        self._prepare_beam(self.milling_channel)
-
-        with self._connection_lock:
-            self.connection.DrawBeam.LoadLayer(self.layer)
-        logging.info("running ion beam milling now...")
-
-        # estimate milling time (must be done before starting milling, but after loading layer)
-        start_time = time.time()
-        estimated_time = self.estimate_milling_time()
-        remaining_time = estimated_time
-
-        # start milling
-        with self._connection_lock:
-            self.connection.DrawBeam.Start()
-
-            # display progress bar in tescan ui
-            self.connection.Progress.Show(
-                Title="DrawBeam Milling (OpenFIBSEM)",
-                Text="Layer 1 in progress",
-                HideButton=True,
-                Marquee=False,
-                ProgressMin=0,
-                ProgressMax=100,
-            )
-
-        if asynch:
-            return  # up to the user to monitor the milling process/progress
-
-        MILLING_SLEEP_TIME = 1
-        err = None
-        try:
-            while self.get_milling_state() in ACTIVE_MILLING_STATES:
-                # lock per call, never across the sleep: the poll loop runs for the
-                # whole mill and must let other threads' calls through between polls
-                with self._connection_lock:
-                    status = (
-                        self.connection.DrawBeam.GetStatus()
-                    )  # status, total, elapsed
-                milling_status, total_time, elapsed_time = status
-                if self.get_milling_state() is MillingState.RUNNING:
-                    progress = 0
-                    if total_time > 0:
-                        progress = min(100, elapsed_time / total_time * 100)
-                    with self._connection_lock:
-                        self.connection.Progress.SetPercents(progress)
-                    remaining_time -= MILLING_SLEEP_TIME
-                time.sleep(MILLING_SLEEP_TIME)
-
-                # update milling progress via signal
-                self.milling_progress_signal.emit(
-                    MillingProgress(
-                        status=MillingProgressStatus.STAGE_UPDATE,
-                        milling_state=self.get_milling_state(),
-                        start_time=start_time,
-                        estimated_time=estimated_time,
-                        remaining_time=remaining_time,
-                    )
-                )
-
-        except Exception as err:
-            logging.error(f"Error in run_milling: {err}")
-            pass
-        finally:
-            with self._connection_lock:
-                self.connection.Progress.Hide()
-            if err:
-                with self._connection_lock:
-                    self.connection.DrawBeam.Stop()
-                self.clear_patterns()
 
     # def run_milling_drift_corrected(self, milling_current: float,
     #     image_settings: ImageSettings,
