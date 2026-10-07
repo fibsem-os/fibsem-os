@@ -51,7 +51,7 @@ def test_the_fm_is_a_pose_on_a_compustage_and_a_place_on_an_offset_mount():
 
 def test_a_stage_that_declares_an_fm_pose_reaches_the_fm_by_re_posing(monkeypatch):
     microscope = _microscope(IFLM_CONFIG)
-    assert not microscope.stage_is_compustage
+    assert not microscope._fm_is_a_pose()
     _declare(microscope, compustage_poses)
     taken = _routes(microscope, monkeypatch)
 
@@ -78,7 +78,7 @@ def test_at_a_pose_there_is_no_parking_at_the_fm_to_refuse_a_rotation_at():
 
 def test_a_compustage_that_declares_no_fm_pose_travels_to_it(monkeypatch):
     microscope = _microscope(ARCTIS_CONFIG)
-    assert microscope.stage_is_compustage
+    assert microscope._fm_is_a_pose()
     _declare(
         microscope,
         lambda **geometry: rotating_stage_poses(**geometry, rotates=False),

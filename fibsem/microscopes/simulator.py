@@ -1313,7 +1313,6 @@ class DemoSession:
         # initialise system
         self.connection = DemoMicroscopeClient()
         self.system = system_settings
-        self.stage_is_compustage: bool = sim_is_compustage(self.system)
         self.milling_system = MillingSystem(patterns=[])
         self.imaging_system = ImagingSystem()
 

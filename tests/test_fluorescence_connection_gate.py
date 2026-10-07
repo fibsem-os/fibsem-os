@@ -11,7 +11,7 @@ Running that on every system would mean an Aquilos or Helios with an iFLM fitted
 half-built offset support in its UI on upgrade. So an explicit flag decides, and the
 probe only confirms afterwards.
 
-The flag *widens* the old check rather than replacing it. `stage_is_compustage` is
+The flag *widens* the old check rather than replacing it. The stage type is
 read from the hardware, not configuration, and no shipped Arctis configuration carries
 the flag -- so replacing it would take the FM away from every Arctis site.
 """
@@ -70,7 +70,7 @@ def test_a_configured_offset_system_gets_one():
     """What the whole project was for: an FM on a stage that does not flip."""
     microscope = _microscope(IFLM_CONFIG)
 
-    assert microscope.stage_is_compustage is False
+    assert microscope._fm_is_a_pose() is False
     assert microscope.system.fm.enabled is True
     assert microscope.fm is not None
 
@@ -81,7 +81,7 @@ def test_a_configured_offset_system_gets_one():
 def test_a_compustage_needs_no_flag():
     """`tfs-arctis-configuration.yaml` has no `fm:` block, and its FM works today.
 
-    `stage_is_compustage` comes from the hardware (`compustage.is_installed`), not
+    The stage type comes from the hardware (`compustage.is_installed`), not
     from configuration, so no Arctis site has ever needed to say anything. Replacing
     the old check with the flag rather than widening it would take the FM away from
     all of them on upgrade -- which is why this is an `or`.
@@ -89,7 +89,7 @@ def test_a_compustage_needs_no_flag():
     microscope = _microscope(ARCTIS_CONFIG)
     microscope.system.fm.enabled = None  # as a real Arctis configuration has it
 
-    assert microscope.stage_is_compustage is True
+    assert microscope._fm_is_a_pose() is True
     assert microscope._fluorescence_is_configured() is True
 
 
@@ -100,7 +100,7 @@ def test_an_explicit_false_turns_a_compustage_fm_off(tmp_path):
 
     microscope = _from(settings, tmp_path)
 
-    assert microscope.stage_is_compustage is True
+    assert microscope._fm_is_a_pose() is True
     assert microscope.fm is None
 
 
@@ -115,7 +115,7 @@ def test_an_offset_system_does_need_one():
     microscope = _microscope(IFLM_CONFIG)
     microscope.system.fm.enabled = False
 
-    assert microscope.stage_is_compustage is False
+    assert microscope._fm_is_a_pose() is False
     assert microscope._fluorescence_is_configured() is False
 
 
@@ -150,7 +150,7 @@ def test_detected_with_no_fm_block_gets_nothing(tmp_path):
 
     microscope = _from(settings, tmp_path)
 
-    assert microscope.stage_is_compustage is False
+    assert microscope._fm_is_a_pose() is False
     assert microscope.system.fm.enabled is None
     assert microscope.fm is None
 

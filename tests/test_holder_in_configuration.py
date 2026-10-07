@@ -548,7 +548,7 @@ def test_the_compustage_holder_states_its_pre_tilt():
 
     path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
     microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
-    assert microscope.stage_is_compustage, "fixture no longer exercises the compustage"
+    assert microscope._fm_is_a_pose(), "fixture no longer exercises the compustage"
 
     holder = _create_sample_stage(microscope).holder
 

@@ -101,7 +101,7 @@ def microscope():
         "sim-arctis-configuration.yaml",
     )
     scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    assert scope.stage_is_compustage, "the config stopped being a compustage"
+    assert scope._fm_is_a_pose(), "the config stopped being a compustage"
     return scope
 
 
@@ -1515,7 +1515,7 @@ class TestOverlaysAreDrawnInTheView:
         """The strongest statement of the property: put the travel envelope's corner on
         the canvas as a *marked position*, and the corner of the drawn box has to be
         under it. Checked in the foreshortened view, where the two used to differ."""
-        assert microscope.stage_is_compustage, "the limits only draw on a compustage"
+        assert microscope._fm_is_a_pose(), "the limits only draw on a compustage"
         frame = self._show(widget, self.FORESHORTENED)
         limits = microscope._stage.limits
 
@@ -1603,7 +1603,7 @@ class TestOverlaysAreDrawnInTheView:
             "tfs-aquilos2-configuration.yaml",
         )
         scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-        assert not scope.stage_is_compustage, "this is the standard-stage case"
+        assert not scope._fm_is_a_pose(), "this is the standard-stage case"
 
         widget = FibsemOverviewWidget(scope)
         try:
@@ -1676,9 +1676,7 @@ class TestTheHolderIsDrawnOnEveryStage:
     ):
         """The half that was collateral damage. Travel limits are a property of the
         stage, and every stage that declares them has them."""
-        monkeypatch.setattr(
-            type(microscope), "stage_is_compustage", property(lambda self: False)
-        )
+        monkeypatch.setattr(microscope, "_fm_is_a_pose", lambda: False)
         widget._refresh_context_overlays()
 
         assert self._specs(widget, "rect", "Stage Limits"), (
@@ -2060,7 +2058,7 @@ def pretilted():
     (FIB-1007).
     """
     scope, _ = utils.setup_session(manufacturer="Demo")
-    assert not scope.stage_is_compustage, "the default config became a compustage"
+    assert not scope._fm_is_a_pose(), "the default config became a compustage"
     assert scope.hardware_geometry().shuttle_pre_tilt, "the pre-tilt went away"
     return scope
 

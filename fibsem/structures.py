@@ -3584,7 +3584,7 @@ class FibsemHardwareGeometry:
 
         ``is_compustage`` is a parameter because ``SystemSettings`` does not carry it:
         it is a property of the installed hardware, which only the connected
-        microscope knows. Callers holding one should pass ``microscope.stage_is_compustage``.
+        microscope knows. Callers holding one should pass ``microscope._fm_is_a_pose()``.
         ``rotation_centre`` likewise comes from the driver (``microscope.rotation_centre``);
         None records LEGACY_ROTATION_CENTRE. ``poses`` are the stage's declared poses
         (``microscope._stage_poses()``), in radians; None records none.

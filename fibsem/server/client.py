@@ -36,7 +36,7 @@ from fibsem.structures import (
 class FibsemClient:
     """Network client for FibsemServer.
 
-    Fetches system settings and stage_is_compustage from the server at init
+    Fetches system settings from the server at init
     so they are available as direct attributes, matching the FibsemMicroscope interface.
     """
 
@@ -55,7 +55,6 @@ class FibsemClient:
         self.system: SystemSettings = SystemSettings.from_dict(data["system"])
         for key, present in (data.get("fitted") or {}).items():
             self.set_available(key, bool(present))
-        self.stage_is_compustage: bool = data["stage_is_compustage"]
 
     def _get(self, endpoint: str, timeout: int = 10) -> dict:
         resp = self._session.get(f"{self.base_url}/{endpoint}", timeout=timeout)

@@ -335,7 +335,7 @@ class TestEveryOrientationPair:
         self, config, compustage, overview_at, marker_at, beam_type
     ):
         scope = self._configured(config)
-        assert scope.stage_is_compustage is compustage, "config assumption drifted"
+        assert scope._fm_is_a_pose() is compustage, "config assumption drifted"
 
         overview_pose = scope.get_orientation(overview_at)
         marker_pose = scope.get_orientation(marker_at)
