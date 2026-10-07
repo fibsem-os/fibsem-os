@@ -495,14 +495,9 @@ class FibsemBeamSettingsWidget(QWidget):
         self._update_visibility()
 
     def _populate_resolutions(self) -> None:
-        """List the resolutions the beam's scan can be set to, keeping the selection;
-        a beam that lists none keeps the standard ones. These are live sets, so they
-        are the scan's (``scan_resolutions``), not every size an acquisition takes."""
-        scan_resolutions = getattr(self._beam_device(), "scan_resolutions", None)
-        if scan_resolutions is not None:
-            choices = scan_resolutions()
-        else:
-            choices = beam_choices(self.microscope, "resolution", self.beam_type)
+        """List the beam's resolutions, keeping the selection; a beam that lists none
+        keeps the standard ones."""
+        choices = beam_choices(self.microscope, "resolution", self.beam_type)
         if not choices:
             return
         selected = self.resolution_combo.currentData()
