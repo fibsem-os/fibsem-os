@@ -339,6 +339,42 @@ def test_the_limits_box_is_shorter_than_the_grid_is_wide(pane):
     assert box.height < 2 * circle.radius
 
 
+def test_an_fm_origin_carries_the_plan_and_the_grid_but_not_the_limits(microscope):
+    """A compustage FM with an origin reaches the beams' ground by the flip and then
+    that travel. The planned centre the stage is driven to and the grid boundary carry
+    it; the travel limits are the stage's own and do not."""
+    plain = FMTilePreviewWidget(microscope)
+    plain.setFixedSize(316, 386)
+    plan = select(plain, microscope, *TWO_REGIONS)
+
+    microscope.system.stage.devices["FM"].origin = FibsemStagePosition(
+        x=50e-6, y=-30e-6
+    )
+    moved = FMTilePreviewWidget(microscope)
+    moved.setFixedSize(316, 386)
+    offset_plan = select(moved, microscope, *TWO_REGIONS)
+
+    assert offset_plan.centre_position.x == pytest.approx(
+        plan.centre_position.x + 50e-6
+    )
+    assert offset_plan.centre_position.y == pytest.approx(
+        plan.centre_position.y - 30e-6
+    )
+    assert offset_plan.mask == plan.mask
+
+    def shapes(pane):
+        return {spec.kind: spec for spec in pane.stage_overlay._specs}
+
+    before, after = shapes(plain), shapes(moved)
+    assert (moved._grid_centre.x, moved._grid_centre.y) == (50e-6, -30e-6)
+    centre = moved._frame().to_canvas(moved._grid_centre)
+    assert (after["circle"].cx, after["circle"].cy) == pytest.approx(centre)
+    assert (after["circle"].cx, after["circle"].cy) != pytest.approx(
+        (before["circle"].cx, before["circle"].cy)
+    )
+    assert after["rect"] == before["rect"]
+
+
 # ── what the host reads ──────────────────────────────────────────────────
 
 

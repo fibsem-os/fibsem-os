@@ -23,6 +23,13 @@ hardware:                                                   # what the instrumen
       - name: fm
         type: fm
         enabled: true
+    #   The FM is reached by turning the grid over to face the objective. Where the
+    #   objective's centre is offset from the beams' coincidence point, declare that
+    #   offset as the FM's origin: the stage position that puts a mark under the
+    #   objective, minus the one the flip arrives at with that mark under the beams,
+    #   both at the FM pose. Moves to and from the FM then travel by it. Omitted, the
+    #   FM shares the beams' origin. No range: the stage limits bound it.
+    #   origin:                     {x: 50.0e-6, y: -30.0e-6}  # [metres][MEASURED]
     #   config: /home/patrick/github/fibsem/fibsem/config/fm/fm-configuration-default.yaml
       - name: sample_loader                                # the simulated autoloader magazine (a compustage has one)
         type: sample_loader

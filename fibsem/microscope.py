@@ -4116,8 +4116,8 @@ class FibsemMicroscope(ABC):
         The one spelling of "this piece of sample, at that instrument" -- a lamella's
         fluorescence pose from its milling pose, a grid slot on the FM canvas, a
         milling pose from a target found in fluorescence. The same on both mountings:
-        a compustage takes the device leg with a zero translation, an offset mount
-        gets the traverse.
+        a compustage flips and travels by its FM origin (zero unless configured), an
+        offset mount gets the traverse.
 
         `orientation` names the pose to arrive in; omitted, `_arrival_orientation`
         decides -- kept if the device images from it, else the first it declares.

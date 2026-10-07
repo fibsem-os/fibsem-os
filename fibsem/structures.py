@@ -2307,8 +2307,9 @@ CONFIGURATION_VERSION: int = 2
 # except the offset simulator, so every other configuration -- Aquilos, Hydra, Arctis,
 # Tescan, Odemis, several with no fluorescence microscope at all -- inherited a phantom
 # FM 48.8 mm away, somewhere their stage never goes. It was invisible because
-# `_device_translation` short-circuits on a compustage; `contains` does not, and reads
-# these origins literally.
+# `_device_translation` used to short-circuit on a compustage; `contains` did not, and
+# read these origins literally. A compustage FM's origin is now travelled by after the
+# flip: the offset of the objective from the beams' coincidence point, at the FM pose.
 #
 # Getting this the right way round is what lets one question be asked of both mountings
 # instead of each caller branching on the stage type (FIB-839).
