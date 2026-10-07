@@ -42,6 +42,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.workflows.tasks.proposing import settle
 from fibsem.cancellation import OperationCancelledError
+from fibsem.util.timestamps import now_iso
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -409,7 +410,7 @@ class GridTask(ABC):
         logging.debug(
             {
                 "msg": "status",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_iso(),
                 "grid": self.grid.name,
                 "grid_id": self.grid.id,
                 "task_id": self.task_id,

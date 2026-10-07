@@ -12,10 +12,10 @@ this module must not pull in matplotlib or reportlab the way tools/reporting.py 
 import json
 import logging
 import os
-from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+from fibsem.util.timestamps import iso_from_posix
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import (
@@ -61,9 +61,9 @@ def write_completion_summary(
         "experiment_name": context.experiment_name or experiment.name,
         "item_id": lamella.id,
         "item_name": lamella.name,
-        "completed_at": datetime.fromtimestamp(context.timestamp).isoformat(
-            timespec="seconds"
-        ),
+        # With its UTC offset (FIB-1190): this file is forwarded, and read in zones
+        # other than the instrument's.
+        "completed_at": iso_from_posix(context.timestamp),
         # Which event produced this. There will be more triggers -- an end-of-run
         # summary covering the lamellae that did not finish, which is when someone most
         # wants to look.
@@ -104,7 +104,7 @@ def _task_record(task: "AutoLamellaTaskState") -> dict:
         # earlier attempt, and this joins to the hook event that announced it.
         "task_id": task.task_id,
         "completed_at": (
-            datetime.fromtimestamp(task.end_timestamp).isoformat(timespec="seconds")
+            iso_from_posix(task.end_timestamp)
             if task.end_timestamp is not None
             else None
         ),
@@ -113,9 +113,7 @@ def _task_record(task: "AutoLamellaTaskState") -> dict:
     }
 
 
-def _find_item(
-    experiment: "Experiment", context: "HookContext"
-) -> Optional["Lamella"]:
+def _find_item(experiment: "Experiment", context: "HookContext") -> Optional["Lamella"]:
     """Resolve the item a context names back to the lamella it refers to.
 
     By id first: the name is a petname a user can edit, the id is the stable key. The

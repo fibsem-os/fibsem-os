@@ -117,6 +117,7 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
+from fibsem.util.timestamps import now_iso
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
@@ -416,7 +417,7 @@ class AutoLamellaTask(ABC):
         logging.debug(
             {
                 "msg": "task_config",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_iso(),
                 "lamella": self.lamella.name,
                 "lamella_id": self.lamella.id,
                 "task_id": self.task_id,
@@ -436,7 +437,7 @@ class AutoLamellaTask(ABC):
         logging.debug(
             {
                 "msg": "status",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_iso(),
                 "lamella": self.lamella.name,
                 "lamella_id": self.lamella.id,
                 "task_id": self.task_id,

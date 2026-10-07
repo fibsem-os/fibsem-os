@@ -32,6 +32,7 @@ from fibsem.applications.autolamella.tools.artifacts import (
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
+from fibsem.util.timestamps import iso_from_posix
 
 REQUIRED_TASKS = ["MillTrench", "MillUndercut"]
 
@@ -232,8 +233,8 @@ def test_it_records_when_the_work_finished_not_when_the_file_was_written(experim
         experiment, _context(lamella, experiment, timestamp=fired_at)
     )
 
-    expected = datetime.fromtimestamp(fired_at).isoformat(timespec="seconds")
-    assert _summary(lamella)["completed_at"] == expected
+    # With its offset, so a reader in another zone gets the same instant (FIB-1190).
+    assert _summary(lamella)["completed_at"] == iso_from_posix(fired_at)
 
 
 def test_it_falls_back_to_the_experiment_when_the_context_is_bare(experiment):

@@ -1,5 +1,7 @@
 """The sample holder panel: calibration state at a glance, grids named inline."""
 
+from datetime import datetime, timezone
+
 import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
@@ -220,3 +222,18 @@ def test_the_host_can_refuse_a_rename_on_a_fixed_holder(qapp, microscope):
     assert holder.slots["Slot-01"].loaded_grid.name == "grid-aspen"
     assert widget._row_widget(0).name_edit.text() == "grid-aspen"
     assert changed == []
+
+
+def test_a_calibration_with_an_offset_shows_in_the_viewers_zone(qapp, microscope):
+    """New records carry their UTC offset (FIB-1190); `_calibrate`'s does not."""
+    holder = microscope._stage.holder
+    slot = holder.slots["Slot-01"]
+    _calibrate(slot)
+    slot.calibration.captured_at = "2026-09-02T11:24:09+00:00"
+    local = datetime(2026, 9, 2, 11, 24, 9, tzinfo=timezone.utc).astimezone()
+    months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+    expected = f"{local.day} {months[local.month - 1]} {local:%Y %H:%M}"
+
+    widget = SampleHolderWidget(microscope=microscope)
+    widget.set_holder(holder)
+    assert f"Calibrated {expected}" in widget._row_widget(0).toolTip()
