@@ -67,7 +67,7 @@ def test_chamber_follows_the_stage_update(
     assert diagram._pre_tilt == microscope.system.stage.shuttle_pre_tilt
     assert diagram.milling_angle() == pytest.approx(milling_angle, abs=0.5)
     assert not diagram._show_readout
-    assert "Schematic" in diagram.toolTip()
+    assert "Schematic" in chamber.scene.toolTip()
 
 
 def test_sem_orientation_is_square_to_the_electron_beam(controller, microscope):

@@ -848,6 +848,7 @@ class MicroscopeViewController(QObject):
         if chamber is None:
             return
         try:
+            chamber.set_microscope(microscope)
             stage = microscope.system.stage
             chamber.set_stage(
                 stage_position,
@@ -858,6 +859,14 @@ class MicroscopeViewController(QObject):
             )
         except Exception:
             _logger.debug("The chamber view could not be drawn", exc_info=True)
+
+    def set_map_positions(self, positions) -> None:
+        """The positions the chamber view's stage map marks: the experiment's lamellae.
+
+        The lamella editor view has no chamber view, so this is a no-op there."""
+        chamber = getattr(self._widget, "chamber_view", None)
+        if chamber is not None:
+            chamber.set_positions(positions)
 
     # ── render loop ───────────────────────────────────────────────────────
     def _mark_dirty(self, canvas: FibsemImageCanvas) -> None:
