@@ -402,18 +402,8 @@ class FibsemClient:
             payload.append(d)
         self._post("draw_patterns", {"patterns": payload})
 
-    def run_milling(
-        self, milling_current: float, milling_voltage: float, asynch: bool = False
-    ) -> None:
-        self._post(
-            "run_milling",
-            {
-                "milling_current": milling_current,
-                "milling_voltage": milling_voltage,
-                "asynch": asynch,
-            },
-            timeout=3600,
-        )
+    def run_milling(self) -> None:
+        self._post("run_milling", timeout=3600)
 
     def start_milling(self) -> None:
         self._post("start_milling")

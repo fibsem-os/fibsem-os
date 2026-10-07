@@ -476,37 +476,12 @@ class ServiceMilling:
         self._milling_service().resume()
 
     def run_milling(
-        self,
-        milling_current: Optional[float] = None,
-        milling_voltage: Optional[float] = None,
-        asynch: bool = False,
-        stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
+        self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
     ) -> None:
         """Mill what is drawn with the service's run loop (`Milling.run`), which
-        reports progress on ``milling_progress_signal``. A current or voltage given
-        is set first, where the beam can set it, as the old loop did. ``asynch``, on
-        its way out, still starts it the backend's old way and returns."""
-        if self.milling is None or asynch:
-            return super().run_milling(milling_current, milling_voltage, asynch)
-        beam = self.milling.beam(self.milling_channel)
-        try:
-            if milling_voltage is not None and _settable(beam, "voltage"):
-                if beam.voltage.get_value() != milling_voltage:
-                    self.set_beam_voltage(
-                        voltage=milling_voltage, beam_type=self.milling_channel
-                    )
-            if milling_current is not None and _settable(beam, "current"):
-                if beam.current.get_value() != milling_current:
-                    self.set_beam_current(
-                        current=milling_current, beam_type=self.milling_channel
-                    )
-        except Exception as e:
-            logging.warning(
-                f"Failed to set voltage or current: {e}, voltage={milling_voltage}, "
-                f"current={milling_current}"
-            )
+        reports progress on ``milling_progress_signal``."""
         logging.info("running milling now...")
-        self.milling.run(stop_event=stop_event)
+        self._milling_service().run(stop_event=stop_event)
 
     def get_milling_state(self) -> MillingState:
         if self.milling is None:

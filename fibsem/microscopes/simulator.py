@@ -1041,62 +1041,6 @@ class DemoMilling:
             {"msg": "setup_milling", "mill_settings": mill_settings.to_dict()}
         )
 
-    def run_milling(
-        self, milling_current: float, milling_voltage: float, asynch: bool = False
-    ) -> None:
-        """Run milling with the specified current and voltage."""
-
-        MILLING_SLEEP_TIME = 1
-        self._mill_into_sample_scene(milling_current)
-
-        # start milling: this mill is timed by its estimate, not open-ended
-        self._async_milling = False
-        start_time = time.time()
-        estimated_time = self.estimate_milling_time()
-        remaining_time = estimated_time
-        self.milling_system.state = MillingState.RUNNING
-
-        if asynch:
-            return  # up to the caller to handle
-
-        while remaining_time > 0 or self.get_milling_state() in ACTIVE_MILLING_STATES:
-            logging.debug(f"Running milling: {remaining_time} s remaining.")
-            if self.get_milling_state() == MillingState.PAUSED:
-                logging.info("Milling paused.")
-                sim_sleep(MILLING_SLEEP_TIME)
-                continue
-            if self.get_milling_state() == MillingState.IDLE:
-                logging.info("Milling stopped.")
-                break
-            sim_sleep(MILLING_SLEEP_TIME)
-            remaining_time -= MILLING_SLEEP_TIME
-
-            # update milling progress via signal
-            self.milling_progress_signal.emit(
-                MillingProgress(
-                    status=MillingProgressStatus.STAGE_UPDATE,
-                    start_time=start_time,
-                    milling_state=self.get_milling_state(),
-                    estimated_time=estimated_time,
-                    remaining_time=remaining_time,
-                )
-            )
-
-            if remaining_time <= 0:  # milling complete
-                self.milling_system.state = MillingState.IDLE
-
-        # stop milling and clear patterns
-        self.milling_system.state = MillingState.IDLE
-        self.clear_patterns()
-        logging.debug(
-            {
-                "msg": "run_milling",
-                "milling_current": milling_current,
-                "milling_voltage": milling_voltage,
-                "asynch": asynch,
-            }
-        )
-
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
         """Finish milling by restoring the imaging current and voltage."""
         self.set_beam_current(current=imaging_current, beam_type=self.milling_channel)

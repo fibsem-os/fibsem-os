@@ -1389,8 +1389,8 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         setup_milling(self, mill_settings: FibsemMillingSettings):
             Configure the microscope for milling using the ion beam.
 
-        run_milling(self, milling_current: float, asynch: bool = False):
-            Run ion beam milling using the specified milling current.
+        run_milling(self, stop_event=None):
+            Mill what is drawn and return when the mill ends.
 
         finish_milling(self, imaging_current: float):
             Finalises the milling process by clearing the microscope of any patterns and returning the current to the imaging current.

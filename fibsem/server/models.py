@@ -103,12 +103,6 @@ class MillingSettingsRequest(BaseModel):
     mill_settings: Dict[str, Any]
 
 
-class RunMillingRequest(BaseModel):
-    milling_current: float
-    milling_voltage: float
-    asynch: bool = False
-
-
 class FinishMillingRequest(BaseModel):
     imaging_current: float
     imaging_voltage: float

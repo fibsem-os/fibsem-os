@@ -275,7 +275,7 @@ def test_run_milling_loads_runs_and_unloads_the_layer(connect):
     microscope.milling_progress_signal.connect(updates.append)
     fake.log.clear()
 
-    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    microscope.run_milling()
 
     paths = [p for p, _, _ in fake.log]
     for step in ("DrawBeam.LoadLayer", "connection.Progress.Show", "DrawBeam.Start"):

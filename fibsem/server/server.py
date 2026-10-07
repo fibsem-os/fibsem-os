@@ -76,7 +76,6 @@ from fibsem.server.models import (
     PointBeamRequest,
     ProjectStableMoveRequest,
     ResolutionBeamRequest,
-    RunMillingRequest,
     StableMoveRequest,
     StagePositionRequest,
     StagePositionResponse,
@@ -659,12 +658,8 @@ def build_server(
         return {"status": "ok"}
 
     @hw.post("/run_milling")
-    def run_milling(body: RunMillingRequest):
-        microscope.run_milling(
-            milling_current=body.milling_current,
-            milling_voltage=body.milling_voltage,
-            asynch=body.asynch,
-        )
+    def run_milling():
+        microscope.run_milling()
         return {"status": "ok"}
 
     @hw.post("/start_milling")
