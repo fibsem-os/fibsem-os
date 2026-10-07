@@ -1,10 +1,12 @@
 """Today's device moves, pinned on a compustage and on an offset mount.
 
-The device moves are becoming one path: a device is its pose plus its origin, and the
-compustage stops being a separate branch (`_move_to_device_compustage`, and the no-op
-compustage case in `_device_translation`). That should change nothing on a stage whose
-FM origin is the beams' origin, which is every compustage configured today. This file is
-the before-picture those changes are checked against.
+The device moves are one path: a device is its pose plus its origin, on a compustage
+as on an offset mount. This file pins what that path commands, so a change to it is a
+change someone meant. The compustage cases were recorded first from its old route, and
+re-pinned when that route was removed: the end states did not move, the flip now names
+x, y and z at their current values as well as r and t, a move to a device the stage is
+already at commands nothing, and `move_to_device("FIBSEM")` keeps a pose the beams image
+from.
 
 Each case records, on the Demo backend:
 
@@ -178,7 +180,6 @@ def _move_calls(start: str):
             continue
         for orientation in ORIENTATIONS:
             yield f"move_to_device({device},{orientation})"
-        yield f"move_to_microscope_compustage({device})"
 
 
 def _call(microscope, call: str):

@@ -4081,10 +4081,6 @@ class FibsemMicroscope(ABC):
         """
         target_device = self._get_device(device)  # refuses by name
 
-        if self._keeps_the_compustage_route(target_device):
-            self._move_to_device_compustage(device, orientation)
-            return
-
         if device == "FM" and not self.fm:
             raise ValueError("FM module is not available. Cannot move to FM position.")
 
@@ -4158,16 +4154,6 @@ class FibsemMicroscope(ABC):
         if device == "FM":
             self.fm.objective.insert()
 
-    def _keeps_the_compustage_route(self, target: StageDeviceSettings) -> bool:
-        """Whether a move to *target* takes `_move_to_device_compustage`.
-
-        A compustage whose FM shares the beams' origin keeps that route until the one
-        in `move_to_device` has been checked on an instrument; both arrive at the same
-        place. One with an FM origin configured needs the translation, so it takes
-        the one path.
-        """
-        return self._fm_is_a_pose() and self._is_the_only_place(target)
-
     def _travel(self, source: str, target: str) -> None:
         """Move the stage by the translation from one device to another, if any.
 
@@ -4228,49 +4214,6 @@ class FibsemMicroscope(ABC):
                 "source's origin first."
             )
 
-    def _move_to_device_compustage(
-        self, device: str, orientation: Optional[str] = None
-    ) -> None:
-        """The compustage's devices are one place: reaching either is a re-pose.
-
-        With no `orientation` asked for, FIBSEM lands at SEM -- the pose every
-        caller of the old `move_to_microscope` relied on.
-
-        The FM follows the rule the offset route and `to_device` follow
-        (`_arrival_orientation`): the pose is kept where the objective images from
-        it, and otherwise put into the first orientation the FM declares. With the
-        default declaration, `["FM"]`, that is the flip it always was. On a
-        compustage that declares more -- one whose objective also images from the
-        beam side -- "move to the FM" from one of those poses is already there, so
-        the stage stays and only the objective comes in; flipping regardless would
-        take it somewhere other than where `to_device` says the same piece of sample
-        is under the FM, which is where a lamella's fluorescence pose was derived.
-        """
-        if not self.fm:
-            raise ValueError("FM module is not available. Cannot move to FM position.")
-
-        if device == "FIBSEM":
-            self.fm.objective.retract()  # retract objective (safety precaution)
-            self.move_to_orientation(orientation or "SEM")
-
-        if device == "FM":
-            desired = self._arrival_orientation(
-                device, self.get_stage_position(), orientation
-            )
-            if desired is None:
-                # Retracted only for motion, as on the offset route: there is none.
-                logging.info(
-                    "The FM images from the pose the stage is in; inserting the "
-                    "objective without re-posing."
-                )
-            else:
-                self.fm.objective.retract()  # retract objective (safety precaution)
-                if orientation is None and desired == "FM":
-                    self.move_stage_absolute(self.get_orientation("FM"))
-                else:
-                    self.move_to_orientation(desired)
-            self.fm.objective.insert()  # insert objective
-
     def move_to_microscope(self, target: str) -> None:
         """Deprecated name for `move_to_device(target)` -- the last place a device
         was called a microscope. Kept as a shim for its many callers.
@@ -4282,15 +4225,6 @@ class FibsemMicroscope(ABC):
             self.move_to_device(target, orientation="SEM")
             return
         self.move_to_device(target)
-
-    def move_to_microscope_compustage(self, target: str) -> None:
-        """Deprecated name for the compustage half of `move_to_device`."""
-
-        if not self._fm_is_a_pose():
-            raise ValueError(
-                "This method is only available for Compustage microscopes."
-            )
-        self.move_to_microscope(target)
 
     @property
     def current_grid(self) -> str:

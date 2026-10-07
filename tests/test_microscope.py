@@ -110,7 +110,9 @@ def _compustage_with_fm():
 
 
 @pytest.mark.parametrize("target,expected", [("FIBSEM", "SEM"), ("FM", "FM")])
-def test_move_to_microscope_compustage_lands_on_the_named_orientation(target, expected):
+def test_move_to_microscope_on_a_compustage_lands_on_the_named_orientation(
+    target, expected
+):
     microscope = _compustage_with_fm()
 
     microscope.move_to_microscope(target)
@@ -118,7 +120,7 @@ def test_move_to_microscope_compustage_lands_on_the_named_orientation(target, ex
     assert microscope.get_stage_orientation() == expected
 
 
-def test_move_to_microscope_compustage_round_trip():
+def test_move_to_microscope_on_a_compustage_round_trip():
     microscope = _compustage_with_fm()
     microscope.move_to_microscope("FM")
     start = microscope.get_stage_position()

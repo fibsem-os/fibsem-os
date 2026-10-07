@@ -6,18 +6,15 @@ origin, in stage coordinates at the FM pose, and the stage travels by it after t
 just as an offset mount travels to its FM. Which device the stage is at stays decided by
 the pose (`Stage.device_at_pose`), and the FM has no window: the stage limits bound it.
 
-A compustage whose FM shares the beams' origin keeps its own route until the one path
-has been checked on an instrument (`_keeps_the_compustage_route`). The last test runs
-the one path for it anyway and compares with the pinned moves.
+A compustage whose FM shares the beams' origin takes the same path with a zero travel:
+the flip, and nothing else. `tests/test_device_moves_pinned.py` pins its commands.
 """
 
-import json
 import logging
 
 import pytest
 
 from fibsem.applications.autolamella.poses import _to_fluorescence, _to_milling
-from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import DeviceImagingState, FibsemStagePosition
 from tests import test_device_moves_pinned as pinned
 
@@ -99,14 +96,60 @@ def test_the_beams_keep_the_pose_and_the_old_name_lands_at_sem():
     assert microscope.get_stage_orientation() == "SEM"
 
 
-def test_the_old_compustage_name_takes_the_offset_too():
+def test_the_old_name_takes_the_offset_too():
     microscope = _offset_arctis()
     start = _at(microscope, "SEM")
 
-    microscope.move_to_microscope_compustage("FM")
+    microscope.move_to_microscope("FM")
 
     _assert_xy(microscope.get_stage_position(), start.x + OFFSET.x, start.y + OFFSET.y)
     assert microscope.get_stage_orientation() == "FM"
+
+
+# -- at the beams' origin ----------------------------------------------------------------
+
+
+def test_at_the_beams_origin_the_fm_is_the_flip_alone():
+    microscope = pinned._microscope("arctis")
+    start = _at(microscope, "SEM")
+    commands = pinned._record_commands(microscope)
+
+    microscope.move_to_device("FM")
+
+    _assert_xy(microscope.get_stage_position(), start.x, start.y)
+    assert microscope.get_stage_orientation() == "FM"
+    assert microscope.fm.objective.state == "Inserted"
+    assert [c[0] for c in commands] == ["retract", "absolute", "insert"]
+
+
+def test_far_from_the_centre_the_fm_is_still_reached():
+    """No window around the FM: a grid point near the edge of travel is reached by the
+    flip, where an offset FM's range would have refused it."""
+    microscope = pinned._microscope("arctis")
+    position = pinned._start_position(microscope, "SEM")
+    position.x = 1.5e-3
+    microscope.move_stage_absolute(position)
+
+    microscope.move_to_device("FM")
+
+    assert microscope.get_stage_position().x == pytest.approx(1.5e-3, abs=1e-12)
+    assert microscope.get_current_device() == "FM"
+
+
+def test_back_to_the_beams_keeps_a_pose_they_image_from():
+    """`move_to_device` keeps the pose with no orientation asked for; the old name
+    lands at SEM, as its callers rely on (Patrick 2026-10-06)."""
+    microscope = pinned._microscope("arctis")
+    _at(microscope, "FIB")
+    commands = pinned._record_commands(microscope)
+
+    microscope.move_to_device("FIBSEM")
+
+    assert microscope.get_stage_orientation() == "FIB"
+    assert commands == []
+
+    microscope.move_to_microscope("FIBSEM")
+    assert microscope.get_stage_orientation() == "SEM"
 
 
 # -- converting and asking --------------------------------------------------------------
@@ -141,58 +184,6 @@ def test_the_pose_says_where_the_stage_is_and_no_window_does():
         microscope.get_device_imaging_state("FM", at_sem)
         is DeviceImagingState.NEEDS_REPOSE_THEN_TRAVEL
     )
-
-
-# -- the one path at the beams' origin --------------------------------------------------
-
-
-def _one_path_cases():
-    for case_id in pinned.CASE_IDS:
-        mount, start, call = case_id.split("|")
-        if mount.startswith("arctis") and call != "queries":
-            yield case_id
-
-
-# `move_to_device("FIBSEM")` with no orientation keeps a pose the beams image from,
-# where the compustage route always went to SEM (Patrick 2026-10-06).
-KEEPS_THE_POSE = {
-    f"{mount}|{start}|move_to_device(FIBSEM,None)"
-    for mount in ("arctis", "arctis_beam_side")
-    for start in ("SEM", "FIB", "MILLING", "SEM+1", "FIB+1", "MILLING+1")
-}
-
-
-@pytest.mark.parametrize("case_id", list(_one_path_cases()))
-def test_the_one_path_arrives_where_the_compustage_route_does(monkeypatch, case_id):
-    """Same position, pose, device and objective as the pinned compustage route.
-
-    The commands differ in two ways, both checked here: the flip names x, y and z at
-    their current values where the route named only r and t, and a move to the beams
-    from a pose they image from commands nothing.
-    """
-    monkeypatch.setattr(
-        FibsemMicroscope, "_keeps_the_compustage_route", lambda self, target: False
-    )
-    expected = pinned._load_pins()[case_id]
-    actual = json.loads(json.dumps(pinned.run_case(case_id)))
-
-    if case_id in KEEPS_THE_POSE:
-        assert actual["commands"] == []
-        assert actual["orientation"] == case_id.split("|")[1].split("+")[0]
-        return
-
-    for key in ("raises", "orientation", "device", "objective"):
-        assert actual.get(key) == expected.get(key), key
-    pinned._assert_same(actual["position"], expected["position"], "position")
-
-    assert [c[0] for c in actual["commands"]] == [c[0] for c in expected["commands"]]
-    for got, was in zip(actual["commands"], expected["commands"]):
-        if got[0] != "absolute":
-            assert got == was
-            continue
-        for axis, value in was[1].items():
-            if value is not None:
-                assert got[1][axis] == pytest.approx(value, abs=1e-12), axis
 
 
 @pytest.fixture(autouse=True)
