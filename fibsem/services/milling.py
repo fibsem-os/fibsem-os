@@ -22,8 +22,8 @@ form shows those fields and no others.
 
 ``run`` is the one run loop every backend shares: start, look at the instrument about
 once a second, report ``progress``, and clear the patterns at the end. What differs is
-small and is a driver hook: what one look reads (``_poll``: the state, and the time
-elapsed, total or remaining where the instrument reports it, as Tescan's DrawBeam does),
+small and is a driver hook: what one look reads (``_poll``: the state, and the total
+and remaining time where the instrument reports them, as Tescan's DrawBeam does),
 and what happens around the run (``_before_run``, ``_after_run``: Tescan loads its
 layer and shows a progress bar). Elapsed time the instrument doesn't report is the wall
 clock while running, paused time left out. A set ``stop_event`` stops the beam; a
@@ -38,11 +38,9 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Dict,
     Optional,
     Sequence,
@@ -55,6 +53,7 @@ from typing import (
 from fibsem.cancellation import raise_if_cancelled
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.core import Service
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
@@ -85,33 +84,6 @@ SAVED_BEAM_CONDITIONS = ("preset", "voltage", "current", "hfw")
 _M = TypeVar("_M", bound="Milling")
 
 
-@dataclass(frozen=True)
-class MillingRunProgress:
-    """Where one run (`Milling.run`) has got to: ``progress``'s value.
-
-    Times are in seconds. ``total`` is the instrument's figure where it reports one,
-    otherwise the estimate taken when the run started; ``elapsed`` is the
-    instrument's, otherwise the time spent running, paused time left out.
-    """
-
-    state: MillingState = MillingState.IDLE
-    elapsed: float = 0.0
-    total: float = 0.0
-    remaining: float = 0.0
-    start_time: Optional[float] = None  # when the run started, time.time()
-
-
-@dataclass(frozen=True)
-class MillingPoll:
-    """What one look at the instrument found (`Milling._poll`): the state, and the
-    times it reports itself; None for each it doesn't."""
-
-    state: MillingState
-    elapsed: Optional[float] = None
-    total: Optional[float] = None
-    remaining: Optional[float] = None
-
-
 class Milling(Service):
     """Pattern milling with the ion beam, or the electron beam when a recipe asks.
 
@@ -129,9 +101,9 @@ class Milling(Service):
     # done behind its back, so the commands don't read it after themselves.
     state = Parameter(MillingState, doc="Idle, running, paused, ...; read-only.")
     # Reported by `run` as it goes; reading it doesn't touch the instrument.
-    progress = Parameter(
-        MillingRunProgress, doc="The run's state and times; read-only."
-    )
+    # A stage update (`MillingProgress`) with what a run knows: its state, start,
+    # total and remaining time. The task and stage fields are a task's to fill.
+    progress = Parameter(MillingProgress, doc="The run's state and times; read-only.")
 
     # How often `run` looks at the instrument, in seconds.
     poll_interval: float = 1.0
@@ -154,7 +126,7 @@ class Milling(Service):
         self._saved_beam: Optional[Beam] = None
         # What the driver says about its own fields, asked once.
         self._driver_settings: Dict[str, ParameterMetadata] = {}
-        self._progress = MillingRunProgress()
+        self._progress = progress_update(state=MillingState.IDLE)
 
     def connect(self: _M) -> _M:
         super().connect()
@@ -162,10 +134,10 @@ class Milling(Service):
         self.progress.get_value()
         return self
 
-    def read_progress(self) -> MillingRunProgress:
+    def read_progress(self) -> MillingProgress:
         return self._progress
 
-    def _report(self, progress: MillingRunProgress) -> None:
+    def _report(self, progress: MillingProgress) -> None:
         self._progress = progress
         self.progress.report(progress)
 
@@ -318,31 +290,24 @@ class Milling(Service):
         while True:
             poll = self._poll()
             now = time.monotonic()
-            if poll.state is MillingState.RUNNING:
+            state = poll.milling_state
+            if state is MillingState.RUNNING:
                 elapsed += now - last
             last = now
-            started = started or poll.state in ACTIVE_MILLING_STATES
-            if poll.total is not None:
-                total = float(poll.total)
-            if poll.elapsed is not None:
-                elapsed = float(poll.elapsed)
-            elif poll.remaining is not None:
-                elapsed = max(0.0, total - float(poll.remaining))
-            remaining = (
-                float(poll.remaining)
-                if poll.remaining is not None
-                else max(0.0, total - elapsed)
-            )
+            started = started or state in ACTIVE_MILLING_STATES
+            if poll.estimated_time is not None:
+                total = float(poll.estimated_time)
+            if poll.remaining_time is not None:
+                elapsed = max(0.0, total - float(poll.remaining_time))
             self._report(
-                MillingRunProgress(
-                    state=poll.state,
-                    elapsed=elapsed,
-                    total=total,
-                    remaining=remaining,
+                progress_update(
+                    state=state,
                     start_time=start_time,
+                    total=total,
+                    remaining=max(0.0, total - elapsed),
                 )
             )
-            if poll.state not in ACTIVE_MILLING_STATES:
+            if state not in ACTIVE_MILLING_STATES:
                 if started or now - began >= self.start_timeout:
                     break
             if stop_event is not None and stop_event.is_set():
@@ -440,10 +405,11 @@ class Milling(Service):
     def _restore(self) -> None:
         """Put back anything else milling changed, after the beam; by default nothing."""
 
-    def _poll(self) -> MillingPoll:
-        """One look at the instrument during a run. By default only the state: the
-        loop counts the time itself."""
-        return MillingPoll(state=self.read_state())
+    def _poll(self) -> MillingProgress:
+        """One look at the instrument during a run: a stage update with its state,
+        and its total (``estimated_time``) and ``remaining_time`` where the instrument
+        reports them. By default only the state: the loop counts the time itself."""
+        return progress_update(state=self.read_state())
 
     def _before_run(self) -> None:
         """Get a drawn run ready to start, before its estimate; by default nothing."""
@@ -614,24 +580,21 @@ def bind_milling(service: Type[_M], microscope: Any) -> Optional[_M]:
     milling.connect()
     signal = getattr(microscope, "milling_progress_signal", None)
     if signal is not None:
-        milling.progress.changed.connect(_stage_update(signal.emit))
+        milling.progress.changed.connect(signal.emit)
     return milling
 
 
-def _stage_update(emit: Callable[[Any], None]) -> Callable[[MillingRunProgress], None]:
-    """Each change of ``progress`` as the stage update `milling_progress_signal`
-    has always carried from a run."""
-    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
-
-    def forward(progress: MillingRunProgress) -> None:
-        emit(
-            MillingProgress(
-                status=MillingProgressStatus.STAGE_UPDATE,
-                start_time=progress.start_time,
-                milling_state=progress.state,
-                estimated_time=progress.total,
-                remaining_time=progress.remaining,
-            )
-        )
-
-    return forward
+def progress_update(
+    state: MillingState,
+    start_time: Optional[float] = None,
+    total: Optional[float] = None,
+    remaining: Optional[float] = None,
+) -> MillingProgress:
+    """A stage update: what a run, or one look at the instrument, reports."""
+    return MillingProgress(
+        status=MillingProgressStatus.STAGE_UPDATE,
+        milling_state=state,
+        start_time=start_time,
+        estimated_time=total,
+        remaining_time=remaining,
+    )

@@ -20,7 +20,8 @@ from fibsem._timing import sim_sleep
 from fibsem.devices.core import ParameterMetadata
 from fibsem.microscopes.simulator import SIMULATOR_SCAN_DIRECTIONS
 from fibsem.microscopes.simulator import DemoMilling as DemoMillingCode
-from fibsem.services.milling import Milling, MillingPoll, bind_milling
+from fibsem.milling.progress import MillingProgress
+from fibsem.services.milling import Milling, bind_milling, progress_update
 from fibsem.structures import (
     BeamType,
     FibsemBitmapSettings,
@@ -108,14 +109,16 @@ class DemoMilling(Milling):
         self._run_total = DemoMillingCode.estimate_milling_time(microscope)
         self._run_elapsed = 0.0
 
-    def _poll(self) -> MillingPoll:
+    def _poll(self) -> MillingProgress:
         state = self.read_state()
         if self._run_total is None:
-            return MillingPoll(state=state)
+            return progress_update(state=state)
         if state is MillingState.RUNNING and self._run_elapsed >= self._run_total:
             self.parent.milling_system.state = state = MillingState.IDLE
-        return MillingPoll(
-            state=state, elapsed=self._run_elapsed, total=self._run_total
+        return progress_update(
+            state=state,
+            total=self._run_total,
+            remaining=max(0.0, self._run_total - self._run_elapsed),
         )
 
     def _wait(self, seconds: float) -> None:

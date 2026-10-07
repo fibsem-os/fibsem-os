@@ -286,8 +286,8 @@ def test_run_milling_loads_runs_and_unloads_the_layer(connect):
     assert paths[-2:] == ["connection.Progress.Hide", "DrawBeam.UnloadLayer"]
     # and so does the progress: DrawBeam's total and elapsed, not the estimate
     progress = microscope.milling.progress.cached
-    assert progress.state is MillingState.IDLE
-    assert (progress.total, progress.elapsed) == (10.0, 6.0)
+    assert progress.milling_state is MillingState.IDLE
+    assert (progress.estimated_time, progress.remaining_time) == (10.0, 4.0)
     assert [u.remaining_time for u in updates] == [8.0, 6.0, 4.0]
 
 

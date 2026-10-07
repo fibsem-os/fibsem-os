@@ -12,10 +12,10 @@ import pytest
 
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError
-from fibsem.milling.progress import MillingProgressStatus
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services import milling as milling_module
 from fibsem.services.drivers.demo import DemoMilling
-from fibsem.services.milling import Milling, MillingPoll, MillingRunProgress
+from fibsem.services.milling import Milling, progress_update
 from fibsem.structures import (
     BeamType,
     FibsemMillingSettings,
@@ -24,6 +24,10 @@ from fibsem.structures import (
 )
 
 RUNNING, PAUSED, IDLE = MillingState.RUNNING, MillingState.PAUSED, MillingState.IDLE
+
+
+def _elapsed(progress: MillingProgress) -> float:
+    return progress.estimated_time - progress.remaining_time
 
 
 @pytest.fixture
@@ -77,7 +81,7 @@ class Scripted(Milling):
         if self.polls is not None:
             return self.polls.pop(0)
         state = self.states.pop(0) if self.states else IDLE
-        return MillingPoll(state=state)
+        return progress_update(state=state)
 
     def _wait(self, seconds):
         self.clock.now += 1.0
@@ -127,19 +131,16 @@ def test_the_demo_mills_for_its_estimate_and_reports_as_it_goes(microscope):
     assert isinstance(microscope.milling, DemoMilling)
     assert microscope.get_milling_state() is IDLE
     assert microscope.milling_system.patterns == []
-    assert [r.elapsed for r in reports] == list(range(11))
-    assert reports[-1] == MillingRunProgress(
-        state=IDLE,
-        elapsed=10,
-        total=10,
-        remaining=0,
+    assert [_elapsed(r) for r in reports] == list(range(11))
+    assert reports[-1] == MillingProgress(
+        status=MillingProgressStatus.STAGE_UPDATE,
+        milling_state=IDLE,
         start_time=reports[0].start_time,
+        estimated_time=10,
+        remaining_time=0,
     )
     # the stage updates the milling widget and AutoLamella have always had
-    assert len(updates) == len(reports)
-    assert {u.status for u in updates} == {MillingProgressStatus.STAGE_UPDATE}
-    assert [u.remaining_time for u in updates][:3] == [10, 9, 8]
-    assert updates[0].estimated_time == 10
+    assert updates == reports
 
 
 def test_a_set_stop_event_stops_the_beam_and_cancels(microscope):
@@ -147,7 +148,7 @@ def test_a_set_stop_event_stops_the_beam_and_cancels(microscope):
     stop = threading.Event()
 
     def stop_after_two(progress):
-        if progress.elapsed >= 2:
+        if _elapsed(progress) >= 2:
             stop.set()
 
     microscope.milling.progress.changed.connect(stop_after_two)
@@ -156,7 +157,7 @@ def test_a_set_stop_event_stops_the_beam_and_cancels(microscope):
 
     assert microscope.get_milling_state() is IDLE
     assert microscope.milling_system.patterns == []
-    assert microscope.milling.progress.cached.elapsed == 2
+    assert _elapsed(microscope.milling.progress.cached) == 2
 
 
 def test_a_stop_from_elsewhere_just_ends_the_run(scripted):
@@ -178,14 +179,14 @@ def test_paused_time_does_not_count(scripted):
     seen = []
     service.progress.changed.connect(seen.append)
     service.run()
-    assert [(p.state, p.elapsed) for p in seen] == [
+    assert [(p.milling_state, _elapsed(p)) for p in seen] == [
         (RUNNING, 0),
         (PAUSED, 0),
         (RUNNING, 1),
         (RUNNING, 2),
         (IDLE, 2),
     ]
-    assert seen[-1].remaining == 8
+    assert seen[-1].remaining_time == 8
 
 
 def test_a_mill_over_before_the_first_look_does_not_hang(scripted):
@@ -216,22 +217,24 @@ def test_a_failure_stops_the_beam_tidies_up_and_raises(scripted):
 
 
 def test_the_instrument_s_times_win(scripted):
-    # Tescan reports elapsed and total; JEOL the time remaining
+    # Tescan reports its total and (as elapsed) the time remaining; JEOL the time
+    # remaining alone
     service = scripted(
         polls=[
-            MillingPoll(RUNNING, elapsed=3.0, total=12.0),
-            MillingPoll(RUNNING, remaining=4.0),
-            MillingPoll(IDLE),
+            progress_update(RUNNING, total=12.0, remaining=9.0),
+            progress_update(RUNNING, remaining=4.0),
+            progress_update(IDLE),
         ]
     )
     seen = []
     service.progress.changed.connect(seen.append)
     service.run()
-    assert [(p.state, p.elapsed, p.total, p.remaining) for p in seen] == [
-        (RUNNING, 3.0, 12.0, 9.0),
-        (RUNNING, 8.0, 12.0, 4.0),
-        (IDLE, 8.0, 12.0, 4.0),
+    assert [(p.milling_state, _elapsed(p), p.remaining_time) for p in seen] == [
+        (RUNNING, 3.0, 9.0),
+        (RUNNING, 8.0, 4.0),
+        (IDLE, 8.0, 4.0),
     ]
+    assert {p.estimated_time for p in seen} == {12.0}
 
 
 def test_a_stop_event_the_beam_ignores_gives_up(scripted):

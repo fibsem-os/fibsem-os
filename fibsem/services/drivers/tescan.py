@@ -25,7 +25,8 @@ from fibsem.microscopes.tescan import (
     TESCAN_SCAN_DIRECTIONS,
     TescanDrawBeam,
 )
-from fibsem.services.milling import Milling, MillingPoll, bind_milling
+from fibsem.milling.progress import MillingProgress
+from fibsem.services.milling import Milling, bind_milling, progress_update
 from fibsem.structures import (
     BeamType,
     FibsemBitmapSettings,
@@ -118,21 +119,20 @@ class TescanMilling(Milling):
                 ProgressMax=100,
             )
 
-    def _poll(self) -> MillingPoll:
+    def _poll(self) -> MillingProgress:
         microscope = self.parent
         with microscope._connection_lock:
             status, total, elapsed = microscope.connection.DrawBeam.GetStatus()
         state = tescan.DrawBeamStatusToPatterningState[status]
-        if state is MillingState.RUNNING and total > 0:
+        if total <= 0:  # DrawBeam reports no total until the exposition is under way
+            return progress_update(state=state)
+        if state is MillingState.RUNNING:
             with microscope._connection_lock:
                 microscope.connection.Progress.SetPercents(
                     min(100, elapsed / total * 100)
                 )
-        # DrawBeam reports no total until the exposition is under way
-        return MillingPoll(
-            state=state,
-            elapsed=elapsed if total > 0 else None,
-            total=total if total > 0 else None,
+        return progress_update(
+            state=state, total=total, remaining=max(0.0, total - elapsed)
         )
 
     def _after_run(self) -> None:
