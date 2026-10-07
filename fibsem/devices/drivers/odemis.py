@@ -58,9 +58,10 @@ ODEMIS_CHANNELS: Dict[BeamType, str] = {
 class OdemisBeam(Beam):
     """A column of a Thermo microscope driven through odemis.
 
-    Each parameter is the matching branch of ``OdemisThermoMicroscope._get``/``_set``
-    moved as it is; the choices are what its ``get_available_values`` answers. The
-    detector writes check as the old branches did, against the same choices.
+    Each parameter is the matching branch of the old ``OdemisThermoMicroscope._get``/
+    ``_set`` (now removed) moved as it is; the choices are what its old
+    ``get_available_values`` answered. The detector writes check as the old branches
+    did, against the same choices.
 
     The scan commands are the old ``spot_mode`` and ``full_frame`` keys, and
     ``reduced_area`` is the client call ``acquire_image`` and ``autocontrast`` make;
@@ -68,9 +69,8 @@ class OdemisBeam(Beam):
     The client has no read of the scan mode, so ``scanning_mode`` is absent and the
     commands read nothing back.
 
-    Not here, so absent on the new API and answered by ``_get``/``_set``:
-    ``plasma_gas`` (the old branch raises on a plasma column) and ``preset`` (there is
-    none).
+    Not here, so absent (a read is None, a write does nothing): ``plasma_gas`` (the
+    old branch raised on a plasma column) and ``preset`` (there is none).
     """
 
     def __init__(
