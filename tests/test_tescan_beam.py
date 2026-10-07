@@ -141,6 +141,14 @@ CASES = dict(_cases())
 with open(RECORDED) as f:
     EXPECTED = json.load(f)
 
+#: A key the beam does not have is unsupported (absent = unsupported): it reads None
+#: as before, but quietly, where the old ``_get`` warned "Unknown key".
+UNSUPPORTED = {
+    case: {**old, "log": []}
+    for case, old in EXPECTED.items()
+    if old["log"] and all(msg.startswith("Unknown key") for _, msg in old["log"])
+}
+
 
 def test_every_case_was_recorded():
     assert sorted(CASES) == sorted(EXPECTED)
@@ -149,7 +157,7 @@ def test_every_case_was_recorded():
 @pytest.mark.parametrize("case", list(CASES))
 def test_a_routed_key_makes_the_same_calls_logs_and_result(monkeypatch, case):
     microscope, fake = _connected(monkeypatch)
-    assert _run(microscope, fake, CASES[case]) == EXPECTED[case]
+    assert _run(microscope, fake, CASES[case]) == UNSUPPORTED.get(case, EXPECTED[case])
     assert fake.unlocked == []
 
 

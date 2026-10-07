@@ -108,10 +108,13 @@ tasks:
               config: {}
   Polishing:
     task_type: MILL_POLISHING
+    reference_imaging:
+      field_of_view1: 50.0e-6
+      field_of_view2: 100.0e-6
     milling:
       mill_polishing:
         name: Polishing
-        field_of_view: 100.0e-6
+        field_of_view: 50.0e-6
         channel: ION
         alignment:
           enabled: true

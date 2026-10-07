@@ -2,24 +2,26 @@
 
 Like the stage, it is the raw hardware contract only. Two read-only parameters
 describe it, ``position`` and ``state``, and the moves are commands:
-``insert``, ``retract``, ``move_absolute`` and ``move_relative``. The corrected
+``insert``, ``retract``, ``move_absolute``, ``move_relative`` and ``stop``. The corrected
 move (``move_manipulator_corrected``) depends on the beam as much as the needle,
 so it is not here; it belongs to the views, as the stage's corrected moves do.
 
 Named positions (``PARK``, ``EUCENTRIC``) are the instrument's, so the driver
 answers ``named_positions()`` and ``saved_position(name)``, and
-``move_to_offset`` moves relative to one.
+``move_to_offset`` moves relative to one. ``axes()`` says which axes the arm has, so
+whether it rotates or tilts is the device's to say, not the backend's.
 
 A backend implements the parameters with ``read_position``/``read_state`` and
 the commands with four hooks: ``_insert``, ``_retract``, ``_move_absolute`` and
 ``_move_relative``, plus ``saved_position``. The base class claims the
 ``manipulator`` resource and reads the position and state back, which updates
-their caches and emits their change signals.
+their caches and emits their change signals. A backend that can stop a move
+implements ``_stop``; ``axes()`` defaults to x, y and z.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from fibsem.devices.core import Device, Parameter, command
 from fibsem.structures import FibsemManipulatorPosition, InsertableDeviceState
@@ -80,6 +82,15 @@ class Manipulator(Device):
         """Move to a named position plus an offset. Returns where it is afterwards."""
         return self.move_absolute(self.saved_position(name) + offset)
 
+    @command
+    def stop(self) -> FibsemManipulatorPosition:
+        """Stop the needle where it is. Returns where it stopped.
+
+        It does not claim the manipulator: the move it stops holds that claim.
+        """
+        self._stop()
+        return self._read_back()
+
     def _read_back(self) -> FibsemManipulatorPosition:
         self.state.get_value()
         return self.position.get_value()
@@ -89,6 +100,11 @@ class Manipulator(Device):
     def named_positions(self) -> List[str]:
         """The names `saved_position` answers, if the instrument has any."""
         return []
+
+    def axes(self) -> Tuple[str, ...]:
+        """The axes the arm moves on, of ``x``, ``y``, ``z``, ``r`` (rotation) and
+        ``t`` (tilt)."""
+        return ("x", "y", "z")
 
     def saved_position(self, name: str) -> FibsemManipulatorPosition:
         """The instrument's named position. Raises ValueError for an unknown name."""
@@ -105,3 +121,6 @@ class Manipulator(Device):
 
     def _move_relative(self, delta: FibsemManipulatorPosition) -> None:
         raise NotImplementedError
+
+    def _stop(self) -> None:
+        raise NotImplementedError(f"{type(self).__name__} cannot stop the needle.")

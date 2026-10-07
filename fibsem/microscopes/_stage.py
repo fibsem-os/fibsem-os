@@ -882,7 +882,8 @@ def _compustage_working_slot(stage_settings) -> GridSlot:
 
 
 def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
-    if microscope.stage_is_compustage:
+    stage_device = microscope.stage_device
+    if stage_device is not None and stage_device.has_builtin_shuttle():
         stage_settings = microscope.system.stage
         slot01 = _compustage_working_slot(stage_settings)
         holder = SampleHolder(
