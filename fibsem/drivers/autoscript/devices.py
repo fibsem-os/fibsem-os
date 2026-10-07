@@ -391,6 +391,15 @@ class AutoscriptBeam(Beam):
         self._beam.scanning.dwell_time.value = value
         self._set_log("dwell time", value, " s")
 
+    def _scan_sizes(self) -> List[Tuple[int, int]]:
+        return [
+            tuple(int(px) for px in r.split("x"))
+            for r in self._beam.scanning.resolution.available_values
+        ]
+
+    def scan_resolutions(self) -> list:
+        return self._scan_sizes()
+
     def metadata_dwell_time(self) -> ParameterMetadata:
         limits = self._beam.scanning.dwell_time.limits
         return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
@@ -433,10 +442,7 @@ class AutoscriptBeam(Beam):
     def metadata_resolution(self) -> ParameterMetadata:
         # The scan's own sizes, then the frames a grab is taken at that it doesn't
         # list (the squares): which of those it takes is not yet checked on hardware.
-        listed = [
-            tuple(int(px) for px in r.split("x"))
-            for r in self._beam.scanning.resolution.available_values
-        ]
+        listed = self._scan_sizes()
         extra = [r for r in ACQUISITION_RESOLUTIONS if r not in listed]
         return ParameterMetadata(choices=listed + extra)
 

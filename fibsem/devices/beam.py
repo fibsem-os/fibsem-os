@@ -96,6 +96,13 @@ class Beam(Device):
         self._live_stop = threading.Event()
         self._live_thread: Optional[threading.Thread] = None
 
+    def scan_resolutions(self) -> list:
+        """The resolution choices the scan itself can be set to, live. The choices
+        are what an acquisition can be taken at; a driver whose scan takes fewer
+        (a grab can ask for a frame the scan isn't set to) narrows them here."""
+        parameter = self.parameters.get("resolution")
+        return [] if parameter is None else list(parameter.choices or ())
+
     @command(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:
         """Blank the beam."""

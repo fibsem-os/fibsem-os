@@ -235,6 +235,10 @@ class OdemisBeam(Beam):
     def write_resolution(self, value: Tuple[int, int]) -> None:
         self._client.set_resolution(value, self.channel)
 
+    def scan_resolutions(self) -> list:
+        # a square is grabbed through the frame settings; the scan can't be set to one
+        return [r for r in super().scan_resolutions() if r[0] != r[1]]
+
     # The detector. A type or mode not in the choices warns and is not set, and a
     # brightness or contrast outside (0, 1] likewise, as the old branches did.
 

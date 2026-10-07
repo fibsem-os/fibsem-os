@@ -240,6 +240,7 @@ def test_the_resolutions_are_the_scans_then_the_frames_it_does_not_list(
     listed = [[768, 512], [1536, 1024], [3072, 2048]]
     extra = [list(r) for r in ACQUISITION_RESOLUTIONS if list(r) not in listed]
     assert facts["resolution_choices"] == listed + extra
+    assert facts["scan_resolutions"] == listed  # what a live set takes
     assert facts["dwell_time_limits"] == [25e-9, 1e-3]
 
 

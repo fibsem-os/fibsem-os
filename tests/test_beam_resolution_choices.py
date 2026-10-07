@@ -29,6 +29,11 @@ def test_demo_offers_the_acquisition_resolutions_and_its_ranges(beam_type):
     assert beam.hfw.limits is not None
 
 
+def test_demo_scans_at_every_acquisition_resolution():
+    beam = _demo().beams[E]
+    assert beam.scan_resolutions() == list(beam.resolution.choices)
+
+
 def test_the_old_wrapper_still_writes_without_checking():
     """``set_resolution`` writes as the old key did; only the device API checks."""
     microscope = _demo()
