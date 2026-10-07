@@ -21,7 +21,6 @@ from fibsem.microscope import (
     _records_beam_shift,
     _records_stage_move,
 )
-from fibsem.services.milling import ServiceMilling
 
 TESCAN_API_AVAILABLE = False
 # Read through this rather than importing tescanautomation yourself: the guarded
@@ -411,7 +410,7 @@ _STAGE_TYPES = ("stage",)
 _OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES
 
 
-class TescanMicroscope(ServiceMilling, FibsemMicroscope):
+class TescanMicroscope(FibsemMicroscope):
     """
     A class representing a TESCAN FIB-SEM microscope.
 
@@ -595,7 +594,7 @@ class TescanMicroscope(ServiceMilling, FibsemMicroscope):
 
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
-        (``ServiceMilling``). Without an ion beam there is none, and they raise."""
+        (`FibsemMicroscope`). Without an ion beam there is none, and they raise."""
         from fibsem.drivers.tescan.services import bind_tescan_milling
 
         self.milling = bind_tescan_milling(self)

@@ -29,9 +29,9 @@ layer and shows a progress bar). Elapsed time the instrument doesn't report is t
 clock while running, paused time left out. A set ``stop_event`` stops the beam; a
 failure stops it and clears the patterns before it is raised.
 
-`ServiceMilling` gives a microscope the old milling methods over its service, so
-``setup_milling``, ``draw_patterns``, ``start_milling`` and the rest keep their
-signatures.
+`FibsemMicroscope`'s milling methods (``setup_milling``, ``draw_patterns``,
+``start_milling``, ``run_milling`` and the rest) go to the microscope's service,
+``microscope.milling``, so they keep their signatures on every backend.
 """
 
 from __future__ import annotations
@@ -68,13 +68,6 @@ if TYPE_CHECKING:
     import threading
 
     from fibsem.cancellation import AnyStopEvent
-    from fibsem.structures import (
-        FibsemBitmapSettings,
-        FibsemCircleSettings,
-        FibsemLineSettings,
-        FibsemPolygonSettings,
-        FibsemRectangleSettings,
-    )
 
 # The beam conditions milling changes and `restore` puts back, in the order they are
 # written back: a preset first, since it sets the others on a column that has one,
@@ -421,106 +414,6 @@ class Milling(Service):
     def _wait(self, seconds: float) -> None:
         """Wait between looks at the instrument."""
         time.sleep(seconds)
-
-
-class ServiceMilling:
-    """The microscope's milling methods, over its milling service (``self.milling``).
-
-    A backend lists this before its own milling code. Without a service (no ion
-    beam was built) there is nothing to mill with: the milling methods raise, a
-    stop has nothing to stop, and the state reads idle.
-    """
-
-    milling: Optional[Milling] = None
-    milling_channel: BeamType
-    # and FibsemMicroscope's set_beam_voltage and set_beam_current
-
-    def _milling_service(self) -> Milling:
-        """The milling service, or the error for a microscope with none."""
-        if self.milling is None:
-            raise ValueError(
-                "There is no milling: the ION beam is not enabled on this microscope."
-            )
-        return self.milling
-
-    def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
-        self._milling_service().setup(mill_settings)
-
-    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings) -> None:
-        self._milling_service().draw([pattern_settings])
-
-    def draw_line(self, pattern_settings: FibsemLineSettings) -> None:
-        self._milling_service().draw([pattern_settings])
-
-    def draw_circle(self, pattern_settings: FibsemCircleSettings) -> None:
-        self._milling_service().draw([pattern_settings])
-
-    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
-        self._milling_service().draw([pattern_settings])
-
-    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
-        self._milling_service().draw([pattern_settings])
-
-    def start_milling(self) -> None:
-        self._milling_service().start()
-
-    def stop_milling(self) -> None:
-        if self.milling is None:
-            return  # nothing is milling
-        self.milling.stop()
-
-    def pause_milling(self) -> None:
-        self._milling_service().pause()
-
-    def resume_milling(self) -> None:
-        self._milling_service().resume()
-
-    def run_milling(
-        self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
-    ) -> None:
-        """Mill what is drawn with the service's run loop (`Milling.run`), which
-        reports progress on ``milling_progress_signal``."""
-        logging.info("running milling now...")
-        self._milling_service().run(stop_event=stop_event)
-
-    def get_milling_state(self) -> MillingState:
-        if self.milling is None:
-            return MillingState.IDLE
-        return self.milling.state.get_value()
-
-    def estimate_milling_time(self) -> float:
-        return self._milling_service().estimate()
-
-    def clear_patterns(self) -> None:
-        self._milling_service().clear()
-
-    def finish_milling(
-        self,
-        imaging_current: Optional[float] = None,
-        imaging_voltage: Optional[float] = None,
-    ) -> None:
-        """Clear the patterns and put the milling beam back as ``setup_milling`` found
-        it. An imaging current or voltage given wins over what was saved."""
-        milling = self._milling_service()
-        milling.clear()
-        milling.restore()
-        # only what the beam can set: a Tescan ion column takes both from its preset
-        beam = milling.beam(self.milling_channel)
-        if imaging_voltage is not None and _settable(beam, "voltage"):
-            self.set_beam_voltage(
-                voltage=imaging_voltage, beam_type=self.milling_channel
-            )
-        if imaging_current is not None and _settable(beam, "current"):
-            self.set_beam_current(
-                current=imaging_current, beam_type=self.milling_channel
-            )
-        logging.debug(
-            {
-                "msg": "finish_milling",
-                "imaging_current": imaging_current,
-                "imaging_voltage": imaging_voltage,
-            }
-        )
 
 
 def _settable(beam: Optional[Beam], name: str) -> bool:

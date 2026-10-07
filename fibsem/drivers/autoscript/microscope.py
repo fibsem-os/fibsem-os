@@ -35,7 +35,6 @@ from fibsem.microscopes._stage import (
     SampleGridLoader,
     _slot_name,
 )
-from fibsem.services.milling import ServiceMilling
 from fibsem.structures import (
     BeamType,
     DeviceEntry,
@@ -716,7 +715,7 @@ _LOADER_TYPES = ("sample_loader",)
 _OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + _LOADER_TYPES + ("fm",)
 
 
-class ThermoMicroscope(ServiceMilling, FibsemMicroscope):
+class ThermoMicroscope(FibsemMicroscope):
     """
     A class representing a Thermo Fisher FIB-SEM microscope.
 
@@ -1012,7 +1011,7 @@ class ThermoMicroscope(ServiceMilling, FibsemMicroscope):
 
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
-        (``ServiceMilling``). Without an ion beam there is none, and they raise."""
+        (`FibsemMicroscope`). Without an ion beam there is none, and they raise."""
         from fibsem.drivers.autoscript.services import bind_autoscript_milling
 
         self.milling = bind_autoscript_milling(self)

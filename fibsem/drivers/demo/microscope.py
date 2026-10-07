@@ -28,7 +28,7 @@ method that reads or changes a part goes to its device:
 
 Milling is a service, ``milling`` (``fibsem.drivers.demo.services.DemoMilling``),
 which holds the Demo's milling code, and the milling methods go to it
-(``ServiceMilling``); ``finish_milling`` puts the milling beam back as
+(``FibsemMicroscope``); ``finish_milling`` puts the milling beam back as
 ``setup_milling`` found it.
 
 The shared code answers what the configuration alone does (the fitted parts, the
@@ -79,7 +79,6 @@ from fibsem.drivers.demo.simulator import (
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
 from fibsem.microscopes._stage import SampleGridLoader
-from fibsem.services.milling import ServiceMilling
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -148,7 +147,6 @@ class DemoFluorescenceMicroscope(FluorescenceMicroscope):
 
 
 class DemoMicroscope(
-    ServiceMilling,
     DemoSession,
     DemoConfiguration,
     DemoImaging,
