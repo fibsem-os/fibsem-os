@@ -18,9 +18,9 @@ import pytest
 
 from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.drivers.tescan.microscope import TescanMicroscope
+from fibsem.drivers.tescan.services import TescanMilling
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, MillingState, Point
-from tests.fixtures.milling_reads import own_milling_code
 
 HFW = 100e-6
 RESOLUTION = (1536, 1024)  # (width, height)
@@ -150,7 +150,8 @@ def make_microscope(
     )
     monkeypatch.setattr(tescan_module.time, "sleep", lambda s: None)
 
-    return own_milling_code(microscope)
+    microscope.milling = TescanMilling(parent=microscope)
+    return microscope
 
 
 def collect_progress(microscope) -> List[dict]:
