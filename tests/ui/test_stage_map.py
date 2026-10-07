@@ -23,7 +23,14 @@ from fibsem.ui.widgets.canvas.quad_view import (
     LamellaEditorView,
     MicroscopeViewController,
 )
-from fibsem.ui.widgets.canvas.stage_map import ZOOM_GRID, ZOOM_HOLDER, ZOOM_TRAVEL
+from fibsem.ui.widgets.canvas.stage_frame import StageFrame
+from fibsem.ui.widgets.canvas.stage_map import (
+    _HOLDER_PAD_M,
+    ZOOM_GRID,
+    ZOOM_HOLDER,
+    ZOOM_TRAVEL,
+    _Viewport,
+)
 
 RECT = QRectF(0, 0, 400, 300)
 
@@ -93,6 +100,12 @@ def _visible(stage_map, zoom):
     return cx - half_w, cy - half_h, cx + half_w, cy + half_h
 
 
+def _frame(stage_map, zoom):
+    """The frame a zoom step draws RECT with, and its scale (canvas px per metre)."""
+    scale = stage_map._view(RECT, zoom)[1]
+    return StageFrame(_Viewport(scale), stage_map._origin, stage_map._projection), scale
+
+
 def _inside(point, box, pad=0.0):
     return (
         box[0] <= point[0] - pad
@@ -102,7 +115,9 @@ def _inside(point, box, pad=0.0):
     )
 
 
-def test_closer_steps_follow_the_stage(controller, microscope):
+def test_closer_steps_get_closer_and_grid_zoom_follows_the_stage(
+    controller, microscope
+):
     _calibrate(microscope)
     microscope.move_stage_absolute(
         FibsemStagePosition(x=1e-3, y=-0.5e-3, z=microscope.get_stage_position().z)
@@ -110,12 +125,37 @@ def test_closer_steps_follow_the_stage(controller, microscope):
     stage_map = _update(controller, microscope).map
 
     stage = stage_map._plane(stage_map._stage)
-    scales = [stage_map._view(RECT, ZOOM_TRAVEL)[1]]
-    for zoom in (ZOOM_HOLDER, ZOOM_GRID):
-        centre, scale = stage_map._view(RECT, zoom)
-        assert centre == pytest.approx(stage)
-        scales.append(scale)
+    scales = [
+        stage_map._view(RECT, zoom)[1] for zoom in (ZOOM_TRAVEL, ZOOM_HOLDER, ZOOM_GRID)
+    ]
     assert scales == sorted(scales), "each step closer than the last"
+    assert stage_map._view(RECT, ZOOM_GRID)[0] == pytest.approx(stage)
+
+
+def test_holder_zoom_shows_the_whole_holder_the_stage_is_on(controller, microscope):
+    _calibrate(microscope, xs=(-5e-3, 5e-3))
+    z = microscope.get_stage_position().z
+    microscope.move_stage_absolute(FibsemStagePosition(x=-5e-3, y=0.0, z=z))
+    stage_map = _update(controller, microscope).map
+
+    frame, scale = _frame(stage_map, ZOOM_HOLDER)
+    box = stage_map.holder_box(frame)
+    x0, y0, x1, y1 = (v * scale for v in _visible(stage_map, ZOOM_HOLDER))
+    assert QRectF(x0, y0, x1 - x0, y1 - y0).contains(box), "the holder, all of it"
+    slots = stage_map._slot_points()
+    middle = (
+        (min(p[0] for p in slots) + max(p[0] for p in slots)) / 2,
+        (min(p[1] for p in slots) + max(p[1] for p in slots)) / 2,
+    )
+    assert stage_map._view(RECT, ZOOM_HOLDER)[0] == pytest.approx(middle), (
+        "centred on the holder, not on the stage at one end of it"
+    )
+
+    # Off the holder -- out at y = 30 mm -- it follows the stage instead.
+    microscope.move_stage_absolute(FibsemStagePosition(x=0.0, y=30e-3, z=z))
+    stage_map = _update(controller, microscope).map
+    centre, _ = stage_map._view(RECT, ZOOM_HOLDER)
+    assert centre == pytest.approx(stage_map._plane(stage_map._stage))
 
 
 def test_travel_zoom_reaches_a_stage_out_at_the_load_position(controller, microscope):
@@ -335,3 +375,40 @@ def test_the_minimised_map_keeps_the_chosen_zoom(controller, microscope, zoom):
     chamber.map.paint_map = recording
     assert not scene.inset.grab().isNull()
     assert drawn == [(zoom, False)]
+
+
+def _centre(box):
+    return box.center().x(), box.center().y()
+
+
+def test_the_holder_box_is_a_square_round_every_slot_s_grid(controller, microscope):
+    _calibrate(microscope, xs=(-5e-3, 5e-3))
+    stage_map = _update(controller, microscope).map
+    frame, scale = _frame(stage_map, ZOOM_HOLDER)
+    box = stage_map.holder_box(frame)
+    assert box.width() == pytest.approx(box.height(), rel=1e-3)
+    assert box.width() == pytest.approx((10e-3 + 2 * _HOLDER_PAD_M) * scale, rel=1e-3)
+    grid = frame.length(GRID_BOUNDARY_RADIUS_M)
+    for slot in stage_map._slot_points():
+        x, y = slot[0] * scale, slot[1] * scale
+        assert box.contains(QRectF(x - grid, y - grid, 2 * grid, 2 * grid))
+
+
+def test_no_holder_box_without_a_calibrated_slot(controller, microscope):
+    stage_map = _update(controller, microscope).map
+    assert stage_map.holder_box(_frame(stage_map, ZOOM_HOLDER)[0]) is None
+
+
+def test_the_holder_box_is_centred_on_its_slots(controller, microscope):
+    """Slots off the chamber origin, at -5 and +1 mm: the box is round them, not
+    round the origin."""
+    _calibrate(microscope, xs=(-5e-3, 1e-3))
+    stage_map = _update(controller, microscope).map
+    frame, scale = _frame(stage_map, ZOOM_HOLDER)
+    slots = stage_map._slot_points()
+    middle = (
+        (min(p[0] for p in slots) + max(p[0] for p in slots)) / 2 * scale,
+        (min(p[1] for p in slots) + max(p[1] for p in slots)) / 2 * scale,
+    )
+    assert _centre(stage_map.holder_box(frame)) == pytest.approx(middle, abs=1e-6)
+    assert middle[0] != pytest.approx(0.0, abs=1.0)

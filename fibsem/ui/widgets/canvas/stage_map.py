@@ -50,6 +50,7 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import GRID_BOUNDARY_RAD
 from fibsem.ui.widgets.canvas.overlays.stage_context import (
     BEAMS_DEVICE,
     boundary_shapes,
+    canvas_span,
     holder_is_calibrated,
     holder_slots,
     limit_shapes,
@@ -84,6 +85,12 @@ _STATION_PX = (6.0, 3.0)  # detailed, thumbnail
 _HERE_M = 20e-6
 # The ring drawn round the lamella the stage is on, over the stage cross so it shows.
 _HERE_RING_PX = 6.0
+# The holder, drawn as a square around its slots: their extent padded by this much,
+# the grid's 1 mm radius and 2 mm of clearance. Holder files state slots, not an
+# outline, so this is schematic, not measured.
+_HOLDER_PAD_M = 3e-3
+# Room round the holder at holder zoom, for the inset and the zoom buttons.
+_HOLDER_MARGIN = 0.3
 
 
 class _Viewport:
@@ -202,14 +209,28 @@ class StageMap(QWidget):
         if zoom == ZOOM_TRAVEL:
             return self._travel_view(width, height, stage)
         if zoom == ZOOM_HOLDER:
-            points = self._slot_points()
-            span = _HOLDER_MIN_SPAN_M
-            if points:
-                xs, ys = [p[0] for p in points], [p[1] for p in points]
-                extent = max(max(xs) - min(xs), max(ys) - min(ys))
-                span = max(span, (extent + 4 * GRID_BOUNDARY_RADIUS_M) * (1 + _MARGIN))
-            return stage, min(width, height) / span
+            # The whole holder while the stage is on it; off it (at another device's
+            # station, say), the stage, with arrows to the slots.
+            holder = self._holder_square()
+            if holder is None:
+                return stage, min(width, height) / _HOLDER_MIN_SPAN_M
+            (hx, hy), side = holder
+            span = max(_HOLDER_MIN_SPAN_M, side * (1 + _HOLDER_MARGIN))
+            on_holder = (
+                abs(stage[0] - hx) <= side / 2 and abs(stage[1] - hy) <= side / 2
+            )
+            return (hx, hy) if on_holder else stage, min(width, height) / span
         return stage, min(width, height) / _GRID_SPAN_M
+
+    def _holder_square(self) -> Optional[Tuple[Tuple[float, float], float]]:
+        """The holder's square on the plane: its centre and side, in metres; None with
+        no calibrated slot. What `holder_box` draws, for framing the view."""
+        points = self._slot_points()
+        if not points:
+            return None
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        side = 2 * _HOLDER_PAD_M + max(max(xs) - min(xs), max(ys) - min(ys))
+        return ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2), side
 
     def _device_stations(self) -> List[Tuple[str, FibsemStagePosition]]:
         """The places the stage travels to for a device other than the beams: an offset
@@ -324,6 +345,8 @@ class StageMap(QWidget):
         try:
             self._paint_limits(painter, frame)
             self._paint_stations(painter, frame, zoom, detailed, visible)
+            if zoom != ZOOM_GRID:
+                self._paint_holder(painter, frame)
             self._paint_slots(painter, frame, zoom, detailed)
             if zoom == ZOOM_GRID:
                 self._paint_positions(painter, frame, detailed)
@@ -474,6 +497,52 @@ class StageMap(QWidget):
                 Qt.AlignCenter,
                 text,
             )
+
+    def holder_box(self, frame: StageFrame) -> Optional[QRectF]:
+        """The holder, in *frame*'s coordinates: a square around the calibrated slots,
+        padded to clear their grids. None with no calibrated slot.
+
+        Derived, because a holder file has slots and nothing about the shape around
+        them, and holders differ in shape. A square rather than the slots' padded
+        extent: two slots side by side padded evenly make a thin strip, and a real
+        shuttle is a block that runs well past its slots. Placed through
+        `slot_landmark`, as the slots are, so the two cannot disagree. FIB-1198 is a
+        configured outline, with this as the fallback.
+        """
+        if not holder_is_calibrated(self._microscope):
+            return None
+        points = []
+        for slot in holder_slots(self._microscope):
+            place = slot_landmark(self._microscope, slot)
+            if place is not None:
+                points.append(frame.to_canvas(place))
+        if not points:
+            return None
+        # Canvas pixels per metre of sample surface, per axis: equal when the view
+        # looks straight down, and the square stays square on the sample if not.
+        per_x, per_y = canvas_span(frame, _HOLDER_PAD_M)
+        per_x, per_y = per_x / _HOLDER_PAD_M, per_y / _HOLDER_PAD_M
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        side = 2 * _HOLDER_PAD_M + max(
+            (max(xs) - min(xs)) / per_x, (max(ys) - min(ys)) / per_y
+        )
+        width, height = side * per_x, side * per_y
+        centre_x, centre_y = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+        return QRectF(centre_x - width / 2, centre_y - height / 2, width, height)
+
+    def _paint_holder(self, painter: QPainter, frame: StageFrame) -> None:
+        """The holder, as a faint plate under the slots."""
+        box = self.holder_box(frame)
+        if box is None:
+            return
+        edge = QColor(NEUTRAL_550)
+        edge.setAlphaF(0.7)
+        fill = QColor(NEUTRAL_550)
+        fill.setAlphaF(0.08)
+        painter.setPen(QPen(edge, 1))
+        painter.setBrush(fill)
+        radius = min(box.width(), box.height()) * 0.08
+        painter.drawRoundedRect(box, radius, radius)
 
     def _paint_slots(
         self, painter: QPainter, frame: StageFrame, zoom: int, detailed: bool
