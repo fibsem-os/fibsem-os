@@ -16,6 +16,7 @@ import pytest
 from fibsem.microscopes import tescan as tescan_module
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings
+from tests.fixtures.milling_reads import own_milling_code
 
 
 class FakeDrawBeam:
@@ -73,7 +74,8 @@ def make_microscope(monkeypatch, current_preset="30 keV; 20 pA", unload_error=No
     monkeypatch.setattr(
         tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
     )
-    return microscope
+    # no ion beam device, so no milling service: the DrawBeam code directly
+    return own_milling_code(microscope)
 
 
 def preset_restores(m) -> List[str]:

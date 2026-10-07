@@ -89,7 +89,10 @@ def make(service):
     microscope._build_beams()
     if service:
         microscope._build_milling()
-    return microscope
+        return microscope
+    from milling_reads import own_milling_code
+
+    return own_milling_code(microscope)
 
 
 def _state(microscope, state):

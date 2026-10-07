@@ -146,9 +146,10 @@ def test_the_service_needs_its_hooks():
         assert getattr(DemoMilling, hook) is not getattr(Milling, hook), hook
 
 
-def test_without_an_ion_beam_the_demo_mills_with_its_own_code(microscope):
+def test_without_an_ion_beam_the_demo_does_not_mill(microscope):
     """A configuration with the ion column off builds no ion beam, so no milling
-    service; the milling methods fall through to the shared demo code."""
+    service: there is nothing to mill with, so milling raises, stopping does nothing
+    and the state reads idle."""
     from copy import deepcopy
 
     from fibsem.microscopes.device_demo import DemoMicroscope
@@ -158,11 +159,13 @@ def test_without_an_ion_beam_the_demo_mills_with_its_own_code(microscope):
     electron_only = DemoMicroscope(system)
     assert BeamType.ION not in electron_only.beams
     assert electron_only.milling is None
-    electron_only.draw_patterns([_rectangle()])
-    assert len(electron_only.milling_system.patterns) == 1
-    assert electron_only.get_milling_state() is MillingState.IDLE
-    electron_only.clear_patterns()
+    with pytest.raises(ValueError, match="ION beam is not enabled"):
+        electron_only.draw_patterns([_rectangle()])
     assert electron_only.milling_system.patterns == []
+    with pytest.raises(ValueError, match="ION beam is not enabled"):
+        electron_only.clear_patterns()
+    electron_only.stop_milling()
+    assert electron_only.get_milling_state() is MillingState.IDLE
 
 
 def test_the_demo_says_which_settings_it_mills_with(microscope):

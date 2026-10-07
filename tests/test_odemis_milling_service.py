@@ -3,7 +3,8 @@
 Each case runs on an ``OdemisThermoMicroscope`` built as it is when created, over the
 recording fake client of tests/test_odemis_devices.py: once through
 ``microscope.milling`` (OdemisMilling), once with the service taken away so the
-microscope's own code (OdemisPatterning) mills, as it did before the service. Both
+microscope's own code (OdemisPatterning) mills, as it did before the service
+(``own_milling_code``). Both
 must make the same odemis calls and return the same. What the service changes on
 purpose, putting the beam back at the end, is asserted on its own.
 """
@@ -18,6 +19,7 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     MillingState,
 )
+from tests.fixtures.milling_reads import own_milling_code
 from tests.test_odemis_devices import READS, make, odemis_cls, run  # noqa: F401
 
 SETTINGS = FibsemMillingSettings(
@@ -47,8 +49,7 @@ def patterning(monkeypatch):
 
 def both(odemis_cls, call):
     new = make(odemis_cls)
-    old = make(odemis_cls)
-    old.milling = None
+    old = own_milling_code(make(odemis_cls))
     ran, old_ran = run(new, call), run(old, call)
     return (ran["result"], ran["calls"]), (old_ran["result"], old_ran["calls"])
 
@@ -62,8 +63,12 @@ def test_odemis_builds_its_milling_service(odemis_cls):
     assert microscope.milling.electron is microscope.beams[BeamType.ELECTRON]
 
 
-def test_without_an_ion_beam_it_mills_with_its_own_code(odemis_cls):
-    assert make(odemis_cls, ion=False).milling is None
+def test_without_an_ion_beam_there_is_no_milling(odemis_cls):
+    microscope = make(odemis_cls, ion=False)
+    assert microscope.milling is None
+    with pytest.raises(ValueError, match="ION beam is not enabled"):
+        microscope.setup_milling(SETTINGS)
+    assert microscope.get_milling_state() is MillingState.IDLE
 
 
 def _setup(m):
