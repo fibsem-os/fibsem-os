@@ -238,3 +238,78 @@ def test_tescan_mills_with_the_settings_it_says(connect):
     assert set(supported) == read
     # an electron beam it can't mill with
     assert microscope.milling.supported_settings(BeamType.ELECTRON) == {}
+
+
+def _finishing(fake, running_looks=2):
+    """GetStatus reports the exposition running for *running_looks* looks, then over."""
+    looks = []
+
+    def get_status():
+        fake.DrawBeam._call("GetStatus")
+        looks.append(1)
+        if len(looks) > running_looks:
+            fake.DrawBeam.status = DBStatus.ProjectLoadedExpositionIdle
+        return (fake.DrawBeam.status, 10.0, 2.0 * len(looks))
+
+    fake.DrawBeam.GetStatus = get_status
+
+
+def _drawn(microscope):
+    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET, hfw=80e-6))
+    microscope.draw_rectangle(
+        FibsemRectangleSettings(
+            width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0
+        )
+    )
+
+
+def test_run_milling_loads_runs_and_unloads_the_layer(connect):
+    microscope, fake = connect(service=True)
+    microscope.milling.poll_interval = 0
+    _drawn(microscope)
+    _finishing(fake)
+    updates = []
+    microscope.milling_progress_signal.connect(updates.append)
+    fake.log.clear()
+
+    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+
+    paths = [p for p, _, _ in fake.log]
+    for step in ("DrawBeam.LoadLayer", "connection.Progress.Show", "DrawBeam.Start"):
+        assert step in paths
+    assert paths.index("DrawBeam.LoadLayer") < paths.index("DrawBeam.EstimateTime")
+    assert paths.index("DrawBeam.EstimateTime") < paths.index("DrawBeam.Start")
+    # the bar follows DrawBeam's own times, and goes away before the layer does
+    assert ["connection.Progress.SetPercents", [20.0], {}] in fake.log
+    assert paths[-2:] == ["connection.Progress.Hide", "DrawBeam.UnloadLayer"]
+    # and so does the progress: DrawBeam's total and elapsed, not the estimate
+    progress = microscope.milling.progress.cached
+    assert progress.state is MillingState.IDLE
+    assert (progress.total, progress.elapsed) == (10.0, 6.0)
+    assert [u.remaining_time for u in updates] == [8.0, 6.0, 4.0]
+
+
+def test_a_failure_while_milling_stops_and_unloads_then_raises(connect):
+    """The old loop lost the error (an UnboundLocalError in its `finally`) and left
+    the layer loaded and running."""
+    microscope, fake = connect(service=True)
+    microscope.milling.poll_interval = 0
+    _drawn(microscope)
+
+    status = fake.DrawBeam.GetStatus
+    looks = []
+
+    def broken():
+        looks.append(1)
+        if len(looks) == 2:  # the run's second look; the stop's own look works
+            raise RuntimeError("connection lost")
+        return status()
+
+    fake.DrawBeam.GetStatus = broken
+    fake.log.clear()
+    with pytest.raises(RuntimeError, match="connection lost"):
+        microscope.run_milling()
+
+    paths = [p for p, _, _ in fake.log]
+    assert "DrawBeam.Stop" in paths
+    assert paths[-2:] == ["connection.Progress.Hide", "DrawBeam.UnloadLayer"]

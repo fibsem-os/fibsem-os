@@ -5,7 +5,11 @@ with (`fibsem.microscopes.tescan.TescanDrawBeam`): a layer made from the milling
 preset on the ion column, and a second connection to stop it from another thread.
 Each hook calls that code's method for the step, by its class: the microscope's own
 method of the same name goes to this service, so calling it would come straight back
-here. ``TescanMicroscope.run_milling`` keeps its own loop and progress bar.
+here.
+
+A ``run`` loads the layer (DrawBeam estimates only a loaded one), shows a progress bar
+in Essence for its length, and reads the state, the elapsed time and the total from
+``DrawBeam.GetStatus`` in one call each look.
 """
 
 from __future__ import annotations
@@ -15,8 +19,9 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata
+from fibsem.microscopes import tescan
 from fibsem.microscopes.tescan import DEFAULT_IMAGING_PRESET, TescanDrawBeam
-from fibsem.services.milling import Milling, bind_milling
+from fibsem.services.milling import Milling, MillingPoll, bind_milling
 from fibsem.structures import (
     BeamType,
     FibsemBitmapSettings,
@@ -93,6 +98,42 @@ class TescanMilling(Milling):
 
     def _estimate(self) -> float:
         return TescanDrawBeam.estimate_milling_time(self.parent)
+
+    def _before_run(self) -> None:
+        microscope = self.parent
+        microscope._prepare_beam(microscope.milling_channel)
+        with microscope._connection_lock:
+            microscope.connection.DrawBeam.LoadLayer(microscope.layer)
+            microscope.connection.Progress.Show(
+                Title="DrawBeam Milling (OpenFIBSEM)",
+                Text="Layer 1 in progress",
+                HideButton=True,
+                Marquee=False,
+                ProgressMin=0,
+                ProgressMax=100,
+            )
+
+    def _poll(self) -> MillingPoll:
+        microscope = self.parent
+        with microscope._connection_lock:
+            status, total, elapsed = microscope.connection.DrawBeam.GetStatus()
+        state = tescan.DrawBeamStatusToPatterningState[status]
+        if state is MillingState.RUNNING and total > 0:
+            with microscope._connection_lock:
+                microscope.connection.Progress.SetPercents(
+                    min(100, elapsed / total * 100)
+                )
+        # DrawBeam reports no total until the exposition is under way
+        return MillingPoll(
+            state=state,
+            elapsed=elapsed if total > 0 else None,
+            total=total if total > 0 else None,
+        )
+
+    def _after_run(self) -> None:
+        microscope = self.parent
+        with microscope._connection_lock:
+            microscope.connection.Progress.Hide()
 
     def _clear(self) -> None:
         TescanDrawBeam.clear_patterns(self.parent)

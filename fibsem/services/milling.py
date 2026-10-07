@@ -20,6 +20,15 @@ field that is a beam parameter (current, voltage, preset, hfw) has the beam's ow
 metadata; the application file and the rest have what the driver reports. The milling
 form shows those fields and no others.
 
+``run`` is the one run loop every backend shares: start, look at the instrument about
+once a second, report ``progress``, and clear the patterns at the end. What differs is
+small and is a driver hook: what one look reads (``_poll``: the state, and the time
+elapsed, total or remaining where the instrument reports it, as Tescan's DrawBeam does),
+and what happens around the run (``_before_run``, ``_after_run``: Tescan loads its
+layer and shows a progress bar). Elapsed time the instrument doesn't report is the wall
+clock while running, paused time left out. A set ``stop_event`` stops the beam; a
+failure stops it and clears the patterns before it is raised.
+
 `ServiceMilling` gives a microscope the old milling methods over its service, so
 ``setup_milling``, ``draw_patterns``, ``start_milling`` and the rest keep their
 signatures.
@@ -28,12 +37,27 @@ signatures.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional, Sequence, Tuple, Type, TypeVar
+import time
+from dataclasses import dataclass
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
+from fibsem.cancellation import raise_if_cancelled
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
 from fibsem.services.core import Service
 from fibsem.structures import (
+    ACTIVE_MILLING_STATES,
     BeamType,
     FibsemMillingSettings,
     FibsemPatternSettings,
@@ -42,6 +66,9 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
+    import threading
+
+    from fibsem.cancellation import AnyStopEvent
     from fibsem.structures import (
         FibsemBitmapSettings,
         FibsemCircleSettings,
@@ -56,6 +83,33 @@ if TYPE_CHECKING:
 SAVED_BEAM_CONDITIONS = ("preset", "voltage", "current", "hfw")
 
 _M = TypeVar("_M", bound="Milling")
+
+
+@dataclass(frozen=True)
+class MillingRunProgress:
+    """Where one run (`Milling.run`) has got to: ``progress``'s value.
+
+    Times are in seconds. ``total`` is the instrument's figure where it reports one,
+    otherwise the estimate taken when the run started; ``elapsed`` is the
+    instrument's, otherwise the time spent running, paused time left out.
+    """
+
+    state: MillingState = MillingState.IDLE
+    elapsed: float = 0.0
+    total: float = 0.0
+    remaining: float = 0.0
+    start_time: Optional[float] = None  # when the run started, time.time()
+
+
+@dataclass(frozen=True)
+class MillingPoll:
+    """What one look at the instrument found (`Milling._poll`): the state, and the
+    times it reports itself; None for each it doesn't."""
+
+    state: MillingState
+    elapsed: Optional[float] = None
+    total: Optional[float] = None
+    remaining: Optional[float] = None
 
 
 class Milling(Service):
@@ -74,6 +128,18 @@ class Milling(Service):
     # caller holding the view for something else (coincidence milling) must not have
     # done behind its back, so the commands don't read it after themselves.
     state = Parameter(MillingState, doc="Idle, running, paused, ...; read-only.")
+    # Reported by `run` as it goes; reading it doesn't touch the instrument.
+    progress = Parameter(
+        MillingRunProgress, doc="The run's state and times; read-only."
+    )
+
+    # How often `run` looks at the instrument, in seconds.
+    poll_interval: float = 1.0
+    # How long after the start an idle instrument still means "not running yet"
+    # rather than "already finished", in seconds.
+    start_timeout: float = 5.0
+    # How long `run` waits for the beam to stop after its stop event is set.
+    stop_timeout: float = 30.0
 
     # The `FibsemMillingSettings` fields this driver's ``setup`` reads; it ignores
     # the rest. A driver sets it.
@@ -86,6 +152,20 @@ class Milling(Service):
         self._saved_beam: Optional[Beam] = None
         # What the driver says about its own fields, asked once.
         self._driver_settings: Dict[str, ParameterMetadata] = {}
+        self._progress = MillingRunProgress()
+
+    def connect(self: _M) -> _M:
+        super().connect()
+        # Read once, so that every report from a run is a change and signals.
+        self.progress.get_value()
+        return self
+
+    def read_progress(self) -> MillingRunProgress:
+        return self._progress
+
+    def _report(self, progress: MillingRunProgress) -> None:
+        self._progress = progress
+        self.progress.report(progress)
 
     def beam(self, channel: BeamType = BeamType.ION) -> Beam:
         """The beam that mills on ``channel``."""
@@ -189,6 +269,92 @@ class Milling(Service):
         self._resume()
 
     @command
+    def run(
+        self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
+    ) -> None:
+        """Mill what is drawn and return when it is done, reporting ``progress``.
+
+        The patterns are cleared at the end, however the run ends. A ``stop_event``
+        set while it runs stops the beam, and the run then raises
+        `OperationCancelledError`; ``stop`` from another thread just ends it. A
+        failure stops the beam before it is raised.
+        """
+        self._before_run()
+        try:
+            total = float(self._estimate() or 0.0)
+            self._start()
+            self._monitor(total, stop_event)
+        except BaseException:
+            self._abort()
+            raise
+        finally:
+            try:
+                self._after_run()
+            finally:
+                self._clear()
+        raise_if_cancelled(stop_event, "Milling stopped.")
+
+    def _monitor(
+        self,
+        total: float,
+        stop_event: Optional[Union[threading.Event, AnyStopEvent]],
+    ) -> None:
+        """Look at the instrument every ``poll_interval`` until the run is over."""
+        start_time = time.time()
+        began = last = time.monotonic()
+        elapsed = 0.0
+        started = False
+        stop_deadline: Optional[float] = None
+        while True:
+            poll = self._poll()
+            now = time.monotonic()
+            if poll.state is MillingState.RUNNING:
+                elapsed += now - last
+            last = now
+            started = started or poll.state in ACTIVE_MILLING_STATES
+            if poll.total is not None:
+                total = float(poll.total)
+            if poll.elapsed is not None:
+                elapsed = float(poll.elapsed)
+            elif poll.remaining is not None:
+                elapsed = max(0.0, total - float(poll.remaining))
+            remaining = (
+                float(poll.remaining)
+                if poll.remaining is not None
+                else max(0.0, total - elapsed)
+            )
+            self._report(
+                MillingRunProgress(
+                    state=poll.state,
+                    elapsed=elapsed,
+                    total=total,
+                    remaining=remaining,
+                    start_time=start_time,
+                )
+            )
+            if poll.state not in ACTIVE_MILLING_STATES:
+                if started or now - began >= self.start_timeout:
+                    break
+            if stop_event is not None and stop_event.is_set():
+                if stop_deadline is None:
+                    logging.info("Milling stop requested; stopping the beam.")
+                    self._stop()
+                    stop_deadline = now + self.stop_timeout
+                elif now >= stop_deadline:
+                    logging.warning(
+                        f"Milling did not stop within {self.stop_timeout} s."
+                    )
+                    break
+            self._wait(self.poll_interval)
+
+    def _abort(self) -> None:
+        """Stop the beam after a failure, without hiding the failure."""
+        try:
+            self._stop()
+        except Exception as e:
+            logging.warning(f"Error stopping milling after a failure: {e}")
+
+    @command
     def estimate(self) -> float:
         """How long milling what is drawn takes, in seconds."""
         return self._estimate()
@@ -264,6 +430,22 @@ class Milling(Service):
     def _restore(self) -> None:
         """Put back anything else milling changed, after the beam; by default nothing."""
 
+    def _poll(self) -> MillingPoll:
+        """One look at the instrument during a run. By default only the state: the
+        loop counts the time itself."""
+        return MillingPoll(state=self.read_state())
+
+    def _before_run(self) -> None:
+        """Get a drawn run ready to start, before its estimate; by default nothing."""
+
+    def _after_run(self) -> None:
+        """Tidy up after a run, however it ended, before the patterns are cleared;
+        by default nothing."""
+
+    def _wait(self, seconds: float) -> None:
+        """Wait between looks at the instrument."""
+        time.sleep(seconds)
+
 
 class ServiceMilling:
     """The microscope's milling methods, over its milling service (``self.milling``).
@@ -326,6 +508,39 @@ class ServiceMilling:
             return super().resume_milling()
         self.milling.resume()
 
+    def run_milling(
+        self,
+        milling_current: Optional[float] = None,
+        milling_voltage: Optional[float] = None,
+        asynch: bool = False,
+        stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
+    ) -> None:
+        """Mill what is drawn with the service's run loop (`Milling.run`), which
+        reports progress on ``milling_progress_signal``. A current or voltage given
+        is set first, where the beam can set it, as the old loop did. ``asynch``, on
+        its way out, still starts it the backend's old way and returns."""
+        if self.milling is None or asynch:
+            return super().run_milling(milling_current, milling_voltage, asynch)
+        beam = self.milling.beam(self.milling_channel)
+        try:
+            if milling_voltage is not None and _settable(beam, "voltage"):
+                if beam.voltage.get_value() != milling_voltage:
+                    self.set_beam_voltage(
+                        voltage=milling_voltage, beam_type=self.milling_channel
+                    )
+            if milling_current is not None and _settable(beam, "current"):
+                if beam.current.get_value() != milling_current:
+                    self.set_beam_current(
+                        current=milling_current, beam_type=self.milling_channel
+                    )
+        except Exception as e:
+            logging.warning(
+                f"Failed to set voltage or current: {e}, voltage={milling_voltage}, "
+                f"current={milling_current}"
+            )
+        logging.info("running milling now...")
+        self.milling.run(stop_event=stop_event)
+
     def get_milling_state(self) -> MillingState:
         if self.milling is None:
             return super().get_milling_state()
@@ -386,4 +601,27 @@ def bind_milling(service: Type[_M], microscope: Any) -> Optional[_M]:
     milling.fill_roles(ion=beams[BeamType.ION])
     if BeamType.ELECTRON in beams:
         milling.fill_roles(electron=beams[BeamType.ELECTRON])
-    return milling.connect()
+    milling.connect()
+    signal = getattr(microscope, "milling_progress_signal", None)
+    if signal is not None:
+        milling.progress.changed.connect(_stage_update(signal.emit))
+    return milling
+
+
+def _stage_update(emit: Callable[[Any], None]) -> Callable[[MillingRunProgress], None]:
+    """Each change of ``progress`` as the stage update `milling_progress_signal`
+    has always carried from a run."""
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    def forward(progress: MillingRunProgress) -> None:
+        emit(
+            MillingProgress(
+                status=MillingProgressStatus.STAGE_UPDATE,
+                start_time=progress.start_time,
+                milling_state=progress.state,
+                estimated_time=progress.total,
+                remaining_time=progress.remaining,
+            )
+        )
+
+    return forward

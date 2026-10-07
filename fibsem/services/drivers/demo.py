@@ -5,6 +5,10 @@ on the microscope's ``milling_system``, so the Demo mills as it did before the
 service. Each hook calls that code's
 method for the step, by its class: the microscope's own method of the same name goes
 to this service, so calling it would come straight back here.
+
+Nothing on the Demo ends a mill but the clock, so a ``run`` is timed by the estimate
+it starts with, on simulated time: each wait is ``sim_sleep``, which the test suite
+turns off, and the time counts as it would have passed.
 """
 
 from __future__ import annotations
@@ -12,9 +16,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
+from fibsem._timing import sim_sleep
 from fibsem.devices.core import ParameterMetadata
 from fibsem.microscopes.simulator import DemoMilling as DemoMillingCode
-from fibsem.services.milling import Milling, bind_milling
+from fibsem.services.milling import Milling, MillingPoll, bind_milling
 from fibsem.structures import (
     BeamType,
     FibsemBitmapSettings,
@@ -55,6 +60,13 @@ class DemoMilling(Milling):
         "patterning_mode",
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The run in progress, which the clock ends: its length and the simulated
+        # time it has run for. None outside a run (`start` alone runs until stopped).
+        self._run_total: Optional[float] = None
+        self._run_elapsed = 0.0
+
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "application_file":
             files = self.parent.milling_system.application_files
@@ -76,7 +88,42 @@ class DemoMilling(Milling):
         return DemoMillingCode.get_milling_state(self.parent)
 
     def _start(self) -> None:
-        DemoMillingCode.start_milling(self.parent)
+        if self._run_total is None:
+            DemoMillingCode.start_milling(self.parent)
+            return
+        # a timed run, which ends by itself: not an open-ended start
+        self.parent._async_milling = False
+        self.parent.milling_system.state = MillingState.RUNNING
+
+    def _before_run(self) -> None:
+        # Into the simulated sample from the start, so the scene shows the mill
+        # however the run ends.
+        microscope = self.parent
+        current = microscope.get_beam_current(microscope.milling_channel)
+        microscope._mill_into_sample_scene(current)
+        # a stale `start` mustn't stretch a timed run's estimate
+        microscope._async_milling = False
+        self._run_total = DemoMillingCode.estimate_milling_time(microscope)
+        self._run_elapsed = 0.0
+
+    def _poll(self) -> MillingPoll:
+        state = self.read_state()
+        if self._run_total is None:
+            return MillingPoll(state=state)
+        if state is MillingState.RUNNING and self._run_elapsed >= self._run_total:
+            self.parent.milling_system.state = state = MillingState.IDLE
+        return MillingPoll(
+            state=state, elapsed=self._run_elapsed, total=self._run_total
+        )
+
+    def _wait(self, seconds: float) -> None:
+        sim_sleep(seconds)
+        if self.read_state() is MillingState.RUNNING:
+            self._run_elapsed += seconds
+
+    def _after_run(self) -> None:
+        self._run_total = None
+        self.parent.milling_system.state = MillingState.IDLE
 
     def _stop(self) -> None:
         DemoMillingCode.stop_milling(self.parent)
