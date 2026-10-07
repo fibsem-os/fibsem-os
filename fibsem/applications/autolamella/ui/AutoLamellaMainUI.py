@@ -3030,14 +3030,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             loader.loader_changed.connect(self.grid_workflow_widget.refresh)
             loader.loader_changed.connect(self._refresh_grid_context)
         self._refresh_grid_context()
-        # Calibrating a slot from the Sample view changes what the Overview
-        # tabs should draw by default; they re-resolve rather than wait for a
-        # reconnect.
+        # Renaming a grid in the Sample view has to follow the experiment's records.
+        # Calibrating a slot there needs nothing here: the Overview tabs hear of it
+        # from `microscope.holder_changed`, whichever window ran the calibration.
         holder_panel = getattr(sample, "holder_widget", None)
         if holder_panel is not None:
             holder_panel.set_rename_check(self._grid_rename_refusal)
             holder_panel.grid_renamed.connect(self._on_slot_grid_renamed)
-            holder_panel.holder_changed.connect(self._on_holder_changed)
 
     def _grid_rename_refusal(self, old: str, new: str) -> str:
         """Why the Sample view may not rename grid *old* to *new*, or "".
@@ -3114,14 +3113,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         sample = getattr(self.autolamella_ui, "sample_widget", None)
         if sample is not None:
             sample.refresh()
-
-    def _on_holder_changed(self, _holder) -> None:
-        for tab in (
-            getattr(self, "beam_overview_tab", None),
-            getattr(self, "fm_overview_tab", None),
-        ):
-            if tab is not None and hasattr(tab, "reset_context_overlay_defaults"):
-                tab.reset_context_overlay_defaults()
 
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""
