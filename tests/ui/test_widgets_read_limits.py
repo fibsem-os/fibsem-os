@@ -69,6 +69,18 @@ def test_beam_settings_follow_the_beam():
     assert _range(widget.scan_rotation_spinbox) == pytest.approx((0, 360))
 
 
+def test_beam_settings_list_only_what_the_scan_can_be_set_to():
+    """The panel sets the scan live, so a size only an acquisition takes is left out."""
+    microscope = _demo()
+    beam = microscope.beams[E]
+    _report(microscope, E, "resolution", choices=RESOLUTIONS + [(1024, 1024)])
+    beam.scan_resolutions = lambda: RESOLUTIONS
+    widget = FibsemBeamSettingsWidget(microscope=microscope, beam_type=E)
+    widget.populate_beam_combos()
+
+    assert _items(widget.resolution_combo) == RESOLUTIONS
+
+
 def test_beam_settings_keep_the_standard_values_when_the_beam_reports_none():
     microscope = _demo()
     _report(microscope, E, "resolution")
