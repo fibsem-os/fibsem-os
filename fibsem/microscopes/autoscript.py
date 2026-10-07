@@ -1411,6 +1411,10 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
+    # What connect found: the compustage rather than the stage. The Thermo paths that
+    # depend on the vendor stage read this; everything else asks the stage device.
+    _compustage_installed: bool = False
+
     def __init__(self, system_settings: SystemSettings):
         if not THERMO_API_AVAILABLE:
             raise Exception(autoscript_unavailable_message())
@@ -1515,10 +1519,12 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
         # assign stage
         if self.connection.specimen.compustage.is_installed:
             self._vendor_stage = self.connection.specimen.compustage
+            self._compustage_installed = True
             self.stage_is_compustage = True
             self._default_stage_coordinate_system = CoordinateSystem.SPECIMEN
         elif self.connection.specimen.stage.is_installed:
             self._vendor_stage = self.connection.specimen.stage
+            self._compustage_installed = False
             self.stage_is_compustage = False
             self._default_stage_coordinate_system = CoordinateSystem.RAW
         else:
@@ -1901,7 +1907,7 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
             STAGE_LIMITS_DEFAULT,
         )
 
-        if self.stage_is_compustage:
+        if self._compustage_installed:
             return STAGE_LIMITS_COMPUSTAGE
 
         if not hasattr(self._vendor_stage, "get_axis_limits"):
@@ -1923,7 +1929,7 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
             )
 
         # special case for r (no specified limits, infinite rotation)
-        if not self.stage_is_compustage:
+        if not self._compustage_installed:
             limits["r"] = RangeLimit(
                 min=-360,
                 max=360,
@@ -1993,6 +1999,8 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
             dy (float): distance along the y-axis (image corodinates)
             beam_type (BeamType, optional): the beam type to move in. Defaults to BeamType.ELECTRON.
         """
+        if self.manipulator_device is None:
+            raise self._unsupported("move_manipulator_corrected")
         stage_tilt = self.get_stage_position().t
 
         # xy
@@ -2071,7 +2079,7 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
         """Get the difference between the stage position in specimen coordinates and raw coordinates."""
         # no offset for compustage
-        if self.stage_is_compustage:
+        if self._compustage_installed:
             return FibsemStagePosition(x=0, y=0)
 
         # get stage position in speciemn coordinates
