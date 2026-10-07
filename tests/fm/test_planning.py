@@ -246,6 +246,38 @@ def test_the_centre_lands_where_the_selection_is(geometry):
     assert back[1] == pytest.approx((bounds.y0 + bounds.y1) / 2, abs=1e-9)
 
 
+def test_an_fm_origin_moves_the_centre_and_not_the_regions(geometry):
+    """A compustage FM with an origin -- the objective offset from the beams'
+    coincidence point -- is reached by the flip and then that travel. The stage is driven
+    to the centre, so it carries the travel; the regions are relative to it, so they do
+    not move."""
+    selection = [region(0.0, 0.0, 3e-4, 2e-4)]
+    plan, _ = make_plan(geometry, selection)
+    projection, base = beam_view(geometry["microscope"])
+    offset = plan_sparse_fm_overview(
+        selection,
+        base,
+        projection,
+        geometry["fm_projection"],
+        geometry["fm_orientation"],
+        fov_x=geometry["fov_x"],
+        fov_y=geometry["fov_y"],
+        overlap=0.0,
+        is_compustage=True,
+        fm_origin=FibsemStagePosition(x=50e-6, y=-30e-6),
+    )
+
+    assert offset.centre_position.x == pytest.approx(plan.centre_position.x + 50e-6)
+    assert offset.centre_position.y == pytest.approx(plan.centre_position.y - 30e-6)
+    assert offset.centre_position.z == pytest.approx(plan.centre_position.z)
+    assert (offset.centre_position.r, offset.centre_position.t) == (
+        plan.centre_position.r,
+        plan.centre_position.t,
+    )
+    assert (offset.rows, offset.cols, offset.mask) == (plan.rows, plan.cols, plan.mask)
+    assert offset.regions == plan.regions
+
+
 def test_the_stored_regions_travel_with_the_plan(geometry):
     """Measured from the grid centre, not from whatever origin the display drew them
     against -- a stored selection has to mean the same thing when it is reopened."""

@@ -1443,8 +1443,9 @@ class FMOverviewWidget(QWidget):
         stage was standing the first time anything drew, which on an offset mount is
         almost always the beams: canvas zero then sat 48.8 mm from every marker,
         image and overlay the canvas would ever show, and its red marker pointed at
-        nothing. On a compustage the device origin is the chamber origin, so this is
-        the same picture with a fixed zero.
+        nothing. On a compustage the device origin is the objective's offset from the
+        beams' coincidence point (zero unless configured), so zero is the holder's
+        centre as the objective sees it.
 
         Only a *place*. The configuration declares x, and may declare y and z; an
         axis it leaves out reads as 0. The pose is not part of the anchor at all --
