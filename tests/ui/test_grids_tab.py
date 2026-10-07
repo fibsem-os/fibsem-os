@@ -322,7 +322,7 @@ class TestCards:
 
 def test_on_a_fixed_holder_there_is_nothing_to_load(qapp, experiment):
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     microscope._stage.holder.slots["Slot-01"].loaded_grid = SampleGrid(
         name="grid-aspen"
@@ -451,7 +451,7 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope._stage = _create_sample_stage(microscope)
     microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1, 2))
     # The Sample view is built at connect, against the stage of that moment;
@@ -489,7 +489,7 @@ def _window_with_magazine(main_ui, tmp_path):
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope._stage = _create_sample_stage(microscope)
     microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1, 2, 3))
     ui.sample_widget = FibsemSampleWidget(microscope=microscope)

@@ -20,6 +20,7 @@ from typing import Optional
 
 import numpy as np
 
+import fibsem.config as cfg
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
@@ -32,19 +33,23 @@ def build_microscope(
     tilt_deg: float = -180.0,
 ) -> FibsemMicroscope:
     """Connect, attach a fluorescence detector, and pose the stage for FM."""
+    # The simulator is a compustage by its configuration, as a real stage is by what
+    # connect finds, so the Arctis simulator configuration is what makes it one.
+    config_path = None
+    if manufacturer == "Demo" and compustage:
+        config_path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
     microscope, _ = utils.setup_session(
-        manufacturer=manufacturer, ip_address=ip_address
+        manufacturer=manufacturer, ip_address=ip_address, config_path=config_path
     )
 
     if manufacturer == "Demo":
         # Pose the simulator rather than assuming the ambient configuration: the tile
-        # projection depends on the compustage flag and the pre-tilt, so a run started
+        # projection depends on the stage type and the pre-tilt, so a run started
         # from the wrong pose would exercise different geometry than intended.
-        microscope.stage_is_compustage = compustage
         microscope.system.stage.shuttle_pre_tilt = 0
         microscope._update_orientations()
-        # Rebuild the sample stage, which was created before the flag above was set.
-        # Two things hang off it. The travel limits: a compustage travels +/-999.9 um
+        # Rebuild the sample stage, which was created before the pre-tilt above was
+        # set. Two things hang off it. The travel limits: a compustage travels +/-999.9 um
         # in x and only +/-377.8 um in y, against a grid boundary of 1000 um radius,
         # so it is the limits rather than the boundary that say how far an overview can
         # reach; left stale, the simulator reports +/-100 mm and anything drawing them
@@ -63,7 +68,7 @@ def build_microscope(
         microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
 
     logging.info(
-        f"FM overview app: {manufacturer}, compustage={microscope.stage_is_compustage}, "
+        f"FM overview app: {manufacturer}, compustage={microscope._fm_is_a_pose()}, "
         f"stage={microscope.get_stage_position().pretty}"
     )
     return microscope
@@ -119,7 +124,7 @@ def main(argv: Optional[list] = None) -> int:
     window = QMainWindow()
     window.setWindowTitle(
         f"FM Overview — {args.manufacturer}"
-        f"{' · compustage' if microscope.stage_is_compustage else ''}"
+        f"{' · compustage' if microscope._fm_is_a_pose() else ''}"
         f" · t = {np.rad2deg(microscope.get_stage_position().t):.0f}°"
     )
     widget = FMOverviewWidget(microscope)

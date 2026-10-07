@@ -74,7 +74,7 @@ def microscope():
 
 def _pose(microscope, *, compustage, pretilt_deg, rotation_deg, tilt_deg):
     """Pin the microscope into a known geometry without moving the stage."""
-    microscope.stage_is_compustage = compustage
+    microscope.stage_device.compustage = compustage
     microscope.system.stage.shuttle_pre_tilt = pretilt_deg
     microscope._update_orientations()
     position = FibsemStagePosition(

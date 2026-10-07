@@ -54,7 +54,7 @@ SHARED_MOVES = (
 @pytest.fixture(params=[False, True], ids=["offset-stage", "compustage"])
 def microscope(request):
     scope, _ = utils.setup_session(manufacturer="Demo")
-    scope.stage_is_compustage = request.param
+    scope.stage_device.compustage = request.param
     scope._update_orientations()
     scope.sent = []
     move_stage_relative = scope.move_stage_relative
@@ -201,7 +201,7 @@ class TestTheBackViewMirror:
 
     def test_the_live_move_does_not_read_the_orientation_table(self, monkeypatch):
         microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
+        microscope.stage_device.compustage = True
 
         def unread(*args, **kwargs):
             raise AssertionError("the live move asked the orientation table")

@@ -471,7 +471,7 @@ def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     slot = microscope._stage.holder.slots["Slot-01"]
     slot.position = FibsemStagePosition(
@@ -554,7 +554,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _NoDialog)
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     slot = microscope._stage.holder.slots["Slot-01"]
     slot.position = FibsemStagePosition(
@@ -629,7 +629,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     for i, name in enumerate(["grid-aspen", "grid-birch"]):
         slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
@@ -705,7 +705,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     for i, name in enumerate(["grid-aspen", "grid-birch"]):
         slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
@@ -836,7 +836,7 @@ def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     for i, name in enumerate(["grid-aspen", "grid-birch"]):
         slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]

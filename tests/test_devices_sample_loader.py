@@ -248,7 +248,7 @@ class TestBuilder:
 
 def _arctis(loader_kind: str, **config):
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope._stage = _create_sample_stage(microscope)
     if loader_kind == "old":
         loader = DemoSampleLoader(microscope, **config)

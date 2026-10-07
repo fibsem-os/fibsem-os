@@ -61,7 +61,7 @@ def arctis(qapp, monkeypatch, tmp_path):
 def fixed(qapp, monkeypatch, tmp_path):
     widget = _ui(monkeypatch, tmp_path, arctis=False)
     microscope = widget.microscope
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     from fibsem.microscopes._stage import _create_sample_stage
 
     microscope._stage = _create_sample_stage(microscope)
