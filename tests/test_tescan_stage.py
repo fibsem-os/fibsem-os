@@ -162,5 +162,5 @@ def test_a_disabled_stage_gets_no_device(monkeypatch):
     microscope, _ = connect(monkeypatch, _system(stage=False))
     assert microscope.stage is None and bind_tescan_stage(microscope) is None
     assert microscope.get("stage_position") is None
-    with pytest.raises(TypeError):
+    with pytest.raises(NotImplementedError, match="get_stage_position"):
         microscope.get_stage_position()

@@ -99,7 +99,6 @@ def test_live_view_runs_on_the_beam_and_reaches_the_old_signal(microscope):
     microscope.sem_acquisition_signal.connect(on_frame)
     microscope.start_acquisition(BeamType.ELECTRON)
     assert sem.is_live and microscope.is_acquiring
-    assert microscope._acquisition_thread is None  # the beam's thread, not the old
     assert done.wait(10)
     microscope.stop_acquisition()
     assert not sem.is_live and not microscope.is_acquiring

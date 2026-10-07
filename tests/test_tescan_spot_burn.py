@@ -90,6 +90,24 @@ class FakeConnection:
         self.DrawBeam = FakeDrawBeam(busy_polls=busy_polls)
 
 
+class FakeParameter:
+    """A beam parameter over a plain value."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def get_value(self):
+        return self.value
+
+    def write_through(self, value):
+        self.value = value
+
+
+class FakeIonBeam:
+    def __init__(self, **values):
+        self.parameters = {name: FakeParameter(v) for name, v in values.items()}
+
+
 def make_microscope(
     monkeypatch, busy_polls: int = 1, resolution: Tuple[int, int] = RESOLUTION
 ):
@@ -103,10 +121,10 @@ def make_microscope(
     microscope._prepare_beam = lambda beam_type: state["prepared"].append(beam_type)
     microscope._test_state = state
 
-    def fake_get(key, beam_type=None):
-        return {"hfw": HFW, "resolution": resolution, "current": 1e-9}[key]
-
-    microscope._get = fake_get
+    # the ion beam's hfw, resolution and current, as its device reads them
+    microscope._set_device(
+        "ion", FakeIonBeam(hfw=HFW, resolution=resolution, current=1e-9)
+    )
 
     # milling state follows the fake DrawBeam, consuming one poll per query so the
     # exposure loop terminates deterministically
