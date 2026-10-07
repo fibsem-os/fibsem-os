@@ -58,7 +58,12 @@ from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.core import Device, resources_of
 from fibsem.devices.drivers.demo import bind_demo_fm
-from fibsem.devices.entries import build_device_entries, resolve_system_devices
+from fibsem.devices.entries import (
+    bind_device_roles,
+    build_device_entries,
+    configured_device_entries,
+    resolve_system_devices,
+)
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
@@ -149,16 +154,23 @@ DRIVER = DriverEntry(
     microscope_class="fibsem.microscopes.device_demo:DemoMicroscope",
     config={"port": 7520, "ion-column-tilt": 52, "electron-column-tilt": 0},
     devices={
-        device_type: DeviceBuilder(
-            f"fibsem.devices.drivers.demo:build_demo_{device_type}"
-        )
-        for device_type in (
-            "beam",
-            "stage",
-            "chamber",
-            "manipulator",
-            "sample_loader",
-        )
+        **{
+            device_type: DeviceBuilder(
+                f"fibsem.devices.drivers.demo:build_demo_{device_type}"
+            )
+            for device_type in (
+                "beam",
+                "stage",
+                "chamber",
+                "manipulator",
+                "sample_loader",
+            )
+        },
+        # An external scan generator a beam's ``scanner`` role can be bound to.
+        "scan_generator": DeviceBuilder(
+            "fibsem.devices.drivers.demo:build_demo_scan_generator",
+            implements=("Scanner",),
+        ),
     },
 )
 
@@ -209,6 +221,9 @@ class DemoMicroscope(
         # .demo``), so the devices and the shared demo code begin the same.
         shared = {manufacturers.DEMO: (resources_of(self), parts)}
         built = build_device_entries(resolved, self, shared=shared)
+        bind_device_roles(
+            resolved, built, configured_device_entries(self.system).keys()
+        )
         for name, device in built.items():
             self._set_device(name, device)
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))

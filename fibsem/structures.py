@@ -3046,8 +3046,8 @@ class DeviceEntry:
     `enabled` has three states, as `fm.enabled` always has: absent is the backend's
     default, `false` means never built and its driver never touches it. `driver`
     absent is the driver for `info.manufacturer`. `roles` binds a role this device has
-    to another entry by name (`{scanner: scan_generator}`); nothing reads it yet, and it
-    is kept so a file stating it is not dropped on save.
+    to another entry by name (`{scanner: scan_generator}`); the Demo binds it
+    (`fibsem.devices.entries.bind_device_roles`), and every backend keeps it on save.
 
     Every other key is the entry's own and sits beside these in the file: the device's
     facts (`column_tilt`, `rotation_reference`) and its driver's keys (`address`,

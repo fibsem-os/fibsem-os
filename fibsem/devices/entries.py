@@ -191,3 +191,67 @@ def _not_built(
     if item.required:
         raise DeviceBuildError(message) from error
     logging.warning(message)
+
+
+class RoleBindingError(ValueError):
+    """A `roles:` binding in `hardware.devices` can't be made."""
+
+
+def bind_device_roles(
+    resolved: Sequence[ResolvedEntry],
+    devices: Mapping[str, Any],
+    configured: Collection[str] = (),
+) -> None:
+    """Fill each role an entry binds (``roles: {scanner: scan_generator}``) with the
+    device of that name, once every device is built.
+
+    A bound device is only referenced: the parent never builds, disables or tears it
+    down. A binding to a device that wasn't built (``enabled: false``, or a device
+    that isn't required and failed) is skipped with a warning, and the parent keeps
+    its own way. *configured* names the file's entries, switched-off ones included,
+    so that a binding to a name nothing has is told apart from those.
+
+    A role the parent doesn't have, a device that doesn't implement the role's
+    interface, a name no entry has, or bindings that form a cycle is a
+    `RoleBindingError`.
+    """
+    known = {item.name for item in resolved} | set(configured)
+    bindings = {item.name: dict(item.entry.roles or {}) for item in resolved}
+    _check_no_cycle(bindings)
+    for item in resolved:
+        for role, target in bindings[item.name].items():
+            where = f"hardware.devices: {item.name}.roles.{role}"
+            if target not in known:
+                raise RoleBindingError(f"{where}: no device is named '{target}'")
+            parent = devices.get(item.name)
+            if parent is None:
+                continue
+            device = devices.get(target)
+            if device is None:
+                logging.warning(
+                    f"{where}: '{target}' was not built; role left unbound."
+                )
+                continue
+            try:
+                parent.fill_roles(**{role: device})
+            except TypeError as e:
+                raise RoleBindingError(f"{where}: {e}") from None
+            logging.info(f"{item.name}.{role} is bound to '{target}'.")
+
+
+def _check_no_cycle(bindings: Mapping[str, Mapping[str, str]]) -> None:
+    """Raise if following the bindings from any device leads back to it."""
+    done: set = set()
+
+    def visit(name: str, path: List[str]) -> None:
+        if name in path:
+            cycle = " -> ".join([*path[path.index(name) :], name])
+            raise RoleBindingError(f"hardware.devices: roles form a cycle: {cycle}")
+        if name in done:
+            return
+        for target in bindings.get(name, {}).values():
+            visit(target, [*path, name])
+        done.add(name)
+
+    for name in bindings:
+        visit(name, [])
