@@ -1,6 +1,7 @@
 """The chamber view's stage map: placement, zoom, the inset and its swap."""
 
 import math
+import os
 from copy import deepcopy
 from types import SimpleNamespace
 
@@ -16,6 +17,7 @@ from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (
 )
 from fibsem.structures import FibsemStagePosition, SlotCalibration
 from fibsem.ui.widgets.canvas.chamber_view import MAP, SIDE
+from fibsem.ui.widgets.canvas.overlays.minimap_overlays import GRID_BOUNDARY_RADIUS_M
 from fibsem.ui.widgets.canvas.overlays.stage_context import holder_slots
 from fibsem.ui.widgets.canvas.quad_view import (
     LamellaEditorView,
@@ -73,26 +75,81 @@ def test_slots_only_for_a_calibrated_holder(controller, microscope):
     assert len(stage_map._slot_points()) == 2
 
 
-def test_travel_zoom_fits_the_limits_and_closer_steps_follow_the_stage(
-    controller, microscope
-):
+def _visible(stage_map, zoom):
+    """The plane rectangle a zoom step shows RECT as: (min x, min y, max x, max y)."""
+    (cx, cy), scale = stage_map._view(RECT, zoom)
+    half_w, half_h = RECT.width() / 2 / scale, RECT.height() / 2 / scale
+    return cx - half_w, cy - half_h, cx + half_w, cy + half_h
+
+
+def _inside(point, box, pad=0.0):
+    return (
+        box[0] <= point[0] - pad
+        and point[0] + pad <= box[2]
+        and box[1] <= point[1] - pad
+        and point[1] + pad <= box[3]
+    )
+
+
+def test_closer_steps_follow_the_stage(controller, microscope):
     _calibrate(microscope)
     microscope.move_stage_absolute(
         FibsemStagePosition(x=1e-3, y=-0.5e-3, z=microscope.get_stage_position().z)
     )
     stage_map = _update(controller, microscope).map
 
-    box = stage_map._travel_box()
-    centre, travel_scale = stage_map._view(RECT, ZOOM_TRAVEL)
-    assert centre == pytest.approx(((box[0] + box[2]) / 2, (box[1] + box[3]) / 2))
-
     stage = stage_map._plane(stage_map._stage)
-    scales = [travel_scale]
+    scales = [stage_map._view(RECT, ZOOM_TRAVEL)[1]]
     for zoom in (ZOOM_HOLDER, ZOOM_GRID):
         centre, scale = stage_map._view(RECT, zoom)
         assert centre == pytest.approx(stage)
         scales.append(scale)
     assert scales == sorted(scales), "each step closer than the last"
+
+
+def test_travel_zoom_is_capped_and_keeps_the_stage_in_view(controller, microscope):
+    """The Demo's limits are +/-100 mm; the view stops at 100 mm across, and slides
+    to keep a stage near the edge of travel in it."""
+    z = microscope.get_stage_position().z
+    microscope.move_stage_absolute(FibsemStagePosition(x=80e-3, y=-70e-3, z=z))
+    stage_map = _update(controller, microscope).map
+
+    box = _visible(stage_map, ZOOM_TRAVEL)
+    assert max(box[2] - box[0], box[3] - box[1]) == pytest.approx(100e-3)
+    assert _inside(stage_map._plane(stage_map._stage), box)
+
+
+def test_travel_zoom_shows_a_compustage_grid_whole(qapp):
+    """A compustage's limits can sit inside its grid; fitting the limits alone cropped
+    the grid in the inset."""
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "fibsem",
+            "config",
+            "sim-arctis-configuration.yaml",
+        ),
+    )
+    controller = MicroscopeViewController()
+    stage_map = _update(controller, microscope).map
+    slots = stage_map._slot_points()
+    assert slots, "the compustage's working slot is calibrated as built"
+
+    box = _visible(stage_map, ZOOM_TRAVEL)
+    for slot in slots:
+        assert _inside(slot, box, pad=GRID_BOUNDARY_RADIUS_M)
+
+
+def test_the_lamella_under_the_stage_is_the_one_ringed(controller, microscope):
+    here = microscope.get_stage_position()
+    elsewhere = deepcopy(here)
+    elsewhere.x += 0.3e-3
+    controller.set_map_positions([elsewhere, here])
+    stage_map = _update(controller, microscope).map
+    assert stage_map.lamellae_here() == [here]
 
 
 def test_zoom_steps_clamp(controller, microscope):

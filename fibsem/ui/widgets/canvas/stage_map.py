@@ -68,8 +68,13 @@ _MARGIN = 0.12
 _HOLDER_MIN_SPAN_M = 8e-3
 # The grid step's span: the grid and a little around it.
 _GRID_SPAN_M = 2.6 * GRID_BOUNDARY_RADIUS_M
+# The travel step never shows more than this across: a 200 mm envelope at thumbnail
+# size leaves a grid a pixel wide, and the stage rarely goes that far.
+_TRAVEL_MAX_SPAN_M = 100e-3
 # A lamella the stage is within this distance of (in the map's plane) is "here".
 _HERE_M = 20e-6
+# The ring drawn round the lamella the stage is on, over the stage cross so it shows.
+_HERE_RING_PX = 6.0
 
 
 class _Viewport:
@@ -200,17 +205,7 @@ class StageMap(QWidget):
         width, height = max(rect.width(), 1.0), max(rect.height(), 1.0)
         stage = self._plane(self._stage) if self._stage is not None else (0.0, 0.0)
         if zoom == ZOOM_TRAVEL:
-            box = self._travel_box()
-            if box is None:
-                # No limits configured: the slots and the stage, with room around them.
-                points = self._slot_points() + [stage]
-                xs, ys = [p[0] for p in points], [p[1] for p in points]
-                pad = _HOLDER_MIN_SPAN_M
-                box = (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
-            span_x = (box[2] - box[0]) * (1 + _MARGIN)
-            span_y = (box[3] - box[1]) * (1 + _MARGIN)
-            centre = ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
-            return centre, min(width / span_x, height / span_y)
+            return self._travel_view(width, height, stage)
         if zoom == ZOOM_HOLDER:
             points = self._slot_points()
             span = _HOLDER_MIN_SPAN_M
@@ -220,6 +215,49 @@ class StageMap(QWidget):
                 span = max(span, (extent + 4 * GRID_BOUNDARY_RADIUS_M) * (1 + _MARGIN))
             return stage, min(width, height) / span
         return stage, min(width, height) / _GRID_SPAN_M
+
+    def _travel_view(
+        self, width: float, height: float, stage: Tuple[float, float]
+    ) -> Tuple[Tuple[float, float], float]:
+        """The travel step: the limits, every grid and the stage, at most
+        `_TRAVEL_MAX_SPAN_M` across.
+
+        The grids are fitted as well as the limits because a compustage's limits can
+        sit inside its grid, and fitting the limits alone cropped the grid. Past the
+        cap the view is centred on what it fits, then shifted just enough to keep the
+        stage in it.
+        """
+        points = [stage]
+        for x, y in self._slot_points():
+            points += [
+                (x - GRID_BOUNDARY_RADIUS_M, y - GRID_BOUNDARY_RADIUS_M),
+                (x + GRID_BOUNDARY_RADIUS_M, y + GRID_BOUNDARY_RADIUS_M),
+            ]
+        box = self._travel_box()
+        if box is not None:
+            points += [(box[0], box[1]), (box[2], box[3])]
+        else:
+            # No limits configured: room around the slots and the stage instead.
+            pad = _HOLDER_MIN_SPAN_M
+            points += [(x + d, y + d) for x, y in list(points) for d in (-pad, pad)]
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+
+        span_x = min((max(xs) - min(xs)) * (1 + _MARGIN), _TRAVEL_MAX_SPAN_M)
+        span_y = min((max(ys) - min(ys)) * (1 + _MARGIN), _TRAVEL_MAX_SPAN_M)
+        scale = min(width / span_x, height / span_y)
+        # The cap holds along the view's long side too, not only the side that fits.
+        scale = max(scale, max(width, height) / _TRAVEL_MAX_SPAN_M)
+
+        # Then the window that scale actually shows, slid towards the stage until the
+        # stage is inside it, short of the edge. A no-op whenever nothing was capped.
+        centre = []
+        for low, high, at, shown in (
+            (min(xs), max(xs), stage[0], width / scale),
+            (min(ys), max(ys), stage[1], height / scale),
+        ):
+            reach = shown / 2 * (1 - _MARGIN)
+            centre.append(min(max((low + high) / 2, at - reach), at + reach))
+        return (centre[0], centre[1]), scale
 
     # ── drawing ───────────────────────────────────────────────────────────
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt naming
@@ -254,6 +292,8 @@ class StageMap(QWidget):
             if detailed and zoom == ZOOM_GRID:
                 self._paint_positions(painter, frame)
             self._paint_stage(painter, frame, detailed)
+            if detailed and zoom == ZOOM_GRID:
+                self._paint_here(painter, frame)
         except Exception:
             logger.debug("The stage map could not be drawn", exc_info=True)
         painter.restore()
@@ -300,31 +340,51 @@ class StageMap(QWidget):
             arm = 4.0 if detailed else 2.0
             painter.drawLine(QPointF(x - arm, y), QPointF(x + arm, y))
             painter.drawLine(QPointF(x, y - arm), QPointF(x, y + arm))
-            if detailed and zoom >= ZOOM_HOLDER and place.name:
+            # At holder zoom only: at grid zoom the slot is the one the stage is on,
+            # and its name would sit off the edge of the view.
+            if detailed and zoom == ZOOM_HOLDER and place.name:
                 radius = frame.length(GRID_BOUNDARY_RADIUS_M)
                 painter.setPen(QColor(NEUTRAL_550))
                 painter.drawText(QPointF(x - radius, y - radius - 6), place.name)
                 painter.setPen(QPen(QColor(SLOT_COLOUR), 1))
 
+    def lamellae_here(self) -> List[FibsemStagePosition]:
+        """The marked positions the stage is on."""
+        if self._stage is None:
+            return []
+        stage = self._plane(self._stage)
+        here = []
+        for position in self._positions:
+            try:
+                if math.dist(self._plane(position), stage) < _HERE_M:
+                    here.append(position)
+            except Exception:
+                continue
+        return here
+
     def _paint_positions(self, painter: QPainter, frame: StageFrame) -> None:
-        """Lamellae as hairline crosshairs; the one the stage is on in the selected
-        colour."""
-        stage = self._plane(self._stage) if self._stage is not None else None
+        """Lamellae as hairline crosshairs."""
+        colour = QColor(SAVED_POSITION_COLOUR)
+        colour.setAlphaF(0.65)
+        painter.setPen(QPen(colour, 1))
         for position in self._positions:
             try:
                 x, y = frame.to_canvas(position)
-                here = (
-                    stage is not None
-                    and math.dist(self._plane(position), stage) < _HERE_M
-                )
             except Exception:
                 continue
-            colour = QColor(SELECTED_POSITION_COLOUR if here else SAVED_POSITION_COLOUR)
-            colour.setAlphaF(0.9 if here else 0.65)
-            painter.setPen(QPen(colour, 1))
-            arm = 5.0 if here else 3.5
-            painter.drawLine(QPointF(x - arm, y), QPointF(x + arm, y))
-            painter.drawLine(QPointF(x, y - arm), QPointF(x, y + arm))
+            painter.drawLine(QPointF(x - 3.5, y), QPointF(x + 3.5, y))
+            painter.drawLine(QPointF(x, y - 3.5), QPointF(x, y + 3.5))
+
+    def _paint_here(self, painter: QPainter, frame: StageFrame) -> None:
+        """A ring round the lamella the stage is on, drawn over the stage cross: a
+        crosshair there was hidden under it."""
+        colour = QColor(SELECTED_POSITION_COLOUR)
+        colour.setAlphaF(0.9)
+        painter.setPen(QPen(colour, 1.2))
+        painter.setBrush(Qt.NoBrush)
+        for position in self.lamellae_here():
+            x, y = frame.to_canvas(position)
+            painter.drawEllipse(QPointF(x, y), _HERE_RING_PX, _HERE_RING_PX)
 
     def _paint_stage(
         self, painter: QPainter, frame: StageFrame, detailed: bool
