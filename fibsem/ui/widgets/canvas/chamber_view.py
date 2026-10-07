@@ -37,7 +37,7 @@ from fibsem.ui.tokens import (
     PRIMARY_ACCENT,
     SEM_BEAM_MUTED_COLOUR,
 )
-from fibsem.ui.widgets.canvas.stage_map import ZOOM_NAMES, ZOOM_TRAVEL, StageMap
+from fibsem.ui.widgets.canvas.stage_map import ZOOM_NAMES, StageMap
 from fibsem.ui.widgets.guided_setup_dialog import StageDiagram
 
 _EMPTY_STYLE = "color: #777; font-size: 12px;"
@@ -87,9 +87,10 @@ class _Inset(QWidget):
         try:
             rect = QRectF(self.rect())
             if self._scene.main == SIDE:
-                # The map always fits the whole travel here: the inset is the context
-                # the zoomed main view is read against.
-                self._scene.map.paint_map(painter, rect, ZOOM_TRAVEL, detailed=False)
+                # At the zoom last chosen on the large map: shrinking the map to the
+                # corner should not throw away which part of it the user asked for.
+                stage_map = self._scene.map
+                stage_map.paint_map(painter, rect, stage_map.zoom, detailed=False)
             else:
                 # The side view has fixed-size parts and no scale to zoom, so it is
                 # drawn at a working size and shrunk, rather than drawn small. Not at

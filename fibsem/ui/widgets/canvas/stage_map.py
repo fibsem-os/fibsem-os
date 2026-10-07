@@ -302,8 +302,9 @@ class StageMap(QWidget):
     def paint_map(
         self, painter: QPainter, rect: QRectF, zoom: int, detailed: bool
     ) -> None:
-        """Draw the map into *rect*. *detailed* adds slot names and lamellae, which a
-        thumbnail is too small to carry."""
+        """Draw the map into *rect*. *detailed* is the large map: names, edge arrows
+        and lamella crosshairs, which a thumbnail is too small to carry -- it shows the
+        lamellae, at grid zoom, as dots."""
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setClipRect(rect)
@@ -324,11 +325,11 @@ class StageMap(QWidget):
             self._paint_limits(painter, frame)
             self._paint_stations(painter, frame, zoom, detailed, visible)
             self._paint_slots(painter, frame, zoom, detailed)
-            if detailed and zoom == ZOOM_GRID:
-                self._paint_positions(painter, frame)
+            if zoom == ZOOM_GRID:
+                self._paint_positions(painter, frame, detailed)
             self._paint_stage(painter, frame, detailed)
-            if detailed and zoom == ZOOM_GRID:
-                self._paint_here(painter, frame)
+            if zoom == ZOOM_GRID:
+                self._paint_here(painter, frame, detailed)
             if detailed:
                 self._paint_offscreen(painter, rect, zoom, scale, visible)
         except Exception:
@@ -523,29 +524,35 @@ class StageMap(QWidget):
                 continue
         return here
 
-    def _paint_positions(self, painter: QPainter, frame: StageFrame) -> None:
-        """Lamellae as hairline crosshairs."""
+    def _paint_positions(
+        self, painter: QPainter, frame: StageFrame, detailed: bool
+    ) -> None:
+        """Lamellae as hairline crosshairs, or as dots in a thumbnail."""
         colour = QColor(SAVED_POSITION_COLOUR)
-        colour.setAlphaF(0.65)
-        painter.setPen(QPen(colour, 1))
+        colour.setAlphaF(0.65 if detailed else 0.8)
+        painter.setPen(QPen(colour, 1 if detailed else 1.5))
         for position in self._positions:
             try:
                 x, y = frame.to_canvas(position)
             except Exception:
                 continue
-            painter.drawLine(QPointF(x - 3.5, y), QPointF(x + 3.5, y))
-            painter.drawLine(QPointF(x, y - 3.5), QPointF(x, y + 3.5))
+            if detailed:
+                painter.drawLine(QPointF(x - 3.5, y), QPointF(x + 3.5, y))
+                painter.drawLine(QPointF(x, y - 3.5), QPointF(x, y + 3.5))
+            else:
+                painter.drawPoint(QPointF(x, y))
 
-    def _paint_here(self, painter: QPainter, frame: StageFrame) -> None:
+    def _paint_here(self, painter: QPainter, frame: StageFrame, detailed: bool) -> None:
         """A ring round the lamella the stage is on, drawn over the stage cross: a
         crosshair there was hidden under it."""
         colour = QColor(SELECTED_POSITION_COLOUR)
         colour.setAlphaF(0.9)
-        painter.setPen(QPen(colour, 1.2))
+        painter.setPen(QPen(colour, 1.2 if detailed else 1.0))
         painter.setBrush(Qt.NoBrush)
+        radius = _HERE_RING_PX if detailed else _HERE_RING_PX / 2
         for position in self.lamellae_here():
             x, y = frame.to_canvas(position)
-            painter.drawEllipse(QPointF(x, y), _HERE_RING_PX, _HERE_RING_PX)
+            painter.drawEllipse(QPointF(x, y), radius, radius)
 
     def _paint_stage(
         self, painter: QPainter, frame: StageFrame, detailed: bool

@@ -310,3 +310,28 @@ def test_the_fm_station_is_pointed_to_from_the_beams(qapp):
     # To the right: the station is +48.8 mm in x, and the map is not mirrored here.
     assert held["FM"][0] > stage_map._plane(stage_map._stage)[0]
     assert "FM" not in dict(stage_map.offscreen_places(RECT, ZOOM_TRAVEL))
+
+
+@pytest.mark.parametrize("zoom", [ZOOM_TRAVEL, ZOOM_HOLDER, ZOOM_GRID])
+def test_the_minimised_map_keeps_the_chosen_zoom(controller, microscope, zoom):
+    """Zoomed on the large map, then shrunk to the inset: the inset is drawn at that
+    zoom, as a thumbnail."""
+    _calibrate(microscope)
+    chamber = _update(controller, microscope)
+    chamber.set_positions([microscope.get_stage_position()])
+    scene = chamber.scene
+    scene.resize(600, 450)
+    scene.swap()
+    chamber.map.set_zoom(zoom)
+    scene.swap()
+
+    drawn = []
+    real = chamber.map.paint_map
+
+    def recording(painter, rect, at, detailed):
+        drawn.append((at, detailed))
+        return real(painter, rect, at, detailed)
+
+    chamber.map.paint_map = recording
+    assert not scene.inset.grab().isNull()
+    assert drawn == [(zoom, False)]
