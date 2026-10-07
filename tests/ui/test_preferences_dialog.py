@@ -116,6 +116,7 @@ def _every_field_changed() -> UserPreferences:
     prefs.display.dev_mode = True
     prefs.display.lamella_card_mode = MODE_COMPACT
     prefs.display.guided_setup_dismissed = True
+    prefs.display.info_bar_fields = {"SEM": ["hfw", "pixel_size"]}
 
     for flag in dataclasses.fields(FeatureFlags):
         setattr(prefs.features, flag.name, True)

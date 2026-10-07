@@ -18,12 +18,19 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QLabel
 
+from fibsem import config as cfg
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.imaging.export import from_fibsem_image, image_fields, z_value
+from fibsem.imaging.export import (
+    BEAM_FIELD_KEYS,
+    FM_FIELD_KEYS,
+    from_fibsem_image,
+    image_fields,
+    z_value,
+)
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -36,9 +43,18 @@ from fibsem.ui.widgets.canvas.quad_view import (
     MicroscopeViewController,
     QuadViewWidget,
 )
-from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar
+from fibsem.ui.widgets.canvas.view_info_bar import BAR_DEFAULT_FIELDS, ViewInfoBar
 
 _app = QApplication.instance() or QApplication(sys.argv)
+
+
+@pytest.fixture(autouse=True)
+def _preferences(tmp_path, monkeypatch):
+    """Every bar reads and writes a throwaway preferences file, never the real one."""
+    path = tmp_path / "user-preferences.yaml"
+    monkeypatch.setattr(cfg, "USER_PREFERENCES_PATH", str(path))
+    monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path))
+    return path
 
 
 def _beam_image(beam_type=BeamType.ELECTRON, voltage=2e3) -> FibsemImage:
@@ -352,6 +368,134 @@ def test_a_live_value_can_be_removed():
     assert [f.label for f in bar.visible_fields()] == ["OBJ"]
     bar.set_live_field("objective_position", "OBJ", None, name="Objective")
     assert bar.visible_fields() == []
+
+
+def _chosen():
+    return cfg.load_user_preferences().display.info_bar_fields
+
+
+def test_only_the_selected_view_shows_its_field_button(controller):
+    """Like the canvas toolbar: three idle buttons would only distract."""
+    widget = controller.widget
+    bars = {"SEM": widget.sem_bar, "FIB": widget.fib_bar, "FM": widget.fm_bar}
+    assert widget.selected is BeamType.ELECTRON
+    assert {k for k, b in bars.items() if not b.fields_button.isHidden()} == {"SEM"}
+    widget.set_selected(BeamType.ION)
+    assert {k for k, b in bars.items() if not b.fields_button.isHidden()} == {"FIB"}
+    widget.set_selected("fm")
+    assert {k for k, b in bars.items() if not b.fields_button.isHidden()} == {"FM"}
+
+
+def test_the_lamella_editor_s_bars_keep_their_button():
+    """It has no selection, so every bar keeps its button."""
+    view = LamellaEditorView()
+    for bar in (view.sem_bar, view.fib_bar, view.fm_bar):
+        assert not bar.fields_button.isHidden()
+
+
+def test_the_picker_offers_every_field_the_kind_records():
+    sem = ViewInfoBar("SEM").open_picker()
+    assert tuple(sem.checkboxes) == BEAM_FIELD_KEYS + ("date",)
+    assert sem.checkboxes["pixel_size"].text() == "Pixel size (px)"
+    assert sem.checkboxes["hfw"].text() == "HFW"
+    assert sem.checkboxes["date"].text() == "Acquired at"
+    fm = ViewInfoBar("FM").open_picker()
+    assert tuple(fm.checkboxes) == FM_FIELD_KEYS + ("date",)
+    sem.close()
+    fm.close()
+
+
+def test_the_button_opens_the_picker_ticked_as_the_bar_is():
+    bar = ViewInfoBar("SEM")
+    bar.fields_button.click()
+    picker = bar._picker
+    assert picker is not None and picker.isVisible()
+    ticked = {k for k, cb in picker.checkboxes.items() if cb.isChecked()}
+    assert ticked == set(BAR_DEFAULT_FIELDS) & set(picker.checkboxes)
+    picker.close()
+
+
+def test_ticking_a_field_shows_it_and_remembers_it(controller):
+    controller.set_image(BeamType.ELECTRON, _beam_image())
+    bar = controller.widget.sem_bar
+    bar.resize(2000, 26)
+    picker = bar.open_picker()
+
+    picker.checkboxes["pixel_size"].setChecked(True)
+
+    assert dict(_shown(bar))["px"] == "97.7 nm"
+    assert "pixel_size" in _chosen()["SEM"]
+    # a bar built later -- after a restart -- starts from the choice
+    assert "pixel_size" in ViewInfoBar("SEM").field_keys()
+    picker.close()
+
+
+def test_every_open_bar_of_the_kind_follows_at_once(controller):
+    """The quad view and the lamella editor each have an SEM bar."""
+    editor = MicroscopeViewController(view=LamellaEditorView())
+    picker = controller.widget.sem_bar.open_picker()
+    picker.checkboxes["dwell_time"].setChecked(True)
+    assert "dwell_time" in editor.widget.sem_bar.field_keys()
+    assert "dwell_time" not in editor.widget.fib_bar.field_keys()
+    assert "SEM" in _chosen() and "FIB" not in _chosen()
+    picker.close()
+
+
+def test_a_closed_window_s_bar_does_not_stop_the_others():
+    """A bar can outlive its widget in the set of open bars (a closed lamella
+    editor); reaching it from the picker's slot would abort the application."""
+    from PyQt5 import sip
+
+    from fibsem.ui.widgets.canvas.view_info_bar import choose_field_keys
+
+    gone, kept = ViewInfoBar("SEM"), ViewInfoBar("SEM")
+    sip.delete(gone)
+    choose_field_keys("SEM", ("hfw",))
+    assert kept.field_keys() == ("hfw",)
+
+
+def test_unticking_the_time_hides_it(controller):
+    controller.set_image(BeamType.ELECTRON, _beam_image())
+    bar = controller.widget.sem_bar
+    assert not bar.time_label.text() == ""
+    picker = bar.open_picker()
+    picker.checkboxes["date"].setChecked(False)
+    assert bar.time_label.text() == ""
+    picker.close()
+
+
+def test_defaults_forgets_the_choice(controller):
+    bar = controller.widget.sem_bar
+    picker = bar.open_picker()
+    picker.checkboxes["pixel_size"].setChecked(True)
+    assert "SEM" in _chosen()
+
+    picker.defaults_button.click()
+
+    assert "SEM" not in _chosen(), "a default is not stored, so a new one reaches you"
+    assert bar.field_keys() == BAR_DEFAULT_FIELDS
+    assert not picker.checkboxes["pixel_size"].isChecked()
+    picker.close()
+
+
+def test_saving_one_setting_keeps_what_another_window_saved():
+    """The main window held its preferences from start-up and saved them whole,
+    which would put back a bar's fields chosen in between."""
+    cfg.update_user_preferences(
+        lambda p: p.display.info_bar_fields.__setitem__("FIB", ["hfw"])
+    )
+    cfg.update_user_preferences(lambda p: setattr(p.display, "sound_enabled", True))
+    preferences = cfg.load_user_preferences()
+    assert preferences.display.info_bar_fields == {"FIB": ["hfw"]}
+    assert preferences.display.sound_enabled
+
+
+def test_the_choice_round_trips_and_an_old_file_has_none():
+    preferences = cfg.UserPreferences()
+    preferences.display.info_bar_fields = {"FM": ["objective", "z"]}
+    again = cfg.UserPreferences.from_dict(preferences.to_dict())
+    assert again.display.info_bar_fields == {"FM": ["objective", "z"]}
+    assert cfg.UserPreferences.from_dict({"display": {}}).display.info_bar_fields == {}
 
 
 @pytest.mark.parametrize(

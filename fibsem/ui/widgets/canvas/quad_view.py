@@ -297,6 +297,11 @@ class QuadViewWidget(QWidget):
         self._saved_sizes: dict = {}
 
         # ── selected-view state ───────────────────────────────────────────
+        self._bars: Dict[object, ViewInfoBar] = {
+            BeamType.ELECTRON: self.sem_bar,
+            BeamType.ION: self.fib_bar,
+            "fm": self.fm_bar,
+        }
         self._panels: Dict[object, QFrame] = {
             BeamType.ELECTRON: sem_panel,
             BeamType.ION: fib_panel,
@@ -333,6 +338,10 @@ class QuadViewWidget(QWidget):
         self._refresh_borders()
         for canvas, k in self._canvas_keys.items():
             canvas.set_toolbar_visible(k == key)
+        # The bars' field buttons follow the toolbars: controls on the selected view
+        # only, so three idle buttons do not compete with the images.
+        for k, bar in self._bars.items():
+            bar.set_fields_button_visible(k == key)
         self.view_selected.emit(key)
 
     def _panel_border(self, key: object) -> str:
