@@ -8,7 +8,8 @@ import os
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 
 import numpy as np
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
@@ -17,12 +18,22 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from fibsem import config as fibsem_cfg
 from fibsem import constants, conversions
+from fibsem.applications.autolamella.image_positions import (
+    ImagePosition,
+    PositionComparison,
+    PositionMatch,
+    compare_positions,
+    latest_image_at,
+    read_image_position,
+)
 from fibsem.applications.autolamella.structures import (
     Lamella,
 )
@@ -46,6 +57,7 @@ from fibsem.structures import (
     BeamType,
     FibsemImage,
     FibsemRectangle,
+    FibsemStagePosition,
     Point,
     ReferenceImageParameters,
 )
@@ -217,6 +229,67 @@ def _verdict_tier(diagnostics: Optional[dict]) -> Optional[str]:
         return None
 
 
+class _PositionNotice(QWidget):
+    """The strip under the image pickers that says where the FIB image was taken.
+
+    Lit with the warning tint when the lamella has moved since the image was taken;
+    muted for what is only worth knowing (no position recorded, or the editor switched
+    images itself); hidden when the image was taken where the lamella is. The button
+    switches to the newest image taken at the lamella's current position, and is shown
+    only when there is one.
+    """
+
+    switch_clicked = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("positionNotice")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 4, 6, 4)
+        layout.setSpacing(8)
+        self.label = QLabel("")
+        self.label.setWordWrap(True)
+        self.switch_button = QPushButton("Show current image")
+        self.switch_button.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.switch_button.setToolTip(
+            "Show the newest image taken at the lamella's current position."
+        )
+        self.switch_button.clicked.connect(self.switch_clicked)
+        layout.addWidget(self.label, 1)
+        layout.addWidget(self.switch_button)
+        self.clear()
+
+    def show_warning(self, text: str, can_switch: bool) -> None:
+        rgb = QColor(SEMANTIC_WARNING_COLOR)
+        self.label.setText(text)
+        self.label.setStyleSheet(
+            f"color: {NEUTRAL_200}; background: transparent; border: none;"
+        )
+        tint = f"{rgb.red()}, {rgb.green()}, {rgb.blue()}"
+        self.setStyleSheet(
+            f"#positionNotice {{ background: rgba({tint}, 0.12);"
+            f" border: 1px solid rgba({tint}, 0.5); border-radius: 2px; }}"
+        )
+        self.switch_button.setVisible(can_switch)
+        self.setVisible(True)
+
+    def show_note(self, text: str, can_switch: bool) -> None:
+        self.label.setText(text)
+        self.label.setStyleSheet(
+            f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"
+            " background: transparent; border: none;"
+        )
+        self.setStyleSheet("#positionNotice { background: transparent; border: none; }")
+        self.switch_button.setVisible(can_switch)
+        self.setVisible(True)
+
+    def clear(self) -> None:
+        self.label.setText("")
+        self.switch_button.setVisible(False)
+        self.setVisible(False)
+
+
 class AutoLamellaProtocolEditorWidget(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
@@ -239,6 +312,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self._active_task_name: Optional[str] = None
         self._selected_lamella: Optional[Lamella] = None
         self._overlay_wired = False  # subscribed to controller.overlay_edited
+        # Where each of the selected lamella's FIB/SEM images was taken, by filename,
+        # read from their headers on selection (FIB-1170).
+        self._image_positions: Dict[str, ImagePosition] = {}
+        # The FIB image the editor switched to itself, to say so while it is shown.
+        self._switched_to: Optional[str] = None
 
         # Coalesces a burst of edits into one write -- see `_save_experiment`. Built
         # before the microscope check below, because edits are not the only thing that
@@ -474,6 +552,10 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         # One warning style: the theme's warning token, small. Whether a task has
         # completed is a chip on its row in the list, not a sentence here.
+        # Says when the FIB image was taken somewhere the lamella has since moved from.
+        self.position_notice = _PositionNotice()
+        self.position_notice.switch_clicked.connect(self._on_show_current_image)
+
         self.label_lamella_warning = QLabel("")
         self.label_lamella_warning.setStyleSheet(_WARNING_LABEL_STYLE)
         self.label_lamella_warning.setWordWrap(True)
@@ -492,8 +574,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.grid_layout.addWidget(self.combobox_sem_filenames, 3, 1, 1, 1)
         self.grid_layout.addWidget(self.combobox_fm_filenames_label, 4, 0, 1, 1)
         self.grid_layout.addWidget(self.combobox_fm_filenames, 4, 1, 1, 1)
-        self.grid_layout.addWidget(self.label_lamella_warning, 5, 0, 1, 2)
-        self.grid_layout.addWidget(self.label_warning, 6, 0, 1, 2)
+        self.grid_layout.addWidget(self.position_notice, 5, 0, 1, 2)
+        self.grid_layout.addWidget(self.label_lamella_warning, 6, 0, 1, 2)
+        self.grid_layout.addWidget(self.label_warning, 7, 0, 1, 2)
 
         # main layout. No scroll area here: the window wraps this editor in one
         # already, and a second one nested inside it only ever added a second bar.
@@ -654,7 +737,6 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 base_filenames, latest_task_filename, selected_fib_filename
             ),
         )
-        self.combobox_fib_filenames.blockSignals(False)
 
         # load sem reference image
         self.combobox_sem_filenames.blockSignals(True)
@@ -690,6 +772,21 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             default_sem_filename = selected_sem_filename
 
         _select_filename(self.combobox_sem_filenames, default_sem_filename)
+
+        # Where each image was taken, from its header -- a fraction of a millisecond
+        # each. With the preference on, a default taken somewhere the lamella has since
+        # moved from gives way to the newest image taken where it is now. Only here,
+        # where the editor chose the image: a pick from the picker is never replaced.
+        self._image_positions = {
+            f: read_image_position(self._image_path(selected_lamella, f))
+            for f in base_filenames + sem_base_filenames
+        }
+        self._switched_to = None
+        if self._fib_image_position().match is PositionMatch.MOVED and (
+            fibsem_cfg.load_user_preferences().display.show_reference_image_at_current_position
+        ):
+            self._switched_to = self._select_current_images()
+        self.combobox_fib_filenames.blockSignals(False)
         self.combobox_sem_filenames.blockSignals(False)
 
         # hide if no filenames (the FM row also follows the task, see
@@ -799,6 +896,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # SEM reference: shown beside FIB when toggled on and available
         self._update_sem_display(sem_image)
 
+        self._refresh_position_notice()
+
         self._on_selected_task_changed()
 
     def _update_sem_display(self, sem_image: Optional[FibsemImage]) -> None:
@@ -807,6 +906,129 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.view_controller.widget.set_sem_visible(show)
         if show:
             self.view_controller.set_image(BeamType.ELECTRON, sem_image)
+
+    # --- where the shown image was taken (FIB-1170) --------------------------------
+
+    def _lamella_position(self) -> Optional[FibsemStagePosition]:
+        """Where the selected lamella is now: its milling pose.
+
+        One pose for every image the pickers offer, whichever task is selected:
+        every beam task images from the milling pose, and the fluorescence task shows
+        the FM page rather than these images.
+        """
+        lamella = self._selected_lamella
+        if lamella is None or lamella.milling_pose is None:
+            return None
+        return lamella.milling_pose.stage_position
+
+    def _image_position(self, filename: str) -> ImagePosition:
+        position = self._image_positions.get(filename)
+        if position is None and self._selected_lamella is not None and filename:
+            position = read_image_position(
+                self._image_path(self._selected_lamella, filename)
+            )
+            self._image_positions[filename] = position
+        return position or ImagePosition(filename, None, 0.0)
+
+    def _fib_image_position(self) -> PositionComparison:
+        """Where the FIB image in the picker was taken, against the lamella's pose."""
+        filename = self.combobox_fib_filenames.currentData() or ""
+        return compare_positions(
+            self._image_position(filename).stage_position, self._lamella_position()
+        )
+
+    def _current_image(self, suffix: str) -> Optional[ImagePosition]:
+        """The newest of the lamella's images ending *suffix* taken where it is now."""
+        return latest_image_at(
+            (p for f, p in self._image_positions.items() if f.endswith(suffix)),
+            self._lamella_position(),
+        )
+
+    def _select_current_images(self) -> Optional[str]:
+        """Put both pickers on images taken at the lamella's current position.
+
+        The SEM picker takes the FIB image's partner from the same acquisition when it
+        was taken there too, else the newest SEM image that was. Returns the FIB
+        filename selected, or None if no FIB image was taken there. Selecting fires
+        the pickers' signals unless the caller has blocked them.
+        """
+        fib = self._current_image("_ib.tif")
+        if fib is None:
+            return None
+        _select_filename(self.combobox_fib_filenames, fib.filename)
+        partner = self._image_positions.get(fib.filename[: -len("_ib.tif")] + "_eb.tif")
+        if (
+            partner is not None
+            and compare_positions(
+                partner.stage_position, self._lamella_position()
+            ).match
+            is PositionMatch.SAME
+        ):
+            _select_filename(self.combobox_sem_filenames, partner.filename)
+        else:
+            sem = self._current_image("_eb.tif")
+            if sem is not None:
+                _select_filename(self.combobox_sem_filenames, sem.filename)
+        return fib.filename
+
+    def _on_show_current_image(self) -> None:
+        """The notice's button: show the images taken at the lamella's position."""
+        self.combobox_fib_filenames.blockSignals(True)
+        self.combobox_sem_filenames.blockSignals(True)
+        try:
+            self._select_current_images()
+        finally:
+            self.combobox_fib_filenames.blockSignals(False)
+            self.combobox_sem_filenames.blockSignals(False)
+        self._switched_to = None
+        self._on_image_selected(0)
+
+    def _refresh_position_notice(self) -> None:
+        """Say whether the FIB image shown was taken where the lamella is now."""
+        canvas = self.view_controller.get_canvas(BeamType.ION)
+        filename = self.combobox_fib_filenames.currentData() or ""
+        lamella_position = self._lamella_position()
+        if (
+            not filename
+            or lamella_position is None
+            or lamella_position.x is None
+            or lamella_position.y is None
+        ):
+            # No image, or nowhere to compare it with.
+            self.position_notice.clear()
+            canvas.set_hint(None)
+            return
+
+        comparison = self._fib_image_position()
+        current = self._current_image("_ib.tif")
+        can_switch = current is not None and current.filename != filename
+        if comparison.match is PositionMatch.MOVED:
+            moved = comparison.describe()
+            text = f"The lamella has moved since this image was taken: {moved}."
+            if current is None:
+                text += " No image has been taken at its current position."
+            self.position_notice.show_warning(text, can_switch)
+            canvas.set_hint(f"Lamella moved since this image: {moved}")
+            return
+
+        canvas.set_hint(None)
+        if comparison.match is PositionMatch.UNKNOWN:
+            if self._image_position(filename).stage_position is None:
+                text = "This image has no stage position recorded."
+            else:
+                text = (
+                    "This image's stage position is in a different coordinate "
+                    "system from the lamella's."
+                )
+            self.position_notice.show_note(text, can_switch)
+        elif filename == self._switched_to:
+            label = self.combobox_fib_filenames.currentText()
+            self.position_notice.show_note(
+                f"Showing {label}, the image taken at the lamella's current position.",
+                False,
+            )
+        else:
+            self.position_notice.clear()
 
     # TODO: migrate this to a task_config method that returns task names in workflow order, rather than sorting here in the UI,
     def _sort_task_names_by_workflow(self, task_names: List[str]) -> List[str]:

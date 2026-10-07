@@ -40,6 +40,12 @@ _TIP_CARD_MODE = (
     "How each lamella is drawn in the Lamella tab's strip: a large thumbnail, a "
     "compact row, or a single line with no thumbnail."
 )
+_LBL_CURRENT_IMAGE = "Switch to Image at Current Position"
+_TIP_CURRENT_IMAGE = (
+    "When the Lamella editor chooses a lamella's reference image and the lamella has "
+    "moved since it was taken, show the newest image taken at its current position "
+    "instead. An image you pick yourself is never replaced."
+)
 _LBL_DEV_MODE = "Enable Development Mode"
 _TIP_DEV_MODE = (
     "Show advanced developer tools and diagnostic menus. Intended for developers only."
@@ -158,7 +164,10 @@ class PreferencesDialog(QDialog):
             self._combo_card_mode.addItem(card_mode_label(mode), mode)
         display_form.addRow(_LBL_SOUND, self._chk_sound)
         display_form.addRow(_LBL_BORDER, self._chk_border)
+        self._chk_current_image = QCheckBox()
+        self._chk_current_image.setToolTip(_TIP_CURRENT_IMAGE)
         display_form.addRow(_LBL_CARD_MODE, self._combo_card_mode)
+        display_form.addRow(_LBL_CURRENT_IMAGE, self._chk_current_image)
         display_form.addRow(_LBL_DEV_MODE, self._chk_dev_mode)
         self._stack.addWidget(display_page)
 
@@ -262,6 +271,7 @@ class PreferencesDialog(QDialog):
                 DisplayPreferences().lamella_card_mode
             )
         self._combo_card_mode.setCurrentIndex(card_index)
+        self._chk_current_image.setChecked(d.show_reference_image_at_current_position)
 
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
@@ -320,6 +330,9 @@ class PreferencesDialog(QDialog):
                 border_enabled=self._chk_border.isChecked(),
                 dev_mode=self._chk_dev_mode.isChecked(),
                 lamella_card_mode=self._combo_card_mode.currentData(),
+                show_reference_image_at_current_position=(
+                    self._chk_current_image.isChecked()
+                ),
             ),
             features=FeatureFlags(
                 coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),

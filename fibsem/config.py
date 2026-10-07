@@ -370,6 +370,12 @@ class DisplayPreferences:
     # dismissing must not fake one: a person who intends to configure by hand has
     # still configured nothing.
     guided_setup_dismissed: bool = False
+    # Whether the lamella editor, when it picks a lamella's reference image itself,
+    # switches to the newest one taken at the lamella's current position instead of
+    # one taken somewhere the lamella has since moved from (FIB-1170). Off: the editor
+    # only says the image is out of date and offers the switch. Never overrides an
+    # image picked by hand.
+    show_reference_image_at_current_position: bool = False
 
 
 @dataclass
