@@ -27,14 +27,12 @@ Or as a script:
 """
 
 import atexit
-import io
 import logging
 import math
 import os
 import threading
 from typing import Optional
 
-import tifffile as tff
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
@@ -48,23 +46,22 @@ from fibsem.server.app_routes import (
     build_app_router,
 )
 from fibsem.server.auth import AuthConfig, Scope, command_slot, require_scope
+from fibsem.server.devices import build_device_router
 from fibsem.server.discovery import (
     DISCOVERY_FILE,
     read_discovery_file,
     remove_discovery_file,
     write_discovery_file,
 )
-from fibsem.server.images import preview_payload
+from fibsem.server.images import TIFF_MEDIA_TYPE, preview_payload, tiff_bytes
 from fibsem.server.models import (
     AcquireImageRequest,
-    AvailableValuesRequest,
     BeamSettingsRequest,
     BeamSystemSettingsRequest,
     BeamTypeRequest,
     DetectorSettingsRequest,
     DrawPatternsRequest,
     FinishMillingRequest,
-    FloatBeamRequest,
     ImageSettingsRequest,
     IsCloseToMillingAngleRequest,
     MicroscopeStateRequest,
@@ -73,13 +70,10 @@ from fibsem.server.models import (
     MillingSettingsRequest,
     MoveToMillingAngleRequest,
     OrientationRequest,
-    PointBeamRequest,
     ProjectStableMoveRequest,
-    ResolutionBeamRequest,
     StableMoveRequest,
     StagePositionRequest,
     StagePositionResponse,
-    StringBeamRequest,
     VerticalMoveRequest,
 )
 from fibsem.structures import (
@@ -97,10 +91,9 @@ from fibsem.structures import (
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
-    Point,
 )
 
-API_VERSION = "0.1.0"
+API_VERSION = "0.2.0"
 
 _PATTERN_CLASSES = {
     "Rectangle": FibsemRectangleSettings,
@@ -121,10 +114,7 @@ def _pattern_from_dict(d: dict) -> FibsemPatternSettings:
 
 
 def _image_response(image) -> Response:
-    buf = io.BytesIO()
-    metadata = image.metadata.to_dict() if image.metadata is not None else None
-    tff.imwrite(buf, image.data, metadata=metadata)
-    return Response(content=buf.getvalue(), media_type="image/tiff")
+    return Response(content=tiff_bytes(image), media_type=TIFF_MEDIA_TYPE)
 
 
 def _beam_type(value: str) -> BeamType:
@@ -135,6 +125,25 @@ def _beam_type(value: str) -> BeamType:
             status_code=422,
             detail=f"Unknown beam_type: {value!r}. Use 'ELECTRON' or 'ION'.",
         )
+
+
+# Device commands that stop something. Like POST /stop_milling, stopping is always
+# allowed: read scope, and no wait for the command slot the running move holds.
+STOP_COMMANDS = frozenset(("stop", "stop_live"))
+
+_read_scope = require_scope(Scope.READ)
+_hardware_scope = require_scope(Scope.HARDWARE)
+
+
+def _device_command_slot(request: Request, command: str):
+    """A device command's gate: a stop needs only a token, anything else the
+    hardware scope and the command slot."""
+    if command in STOP_COMMANDS:
+        _read_scope(request)
+        yield
+        return
+    _hardware_scope(request)
+    yield from command_slot(request)
 
 
 class _AgentActs:
@@ -221,7 +230,11 @@ def build_server(
         return {
             "api_version": API_VERSION,
             "manufacturer": type(microscope).__name__,
-            "routers": {"microscope": True, "app": app_context is not None},
+            "routers": {
+                "microscope": True,
+                "devices": True,
+                "app": app_context is not None,
+            },
             "scopes": {s.value: auth.is_armed(s) for s in Scope},
         }
 
@@ -357,240 +370,75 @@ def build_server(
     def get_microscope_state():
         return {"microscope_state": microscope.get_microscope_state().to_dict()}
 
-    @hw.post("/microscope_state")
+    @hw.put("/microscope_state")
     def set_microscope_state(body: MicroscopeStateRequest):
         microscope.set_microscope_state(
             MicroscopeState.from_dict(body.microscope_state)
         )
         return {"status": "ok"}
 
-    # --- Imaging settings ---
+    # --- A beam's settings, as one group ---
+    # Single parameters are /devices/{electron|ion}/{parameter}; these read and
+    # write a whole group at once. The beam is the path's, whatever the body says.
 
-    @read.post("/imaging_settings/get")
-    def get_imaging_settings(body: BeamTypeRequest):
+    @read.get("/beams/{beam}/imaging_settings")
+    def get_imaging_settings(beam: str):
         return {
             "image_settings": microscope.get_imaging_settings(
-                _beam_type(body.beam_type)
+                _beam_type(beam)
             ).to_dict()
         }
 
-    @hw.post("/imaging_settings/set")
-    def set_imaging_settings(body: ImageSettingsRequest):
-        microscope.set_imaging_settings(ImageSettings.from_dict(body.image_settings))
+    @hw.put("/beams/{beam}/imaging_settings")
+    def set_imaging_settings(beam: str, body: ImageSettingsRequest):
+        settings = ImageSettings.from_dict(body.image_settings)
+        settings.beam_type = _beam_type(beam)
+        microscope.set_imaging_settings(settings)
         return {"status": "ok"}
 
-    # --- Beam settings ---
-
-    @read.post("/beam_settings/get")
-    def get_beam_settings(body: BeamTypeRequest):
+    @read.get("/beams/{beam}/beam_settings")
+    def get_beam_settings(beam: str):
         return {
-            "beam_settings": microscope.get_beam_settings(
-                _beam_type(body.beam_type)
-            ).to_dict()
+            "beam_settings": microscope.get_beam_settings(_beam_type(beam)).to_dict()
         }
 
-    @hw.post("/beam_settings/set")
-    def set_beam_settings(body: BeamSettingsRequest):
-        microscope.set_beam_settings(BeamSettings.from_dict(body.beam_settings))
+    @hw.put("/beams/{beam}/beam_settings")
+    def set_beam_settings(beam: str, body: BeamSettingsRequest):
+        settings = BeamSettings.from_dict(body.beam_settings)
+        settings.beam_type = _beam_type(beam)
+        microscope.set_beam_settings(settings)
         return {"status": "ok"}
 
-    @read.post("/beam_system_settings/get")
-    def get_beam_system_settings(body: BeamTypeRequest):
+    @read.get("/beams/{beam}/beam_system_settings")
+    def get_beam_system_settings(beam: str):
         return {
             "beam_system_settings": microscope.get_beam_system_settings(
-                _beam_type(body.beam_type)
+                _beam_type(beam)
             ).to_dict()
         }
 
-    @hw.post("/beam_system_settings/set")
-    def set_beam_system_settings(body: BeamSystemSettingsRequest):
-        microscope.set_beam_system_settings(
-            BeamSystemSettings.from_dict(body.beam_system_settings)
-        )
+    @hw.put("/beams/{beam}/beam_system_settings")
+    def set_beam_system_settings(beam: str, body: BeamSystemSettingsRequest):
+        settings = BeamSystemSettings.from_dict(body.beam_system_settings)
+        settings.beam_type = _beam_type(beam)
+        microscope.set_beam_system_settings(settings)
         return {"status": "ok"}
 
-    # --- Detector settings ---
-
-    @read.post("/detector_settings/get")
-    def get_detector_settings(body: BeamTypeRequest):
+    @read.get("/beams/{beam}/detector_settings")
+    def get_detector_settings(beam: str):
         return {
             "detector_settings": microscope.get_detector_settings(
-                _beam_type(body.beam_type)
+                _beam_type(beam)
             ).to_dict()
         }
 
-    @hw.post("/detector_settings/set")
-    def set_detector_settings(body: DetectorSettingsRequest):
+    @hw.put("/beams/{beam}/detector_settings")
+    def set_detector_settings(beam: str, body: DetectorSettingsRequest):
         microscope.set_detector_settings(
             FibsemDetectorSettings.from_dict(body.detector_settings),
-            beam_type=_beam_type(body.beam_type),
+            beam_type=_beam_type(beam),
         )
         return {"status": "ok"}
-
-    # --- Individual beam getters / setters ---
-
-    @read.post("/beam_current/get")
-    def get_beam_current(body: BeamTypeRequest):
-        return {"value": microscope.get_beam_current(_beam_type(body.beam_type))}
-
-    @hw.post("/beam_current/set")
-    def set_beam_current(body: FloatBeamRequest):
-        return {
-            "value": microscope.set_beam_current(body.value, _beam_type(body.beam_type))
-        }
-
-    @read.post("/beam_voltage/get")
-    def get_beam_voltage(body: BeamTypeRequest):
-        return {"value": microscope.get_beam_voltage(_beam_type(body.beam_type))}
-
-    @hw.post("/beam_voltage/set")
-    def set_beam_voltage(body: FloatBeamRequest):
-        return {
-            "value": microscope.set_beam_voltage(body.value, _beam_type(body.beam_type))
-        }
-
-    @read.post("/field_of_view/get")
-    def get_field_of_view(body: BeamTypeRequest):
-        return {"value": microscope.get_field_of_view(_beam_type(body.beam_type))}
-
-    @hw.post("/field_of_view/set")
-    def set_field_of_view(body: FloatBeamRequest):
-        return {
-            "value": microscope.set_field_of_view(
-                body.value, _beam_type(body.beam_type)
-            )
-        }
-
-    @read.post("/working_distance/get")
-    def get_working_distance(body: BeamTypeRequest):
-        return {"value": microscope.get_working_distance(_beam_type(body.beam_type))}
-
-    @hw.post("/working_distance/set")
-    def set_working_distance(body: FloatBeamRequest):
-        return {
-            "value": microscope.set_working_distance(
-                body.value, _beam_type(body.beam_type)
-            )
-        }
-
-    @read.post("/dwell_time/get")
-    def get_dwell_time(body: BeamTypeRequest):
-        return {"value": microscope.get_dwell_time(_beam_type(body.beam_type))}
-
-    @hw.post("/dwell_time/set")
-    def set_dwell_time(body: FloatBeamRequest):
-        return {
-            "value": microscope.set_dwell_time(body.value, _beam_type(body.beam_type))
-        }
-
-    @read.post("/resolution/get")
-    def get_resolution(body: BeamTypeRequest):
-        return {"value": list(microscope.get_resolution(_beam_type(body.beam_type)))}
-
-    @hw.post("/resolution/set")
-    def set_resolution(body: ResolutionBeamRequest):
-        return {
-            "value": list(
-                microscope.set_resolution(body.value, _beam_type(body.beam_type))
-            )
-        }
-
-    @read.post("/scan_rotation/get")
-    def get_scan_rotation(body: BeamTypeRequest):
-        return {"value": microscope.get_scan_rotation(_beam_type(body.beam_type))}
-
-    @hw.post("/scan_rotation/set")
-    def set_scan_rotation(body: FloatBeamRequest):
-        return {
-            "value": microscope.set_scan_rotation(
-                body.value, _beam_type(body.beam_type)
-            )
-        }
-
-    @read.post("/stigmation/get")
-    def get_stigmation(body: BeamTypeRequest):
-        return {
-            "value": microscope.get_stigmation(_beam_type(body.beam_type)).to_dict()
-        }
-
-    @hw.post("/stigmation/set")
-    def set_stigmation(body: PointBeamRequest):
-        result = microscope.set_stigmation(
-            Point.from_dict(body.value), _beam_type(body.beam_type)
-        )
-        return {"value": result.to_dict()}
-
-    @read.post("/beam_shift/get")
-    def get_beam_shift(body: BeamTypeRequest):
-        return {
-            "value": microscope.get_beam_shift(_beam_type(body.beam_type)).to_dict()
-        }
-
-    @hw.post("/beam_shift/set")
-    def set_beam_shift(body: PointBeamRequest):
-        result = microscope.set_beam_shift(
-            Point.from_dict(body.value), _beam_type(body.beam_type)
-        )
-        return {"value": result.to_dict()}
-
-    # --- Detector individual getters / setters ---
-
-    @read.post("/detector_type/get")
-    def get_detector_type(body: BeamTypeRequest):
-        return {"value": microscope.get_detector_type(_beam_type(body.beam_type))}
-
-    @hw.post("/detector_type/set")
-    def set_detector_type(body: StringBeamRequest):
-        return {
-            "value": microscope.set_detector_type(
-                body.value, _beam_type(body.beam_type)
-            )
-        }
-
-    @read.post("/detector_mode/get")
-    def get_detector_mode(body: BeamTypeRequest):
-        return {"value": microscope.get_detector_mode(_beam_type(body.beam_type))}
-
-    @hw.post("/detector_mode/set")
-    def set_detector_mode(body: StringBeamRequest):
-        return {
-            "value": microscope.set_detector_mode(
-                body.value, _beam_type(body.beam_type)
-            )
-        }
-
-    @read.post("/detector_contrast/get")
-    def get_detector_contrast(body: BeamTypeRequest):
-        return {"value": microscope.get_detector_contrast(_beam_type(body.beam_type))}
-
-    @hw.post("/detector_contrast/set")
-    def set_detector_contrast(body: FloatBeamRequest):
-        return {
-            "value": microscope.set_detector_contrast(
-                body.value, _beam_type(body.beam_type)
-            )
-        }
-
-    @read.post("/detector_brightness/get")
-    def get_detector_brightness(body: BeamTypeRequest):
-        return {"value": microscope.get_detector_brightness(_beam_type(body.beam_type))}
-
-    @hw.post("/detector_brightness/set")
-    def set_detector_brightness(body: FloatBeamRequest):
-        return {
-            "value": microscope.set_detector_brightness(
-                body.value, _beam_type(body.beam_type)
-            )
-        }
-
-    # --- Available values ---
-
-    @read.post("/available_values")
-    def get_available_values(body: AvailableValuesRequest):
-        beam_type = _beam_type(body.beam_type) if body.beam_type else None
-        return {
-            "values": microscope.get_available_values(body.key, beam_type=beam_type)
-        }
 
     # --- Milling angle ---
     # The HTTP boundary speaks DEGREES everywhere (fields named *_deg).
@@ -707,6 +555,16 @@ def build_server(
 
     app.include_router(read)
     app.include_router(hw)
+    # Every device's parameters and commands, as the device server serves them:
+    # reads are read scope, writes and commands hardware scope and the command slot.
+    app.include_router(
+        build_device_router(
+            lambda: microscope.devices,
+            read=[Depends(require_scope(Scope.READ))],
+            write=[Depends(require_scope(Scope.HARDWARE)), Depends(command_slot)],
+            command=[Depends(_device_command_slot)],
+        )
+    )
     if app_context is not None:
         # Read scope applied here so auth stays in one place; the router itself
         # is a thin pass-through over the context's JSON-able snapshots.
