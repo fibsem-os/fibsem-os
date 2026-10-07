@@ -125,7 +125,11 @@ class FakeClient:
             LOG.append([name, list(args), dict(kwargs)])
             value = READS.get(name)
             channel = kwargs.get("channel", args[-1] if args else None)
-            if isinstance(value, dict) and channel in value:
+            if (
+                isinstance(value, dict)
+                and isinstance(channel, str)
+                and channel in value
+            ):
                 return value[channel]
             return value
 

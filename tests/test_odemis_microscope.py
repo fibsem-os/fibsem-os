@@ -34,7 +34,6 @@ from fibsem.structures import (
     ImageSettings,
     MillingState,
 )
-from tests.fixtures.milling_reads import own_milling_code
 from tests.fm import _odemis_stubs as stubs
 
 ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
@@ -255,10 +254,10 @@ def microscope(odemis_microscope_cls):
     microscope.experiment = FibsemExperimentRef()
     microscope._last_imaging_settings = ImageSettings()
     microscope.milling_channel = BeamType.ION
-    microscope._default_application_file = "Si"
     microscope._build_devices()
+    microscope._build_milling()
     microscope.connection.calls.clear()
-    return own_milling_code(microscope)
+    return microscope
 
 
 def test_acquire_image_with_settings_stamps_the_shared_metadata(microscope):
@@ -378,7 +377,7 @@ def test_finish_milling_restores_the_beam_and_the_patterning_mode(microscope):
 
 def test_set_patterning_mode_refuses_unknown_modes(microscope):
     with pytest.raises(ValueError):
-        microscope.set_patterning_mode("Sideways")
+        microscope.milling._set_patterning_mode("Sideways")
 
 
 def test_milling_state_is_read_on_the_milling_channel(microscope):
