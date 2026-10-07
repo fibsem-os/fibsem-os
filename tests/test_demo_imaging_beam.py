@@ -104,3 +104,27 @@ def test_live_view_runs_on_the_beam_and_reaches_the_old_signal(microscope):
     microscope.stop_acquisition()
     assert not sem.is_live and not microscope.is_acquiring
     assert len(pushed) >= 2 and all(isinstance(i, FibsemImage) for i in pushed)
+
+
+def test_a_disabled_beam_does_not_image(microscope):
+    """A column switched off has no device, so it images nothing: it raises, as on
+    the other backends, rather than running the Demo's imaging code without one."""
+    from copy import deepcopy
+
+    from fibsem.microscopes.device_demo import DemoMicroscope
+
+    system = deepcopy(microscope.system)
+    system.ion.enabled = False
+    electron_only = DemoMicroscope(system)
+    assert BeamType.ION not in electron_only.beams
+    for call in (
+        lambda: electron_only.acquire_image(beam_type=BeamType.ION),
+        lambda: electron_only.last_image(BeamType.ION),
+        lambda: electron_only.autocontrast(BeamType.ION),
+        lambda: electron_only.auto_focus(BeamType.ION),
+    ):
+        with pytest.raises(ValueError, match="ION beam is not enabled"):
+            call()
+    assert isinstance(
+        electron_only.acquire_image(beam_type=BeamType.ELECTRON), FibsemImage
+    )
