@@ -12,10 +12,12 @@ Usage:
 
 import io
 import math
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+from fibsem.devices.wire import to_wire
+from fibsem.server.images import TIFF_MEDIA_TYPE
 from fibsem.structures import (
     BeamSettings,
     BeamSystemSettings,
@@ -31,6 +33,11 @@ from fibsem.structures import (
     Point,
     SystemSettings,
 )
+
+
+def _beam(beam_type: BeamType) -> str:
+    """A beam's device name: "electron" or "ion"."""
+    return beam_type.name.lower()
 
 
 class FibsemClient:
@@ -65,6 +72,13 @@ class FibsemClient:
     def _post(self, endpoint: str, body: dict = None, timeout: int = 30) -> dict:
         resp = self._session.post(
             f"{self.base_url}/{endpoint}", json=body or {}, timeout=timeout
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def _put(self, endpoint: str, body: dict, timeout: int = 30) -> dict:
+        resp = self._session.put(
+            f"{self.base_url}/{endpoint}", json=body, timeout=timeout
         )
         resp.raise_for_status()
         return resp.json()
@@ -161,6 +175,42 @@ class FibsemClient:
         result = self._post("move_to_orientation", {"orientation": orientation})
         return FibsemStagePosition.from_dict(result["position"])
 
+    # --- Devices ---
+    # Every device the microscope built (``microscope.devices``), by name: the beams
+    # are "electron" and "ion", then "stage", "chamber", "manipulator", FM parts...
+
+    def list_devices(self) -> Dict[str, Any]:
+        """Every device: its parameters (type, unit, limits, choices, settable) and
+        commands."""
+        return self._get("devices")
+
+    def get_parameter(self, device: str, parameter: str) -> Any:
+        """A live read, as JSON: an enum as its value, a ``Point`` as its dict."""
+        return self._get(f"devices/{device}/{parameter}")["value"]
+
+    def set_parameter(self, device: str, parameter: str, value: Any) -> Any:
+        """Write a parameter; the server checks it and answers the value written."""
+        return self._put(f"devices/{device}/{parameter}", {"value": to_wire(value)})[
+            "value"
+        ]
+
+    def parameter_metadata(self, device: str, parameter: str) -> Dict[str, Any]:
+        """A parameter's limits, choices and whether it is settable."""
+        return self._get(f"devices/{device}/{parameter}/metadata")
+
+    def call_command(self, device: str, command: str, **kwargs: Any) -> Any:
+        """Run a device command: its JSON result, or the image a beam acquired."""
+        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        resp = self._session.post(
+            f"{self.base_url}/devices/{device}/commands/{command}",
+            json=body,
+            timeout=60,
+        )
+        resp.raise_for_status()
+        if resp.headers.get("content-type", "").startswith(TIFF_MEDIA_TYPE):
+            return FibsemImage.load(io.BytesIO(resp.content))  # a beam's acquire
+        return resp.json()["result"]
+
     # --- Microscope state ---
 
     def get_microscope_state(self) -> MicroscopeState:
@@ -169,192 +219,137 @@ class FibsemClient:
         )
 
     def set_microscope_state(self, microscope_state: MicroscopeState) -> None:
-        self._post("microscope_state", {"microscope_state": microscope_state.to_dict()})
+        self._put("microscope_state", {"microscope_state": microscope_state.to_dict()})
 
-    # --- Imaging settings ---
+    # --- A beam's settings, as one group ---
 
     def get_imaging_settings(self, beam_type: BeamType) -> ImageSettings:
-        result = self._post("imaging_settings/get", {"beam_type": beam_type.name})
+        result = self._get(f"beams/{_beam(beam_type)}/imaging_settings")
         return ImageSettings.from_dict(result["image_settings"])
 
     def set_imaging_settings(self, image_settings: ImageSettings) -> None:
-        self._post("imaging_settings/set", {"image_settings": image_settings.to_dict()})
-
-    # --- Beam settings ---
+        self._put(
+            f"beams/{_beam(image_settings.beam_type)}/imaging_settings",
+            {"image_settings": image_settings.to_dict()},
+        )
 
     def get_beam_settings(self, beam_type: BeamType) -> BeamSettings:
-        result = self._post("beam_settings/get", {"beam_type": beam_type.name})
+        result = self._get(f"beams/{_beam(beam_type)}/beam_settings")
         return BeamSettings.from_dict(result["beam_settings"])
 
     def set_beam_settings(self, beam_settings: BeamSettings) -> None:
-        self._post("beam_settings/set", {"beam_settings": beam_settings.to_dict()})
+        self._put(
+            f"beams/{_beam(beam_settings.beam_type)}/beam_settings",
+            {"beam_settings": beam_settings.to_dict()},
+        )
 
     def get_beam_system_settings(self, beam_type: BeamType) -> BeamSystemSettings:
-        result = self._post("beam_system_settings/get", {"beam_type": beam_type.name})
+        result = self._get(f"beams/{_beam(beam_type)}/beam_system_settings")
         return BeamSystemSettings.from_dict(result["beam_system_settings"])
 
     def set_beam_system_settings(self, settings: BeamSystemSettings) -> None:
-        self._post(
-            "beam_system_settings/set", {"beam_system_settings": settings.to_dict()}
+        self._put(
+            f"beams/{_beam(settings.beam_type)}/beam_system_settings",
+            {"beam_system_settings": settings.to_dict()},
         )
 
-    # --- Detector settings ---
-
     def get_detector_settings(self, beam_type: BeamType) -> FibsemDetectorSettings:
-        result = self._post("detector_settings/get", {"beam_type": beam_type.name})
+        result = self._get(f"beams/{_beam(beam_type)}/detector_settings")
         return FibsemDetectorSettings.from_dict(result["detector_settings"])
 
     def set_detector_settings(
         self, detector_settings: FibsemDetectorSettings, beam_type: BeamType
     ) -> None:
-        self._post(
-            "detector_settings/set",
-            {
-                "detector_settings": detector_settings.to_dict(),
-                "beam_type": beam_type.name,
-            },
+        self._put(
+            f"beams/{_beam(beam_type)}/detector_settings",
+            {"detector_settings": detector_settings.to_dict()},
         )
 
-    # --- Individual beam getters / setters ---
+    # --- A beam's parameters, one at a time (FibsemMicroscope's wrappers) ---
 
     def get_beam_current(self, beam_type: BeamType) -> float:
-        return self._post("beam_current/get", {"beam_type": beam_type.name})["value"]
+        return self.get_parameter(_beam(beam_type), "current")
 
     def set_beam_current(self, current: float, beam_type: BeamType) -> float:
-        return self._post(
-            "beam_current/set", {"value": current, "beam_type": beam_type.name}
-        )["value"]
+        return self.set_parameter(_beam(beam_type), "current", current)
 
     def get_beam_voltage(self, beam_type: BeamType) -> float:
-        return self._post("beam_voltage/get", {"beam_type": beam_type.name})["value"]
+        return self.get_parameter(_beam(beam_type), "voltage")
 
     def set_beam_voltage(self, voltage: float, beam_type: BeamType) -> float:
-        return self._post(
-            "beam_voltage/set", {"value": voltage, "beam_type": beam_type.name}
-        )["value"]
+        return self.set_parameter(_beam(beam_type), "voltage", voltage)
 
     def get_field_of_view(self, beam_type: BeamType) -> float:
-        return self._post("field_of_view/get", {"beam_type": beam_type.name})["value"]
+        return self.get_parameter(_beam(beam_type), "hfw")
 
     def set_field_of_view(self, hfw: float, beam_type: BeamType) -> float:
-        return self._post(
-            "field_of_view/set", {"value": hfw, "beam_type": beam_type.name}
-        )["value"]
+        return self.set_parameter(_beam(beam_type), "hfw", hfw)
 
     def get_working_distance(self, beam_type: BeamType) -> float:
-        return self._post("working_distance/get", {"beam_type": beam_type.name})[
-            "value"
-        ]
+        return self.get_parameter(_beam(beam_type), "working_distance")
 
     def set_working_distance(self, wd: float, beam_type: BeamType) -> float:
-        return self._post(
-            "working_distance/set", {"value": wd, "beam_type": beam_type.name}
-        )["value"]
+        return self.set_parameter(_beam(beam_type), "working_distance", wd)
 
     def get_dwell_time(self, beam_type: BeamType) -> float:
-        return self._post("dwell_time/get", {"beam_type": beam_type.name})["value"]
+        return self.get_parameter(_beam(beam_type), "dwell_time")
 
     def set_dwell_time(self, dwell_time: float, beam_type: BeamType) -> float:
-        return self._post(
-            "dwell_time/set", {"value": dwell_time, "beam_type": beam_type.name}
-        )["value"]
+        return self.set_parameter(_beam(beam_type), "dwell_time", dwell_time)
+
+    def get_scan_rotation(self, beam_type: BeamType) -> float:
+        return self.get_parameter(_beam(beam_type), "scan_rotation")
+
+    def set_scan_rotation(self, rotation: float, beam_type: BeamType) -> float:
+        return self.set_parameter(_beam(beam_type), "scan_rotation", rotation)
+
+    def get_detector_type(self, beam_type: BeamType) -> str:
+        return self.get_parameter(_beam(beam_type), "detector_type")
+
+    def set_detector_type(self, detector_type: str, beam_type: BeamType) -> str:
+        return self.set_parameter(_beam(beam_type), "detector_type", detector_type)
+
+    def get_detector_mode(self, beam_type: BeamType) -> str:
+        return self.get_parameter(_beam(beam_type), "detector_mode")
+
+    def set_detector_mode(self, mode: str, beam_type: BeamType) -> str:
+        return self.set_parameter(_beam(beam_type), "detector_mode", mode)
+
+    def get_detector_contrast(self, beam_type: BeamType) -> float:
+        return self.get_parameter(_beam(beam_type), "detector_contrast")
+
+    def set_detector_contrast(self, contrast: float, beam_type: BeamType) -> float:
+        return self.set_parameter(_beam(beam_type), "detector_contrast", contrast)
+
+    def get_detector_brightness(self, beam_type: BeamType) -> float:
+        return self.get_parameter(_beam(beam_type), "detector_brightness")
+
+    def set_detector_brightness(self, brightness: float, beam_type: BeamType) -> float:
+        return self.set_parameter(_beam(beam_type), "detector_brightness", brightness)
 
     def get_resolution(self, beam_type: BeamType) -> Tuple[int, int]:
-        return tuple(
-            self._post("resolution/get", {"beam_type": beam_type.name})["value"]
-        )
+        return tuple(self.get_parameter(_beam(beam_type), "resolution"))
 
     def set_resolution(
         self, resolution: Tuple[int, int], beam_type: BeamType
     ) -> Tuple[int, int]:
         return tuple(
-            self._post(
-                "resolution/set",
-                {"value": list(resolution), "beam_type": beam_type.name},
-            )["value"]
+            self.set_parameter(_beam(beam_type), "resolution", tuple(resolution))
         )
-
-    def get_scan_rotation(self, beam_type: BeamType) -> float:
-        return self._post("scan_rotation/get", {"beam_type": beam_type.name})["value"]
-
-    def set_scan_rotation(self, rotation: float, beam_type: BeamType) -> float:
-        return self._post(
-            "scan_rotation/set", {"value": rotation, "beam_type": beam_type.name}
-        )["value"]
 
     def get_stigmation(self, beam_type: BeamType) -> Point:
-        return Point.from_dict(
-            self._post("stigmation/get", {"beam_type": beam_type.name})["value"]
-        )
+        return Point.from_dict(self.get_parameter(_beam(beam_type), "stigmation"))
 
     def set_stigmation(self, stigmation: Point, beam_type: BeamType) -> Point:
         return Point.from_dict(
-            self._post(
-                "stigmation/set",
-                {"value": stigmation.to_dict(), "beam_type": beam_type.name},
-            )["value"]
+            self.set_parameter(_beam(beam_type), "stigmation", stigmation)
         )
 
     def get_beam_shift(self, beam_type: BeamType) -> Point:
-        return Point.from_dict(
-            self._post("beam_shift/get", {"beam_type": beam_type.name})["value"]
-        )
+        return Point.from_dict(self.get_parameter(_beam(beam_type), "shift"))
 
     def set_beam_shift(self, shift: Point, beam_type: BeamType) -> Point:
-        return Point.from_dict(
-            self._post(
-                "beam_shift/set",
-                {"value": shift.to_dict(), "beam_type": beam_type.name},
-            )["value"]
-        )
-
-    # --- Detector individual getters / setters ---
-
-    def get_detector_type(self, beam_type: BeamType) -> str:
-        return self._post("detector_type/get", {"beam_type": beam_type.name})["value"]
-
-    def set_detector_type(self, detector_type: str, beam_type: BeamType) -> str:
-        return self._post(
-            "detector_type/set", {"value": detector_type, "beam_type": beam_type.name}
-        )["value"]
-
-    def get_detector_mode(self, beam_type: BeamType) -> str:
-        return self._post("detector_mode/get", {"beam_type": beam_type.name})["value"]
-
-    def set_detector_mode(self, mode: str, beam_type: BeamType) -> str:
-        return self._post(
-            "detector_mode/set", {"value": mode, "beam_type": beam_type.name}
-        )["value"]
-
-    def get_detector_contrast(self, beam_type: BeamType) -> float:
-        return self._post("detector_contrast/get", {"beam_type": beam_type.name})[
-            "value"
-        ]
-
-    def set_detector_contrast(self, contrast: float, beam_type: BeamType) -> float:
-        return self._post(
-            "detector_contrast/set", {"value": contrast, "beam_type": beam_type.name}
-        )["value"]
-
-    def get_detector_brightness(self, beam_type: BeamType) -> float:
-        return self._post("detector_brightness/get", {"beam_type": beam_type.name})[
-            "value"
-        ]
-
-    def set_detector_brightness(self, brightness: float, beam_type: BeamType) -> float:
-        return self._post(
-            "detector_brightness/set",
-            {"value": brightness, "beam_type": beam_type.name},
-        )["value"]
-
-    # --- Available values ---
-
-    def get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> list:
-        """Get the list of available values for a given key (e.g. 'detector_type', 'scan_direction')."""
-        body = {"key": key, "beam_type": beam_type.name if beam_type else None}
-        return self._post("available_values", body)["values"]
+        return Point.from_dict(self.set_parameter(_beam(beam_type), "shift", shift))
 
     # --- Milling angle ---
 

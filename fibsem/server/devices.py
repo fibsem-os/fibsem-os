@@ -10,7 +10,8 @@ The far side of a remote device (the METEOR PC, say). It wraps any
     PUT  /devices/{device}/{parameter}         {"value": ...}    -> {"value": written}
     GET  /devices/{device}/{parameter}/metadata                  -> limits, choices, settable
     POST /devices/{device}/commands/{command}  {"kwargs": {...}} -> {"result": ...},
-                                               or np.save bytes for an image, with a
+                                               TIFF for a beam's FibsemImage,
+                                               or np.save bytes for an array, with a
                                                frame's metadata as JSON in the
                                                X-Frame-Metadata header
     WS   /events                               {"device", "parameter", "kind", "value"},
@@ -21,8 +22,9 @@ The coordinator side is ``fibsem.devices.drivers.remote``. A write runs the devi
 Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
 
-Not yet: authentication (``fibsem.server`` has bearer tokens; this
-would be mounted there), the one-commander lease.
+The same ``/devices`` routes are mounted in the agent server (``fibsem.server.server``)
+over ``microscope.devices``, behind its bearer token and scopes. Served here on their
+own, they have no authentication yet, nor a one-commander lease.
 
 Try it on one computer:
 
@@ -46,11 +48,21 @@ import io
 import json
 import logging
 import threading
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Set
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+)
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
@@ -71,6 +83,8 @@ from fibsem.devices.wire import (
     from_wire,
     to_wire,
 )
+from fibsem.server.images import TIFF_MEDIA_TYPE, tiff_bytes
+from fibsem.structures import FibsemImage
 
 """A command that returns an array (an image) answers with ``np.save`` bytes."""
 
@@ -187,16 +201,24 @@ class _EventHub:
             return
 
 
-def build_device_app(devices: Iterable[Device]) -> FastAPI:
-    """The server's routes over these devices, looked up by ``device.name``."""
-    by_name: Dict[str, Device] = {device.name: device for device in devices}
-    hub = _EventHub()
-    hub.attach(by_name.values())
-    app = FastAPI(title="fibsem devices")
+def build_device_router(
+    devices: Callable[[], Mapping[str, Device]],
+    read: Sequence[Any] = (),
+    write: Sequence[Any] = (),
+    command: Sequence[Any] = (),
+) -> APIRouter:
+    """The ``/devices`` routes over whatever *devices* returns, by name.
+
+    *devices* is called per request, so a map that changes (an FM reconnecting) is
+    served as it is now. *read*, *write* and *command* are FastAPI dependencies for
+    the reads, the parameter writes and the commands: the device server passes none,
+    the agent server its token, scopes and hardware lock.
+    """
+    router = APIRouter()
 
     def lookup(name: str) -> Device:
         try:
-            return by_name[name]
+            return devices()[name]
         except KeyError:
             raise HTTPException(404, f"no device '{name}'") from None
 
@@ -217,36 +239,32 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
                 status, {"error": type(error).__name__, "detail": str(error)}
             ) from None
 
-    @app.get("/health")
-    def health() -> Dict[str, Any]:
-        """Up, and for each device whether its driver can reach the hardware."""
-        devices = {name: device_health(d) for name, d in by_name.items()}
-        return {"ok": all(d["ok"] for d in devices.values()), "devices": devices}
-
-    @app.get("/devices")
+    @router.get("/devices", dependencies=list(read))
     def list_devices() -> Dict[str, Any]:
-        return {name: describe_device(d) for name, d in by_name.items()}
+        return {name: describe_device(d) for name, d in devices().items()}
 
-    @app.get("/devices/{device}")
+    @router.get("/devices/{device}", dependencies=list(read))
     def get_device(device: str) -> Dict[str, Any]:
         return describe_device(lookup(device))
 
-    @app.get("/devices/{device}/{parameter}")
-    def read(device: str, parameter: str) -> Dict[str, Any]:
+    @router.get("/devices/{device}/{parameter}", dependencies=list(read))
+    def read_parameter(device: str, parameter: str) -> Dict[str, Any]:
         value = run(lambda: parameter_of(device, parameter).get_value())
         return {"value": to_wire(value)}
 
-    @app.put("/devices/{device}/{parameter}")
-    def write(device: str, parameter: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    @router.put("/devices/{device}/{parameter}", dependencies=list(write))
+    def write_parameter(
+        device: str, parameter: str, body: Dict[str, Any]
+    ) -> Dict[str, Any]:
         param = run(lambda: parameter_of(device, parameter))
         value = from_wire(param.type, body["value"])
         return {"value": to_wire(run(lambda: param.set_value(value)))}
 
-    @app.get("/devices/{device}/{parameter}/metadata")
+    @router.get("/devices/{device}/{parameter}/metadata", dependencies=list(read))
     def metadata(device: str, parameter: str) -> Dict[str, Any]:
         return metadata_payload(run(lambda: parameter_of(device, parameter).metadata))
 
-    @app.post("/devices/{device}/commands/{command}")
+    @router.post("/devices/{device}/commands/{command}", dependencies=list(command))
     def call(device: str, command: str, body: Dict[str, Any]) -> Any:
         d = lookup(device)
         if command not in d.commands:
@@ -255,6 +273,8 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
         kwargs = decode_kwargs(method, body.get("kwargs", {}))
         result = run(lambda: method(**kwargs))
         headers = {}
+        if isinstance(result, FibsemImage):  # a beam's image: TIFF, as /acquire_image
+            return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
         if (
             isinstance(result, list)
             and result
@@ -273,6 +293,24 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
                 buffer.getvalue(), media_type=NPY_MEDIA_TYPE, headers=headers
             )
         return {"result": jsonable_encoder(result)}
+
+    return router
+
+
+def build_device_app(devices: Iterable[Device]) -> FastAPI:
+    """The server's routes over these devices, looked up by ``device.name``."""
+    by_name: Dict[str, Device] = {device.name: device for device in devices}
+    hub = _EventHub()
+    hub.attach(by_name.values())
+    app = FastAPI(title="fibsem devices")
+
+    @app.get("/health")
+    def health() -> Dict[str, Any]:
+        """Up, and for each device whether its driver can reach the hardware."""
+        devices = {name: device_health(d) for name, d in by_name.items()}
+        return {"ok": all(d["ok"] for d in devices.values()), "devices": devices}
+
+    app.include_router(build_device_router(lambda: by_name))
 
     @app.websocket("/events")
     async def events(websocket: WebSocket) -> None:
