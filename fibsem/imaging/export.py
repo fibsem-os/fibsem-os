@@ -292,13 +292,32 @@ def _instrument(model: Optional[str], serial: Optional[str]) -> Optional[str]:
 # Reading
 
 
-def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportImage:
-    """An SEM or FIB image, with whatever its metadata records."""
-    rgb = _to_uint8(image.data)
-    gray = _normalize(image.data)
+@dataclass
+class ImageFields:
+    """What an image's metadata says, formatted: the bar without the picture.
+
+    The export renders it under the image; the canvas shows it under the view. Built
+    from the metadata and the array's shape alone, never its pixels, so it is cheap
+    enough to rebuild on every image the canvas is handed.
+    """
+
+    kind: str  # "SEM", "FIB", "FM", or "Image" when the file does not say
+    fields: List[ExportField] = field(default_factory=list)
+    provenance: List[ExportField] = field(default_factory=list)
+
+
+def image_fields(image) -> ImageFields:
+    """The fields of a beam or fluorescence image, without touching its pixels."""
+    if isinstance(image, FluorescenceImage):
+        return fluorescence_image_fields(image)
+    return fibsem_image_fields(image)
+
+
+def fibsem_image_fields(image: FibsemImage) -> ImageFields:
+    """An SEM or FIB image's fields, with whatever its metadata records."""
     md = image.metadata
     if md is None:
-        return ExportImage(rgb=rgb, pixel_size=None, kind="Image", path=path, gray=gray)
+        return ImageFields(kind="Image")
 
     is_ion = md.image_settings.beam_type is BeamType.ION
     state = md.microscope_state
@@ -317,7 +336,8 @@ def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportI
     if pixel_size:
         # From the pixel size, not image_settings.hfw: that is what was asked for,
         # this is what the image is (FIB-482).
-        _add(fields, "hfw", "HFW", "HFW", format_si(pixel_size * rgb.shape[1], "m"))
+        width = np.shape(image.data)[1]
+        _add(fields, "hfw", "HFW", "HFW", format_si(pixel_size * width, "m"))
         _add(fields, "pixel_size", "Pixel size", "px", format_si(pixel_size, "m"))
     if beam is not None:
         if beam.voltage:
@@ -339,33 +359,14 @@ def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportI
         md.user.name if md.user is not None else None,
         system.fibsem_version if system else None,
     )
-    return ExportImage(
-        rgb=rgb,
-        pixel_size=pixel_size,
-        kind="FIB" if is_ion else "SEM",
-        fields=fields,
-        provenance=provenance,
-        path=path,
-        gray=gray,
+    return ImageFields(
+        kind="FIB" if is_ion else "SEM", fields=fields, provenance=provenance
     )
 
 
-def from_fluorescence_image(
-    image: FluorescenceImage, path: Optional[str] = None
-) -> ExportImage:
-    """A fluorescence stack: each channel max-projected over z and blended by colour."""
+def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
+    """A fluorescence stack's fields. Z reads as the projection the export draws."""
     md = image.metadata
-    layers = projection_layers(image)
-    rgb = composite_fm_layers(layers)
-    if rgb is None:
-        raise ValueError("fluorescence image has no displayable channels")
-
-    channels = []
-    for layer in layers:
-        r, g, b = tint_rgb(layer.color)
-        rgb_255 = (int(round(r * 255)), int(round(g * 255)), int(round(b * 255)))
-        channels.append(ExportChannel(name=layer.name, color=rgb_255))
-
     fields: List[ExportField] = []
     first = md.channels[0] if md.channels else None
     if first is not None and first.objective_magnification:
@@ -373,13 +374,13 @@ def from_fluorescence_image(
         if first.objective_numerical_aperture:
             objective += f" · {first.objective_numerical_aperture:g} NA"
         _add(fields, "objective", "Objective", "", objective)
+    shape = np.shape(image.data)
     if md.pixel_size_x:
-        hfw = format_si(md.pixel_size_x * rgb.shape[1], "m")
+        hfw = format_si(md.pixel_size_x * shape[-1], "m")
         _add(fields, "hfw", "HFW", "HFW", hfw)
         _add(fields, "pixel_size", "Pixel size", "px", format_si(md.pixel_size_x, "m"))
     # Slices counted from the data, not z_positions: some files list a position per
     # channel per slice -- 132 for a 4-channel, 33-slice stack on a real one.
-    shape = np.shape(image.data)
     slices = shape[-3] if len(shape) >= 4 else 1  # (C, Z, Y, X) or (T, C, Z, Y, X)
     if slices > 1 and md.pixel_size_z:
         z = f"MIP · {slices} × {format_si(md.pixel_size_z, 'm')}"
@@ -393,12 +394,50 @@ def from_fluorescence_image(
         None,
         system.get("fibsem_version"),
     )
+    return ImageFields(kind="FM", fields=fields, provenance=provenance)
+
+
+def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportImage:
+    """An SEM or FIB image, with whatever its metadata records."""
+    rgb = _to_uint8(image.data)
+    gray = _normalize(image.data)
+    if image.metadata is None:
+        return ExportImage(rgb=rgb, pixel_size=None, kind="Image", path=path, gray=gray)
+    md = image.metadata
+    info = fibsem_image_fields(image)
     return ExportImage(
         rgb=rgb,
-        pixel_size=md.pixel_size_x or None,
-        kind="FM",
-        fields=fields,
-        provenance=provenance,
+        pixel_size=md.pixel_size.x if md.pixel_size is not None else None,
+        kind=info.kind,
+        fields=info.fields,
+        provenance=info.provenance,
+        path=path,
+        gray=gray,
+    )
+
+
+def from_fluorescence_image(
+    image: FluorescenceImage, path: Optional[str] = None
+) -> ExportImage:
+    """A fluorescence stack: each channel max-projected over z and blended by colour."""
+    layers = projection_layers(image)
+    rgb = composite_fm_layers(layers)
+    if rgb is None:
+        raise ValueError("fluorescence image has no displayable channels")
+
+    channels = []
+    for layer in layers:
+        r, g, b = tint_rgb(layer.color)
+        rgb_255 = (int(round(r * 255)), int(round(g * 255)), int(round(b * 255)))
+        channels.append(ExportChannel(name=layer.name, color=rgb_255))
+
+    info = fluorescence_image_fields(image)
+    return ExportImage(
+        rgb=rgb,
+        pixel_size=image.metadata.pixel_size_x or None,
+        kind=info.kind,
+        fields=info.fields,
+        provenance=info.provenance,
         channels=channels,
         layers=layers,
         path=path,
