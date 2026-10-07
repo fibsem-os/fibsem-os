@@ -4,19 +4,30 @@
 name: Python package
 
 on:
-  # `release/**` alongside main: a release branch is cut from a release tag and the
-  # final is tagged from it, so what lands there by cherry-pick is what ships -- and
-  # without this it would be the one code path in the repository that reaches users
-  # having run no tests at all. Nothing else is branch-scoped here, so this is the
-  # whole of what has to change.
+  # A release branch is cut from a release tag and the final is tagged from it, so
+  # what lands there by cherry-pick is what ships -- and without this it would be the
+  # one code path in the repository that reaches users having run no tests at all.
+  #
+  # main is not here. Every change reaches main through a pull request that already
+  # ran, so a run per merge mostly repeated that answer, and with about 20 concurrent
+  # hosted jobs for the account it queued behind open pull requests (2026-10-07).
+  # What a merge run uniquely caught -- two pull requests green alone and broken
+  # together, and the versions the pull request subset skips -- the nightly run below
+  # catches instead, a day later at most.
   push:
-    branches: [ "main", "release/**" ]
+    branches: [ "release/**" ]
+  # The full matrix on main once a day, and on demand (Actions tab, "Run workflow")
+  # when a merge looks risky enough not to wait. Scheduled runs only ever run on the
+  # default branch.
+  schedule:
+    - cron: "0 17 * * *"
+  workflow_dispatch:
   # No `branches:` filter: it matches the *base* branch, so scoping it to main gave a
   # stacked PR -- one based on another feature branch -- no checks at all.
   pull_request:
 
 # A PR's runs share one group, and a new push to the PR cancels the run in progress:
-# only its latest commit matters. A `push` run is the record of one commit on main or a
+# only its latest commit matters. Any other run is the record of one commit on main or a
 # release branch, so its group is keyed on the commit, not the branch, and nothing
 # cancels it. Keying on the branch was not enough even with cancel-in-progress off: a
 # group holds one running and one *pending* run, and each newly queued run cancels the
@@ -43,8 +54,8 @@ jobs:
         # gets about 20 concurrent hosted jobs and a full run takes 9 of them, so with
         # many open pull requests pushing, jobs queued for 15 to 75 minutes before
         # starting (2026-10-06). The subset keeps the 3.10 floor on both platforms and
-        # the newest version; the middle versions and Windows 3.13 still run on every
-        # push to main and release branches.
+        # the newest version; the middle versions and Windows 3.13 run nightly on main
+        # and on every push to a release branch.
         os: [ubuntu-latest]
         python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10", "3.13"]' || '["3.10", "3.11", "3.12", "3.13"]') }}
         include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"windows-latest","python-version":"3.10"}]' || '[{"os":"windows-latest","python-version":"3.10"}, {"os":"windows-latest","python-version":"3.13"}]') }}
