@@ -261,8 +261,6 @@ ignore = [
     "UP031",  # no autofix: each %-format is rewritten by hand
     "UP032",
     "UP004",
-    # The sys.version_info branches for Pythons below the floor -- dead code.
-    "UP036",
     "UP009",
     "UP020",
     "UP024",
