@@ -63,8 +63,8 @@ def test_demo_runs_and_finishes_milling_through_its_service():
     from fibsem.services.milling import ServiceMilling
 
     assert _owner(DemoMicroscope, "run_milling") is ServiceMilling
-    # its own timed loop stays, for `asynch` and a Demo without an ion beam
-    assert "run_milling" in vars(DemoMilling)
+    # the old timed loop is gone: the service's run loop times the Demo's mill
+    assert "run_milling" not in vars(DemoMilling)
     assert _owner(DemoMicroscope, "finish_milling") is ServiceMilling
 
 
@@ -73,8 +73,9 @@ def test_application_files_stay_off_the_base_class():
     assert not hasattr(FibsemMicroscope, "get_application_file")
 
 
-def test_milling_loop_is_no_longer_abstract():
-    assert "run_milling" not in FibsemMicroscope.__abstractmethods__
+def test_the_milling_loop_is_each_backend_s_service():
+    # no shared loop on the base class: every backend runs its milling service's
+    assert "run_milling" in FibsemMicroscope.__abstractmethods__
     assert "finish_milling" not in FibsemMicroscope.__abstractmethods__
 
 

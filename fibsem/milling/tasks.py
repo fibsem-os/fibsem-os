@@ -25,9 +25,6 @@ from fibsem.structures import (
 from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp_v3
 
-if TYPE_CHECKING:
-    from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
-
 
 @dataclass
 class MillingTaskAcquisitionSettings:
@@ -206,7 +203,6 @@ class FibsemMillingTaskConfig:
         return reference_stage
 
 
-# TODO: remove parent_ui arg, use microscope signal only, and stop_event -> need to migrate
 # TODO: restore current to initial current, rather than system.ion.beam.beam_current
 # TODO: support customising alignment imaging parameters?
 @dataclass
@@ -219,24 +215,19 @@ class FibsemMillingTask:
         self,
         microscope: FibsemMicroscope,
         config: FibsemMillingTaskConfig,
-        parent_ui: Optional["FibsemMillingWidget2"] = None,
         stop_event: Optional[threading.Event] = None,
     ):
         self.config = config
         self.microscope = microscope
-        self.parent_ui = parent_ui
         self.task_id = str(uuid.uuid4())
         self.initial_beam_shift: Optional[Point] = None
         # Imaging current/voltage captured before milling starts, so cleanup restores the
         # exact pre-milling state (not a config default) even if the task is cancelled.
         self.initial_imaging_current: Optional[float] = None
         self.initial_imaging_voltage: Optional[float] = None
-        # An explicit stop event wins; otherwise borrow the widget's. Before this
-        # parameter existed a headless run (parent_ui=None) had no stop event at
-        # all, so the cancel checks between stages and inside a strategy were no-ops.
+        # Set to cancel: checked between stages, and passed to the strategy, whose
+        # run_milling stops the beam when it is set.
         self._stop_event: Optional[threading.Event] = stop_event
-        if self._stop_event is None and hasattr(self.parent_ui, "_milling_stop_event"):
-            self._stop_event = self.parent_ui._milling_stop_event
 
     @property
     def name(self) -> str:
@@ -427,8 +418,6 @@ class FibsemMillingTask:
             stage.strategy.run(
                 microscope=self.microscope,
                 stage=stage,
-                asynch=False,
-                parent_ui=self.parent_ui,
                 stop_event=self._stop_event,
             )
             # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
@@ -565,21 +554,18 @@ class FibsemMillingTask:
 def run_milling_task(
     microscope: FibsemMicroscope,
     config: FibsemMillingTaskConfig,
-    parent_ui: Optional["FibsemMillingWidget2"] = None,
     stop_event: Optional[threading.Event] = None,
 ) -> FibsemMillingTask:
     """Run a milling task with the given configuration.
     Args:
         microscope (FibsemMicroscope): The microscope to use for milling.
         config (FibsemMillingTaskConfig): The configuration for the milling task.
-        parent_ui (Optional[FibsemMillingWidget2]): The parent UI widget for progress updates.
-        stop_event (Optional[threading.Event]): Set to cancel the run. Falls back to
-            the parent widget's stop event when not given.
+        stop_event (Optional[threading.Event]): Set to cancel the run.
     Returns:
         FibsemMillingTask: The milling task that was run.
     """
     task = FibsemMillingTask(
-        microscope=microscope, config=config, parent_ui=parent_ui, stop_event=stop_event
+        microscope=microscope, config=config, stop_event=stop_event
     )
     task.run()
     return task

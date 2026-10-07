@@ -387,10 +387,12 @@ as milling found it on every backend.
 
 Workflow code mills through `fibsem.milling` (milling stages, strategies and
 `fibsem.milling.tasks.run_milling_task`), as before. The microscope's named milling methods (`setup_milling`,
-`draw_rectangle`, `start_milling`, `finish_milling`, ...) keep their signatures and go
-to the service; `finish_milling` restores the beam. On a backend that has no milling
-service yet, or with the ion column disabled, `microscope.milling` is `None` and those
-methods use the backend's own milling code.
+`draw_rectangle`, `start_milling`, `run_milling`, `finish_milling`, ...) go to the
+service; `finish_milling` restores the beam. `run_milling(stop_event=None)` is the
+service's `run`: it mills what is drawn with the beam conditions `setup_milling`
+applied, reports `progress`, and returns when the mill ends; a set `stop_event` stops
+the beam. To start a mill and return at once, use `start_milling`. With the ion column
+disabled, `microscope.milling` is `None` and those methods raise.
 
 A driver adds milling by subclassing `fibsem.services.milling.Milling` and
 implementing its hooks (`_setup`, `_draw`, `_start`, `_stop`, `_pause`, `_resume`,

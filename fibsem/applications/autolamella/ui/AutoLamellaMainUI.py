@@ -4250,6 +4250,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             tab = getattr(self, name, None)
             if tab is not None:
                 tab.refresh_positions()
+        # The Microscope tab's stage map marks the same lamellae, from the same place.
+        controller = getattr(self, "view_controller", None)
+        if controller is not None:
+            experiment = getattr(self.autolamella_ui, "experiment", None)
+            controller.set_map_positions(
+                [lamella.stage_position for lamella in experiment.positions]
+                if experiment is not None
+                else []
+            )
 
     def _on_notification_service(
         self, message: str, notification_type: str, temporary: bool

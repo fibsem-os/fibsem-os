@@ -86,6 +86,11 @@ from fibsem.devices.wire import (
 from fibsem.server.images import TIFF_MEDIA_TYPE, tiff_bytes
 from fibsem.structures import FibsemImage
 
+# Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
+# which websockets 14+ deprecates on import; under the test suite's warnings-as-errors
+# that kills the server thread. The sans-I/O one serves /events without it.
+WS_PROTOCOL = "websockets-sansio"
+
 """A command that returns an array (an image) answers with ``np.save`` bytes."""
 
 # An error keeps its type across the wire; anything else is a plain failure.
@@ -331,6 +336,7 @@ class DeviceServer:
             port=port,
             log_level="warning",
             timeout_graceful_shutdown=1,
+            ws=WS_PROTOCOL,
         )
         self.app = config.app
         self._server = uvicorn.Server(config)
@@ -439,7 +445,12 @@ def main(argv: Optional[List[str]] = None) -> None:
             raise SystemExit(1) from e
     devices: Mapping[str, Device] = {d.name: d for d in served}
     logging.info(f"serving {sorted(devices)} on http://{args.host}:{args.port}")
-    uvicorn.run(build_device_app(devices.values()), host=args.host, port=args.port)
+    uvicorn.run(
+        build_device_app(devices.values()),
+        host=args.host,
+        port=args.port,
+        ws=WS_PROTOCOL,
+    )
 
 
 if __name__ == "__main__":

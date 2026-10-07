@@ -206,10 +206,10 @@ def bind_autoscript_stage(
 class AutoscriptBeam(Beam):
     """An AutoScript beam: ``connection.beams.electron_beam`` or ``.ion_beam``.
 
-    Each parameter is the matching branch of ``ThermoMicroscope._get``/``_set`` moved
-    as it is, so the old call and the device make the same SDK calls and log the same
-    messages. The choices are what ``ThermoMicroscope.get_available_values`` answers
-    for a beam key.
+    Each parameter is the matching branch of the old ``ThermoMicroscope._get``/``_set``
+    (now removed) moved as it is, so the device makes the same SDK calls and logs the
+    same messages. The choices are what the old ``get_available_values`` answered for
+    a beam key.
 
     The detector is the active device's, so the detector parameters claim the imaging
     channel and select this beam's (``needs_channel``), as the old branches do under

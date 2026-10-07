@@ -721,7 +721,7 @@ class AutoLamellaTask(ABC):
         if self.parent_ui is None:
             if milling_enabled:
                 milling_task = run_milling_task(
-                    self.microscope, milling_config, None, stop_event=self._stop_event
+                    self.microscope, milling_config, stop_event=self._stop_event
                 )
                 return milling_task.config
             return milling_config

@@ -128,7 +128,7 @@ def test_the_old_methods_go_through_the_service(microscope):
 def test_run_milling_mills_what_the_service_drew(microscope):
     microscope.setup_milling(_recipe())
     microscope.draw_patterns([_rectangle()])
-    microscope.run_milling(milling_current=7.6e-9, milling_voltage=30e3)
+    microscope.run_milling()
     assert microscope.get_milling_state() is MillingState.IDLE
     assert microscope.milling_system.patterns == []
 

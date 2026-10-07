@@ -34,33 +34,26 @@ def _declare(microscope, poses):
     )
 
 
-def _routes(microscope, monkeypatch):
-    taken = []
-    monkeypatch.setattr(
-        microscope,
-        "_move_to_device_compustage",
-        lambda device, orientation=None: taken.append(device),
-    )
-    return taken
-
-
 def test_the_fm_is_a_pose_on_a_compustage_and_a_place_on_an_offset_mount():
     assert _microscope(ARCTIS_CONFIG)._fm_is_a_pose()
     assert not _microscope(IFLM_CONFIG)._fm_is_a_pose()
 
 
-def test_a_stage_that_declares_an_fm_pose_reaches_the_fm_by_re_posing(monkeypatch):
+def test_a_stage_that_declares_an_fm_pose_reaches_the_fm_by_re_posing():
     """With its FM at the beams' origin. An FM origin of its own is an offset the
     stage travels by after the flip (`test_device_moves_one_path.py`)."""
     microscope = _microscope(IFLM_CONFIG)
     assert not microscope._fm_is_a_pose()
     _declare(microscope, compustage_poses)
     microscope.system.stage.devices["FM"].origin = FibsemStagePosition(x=0.0)
-    taken = _routes(microscope, monkeypatch)
+    microscope.system.stage.devices["FM"].available_orientations = ["FM"]
+    start = microscope.get_stage_position()
 
     microscope.move_to_device("FM")
 
-    assert taken == ["FM"]
+    arrived = microscope.get_stage_position()
+    assert microscope.get_stage_orientation() == "FM"
+    assert (arrived.x, arrived.y) == pytest.approx((start.x, start.y), abs=1e-12)
     translation = microscope._device_translation("FIBSEM", "FM")
     assert not any(getattr(translation, axis) for axis in ("x", "y", "z"))
 
@@ -80,14 +73,13 @@ def test_at_a_pose_there_is_no_parking_at_the_fm_to_refuse_a_rotation_at():
     microscope._refuse_rotation_at_the_fluorescence_microscope(half_turn)
 
 
-def test_a_compustage_that_declares_no_fm_pose_travels_to_it(monkeypatch):
+def test_a_compustage_that_declares_no_fm_pose_travels_to_it():
     microscope = _microscope(ARCTIS_CONFIG)
     assert microscope._fm_is_a_pose()
     _declare(
         microscope,
         lambda **geometry: rotating_stage_poses(**geometry, rotates=False),
     )
-    taken = _routes(microscope, monkeypatch)
 
     assert not microscope._fm_is_a_pose()
     with pytest.raises(ValueError, match="FM position on non-compustage"):
@@ -98,4 +90,3 @@ def test_a_compustage_that_declares_no_fm_pose_travels_to_it(monkeypatch):
     # pose this stage has.
     with pytest.raises(ValueError, match="Orientation FM not supported"):
         microscope.move_to_device("FM")
-    assert taken == []

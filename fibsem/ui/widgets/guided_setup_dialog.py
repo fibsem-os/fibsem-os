@@ -349,6 +349,15 @@ class StageDiagram(QtWidgets.QWidget):
 
     SEM_COLOUR = "#4ec26a"
     FIB_COLOUR = "#e8a020"
+    # The rest of the palette, as attributes so a diagram used somewhere other than the
+    # wizard can be quieter than one that is the whole of a step. None for the frame
+    # paints none, for a host that already draws its own.
+    BACKGROUND_COLOUR = PANEL_COLOR
+    FRAME_COLOUR = BORDER_COLOR
+    PLATE_COLOUR = NEUTRAL_500
+    SHUTTLE_COLOURS = (PRIMARY_COLOR, "#0a5c9e")
+    GRID_COLOUR = "#d9dde3"
+    WEDGE_COLOUR = WEDGE_COLOUR
     # Degrees from vertical, and drawn to the right of the SEM column.
     FIB_ANGLE = 52.0
     # The offset FM objective's own axis. It coincides with the ion column today, but it
@@ -434,6 +443,9 @@ class StageDiagram(QtWidgets.QWidget):
         # station. None means the beams and the sample are at the same point.
         self._station_offset_mm = None
         self._orientation = orientation
+        # The wizard explains the angles in words beside the picture; a diagram used
+        # as a display rather than a lesson turns that off.
+        self._show_readout = True
         self.setMinimumHeight(212)
 
     def set_orientation(
@@ -460,13 +472,28 @@ class StageDiagram(QtWidgets.QWidget):
         self._stage_tilt = float(degrees)
         self.update()
 
+    def set_readout_visible(self, visible: bool) -> None:
+        """Show or hide the lines of text in the top-left corner."""
+        self._show_readout = bool(visible)
+        self.update()
+
+    def set_column_tilt(self, degrees: float) -> None:
+        """Draw the ion column at the system's angle rather than the 52 degree default.
+
+        The class constant is right for a Thermo column and wrong for a Tescan one
+        (55); a diagram that follows a live instrument has to use that instrument's.
+        """
+        self.FIB_ANGLE = float(degrees)
+        self.update()
+
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt naming
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
         width, height = self.width(), self.height()
-        painter.fillRect(self.rect(), QtGui.QColor(PANEL_COLOR))
-        painter.setPen(QtGui.QPen(QtGui.QColor(BORDER_COLOR), 1))
-        painter.drawRoundedRect(0, 0, width - 1, height - 1, 6, 6)
+        painter.fillRect(self.rect(), QtGui.QColor(self.BACKGROUND_COLOUR))
+        if self.FRAME_COLOUR is not None:
+            painter.setPen(QtGui.QPen(QtGui.QColor(self.FRAME_COLOUR), 1))
+            painter.drawRoundedRect(0, 0, width - 1, height - 1, 6, 6)
 
         cx, cy = width * 0.56, height * 0.66
         total = self.surface_tilt()
@@ -498,7 +525,7 @@ class StageDiagram(QtWidgets.QWidget):
             )
         else:
             lines.append("FIB orientation is a half turn away")
-        for index, line in enumerate(lines):
+        for index, line in enumerate(lines if self._show_readout else []):
             painter.drawText(
                 QtCore.QRectF(12, 10 + index * 14, width - 24, 14),
                 Qt.AlignLeft | Qt.AlignVCenter,
@@ -559,9 +586,9 @@ class StageDiagram(QtWidgets.QWidget):
         front_x, back_x = low.x() - 15, high.x() + 15
         plate_y = BASE_THICKNESS + half * abs(math.sin(ramp))
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(NEUTRAL_500), 2))
+        painter.setPen(QtGui.QPen(QtGui.QColor(self.PLATE_COLOUR), 2))
         painter.drawLine(-95, int(plate_y), 95, int(plate_y))
-        painter.setPen(QtGui.QPen(QtGui.QColor(NEUTRAL_500), 1, Qt.DashLine))
+        painter.setPen(QtGui.QPen(QtGui.QColor(self.PLATE_COLOUR), 1, Qt.DashLine))
         painter.drawLine(-95, int(plate_y) + 8, 95, int(plate_y) + 8)
 
         body = QtGui.QPolygonF(
@@ -575,8 +602,8 @@ class StageDiagram(QtWidgets.QWidget):
             ]
         )
         gradient = QtGui.QLinearGradient(front_x, 0, back_x, 0)
-        gradient.setColorAt(0, QtGui.QColor(PRIMARY_COLOR))
-        gradient.setColorAt(1, QtGui.QColor("#0a5c9e"))
+        gradient.setColorAt(0, QtGui.QColor(self.SHUTTLE_COLOURS[0]))
+        gradient.setColorAt(1, QtGui.QColor(self.SHUTTLE_COLOURS[1]))
         painter.setPen(Qt.NoPen)
         painter.setBrush(gradient)
         painter.drawPolygon(body)
@@ -584,7 +611,7 @@ class StageDiagram(QtWidgets.QWidget):
         # The grid, lying on the ramp rather than on top of the block.
         painter.save()
         painter.rotate(-self.ramp_tilt())
-        painter.setBrush(QtGui.QColor("#d9dde3"))
+        painter.setBrush(QtGui.QColor(self.GRID_COLOUR))
         painter.drawRoundedRect(QtCore.QRectF(-13, -4, 26, 4), 1, 1)
         painter.restore()
 
@@ -597,7 +624,7 @@ class StageDiagram(QtWidgets.QWidget):
             # Light, not the accent: this is drawn over the shuttle body, which is
             # the accent colour, so blue on blue was unreadable. Reads as a
             # dimension line over the part, which is what it is.
-            painter.setPen(QtGui.QPen(QtGui.QColor(WEDGE_COLOUR), 1, Qt.DotLine))
+            painter.setPen(QtGui.QPen(QtGui.QColor(self.WEDGE_COLOUR), 1, Qt.DotLine))
             painter.setBrush(Qt.NoBrush)
             # A half turn swaps which end of the ramp is its foot, so the wedge has to
             # move with it; drawn from the wrong end it floats off the holder entirely.
@@ -628,7 +655,7 @@ class StageDiagram(QtWidgets.QWidget):
             font = painter.font()
             font.setPointSize(8)
             painter.setFont(font)
-            painter.setPen(QtGui.QColor(WEDGE_COLOUR))
+            painter.setPen(QtGui.QColor(self.WEDGE_COLOUR))
             painter.drawText(
                 QtCore.QRectF(label_at.x() - 22, label_at.y() - 8, 44, 16),
                 Qt.AlignCenter,

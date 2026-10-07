@@ -1,26 +1,12 @@
 {
  "arctis_beam_side|FIB+1|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
-  "orientation": "SEM",
+  "orientation": "FIB",
   "position": {
    "r": 0.0,
-   "t": 0.0,
+   "t": -2.2165681500327987,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -36,9 +22,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -66,9 +52,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -93,9 +79,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -243,9 +229,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -270,9 +256,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -297,9 +283,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -315,27 +301,13 @@
   }
  },
  "arctis_beam_side|FIB|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
-  "orientation": "SEM",
+  "orientation": "FIB",
   "position": {
    "r": 0.0,
-   "t": 0.0,
+   "t": -2.234021442552742,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -351,9 +323,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -378,9 +350,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -408,9 +380,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -438,9 +410,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -468,9 +440,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -498,9 +470,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -528,9 +500,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -555,66 +527,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ],
-   [
-    "insert"
-   ]
-  ],
-  "device": "FM",
-  "objective": "Inserted",
-  "orientation": "FM",
-  "position": {
-   "r": 0.0,
-   "t": -3.141592653589793,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis_beam_side|FIB|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.0,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis_beam_side|FIB|move_to_microscope_compustage(FM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -762,9 +677,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -806,9 +721,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -970,9 +885,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -997,9 +912,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1024,9 +939,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1051,9 +966,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1078,9 +993,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1105,9 +1020,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -1135,9 +1050,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -1165,9 +1080,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -1212,9 +1127,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -1242,9 +1157,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1260,50 +1175,6 @@
   }
  },
  "arctis_beam_side|FM|move_to_microscope(FM)": {
-  "commands": [
-   [
-    "insert"
-   ]
-  ],
-  "device": "FM",
-  "objective": "Inserted",
-  "orientation": "FM",
-  "position": {
-   "r": 0.0,
-   "t": -3.141592653589793,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis_beam_side|FM|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.0,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis_beam_side|FM|move_to_microscope_compustage(FM)": {
   "commands": [
    [
     "insert"
@@ -1441,27 +1312,13 @@
   }
  },
  "arctis_beam_side|MILLING+1|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
-  "orientation": "SEM",
+  "orientation": "MILLING",
   "position": {
    "r": 0.0,
-   "t": 0.0,
+   "t": -0.38397243543875237,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -1494,9 +1351,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1658,9 +1515,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1685,9 +1542,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1712,9 +1569,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1730,27 +1587,13 @@
   }
  },
  "arctis_beam_side|MILLING|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
-  "orientation": "SEM",
+  "orientation": "MILLING",
   "position": {
    "r": 0.0,
-   "t": 0.0,
+   "t": -0.4014257279586957,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -1766,9 +1609,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1793,9 +1636,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -1823,9 +1666,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -1853,9 +1696,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -1900,9 +1743,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -1930,9 +1773,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -1948,50 +1791,6 @@
   }
  },
  "arctis_beam_side|MILLING|move_to_microscope(FM)": {
-  "commands": [
-   [
-    "insert"
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Inserted",
-  "orientation": "MILLING",
-  "position": {
-   "r": 0.0,
-   "t": -0.4014257279586957,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis_beam_side|MILLING|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.0,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis_beam_side|MILLING|move_to_microscope_compustage(FM)": {
   "commands": [
    [
     "insert"
@@ -2129,27 +1928,13 @@
   }
  },
  "arctis_beam_side|SEM+1|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
   "orientation": "SEM",
   "position": {
    "r": 0.0,
-   "t": 0.0,
+   "t": 0.017453292519943295,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -2182,9 +1967,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -2346,9 +2131,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -2373,9 +2158,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -2400,9 +2185,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -2418,21 +2203,7 @@
   }
  },
  "arctis_beam_side|SEM|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
   "orientation": "SEM",
@@ -2454,9 +2225,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -2481,9 +2252,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -2511,9 +2282,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -2541,9 +2312,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -2588,9 +2359,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -2618,9 +2389,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -2636,50 +2407,6 @@
   }
  },
  "arctis_beam_side|SEM|move_to_microscope(FM)": {
-  "commands": [
-   [
-    "insert"
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Inserted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.0,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis_beam_side|SEM|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.0,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis_beam_side|SEM|move_to_microscope_compustage(FM)": {
   "commands": [
    [
     "insert"
@@ -2817,27 +2544,13 @@
   }
  },
  "arctis|FIB+1|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
-  "orientation": "SEM",
+  "orientation": "FIB",
   "position": {
    "r": 0.0,
-   "t": 0.0,
+   "t": -2.2165681500327987,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -2853,9 +2566,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -2883,9 +2596,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -2910,9 +2623,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -3060,9 +2773,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3087,9 +2800,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3114,9 +2827,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3132,27 +2845,13 @@
   }
  },
  "arctis|FIB|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
-  "orientation": "SEM",
+  "orientation": "FIB",
   "position": {
    "r": 0.0,
-   "t": 0.0,
+   "t": -2.234021442552742,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -3168,9 +2867,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3195,9 +2894,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -3225,9 +2924,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -3255,9 +2954,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -3285,9 +2984,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -3315,9 +3014,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -3345,9 +3044,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3372,66 +3071,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ],
-   [
-    "insert"
-   ]
-  ],
-  "device": "FM",
-  "objective": "Inserted",
-  "orientation": "FM",
-  "position": {
-   "r": 0.0,
-   "t": -3.141592653589793,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis|FIB|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.0,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis|FIB|move_to_microscope_compustage(FM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -3579,9 +3221,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3623,9 +3265,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3787,9 +3429,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3814,9 +3456,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3841,9 +3483,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3868,9 +3510,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3895,9 +3537,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -3922,9 +3564,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -3952,9 +3594,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -3982,9 +3624,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -4029,9 +3671,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -4059,9 +3701,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -4077,50 +3719,6 @@
   }
  },
  "arctis|FM|move_to_microscope(FM)": {
-  "commands": [
-   [
-    "insert"
-   ]
-  ],
-  "device": "FM",
-  "objective": "Inserted",
-  "orientation": "FM",
-  "position": {
-   "r": 0.0,
-   "t": -3.141592653589793,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis|FM|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.0,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis|FM|move_to_microscope_compustage(FM)": {
   "commands": [
    [
     "insert"
@@ -4258,27 +3856,13 @@
   }
  },
  "arctis|MILLING+1|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
-  "orientation": "SEM",
+  "orientation": "MILLING",
   "position": {
    "r": 0.0,
-   "t": 0.0,
+   "t": -0.38397243543875237,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -4294,9 +3878,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -4324,9 +3908,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -4351,9 +3935,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -4501,9 +4085,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -4528,9 +4112,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -4555,9 +4139,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -4573,27 +4157,13 @@
   }
  },
  "arctis|MILLING|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
-  "orientation": "SEM",
+  "orientation": "MILLING",
   "position": {
    "r": 0.0,
-   "t": 0.0,
+   "t": -0.4014257279586957,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -4609,9 +4179,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -4636,9 +4206,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -4666,9 +4236,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -4696,9 +4266,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -4726,9 +4296,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -4756,9 +4326,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -4786,9 +4356,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -4813,66 +4383,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ],
-   [
-    "insert"
-   ]
-  ],
-  "device": "FM",
-  "objective": "Inserted",
-  "orientation": "FM",
-  "position": {
-   "r": 0.0,
-   "t": -3.141592653589793,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis|MILLING|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.0,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis|MILLING|move_to_microscope_compustage(FM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -5011,27 +4524,13 @@
   }
  },
  "arctis|SEM+1|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
   "orientation": "SEM",
   "position": {
    "r": 0.0,
-   "t": 0.0,
+   "t": 0.017453292519943295,
    "x": 0.0001,
    "y": 5e-05,
    "z": 0.0
@@ -5047,9 +4546,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -5077,9 +4576,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -5104,9 +4603,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -5254,9 +4753,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -5281,9 +4780,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -5308,9 +4807,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -5326,21 +4825,7 @@
   }
  },
  "arctis|SEM|move_to_device(FIBSEM,None)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
   "orientation": "SEM",
@@ -5362,9 +4847,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -5389,9 +4874,9 @@
     {
      "r": 0.0,
      "t": -2.234021442552742,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -5419,9 +4904,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -5449,9 +4934,9 @@
     {
      "r": 0.0,
      "t": -0.4014257279586957,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -5479,9 +4964,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -5509,9 +4994,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -5539,9 +5024,9 @@
     {
      "r": 0.0,
      "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ]
   ],
@@ -5566,66 +5051,9 @@
     {
      "r": 0.0,
      "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ],
-   [
-    "insert"
-   ]
-  ],
-  "device": "FM",
-  "objective": "Inserted",
-  "orientation": "FM",
-  "position": {
-   "r": 0.0,
-   "t": -3.141592653589793,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis|SEM|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": 0.0,
-     "x": null,
-     "y": null,
-     "z": null
-    }
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.0,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  }
- },
- "arctis|SEM|move_to_microscope_compustage(FM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "absolute",
-    {
-     "r": 0.0,
-     "t": -3.141592653589793,
-     "x": null,
-     "y": null,
-     "z": null
+     "x": 0.0001,
+     "y": 5e-05,
+     "z": 0.0
     }
    ],
    [
@@ -6638,34 +6066,6 @@
    "z": 0.0
   }
  },
- "iflm|FIB@FM|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [],
-  "device": "FM",
-  "objective": "Inserted",
-  "orientation": "FIB",
-  "position": {
-   "r": 3.141592653589793,
-   "t": 0.29670597283903605,
-   "x": 0.048900000000000006,
-   "y": 5e-05,
-   "z": 0.0
-  },
-  "raises": "ValueError"
- },
- "iflm|FIB@FM|move_to_microscope_compustage(FM)": {
-  "commands": [],
-  "device": "FM",
-  "objective": "Inserted",
-  "orientation": "FIB",
-  "position": {
-   "r": 3.141592653589793,
-   "t": 0.29670597283903605,
-   "x": 0.048900000000000006,
-   "y": 5e-05,
-   "z": 0.0
-  },
-  "raises": "ValueError"
- },
  "iflm|FIB@FM|queries": {
   "current_device": "FM",
   "get_target_position(FIB)": {
@@ -7186,34 +6586,6 @@
    "y": 5e-05,
    "z": 0.0
   }
- },
- "iflm|FIB|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "FIB",
-  "position": {
-   "r": 3.141592653589793,
-   "t": 0.29670597283903605,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  },
-  "raises": "ValueError"
- },
- "iflm|FIB|move_to_microscope_compustage(FM)": {
-  "commands": [],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "FIB",
-  "position": {
-   "r": 3.141592653589793,
-   "t": 0.29670597283903605,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  },
-  "raises": "ValueError"
  },
  "iflm|FIB|queries": {
   "current_device": "FIBSEM",
@@ -8020,34 +7392,6 @@
    "z": 0.0
   }
  },
- "iflm|MILLING|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "MILLING",
-  "position": {
-   "r": 0.0,
-   "t": 0.20943951023931962,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  },
-  "raises": "ValueError"
- },
- "iflm|MILLING|move_to_microscope_compustage(FM)": {
-  "commands": [],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "MILLING",
-  "position": {
-   "r": 0.0,
-   "t": 0.20943951023931962,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  },
-  "raises": "ValueError"
- },
  "iflm|MILLING|queries": {
   "current_device": "FIBSEM",
   "get_target_position(FIB)": {
@@ -8852,34 +8196,6 @@
    "y": -5e-05,
    "z": 0.0
   }
- },
- "iflm|SEM|move_to_microscope_compustage(FIBSEM)": {
-  "commands": [],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.6108652381980153,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  },
-  "raises": "ValueError"
- },
- "iflm|SEM|move_to_microscope_compustage(FM)": {
-  "commands": [],
-  "device": "FIBSEM",
-  "objective": "Retracted",
-  "orientation": "SEM",
-  "position": {
-   "r": 0.0,
-   "t": 0.6108652381980153,
-   "x": 0.0001,
-   "y": 5e-05,
-   "z": 0.0
-  },
-  "raises": "ValueError"
  },
  "iflm|SEM|queries": {
   "current_device": "FIBSEM",

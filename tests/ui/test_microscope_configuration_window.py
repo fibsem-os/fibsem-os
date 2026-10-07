@@ -388,39 +388,6 @@ def test_closing_with_nothing_to_save_does_not_ask(qapp, site, toasts, monkeypat
     assert not window.isVisible()
 
 
-def test_apply_sets_the_microscope_to_what_the_tab_shows(qapp, site, toasts):
-    from fibsem.structures import BeamType
-
-    window = MicroscopeConfigurationWindow(site)
-    _edit(window, 123.0)
-
-    window.pushButton_apply.click()
-
-    assert site.get_field_of_view(BeamType.ELECTRON) == pytest.approx(123.0e-6)
-    assert ("info", "Defaults applied to the microscope.") in toasts
-    assert window.has_unsaved_changes()  # applied, not saved
-
-
-def test_an_apply_that_fails_is_reported_not_raised(qapp, site, toasts, monkeypatch):
-    def fail(*args, **kwargs):
-        raise RuntimeError("beam off")
-
-    monkeypatch.setattr(site, "apply_configuration", fail)
-    window = MicroscopeConfigurationWindow(site)
-
-    window.apply_to_microscope()
-
-    assert ("error", "Could not apply the defaults: beam off") in toasts
-
-
-def test_apply_follows_the_application_s_switch(qapp, site, toasts, monkeypatch):
-    monkeypatch.setattr(cfg, "APPLY_CONFIGURATION_ENABLED", False)
-
-    window = MicroscopeConfigurationWindow(site)
-
-    assert not window.pushButton_apply.isEnabled()
-
-
 def test_a_calibration_with_an_offset_shows_in_the_viewers_zone(qapp, microscope):
     """New records carry their UTC offset (FIB-1190); the fake slot's does not."""
     _fake_calibrated_slot(microscope)

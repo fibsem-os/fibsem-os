@@ -33,8 +33,6 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
         self,
         microscope: FibsemMicroscope,
         stage: FibsemMillingStage,
-        asynch: bool = False,
-        parent_ui=None,
         stop_event: Optional[threading.Event] = None,
     ) -> None:
         logging.info(f"Running {self.name} Milling Strategy for {stage.name}")
@@ -62,8 +60,4 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
         )
 
         raise_if_cancelled(stop_event)  # last chance before the beam starts
-        microscope.run_milling(
-            milling_current=stage.milling.milling_current,
-            milling_voltage=stage.milling.milling_voltage,
-            asynch=asynch,
-        )
+        microscope.run_milling(stop_event=stop_event)
