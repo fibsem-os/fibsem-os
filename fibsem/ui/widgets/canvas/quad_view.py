@@ -14,7 +14,7 @@ per-beam click signals).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Optional, Set
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -374,6 +374,11 @@ class MicroscopeViewController(QObject):
     # (beam, overlay_id, index). Producers subscribe to mirror selection (e.g. a table).
     overlay_point_selected = pyqtSignal(object, str, int)
 
+    # Emitted on any selection change the user makes on a PointsSpec overlay, including
+    # clearing it: (beam, overlay_id, indices). The multi-select counterpart of
+    # overlay_point_selected; producers mirroring a multi-selection subscribe to this.
+    overlay_selection_changed = pyqtSignal(object, str, object)
+
     # Forwarded from the view when the selected view changes (BeamType or "fm"). Only the
     # quad view emits this; the lamella editor view has no selection concept.
     view_selected = pyqtSignal(object)
@@ -589,7 +594,12 @@ class MicroscopeViewController(QObject):
     def set_selected_point(
         self, beam: BeamType, overlay_id: str, index: Optional[int]
     ) -> None:
-        """Select a point on a ``PointsSpec`` overlay (e.g. mirroring a table row).
+        """Select one point on a ``PointsSpec`` overlay, or none. See
+        :meth:`set_selected_points`."""
+        self.set_selected_points(beam, overlay_id, [] if index is None else [index])
+
+    def set_selected_points(self, beam: BeamType, overlay_id: str, indices) -> None:
+        """Select points on a ``PointsSpec`` overlay (e.g. mirroring table rows).
 
         Persists the selection on the spec (so it survives the next reconcile / a live
         frame re-render) and applies it to the live object if it exists. Silent — no
@@ -598,11 +608,35 @@ class MicroscopeViewController(QObject):
         if canvas is None:
             return
         spec = self._states[canvas].overlays.get(overlay_id)
-        if isinstance(spec, PointsSpec):
-            spec.selected = index
         obj = self._overlay_objs.get(canvas, {}).get(overlay_id)
-        if obj is not None and hasattr(obj, "set_selected"):
-            obj.set_selected(index)
+        if isinstance(spec, PointsSpec):
+            self._store_selection(spec, obj, indices)
+        if obj is not None and hasattr(obj, "set_selection"):
+            obj.set_selection(list(indices))
+
+    def overlay_selection(self, beam: BeamType, overlay_id: str) -> List[int]:
+        """Selected point indices for a ``PointsSpec`` overlay — the model's value — or
+        ``[]``. For a ``multi_select`` spec this follows the canvas, so it is current
+        inside an :attr:`overlay_edited` handler."""
+        canvas = self._canvases.get(beam)
+        if canvas is None:
+            return []
+        spec = self._states[canvas].overlays.get(overlay_id)
+        if not isinstance(spec, PointsSpec):
+            return []
+        return list(self._resolved_selection(spec))
+
+    def _store_selection(self, spec: PointsSpec, obj, indices) -> None:
+        """Write a selection onto *spec*. If the overlay was already drawn from this
+        spec, its signature is moved along with it, so the change alone does not cost a
+        destructive rebuild on the next reconcile (a pending points change still does)."""
+        in_step = obj is not None and getattr(
+            obj, "_reducer_pts_sig", None
+        ) == self._points_signature(spec)
+        spec.selection = tuple(int(i) for i in indices)
+        spec.selected = None  # the deprecated field must not shadow an empty selection
+        if in_step:
+            obj._reducer_pts_sig = self._points_signature(spec)
 
     def set_alignment_edit(
         self, beam: BeamType, rect: Optional["FibsemRectangle"], editing: bool
@@ -843,9 +877,18 @@ class MicroscopeViewController(QObject):
                 edge_width=spec.edge_width,
                 legend_label=spec.legend_label,
                 numbered=spec.numbered,
+                multi_select=spec.multi_select,
             )
             beam = self._beams.get(canvas)
-            for sig in (obj.point_added, obj.point_moved, obj.point_removed):
+            # one signal per user action: a single point reports point_moved /
+            # point_removed, a group points_moved / points_removed
+            for sig in (
+                obj.point_added,
+                obj.point_moved,
+                obj.point_removed,
+                obj.points_moved,
+                obj.points_removed,
+            ):
                 sig.connect(
                     lambda *a, b=beam, i=overlay_id, o=obj: self._on_overlay_edited(
                         b, i, o.get_points()
@@ -854,6 +897,11 @@ class MicroscopeViewController(QObject):
             obj.point_selected.connect(
                 lambda idx, x, y, b=beam, i=overlay_id: (
                     self.overlay_point_selected.emit(b, i, idx)
+                )
+            )
+            obj.selection_changed.connect(
+                lambda indices, b=beam, i=overlay_id: (
+                    self._on_overlay_selection_changed(b, i, indices)
                 )
             )
             return obj
@@ -894,9 +942,8 @@ class MicroscopeViewController(QObject):
                 obj.set_points(
                     list(spec.points), colors=spec.colors, labels=spec.labels
                 )
-                obj.set_selected(
-                    spec.selected
-                )  # set_points nulls the selection; re-apply
+                # set_points nulls the selection; re-apply
+                obj.set_selection(list(self._resolved_selection(spec)))
                 obj._reducer_pts_sig = sig
             obj.set_visible(spec.visible)
         elif isinstance(spec, MaskSpec):
@@ -908,7 +955,21 @@ class MicroscopeViewController(QObject):
         skip a redundant (destructive) rebuild when a reconcile is driven by unrelated
         state. ``repr`` so it is robust to numpy/Point element types and compares by value."""
         pts = [(float(p[0]), float(p[1])) for p in spec.points]
-        return repr((pts, spec.colors, spec.labels, spec.selected))
+        return repr(
+            (
+                pts,
+                spec.colors,
+                spec.labels,
+                MicroscopeViewController._resolved_selection(spec),
+            )
+        )
+
+    @staticmethod
+    def _resolved_selection(spec: PointsSpec) -> Tuple[int, ...]:
+        """``selection``, or the deprecated single ``selected`` when that is empty."""
+        if spec.selection:
+            return tuple(spec.selection)
+        return () if spec.selected is None else (spec.selected,)
 
     def _apply_arming(
         self, canvas: FibsemImageCanvas, state: CanvasState, objs
@@ -943,12 +1004,30 @@ class MicroscopeViewController(QObject):
                 spec.rect = value
             elif isinstance(spec, PointsSpec):
                 spec.points = value
+                obj = self._overlay_objs[canvas].get(overlay_id)
+                if obj is not None and spec.multi_select:
+                    # an add / remove changes which indices are selected
+                    spec.selection = tuple(obj.selected_indices())
+                    spec.selected = None
                 # keep the driven signature in sync so the next unrelated reconcile does
                 # not rebuild these markers (and wipe the selection) after a canvas edit
-                obj = self._overlay_objs[canvas].get(overlay_id)
                 if obj is not None:
                     obj._reducer_pts_sig = self._points_signature(spec)
         self.overlay_edited.emit(beam, overlay_id, value)
+
+    def _on_overlay_selection_changed(self, beam, overlay_id: str, indices) -> None:
+        """Fold a canvas-made selection into a multi_select spec and re-emit it.
+
+        Only a multi_select spec records it. A single-select spec's producers have
+        always re-set their specs without a selection, and that must keep leaving the
+        canvas selection alone rather than now reading as "clear it"."""
+        canvas = self._canvases.get(beam)
+        if canvas is not None:
+            spec = self._states[canvas].overlays.get(overlay_id)
+            if isinstance(spec, PointsSpec) and spec.multi_select:
+                obj = self._overlay_objs[canvas].get(overlay_id)
+                self._store_selection(spec, obj, indices)
+        self.overlay_selection_changed.emit(beam, overlay_id, list(indices))
 
     def clear(self) -> None:
         """Clear all canvases (images + reducer-owned overlays) back to placeholders."""
