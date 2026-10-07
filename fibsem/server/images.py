@@ -85,3 +85,16 @@ def preview_payload(image, max_width: int = 768) -> dict:
 
 def _maybe_float(value) -> Optional[float]:
     return float(value) if value is not None else None
+
+
+TIFF_MEDIA_TYPE = "image/tiff"
+
+
+def tiff_bytes(image) -> bytes:
+    """A ``FibsemImage`` as TIFF with its metadata, as ``FibsemImage.load`` reads it."""
+    import tifffile as tff
+
+    buf = io.BytesIO()
+    metadata = image.metadata.to_dict() if image.metadata is not None else None
+    tff.imwrite(buf, image.data, metadata=metadata)
+    return buf.getvalue()

@@ -92,7 +92,7 @@ def test_capabilities_reports_scopes_and_routers(read_client):
     resp = read_client.get("/capabilities", headers=AUTH)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["routers"] == {"microscope": True, "app": False}
+    assert body["routers"] == {"microscope": True, "devices": True, "app": False}
     assert body["scopes"] == {
         "read": True,
         "control": False,
