@@ -23,6 +23,7 @@ import time
 from fibsem.microscopes import tescan as tescan_module
 from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, MillingState
+from tests.fixtures.milling_reads import own_milling_code
 
 # ---------------------------------------------------------------------------
 # AST rule
@@ -161,7 +162,7 @@ def make_microscope(monkeypatch):
         {"IDLE": MillingState.IDLE},
         raising=False,
     )
-    return m, detector
+    return own_milling_code(m), detector
 
 
 def test_concurrent_driver_calls_never_overlap_on_the_connection(monkeypatch):

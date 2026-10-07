@@ -37,7 +37,7 @@ def _supported_settings(
 ) -> Optional[Dict[str, ParameterMetadata]]:
     """The recipe fields the microscope's milling service mills with on the ion beam,
     or None when it has no milling service (no ion beam, so nothing mills)."""
-    milling = getattr(microscope, "milling", None)
+    milling = microscope.milling
     if milling is None:
         return None
     return milling.supported_settings(BeamType.ION)
@@ -128,9 +128,10 @@ class FibsemMillingSettingsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _update_visibility(self) -> None:
-        # The milling service says which fields this instrument mills with.
+        # The milling service says which fields this instrument mills with; with no
+        # service (no ion beam) nothing mills, so no field is shown.
         for row in self._rows:
-            used = self._supported is None or row.field in self._supported
+            used = self._supported is not None and row.field in self._supported
             adv_ok = (not row.advanced) or self._advanced_visible
             row.label.setVisible(used and adv_ok)
             row.control.widget.setVisible(used and adv_ok)

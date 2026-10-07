@@ -410,6 +410,9 @@ class BoundParameter:
             if previous is not _UNSET:
                 self.previous = previous
                 self._emit(value)
+                # changed outside this device (the vendor UI): what depends on it
+                # is read again, as after a write
+                self.device._dependency_changed(self.name)
 
     def _emit(self, value: Any) -> None:
         self.changed.emit(value)

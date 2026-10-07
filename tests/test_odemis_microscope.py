@@ -34,6 +34,7 @@ from fibsem.structures import (
     ImageSettings,
     MillingState,
 )
+from tests.fixtures.milling_reads import own_milling_code
 from tests.fm import _odemis_stubs as stubs
 
 ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
@@ -258,7 +259,7 @@ def microscope(odemis_microscope_cls):
     microscope._default_application_file = "Si"
     microscope._build_devices()
     microscope.connection.calls.clear()
-    return microscope
+    return own_milling_code(microscope)
 
 
 def test_acquire_image_with_settings_stamps_the_shared_metadata(microscope):

@@ -241,6 +241,7 @@ def make(compustage, fm_inserted=False):
     microscope = object.__new__(A.ThermoMicroscope)
     microscope._connection_lock = threading.RLock()
     microscope.system = copy.deepcopy(SYSTEM)
+    microscope._compustage_installed = compustage
     microscope.stage_is_compustage = compustage
     microscope.fm = _FM() if fm_inserted else None
     microscope._stage_position = None
@@ -411,7 +412,7 @@ def cases():
         add("limits", old_limits, new_limits)
         add(
             "class",
-            lambda m: "compustage" if m.stage_is_compustage else "stage",
+            lambda m: "compustage" if m._compustage_installed else "stage",
             lambda s, m: (
                 "compustage" if isinstance(s, AutoscriptCompustage) else "stage"
             ),

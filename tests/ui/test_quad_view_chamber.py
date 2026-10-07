@@ -127,14 +127,6 @@ def test_every_shipped_configuration_draws_its_orientations(qapp, path):
     assert angles["FIB"] == pytest.approx(90.0, abs=0.5)
 
 
-def test_drawn_on_tescan_where_the_info_text_is_not(controller, microscope):
-    """The info bar skips Tescan; the drawing needs only the position and config."""
-    microscope.__class__ = type("TescanMicroscope", (type(microscope),), {})
-    chamber = _show(controller, microscope, "MILLING")
-    assert chamber.has_position
-    assert "stage" not in dict(controller._scene.sem.info)
-
-
 def test_ion_column_drawn_at_the_systems_angle(controller, microscope):
     microscope.system.ion.column_tilt = 55
     chamber = _show(controller, microscope, "SEM")

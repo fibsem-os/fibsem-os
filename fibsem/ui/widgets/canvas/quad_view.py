@@ -781,16 +781,14 @@ class MicroscopeViewController(QObject):
         ``@ensure_main_thread`` ``update_ui`` — there is no synchronous draw to re-enter
         (which is what froze the original info bar)."""
         try:
+            if microscope.stage is None:
+                return  # no stage, so no stage position to show
             if stage_position is None:
                 stage_position = microscope._stage_position
             orientation = microscope.get_stage_orientation(
                 stage_position=stage_position
             )
-            # Before the Tescan return below: that skip is about this text, and the
-            # drawing needs only the position and the configuration.
             self._update_chamber_view(microscope, stage_position, orientation)
-            if type(microscope).__name__ == "TescanMicroscope":
-                return  # no stage-position display yet
             grid = microscope.current_grid
             milling_angle = microscope.get_current_milling_angle(
                 stage_position=stage_position

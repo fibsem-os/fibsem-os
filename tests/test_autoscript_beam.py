@@ -104,15 +104,47 @@ def _quiet(old):
     return [result, calls, [m for m in messages if not m[1].startswith("Unknown key")]]
 
 
+_SELECT = ("connection.imaging.set_active_view", "connection.imaging.set_active_device")
+
+
+def _selects_once(calls):
+    """The calls with each run of repeated channel selections made once: after a
+    detector type write the beam reads the type's modes again (the mode's choices
+    depend on it), selecting its channel for the read, which adds a selection the
+    old code did not make."""
+    out = []
+    i = 0
+    while i < len(calls):
+        two = calls[i : i + 2]
+        if [c[1] for c in two] == list(_SELECT) and out[-2:] == two:
+            i += 2  # the same selection again
+            continue
+        out.append(calls[i])
+        i += 1
+    return out
+
+
+def _same(case):
+    old = _quiet(case["old"])
+    new = case["new"]
+    if " set detector_type " in case["key"]:
+        old = [old[0], _selects_once(old[1]), old[2]]
+        new = [new[0], _selects_once(new[1]), new[2]]
+    return old == new
+
+
 def test_routed_keys_make_the_same_sdk_calls_logs_and_results(recording):
-    different = [c for c in recording["cases"] if _quiet(c["old"]) != c["new"]]
+    different = [c for c in recording["cases"] if not _same(c)]
     assert different == [], json.dumps(different[:3], indent=1)
 
 
-def test_only_the_unknown_key_warnings_are_gone(recording):
-    quietened = [c["key"] for c in recording["cases"] if c["old"] != c["new"]]
-    assert quietened
-    assert all(" set " in key for key in quietened), quietened
+def test_only_the_unknown_key_warnings_and_mode_reads_are_new(recording):
+    changed = [c["key"] for c in recording["cases"] if c["old"] != c["new"]]
+    assert changed
+    assert all(" set " in key for key in changed), changed
+    for case in recording["cases"]:
+        if " set detector_type " in case["key"]:
+            assert len(case["new"][1]) > len(case["old"][1]), case["key"]
 
 
 @pytest.mark.parametrize("plasma", [False, True])
@@ -180,12 +212,17 @@ def test_the_choices_are_get_available_values(recording, plasma, beam):
     pins = json.loads(PINS.read_text())
     old = {
         name: pins[f"thermo plasma={plasma} {beam} {name}"]
-        for name in ("voltage", "current", "detector_type", "plasma_gas")
+        for name in (
+            "voltage",
+            "current",
+            "detector_type",
+            "detector_mode",
+            "plasma_gas",
+        )
     }
-    for name in ("voltage", "current", "detector_type"):
+    # the modes are the detector type's, read again when the type changes
+    for name in ("voltage", "current", "detector_type", "detector_mode"):
         assert facts["choices"][name] == old[name], name
-    # the modes are the detector type's, which can change, so none are cached
-    assert facts["choices"]["detector_mode"] is None
     if plasma and beam == "ION":
         assert facts["choices"]["plasma_gas"] == old["plasma_gas"]
     else:

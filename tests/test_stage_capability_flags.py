@@ -226,7 +226,7 @@ def test_the_thermo_backend_reports_a_compustage_without_a_rotation_axis():
         for node in ast.walk(tree)
         if isinstance(node, ast.If)
         and isinstance(node.test, ast.Attribute)
-        and node.test.attr == "stage_is_compustage"
+        and node.test.attr == "_compustage_installed"
         and isinstance(node.body[0], ast.Return)
         and isinstance(node.body[0].value, ast.Name)
     ]

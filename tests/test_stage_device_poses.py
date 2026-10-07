@@ -67,28 +67,14 @@ def test_each_autoscript_stage_declares_its_own(cls, axes, expected):
     assert _deg(stage.poses(0.0, 35.0, 52.0)) == _deg(expected)
 
 
-@pytest.mark.parametrize(
-    "filename",
-    [
-        "microscope-configuration.yaml",
-        "tescan-configuration.yaml",
-        "sim-arctis-configuration.yaml",
-    ],
-)
-def test_a_backend_without_a_stage_device_gets_the_same_table(filename):
-    """Odemis and Tescan have no stage device yet; they must not notice the move."""
-    microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, filename), manufacturer="Demo"
-    )
-    assert microscope.stage_device is not None
-    microscope._update_orientations()
-    with_device = _deg(microscope.orientations)
-
+def test_without_a_stage_device_there_are_no_orientations():
+    """Every backend builds a stage device; one switched off has no stage to orient."""
+    microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device = None
     microscope._update_orientations()
-
-    assert _deg(microscope.orientations) == with_device
-    assert list(microscope.orientations) == list(with_device)
+    assert microscope.orientations == {}
+    assert microscope._stage_poses() == {}
+    assert microscope._stage_turned_over(3.0) is False
 
 
 def _classifier(poses_deg):
