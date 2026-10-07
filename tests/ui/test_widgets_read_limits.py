@@ -70,7 +70,10 @@ def test_beam_settings_follow_the_beam():
 
 
 def test_beam_settings_keep_the_standard_values_when_the_beam_reports_none():
-    widget = FibsemBeamSettingsWidget(microscope=_demo(), beam_type=E)
+    microscope = _demo()
+    _report(microscope, E, "resolution")
+    _report(microscope, E, "dwell_time")
+    widget = FibsemBeamSettingsWidget(microscope=microscope, beam_type=E)
     widget.populate_beam_combos()
 
     standard = [tuple(r) for _, r in cfg.STANDARD_RESOLUTIONS_ZIP]
