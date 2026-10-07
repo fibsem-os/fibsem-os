@@ -12,9 +12,9 @@ import pytest
 
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError
+from fibsem.drivers.demo.services import DemoMilling
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services import milling as milling_module
-from fibsem.services.drivers.demo import DemoMilling
 from fibsem.services.milling import Milling, progress_update
 from fibsem.structures import (
     BeamType,
@@ -126,7 +126,7 @@ def test_the_demo_mills_for_its_estimate_and_reports_as_it_goes(microscope):
     updates = []
     microscope.milling_progress_signal.connect(updates.append)
 
-    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    microscope.run_milling()
 
     assert isinstance(microscope.milling, DemoMilling)
     assert microscope.get_milling_state() is IDLE

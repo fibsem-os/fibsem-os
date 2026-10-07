@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 from psygnal import Signal
 
-from fibsem.devices.drivers.tescan import TescanBeam
+from fibsem.drivers.tescan.devices import TescanBeam
 
 
 class _Frames:

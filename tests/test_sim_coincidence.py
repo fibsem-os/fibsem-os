@@ -54,7 +54,7 @@ def _enable_projection(microscope, offset: float = COINCIDENCE_OFFSET, **scene_k
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = offset
     microscope._setup_sample_scene()
-    from fibsem.microscopes.sim_scene import SampleScene
+    from fibsem.drivers.demo.sim_scene import SampleScene
 
     # the fiducial is the landmark these tests navigate by
     microscope._sample_scene = SampleScene(
@@ -203,7 +203,7 @@ def test_views_share_the_scene_but_not_the_contrast():
     structure with different contrast: correlated, but not the same
     picture and not its inverse either (holes and trenches are dark in
     both; cells are bright in the SEM, outlined in the FIB)."""
-    from fibsem.microscopes.sim_scene import SampleScene
+    from fibsem.drivers.demo.sim_scene import SampleScene
     from fibsem.projection import BeamStageProjection
     from fibsem.structures import FibsemHardwareGeometry
 

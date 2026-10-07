@@ -168,6 +168,8 @@ class FibsemDetectorSettingsWidget(QWidget):
         if not detector_type:
             return
         self.microscope.set_detector_type(detector_type, self.beam_type)
+        # the modes depend on the type: the device has read them again
+        self._populate_modes()
         logging.info(
             {
                 "msg": "_on_type_changed",
@@ -237,7 +239,10 @@ class FibsemDetectorSettingsWidget(QWidget):
             if current_type is not None:
                 self.type_combo.setCurrentText(current_type)
         self.type_combo.blockSignals(False)
+        self._populate_modes()
 
+    def _populate_modes(self):
+        """The mode combo from the beam's detector mode choices, at its current mode."""
         self.mode_combo.blockSignals(True)
         self.mode_combo.clear()
         available_modes = beam_choices(self.microscope, "detector_mode", self.beam_type)

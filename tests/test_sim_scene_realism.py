@@ -20,7 +20,7 @@ from fibsem.alignment.coincidence import (
     check_coincidence,
     ensure_coincident,
 )
-from fibsem.microscopes.sim_scene import SampleScene
+from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.projection import BeamStageProjection
 from fibsem.structures import BeamType, ImageSettings
 
@@ -281,7 +281,7 @@ def test_the_fm_dyes_the_nucleus_and_the_cytoplasm_differently(microscope):
     """In the FM the DNA dye (365 excitation) lights the nucleus only; the
     cytoplasmic dye (450) lights the whole body - so the DAPI image is a
     subset of the GFP image, brightest where GFP is bright too."""
-    from fibsem.microscopes.sim_scene import fm_channel_weights
+    from fibsem.drivers.demo.sim_scene import fm_channel_weights
     from fibsem.projection import FMStageProjection
 
     scene = _scene(
@@ -483,7 +483,7 @@ def test_milled_patterns_persist_in_the_world(microscope):
             width=30e-6, height=6e-6, depth=1e-6, centre_x=10e-6, centre_y=20e-6
         )
     )
-    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    microscope.run_milling()
     after = microscope.acquire_image(image_settings=settings)
     assert len(microscope._sample_scene.milled) == 1
 
@@ -558,7 +558,7 @@ def test_a_rotated_pattern_mills_the_footprint_it_was_drawn_with(microscope):
             rotation=np.deg2rad(45),
         )
     )
-    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    microscope.run_milling()
     image = microscope.acquire_image(image_settings=settings)
     trench = image.data < 100
 
@@ -601,7 +601,7 @@ def test_holes_and_trenches_are_dark_in_both_beams(microscope):
             width=20e-6, height=5e-6, depth=1e-6, centre_x=0.0, centre_y=-25e-6
         )
     )
-    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    microscope.run_milling()
     fib, sem = _fib_and_sem(microscope, hfw=100e-6)
     for name, image in (("FIB", fib), ("SEM", sem)):
         film = np.median(image)
@@ -643,7 +643,7 @@ def test_the_fib_sees_cells_as_outlined_not_inverted(microscope):
 def test_the_film_is_brighter_at_grazing_incidence():
     """SE yield rises with tilt: the same bare film reads brighter in a
     view that sees it at a steeper angle."""
-    from fibsem.microscopes.sim_scene import BEAM_LAYERS
+    from fibsem.drivers.demo.sim_scene import BEAM_LAYERS
 
     t = BEAM_LAYERS[BeamType.ION]
     grazing = t["film"] + t["film_tilt_gain"] * (1 - 0.26)
@@ -657,8 +657,8 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
     small dark disc with a bright rim where the beam was. It sits where the
     point was placed in the FIB view, and the SEM and the FM reflection
     channel see it too."""
+    from fibsem.drivers.demo.sim_scene import SPOT_BURN_DIAMETER
     from fibsem.imaging.spot import SpotBurnSettings
-    from fibsem.microscopes.sim_scene import SPOT_BURN_DIAMETER
     from fibsem.structures import Point
 
     scene = _scene(

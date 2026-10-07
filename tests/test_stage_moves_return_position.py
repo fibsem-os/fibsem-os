@@ -21,8 +21,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.devices.drivers.tescan import bind_tescan_stage
-from fibsem.microscopes.tescan import TescanMicroscope
+from fibsem.drivers.tescan.devices import bind_tescan_stage
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import FibsemStagePosition
 from tests.fm import _odemis_stubs as stubs
 
@@ -120,7 +120,7 @@ def odemis_microscope_cls():
             saved[name] = sys.modules.pop(name)
 
     stubs.install_odemis_stubs()
-    from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
     yield OdemisThermoMicroscope
 
@@ -152,7 +152,7 @@ class _OdemisStage:
 
 
 def _odemis(cls):
-    from fibsem.devices.drivers.odemis import bind_odemis_stage
+    from fibsem.drivers.odemis.devices import bind_odemis_stage
 
     microscope = object.__new__(cls)  # skip __init__ (requires odemis)
     microscope.system = utils.load_microscope_configuration(

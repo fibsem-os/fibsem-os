@@ -73,11 +73,11 @@ from fibsem.devices.wire import (
     from_wire,
     to_wire,
 )
-from fibsem.microscopes.registry import DeviceBuilder
+from fibsem.drivers.registry import DeviceBuilder
 from fibsem.structures import BeamType, FibsemRectangle, Point, RangeLimit
 
 if TYPE_CHECKING:
-    from fibsem.microscopes.registry import BuildContext
+    from fibsem.drivers.registry import BuildContext
     from fibsem.structures import DeviceEntry
 
 READ_TIMEOUT = 5.0
@@ -671,8 +671,8 @@ def _server(
 
 
 DEVICE_BUILDERS = {
-    device_type: DeviceBuilder("fibsem.devices.drivers.remote:build_remote_device")
+    device_type: DeviceBuilder("fibsem.drivers.remote.devices:build_remote_device")
     for device_type in REMOTE_DEVICE_TYPES
 }
 """How the remote driver builds each type, as the registry gives a driver's builders
-(``fibsem.microscopes.registry.device_builder``)."""
+(``fibsem.drivers.registry.device_builder``)."""

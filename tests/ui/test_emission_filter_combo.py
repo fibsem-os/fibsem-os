@@ -12,8 +12,8 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import Qt  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings, emission_filter_for  # noqa: E402
-from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope  # noqa: E402
 from fibsem.ui.fm.widgets.emission_filter_combo import (  # noqa: E402
     EmissionFilterComboBox,
     emission_lookup_for,

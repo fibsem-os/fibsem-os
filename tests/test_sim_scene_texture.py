@@ -5,8 +5,8 @@ the stamping once and every view sees the same world."""
 import numpy as np
 import pytest
 
-from fibsem.microscopes import sim_scene
-from fibsem.microscopes.sim_scene import (
+from fibsem.drivers.demo import sim_scene
+from fibsem.drivers.demo.sim_scene import (
     TEXTURE_BUDGET,
     SampleScene,
     SceneFeature,

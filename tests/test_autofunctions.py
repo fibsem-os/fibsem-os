@@ -579,9 +579,9 @@ def test_run_auto_focus_queries_capability_for_the_requested_beam():
 def test_wd_settable_capability_matrix():
     """Tescan: preset-driven ion focus, no FIB WD control anywhere in the SDK.
     Everything else inherits the base's True."""
+    from fibsem.drivers.demo.simulator import DemoMicroscope
+    from fibsem.drivers.tescan.microscope import TescanMicroscope
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.microscopes.simulator import DemoMicroscope
-    from fibsem.microscopes.tescan import TescanMicroscope
 
     tescan = object.__new__(TescanMicroscope)
     assert tescan.is_working_distance_settable(BeamType.ELECTRON) is True

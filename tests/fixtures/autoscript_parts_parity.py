@@ -4,7 +4,7 @@ through the devices.
 Run as a script, in its own interpreter, for the same reason as
 ``autoscript_stage_parity.py``, whose fake SDK and recorder it reuses: the fake
 ``autoscript_sdb_microscope_client`` must be in ``sys.modules`` before
-``fibsem.microscopes.autoscript`` is imported. It writes JSON to the path it is given:
+``fibsem.drivers.autoscript.microscope`` is imported. It writes JSON to the path it is given:
 ``cases``, each holding what a call returned (or raised), the SDK calls and writes it
 made and the messages it logged, on a microscope that built the devices as connect
 does (the old code's are in ``autoscript_old_calls.json``, recorded over this fake

@@ -17,7 +17,7 @@ The far side of a remote device (the METEOR PC, say). It wraps any
     WS   /events                               {"device", "parameter", "kind", "value"},
                                                with pings as a heartbeat
 
-The coordinator side is ``fibsem.devices.drivers.remote``. A write runs the device's
+The coordinator side is ``fibsem.drivers.remote.devices``. A write runs the device's
 ``set_value``, so the server checks every value itself, whatever the client did.
 Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
@@ -36,7 +36,7 @@ INSTALLATION.md, "Delmic METEOR"):
 
     python -m fibsem.server.devices --serve odemis-fm --host 0.0.0.0
 
-    from fibsem.devices.drivers.remote import connect_remote_beams   # terminal 2
+    from fibsem.drivers.remote.devices import connect_remote_beams   # terminal 2
     beams = connect_remote_beams("127.0.0.1", 8765)
 """
 
@@ -85,6 +85,11 @@ from fibsem.devices.wire import (
 )
 from fibsem.server.images import TIFF_MEDIA_TYPE, tiff_bytes
 from fibsem.structures import FibsemImage
+
+# Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
+# which websockets 14+ deprecates on import; under the test suite's warnings-as-errors
+# that kills the server thread. The sans-I/O one serves /events without it.
+WS_PROTOCOL = "websockets-sansio"
 
 """A command that returns an array (an image) answers with ``np.save`` bytes."""
 
@@ -331,6 +336,7 @@ class DeviceServer:
             port=port,
             log_level="warning",
             timeout_graceful_shutdown=1,
+            ws=WS_PROTOCOL,
         )
         self.app = config.app
         self._server = uvicorn.Server(config)
@@ -367,7 +373,7 @@ def demo_devices() -> List[Device]:
 def demo_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
     """The Demo FM's parts and group, on their own, as a METEOR PC would serve its
     FM. *config* is the FM's configuration keys, as an fm entry states them."""
-    from fibsem.devices.drivers.demo import bind_demo_fm
+    from fibsem.drivers.demo.devices import bind_demo_fm
 
     return list(bind_demo_fm(config=config).values())
 
@@ -387,7 +393,7 @@ def odemis_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device
     """
     try:
         import fibsem.fm.odemis  # noqa: F401
-        from fibsem.devices.drivers.odemis_fm import bind_odemis_fm
+        from fibsem.drivers.odemis.devices import bind_odemis_fm
     except ImportError as e:
         raise RuntimeError(
             f"odemis cannot be imported here ({e}). Serve the odemis FM from the "
@@ -439,7 +445,12 @@ def main(argv: Optional[List[str]] = None) -> None:
             raise SystemExit(1) from e
     devices: Mapping[str, Device] = {d.name: d for d in served}
     logging.info(f"serving {sorted(devices)} on http://{args.host}:{args.port}")
-    uvicorn.run(build_device_app(devices.values()), host=args.host, port=args.port)
+    uvicorn.run(
+        build_device_app(devices.values()),
+        host=args.host,
+        port=args.port,
+        ws=WS_PROTOCOL,
+    )
 
 
 if __name__ == "__main__":

@@ -63,7 +63,7 @@ def build_microscope(
         )
 
     if microscope.fm is None:
-        from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+        from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 
         microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
 

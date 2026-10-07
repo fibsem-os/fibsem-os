@@ -12,8 +12,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.devices.drivers.autoscript import AutoscriptCompustage, AutoscriptStage
 from fibsem.devices.stage import Axes, compustage_poses, rotating_stage_poses
+from fibsem.drivers.autoscript.devices import AutoscriptCompustage, AutoscriptStage
 
 
 def _deg(poses):

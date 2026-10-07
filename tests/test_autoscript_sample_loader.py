@@ -1,9 +1,9 @@
 """The AutoScript autoloader against a fake of the AutoScript autoloader API.
 
 Every case runs twice: on the old grid loader (``AutoscriptSampleLoader`` in
-``fibsem.microscopes.autoscript``) and on what ``ThermoMicroscope`` builds now, the
+``fibsem.drivers.autoscript.microscope``) and on what ``ThermoMicroscope`` builds now, the
 grid model (``DeviceSampleLoader``) over the ``sample_loader`` device
-(``fibsem.devices.drivers.autoscript``), and needs the same answer from both.
+(``fibsem.drivers.autoscript.devices``), and needs the same answer from both.
 
 The fake mirrors what operator code confirmed on an Arctis: ``get_slots(run_inventory)``
 returns ``AutoloaderSlot``-like objects with a 1-based ``id``, a ``state`` in
@@ -17,14 +17,14 @@ from typing import List, Optional
 import pytest
 
 from fibsem import utils
-from fibsem.devices.drivers import autoscript as autoscript_devices
+from fibsem.drivers.autoscript import devices as autoscript_devices
+from fibsem.drivers.autoscript.microscope import AutoscriptSampleLoader
 from fibsem.microscopes._stage import (
     DeviceSampleLoader,
     GridExchangeError,
     SampleGrid,
     _create_sample_stage,
 )
-from fibsem.microscopes.autoscript import AutoscriptSampleLoader
 from fibsem.structures import DeviceEntry
 
 _KIND = "old"
@@ -438,7 +438,7 @@ class TestIsInstalled:
 def _thermo(autoloader: FakeAutoloader, devices=None):
     """A ThermoMicroscope with just what `_create_grid_loader` reads: the
     configuration, the connection and the devices map."""
-    from fibsem.microscopes.autoscript import ThermoMicroscope
+    from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 
     demo, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
     system = demo.system

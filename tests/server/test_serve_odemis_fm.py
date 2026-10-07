@@ -91,7 +91,7 @@ def test_a_remote_fm_shows_power_and_gain_in_the_hardwares_units(odemis_stubs):
     """Power and gain are fractions everywhere; the hardware's own full scale crosses
     the wire with their metadata, for a display to show beside them."""
     pytest.importorskip("websockets")
-    from fibsem.devices.drivers.remote import DeviceClient
+    from fibsem.drivers.remote.devices import DeviceClient
     from fibsem.fm.remote import RemoteFluorescenceMicroscope
     from fibsem.server.devices import DeviceServer
 
@@ -118,7 +118,7 @@ def test_a_remote_fm_brings_how_its_camera_is_mounted(odemis_stubs):
     pytest.importorskip("websockets")
     import numpy as np
 
-    from fibsem.devices.drivers.remote import DeviceClient
+    from fibsem.drivers.remote.devices import DeviceClient
     from fibsem.fm.remote import RemoteFluorescenceMicroscope
     from fibsem.fm.structures import CameraImageTransform
     from fibsem.server.devices import DeviceServer

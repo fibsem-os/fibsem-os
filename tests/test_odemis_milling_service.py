@@ -55,7 +55,7 @@ def both(odemis_cls, call):
 
 
 def test_odemis_builds_its_milling_service(odemis_cls):
-    from fibsem.services.drivers.odemis import OdemisMilling
+    from fibsem.drivers.odemis.services import OdemisMilling
 
     microscope = make(odemis_cls)
     assert isinstance(microscope.milling, OdemisMilling)

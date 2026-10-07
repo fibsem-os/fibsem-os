@@ -28,7 +28,7 @@ from PyQt5.QtGui import QWheelEvent
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from fibsem.constants import METRE_TO_MICRON
-from fibsem.microscopes.device_demo import DemoFluorescenceMicroscope
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 

@@ -82,8 +82,6 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         self,
         microscope: FibsemMicroscope,
         stage: "FibsemMillingStage",
-        asynch: bool = False,
-        parent_ui=None,
         stop_event: Optional[threading.Event] = None,
     ) -> None:
         """Mill a trench pattern with overtilt,
@@ -190,11 +188,7 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
 
             raise_if_cancelled(stop_event)  # last chance before the beam starts
             # run milling
-            microscope.run_milling(
-                milling_current=stage.milling.milling_current,
-                milling_voltage=stage.milling.milling_voltage,
-                asynch=False,
-            )
+            microscope.run_milling(stop_event=stop_event)
 
             # finish milling (clear patterns, restore imaging current)
             microscope.finish_milling(

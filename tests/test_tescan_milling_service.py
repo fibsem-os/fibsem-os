@@ -14,8 +14,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes import tescan as tescan_module
-from fibsem.services.drivers.tescan import TescanMilling
+from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan.services import TescanMilling
 from fibsem.structures import (
     BeamType,
     FibsemCircleSettings,
@@ -275,7 +275,7 @@ def test_run_milling_loads_runs_and_unloads_the_layer(connect):
     microscope.milling_progress_signal.connect(updates.append)
     fake.log.clear()
 
-    microscope.run_milling(milling_current=1e-9, milling_voltage=30e3)
+    microscope.run_milling()
 
     paths = [p for p, _, _ in fake.log]
     for step in ("DrawBeam.LoadLayer", "connection.Progress.Show", "DrawBeam.Start"):

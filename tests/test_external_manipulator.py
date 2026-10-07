@@ -15,8 +15,8 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.manipulator import Manipulator
-from fibsem.microscopes import registry
-from fibsem.microscopes.registry import DeviceBuilder, DriverEntry, register_driver
+from fibsem.drivers import registry
+from fibsem.drivers.registry import DeviceBuilder, DriverEntry, register_driver
 from fibsem.structures import (
     DeviceEntry,
     FibsemManipulatorPosition,

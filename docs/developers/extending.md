@@ -102,7 +102,7 @@ Each group contributes one kind of object:
   class, as described in the next section. It appears in the Add Task
   dialog.
 - **A microscope driver** (`fibsem.drivers`): a function returning a
-  `DriverEntry` (`fibsem/microscopes/registry.py`) that names a
+  `DriverEntry` (`fibsem/drivers/registry.py`) that names a
   `FibsemMicroscope` subclass, its manufacturer, its defaults, and how it
   builds each type of device. A configuration naming that manufacturer
   connects through it, and a `hardware.devices` entry naming it as its
@@ -179,14 +179,14 @@ types that round-trip through YAML.
 A backend is two parts: a `FibsemMicroscope` subclass (`fibsem/microscope.py`),
 the coordinator covering acquisition, movement, milling and state, and the
 devices it builds, one class per device type in
-`fibsem/devices/drivers/<driver>.py` (a `Beam`, a `Stage`, a `Chamber`, ...).
+`fibsem/drivers/<driver>/devices.py` (a `Beam`, a `Stage`, a `Chamber`, ...).
 Once a backend implements both and is registered, the workflows, UI and server
 work unchanged.
 
 - **Devices.** Subclass the vendor-neutral classes in `fibsem/devices/` and
   implement each parameter as `read_<name>`/`write_<name>`/`metadata_<name>`
   methods, as [Adding a device type](devices.md#adding-a-device-type)
-  describes. `fibsem/devices/drivers/demo.py` is the reference. The driver's
+  describes. `fibsem/drivers/demo/devices.py` is the reference. The driver's
   `DriverEntry.devices` maps each device type to its build function, and the
   microscope class builds its devices from the configuration's
   `hardware.devices` entries with `fibsem.devices.entries`
@@ -197,13 +197,13 @@ work unchanged.
   Demo has none); do not add keys to them.
 
 - **Reference implementations.** `DemoMicroscope` in
-  `fibsem/microscopes/device_demo.py` is the complete, hardware-free
-  reference. `fibsem/microscopes/tescan.py` shows a vendor SDK behind the
+  `fibsem/drivers/demo/microscope.py` is the complete, hardware-free
+  reference. `fibsem/drivers/tescan/microscope.py` shows a vendor SDK behind the
   same interface. `microscopes/zeiss.py` is an empty placeholder awaiting a
   SerialFIB migration; a Zeiss backend should be built there rather than in
   a new file.
 - **Registration.** Implementing the class is not sufficient. A driver is
-  a `DriverEntry` in the registry (`fibsem/microscopes/registry.py`): a
+  a `DriverEntry` in the registry (`fibsem/drivers/registry.py`): a
   module-level `DRIVER` record listed in `_BUILT_IN` for a backend in the
   fibsem tree, or a `fibsem.drivers` entry point for one in its own package.
   A manufacturer without one raises `NotImplementedError` at connection
@@ -231,7 +231,7 @@ An FM is devices too: a `Camera`, a `LightSource`, a `FilterSet` and an
 device that acquires channels and z-stacks. Implement the four parts; the
 `FM` device and `microscope.fm` (`FluorescenceMicroscope`,
 `fibsem/fm/microscope.py`) are built on them. The simulated parts in
-`fibsem/devices/drivers/demo.py` are the hardware-free reference, and
+`fibsem/drivers/demo/devices.py` are the hardware-free reference, and
 `autoscript_fm.py` and `odemis_fm.py` beside it are the two hardware
 implementations. An FM on its own computer needs no driver on the
 microscope's side: serve its parts with the device server and configure the

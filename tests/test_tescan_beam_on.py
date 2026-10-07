@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fibsem.devices.drivers.tescan import TescanBeam
+from fibsem.drivers.tescan.devices import TescanBeam
 from fibsem.structures import BeamType
 
 

@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
-from fibsem.devices.drivers.remote import DeviceClient  # noqa: E402
+from fibsem.drivers.remote.devices import DeviceClient  # noqa: E402
 from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
 from fibsem.server.devices import DeviceServer  # noqa: E402
@@ -39,7 +39,7 @@ def odemis_fm_module():
         if name in sys.modules:
             saved[name] = sys.modules.pop(name)
     stubs.install_odemis_stubs()
-    import fibsem.devices.drivers.odemis_fm as drivers
+    import fibsem.drivers.odemis.devices as drivers
     import fibsem.fm.odemis as fm_odemis
 
     yield fm_odemis, drivers

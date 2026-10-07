@@ -95,7 +95,7 @@ alias. The vendor's own stage object is private to each backend.
 
 The device classes are in `fibsem.devices` (`Beam`, `Stage`, `Chamber`,
 `Manipulator`) and `fibsem.devices.fm` (`FM`, `Camera`, `LightSource`, `FilterSet`,
-`Objective`). Each backend subclasses them in `fibsem/devices/drivers/<driver>.py`.
+`Objective`). Each backend subclasses them in `fibsem/drivers/<driver>/devices.py`.
 
 ## Parameters
 
@@ -387,17 +387,19 @@ as milling found it on every backend.
 
 Workflow code mills through `fibsem.milling` (milling stages, strategies and
 `fibsem.milling.tasks.run_milling_task`), as before. The microscope's named milling methods (`setup_milling`,
-`draw_rectangle`, `start_milling`, `finish_milling`, ...) keep their signatures and go
-to the service; `finish_milling` restores the beam. On a backend that has no milling
-service yet, or with the ion column disabled, `microscope.milling` is `None` and those
-methods use the backend's own milling code.
+`draw_rectangle`, `start_milling`, `run_milling`, `finish_milling`, ...) go to the
+service; `finish_milling` restores the beam. `run_milling(stop_event=None)` is the
+service's `run`: it mills what is drawn with the beam conditions `setup_milling`
+applied, reports `progress`, and returns when the mill ends; a set `stop_event` stops
+the beam. To start a mill and return at once, use `start_milling`. With the ion column
+disabled, `microscope.milling` is `None` and those methods raise.
 
 A driver adds milling by subclassing `fibsem.services.milling.Milling` and
 implementing its hooks (`_setup`, `_draw`, `_start`, `_stop`, `_pause`, `_resume`,
 `_estimate`, `_clear` and `read_state`) the way its instrument mills. The driver also
 applies the recipe's beam conditions, since backends use different recipe fields.
 `bind_milling(MyMilling, microscope)` builds it over the microscope's beams.
-`fibsem/services/drivers/demo.py` is the reference.
+`fibsem/drivers/demo/services.py` is the reference.
 
 ## From get/set to devices
 
@@ -522,16 +524,16 @@ class is defined, so a typo cannot silently hide a parameter. A subclass may not
 change a declared parameter's type or unit: what differs between backends goes in the
 metadata. `needs_channel` names the parameters whose reads and writes claim the
 imaging channel. The vendor-neutral classes live in `fibsem/devices/` and never import
-a driver; each driver's classes live in `fibsem/devices/drivers/<driver>.py`.
+a driver; each driver's classes live in `fibsem/drivers/<driver>/devices.py`.
 
 ## Adding a driver
 
-A driver is a `DriverEntry` in the registry (`fibsem/microscopes/registry.py`). Its
+A driver is a `DriverEntry` in the registry (`fibsem/drivers/registry.py`). Its
 `devices` map says how it builds each device type from a configuration entry:
 
 <!-- not run -->
 ```python
-from fibsem.microscopes.registry import DeviceBuilder, DriverEntry
+from fibsem.drivers.registry import DeviceBuilder, DriverEntry
 
 
 def build_knife(entry, context):
@@ -551,7 +553,7 @@ def driver():
 
 A package outside fibsemOS registers `driver` through the `fibsem.drivers` entry
 point (see [Plugins](extending.md#plugins)), or calls
-`fibsem.microscopes.registry.register_driver(driver())` at run time. A configuration
+`fibsem.drivers.registry.register_driver(driver())` at run time. A configuration
 then adds the device with an entry naming the driver:
 
 ```yaml
@@ -585,7 +587,7 @@ python -m fibsem.server.devices --serve odemis-fm --host 0.0.0.0 --port 8765
 On the microscope's computer, the `fm` entry names `driver: remote` and the server's
 `address` and `port`, as in the example under
 [Configuring devices](#configuring-devices). The FM's devices are then built from what
-the server has, backed by HTTP (`fibsem/devices/drivers/remote.py`), and parameters,
+the server has, backed by HTTP (`fibsem/drivers/remote/devices.py`), and parameters,
 metadata and commands behave as they do locally. The FM is the only device a
 configuration can put on another computer today; `connect_remote_beams` in the same
 module connects to served beams from a script. `get_value()` raises `RemoteDeviceUnreachable` when the server cannot

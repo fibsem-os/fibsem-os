@@ -12,7 +12,8 @@ kinds the configuration file is divided into:
   fluorescence objective. Never typed in: the holder's slots come from its guided
   calibration, opened from here.
 - **Defaults**: what the columns and the acquire tab start at -- read off the
-  instrument, edited, and saved by the window's Save; Apply to Microscope sets them.
+  instrument, edited, and saved by the window's Save. Nothing here writes to the
+  instrument: the saved defaults are set at connect, if the file asks.
 - **Session**: what the application remembers for this configuration between
   sessions (`fibsem.session_state`) -- the file it is kept in and everything each
   section holds. Shown, not edited: each section is changed where it is used.
@@ -21,7 +22,6 @@ Only while connected: everything here is read from the live session. The Default
 is the only one with anything to save; the window says when it has unsaved changes.
 """
 
-import logging
 import math
 import os
 from typing import Callable, Iterable, List, Optional, Sequence, Tuple
@@ -43,10 +43,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import ImageSettings
-from fibsem.ui import notification_service, stylesheets
+from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     OK_COLOR,
     PANEL_COLOR,
@@ -701,13 +700,6 @@ class MicroscopeConfigurationWindow(QDialog):
         path = getattr(microscope, "configuration_path", None)
         self._file_name = os.path.basename(path) if path else ""
         self.label_unsaved = _status("", WARN_COLOR)
-        self.pushButton_apply = QPushButton("Apply to Microscope")
-        self.pushButton_apply.setToolTip(
-            "Set the columns and detectors to the defaults on the Defaults tab, "
-            "saved or not. The beams should be on."
-        )
-        self.pushButton_apply.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_apply.setEnabled(cfg.APPLY_CONFIGURATION_ENABLED)
         self.pushButton_save = QPushButton("Save")
         self.pushButton_save.setToolTip(
             "Write the defaults into the configuration file this session was started "
@@ -720,7 +712,6 @@ class MicroscopeConfigurationWindow(QDialog):
         foot.addWidget(self.label_unsaved)
         foot.addStretch()
         for button in (
-            self.pushButton_apply,
             self.pushButton_save,
             self.pushButton_close,
         ):
@@ -734,7 +725,6 @@ class MicroscopeConfigurationWindow(QDialog):
         self.resize(1040, 560)
 
         self.defaults.changed.connect(self._show_unsaved)
-        self.pushButton_apply.clicked.connect(self.apply_to_microscope)
         self.pushButton_save.clicked.connect(self.save)
         self.pushButton_close.clicked.connect(self.close)
         self._show_unsaved()
@@ -757,19 +747,6 @@ class MicroscopeConfigurationWindow(QDialog):
     def save(self) -> bool:
         """Write the window's changes into the configuration. Returns whether saved."""
         return self.defaults.save_to_configuration()
-
-    def apply_to_microscope(self) -> None:
-        """Set the instrument to the defaults the Defaults tab shows."""
-        self.defaults.write_form_into_system()
-        try:
-            self.microscope.apply_configuration()
-        except Exception as e:  # a slot: nothing may reach Qt
-            logging.error(f"Could not apply the defaults: {e}")
-            notification_service.show_toast(
-                f"Could not apply the defaults: {e}", "error"
-            )
-            return
-        notification_service.show_toast("Defaults applied to the microscope.", "info")
 
     def reject(self) -> None:
         """Close, Escape and the title bar all come here: offer to save first."""

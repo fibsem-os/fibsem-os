@@ -366,7 +366,7 @@ def test_an_offset_mount_is_still_decided_by_where_the_stage_is():
 
 
 def test_the_thermo_compustage_says_the_same_as_the_demo_one():
-    from fibsem.devices.drivers.autoscript import AutoscriptCompustage, AutoscriptStage
+    from fibsem.drivers.autoscript.devices import AutoscriptCompustage, AutoscriptStage
 
     compustage = object.__new__(AutoscriptCompustage)
     assert compustage.device_at_pose("FM") == "FM"

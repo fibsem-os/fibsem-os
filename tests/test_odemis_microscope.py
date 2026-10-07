@@ -236,7 +236,7 @@ def odemis_microscope_cls():
             saved[name] = sys.modules.pop(name)
 
     stubs.install_odemis_stubs()
-    from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
     yield OdemisThermoMicroscope
 

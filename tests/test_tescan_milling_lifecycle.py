@@ -15,8 +15,8 @@ from typing import List, Optional
 import pytest
 
 from fibsem.devices.beam import BEAM_ROUTES
-from fibsem.microscopes import tescan as tescan_module
-from fibsem.microscopes.tescan import TescanMicroscope
+from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings
 from tests.fixtures.milling_reads import own_milling_code
 

@@ -9,7 +9,7 @@ import yaml
 
 import fibsem
 from fibsem import manufacturers
-from fibsem.microscopes import registry
+from fibsem.drivers import registry
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445
@@ -298,9 +298,6 @@ def __getattr__(name: str):
 # machine learning
 HUGGINFACE_REPO = "patrickcleeve/autolamella"
 DEFAULT_CHECKPOINT = "autolamella-mega-20240107.pt"
-
-# feature flags
-APPLY_CONFIGURATION_ENABLED = True
 
 
 # ---------------------------------------------------------------------------

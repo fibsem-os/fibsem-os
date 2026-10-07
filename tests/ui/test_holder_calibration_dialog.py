@@ -161,6 +161,10 @@ def test_save_writes_the_config_and_emits(qapp, microscope, tmp_path):
     dialog = _dialog(qapp, microscope, holder, tmp_path)
     saved = []
     dialog.holder_saved.connect(saved.append)
+    # And on the microscope, which is what the overview tabs listen to: they are not
+    # told by whichever widget opened the dialog.
+    announced = []
+    microscope.holder_changed.connect(announced.append)
     dialog.name_edit.setText("Two-grid shuttle")
     dialog._on_next()  # applies the name
 
@@ -174,6 +178,7 @@ def test_save_writes_the_config_and_emits(qapp, microscope, tmp_path):
     dialog._on_next()  # Save
 
     assert saved == [holder]
+    assert announced == [holder]
     assert holder.name == "Two-grid shuttle"
     again = _saved_holder(tmp_path, "Two-grid shuttle")
     assert again.name == "Two-grid shuttle"

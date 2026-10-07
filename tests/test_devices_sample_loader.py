@@ -13,8 +13,6 @@ import pytest
 
 from fibsem import utils
 from fibsem.devices.core import Resources
-from fibsem.devices.drivers.demo import DemoSampleLoader as DemoSampleLoaderDevice
-from fibsem.devices.drivers.demo import build_demo_sample_loader
 from fibsem.devices.sample_loader import (
     GridExchangeError,
     Magazine,
@@ -24,13 +22,15 @@ from fibsem.devices.sample_loader import (
 )
 from fibsem.devices.stage import STAGE_RESOURCE
 from fibsem.devices.wire import from_wire, to_wire
+from fibsem.drivers.demo.devices import DemoSampleLoader as DemoSampleLoaderDevice
+from fibsem.drivers.demo.devices import build_demo_sample_loader
+from fibsem.drivers.registry import BuildContext
 from fibsem.microscopes._stage import (
     DemoSampleLoader,
     DeviceSampleLoader,
     SampleGrid,
     _create_sample_stage,
 )
-from fibsem.microscopes.registry import BuildContext
 from fibsem.structures import DeviceEntry
 
 

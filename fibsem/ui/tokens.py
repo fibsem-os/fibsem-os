@@ -68,6 +68,13 @@ SLOT_COLOUR = "#90a4ae"  # holder slots: context, so muted
 STAGE_LIMITS_COLOUR = "#ffca28"  # how far the stage can travel
 GRID_BOUNDARY_COLOUR = "#ff5252"  # the edge of the specimen grid
 
+# The beams in the quad view's chamber drawing: the setup wizard's green and orange,
+# softened, since there the drawing sits beside image canvases rather than being the
+# whole of a step. Still green and orange, so the columns are told apart without
+# reading their labels.
+SEM_BEAM_MUTED_COLOUR = "#7fae8a"
+FIB_BEAM_MUTED_COLOUR = "#c49a58"
+
 # ---------------------------------------------------------------------------
 # Napari-dark surface palette
 #

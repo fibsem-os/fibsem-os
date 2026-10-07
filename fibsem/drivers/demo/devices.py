@@ -52,14 +52,7 @@ from fibsem.devices.stage import (
     compustage_device_at_pose,
     compustage_poses,
 )
-from fibsem.fm.microscope import emission_filter_named
-from fibsem.fm.structures import (
-    REFLECTION,
-    ChannelSettings,
-    EmissionFilter,
-    emission_filter_for,
-)
-from fibsem.microscopes.simulator import (
+from fibsem.drivers.demo.simulator import (
     BINNING_VALUES,
     EMISSION_WAVELENGTHS,
     EXCITATION_WAVELENGTHS,
@@ -86,6 +79,13 @@ from fibsem.microscopes.simulator import (
     UINT16_MIN,
     sim_is_compustage,
 )
+from fibsem.fm.microscope import emission_filter_named
+from fibsem.fm.structures import (
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    emission_filter_for,
+)
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -104,9 +104,9 @@ from fibsem.structures import (
 from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
-    from fibsem.microscopes.device_demo import DemoMicroscope
-    from fibsem.microscopes.registry import BuildContext
-    from fibsem.microscopes.simulator import DemoParts
+    from fibsem.drivers.demo.microscope import DemoMicroscope
+    from fibsem.drivers.demo.simulator import DemoParts
+    from fibsem.drivers.registry import BuildContext
     from fibsem.structures import DeviceEntry
 
 
@@ -142,7 +142,7 @@ class DemoBeam(Beam):
 
     def _choices(self, key: str) -> ParameterMetadata:
         """The simulator's values for a key: Demo's ``get_available_values``."""
-        from fibsem.microscopes import simulator as sim
+        from fibsem.drivers.demo import simulator as sim
 
         if key == "current":
             if self.beam_type is BeamType.ION:
@@ -422,7 +422,7 @@ class DemoStage(Stage):
     # -- commands ---------------------------------------------------------------------
 
     def _move_absolute(self, position: FibsemStagePosition) -> None:
-        from fibsem.microscopes.simulator import STAGE_MOVEMENT_SLEEP_TIME
+        from fibsem.drivers.demo.simulator import STAGE_MOVEMENT_SLEEP_TIME
 
         sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)
         for axis in ("x", "y", "z", "r", "t"):
@@ -432,7 +432,7 @@ class DemoStage(Stage):
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
     def _move_relative(self, delta: FibsemStagePosition) -> None:
-        from fibsem.microscopes.simulator import STAGE_MOVEMENT_SLEEP_TIME
+        from fibsem.drivers.demo.simulator import STAGE_MOVEMENT_SLEEP_TIME
 
         sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)
         self.sim_position += delta
@@ -768,7 +768,7 @@ class DemoScanGenerator(Scanner):
 
 
 def _demo_start(context: "BuildContext") -> Tuple[Resources, "DemoParts"]:
-    from fibsem.microscopes.simulator import initial_demo_parts
+    from fibsem.drivers.demo.simulator import initial_demo_parts
 
     if "Demo" not in context.shared:
         microscope = context.microscope
@@ -925,7 +925,7 @@ class DemoCamera(Camera):
         return (width // self.sim_binning, height // self.sim_binning)
 
     def _acquire(self) -> np.ndarray:
-        from fibsem.microscopes.simulator import render_fm_scene
+        from fibsem.drivers.demo.simulator import render_fm_scene
 
         resolution = self.read_resolution()
         fm = getattr(self.parent, "fm", None)

@@ -92,6 +92,7 @@ from fibsem.transformations import (
 )
 
 if TYPE_CHECKING:
+    from fibsem.cancellation import AnyStopEvent
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.microscopes._stage import SampleGridLoader
     from fibsem.milling.base import FibsemMillingStage
@@ -143,7 +144,12 @@ _DEVICE_KEYS = frozenset(
 _BEAM_KEYS_WITHOUT_BEAM = frozenset(("plasma_gas", "preset"))
 # Modules that implement the old API, whose own get/set calls are not deprecated: the
 # named wrappers here, the backends, and the device router.
-_KEY_API_MODULES = ("fibsem.microscope", "fibsem.microscopes.", "fibsem.devices.")
+_KEY_API_MODULES = (
+    "fibsem.microscope",
+    "fibsem.microscopes.",
+    "fibsem.drivers.",
+    "fibsem.devices.",
+)
 
 
 # Whether a stage move is being recorded on this thread. A move is often made of
@@ -370,6 +376,11 @@ class FibsemMicroscope(ABC):
 
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None
+    # The sample holder changed: slots calibrated, or the stage rebuilt around another
+    # holder. Carries the holder. On the microscope rather than the `Stage`, because
+    # applying a configuration that names a holder rebuilds the `Stage`, and a signal
+    # on it would take every subscriber with it.
+    holder_changed = Signal(object)
 
     # (kind, payload): a fact for the experiment's record -- an image acquired, a
     # task step. Emit through record_event, which never raises; the app records it
@@ -543,6 +554,7 @@ class FibsemMicroscope(ABC):
         self._read_hardware_capabilities()
 
         self._stage = _create_sample_stage(self)
+        self.holder_changed.emit(self._stage.holder)
 
     # ---- fitted subsystems ---------------------------------------------------
     #
@@ -1394,88 +1406,14 @@ class FibsemMicroscope(ABC):
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
         pass
 
+    @abstractmethod
     def run_milling(
-        self, milling_current: float, milling_voltage: float, asynch: bool = False
+        self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
     ) -> None:
-        """
-        Run ion beam milling using the specified milling current.
-
-        The default loop for a backend whose patterning runs on the instrument: set
-        the milling beam, start, poll `get_milling_state` until it finishes, emitting
-        progress, then clear the patterns. A backend that runs milling another way
-        overrides it.
-
-        Args:
-            milling_current (float): The current to use for milling in amps.
-            milling_voltage (float): The voltage to use for milling in volts.
-            asynch (bool, optional): If True, the milling will be run asynchronously.
-                                     Defaults to False, in which case it will run synchronously.
-        """
-        if not self.is_available("ion_beam"):
-            raise ValueError("Ion beam not available.")
-
-        try:
-            # change to milling current, voltage # TODO: do this in a more standard way (there are other settings)
-            if self.get_beam_voltage(beam_type=self.milling_channel) != milling_voltage:
-                self.set_beam_voltage(
-                    voltage=milling_voltage, beam_type=self.milling_channel
-                )
-            if self.get_beam_current(beam_type=self.milling_channel) != milling_current:
-                self.set_beam_current(
-                    current=milling_current, beam_type=self.milling_channel
-                )
-        except Exception as e:
-            logging.warning(
-                f"Failed to set voltage or current: {e}, voltage={milling_voltage}, current={milling_current}"
-            )
-
-        # run milling (asynchronously)
-        self.set_channel(self.milling_channel)  # the ion beam view
-        logging.info(f"running ion beam milling now... asynchronous={asynch}")
-        self.start_milling()
-
-        start_time = time.time()
-        estimated_time = self.estimate_milling_time()
-        remaining_time = estimated_time
-
-        if asynch:
-            return  # return immediately, up to the caller to handle the milling process
-
-        MILLING_SLEEP_TIME = 1
-        while self.get_milling_state() is MillingState.IDLE:  # giving time to start
-            time.sleep(0.5)
-        while self.get_milling_state() in ACTIVE_MILLING_STATES:
-            # logging.info(f"Patterning State: {self.connection.patterning.state}")
-            # TODO: add drift correction support here... generically
-            if self.get_milling_state() is MillingState.RUNNING:
-                remaining_time -= (
-                    MILLING_SLEEP_TIME  # TODO: investigate if this is a good estimate
-                )
-            time.sleep(MILLING_SLEEP_TIME)
-            # TODO: refresh the remaining time by getting the milling time from the patterning API as user can change the patterns on xtUI
-
-            # update milling progress via signal
-            self.milling_progress_signal.emit(
-                MillingProgress(
-                    status=MillingProgressStatus.STAGE_UPDATE,
-                    start_time=start_time,
-                    milling_state=self.get_milling_state(),
-                    estimated_time=estimated_time,
-                    remaining_time=remaining_time,
-                )
-            )
-
-        # milling complete
-        self.clear_patterns()
-
-        logging.debug(
-            {
-                "msg": "run_milling",
-                "milling_current": milling_current,
-                "milling_voltage": milling_voltage,
-                "asynch": asynch,
-            }
-        )
+        """Mill what is drawn, with the beam conditions `setup_milling` applied, and
+        return when the mill ends. Progress is reported on ``milling_progress_signal``.
+        A set ``stop_event`` stops the beam and raises `OperationCancelledError`. To
+        start a mill and return at once, use `start_milling`."""
 
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
         """
@@ -1593,7 +1531,8 @@ class FibsemMicroscope(ABC):
     def get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Union[str, float, int]]:
-        """The values a key can take.
+        """The values a key can take. Deprecated: a beam parameter's ``choices``
+        (``microscope.beams[beam_type].parameters[name].choices``) are the same list.
 
         A beam key's values are its beam parameter's choices (the device's metadata,
         read when the beam was built and again when a dependency changes, e.g. the
@@ -1602,33 +1541,21 @@ class FibsemMicroscope(ABC):
         have, has none: the milling keys' choices are the milling service's
         (``supported_settings``, ``supported_pattern_settings``).
         """
-        param = self._beam_parameter(key, beam_type) if key in BEAM_ROUTES else None
-        if param is not None and param.choices is not None:
-            return list(param.choices)
-        return []
+        self._warn_available_values("get_available_values", key, beam_type)
+        return self._available_values(key, beam_type)
 
     def get_available_values_cached(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Union[str, float, int]]:
-        """Get available values with caching to avoid repeated microscope queries.
-
-        Args:
-            key: The parameter key to get available values for.
-            beam_type: The beam type (optional).
-
-        Returns:
-            List of available values for the given key.
-        """
+        """``get_available_values``, cached per key and beam type. Deprecated: the
+        device keeps a parameter's choices (and refreshes them when a dependency
+        changes, which this cache never did)."""
+        self._warn_available_values("get_available_values_cached", key, beam_type)
         if not hasattr(self, "_available_values_cache"):
-            logging.info("Initializing available values cache.")
             self._available_values_cache: Dict[str, List[Union[str, float, int]]] = {}
-
         cache_key = f"{key}_{beam_type.name if beam_type else 'None'}"
         if cache_key not in self._available_values_cache:
-            logging.info(
-                f"Caching available values for key: {key}, beam_type: {beam_type}"
-            )
-            self._available_values_cache[cache_key] = self.get_available_values(
+            self._available_values_cache[cache_key] = self._available_values(
                 key, beam_type
             )
         return self._available_values_cache[cache_key]
@@ -1636,20 +1563,52 @@ class FibsemMicroscope(ABC):
     def clear_available_values_cache(
         self, key: Optional[str] = None, beam_type: Optional[BeamType] = None
     ) -> None:
-        """Clear the available values cache.
-
-        Args:
-            key: If provided, only clear cache for this key. Otherwise clear all.
-            beam_type: The beam type (used with key to clear specific entry).
-        """
+        """Clear ``get_available_values_cached``'s cache, all of it or one key's
+        entry. Deprecated with the cache."""
+        warnings.warn(
+            "microscope.clear_available_values_cache() is deprecated and will be "
+            "removed in the next minor release; the device parameters' choices need "
+            "no cache.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not hasattr(self, "_available_values_cache"):
             return
-
         if key is None:
             self._available_values_cache.clear()
         else:
             cache_key = f"{key}_{beam_type.name if beam_type else 'None'}"
             self._available_values_cache.pop(cache_key, None)
+
+    def _available_values(
+        self, key: str, beam_type: Optional[BeamType]
+    ) -> List[Union[str, float, int]]:
+        param = self._beam_parameter(key, beam_type) if key in BEAM_ROUTES else None
+        if param is not None and param.choices is not None:
+            return list(param.choices)
+        return []
+
+    def _warn_available_values(
+        self, method: str, key: str, beam_type: Optional[BeamType]
+    ) -> None:
+        """Warn that ``method`` is deprecated, naming the parameter whose choices
+        replace it (the milling service's settings for anything else)."""
+        if key in BEAM_ROUTES and beam_type is not None:
+            replacement = (
+                f"microscope.beams[BeamType.{beam_type.name}]"
+                f'.parameters["{BEAM_ROUTES[key]}"].choices'
+            )
+        else:
+            replacement = (
+                "a device parameter's choices, or microscope.milling."
+                "supported_settings() for a milling setting"
+            )
+        warnings.warn(
+            f'microscope.{method}("{key}", ...) is deprecated and will be removed in '
+            f"the next minor release; use {replacement} instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
 
     # ---- device routing ------------------------------------------------------
     #
@@ -2930,7 +2889,7 @@ class FibsemMicroscope(ABC):
         """
 
         currrent_orientation = self.get_stage_orientation(stage_position)
-        logging.info(
+        logging.debug(
             f"Getting target position for {target_orientation} from {currrent_orientation}"
         )
 
@@ -4154,10 +4113,6 @@ class FibsemMicroscope(ABC):
         """
         target_device = self._get_device(device)  # refuses by name
 
-        if self._keeps_the_compustage_route(target_device):
-            self._move_to_device_compustage(device, orientation)
-            return
-
         if device == "FM" and not self.fm:
             raise ValueError("FM module is not available. Cannot move to FM position.")
 
@@ -4231,16 +4186,6 @@ class FibsemMicroscope(ABC):
         if device == "FM":
             self.fm.objective.insert()
 
-    def _keeps_the_compustage_route(self, target: StageDeviceSettings) -> bool:
-        """Whether a move to *target* takes `_move_to_device_compustage`.
-
-        A compustage whose FM shares the beams' origin keeps that route until the one
-        in `move_to_device` has been checked on an instrument; both arrive at the same
-        place. One with an FM origin configured needs the translation, so it takes
-        the one path.
-        """
-        return self._fm_is_a_pose() and self._is_the_only_place(target)
-
     def _travel(self, source: str, target: str) -> None:
         """Move the stage by the translation from one device to another, if any.
 
@@ -4301,49 +4246,6 @@ class FibsemMicroscope(ABC):
                 "source's origin first."
             )
 
-    def _move_to_device_compustage(
-        self, device: str, orientation: Optional[str] = None
-    ) -> None:
-        """The compustage's devices are one place: reaching either is a re-pose.
-
-        With no `orientation` asked for, FIBSEM lands at SEM -- the pose every
-        caller of the old `move_to_microscope` relied on.
-
-        The FM follows the rule the offset route and `to_device` follow
-        (`_arrival_orientation`): the pose is kept where the objective images from
-        it, and otherwise put into the first orientation the FM declares. With the
-        default declaration, `["FM"]`, that is the flip it always was. On a
-        compustage that declares more -- one whose objective also images from the
-        beam side -- "move to the FM" from one of those poses is already there, so
-        the stage stays and only the objective comes in; flipping regardless would
-        take it somewhere other than where `to_device` says the same piece of sample
-        is under the FM, which is where a lamella's fluorescence pose was derived.
-        """
-        if not self.fm:
-            raise ValueError("FM module is not available. Cannot move to FM position.")
-
-        if device == "FIBSEM":
-            self.fm.objective.retract()  # retract objective (safety precaution)
-            self.move_to_orientation(orientation or "SEM")
-
-        if device == "FM":
-            desired = self._arrival_orientation(
-                device, self.get_stage_position(), orientation
-            )
-            if desired is None:
-                # Retracted only for motion, as on the offset route: there is none.
-                logging.info(
-                    "The FM images from the pose the stage is in; inserting the "
-                    "objective without re-posing."
-                )
-            else:
-                self.fm.objective.retract()  # retract objective (safety precaution)
-                if orientation is None and desired == "FM":
-                    self.move_stage_absolute(self.get_orientation("FM"))
-                else:
-                    self.move_to_orientation(desired)
-            self.fm.objective.insert()  # insert objective
-
     def move_to_microscope(self, target: str) -> None:
         """Deprecated name for `move_to_device(target)` -- the last place a device
         was called a microscope. Kept as a shim for its many callers.
@@ -4355,15 +4257,6 @@ class FibsemMicroscope(ABC):
             self.move_to_device(target, orientation="SEM")
             return
         self.move_to_device(target)
-
-    def move_to_microscope_compustage(self, target: str) -> None:
-        """Deprecated name for the compustage half of `move_to_device`."""
-
-        if not self._fm_is_a_pose():
-            raise ValueError(
-                "This method is only available for Compustage microscopes."
-            )
-        self.move_to_microscope(target)
 
     @property
     def current_grid(self) -> str:
@@ -4383,7 +4276,7 @@ class FibsemMicroscope(ABC):
         return manufacturers.THERMOFISHER
 
 
-# `ThermoMicroscope` moved to `fibsem.microscopes.autoscript`. These names are served
+# `ThermoMicroscope` moved to `fibsem.drivers.autoscript.microscope`. These names are served
 # lazily so `from fibsem.microscope import ThermoMicroscope` keeps working for external
 # scripts and plugins, without this module importing the AutoScript backend at load.
 _MOVED_TO_AUTOSCRIPT = frozenset(
@@ -4394,12 +4287,12 @@ _MOVED_TO_AUTOSCRIPT = frozenset(
 def __getattr__(name: str) -> Any:
     if name in _MOVED_TO_AUTOSCRIPT:
         warnings.warn(
-            f"fibsem.microscope.{name} has moved to fibsem.microscopes.autoscript; "
+            f"fibsem.microscope.{name} has moved to fibsem.drivers.autoscript.microscope; "
             "import it from there.",
             DeprecationWarning,
             stacklevel=2,
         )
-        from fibsem.microscopes import autoscript
+        from fibsem.drivers.autoscript import microscope as autoscript
 
         return getattr(autoscript, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

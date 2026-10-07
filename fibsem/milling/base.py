@@ -137,8 +137,6 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
         self,
         microscope: FibsemMicroscope,
         stage: "FibsemMillingStage",
-        asynch: bool = False,
-        parent_ui=None,
         stop_event: Optional[threading.Event] = None,
     ) -> None:
         pass
@@ -227,12 +225,12 @@ class FibsemMillingStage:
         return estimate_stage_milling_time(self)
 
     def run(
-        self, microscope: FibsemMicroscope, asynch: bool = False, parent_ui=None
+        self,
+        microscope: FibsemMicroscope,
+        stop_event: Optional[threading.Event] = None,
     ) -> None:
         """Run the milling stage strategy on the given microscope."""
-        self.strategy.run(
-            microscope=microscope, stage=self, asynch=asynch, parent_ui=parent_ui
-        )
+        self.strategy.run(microscope=microscope, stage=self, stop_event=stop_event)
 
     @property
     def summary(self) -> str:

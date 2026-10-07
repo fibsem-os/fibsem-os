@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
-from fibsem.devices.drivers.remote import (  # noqa: E402
+from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
     RemoteDeviceUnreachable,
 )

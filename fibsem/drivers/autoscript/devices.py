@@ -12,8 +12,38 @@ The vendor stage is ``microscope._vendor_stage``, which the Thermo backend sets 
 connect to ``specimen.stage`` or ``specimen.compustage`` (``microscope.stage`` is the
 stage device); the vendor beams are under
 ``microscope.connection.beams``. This module imports the SDK only through
-``fibsem.microscopes.autoscript``, which is where the guarded import lives, apart from
+``fibsem.drivers.autoscript.microscope``, which is where the guarded import lives, apart from
 the SDK's ``Point`` inside a write, which the old branch imports there too.
+
+The FM.
+
+The Thermo Fisher FM (Arctis, Hydra) as devices.
+
+``AutoscriptFMCamera``, ``AutoscriptFMLightSource``, ``AutoscriptFMFilterSet``,
+``AutoscriptFMObjective`` and the ``AutoscriptFM`` group are the old
+``ThermoFisherFluorescenceMicroscope``'s parts moved onto the FM devices: each read,
+write and command makes the SDK calls the old property or method made, in the same
+order (``tests/fixtures/autoscript_fm_old_pins.json`` holds those calls).
+``ThermoMicroscope.fm`` is the FM API over them
+(``DeviceThermoFisherFluorescenceMicroscope``).
+
+The channel. The FM and the beams are one AutoScript connection with one active view,
+so whoever sets the view last owns it (FIB-517). ``AutoscriptFMChannel`` is the old
+class's ``active_channel()`` as it was: point the connection at the FM for a block, put
+the view back after the outermost block, count the depth so a run isn't undone by each
+step inside it, and take the microscope's ``imaging_channel`` lock (its
+``_threading_lock``) for that bookkeeping only. A parameter in ``needs_channel`` runs in
+that scope. The generic claim isn't used because it holds the lock through the read and
+always takes it; the old scope skips the lock when the FM already has the view, which is
+what keeps the objective movable while live view re-takes the lock every frame.
+
+Live view keeps what the old fast acquisition does, with each frame pulled rather than
+pushed: `AutoscriptFM.start_live` switches the light on and starts the acquisition, each
+``acquire_frame`` while live is the next ``imaging.get_image()``, and stopping switches
+the light off and stops the acquisition.
+
+The FM parts need the SDK, through ``fibsem.fm.autoscript``, which each imports in the
+method that uses it, so the module still loads where AutoScript is not installed.
 """
 
 from __future__ import annotations
@@ -22,13 +52,33 @@ import copy
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Type
+from contextlib import contextmanager
+from datetime import datetime
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Type,
+)
 
 import numpy as np
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
-from fibsem.devices.core import Device, ParameterMetadata, Resources
+from fibsem.devices.core import (
+    IMAGING_CHANNEL,
+    BoundParameter,
+    Device,
+    ParameterMetadata,
+    Resources,
+    resources_of,
+)
+from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.sample_loader import (
     GridExchangeError,
@@ -43,6 +93,14 @@ from fibsem.devices.stage import (
     axis_limits_from_degrees,
     compustage_device_at_pose,
     compustage_poses,
+)
+from fibsem.devices.wire import Frame
+from fibsem.fm.structures import (
+    REFLECTION,
+    ChannelSettings,
+    EmissionFilter,
+    emission_filter_for,
+    objective_device_state,
 )
 from fibsem.structures import (
     BeamType,
@@ -60,8 +118,8 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.microscopes.autoscript import ThermoMicroscope
-    from fibsem.microscopes.registry import BuildContext
+    from fibsem.drivers.autoscript.microscope import ThermoMicroscope
+    from fibsem.drivers.registry import BuildContext
 
 
 class AutoscriptStage(Stage):
@@ -95,14 +153,14 @@ class AutoscriptStage(Stage):
         return self.parent._vendor_stage
 
     def _to_autoscript(self, position: FibsemStagePosition):
-        from fibsem.microscopes.autoscript import stage_position_to_autoscript
+        from fibsem.drivers.autoscript.microscope import stage_position_to_autoscript
 
         return stage_position_to_autoscript(position, compustage=self.compustage)
 
     # -- position ----------------------------------------------------------------
 
     def read_position(self) -> FibsemStagePosition:
-        from fibsem.microscopes.autoscript import stage_position_from_autoscript
+        from fibsem.drivers.autoscript.microscope import stage_position_from_autoscript
 
         self._stage.set_default_coordinate_system(
             self.parent._default_stage_coordinate_system
@@ -125,7 +183,7 @@ class AutoscriptStage(Stage):
     # -- commands ---------------------------------------------------------------------
 
     def _move_absolute(self, position: FibsemStagePosition) -> None:
-        from fibsem.microscopes.autoscript import MoveSettings
+        from fibsem.drivers.autoscript.microscope import MoveSettings
 
         # get current working distance, to be restored later
         wd = self.parent.get_working_distance(BeamType.ELECTRON)
@@ -206,10 +264,10 @@ def bind_autoscript_stage(
 class AutoscriptBeam(Beam):
     """An AutoScript beam: ``connection.beams.electron_beam`` or ``.ion_beam``.
 
-    Each parameter is the matching branch of ``ThermoMicroscope._get``/``_set`` moved
-    as it is, so the old call and the device make the same SDK calls and log the same
-    messages. The choices are what ``ThermoMicroscope.get_available_values`` answers
-    for a beam key.
+    Each parameter is the matching branch of the old ``ThermoMicroscope._get``/``_set``
+    (now removed) moved as it is, so the device makes the same SDK calls and logs the
+    same messages. The choices are what the old ``get_available_values`` answered for
+    a beam key.
 
     The detector is the active device's, so the detector parameters claim the imaging
     channel and select this beam's (``needs_channel``), as the old branches do under
@@ -298,7 +356,7 @@ class AutoscriptBeam(Beam):
         self._set_log("voltage", value, " V")
 
     def metadata_voltage(self) -> ParameterMetadata:
-        from fibsem.microscopes.autoscript import THERMO_VOLTAGE_CHOICES
+        from fibsem.drivers.autoscript.microscope import THERMO_VOLTAGE_CHOICES
 
         limits = self._beam.high_voltage.limits
         return ParameterMetadata(
@@ -521,7 +579,7 @@ class AutoscriptBeam(Beam):
     # FibsemImage is built from get_microscope_state as before.
 
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
-        from fibsem.microscopes import autoscript as thermo
+        from fibsem.drivers.autoscript import microscope as thermo
 
         microscope = self.parent
         name = self.beam_type.name
@@ -572,7 +630,7 @@ class AutoscriptBeam(Beam):
         return image
 
     def _last_image(self) -> FibsemImage:
-        from fibsem.microscopes import autoscript as thermo
+        from fibsem.drivers.autoscript import microscope as thermo
 
         microscope = self.parent
         with self.claim_channel():
@@ -633,7 +691,7 @@ class AutoscriptBeam(Beam):
             logging.error(f"Error in acquisition worker: {e}")
 
     def _live_fast(self, stop: threading.Event) -> None:
-        from fibsem.microscopes import autoscript as thermo
+        from fibsem.drivers.autoscript import microscope as thermo
 
         imaging = self.parent.connection.imaging
         try:
@@ -875,12 +933,14 @@ class AutoscriptManipulator(Manipulator):
         return self.parent.connection.specimen.manipulator
 
     def read_position(self) -> FibsemManipulatorPosition:
-        from fibsem.microscopes.autoscript import manipulator_position_from_autoscript
+        from fibsem.drivers.autoscript.microscope import (
+            manipulator_position_from_autoscript,
+        )
 
         return manipulator_position_from_autoscript(self._needle.current_position)
 
     def read_state(self) -> InsertableDeviceState:
-        from fibsem.microscopes.autoscript import ManipulatorState
+        from fibsem.drivers.autoscript.microscope import ManipulatorState
 
         # the old key is True only when inserted; anything else is not inserted
         state = self._needle.state
@@ -895,7 +955,7 @@ class AutoscriptManipulator(Manipulator):
 
     @staticmethod
     def _saved(name: str) -> Any:
-        from fibsem.microscopes.autoscript import ManipulatorSavedPosition
+        from fibsem.drivers.autoscript.microscope import ManipulatorSavedPosition
 
         return (
             ManipulatorSavedPosition.PARK
@@ -904,7 +964,7 @@ class AutoscriptManipulator(Manipulator):
         )
 
     def saved_position(self, name: str = "PARK") -> FibsemManipulatorPosition:
-        from fibsem.microscopes.autoscript import (
+        from fibsem.drivers.autoscript.microscope import (
             ManipulatorCoordinateSystem,
             manipulator_position_from_autoscript,
         )
@@ -926,7 +986,7 @@ class AutoscriptManipulator(Manipulator):
         return position
 
     def _insert(self, name: str) -> None:
-        from fibsem.microscopes.autoscript import ManipulatorCoordinateSystem
+        from fibsem.drivers.autoscript.microscope import ManipulatorCoordinateSystem
 
         if name not in _MANIPULATOR_NAMES:
             raise ValueError(f"insert position {name} not supported.")
@@ -940,7 +1000,7 @@ class AutoscriptManipulator(Manipulator):
         logging.info("insert manipulator complete.")
 
     def _retract(self) -> None:
-        from fibsem.microscopes.autoscript import (
+        from fibsem.drivers.autoscript.microscope import (
             ManipulatorCoordinateSystem,
             ManipulatorSavedPosition,
         )
@@ -957,14 +1017,18 @@ class AutoscriptManipulator(Manipulator):
         logging.info("retract needle complete")
 
     def _move_relative(self, delta: FibsemManipulatorPosition) -> None:
-        from fibsem.microscopes.autoscript import manipulator_position_to_autoscript
+        from fibsem.drivers.autoscript.microscope import (
+            manipulator_position_to_autoscript,
+        )
 
         logging.info(f"moving manipulator by {delta}")
         self._needle.relative_move(manipulator_position_to_autoscript(delta))
         logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
 
     def _move_absolute(self, position: FibsemManipulatorPosition) -> None:
-        from fibsem.microscopes.autoscript import manipulator_position_to_autoscript
+        from fibsem.drivers.autoscript.microscope import (
+            manipulator_position_to_autoscript,
+        )
 
         logging.info(f"moving manipulator to {position}")
         self._needle.absolute_move(manipulator_position_to_autoscript(position))
@@ -1025,3 +1089,544 @@ def build_autoscript_sample_loader(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptSampleLoader:
     return _named(AutoscriptSampleLoader(context.microscope), entry)
+
+
+# The FM.
+
+FM_ACTIVE_VIEW = 3
+"""The FM's view on Arctis, as the old class sets it."""
+
+MULTI_BAND = emission_filter_for("Fluorescence", {})
+"""Thermo's one fluorescence filter, multi-band; the other choice is reflection."""
+
+
+class AutoscriptFMChannel:
+    """The FM's share of the microscope's one AutoScript connection, shared by the FM
+    devices: the old ``ThermoFisherFluorescenceMicroscope.active_channel()``, moved.
+    ``scope()`` says why it works as it does."""
+
+    def __init__(self, microscope: ThermoMicroscope, lock: Any):
+        self._microscope = microscope
+        self.lock = lock
+        self._depth = 0
+        self._restore_view: Optional[int] = None
+
+    @property
+    def connection(self) -> Any:
+        """The microscope's AutoScript client, looked up on each call."""
+        return self._microscope.connection
+
+    def set_active_channel(self) -> None:
+        """Point the connection at the FM and leave it there (the old method)."""
+        from fibsem.fm.autoscript import ImagingDevice
+
+        self.connection.imaging.set_active_view(FM_ACTIVE_VIEW)
+        self.connection.imaging.set_active_device(
+            ImagingDevice.FLUORESCENCE_LIGHT_MICROSCOPE
+        )
+
+    def settings(self) -> Any:
+        """The FM camera's settings, selecting the FM first, as ``fm_settings`` does."""
+        self.set_active_channel()
+        return self.connection.detector.camera_settings
+
+    def _is_ours(self) -> bool:
+        """Whether the connection is already pointed at the FM.
+
+        The view alone answers it, for the same reason only the view is captured and
+        restored: AutoScript documents ``set_active_device`` as changing the device
+        *in the active view*, so the device follows the view rather than varying under
+        it. One read, and deliberately not under the lock: taking the lock to find out
+        whether the lock is needed would defeat the point.
+        """
+        return self.connection.imaging.get_active_view() == FM_ACTIVE_VIEW
+
+    @contextmanager
+    def scope(self) -> Iterator[None]:
+        """Hold the connection on the FM for the block, then put the view back.
+
+        The FM and the beams are one connection with one active view and one active
+        device, so whoever sets it last owns it. A read that sets it and walks away
+        steals the microscope from whatever else is using it: the objective's state,
+        read on every stage poll for the overview's info bar, once left the connection
+        on the FM under a running beam acquisition (FIB-517). The view is what is
+        captured and put back, and that is enough: the device belongs to the view and
+        comes back with it.
+
+        The lock covers the bookkeeping only, and deliberately not the body. A scope
+        can span a whole tileset, and the lock is the microscope's ``_threading_lock``,
+        which every caller on the microscope shares, devices claiming
+        ``imaging_channel`` included; held for minutes it would block them all.
+
+        A depth count rather than a captured local, so the view is put back once, by
+        the outermost scope: a tileset holds the channel for the whole run, and each
+        tile's acquisition opens a scope inside it that must not restore the beam view
+        between tiles.
+
+        Nothing to change means nothing to lock. When the connection is already on the
+        FM there is no view to set and none to put back, so the scope does no work and
+        takes no lock. Live view re-takes this lock every frame with nothing between
+        iterations, and Python locks are not fair, so a waiter would be starved rather
+        than delayed: moving the objective while streaming was unusable for exactly
+        this reason. The fast path makes no writes to the channel, so it cannot leave
+        the connection where the next beam operation does not expect it.
+        """
+        if self._depth == 0 and self._is_ours():
+            yield
+            return
+
+        with self.lock:
+            if self._depth == 0:
+                self._restore_view = self.connection.imaging.get_active_view()
+            self.set_active_channel()
+            # Counted only once the channel is ours. A raise here comes out of
+            # ``__enter__``, so neither the block nor the ``finally`` runs; a depth
+            # left too high would mean no later scope restored the view again.
+            self._depth += 1
+        try:
+            yield
+        finally:
+            with self.lock:
+                self._depth -= 1
+                if self._depth == 0:
+                    self.connection.imaging.set_active_view(self._restore_view)
+
+
+class _OnTheFMChannel(Device):
+    """A part whose ``needs_channel`` parameters run in the FM channel's scope."""
+
+    def __init__(
+        self,
+        name: str,
+        channel: AutoscriptFMChannel,
+        parent: Any = None,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(name=name, parent=parent, resources=resources)
+        self._channel = channel
+
+    @contextmanager
+    def _claim(self, param: BoundParameter) -> Iterator[None]:
+        if not param.needs_channel:
+            yield
+            return
+        with self._channel.scope():
+            yield
+
+
+class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
+    """The excitation is held here, as the old filter set holds it: AutoScript's
+    emission type is read-only, so the colour is applied when the light starts. The
+    emission filter is the camera's filter type, reflection or fluorescence."""
+
+    needs_channel = frozenset({"emission_filter"})
+
+    def __init__(self, channel: AutoscriptFMChannel, **kwargs: Any):
+        from fibsem.fm.autoscript import CameraEmissionType
+
+        super().__init__("filter_set", channel, **kwargs)
+        self.emission_type = CameraEmissionType.RED
+
+    def read_excitation_wavelength(self) -> float:
+        from fibsem.fm.autoscript import COLOR_TO_WAVELENGTH
+
+        color = self.emission_type
+        if color not in COLOR_TO_WAVELENGTH:
+            raise ValueError(
+                f"Invalid excitation color: {color}: must be one of "
+                f"{list(COLOR_TO_WAVELENGTH.keys())}"
+            )
+        return COLOR_TO_WAVELENGTH[color]
+
+    def write_excitation_wavelength(self, value: float) -> None:
+        from fibsem.fm.autoscript import COLOR_TO_WAVELENGTH, WAVELENGTH_TO_COLOR
+
+        color = WAVELENGTH_TO_COLOR.get(value, None)
+        if color is None:
+            closest = min(COLOR_TO_WAVELENGTH.values(), key=lambda x: abs(x - value))
+            color = WAVELENGTH_TO_COLOR[closest]
+        self.emission_type = color
+
+    def metadata_excitation_wavelength(self) -> ParameterMetadata:
+        from fibsem.fm.autoscript import AVAILABLE_FM_WAVELENGTHS
+
+        return ParameterMetadata(choices=sorted(AVAILABLE_FM_WAVELENGTHS))
+
+    def read_emission_filter(self) -> EmissionFilter:
+        from fibsem.fm.autoscript import CameraFilterType
+
+        mode = self._channel.settings().filter.type.value
+        if mode is CameraFilterType.FLUORESCENCE:
+            return MULTI_BAND
+        return REFLECTION
+
+    def write_emission_filter(self, value: EmissionFilter) -> None:
+        from fibsem.fm.autoscript import CameraFilterType
+
+        if value not in (REFLECTION, MULTI_BAND):
+            raise ValueError(f"filter_set has no emission filter {value}")
+        settings = self._channel.settings()
+        if value == REFLECTION:
+            settings.filter.type.value = CameraFilterType.REFLECTION
+        else:
+            settings.filter.type.value = CameraFilterType.FLUORESCENCE
+
+    def metadata_emission_filter(self) -> ParameterMetadata:
+        return ParameterMetadata(choices=[REFLECTION, MULTI_BAND])
+
+
+class AutoscriptFMCamera(_OnTheFMChannel, Camera):
+    """The FM camera's settings. Gain is the detector's contrast; offset is a setting
+    kept here, as the old camera keeps it; pixel size and resolution are the objective's
+    configuration over the binning."""
+
+    needs_channel = frozenset({"exposure_time", "binning", "gain"})
+
+    def __init__(
+        self,
+        channel: AutoscriptFMChannel,
+        filter_set: AutoscriptFMFilterSet,
+        **kwargs: Any,
+    ):
+        from fibsem.fm.autoscript import DEFAULT_CONFIGURATION
+
+        super().__init__("camera", channel, **kwargs)
+        self._filter_set = filter_set
+        # AutoScript has no camera offset to set, so it is kept here, from zero.
+        self._offset = 0.0
+        self._pixel_size: Tuple[float, float] = DEFAULT_CONFIGURATION["pixel_size"]
+        self._resolution: Tuple[int, int] = DEFAULT_CONFIGURATION["resolution"]
+
+    def _exposure_time_limits(self) -> Tuple[float, float]:
+        with self._channel.scope():
+            limits = self._channel.settings().exposure_time.limits
+            return (limits.min, limits.max)
+
+    def read_exposure_time(self) -> float:
+        return self._channel.settings().exposure_time.value
+
+    def write_exposure_time(self, value: float) -> None:
+        limits = self._exposure_time_limits()
+        if not limits[0] <= value <= limits[1]:
+            raise ValueError(
+                f"Exposure time must be between {limits[0]} and {limits[1]}, got {value}"
+            )
+        self._channel.settings().exposure_time.value = value
+
+    def metadata_exposure_time(self) -> ParameterMetadata:
+        low, high = self._exposure_time_limits()
+        return ParameterMetadata(limits=RangeLimit(min=low, max=high))
+
+    def _available_binnings(self) -> Tuple[int, ...]:
+        with self._channel.scope():
+            return self._channel.settings().binning.available_values
+
+    def _binning(self) -> int:
+        with self._channel.scope():
+            return self._channel.settings().binning.value
+
+    def read_binning(self) -> int:
+        return self._channel.settings().binning.value
+
+    def write_binning(self, value: int) -> None:
+        # The choices are read again for the message, as the old setter reads them.
+        if value not in self._available_binnings():
+            raise ValueError(
+                f"Binning must be one of {self._available_binnings()}, got {value}"
+            )
+        self._channel.settings().binning.value = value
+
+    def metadata_binning(self) -> ParameterMetadata:
+        return ParameterMetadata(choices=list(self._available_binnings()))
+
+    def read_gain(self) -> float:
+        return self._channel.connection.detector.contrast.value
+
+    def write_gain(self, value: float) -> None:
+        self._channel.connection.detector.contrast.value = value
+
+    def metadata_gain(self) -> ParameterMetadata:
+        # The FM detector's contrast, which AutoScript keeps as a fraction already.
+        with self._channel.scope():
+            limits = self._channel.connection.detector.contrast.limits
+            return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
+
+    def read_offset(self) -> float:
+        return self._offset
+
+    def write_offset(self, value: float) -> None:
+        if value < 0:
+            raise ValueError("Offset must be non-negative.")
+        self._offset = value
+
+    # Binning read once per axis, as the old properties read it.
+
+    def read_pixel_size(self) -> tuple:
+        return (
+            self._pixel_size[0] * self._binning(),
+            self._pixel_size[1] * self._binning(),
+        )
+
+    def read_resolution(self) -> tuple:
+        return (
+            self._resolution[0] // self._binning(),
+            self._resolution[1] // self._binning(),
+        )
+
+    def _acquire(self) -> np.ndarray:
+        # The old camera grabs unscoped and leaves the FM selected, relying on the
+        # acquisition around it to hold the channel. Here the grab holds it itself;
+        # inside an acquisition that is the same calls, and a bare grab can't leave
+        # the connection on the FM (FIB-517).
+        from fibsem.fm.autoscript import GrabFrameSettings
+
+        with self._channel.scope():
+            frame_settings = GrabFrameSettings(
+                emission_type=self._filter_set.emission_type
+            )
+            self._channel.set_active_channel()
+            image = self._channel.connection.imaging.grab_frame(frame_settings)
+            return image.data
+
+    # The acquisition live view runs, as the old camera starts and stops it.
+
+    def _start_acquisition(self) -> None:
+        self._channel.set_active_channel()
+        self._channel.connection.imaging.start_acquisition()
+
+    def _stop_acquisition(self) -> None:
+        self._channel.set_active_channel()
+        self._channel.connection.imaging.stop_acquisition()
+
+
+class AutoscriptFMLightSource(_OnTheFMChannel, LightSource):
+    """The light's brightness. AutoScript sets it for the colour that is emitting, so
+    a write switches the light on in the filter set's colour, sets it, and switches it
+    off again, as the old light source does."""
+
+    needs_channel = frozenset({"power"})
+
+    def __init__(
+        self,
+        channel: AutoscriptFMChannel,
+        filter_set: AutoscriptFMFilterSet,
+        **kwargs: Any,
+    ):
+        super().__init__("light_source", channel, **kwargs)
+        self._filter_set = filter_set
+
+    def read_power(self) -> float:
+        return self._channel.connection.detector.brightness.value
+
+    def write_power(self, value: float) -> None:
+        self.start_emission(self._filter_set.emission_type)
+        self._channel.connection.detector.brightness.value = value
+        self.stop_emission()
+
+    def metadata_power(self) -> ParameterMetadata:
+        with self._channel.scope():
+            limits = self._channel.connection.detector.brightness.limits
+            return ParameterMetadata(limits=RangeLimit(min=limits.min, max=limits.max))
+
+    def start_emission(self, emission_type: Any) -> None:
+        with self._channel.scope():
+            self._channel.connection.detector.camera_settings.emission.start(
+                emission_type=emission_type
+            )
+
+    def stop_emission(self) -> None:
+        with self._channel.scope():
+            self._channel.connection.detector.camera_settings.emission.stop()
+
+
+class AutoscriptFMObjective(_OnTheFMChannel, Objective):
+    """The objective: its focus is the camera's focus setting, and inserting or
+    retracting it is the detector's. Magnification and numerical aperture are the
+    configuration's; ``limit_position`` is the furthest a move may go in."""
+
+    needs_channel = frozenset({"position", "state"})
+
+    def __init__(self, channel: AutoscriptFMChannel, **kwargs: Any):
+        from fibsem.fm.autoscript import DEFAULT_CONFIGURATION
+
+        super().__init__("objective", channel, **kwargs)
+        self._magnification = DEFAULT_CONFIGURATION["magnification"]
+        self._numerical_aperture = DEFAULT_CONFIGURATION["numerical_aperture"]
+        self._limit_position: float = DEFAULT_CONFIGURATION.get(
+            "limit_position", 8.6e-3
+        )
+
+    def _focus_limits(self) -> Tuple[float, float]:
+        with self._channel.scope():
+            limits = self._channel.settings().focus.limits
+            return (limits.min, limits.max)
+
+    def read_position(self) -> float:
+        return self._channel.settings().focus.value
+
+    def metadata_position(self) -> ParameterMetadata:
+        low, high = self._focus_limits()
+        return ParameterMetadata(limits=RangeLimit(min=low, max=high))
+
+    def read_state(self) -> InsertableDeviceState:
+        return objective_device_state(self._channel.connection.detector.state)
+
+    def read_magnification(self) -> float:
+        return self._magnification
+
+    def read_numerical_aperture(self) -> float:
+        return self._numerical_aperture
+
+    def read_limit_position(self) -> float:
+        return self._limit_position
+
+    def write_limit_position(self, value: float) -> None:
+        self._limit_position = value
+        logging.info(
+            f"Objective user-defined position limit set to: "
+            f"{self._limit_position * 1e3:.3f} mm"
+        )
+
+    def _move_absolute(self, position: float) -> None:
+        # The hardware limits are read for each bound, as the old move reads them.
+        if not self._focus_limits()[0] <= position <= self._focus_limits()[1]:
+            raise ValueError(
+                f"Position {position} out of limits {self._focus_limits()}"
+            )
+        if not position <= self._limit_position:
+            logging.warning(
+                f"Clipping position {position} to user-defined limits "
+                f"{self._limit_position}"
+            )
+            position = np.clip(position, 0, self._limit_position)
+        with self._channel.scope():
+            self._channel.settings().focus.value = position
+
+    def _move_relative(self, delta: float) -> None:
+        self._move_absolute(self.position.get_value() + delta)
+
+    def _insert(self) -> bool:
+        with self._channel.scope():
+            if self.state.get_value() is InsertableDeviceState.INSERTED:
+                logging.warning("Objective lens is already inserted.")
+                return False
+            self._channel.connection.detector.insert()
+            return True
+
+    def _retract(self) -> bool:
+        with self._channel.scope():
+            if self.state.get_value() is InsertableDeviceState.RETRACTED:
+                logging.warning("Objective lens is already retracted.")
+                return False
+            self._channel.connection.detector.retract()
+            return True
+
+
+class AutoscriptFM(FM):
+    """The Thermo FM group: a channel set up on its parts, then a frame, holding the
+    FM channel throughout; and live view, as the old fast acquisition runs it."""
+
+    def __init__(
+        self,
+        channel: AutoscriptFMChannel,
+        parent: Any = None,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(name="fm", parent=parent, resources=resources)
+        self._channel = channel
+
+    def check_health(self) -> Optional[str]:
+        """Whether the FM answers: one live read, the camera's exposure time."""
+        self.camera.exposure_time.get_value()
+        return None
+
+    def _apply_channel(self, channel: Optional[Dict[str, Any]]) -> None:
+        """The old ``set_channel``: excitation, emission filter, power, exposure, gain."""
+        if channel is None:
+            return
+        from fibsem.fm.microscope import emission_filter_named
+
+        settings = ChannelSettings.from_dict(channel)
+        filters = self.filter_set
+        filters.excitation_wavelength.write_through(settings.excitation_wavelength)
+        filters.emission_filter.write_through(
+            emission_filter_named(
+                settings.emission_wavelength, filters.emission_filter.choices
+            )
+        )
+        self.light_source.power.write_through(settings.power)
+        camera = self.camera
+        camera.exposure_time.write_through(settings.exposure_time)
+        if settings.gain is not None:
+            camera.gain.write_through(settings.gain)
+
+    def _frame(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
+        self._apply_channel(channel)
+        if self.is_live:
+            return self._live_frame()
+        return self.camera.acquire()
+
+    def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
+        with self._channel.scope():
+            return self._frame(channel)
+
+    def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
+        # The metadata is read inside the scope too, as the old acquisition reads it,
+        # so it describes the state the frame was taken in.
+        with self._channel.scope():
+            acquisition_date = datetime.now().isoformat()
+            data = self._frame(channel)
+            metadata = {"acquisition_date": acquisition_date, **self._frame_metadata()}
+            return Frame(data, metadata)
+
+    # -- live view: the old fast acquisition, pulled ------------------------------------
+
+    def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
+        self._apply_channel(channel)
+        connection = self._channel.connection
+        with self._channel.lock:
+            self._channel.set_active_channel()
+            # The colour the hardware has, as the old fast acquisition starts it.
+            emission_color = connection.detector.camera_settings.emission.type.value
+            self.light_source.start_emission(emission_type=emission_color)
+            self.camera._start_acquisition()
+
+    def _live_frame(self) -> np.ndarray:
+        from fibsem.fm.autoscript import ImagingState
+
+        if self._channel.connection.imaging.state != ImagingState.ACQUIRING:
+            # Stopped from outside (the microscope's own UI): end live view as the old
+            # loop did, light off and acquisition stopped.
+            self.stop_live()
+            raise RuntimeError("The FM acquisition stopped; live view has ended.")
+        with self._channel.lock:
+            # Re-forced each frame, as the old loop does: something may have taken it.
+            self._channel.set_active_channel()
+            return self._channel.connection.imaging.get_image().data
+
+    def _stop_live(self) -> None:
+        self.light_source.stop_emission()
+        self.camera._stop_acquisition()
+
+
+def bind_autoscript_fm(
+    microscope: ThermoMicroscope,
+    resources: Optional[Resources] = None,
+    config: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Device]:
+    """The Thermo FM's parts and group for a connected Thermo microscope, by device
+    name. They share the microscope's ``imaging_channel`` lock with the beams.
+    *config* is the fm entry's own keys (``mount_transform``)."""
+    resources = resources if resources is not None else resources_of(microscope)
+    channel = AutoscriptFMChannel(microscope, resources.lock(IMAGING_CHANNEL))
+    common = {"parent": microscope, "resources": resources}
+    filter_set = AutoscriptFMFilterSet(channel, **common)
+    parts: Dict[str, Device] = {
+        "camera": AutoscriptFMCamera(channel, filter_set, **common),
+        "light_source": AutoscriptFMLightSource(channel, filter_set, **common),
+        "filter_set": filter_set,
+        "objective": AutoscriptFMObjective(channel, **common),
+    }
+    parts["camera"].configure(config)
+    group = AutoscriptFM(channel, **common).fill_roles(**parts)
+    return {device.name: device.connect() for device in [group, *parts.values()]}

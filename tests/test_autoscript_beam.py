@@ -15,7 +15,7 @@ through the scan commands on one side and the old keys on the other; the electro
 beam's angular correction, whose tilt correction could only be set before: it reads
 on the new API, and the old key's get still returns None; and ``preset``, which
 Thermo does not have. The fake SDK has to be in place before
-``fibsem.microscopes.autoscript`` is first imported, so the recording runs in its own interpreter
+``fibsem.drivers.autoscript.microscope`` is first imported, so the recording runs in its own interpreter
 (``tests/fixtures/autoscript_beam_parity.py``). Nothing here has run on an instrument.
 """
 

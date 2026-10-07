@@ -324,8 +324,8 @@ def test_report_lists_the_fixture_across_every_group():
 
 
 def test_driver_plugin_resolves_through_the_registry():
-    from fibsem.microscopes.device_demo import DemoMicroscope
-    from fibsem.microscopes.registry import default_configuration_values, get_driver
+    from fibsem.drivers.demo.microscope import DemoMicroscope
+    from fibsem.drivers.registry import default_configuration_values, get_driver
 
     entry = get_driver(DRIVER_MANUFACTURER)
     assert entry.load() is DemoMicroscope
@@ -335,7 +335,7 @@ def test_driver_plugin_resolves_through_the_registry():
 def test_driver_plugin_connects_through_setup_session():
     """The whole path a plugin driver is for: a configuration naming its manufacturer."""
     from fibsem import utils
-    from fibsem.microscopes.device_demo import DemoMicroscope
+    from fibsem.drivers.demo.microscope import DemoMicroscope
 
     microscope, _ = utils.setup_session(
         manufacturer=DRIVER_MANUFACTURER, setup_logging=False
@@ -345,7 +345,7 @@ def test_driver_plugin_connects_through_setup_session():
 
 def test_driver_plugins_record_what_they_could_not_register():
     from fibsem import manufacturers
-    from fibsem.microscopes.registry import get_driver, get_driver_plugin_records
+    from fibsem.drivers.registry import get_driver, get_driver_plugin_records
 
     records = {r.entry_point: r for r in get_driver_plugin_records()}
 
@@ -355,7 +355,7 @@ def test_driver_plugins_record_what_they_could_not_register():
     assert records["clashing_driver"].name == manufacturers.DEMO
     assert records["not_a_record"].error == "returned str, not a DriverEntry"
     assert get_driver(manufacturers.DEMO).microscope_class == (
-        "fibsem.microscopes.device_demo:DemoMicroscope"
+        "fibsem.drivers.demo.microscope:DemoMicroscope"
     )
 
 
@@ -365,7 +365,7 @@ def test_the_report_says_why_a_driver_plugin_is_inactive():
     drivers = next(g for g in collect_extensions() if g.group == "fibsem.drivers")
     rows = {e.target: e for e in drivers.extensions}
 
-    fixture = rows["fibsem.microscopes.device_demo:DemoMicroscope"]
+    fixture = rows["fibsem.drivers.demo.microscope:DemoMicroscope"]
     assert fixture.name == DRIVER_MANUFACTURER and fixture.problem is None
     clashing = rows["fibsem_test_plugin.drivers:NotADriver"]
     assert clashing.problem.startswith("name taken by a built-in")

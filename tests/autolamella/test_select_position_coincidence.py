@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
 )
-from fibsem.microscopes.sim_scene import SampleScene
+from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.projection import BeamStageProjection
 from fibsem.structures import BeamType
 

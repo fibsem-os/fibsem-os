@@ -34,9 +34,9 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
     grid_item_seconds,
 )
 from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusSweepPass
+from fibsem.drivers.autoscript.microscope import AutoscriptSampleLoader
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
 from fibsem.microscopes._stage import DemoSampleLoader
-from fibsem.microscopes.autoscript import AutoscriptSampleLoader
 from fibsem.structures import (
     AutoContrastMode,
     AutoFocusMode,
