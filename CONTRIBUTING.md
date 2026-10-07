@@ -146,6 +146,39 @@ the prebuilt stylesheets in `fibsem/ui/stylesheets.py` for buttons and progress 
 Render an offscreen screenshot (`widget.grab().save(...)`) to check layout before calling
 a widget done.
 
+## Times
+
+A recorded time is read on other machines, in other zones, years later. Every time
+fibsemOS stores goes through `fibsem/util/timestamps.py` and follows these rules
+(FIB-1190):
+
+1. **In memory, an aware `datetime`.** Take one with `timestamps.now()`, never
+   `datetime.now()`. A naive datetime does not say which instant it is, and comparing
+   one with an aware one raises `TypeError`.
+2. **On disk, ISO 8601 with the UTC offset:** `2026-09-13T21:19:40.974286-06:00`. Write
+   it with `.isoformat()` on an aware datetime (or `now_iso()`); read it with
+   `to_datetime`, or `to_aware` for a field that only holds instants. Parsing keeps the
+   offset the value was written with, so the site's clock time survives a load and a
+   save.
+3. **Convert to the viewer's zone only to display,** with `format_time`. Comparing,
+   subtracting and sorting aware datetimes goes by the instant, whatever their offsets.
+   Displays show no offset.
+4. **Name the moment `*_at`** (`started_at`, `captured_at`), one field per moment, and
+   derive durations from two of them rather than storing one.
+5. **Default with `field(default_factory=now)`,** never `= now()` in a class body,
+   which runs once when the module is imported (FIB-487).
+6. **POSIX only at the edges.** A vendor's time or a file's mtime becomes an aware
+   datetime as soon as it is read (`from_posix`). Do not add a POSIX field. The ones
+   that exist (task `start_timestamp`/`end_timestamp`, the `created_at` fields) are
+   moving to `*_at` fields beside them (FIB-1197); `microscope_state.timestamp` stays.
+7. **Old files keep reading as they did.** `to_datetime` reads every older form: a POSIX
+   float, AutoScript's `%m/%d/%Y %H:%M:%S` string, a naive ISO string. A naive value
+   stays naive, because its zone is unknown. Never upgrade an old value to an instant
+   by guessing its zone, and never rewrite one.
+
+Filenames and folder names (`overview-21-18-22`, `DATETIME_FILE`) are names, on the
+local clock, and nothing parses them as times.
+
 ## Network access
 
 **Nothing reaches the network unless a user asked it to.** Any feature that does is

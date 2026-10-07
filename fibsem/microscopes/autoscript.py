@@ -11,6 +11,7 @@ import glob
 import logging
 import os
 import sys
+import time
 from copy import deepcopy
 from functools import wraps
 from types import MappingProxyType
@@ -66,6 +67,7 @@ from fibsem.structures import (
     SystemSettings,
 )
 from fibsem.util.application_file import match_application_file
+from fibsem.util.timestamps import to_datetime
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -505,9 +507,19 @@ def fibsem_image_from_adorned_image(
     if beam_type is None:
         beam_type = BeamType.ELECTRON
 
+    # AutoScript's acquisition_datetime is the instrument PC's clock time with no zone
+    # (`07/16/2026 11:07:27` in a saved file). Read as this machine's local time --
+    # the instrument PC's, or one in the same building -- and recorded with its offset
+    # (FIB-1190). A state passed in keeps its own timestamp, when it was read:
+    # overwriting it with this string is what put a string in a float field (FIB-487).
+    acquired = to_datetime(adorned.metadata.acquisition.acquisition_datetime)
+    if acquired is not None:
+        acquired = acquired.astimezone()
+
     if state is None:
         state = MicroscopeState(
-            timestamp=adorned.metadata.acquisition.acquisition_datetime,
+            # Built from the frame's own metadata, so read when the frame was.
+            timestamp=acquired.timestamp() if acquired is not None else time.time(),
             stage_position=FibsemStagePosition(
                 adorned.metadata.stage_settings.stage_position.x,
                 adorned.metadata.stage_settings.stage_position.y,
@@ -518,8 +530,6 @@ def fibsem_image_from_adorned_image(
             electron_beam=BeamSettings(beam_type=BeamType.ELECTRON),
             ion_beam=BeamSettings(beam_type=BeamType.ION),
         )
-    else:
-        state.timestamp = adorned.metadata.acquisition.acquisition_datetime
 
     if image_settings is None:
         image_settings = image_settings_from_adorned_image(adorned, beam_type)
@@ -533,6 +543,7 @@ def fibsem_image_from_adorned_image(
         image_settings=image_settings,
         pixel_size=pixel_size,
         microscope_state=state,
+        acquisition_datetime=acquired,
     )
     return FibsemImage(data=adorned.data, metadata=metadata)
 

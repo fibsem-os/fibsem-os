@@ -1,12 +1,10 @@
 import datetime
 import logging
-import os
 import re
 import sys
 import threading
 import time
 from copy import deepcopy
-from queue import Queue
 from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -54,10 +52,9 @@ TESCAN_SCAN_DIRECTIONS = (
 try:
     import tescanautomation
     from tescanautomation import Automation
-    from tescanautomation.Common import Bpp, Detector, Document
+    from tescanautomation.Common import Detector, Document
     from tescanautomation.DrawBeam import DepthUnit, IEtching
     from tescanautomation.DrawBeam import Status as DBStatus
-    from tescanautomation.SEM import HVBeamStatus as SEMStatus
 
     sys.modules.pop("tescanautomation.GUI")
     sys.modules.pop("tescanautomation.pyside6gui")
@@ -110,6 +107,7 @@ from fibsem.structures import (  # noqa
     Point,
     SystemSettings,
 )
+from fibsem.util.timestamps import from_posix
 
 
 def _get_beam_settings_from_tescan_md(md: dict, beam_type: BeamType) -> BeamSettings:
@@ -226,6 +224,9 @@ def fromTescanImage(
         image_settings=image_settings,
         microscope_state=ms,
         pixel_size=pixelsize,
+        # The header's date and time, the instrument's clock, read as this machine's
+        # local time when the state was built (FIB-1190).
+        acquisition_datetime=from_posix(ms.timestamp),
     )
 
     return FibsemImage(data=image_data, metadata=deepcopy(md))

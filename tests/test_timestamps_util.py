@@ -12,8 +12,11 @@ import pytest
 
 from fibsem.util.timestamps import (
     format_time,
+    from_posix,
     iso_from_posix,
+    now,
     now_iso,
+    to_aware,
     to_datetime,
     zone_known,
 )
@@ -69,10 +72,12 @@ def test_a_posix_time_is_an_instant_in_the_viewers_zone(value):
     assert zone_known(value)
 
 
-def test_an_iso_time_with_an_offset_is_read_in_the_viewers_zone():
+def test_an_iso_time_with_an_offset_keeps_it():
+    """Parsed, not converted: the site's clock time survives a load and a save."""
     parsed = to_datetime("2026-09-13T21:19:40.974-06:00")
     assert parsed == datetime(2026, 9, 14, 3, 19, 40, 974000, tzinfo=timezone.utc)
-    assert _in_local_zone(parsed)
+    assert parsed.utcoffset() == timedelta(hours=-6)
+    assert parsed.isoformat() == "2026-09-13T21:19:40.974000-06:00"
     assert zone_known("2026-09-13T21:19:40.974-06:00")
 
 
@@ -95,8 +100,20 @@ def test_a_datetime_passes_through():
     naive = datetime(2026, 9, 13, 21, 19)
     assert to_datetime(naive) is naive
     aware = datetime(2026, 9, 14, 3, 19, tzinfo=timezone.utc)
-    assert to_datetime(aware) == aware
-    assert _in_local_zone(to_datetime(aware))
+    assert to_datetime(aware) is aware
+
+
+def test_now_and_from_posix_are_aware_in_this_machines_zone():
+    assert _in_local_zone(now())
+    assert _in_local_zone(from_posix(FIB_POSIX))
+    assert from_posix(FIB_POSIX).timestamp() == pytest.approx(FIB_POSIX)
+
+
+def test_to_aware_reads_only_instants():
+    assert to_aware("2026-09-13T21:19:40-06:00") is not None
+    assert to_aware(FIB_POSIX) is not None
+    assert to_aware(FM_NAIVE) is None
+    assert to_aware(THERMOFISHER) is None
 
 
 @pytest.mark.parametrize(
@@ -113,6 +130,11 @@ def test_a_posix_time_moves_to_the_viewers_zone_and_a_naive_one_does_not(viewer_
     assert format_time(FIB_POSIX) == "2026-09-14 12:12"
     # The FM overview's naive string cannot be moved into the viewer's zone.
     assert format_time(FM_NAIVE) == "2026-09-13 21:19"
+
+
+def test_a_time_with_an_offset_displays_in_the_viewers_zone(viewer_zone):
+    viewer_zone("Asia/Tokyo")
+    assert format_time("2026-09-13T21:12:11-06:00") == "2026-09-14 12:12"
 
 
 def test_the_same_instant_formats_the_same_from_every_aware_form(viewer_zone):

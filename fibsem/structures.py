@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
@@ -42,6 +41,7 @@ from fibsem.config import (
     UNVERSIONED_METADATA,
 )
 from fibsem.manufacturers import normalize_manufacturer
+from fibsem.util.timestamps import acquisition_datetime_of, to_aware
 from fibsem.versioning import get_revision
 
 if TYPE_CHECKING:
@@ -4052,6 +4052,14 @@ class FibsemImageMetadata:
     experiment: FibsemExperimentRef = field(
         default_factory=lambda: FibsemExperimentRef()
     )
+    # When the image was acquired: an aware datetime, written as ISO 8601 with its
+    # UTC offset, `2026-09-13T21:19:40.974286-06:00` (FIB-1190). An observation, like
+    # microscope_state, but a separate field: the state's timestamp says when the
+    # state was read, which is not the same moment. `Beam.acquire` stamps it just
+    # before the driver runs; a driver with a vendor time sets its own. None on
+    # files from before v11 and on images built rather than acquired -- read the
+    # time through `acquisition_datetime_of`, which falls back for those.
+    acquisition_datetime: Optional[datetime] = None
 
     @property
     def beam_type(self) -> BeamType:
@@ -4062,8 +4070,14 @@ class FibsemImageMetadata:
         return self.microscope_state.stage_position
 
     @property
-    def acquisition_date(self) -> datetime:
-        return datetime.fromtimestamp(self.microscope_state.timestamp)
+    def acquisition_date(self) -> Optional[datetime]:
+        """When the image was acquired: aware, with the offset it was recorded with,
+        when the file says which zone.
+
+        Naive when it does not: a ThermoFisher image from before v11 records the
+        instrument PC's clock time alone. See `acquisition_datetime_of`.
+        """
+        return acquisition_datetime_of(self)
 
     def to_dict(self) -> dict:
         """Converts metadata to a dictionary.
@@ -4076,6 +4090,10 @@ class FibsemImageMetadata:
             settings_dict["image"] = self.image_settings.to_dict()
         if self.version is not None:
             settings_dict["version"] = self.version
+        if self.acquisition_datetime is not None:
+            settings_dict["acquisition_datetime"] = (
+                self.acquisition_datetime.isoformat()
+            )
         if self.pixel_size is not None:
             settings_dict["pixel_size"] = self.pixel_size.to_dict()
         if self.microscope_state is not None:
@@ -4176,6 +4194,7 @@ class FibsemImageMetadata:
             experiment=FibsemExperimentRef.from_dict(settings.get("experiment", {})),
             system_info=system_info,
             hardware_geometry=hardware_geometry,
+            acquisition_datetime=to_aware(settings.get("acquisition_datetime")),
         )
         return metadata
 
@@ -4403,7 +4422,6 @@ class FibsemImage:
             Channel,
             Image,
             Instrument,
-            ManufacturerSpec,
             MapAnnotation,
             Microscope,
             Pixels,
@@ -4480,7 +4498,7 @@ class FibsemImage:
         ome_image = Image(
             id="Image:0",
             name=md.image_settings.filename,
-            acquisition_date=md.microscope_state.timestamp,
+            acquisition_date=acquisition_datetime_of(md),
             pixels=pixels,
         )
 

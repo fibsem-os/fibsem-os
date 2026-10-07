@@ -402,13 +402,22 @@ class TiledAcquisitionRunner:
         return metadata
 
     def _correct_metadata_from(self, image: FibsemImage) -> None:
-        """Take the pixel size the instrument actually delivered, once one exists.
+        """Take what the first tile says that the plan could not: when the mosaic was
+        acquired, and the pixel size the instrument actually delivered.
+
+        The mosaic is built here rather than acquired through `Beam.acquire`, so it
+        has no acquisition time of its own; it was acquired from when its first tile
+        was (FIB-1190).
 
         The planned `hfw / width` is right on every simulator and can be a fraction out
         on a column that quantises the field of view. Everything placed from this
         metadata scales by it, so a fraction out is a fraction of the whole mosaic.
         """
-        actual = getattr(getattr(image, "metadata", None), "pixel_size", None)
+        metadata = getattr(image, "metadata", None)
+        acquired = getattr(metadata, "acquisition_datetime", None)
+        if acquired is not None:
+            self._mosaic_metadata.acquisition_datetime = acquired
+        actual = getattr(metadata, "pixel_size", None)
         if actual is None or not actual.x:
             return
         self._mosaic_metadata.pixel_size = deepcopy(actual)
