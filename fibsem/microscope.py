@@ -2930,7 +2930,7 @@ class FibsemMicroscope(ABC):
         """
 
         currrent_orientation = self.get_stage_orientation(stage_position)
-        logging.info(
+        logging.debug(
             f"Getting target position for {target_orientation} from {currrent_orientation}"
         )
 
