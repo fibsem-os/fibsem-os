@@ -3,7 +3,7 @@
 Replaces the single napari viewer in the main microscope tab. Four cells:
 
     SEM (electron) | FIB (ion)
-    FM (fluorescence) | "No Data" placeholder
+    FM (fluorescence) | a cell of pages: the chamber view, ...
 
 ``MicroscopeViewController`` wraps the widget and is the object handed to the
 control widgets in place of the napari ``Viewer``. Its surface is intentionally
@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QComboBox,
     QFrame,
     QLabel,
     QSplitter,
@@ -49,6 +50,7 @@ from fibsem.ui.widgets.canvas.canvas_state import (
     PointsSpec,
     SceneModel,
 )
+from fibsem.ui.widgets.canvas.chamber_view import ChamberView
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
@@ -62,7 +64,6 @@ _logger = logging.getLogger(__name__)
 _TITLE_STYLE = (
     f"color: #888; font-size: 11px; padding: 2px 6px; background: {CANVAS_BG};"
 )
-_PLACEHOLDER_STYLE = "color: #777; font-size: 12px;"
 # Selected-view border: the primary accent (matches PRIMARY_BUTTON_STYLESHEET), kept subtle.
 # A transparent border of the same width is always present so selection causes no layout shift,
 # and it's scoped via the #viewPanel object name so it never cascades onto the title / canvas.
@@ -72,18 +73,20 @@ _PANEL_QSS = "#viewPanel {{ background: {bg}; border: 2px solid {border}; }}"
 _LIVE_ACCENT = GREEN_COLOR
 
 
-def _titled(title: str, inner: QWidget) -> QFrame:
-    """Wrap *inner* in a selectable panel frame with a small title label above it."""
+def _titled(title: str, inner: QWidget, header: Optional[QWidget] = None) -> QFrame:
+    """Wrap *inner* in a selectable panel frame with a small title label above it, or
+    with *header* in the title's place."""
     frame = QFrame()
     frame.setObjectName("viewPanel")
     frame.setAttribute(Qt.WA_StyledBackground, True)
     frame.setStyleSheet(_PANEL_QSS.format(bg=_BG, border="transparent"))
-    lbl = QLabel(title, alignment=Qt.AlignLeft)
-    lbl.setStyleSheet(_TITLE_STYLE)
+    if header is None:
+        header = QLabel(title, alignment=Qt.AlignLeft)
+        header.setStyleSheet(_TITLE_STYLE)
     lay = QVBoxLayout(frame)
     lay.setContentsMargins(0, 0, 0, 0)
     lay.setSpacing(0)
-    lay.addWidget(lbl)
+    lay.addWidget(header)
     lay.addWidget(inner)
     return frame
 
@@ -97,25 +100,61 @@ def _splitter(orientation, *widgets) -> QSplitter:
     return s
 
 
-class PlaceholderPanel(QFrame):
-    """Inert 'No Data' panel for the 4th quad-view cell (no canvas, no toolbar)."""
+class PageCell(QWidget):
+    """The 4th quad-view cell: pages of non-canvas content, one shown at a time.
 
-    def __init__(self, text: str = "No Data") -> None:
-        super().__init__()
-        self.setStyleSheet(f"background: {_BG};")
-        lbl = QLabel(text, alignment=Qt.AlignCenter)
-        lbl.setStyleSheet(_PLACEHOLDER_STYLE)
+    The other three cells are fixed (SEM, FIB, FM). This one holds whatever is useful
+    beside them, and the operator picks which from the selector in its title row --
+    the same arrangement as a multi-viewport tool, where the spare pane is a slot
+    rather than a fixed thing. Pages are added by key; the selector is the cell's
+    header, so it sits where the other cells have their title.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.selector = QComboBox()
+        self.selector.setStyleSheet("font-size: 11px;")
+        self.selector.currentIndexChanged.connect(self._on_selector_changed)
+        self._stack = QStackedWidget()
+        self._keys: List[str] = []
         lay = QVBoxLayout(self)
-        lay.addWidget(lbl)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self._stack)
+
+        self.header = QWidget()
+        self.header.setStyleSheet(f"background: {CANVAS_BG};")
+        header_lay = QVBoxLayout(self.header)
+        header_lay.setContentsMargins(4, 2, 4, 2)
+        header_lay.addWidget(self.selector, 0, Qt.AlignLeft)
+
+    def add_page(self, key: str, label: str, widget: QWidget) -> None:
+        self._keys.append(key)
+        self._stack.addWidget(widget)
+        self.selector.addItem(label, key)
+
+    @property
+    def page(self) -> Optional[str]:
+        """The key of the page on show."""
+        index = self._stack.currentIndex()
+        return self._keys[index] if 0 <= index < len(self._keys) else None
+
+    def set_page(self, key: str) -> None:
+        if key in self._keys:
+            self.selector.setCurrentIndex(self._keys.index(key))
+
+    def _on_selector_changed(self, index: int) -> None:
+        if 0 <= index < len(self._keys):
+            self._stack.setCurrentIndex(index)
 
 
 class QuadViewWidget(QWidget):
-    """2x2 grid: SEM | FIB over FM | placeholder, each a selectable titled panel.
+    """2x2 grid: SEM | FIB over FM | a cell of pages, each a titled panel.
 
     The SEM/FIB cells are :class:`FibsemImageCanvas` instances (so they inherit
     the reset / scalebar / crosshair / contrast toolbar); the FM cell is an
     :class:`FMCanvasWidget` (multi-channel composite + per-channel controls), and
-    the 4th is an inert placeholder. ``fm_canvas`` aliases the FM widget's inner
+    the 4th is a :class:`PageCell` -- the chamber view to start with -- which is not
+    selectable and has no canvas. ``fm_canvas`` aliases the FM widget's inner
     canvas so overlays attach the same way they do on SEM/FIB.
 
     The most-recently-clicked canvas is the *selected* view: its panel gets a subtle
@@ -133,15 +172,17 @@ class QuadViewWidget(QWidget):
         self.fib_canvas = FibsemImageCanvas()
         self.fm_widget = FMCanvasWidget()
         self.fm_canvas = self.fm_widget.canvas
-        self.placeholder = PlaceholderPanel("No Data")
+        self.chamber_view = ChamberView()
+        self.page_cell = PageCell()
+        self.page_cell.add_page("chamber", "Chamber", self.chamber_view)
 
         sem_panel = _titled("SEM", self.sem_canvas)
         fm_panel = _titled("FM", self.fm_widget)
         fib_panel = _titled("FIB", self.fib_canvas)
-        placeholder_panel = _titled("Placeholder", self.placeholder)
+        page_panel = _titled("", self.page_cell, header=self.page_cell.header)
 
         left = _splitter(Qt.Vertical, sem_panel, fm_panel)
-        right = _splitter(Qt.Vertical, fib_panel, placeholder_panel)
+        right = _splitter(Qt.Vertical, fib_panel, page_panel)
         root = _splitter(Qt.Horizontal, left, right)
 
         lay = QVBoxLayout(self)
@@ -153,12 +194,12 @@ class QuadViewWidget(QWidget):
         # leaving one cell filling the quad. Reversible: saved sizes restore the grid.
         self._root_splitter = root
         self._splitters = {"left": left, "right": right}
-        self._all_panels = [sem_panel, fm_panel, fib_panel, placeholder_panel]
+        self._all_panels = [sem_panel, fm_panel, fib_panel, page_panel]
         self._panel_splitter = {
             sem_panel: left,
             fm_panel: left,
             fib_panel: right,
-            placeholder_panel: right,
+            page_panel: right,
         }
         self._fullscreen: Optional[object] = None
         self._saved_sizes: dict = {}
@@ -747,6 +788,7 @@ class MicroscopeViewController(QObject):
             orientation = microscope.get_stage_orientation(
                 stage_position=stage_position
             )
+            self._update_chamber_view(microscope, stage_position, orientation)
             grid = microscope.current_grid
             milling_angle = microscope.get_current_milling_angle(
                 stage_position=stage_position
@@ -793,6 +835,38 @@ class MicroscopeViewController(QObject):
             _logger.warning(
                 "MicroscopeViewController.update_info failed", exc_info=True
             )
+
+    def _update_chamber_view(self, microscope, stage_position, orientation) -> None:
+        """Hand the quad view's chamber drawing the position the info bar just got.
+
+        Called from `update_info`, so it follows the same pushes the STAGE line does
+        and reads nothing new. The lamella editor view has no chamber view.
+
+        Guarded on its own: it runs mid-way through `update_info`, and a drawing that
+        cannot be made must not cost the info bar the lines after it."""
+        chamber = getattr(self._widget, "chamber_view", None)
+        if chamber is None:
+            return
+        try:
+            chamber.set_microscope(microscope)
+            stage = microscope.system.stage
+            chamber.set_stage(
+                stage_position,
+                orientation=orientation,
+                pre_tilt=stage.shuttle_pre_tilt,
+                column_tilt=microscope.system.ion.column_tilt,
+                rotation_reference=stage.rotation_reference,
+            )
+        except Exception:
+            _logger.debug("The chamber view could not be drawn", exc_info=True)
+
+    def set_map_positions(self, positions) -> None:
+        """The positions the chamber view's stage map marks: the experiment's lamellae.
+
+        The lamella editor view has no chamber view, so this is a no-op there."""
+        chamber = getattr(self._widget, "chamber_view", None)
+        if chamber is not None:
+            chamber.set_positions(positions)
 
     # ── render loop ───────────────────────────────────────────────────────
     def _mark_dirty(self, canvas: FibsemImageCanvas) -> None:
