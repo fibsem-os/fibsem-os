@@ -565,7 +565,7 @@ class TescanStage(Stage):
 
     Fibsem has never read the Tescan stage's limits, so every axis is unlimited and
     the instrument refuses what it cannot reach. ``home()`` refers to the native UI, so
-    ``homed`` is absent and its key still goes to ``_get``/``_set``. z is not linked to
+    ``homed`` is absent (its key reads None). z is not linked to
     the working distance, so ``linked`` reads False.
     """
 
