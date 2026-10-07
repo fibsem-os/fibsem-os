@@ -13,7 +13,9 @@ length of its own operation -- a deliberate FM acquisition, a live stream -- can
 land inside this window.
 
 Structural, over the real source: `ThermoMicroscope` cannot be constructed without the
-AutoScript SDK, which is absent off the microscope. What is pinned is the discipline --
+AutoScript SDK, which is absent off the microscope. Its imaging runs in its beam devices
+(`AutoscriptBeam`), whose `claim_channel()` is the same lock with the beam's channel
+selected inside it, so both classes are read. What is pinned is the discipline --
 the pair is locked, it is locked together, and the locked region stays narrow.
 
 The race itself is now observable on the simulator, which models the shared channel on
@@ -29,16 +31,19 @@ import pytest
 import fibsem
 
 
-def _thermo_class() -> ast.ClassDef:
-    """The `ThermoMicroscope` class body, parsed from source."""
-    source = (Path(fibsem.__file__).parent / "microscopes" / "autoscript.py").read_text(
-        encoding="utf-8"
-    )
+def _class(module: str, name: str) -> ast.ClassDef:
+    """A class body, parsed from source."""
+    source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
     return next(
         node
         for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.ClassDef) and node.name == "ThermoMicroscope"
+        if isinstance(node, ast.ClassDef) and node.name == name
     )
+
+
+def _thermo_class() -> ast.ClassDef:
+    """The `ThermoMicroscope` class body, parsed from source."""
+    return _class("microscopes/autoscript.py", "ThermoMicroscope")
 
 
 def _calls_named(node: ast.AST, name: str) -> list:
@@ -53,20 +58,38 @@ def _calls_named(node: ast.AST, name: str) -> list:
 
 
 def _locked_blocks(node: ast.AST) -> list:
-    """Every `with self._threading_lock:` block anywhere under `node`."""
+    """Every `with self._threading_lock:` or `with self.claim_channel():` block
+    anywhere under `node`."""
     return [
         child
         for child in ast.walk(node)
         if isinstance(child, ast.With)
         and any(
-            "_threading_lock" in ast.dump(item.context_expr) for item in child.items
+            "_threading_lock" in ast.dump(item.context_expr)
+            or "claim_channel" in ast.dump(item.context_expr)
+            for item in child.items
         )
     ]
 
 
+def _sets_the_channel(block: ast.With) -> bool:
+    """A block that selects the channel inside the lock: a `set_channel` call, or a
+    device's `claim_channel()`, which selects its own."""
+    return bool(_calls_named(block, "set_channel")) or any(
+        "claim_channel" in ast.dump(item.context_expr) for item in block.items
+    )
+
+
 @pytest.fixture(scope="module")
-def thermo() -> ast.ClassDef:
-    return _thermo_class()
+def thermo() -> ast.Module:
+    """`ThermoMicroscope` and its beam device, where its imaging runs."""
+    return ast.Module(
+        body=[
+            _thermo_class(),
+            _class("devices/drivers/autoscript.py", "AutoscriptBeam"),
+        ],
+        type_ignores=[],
+    )
 
 
 def test_every_grab_is_locked(thermo):
@@ -99,7 +122,7 @@ def test_the_channel_is_set_inside_the_same_block(thermo):
     for block in _locked_blocks(thermo):
         if not _calls_named(block, "grab_frame"):
             continue
-        assert _calls_named(block, "set_channel"), (
+        assert _sets_the_channel(block), (
             f"the block at line {block.lineno} locks the grab but not the set_channel "
             f"that precedes it, so the channel can still be taken in between"
         )
@@ -150,7 +173,7 @@ def test_the_autofunctions_claim_the_channel_in_the_same_block(thermo, action):
     for block in _locked_blocks(thermo):
         if not _calls_named(block, action):
             continue
-        assert _calls_named(block, "set_channel"), (
+        assert _sets_the_channel(block), (
             f"the block at line {block.lineno} locks {action} but not the set_channel "
             f"that precedes it, so the channel can still be taken in between"
         )
@@ -167,7 +190,10 @@ def test_the_autofunctions_hold_the_reduced_area_too(thermo):
         blocks = [b for b in _locked_blocks(thermo) if _calls_named(b, action)]
         assert blocks, f"no locked {action} block found"
         for block in blocks:
-            assert _calls_named(block, "set_reduced_area_scanning_mode"), (
+            # the microscope's method, or the beam's own scan command
+            assert _calls_named(block, "set_reduced_area_scanning_mode") or (
+                _calls_named(block, "reduced_area")
+            ), (
                 f"the block at line {block.lineno} runs {action} without the "
                 f"reduced-area write inside it"
             )
@@ -284,7 +310,7 @@ def test_the_detector_pairs_set_the_channel_in_the_same_block(thermo):
     for block in _locked_blocks(thermo):
         if not _detector_accesses(block):
             continue
-        assert _calls_named(block, "set_channel"), (
+        assert _sets_the_channel(block), (
             f"the block at line {block.lineno} locks a detector access but not the "
             f"set_channel before it"
         )
@@ -297,7 +323,7 @@ def test_get_detector_settings_holds_the_lock_across_the_group(thermo):
     override = next(
         (
             node
-            for node in thermo.body
+            for node in _thermo_class().body
             if isinstance(node, ast.FunctionDef)
             and node.name == "get_detector_settings"
         ),

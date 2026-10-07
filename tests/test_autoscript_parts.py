@@ -1,10 +1,11 @@
 """Thermo's chamber and manipulator as devices make the SDK calls the old code makes.
 
 ``AutoscriptChamber`` and ``AutoscriptManipulator`` are ``ThermoMicroscope``'s chamber
-branches and manipulator methods moved onto the devices. Each case runs an old call on
-a microscope without the devices and on one that built them as connect does, both over
-a fake AutoScript client that records every SDK call and write, and requires the same
-result (or error), the same calls in the same order and the same logged messages.
+branches and manipulator methods moved onto the devices. Each case runs a call on a
+microscope that built them as connect does, over a fake AutoScript client that records
+every SDK call and write, and requires the result (or error), the calls in order and
+the logged messages the old code gave, recorded over the same fake in
+``tests/fixtures/autoscript_old_calls.json`` before it was deleted.
 
 Cases: the chamber keys, pump and vent; the manipulator keys, insert (each named
 position, and an unknown one), retract, the raw moves, the corrected and offset moves,
@@ -22,7 +23,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.autoscript_recording import load
+
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_parts_parity.py"
+RECORDED = Path(__file__).parent / "fixtures" / "autoscript_old_calls.json"
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +41,13 @@ def recording(tmp_path_factory):
         timeout=300,
     )
     assert result.returncode == 0, result.stderr[-4000:]
-    return json.loads(out.read_text())
+    recording = load(out.read_text())
+    # the old code's side, recorded before it was deleted
+    old = load(RECORDED.read_text())["parts"]
+    assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
+    for case in recording["cases"]:
+        case["old"] = old[case["key"]]
+    return recording
 
 
 def _case(recording, key):
@@ -52,8 +62,20 @@ def test_the_recording_makes_sdk_calls(recording):
 
 
 def test_the_devices_make_the_same_sdk_calls_logs_and_results(recording):
-    different = [c for c in recording["cases"] if c["old"] != c["new"]]
+    different = [
+        c
+        for c in recording["cases"]
+        if c["old"] != c["new"] and c["key"] != "set pump_chamber False"
+    ]
     assert different == [], json.dumps(different[:3], indent=1)
+
+
+def test_a_false_pump_does_nothing_without_a_warning(recording):
+    """The old ``_set`` warned on a false pump; with no ``_set`` of Thermo's own it
+    is the chamber's key with nothing to do, and logs at debug level."""
+    case = _case(recording, "set pump_chamber False")
+    assert case["old"][2] == [["WARNING", "Invalid value for pump_chamber: False."]]
+    assert case["new"] == [None, [], []]
 
 
 def test_the_old_errors_are_kept(recording):
@@ -92,7 +114,7 @@ def test_the_configuration_switches_parts_off(recording):
     fitted part off, so it is never built; a device no driver builds is left out with
     a warning."""
     facts = recording["facts"]["configured"]
-    assert facts["devices"] == ["chamber"]
+    assert facts["devices"] == ["stage", "chamber"]
     assert facts["manipulator"] is True
     assert facts["routed"] is False
 

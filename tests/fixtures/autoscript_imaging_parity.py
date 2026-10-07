@@ -1,12 +1,13 @@
-"""Record the AutoScript calls of Thermo's imaging methods, old and through the beams.
+"""Record the AutoScript calls of Thermo's imaging methods, through the beams.
 
 Run as a script, in its own interpreter, for the same reason as
 ``autoscript_beam_parity.py``, whose fake SDK, microscope and recorder it reuses. It
-writes JSON to the path it is given: ``cases``, each holding what an old imaging
-method returned, the SDK calls and writes it made (the grab, the image read and the
-autofunctions included) and the messages it logged, and the same for the microscope
-with its beams built as connect builds them; and ``facts``, what the new API makes of
-the commands.
+writes JSON to the path it is given: ``cases``, each holding what an imaging method
+returned, the SDK calls and writes it made (the grab, the image read and the
+autofunctions included) and the messages it logged, on the microscope with its beams
+built as connect builds them (the old methods' are in ``autoscript_old_calls.json``,
+recorded over this fake before they were deleted); and ``facts``, what the new API
+makes of the commands.
 
 ``get_microscope_state`` and ``_set_additional_metadata`` are recorded rather than
 run: both sides call the same ones, and what they read is the microscope's, not the
@@ -19,7 +20,6 @@ import os
 import sys
 import threading
 import types
-from types import MappingProxyType
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -90,7 +90,7 @@ class FakeImaging(S.Node):
         return "ACQUIRING" if left > 0 else "Idle"
 
 
-def make(beams):
+def make():
     microscope = B.make(plasma=False)
     object.__setattr__(
         microscope.connection, "imaging", FakeImaging("connection.imaging")
@@ -106,11 +106,7 @@ def make(beams):
 
     microscope.get_microscope_state = get_microscope_state
     microscope._set_additional_metadata = set_additional_metadata
-    if beams:
-        microscope._build_beams()
-    else:
-        microscope.beams = MappingProxyType({})
-        microscope._beam_routes = MappingProxyType({})
+    microscope._build_beams()
     return microscope
 
 
@@ -176,23 +172,13 @@ def cases():
     out = []
     for beam_type in (BeamType.ELECTRON, BeamType.ION):
         for name, call in _calls(beam_type):
-            old, new = make(beams=False), make(beams=True)
+            new = make()
             out.append(
-                {
-                    "key": f"{beam_type.name} {name}",
-                    "old": B.run(lambda: call(old)),
-                    "new": B.run(lambda: call(new)),
-                }
+                {"key": f"{beam_type.name} {name}", "new": B.run(lambda: call(new))}
             )
-    # neither settings nor a beam type: the old error, on both
-    old, new = make(beams=False), make(beams=True)
-    out.append(
-        {
-            "key": "acquire nothing",
-            "old": B.run(lambda: old.acquire_image()),
-            "new": B.run(lambda: new.acquire_image()),
-        }
-    )
+    # neither settings nor a beam type: the old error
+    new = make()
+    out.append({"key": "acquire nothing", "new": B.run(lambda: new.acquire_image())})
     return out
 
 
@@ -235,27 +221,23 @@ def _live(microscope, beam_type, frames=4):
 def live_cases():
     out = []
     for beam_type in (BeamType.ELECTRON, BeamType.ION):
-        old, new = make(beams=False), make(beams=True)
+        new = make()
         out.append(
-            {
-                "key": f"{beam_type.name} live",
-                "old": B.run(_live(old, beam_type)),
-                "new": B.run(_live(new, beam_type)),
-            }
+            {"key": f"{beam_type.name} live", "new": B.run(_live(new, beam_type))}
         )
     return out
 
 
 def facts():
     out = {}
-    microscope = make(beams=True)
+    microscope = make()
     out["commands"] = {
         bt.name: sorted(name for name, info in beam.commands.items() if info.available)
         for bt, beam in microscope.beams.items()
     }
 
     # the old methods go through the beam's commands
-    microscope = make(beams=True)
+    microscope = make()
     used = []
     for beam in microscope.beams.values():
         for command in ("acquire", "last_image", "autocontrast", "auto_focus"):
@@ -272,7 +254,7 @@ def facts():
     microscope.autocontrast(BeamType.ELECTRON)
     microscope.auto_focus(BeamType.ION)
     out["used"] = list(used)
-    microscope = make(beams=True)
+    microscope = make()
 
     # each vendor call runs with the beam's channel selected under the lock
     held = []
@@ -299,7 +281,7 @@ def facts():
     out["held"] = held
 
     # live view through the microscope: the beam is live, and stop stops it
-    microscope = make(beams=True)
+    microscope = make()
     object.__setattr__(microscope.connection.imaging, "_acquiring", 10**9)
     sem = microscope.beams[BeamType.ELECTRON]
     microscope.start_acquisition(BeamType.ELECTRON)

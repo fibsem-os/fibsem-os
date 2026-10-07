@@ -1,12 +1,14 @@
-"""Record the AutoScript calls of Thermo's old beam keys and of the beam drivers.
+"""Record the AutoScript calls of Thermo's beam keys, routed to the beam drivers.
 
 Run as a script, in its own interpreter, for the same reason as
 ``autoscript_stage_parity.py``, whose fake SDK and recorder it reuses: the fake
 ``autoscript_sdb_microscope_client`` must be in ``sys.modules`` before
 ``fibsem.microscopes.autoscript`` is imported. It writes JSON to the path it is given:
-``cases``, each holding what the old ``get``/``set`` returned, the SDK calls and writes
-it made and the messages it logged, and the same for the microscope with its beam
-keys routed to ``AutoscriptBeam``; and ``facts``, what the new API makes of each beam.
+``cases``, each holding what a ``get``/``set`` returned, the SDK calls and writes it
+made and the messages it logged on the microscope with its beam keys routed to
+``AutoscriptBeam`` (the old branches' are in ``autoscript_old_calls.json``, recorded
+over this fake before they were deleted); and ``facts``, what the new API makes of
+each beam.
 """
 
 import copy
@@ -14,7 +16,6 @@ import json
 import logging
 import os
 import sys
-from types import MappingProxyType
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,6 +28,7 @@ from fibsem.devices.drivers.autoscript import bind_autoscript_beams  # noqa: E40
 from fibsem.structures import BeamType, FibsemRectangle, Point  # noqa: E402
 
 A, LOG, STRUCTS, Node = S.A, S.LOG, S.STRUCTS, S.Node
+_preset, fake_beams = S._preset, S.fake_beams
 
 
 class _Messages(logging.Handler):
@@ -45,70 +47,13 @@ logging.getLogger().addHandler(MESSAGES)
 logging.getLogger().setLevel(logging.DEBUG)
 
 
-def _preset(node, path, value):
-    """Give a vendor attribute a value without recording it as a write."""
-    *parents, name = path.split(".")
-    for part in parents:
-        node = getattr(node, part)
-    object.__setattr__(node, name, value)
-
-
-def _fake_beam(beam, beam_type):
-    electron = beam_type is BeamType.ELECTRON
-    values = {
-        "is_on": True,
-        "is_blanked": False,
-        "working_distance.value": 4e-3 if electron else 16.5e-3,
-        "beam_current.value": 1e-10 if electron else 2e-11,
-        "beam_current.limits": STRUCTS.Limits(min=1e-12, max=1e-8),
-        "beam_current.available_values": [1e-12, 2e-11, 1e-10, 1e-9],
-        "high_voltage.value": 2000 if electron else 30000,
-        "high_voltage.limits": STRUCTS.Limits(min=200, max=30000),
-        "horizontal_field_width.value": 150e-6,
-        "horizontal_field_width.limits": STRUCTS.Limits(min=1e-7, max=2e-3),
-        "scanning.dwell_time.value": 1e-6,
-        "scanning.rotation.value": 0.0,
-        "scanning.resolution.value": "1536x1024",
-        "scanning.mode.value": "FullFrame",
-        "beam_shift.value": STRUCTS.Point(x=1e-7, y=-2e-7),
-        "stigmator.value": STRUCTS.Point(x=0.01, y=-0.02),
-        "source.plasma_gas.value": "Xenon",
-        "source.plasma_gas.available_values": ["Argon", "Oxygen", "Xenon"],
-    }
-    if electron:
-        values["angular_correction.angle.value"] = 0.05
-        values["angular_correction.tilt_correction.is_on"] = False
-    for path, value in values.items():
-        _preset(beam, path, value)
-
-
 def make(plasma, ion=True):
     """A ThermoMicroscope as connect leaves it, over the fake SDK."""
     microscope = S.make(compustage=False)
     microscope.system.electron.enabled = True
     microscope.system.ion.enabled = ion
     microscope.system.ion.plasma_gas = "Xenon" if plasma else None
-    connection = microscope.connection
-    _fake_beam(connection.beams.electron_beam, BeamType.ELECTRON)
-    _fake_beam(connection.beams.ion_beam, BeamType.ION)
-    _preset(connection, "detector.type.value", "ETD")
-    _preset(connection, "detector.type.available_values", ["ETD", "TLD", "ICE"])
-    _preset(connection, "detector.mode.value", "SecondaryElectrons")
-    _preset(
-        connection,
-        "detector.mode.available_values",
-        ["SecondaryElectrons", "BackscatterElectrons"],
-    )
-    _preset(connection, "detector.brightness.value", 0.5)
-    _preset(connection, "detector.contrast.value", 0.6)
-    return microscope
-
-
-def old_branches(plasma):
-    """A microscope whose beam keys are all still answered by ``_get``/``_set``."""
-    microscope = make(plasma)
-    microscope.beams = MappingProxyType({})
-    microscope._beam_routes = MappingProxyType({})
+    fake_beams(microscope.connection)
     return microscope
 
 
@@ -150,7 +95,7 @@ GETS = (
     "angular_correction_angle",
     # set only: the old get never answered it, and the routed get leaves it to _get
     "angular_correction_tilt_correction",
-    # not moved: still the old branches on both sides
+    # Thermo has no preset: None, as before
     "preset",
 )
 
@@ -182,7 +127,7 @@ SETS = (
     ("detector_contrast", 0.7),
     ("detector_contrast", 1.5),  # warns, not set
     ("angular_correction_angle", 0.2),
-    # not moved: still the old branches on both sides
+    # Thermo has no preset: an unknown key, as before
     ("preset", "anything"),
 )
 
@@ -213,14 +158,8 @@ def cases():
             tag = f"plasma={plasma} {beam_type.name}"
 
             def add(name, call):
-                old, new = old_branches(plasma), routed(plasma)
-                out.append(
-                    {
-                        "key": f"{tag} {name}",
-                        "old": run(lambda: call(old)),
-                        "new": run(lambda: call(new)),
-                    }
-                )
+                new = routed(plasma)
+                out.append({"key": f"{tag} {name}", "new": run(lambda: call(new))})
 
             for key in GETS:
                 add(f"get {key}", lambda m, k=key, b=beam_type: m.get(k, b))
@@ -336,9 +275,6 @@ def facts():
     _preset(vendor, "is_on", True)
     tilt["after"] = beam.tilt_correction.get_value()
     tilt["key"] = microscope.get(
-        "angular_correction_tilt_correction", BeamType.ELECTRON
-    )
-    tilt["old"] = old_branches(plasma=False).get(
         "angular_correction_tilt_correction", BeamType.ELECTRON
     )
     tilt["ion"] = microscope.get("angular_correction_tilt_correction", BeamType.ION)

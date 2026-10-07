@@ -1,14 +1,14 @@
-"""Record the AutoScript calls of Thermo's chamber and manipulator code, old and routed
+"""Record the AutoScript calls of Thermo's chamber and manipulator code, routed
 through the devices.
 
 Run as a script, in its own interpreter, for the same reason as
 ``autoscript_stage_parity.py``, whose fake SDK and recorder it reuses: the fake
 ``autoscript_sdb_microscope_client`` must be in ``sys.modules`` before
 ``fibsem.microscopes.autoscript`` is imported. It writes JSON to the path it is given:
-``cases``, each holding what the old call returned (or raised), the SDK calls and
-writes it made and the messages it logged, on a microscope without the devices and
-on one that built them as connect does; and ``facts``, what the new API makes of
-them.
+``cases``, each holding what a call returned (or raised), the SDK calls and writes it
+made and the messages it logged, on a microscope that built the devices as connect
+does (the old code's are in ``autoscript_old_calls.json``, recorded over this fake
+before it was deleted); and ``facts``, what the new API makes of them.
 """
 
 import copy
@@ -115,6 +115,7 @@ def make(build):
     object.__setattr__(
         connection.specimen, "manipulator", FakeNeedle("specimen.manipulator")
     )
+    microscope._build_stage()  # connect builds the stage first, and the moves read it
     if build:
         microscope._build_parts()
     return microscope
@@ -178,13 +179,9 @@ CALLS = (
 
 
 def cases():
+    # built before the run, so connect's calls are not part of the case
     return [
-        {
-            "key": key,
-            "old": run(lambda: call(make(False))),
-            "new": run(lambda: call(make(True))),
-        }
-        for key, call in CALLS
+        {"key": key, "new": run(lambda m=make(True): call(m))} for key, call in CALLS
     ]
 
 
