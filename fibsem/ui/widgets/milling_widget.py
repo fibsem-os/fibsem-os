@@ -212,7 +212,9 @@ class FibsemMillingWidget2(QWidget):
                 raise ValueError("No milling stages defined in the configuration.")
 
             run_milling_task(
-                microscope=microscope, config=milling_task_config, parent_ui=self
+                microscope=microscope,
+                config=milling_task_config,
+                stop_event=self._milling_stop_event,
             )
 
         except Exception as e:

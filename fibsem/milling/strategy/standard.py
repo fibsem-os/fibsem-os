@@ -33,8 +33,6 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
         self,
         microscope: FibsemMicroscope,
         stage: FibsemMillingStage,
-        asynch: bool = False,
-        parent_ui=None,
         stop_event: Optional[threading.Event] = None,
     ) -> None:
         logging.info(f"Running {self.name} Milling Strategy for {stage.name}")
