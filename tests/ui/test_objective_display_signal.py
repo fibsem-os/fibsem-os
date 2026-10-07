@@ -273,6 +273,7 @@ class _StubMicroscope:
 
     def __init__(self):
         self.fm = _StubFM()
+        self.stage = object()  # a stage is fitted, so the info bar shows it
         self._stage_position = _StubStagePosition()
         self.current_grid = "grid-1"
 
