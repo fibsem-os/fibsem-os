@@ -186,6 +186,14 @@ def test_the_demo_says_which_settings_it_mills_with(microscope):
     assert supported["milling_channel"].choices == (BeamType.ION, BeamType.ELECTRON)
 
 
+def test_the_demo_says_which_directions_it_scans(microscope):
+    from fibsem.microscopes.simulator import SIMULATOR_SCAN_DIRECTIONS
+
+    supported = microscope.milling.supported_pattern_settings()
+    assert set(supported) == {"scan_direction"}
+    assert list(supported["scan_direction"].choices) == SIMULATOR_SCAN_DIRECTIONS
+
+
 def test_the_demo_mills_with_the_settings_it_says(microscope):
     from tests.fixtures.milling_reads import fields_setup_reads
 

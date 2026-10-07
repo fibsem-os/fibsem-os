@@ -238,6 +238,11 @@ def facts():
     return {
         "supported": sorted(supported),
         "application_files": list(supported["application_file"].choices),
+        "scan_directions": list(
+            make(service=True)
+            .milling.supported_pattern_settings()["scan_direction"]
+            .choices
+        ),
         "setup_reads": sorted(reads),
         "type": type(milling).__name__,
         "is_autoscript": isinstance(milling, AutoScriptMilling),

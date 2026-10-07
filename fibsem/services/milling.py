@@ -144,6 +144,8 @@ class Milling(Service):
     # The `FibsemMillingSettings` fields this driver's ``setup`` reads; it ignores
     # the rest. A driver sets it.
     setting_names: Tuple[str, ...] = ()
+    # The directions this driver can scan a pattern in. A driver sets it.
+    scan_directions: Tuple[str, ...] = ()
 
     def __init__(self, name: str = "milling", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -196,6 +198,14 @@ class Milling(Service):
             elif _settable(beam, beam_parameter):
                 available[name] = beam.parameters[beam_parameter].metadata
         return available
+
+    def supported_pattern_settings(self) -> Dict[str, ParameterMetadata]:
+        """The pattern fields whose choices this instrument decides: the scan
+        direction. The other pattern fields keep the choices and limits their own
+        metadata gives."""
+        if not self.scan_directions:
+            return {}
+        return {"scan_direction": ParameterMetadata(choices=self.scan_directions)}
 
     def _metadata_of(self, name: str) -> ParameterMetadata:
         """The driver's metadata for its field *name*, asked for once."""

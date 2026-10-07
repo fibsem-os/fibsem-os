@@ -892,7 +892,9 @@ class ThermoMilling:
             ValueError: If the application file is not available.
         """
         return match_application_file(
-            application_file, self.get_available_values("application_file"), strict
+            application_file,
+            self.connection.patterning.list_all_application_files(),
+            strict,
         )
 
     def set_application_file(
@@ -999,7 +1001,7 @@ class ThermoMilling:
         pattern.is_exclusion_zone = pattern_settings.is_exclusion
 
         # set scan direction
-        available_scan_directions = self.get_available_values("scan_direction")
+        available_scan_directions = TFS_SCAN_DIRECTIONS
 
         if pattern_settings.scan_direction in available_scan_directions:
             pattern.scan_direction = pattern_settings.scan_direction
@@ -1182,7 +1184,7 @@ class ThermoMilling:
         pattern.is_exclusion_zone = pattern_settings.is_exclusion
 
         # set scan direction
-        available_scan_directions = self.get_available_values("scan_direction")
+        available_scan_directions = TFS_SCAN_DIRECTIONS
 
         if pattern_settings.scan_direction in available_scan_directions:
             pattern.scan_direction = pattern_settings.scan_direction
@@ -2049,12 +2051,10 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
     def _get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[str]:
-        """The values of the keys the beam devices don't answer: application_file,
-        detector_mode (the detector type's, which can change) and scan_direction."""
+        """The values of the keys the beam devices don't answer: detector_mode (the
+        detector type's, which can change). The application files and scan directions
+        are the milling service's (``supported_settings``, ``supported_pattern_settings``)."""
         values = []
-        if key == "application_file":
-            values = self.connection.patterning.list_all_application_files()
-
         # the detector's values are the active device's, so the channel is claimed
         # for the read (FIB-544)
         if key == "detector_mode":
@@ -2062,9 +2062,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
                 if beam_type is not None:
                     self.set_channel(beam_type)
                 values = self.connection.detector.mode.available_values
-
-        if key == "scan_direction":
-            values = TFS_SCAN_DIRECTIONS
 
         logging.debug({"msg": "get_available_values", "key": key, "values": values})
 

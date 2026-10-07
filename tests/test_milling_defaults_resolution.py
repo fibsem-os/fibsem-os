@@ -82,7 +82,7 @@ def test_demo_application_file_falls_back_to_the_closest_match():
     from fibsem import utils
 
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
-    available = microscope.get_available_values("application_file")
+    available = microscope.milling_system.application_files
     assert microscope.set_default_application_file(available[0]) == available[0]
     with pytest.raises(ValueError):
         microscope.set_default_application_file("not-an-application-file")

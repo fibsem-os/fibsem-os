@@ -396,8 +396,6 @@ class DemoConfiguration:
 
     def _configured_values(self, key: str) -> Optional[List[str]]:
         """The values of a key that come from the simulator's constants alone."""
-        if key == "scan_direction":
-            return SIMULATOR_SCAN_DIRECTIONS
         if key == "plasma_gas":
             return SIMULATOR_PLASMA_GASES
         return None
@@ -422,10 +420,6 @@ class DemoConfiguration:
             elif beam_type is BeamType.ION:
                 values = [500, 1000, 2000, 8000, 16000, 30000]
                 # FIB: [500, 1000, 2000, 8000, 1600, 30000]
-
-        milling = self._milling_values(key)
-        if milling is not None:
-            values = milling
 
         if key == "detector_type":
             values = ["ETD", "TLD", "EDS"]
@@ -1242,7 +1236,7 @@ class DemoMilling:
     ) -> str:
         # Demo models a ThermoFisher system, so it matches application files as one.
         application_file = match_application_file(
-            application_file, self.get_available_values("application_file"), strict
+            application_file, self.milling_system.application_files, strict
         )
         self.milling_system.default_application_file = application_file
         return application_file
@@ -1292,12 +1286,6 @@ class DemoMilling:
             }
         )
         self.milling_system.patterns.append(pattern_settings)
-
-    def _milling_values(self, key: str) -> Optional[List[str]]:
-        """The values of a milling key, or None for any other key."""
-        if key == "application_file":
-            return self.milling_system.application_files
-        return None
 
     def _set_default_application_file(self, application_file: str) -> None:
         self.milling_system.default_application_file = application_file

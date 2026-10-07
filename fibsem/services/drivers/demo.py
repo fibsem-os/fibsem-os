@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.core import ParameterMetadata
+from fibsem.microscopes.simulator import SIMULATOR_SCAN_DIRECTIONS
 from fibsem.microscopes.simulator import DemoMilling as DemoMillingCode
 from fibsem.services.milling import Milling, MillingPoll, bind_milling
 from fibsem.structures import (
@@ -59,6 +60,7 @@ class DemoMilling(Milling):
         "application_file",
         "patterning_mode",
     )
+    scan_directions = tuple(SIMULATOR_SCAN_DIRECTIONS)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

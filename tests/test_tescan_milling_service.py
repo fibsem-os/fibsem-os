@@ -238,6 +238,8 @@ def test_tescan_mills_with_the_settings_it_says(connect):
     assert set(supported) == read
     # an electron beam it can't mill with
     assert microscope.milling.supported_settings(BeamType.ELECTRON) == {}
+    directions = microscope.milling.supported_pattern_settings()["scan_direction"]
+    assert "Flyback" in directions.choices  # the fallback a pattern draws with
 
 
 def _finishing(fake, running_looks=2):
