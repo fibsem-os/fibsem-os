@@ -280,14 +280,6 @@ class DemoMicroscope(
         beam = self.beams[beam_type]
         return beam.sim_scanning_mode_value, beam.sim_beam
 
-    def _get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[Any]:
-        # The values of a key no beam parameter's choices answer: the configured
-        # ones, and none for any other (or a beam the demo has not got).
-        configured = self._configured_values(key)
-        return [] if configured is None else configured
-
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType
     ) -> FibsemManipulatorPosition:
