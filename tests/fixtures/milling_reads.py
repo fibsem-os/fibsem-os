@@ -40,8 +40,8 @@ def fields_setup_reads(milling, settings: FibsemMillingSettings) -> Set[str]:
 
 
 def own_milling_code(microscope):
-    """*microscope*, milling with its backend's own code (``ThermoMilling``,
-    ``TescanDrawBeam``): the code its milling service drives,
+    """*microscope*, milling with its backend's own code (``ThermoMilling``):
+    the code its milling service drives,
     which it milled with before the service. The parity tests hold the service to it.
 
     ``ServiceMilling`` raises without a service now, rather than falling through to
