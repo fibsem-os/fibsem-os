@@ -412,7 +412,7 @@ class DemoStage(Stage):
         return super().poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
 
     def device_at_pose(self, orientation: str) -> Optional[str]:
-        if self.parent.stage_is_compustage:
+        if self.compustage:
             return compustage_device_at_pose(orientation)
         return super().device_at_pose(orientation)
 
