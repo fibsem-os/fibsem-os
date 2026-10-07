@@ -556,6 +556,10 @@ class DemoManipulator(Manipulator):
         self.sim_position += delta
         logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
 
+    def _stop(self) -> None:
+        # Its moves finish before they return, so there is never one to stop.
+        logging.info("Stopping manipulator.")
+
 
 # -- The sample loader --------------------------------------------------------------
 

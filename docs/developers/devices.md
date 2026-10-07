@@ -255,10 +255,14 @@ chamber.pressure.get_value()  # Pa, where the instrument reports it
 needle = microscope.manipulator_device
 needle.state.get_value()      # InsertableDeviceState
 needle.named_positions()      # the named positions the driver reports
+needle.axes()                 # ("x", "y", "z"), with "r" or "t" if the arm rotates or tilts
 ```
 
 The chamber's commands are `pump()` and `vent()`. The manipulator's are
-`insert(name)`, `retract()`, `move_absolute`, `move_relative` and `move_to_offset`.
+`insert(name)`, `retract()`, `move_absolute`, `move_relative`, `move_to_offset` and
+`stop()`. `stop` does not wait for the move it stops; a driver that cannot stop its
+needle raises `NotImplementedError`. Whether the arm rotates
+(`is_available("manipulator_rotation")`) comes from `axes()`.
 
 ## The fluorescence microscope
 

@@ -35,6 +35,18 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
+def _stop(fm) -> None:
+    """Stop the stream and wait for its worker to finish announcing it.
+
+    `stop_acquisition` waits only 2 s for the worker, and a simulated frame takes
+    about half a second to render alone -- several under `pytest -n`. A stop that
+    outlasts the wait is announced by the worker when it ends.
+    """
+    fm.stop_acquisition()
+    if fm._acquisition_thread is not None:
+        fm._acquisition_thread.join(timeout=60)
+
+
 @pytest.fixture()
 def widget(qapp):
     from fibsem.ui.fm.overview_app import build_microscope
@@ -129,7 +141,7 @@ class TestTheThreeQuestions:
             )
             assert fm.acquiring_reason == "live acquisition"
         finally:
-            fm.stop_acquisition()
+            _stop(fm)
 
         assert (fm.is_streaming, fm.is_acquiring, fm.is_interactive) == (
             False,
@@ -165,7 +177,7 @@ class TestTheThreeQuestions:
         try:
             assert seen == [True]
         finally:
-            fm.stop_acquisition()
+            _stop(fm)
         assert seen[-1] is False
 
 
@@ -263,7 +275,7 @@ class TestTheAcquireButtonFollowsTheInstrument:
             qapp.processEvents()
             assert widget.button_acquire.isEnabled() is False
         finally:
-            widget.fm.stop_acquisition()
+            _stop(widget.fm)
         qapp.processEvents()
         assert widget.button_acquire.isEnabled() is True
 

@@ -460,7 +460,7 @@ def verdict(d: FitDiagnostics, rejected: Sequence[int] = ()) -> Verdict:
         )
 
     if bad:
-        headline = "Poor fit. Do not continue."
+        headline = "Poor fit (not recommended to continue)."
         reasons = bad[:2]
         if len(reasons) < 2 and check:
             reasons.append(check[0])
