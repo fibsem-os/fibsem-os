@@ -48,6 +48,9 @@ class ToyManipulator(Manipulator):
     def named_positions(self):
         return ["PARK"]
 
+    def axes(self):
+        return ("x", "y", "z", "r")
+
     def saved_position(self, name):
         if name != "PARK":
             raise ValueError(name)
@@ -147,3 +150,26 @@ def test_it_is_fitted_where_the_instrument_says_there_is_none():
         assert microscope.is_available("manipulator") is True
     finally:
         microscope.disconnect()
+
+
+def test_the_arm_rotates_if_the_device_says_so(monkeypatch):
+    microscope, _ = _tescan(monkeypatch, ENTRY)
+    assert microscope.is_available("manipulator_rotation") is True
+    assert microscope.is_available("manipulator_tilt") is False
+
+
+def test_a_needle_that_cannot_stop_says_so(monkeypatch):
+    microscope, _ = _tescan(monkeypatch, ENTRY)
+    with pytest.raises(NotImplementedError, match="cannot stop the needle"):
+        microscope.manipulator_device.stop()
+
+
+def test_the_demo_needle_stops_where_it_is():
+    microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
+    needle = microscope.manipulator_device
+
+    assert needle.axes() == ("x", "y", "z")
+    assert microscope.is_available("manipulator_rotation") is False
+    position = needle.insert("PARK")
+    assert needle.stop() == position
+    assert "stop" in needle.commands

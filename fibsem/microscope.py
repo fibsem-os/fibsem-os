@@ -1708,6 +1708,18 @@ class FibsemMicroscope(ABC):
         else:
             self._devices[name] = device
             self._mark_device_fitted(name)
+            if name == "manipulator":
+                self._read_manipulator_axes(device)
+
+    def _read_manipulator_axes(self, device: Any) -> None:
+        """Whether the arm rotates and tilts, from the axes the device says it has
+        (`Manipulator.axes`); what `is_available("manipulator_rotation")` reads."""
+        axes = getattr(device, "axes", None)
+        if axes is None:
+            return
+        axes = axes()
+        self.system.manipulator.rotation = "r" in axes
+        self.system.manipulator.tilt = "t" in axes
 
     @property
     def beams(self) -> Mapping[BeamType, Any]:
