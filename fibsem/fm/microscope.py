@@ -63,6 +63,7 @@ from fibsem.fm.structures import (
     objective_state_name,
     same_emission_value,
 )
+from fibsem.util.timestamps import now, now_iso, to_aware
 
 if TYPE_CHECKING:
     from fibsem.devices.core import BoundParameter, Device
@@ -1067,12 +1068,14 @@ class FluorescenceMicroscope:
         )
         pixel_size = reported("pixel_size", lambda: camera.pixel_size)
         resolution = reported("resolution", lambda: camera.resolution)
+        # With its offset from `FM.acquire_frame`; a frame from a server older than
+        # that may have none, and then it is the acquiring machine's clock time alone.
+        acquired = reported("acquisition_date", now_iso)
         parent = self.parent
         # The coordinator's own state, as `get_metadata` stamps it.
         return FluorescenceImageMetadata(
-            acquisition_date=reported(
-                "acquisition_date", lambda: datetime.now().isoformat()
-            ),
+            acquisition_date=acquired,
+            acquisition_datetime=to_aware(acquired),
             pixel_size_x=pixel_size[0],
             pixel_size_y=pixel_size[1],
             resolution=(resolution[0], resolution[1]),
@@ -1122,8 +1125,10 @@ class FluorescenceMicroscope:
         experiment = deepcopy(self.parent.experiment) if self.parent else None
 
         # Create complete image metadata
+        acquired = now()
         return FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_date=acquired.isoformat(),
+            acquisition_datetime=acquired,
             pixel_size_x=self.camera.pixel_size[0],
             pixel_size_y=self.camera.pixel_size[1],
             resolution=(self.camera.resolution[0], self.camera.resolution[1]),

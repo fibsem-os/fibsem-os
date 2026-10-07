@@ -21,7 +21,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
@@ -30,6 +29,7 @@ from fibsem.devices.core import Device, Parameter, Role, command
 from fibsem.devices.wire import Frame, to_wire
 from fibsem.fm.structures import EmissionFilter
 from fibsem.structures import CameraImageTransform, InsertableDeviceState
+from fibsem.util.timestamps import now_iso, zone_known
 
 
 def mount_transform_name(transform: CameraImageTransform) -> str:
@@ -314,25 +314,31 @@ class FM(Device):
         """``acquire_channel``, with what the frame was taken with.
 
         The metadata is read here, next to the hardware, so building the image needs
-        no reads after the frame. It holds ``acquisition_date`` (ISO, when the
-        acquisition started) and the keys of `FRAME_METADATA` the parts have, as plain
-        JSON-ready values: tuples are lists and the emission filter is its
-        ``to_dict()``.
+        no reads after the frame. It holds ``acquisition_date`` (ISO 8601 with the
+        UTC offset, when the acquisition started) and the keys of `FRAME_METADATA` the
+        parts have, as plain JSON-ready values: tuples are lists and the emission
+        filter is its ``to_dict()``.
         """
+        # Taken before the driver runs, as `Beam.acquire` takes a beam image's, so
+        # every driver's frame has it (FIB-1190). A driver that reads the time off the
+        # instrument (odemis stamps it at exposure) has set its own, and keeps it,
+        # unless it has no offset -- a server from before this, say.
+        started = now_iso()
         self._pulled(1)
         try:
-            return self._acquire_frame(channel)
+            frame = self._acquire_frame(channel)
         finally:
             self._pulled(-1)
+        if not zone_known(frame.metadata.get("acquisition_date")):
+            frame.metadata["acquisition_date"] = started
+        return frame
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         raise NotImplementedError(f"{type(self).__name__} can't acquire")
 
     def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
-        acquisition_date = datetime.now().isoformat()
         data = self._acquire_channel(channel)
-        metadata = {"acquisition_date": acquisition_date, **self._frame_metadata()}
-        return Frame(data, metadata)
+        return Frame(data, self._frame_metadata())
 
     def _frame_metadata(self) -> Dict[str, Any]:
         """What the parts say now, through their parameters. A part or parameter the

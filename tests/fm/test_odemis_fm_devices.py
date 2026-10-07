@@ -35,6 +35,7 @@ import numpy as np
 import pytest
 
 from fibsem.fm.structures import REFLECTION, ChannelSettings
+from fibsem.util.timestamps import iso_from_posix
 from tests.fm import _odemis_stubs as stubs
 
 # What the old Odemis FM class did in each case, keyed as the cases are.
@@ -234,7 +235,26 @@ def _emission_value(f):
     return f.low
 
 
+def _undated(value):
+    """*value* with each ``acquisition_date`` reduced to whether there is one.
+
+    The pins hold the old naive string, the stub's POSIX time read in the zone that
+    recorded them; a frame now carries it with its offset (FIB-1190), which
+    `test_a_frame_carries_odemis_time_with_its_offset` checks exactly. Compared as
+    strings, the pins held only in the recording's zone.
+    """
+    if isinstance(value, dict):
+        return {
+            k: bool(v) if k == "acquisition_date" else _undated(v)
+            for k, v in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_undated(v) for v in value]
+    return value
+
+
 def _same(a, b):
+    a, b = _undated(a), _undated(b)
     if isinstance(a, float) and isinstance(b, float):
         return abs(a - b) <= 1e-9 * max(1.0, abs(a))
     if isinstance(a, (tuple, list)) and isinstance(b, (tuple, list)):
@@ -622,6 +642,15 @@ def test_an_acquisition_makes_the_same_changes(odemis, state, channel):
     assert _changes(new_log) == _changes(old_log)
     assert _reads(new_log) - readback - GAIN_RANGE_READS <= _reads(old_log)
     assert _reads(old_log) <= _reads(new_log)
+
+
+def test_a_frame_carries_odemis_time_with_its_offset(odemis):
+    """odemis stamps MD_ACQ_DATE (POSIX) at exposure; the frame keeps it, written
+    with this machine's offset, over the time `acquire_frame` took before it."""
+    world, devices = _devices(odemis, "inserted")
+    settings = CHANNELS["fluorescence"]
+    frame = _run(world, lambda: devices["fm"].acquire_frame(settings.to_dict()))
+    assert frame.metadata["acquisition_date"] == iso_from_posix(1_780_000_000.0)
 
 
 def stubs_wait(condition, timeout=2.0):

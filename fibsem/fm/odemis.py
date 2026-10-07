@@ -5,7 +5,6 @@ over them, and the odemis imports the drivers take from here, after the odemis p
 set up.
 """
 
-from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 from fibsem.drivers.odemis import add_odemis_path
@@ -14,6 +13,7 @@ from fibsem.fm.microscope import (
     FluorescenceMicroscope,
     ObjectiveLens,
 )
+from fibsem.util.timestamps import iso_from_posix
 
 add_odemis_path()
 
@@ -50,9 +50,8 @@ def _frame_metadata_from_data(data) -> Optional[dict]:
         frame_metadata["pixel_size"] = tuple(pixel_size)
     acquisition_date = md.get(model.MD_ACQ_DATE)
     if acquisition_date is not None:
-        frame_metadata["acquisition_date"] = datetime.fromtimestamp(
-            acquisition_date
-        ).isoformat()
+        # POSIX, so the instant is known: written with the offset (FIB-1190).
+        frame_metadata["acquisition_date"] = iso_from_posix(acquisition_date)
     exposure_time = md.get(model.MD_EXP_TIME)
     if exposure_time is not None:
         frame_metadata["exposure_time"] = exposure_time

@@ -685,6 +685,7 @@ def _api_value(value):
     if hasattr(value, "data") and hasattr(value, "metadata"):
         md = value.metadata.to_dict()
         md.pop("acquisition_date", None)
+        md.pop("acquisition_datetime", None)  # the same time, with its offset
         for channel in md.get("channels") or []:
             channel.pop("acquisition_date", None)
         return {"data": _value(value.data), "metadata": _plain(md)}

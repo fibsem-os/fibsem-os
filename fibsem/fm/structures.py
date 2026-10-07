@@ -79,6 +79,12 @@ from fibsem.structures import (  # noqa: F401
     TileOrderStrategy,
     _parse_image_transform,
 )
+from fibsem.util.timestamps import (
+    acquisition_datetime_of,
+    now,
+    now_iso,
+    to_aware,
+)
 
 
 class ZStackOrder(Enum):
@@ -790,11 +796,9 @@ class FluorescenceImage:
             objectives=objectives if objectives else [],
         )
 
-        # Parse acquisition date
-        try:
-            acquisition_date = datetime.fromisoformat(self.metadata.acquisition_date)
-        except (ValueError, AttributeError):
-            acquisition_date = datetime.now()
+        # OME's AcquisitionDate: aware when the image says which zone, naive (the
+        # acquiring machine's clock) when it is from before that was recorded.
+        acquisition_date = acquisition_datetime_of(self.metadata) or now()
 
         # Use filename and description from metadata if available
         image_name = self.metadata.filename or "Fluorescence Image"
@@ -914,7 +918,7 @@ class FluorescenceImage:
             channels.append(channel)
 
         return FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_date=now_iso(),
             pixel_size_x=1e-6,  # default 1 micron
             pixel_size_y=1e-6,  # default 1 micron
             resolution=(nx, ny),
@@ -1081,6 +1085,7 @@ class FluorescenceImage:
         # Create new metadata for the projected image
         projected_metadata = FluorescenceImageMetadata(
             acquisition_date=self.metadata.acquisition_date,
+            acquisition_datetime=self.metadata.acquisition_datetime,
             pixel_size_x=self.metadata.pixel_size_x,
             pixel_size_y=self.metadata.pixel_size_y,
             pixel_size_z=None,  # No z-dimension after projection
@@ -1222,6 +1227,7 @@ class FluorescenceImage:
         # Create new metadata for the stacked image
         stacked_metadata = FluorescenceImageMetadata(
             acquisition_date=self.metadata.acquisition_date,
+            acquisition_datetime=self.metadata.acquisition_datetime,
             pixel_size_x=self.metadata.pixel_size_x,
             pixel_size_y=self.metadata.pixel_size_y,
             pixel_size_z=None,  # No z-dimension after stacking
@@ -1374,7 +1380,7 @@ class FluorescenceImage:
         ]
 
         metadata = FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_date=now_iso(),
             pixel_size_x=pixel_size,
             pixel_size_y=pixel_size,
             resolution=resolution,
@@ -1495,6 +1501,15 @@ class FluorescenceImageMetadata:
     system_info: Optional[dict] = None
     dimension_order: str = "CZYX"  # default dimension order for OME-TIFF
 
+    # When the image was acquired: an aware datetime, written as ISO 8601 with its
+    # UTC offset -- the same field the beam images carry (FIB-1190). `FM.acquire_frame`
+    # stamps it as the acquisition starts. `acquisition_date` is still written, with
+    # the same value as a string, for OME and odemis; before this it held the
+    # acquiring machine's clock time with no offset, which is all an older image has.
+    # None on those, and on images built rather than acquired -- read the time
+    # through `acquisition_datetime_of`, which falls back.
+    acquisition_datetime: Optional[datetime] = None
+
     def __post_init__(self):
         """Validate metadata consistency."""
         if not self.channels:
@@ -1532,6 +1547,11 @@ class FluorescenceImageMetadata:
         """Convert to dictionary format for UI/viewer compatibility."""
         return {
             "acquisition_date": self.acquisition_date,
+            "acquisition_datetime": (
+                self.acquisition_datetime.isoformat()
+                if self.acquisition_datetime is not None
+                else None
+            ),
             "pixel_size_x": self.pixel_size_x,
             "pixel_size_y": self.pixel_size_y,
             "pixel_size_z": self.pixel_size_z,
@@ -1605,6 +1625,7 @@ class FluorescenceImageMetadata:
 
         return cls(
             acquisition_date=metadata_dict["acquisition_date"],
+            acquisition_datetime=to_aware(metadata_dict.get("acquisition_datetime")),
             pixel_size_x=metadata_dict["pixel_size_x"],
             pixel_size_y=metadata_dict["pixel_size_y"],
             pixel_size_z=metadata_dict.get("pixel_size_z"),
@@ -1742,14 +1763,14 @@ class FluorescenceImageMetadata:
         if not channels_md:
             raise ValueError("OME metadata contains no channel information")
 
-        acquisition_date = (
-            image_md.acquisition_date.isoformat()
-            if getattr(image_md, "acquisition_date", None)
-            else datetime.now().isoformat()
-        )
+        acquired = getattr(image_md, "acquisition_date", None)
+        acquisition_date = acquired.isoformat() if acquired else now_iso()
 
         return cls(
             acquisition_date=acquisition_date,
+            # Only when the file says which zone: a naive one is another machine's
+            # clock time, and stays in acquisition_date alone.
+            acquisition_datetime=to_aware(acquired),
             pixel_size_x=pixel_size_x,
             pixel_size_y=pixel_size_y,
             pixel_size_z=pixel_size_z,
