@@ -36,18 +36,18 @@ jobs:
         # Linux on every supported version, Windows on the ends of the range.
         # The microscopes all run Windows, so every platform-specific claim in the
         # codebase was previously untested on the platform that matters (FIB-704) --
-        # but twelve jobs is more wall-clock than the coverage is worth, and the
+        # but eight jobs is more wall-clock than the coverage is worth, and the
         # oldest and newest catch what the middle would.
         #
-        # A pull request runs a subset: Linux 3.8 and 3.13, Windows 3.8. The account
-        # gets about 20 concurrent hosted jobs and a full run takes 11 of them, so with
+        # A pull request runs a subset: Linux 3.10 and 3.13, Windows 3.10. The account
+        # gets about 20 concurrent hosted jobs and a full run takes 9 of them, so with
         # many open pull requests pushing, jobs queued for 15 to 75 minutes before
-        # starting (2026-10-06). The subset keeps the 3.8 floor on both platforms and
+        # starting (2026-10-06). The subset keeps the 3.10 floor on both platforms and
         # the newest version; the middle versions and Windows 3.13 still run on every
         # push to main and release branches.
         os: [ubuntu-latest]
-        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.8", "3.13"]' || '["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]') }}
-        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"windows-latest","python-version":"3.8"}]' || '[{"os":"windows-latest","python-version":"3.8"}, {"os":"windows-latest","python-version":"3.13"}]') }}
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10", "3.13"]' || '["3.10", "3.11", "3.12", "3.13"]') }}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"windows-latest","python-version":"3.10"}]' || '[{"os":"windows-latest","python-version":"3.10"}, {"os":"windows-latest","python-version":"3.13"}]') }}
 
     steps:
     - uses: actions/checkout@v7
@@ -62,7 +62,7 @@ jobs:
         # UI deps (the [ui] extra) are intentionally not installed *here*. Not
         # because the tests that need them do not matter -- the `ui-tests` job
         # below runs every one of them -- but because Qt is dead weight on a job
-        # that runs eight times. (napari used to be the bigger reason: 100
+        # that runs six times. (napari used to be the bigger reason: 100
         # packages, 116 MB and three pytest plugins. It is in [labelling] now and
         # no CI job installs it.)
         python -m pip install ".[test]"
@@ -109,10 +109,8 @@ jobs:
       with:
         # One version, not the matrix. What this job answers -- does the UI code
         # import, and does it behave -- does not vary across Python versions, so
-        # running it six times would repeat the same answer. 3.11 because it is
-        # what everyone develops against. (It used to also be that the `ui` extra
-        # resolved differently at the ends of the range -- 3.8 got napari 0.4.x --
-        # but napari is in [labelling] now and this job does not install it.)
+        # running it four times would repeat the same answer. 3.11 because it is
+        # what everyone develops against.
         python-version: "3.11"
         cache: 'pip'
     - name: Install the libraries Qt's offscreen platform plugin links against
@@ -162,10 +160,8 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v7
       with:
-        # One version, not the matrix: the mcp SDK requires >=3.10, so the
-        # 3.8/3.9 legs could never run the sidecar tests anyway, and what this
-        # job answers — does the server behave with its real dependencies —
-        # does not vary across the versions that can.
+        # One version, not the matrix: what this job answers — does the server
+        # behave with its real dependencies — does not vary across versions.
         python-version: "3.11"
         cache: 'pip'
     - name: Install dependencies
@@ -184,7 +180,7 @@ jobs:
   lint:
     # Its own job, not a step inside the matrix above: ruff's result does not
     # vary by OS or Python version, so running it in the matrix would repeat the
-    # same answer eight times. This takes about ten seconds.
+    # same answer six times. This takes about ten seconds.
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
