@@ -441,9 +441,11 @@ def test_the_stage_position_shows_without_touching_anything():
     host = _CanvasHost()
     _image_widget(host)
     _movement_widget(host)
-    info = host.view_controller._states[host.view_controller.sem_canvas].info
-    assert any(key == "stage" for key, _ in info), (
-        f"no stage readout after construction; info bar holds {info}"
+    bar = host.view_controller.widget.stage_bar
+    bar.resize(2000, bar.height())
+    labels = [f.label for f in bar.visible_fields()]
+    assert "X" in labels, (
+        f"no stage readout after construction; stage bar holds {labels}"
     )
 
 

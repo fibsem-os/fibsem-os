@@ -278,8 +278,8 @@ def test_no_ruler_on_the_page(world):
 
 
 def test_the_page_s_controls_share_the_cell_s_header_row(world):
-    """One row of chrome: the page selector, then the page's own controls, which
-    switch with the page."""
+    """The page's own controls switch with the page, in the row above it; the page
+    cycler is in the cell's bar (FIB-1186)."""
     from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
     controller = MicroscopeViewController()  # kept: it owns the cell

@@ -36,6 +36,7 @@ from fibsem.structures import (
     BeamType,
     FibsemDetectorSettings,
     FibsemImage,
+    FibsemStagePosition,
     MicroscopeState,
 )
 from fibsem.ui.widgets.canvas.quad_view import (
@@ -345,11 +346,18 @@ def test_the_fm_bar_shows_the_objective_it_is_told(controller):
     assert _obj(bar).value == "-1.5 µm"
 
 
-def test_the_objective_is_off_the_canvas_text(controller):
+def _canvas_info(controller):
+    widget = controller.widget
+    return {
+        key
+        for canvas in (widget.sem_canvas, widget.fib_canvas, widget.fm_canvas)
+        for key, _ in controller._states[canvas].info
+    }
+
+
+def test_the_objective_and_the_stage_are_off_the_canvas_text(controller):
     controller.update_info(_Microscope(), objective_position=200e-6)
-    info = dict(controller._states[controller.widget.fm_canvas].info)
-    assert "objective" not in info
-    assert "stage" in info  # the stage stays there until it has a home of its own
+    assert _canvas_info(controller) == set()
 
 
 def test_a_new_stack_or_a_clear_keeps_the_objective(controller):
@@ -370,6 +378,78 @@ def test_a_live_value_can_be_removed():
     assert [f.label for f in bar.visible_fields()] == ["OBJ"]
     bar.set_live_field("objective_position", "OBJ", None, name="Objective")
     assert bar.visible_fields() == []
+
+
+def test_the_stage_is_shown_once_under_the_fourth_cell(controller):
+    microscope = _Microscope()
+    microscope._stage_position = FibsemStagePosition(
+        x=-1.23e-3, y=2.34e-3, z=3.1e-3, r=np.radians(180), t=np.radians(18)
+    )
+    controller.update_info(microscope)
+    bar = controller.widget.stage_bar
+    # Shown inside its quad view, so it gets a resize: a hidden child is never sent one.
+    controller.widget.resize(4000, 900)
+    controller.widget.show()
+    _app.processEvents()
+    assert bar.header_label.text() == "SEM · GRID-01"
+    assert _shown(bar) == [
+        ("X", "-1.230 mm"),
+        ("Y", "2.340 mm"),
+        ("Z", "3.100 mm"),
+        ("R", "180.0°"),
+        ("T", "18.0°"),
+        ("MA", "10.0°"),
+    ]
+    layout = bar.parentWidget().layout()
+    assert layout.indexOf(bar) == layout.count() - 1, (
+        "the bar is the cell's bottom edge"
+    )
+    assert layout.indexOf(controller.widget.page_cell) == layout.indexOf(bar) - 1
+
+
+def test_an_axis_the_stage_does_not_report_is_dropped(controller):
+    microscope = _Microscope()
+    microscope._stage_position = FibsemStagePosition(x=0, y=0, z=0, r=None, t=0)
+    controller.update_info(microscope)
+    bar = controller.widget.stage_bar
+    _sized(bar, 2000)
+    assert "R" not in [label for label, _ in _shown(bar)]
+
+
+def test_the_stage_bar_starts_with_the_page_cycler(controller):
+    widget = controller.widget
+    bar = widget.stage_bar
+    assert bar.title is widget.page_cell.cycler
+    assert bar.layout().indexOf(widget.page_cell.cycler) == 0
+    assert bar.layout().indexOf(bar.kind_label) == -1
+
+
+def test_a_page_s_controls_have_a_row_above_it_only_when_it_has_some(controller):
+    cell = controller.widget.page_cell
+    controls = QLabel("grid ▾")
+    cell.add_page("overview", "Overview", QLabel(), header=controls)
+    panel = controller.widget.stage_bar.parentWidget()
+    assert panel.layout().indexOf(cell.header) == 0
+    cell.set_page("chamber")
+    assert cell.header.isHidden(), "the chamber page has no controls, so no row"
+    cell.set_page("overview")
+    assert not cell.header.isHidden()
+    assert cell._headers.currentWidget() is controls
+
+
+def test_the_stage_bar_has_no_field_button_whatever_is_selected(controller):
+    bar = controller.widget.stage_bar
+    for key in (BeamType.ION, "fm", BeamType.ELECTRON):
+        controller.widget.set_selected(key)
+        assert bar.fields_button.isHidden()
+
+
+def test_a_view_without_a_stage_bar_keeps_the_stage_in_the_canvas_text():
+    controller = MicroscopeViewController(view=LamellaEditorView())
+    controller.update_info(_Microscope())
+    fib = dict(controller._states[controller.widget.fib_canvas].info)
+    assert fib["stage"].startswith("STAGE: ")
+    assert fib["milling"] == "MILLING ANGLE: 10.0°"
 
 
 def _chosen():

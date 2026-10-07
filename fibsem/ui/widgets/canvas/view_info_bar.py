@@ -15,6 +15,9 @@ canvas does. When the row is too narrow, whole fields drop from the right behind
 The button at its end opens :class:`FieldPicker`, a checklist of what the bar shows.
 The choice is a display preference per kind of view (``display.info_bar_fields``):
 every bar of that kind follows it, now and after a restart.
+
+The quad view's fourth cell has one too, with no image: the stage's position, pushed
+by the microscope, under the chamber drawing (see ``MicroscopeViewController``).
 """
 
 from __future__ import annotations
@@ -163,10 +166,24 @@ def _field_html(item: ExportField) -> str:
 
 
 class ViewInfoBar(QWidget):
-    """The image's metadata, one row, under its view."""
+    """The image's metadata, one row, under its view.
 
-    def __init__(self, kind: str, parent: Optional[QWidget] = None) -> None:
+    *title* takes the bold view name's place: the fourth cell's page selector, which
+    names its view as the others' labels do. A bar that is not *choosable* has no
+    field button, for one whose fields are not the image's.
+    """
+
+    def __init__(
+        self,
+        kind: str,
+        parent: Optional[QWidget] = None,
+        *,
+        title: Optional[QWidget] = None,
+        choosable: bool = True,
+    ) -> None:
         super().__init__(parent)
+        self._kind = kind
+        self._choosable = choosable
         self.setObjectName("viewInfoBar")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(_BAR_STYLE)
@@ -194,7 +211,8 @@ class ViewInfoBar(QWidget):
 
         self.kind_label = QLabel(kind)
         self.kind_label.setStyleSheet(_KIND_STYLE)
-        lay.addWidget(self.kind_label)
+        self.title = title if title is not None else self.kind_label
+        lay.addWidget(self.title)
 
         self.header_label = QLabel()
         self.header_label.setStyleSheet(_HEADER_STYLE)
@@ -235,6 +253,7 @@ class ViewInfoBar(QWidget):
         self.fields_button.setStyleSheet(f"QToolButton {{ {_CLEAR} border: none; }}")
         self.fields_button.clicked.connect(self.open_picker)
         lay.addWidget(self.fields_button)
+        self.fields_button.setVisible(choosable)
         self._picker: Optional["FieldPicker"] = None
 
         _BARS.add(self)
@@ -243,7 +262,7 @@ class ViewInfoBar(QWidget):
     # ── what to show ───────────────────────────────────────────────────────
     @property
     def kind(self) -> str:
-        return self.kind_label.text()
+        return self._kind
 
     def set_image_fields(self, info: Optional[ImageFields]) -> None:
         """Show what *info* says about the image now on the view; None clears it.
@@ -267,11 +286,11 @@ class ViewInfoBar(QWidget):
         self, key: str, label: str, value: Optional[str], name: str
     ) -> None:
         """Show a value the microscope pushed, rather than one the image recorded:
-        the FM objective's position now. None removes it.
+        the FM objective's position now, the stage's. None removes it.
 
-        The one kind of value in this bar that is not the image's. It is kept apart
-        from the image's fields so that a new image, or a cleared view, leaves it be;
-        *name* says on hover that it is the present value.
+        Kept apart from the image's fields so that a new image, or a cleared view,
+        leaves it be; *name* says on hover that it is the present value. With no
+        *label* it goes in the header, as an image's detector does.
         """
         if value is None:
             self._live.pop(key, None)
@@ -291,7 +310,7 @@ class ViewInfoBar(QWidget):
     def set_fields_button_visible(self, visible: bool) -> None:
         """Show the field button: the quad view shows it on the selected view only,
         as it does the canvas toolbar. Shown by default, for views without selection."""
-        self.fields_button.setVisible(visible)
+        self.fields_button.setVisible(visible and self._choosable)
         self._fit()
 
     def open_picker(self) -> "FieldPicker":
@@ -342,9 +361,10 @@ class ViewInfoBar(QWidget):
     def _selected(self) -> Tuple[List[ExportField], List[ExportField], Optional[str]]:
         """(header fields, labelled fields, time) for the current image and keys,
         with the live values after the image's fields."""
-        live = list(self._live.values())
+        live = [f for f in self._live.values() if f.label]
+        live_header = [f for f in self._live.values() if not f.label]
         if self._info is None:
-            return [], live, None
+            return live_header, live, None
         by_key = {item.key: item for item in self._info.fields}
         header: List[ExportField] = []
         labelled: List[ExportField] = []
@@ -366,7 +386,7 @@ class ViewInfoBar(QWidget):
             time = next(
                 (p.value for p in self._info.provenance if p.key == _TIME_KEY), None
             )
-        return header, labelled + live, time
+        return header + live_header, labelled + live, time
 
     def _rebuild(self) -> None:
         header, labelled, time = self._selected()
@@ -460,7 +480,7 @@ class ViewInfoBar(QWidget):
         shown = [
             w
             for w in (
-                self.kind_label,
+                self.title,
                 self.header_label,
                 self.divider,
                 self.fields_button,
