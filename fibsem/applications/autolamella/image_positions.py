@@ -22,13 +22,13 @@ import logging
 import math
 import os
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
 from typing import Iterable, List, Optional
 
 import tifffile as tff
 
 from fibsem.structures import FibsemStagePosition
+from fibsem.util.timestamps import to_datetime
 
 # Far enough apart to be a different place. Images taken at a lamella's milling pose sit
 # within 0.12 um of it on real experiments; images taken before the position was set,
@@ -106,31 +106,11 @@ def read_image_position(path: str) -> ImagePosition:
             stage_position = FibsemStagePosition.from_dict(state["stage_position"])
     except Exception as e:  # noqa: BLE001
         logging.debug(f"No readable stage position on {path}: {e}")
-    timestamp = _parse_timestamp(state.get("timestamp"))
+    # The file's mtime is the fallback, and a poor one: copying an experiment resets it.
+    recorded = to_datetime(state.get("timestamp"))
     return ImagePosition(
-        filename, stage_position, mtime if timestamp is None else timestamp
+        filename, stage_position, mtime if recorded is None else recorded.timestamp()
     )
-
-
-# How the ThermoFisher driver records an image's time: AutoScript's acquisition_datetime,
-# a string, where the other drivers write epoch seconds.
-_TIMESTAMP_FORMATS = ("%m/%d/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S")
-
-
-def _parse_timestamp(value) -> Optional[float]:
-    """Epoch seconds from a recorded timestamp, or None if it cannot be read.
-
-    The file's mtime is the fallback, and a poor one: copying an experiment resets it.
-    """
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return float(value)
-    if isinstance(value, str):
-        for fmt in _TIMESTAMP_FORMATS:
-            try:
-                return datetime.strptime(value, fmt).timestamp()
-            except ValueError:
-                continue
-    return None
 
 
 def _wrap(angle: float) -> float:

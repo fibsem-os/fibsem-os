@@ -20,7 +20,6 @@ import functools
 import math
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -32,6 +31,7 @@ from fibsem.fm.preview import is_fluorescence_image, projection_layers
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.imaging.drawing import _get_font, draw_crosshair, draw_scalebar
 from fibsem.structures import BeamType, FibsemImage
+from fibsem.util.timestamps import format_time
 
 RGB = Tuple[int, int, int]
 
@@ -173,44 +173,6 @@ def format_si(value: float, unit: str) -> str:
     return f"{text} {_PREFIXES[exponent]}{unit}"
 
 
-# How a timestamp can arrive. A POSIX float is what fibsem writes; some files carry a
-# string instead -- `08/19/2026 15:44:41` on a real v3 image -- and
-# FibsemImageMetadata.acquisition_date raises on those, so the raw value is read here.
-_DATE_FORMATS = ("%m/%d/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S")
-
-
-def _format_date(value) -> Optional[str]:
-    """`2026-10-02 14:31` from a POSIX timestamp, an ISO string or a datetime.
-
-    Anything else is dropped, like any other value the file does not record.
-    """
-    if isinstance(value, str):
-        try:
-            value = float(value)
-        except ValueError:
-            pass
-    if isinstance(value, (int, float)):
-        try:
-            value = datetime.fromtimestamp(value)
-        except (OverflowError, OSError, ValueError):
-            return None
-    if isinstance(value, str):
-        text = value
-        value = None
-        try:
-            value = datetime.fromisoformat(text)
-        except ValueError:
-            for fmt in _DATE_FORMATS:
-                try:
-                    value = datetime.strptime(text, fmt)
-                    break
-                except ValueError:
-                    continue
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d %H:%M")
-    return None
-
-
 def _to_uint8(data: np.ndarray) -> np.ndarray:
     """Display pixels: (H, W, 3) uint8. A wider type is stretched over its own range."""
     data = np.asarray(data)
@@ -310,7 +272,7 @@ def _provenance(experiment, date, instrument, user, version) -> List[ExportField
     # it: the file does not say which kind it is.
     _add(out, "item", "Item", "", getattr(experiment, "item_name", None))
     _add(out, "task", "Task", "", getattr(experiment, "task_name", None))
-    _add(out, "date", "Date", "", _format_date(date))
+    _add(out, "date", "Date", "", format_time(date))
     _add(out, "instrument", "Instrument", "", instrument)
     _add(out, "user", "User", "", user)
     _add(out, "version", "Version", "", f"fibsem-os {version}" if version else None)
