@@ -353,6 +353,15 @@ class PointOverlay(QObject):
     * Right-click empty area → adds a new point (when ``add_on_right_click=True``)
     * Delete / Backspace → removes the selected point
 
+    With ``multi_select=True`` the selection is an ordered list of indices, the last
+    being the current point (the shape of ``CorrelationPointStore``'s selection):
+
+    * Ctrl/Cmd-click a point → toggles it; Shift-click a point → adds it
+    * Shift-drag on empty area → box-selects, adding what the box covers. A plain drag
+      on empty area still pans, and keeps the selection; only a click there clears it.
+    * Drag a selected point → moves the whole selection rigidly, clamped as a group
+    * Delete / Backspace → removes every selected point
+
     Parameters
     ----------
     color : str
@@ -373,6 +382,9 @@ class PointOverlay(QObject):
         If True, the overlay handles input *only* while it is the canvas's active
         overlay (e.g. spot burn — inert in Move mode). If False (default), it also
         responds when no overlay is active (always-on, backward-compatible).
+    multi_select : bool
+        If True, several points can be selected, moved and removed together (see
+        above). If False (default), at most one point is selected, as before.
     """
 
     point_added = pyqtSignal(int, float, float)  # index, x, y
@@ -380,6 +392,14 @@ class PointOverlay(QObject):
     point_dragging = pyqtSignal(int, float, float)  # index, x, y  (each motion step)
     point_moved = pyqtSignal(int, float, float)  # index, x, y  (on release)
     point_removed = pyqtSignal(int)  # index the point held (emitted after removal)
+    # Group counterparts, for one action on two or more points (multi_select only). A
+    # single point still reports through point_moved / point_removed, so every action
+    # is exactly one signal.
+    points_moved = pyqtSignal(list)  # indices (on release)
+    points_removed = pyqtSignal(list)  # indices the points held, ascending
+    # Any selection change the user made on the canvas, with the indices now selected.
+    # Programmatic changes (set_selected / set_selection) are silent, like point_selected.
+    selection_changed = pyqtSignal(list)
 
     def __init__(
         self,
@@ -394,6 +414,7 @@ class PointOverlay(QObject):
         edge_width: Optional[float] = None,
         legend_label: Optional[str] = None,
         numbered: bool = False,
+        multi_select: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -410,6 +431,7 @@ class PointOverlay(QObject):
         self._legend = None
         self._numbered = numbered  # annotate each point with its 1-based index
         self._visible = True  # toggled by set_visible (points kept, artists hidden)
+        self._multi_select = multi_select
 
         self._ax = None
         self._canvas: Optional[FibsemImageCanvas] = None
@@ -422,10 +444,23 @@ class PointOverlay(QObject):
         self._point_colors: Optional[List[str]] = None
         self._point_labels: Optional[List[str]] = None
 
-        self._selected: Optional[int] = None
+        self._selection: List[int] = []  # ordered; the last is the current point
         self._drag_idx: Optional[int] = None
+        # the points moving with the drag (the grabbed one included) and where each
+        # started, index-aligned
+        self._drag_group: List[int] = []
+        self._drag_starts: List[Tuple[float, float]] = []
         self._drag_offset: Tuple[float, float] = (0.0, 0.0)
         self._drag_start_xy: Tuple[float, float] = (0.0, 0.0)
+        # a plain click on a member of a multi-selection keeps the group so it can be
+        # dragged; released without moving, it narrows the selection to that point
+        self._collapse_on_release = False
+        # a plain press on empty area clears a multi-selection only if it is released
+        # without moving: a drag there is a pan, and must not cost the selection
+        self._clear_press_xy: Optional[Tuple[float, float]] = None
+        self._box_start: Optional[Tuple[float, float]] = None
+        self._box_end: Tuple[float, float] = (0.0, 0.0)
+        self._box_artist = None
         self._blit_bg = None
 
         self._cids: List[int] = []
@@ -487,7 +522,7 @@ class PointOverlay(QObject):
         self._points = [[float(x), float(y)] for x, y in points]
         self._point_colors = list(colors) if colors is not None else None
         self._point_labels = list(labels) if labels is not None else None
-        self._selected = None
+        self._selection = []
         self._remove_all_artists()
         if self._ax is not None and self._rect is not None and not self._rect.is_empty:
             self._draw_all()
@@ -516,10 +551,9 @@ class PointOverlay(QObject):
                 except Exception:
                     pass
         self._points.pop(index)
-        if self._selected == index:
-            self._selected = None
-        elif self._selected is not None and self._selected > index:
-            self._selected -= 1
+        self._selection = [
+            i - 1 if i > index else i for i in self._selection if i != index
+        ]
         if self._label_prefix or self._numbered:
             self._refresh_ann_text()
         if self._canvas is not None:
@@ -529,8 +563,40 @@ class PointOverlay(QObject):
         # made the pop below run on the rebuilt lists and remove a second point.
         self.point_removed.emit(index)
 
+    def remove_points(self, indices) -> None:
+        """Remove several points in one action.
+
+        One ``points_removed`` with the indices the points held (ascending); a single
+        index goes through :meth:`remove_point` and reports as ``point_removed``. A
+        subclass that overrides ``remove_point`` to keep its own model in step (as
+        correlation does) must override this too, or leave ``multi_select`` off.
+        """
+        gone = sorted({int(i) for i in indices if 0 <= i < len(self._points)})
+        if len(gone) <= 1:
+            if gone:
+                self.remove_point(gone[0])
+            return
+        for index in reversed(gone):  # back to front, so earlier indices stay valid
+            for lst in (self._artists, self._anns):
+                if index < len(lst):
+                    a = lst.pop(index)
+                    if a is not None:
+                        try:
+                            a.remove()
+                        except Exception:
+                            pass
+            self._points.pop(index)
+        self._selection = [
+            i - sum(1 for g in gone if g < i) for i in self._selection if i not in gone
+        ]
+        if self._label_prefix or self._numbered:
+            self._refresh_ann_text()
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+        self.points_removed.emit(gone)  # last, for the reason remove_point gives
+
     def clear_points(self) -> None:
-        self._selected = None
+        self._selection = []
         self._remove_all_artists()
         self._points.clear()
         if self._canvas is not None:
@@ -560,18 +626,44 @@ class PointOverlay(QObject):
         producer that is driving the selection. Pass ``None`` (or an out-of-range
         index) to clear the selection.
         """
-        n = len(self._points)
-        idx = index if (index is not None and 0 <= index < n) else None
-        if idx == self._selected:
-            return
-        prev = self._selected
-        self._selected = idx
-        if prev is not None:
-            self._update_artist_appearance(prev)
-        if idx is not None:
-            self._update_artist_appearance(idx)
-        if self._canvas is not None:
+        self.set_selection([] if index is None else [index])
+
+    def set_selection(self, indices) -> None:
+        """Programmatically select several points; the last is the current one.
+
+        Silent, like :meth:`set_selected`. Out-of-range indices are dropped; without
+        ``multi_select`` only the last one is kept.
+        """
+        if self._apply_selection(indices) and self._canvas is not None:
             self._canvas.draw_idle()
+
+    def selected_indices(self) -> List[int]:
+        """The selected indices, in selection order (the last is the current point)."""
+        return list(self._selection)
+
+    @property
+    def _selected(self) -> Optional[int]:
+        """The current point — the last selected — or None. Read-only: the selection
+        is changed through :meth:`_apply_selection`."""
+        return self._selection[-1] if self._selection else None
+
+    def _apply_selection(self, indices) -> bool:
+        """Make *indices* the selection and restyle the points whose state changed.
+        Returns whether anything changed. Draws and emits nothing."""
+        n = len(self._points)
+        new: List[int] = []
+        for i in indices:
+            if i is not None and 0 <= i < n and i not in new:
+                new.append(int(i))
+        if not self._multi_select:
+            new = new[-1:]
+        if new == self._selection:
+            return False
+        changed = set(new).symmetric_difference(self._selection)
+        self._selection = new
+        for idx in sorted(changed):
+            self._update_artist_appearance(idx)
+        return True
 
     # ── private: artists ──────────────────────────────────────────────────
 
@@ -597,6 +689,7 @@ class PointOverlay(QObject):
                         pass
             lst.clear()
         self._remove_legend()
+        self._remove_box()
 
     def _draw_all(self):
         for idx in range(len(self._points)):
@@ -675,12 +768,10 @@ class PointOverlay(QObject):
         before a point exists, so it emits a request and adds nothing here.
         """
         idx = self.add_point(x, y)
-        old_sel = self._selected
-        self._selected = idx
-        if old_sel is not None:
-            self._update_artist_appearance(old_sel)
-        self._update_artist_appearance(idx)
+        changed = self._apply_selection([idx])
         self.point_added.emit(idx, x, y)
+        if changed:
+            self.selection_changed.emit(self.selected_indices())
         if self._canvas is not None:
             self._canvas.draw_idle()
 
@@ -732,7 +823,7 @@ class PointOverlay(QObject):
         if self._ax is None:
             return
         x, y = self._points[idx]
-        selected = idx == self._selected
+        selected = idx in self._selection
         color = self._point_color(idx, selected)
         ms = self._size * 1.4 if selected else self._size
         edge_color, mew = self._marker_edge(idx, color, selected)
@@ -769,7 +860,7 @@ class PointOverlay(QObject):
     def _update_artist_appearance(self, idx: int):
         if idx >= len(self._artists):
             return
-        selected = idx == self._selected
+        selected = idx in self._selection
         color = self._point_color(idx, selected)
         ms = self._size * 1.4 if selected else self._size
         edge_color, mew = self._marker_edge(idx, color, selected)
@@ -819,28 +910,43 @@ class PointOverlay(QObject):
         if self._canvas is None or self._ax is None:
             return
         self._drag_idx = idx
+        # a selected point carries the rest of a multi-selection with it
+        if self._multi_select and idx in self._selection:
+            self._drag_group = list(self._selection)
+        else:
+            self._drag_group = [idx]
+        self._drag_starts = [
+            (self._points[i][0], self._points[i][1]) for i in self._drag_group
+        ]
         px, py = self._points[idx]
         self._drag_offset = (event.xdata - px, event.ydata - py)
         self._drag_start_xy = (px, py)  # so a no-move select-click skips point_moved
         self._canvas._overlay_consuming_event = True
-        self._artists[idx].set_animated(True)
-        ann = self._anns[idx] if idx < len(self._anns) else None
-        if ann is not None:
-            ann.set_animated(True)
+        self._set_drag_animated(True)
         self._canvas.draw()
         self._blit_bg = self._canvas.copy_from_bbox(self._ax.bbox)
+
+    def _set_drag_animated(self, animated: bool) -> None:
+        for i in self._drag_group:
+            if i < len(self._artists):
+                self._artists[i].set_animated(animated)
+            ann = self._anns[i] if i < len(self._anns) else None
+            if ann is not None:
+                ann.set_animated(animated)
 
     def _blit_artists(self) -> List:
         """Artists redrawn on every drag step, in draw order.
 
-        The dragged point and its label. Split out so a subclass with an artist
+        The dragged points and their labels. Split out so a subclass with an artist
         that *tracks* a point — correlation's surface datum line — can keep it in
         step during the drag instead of leaving it behind until release.
         """
-        artists = [self._artists[self._drag_idx]]
-        ann = self._anns[self._drag_idx] if self._drag_idx < len(self._anns) else None
-        if ann is not None:
-            artists.append(ann)
+        artists = []
+        for i in self._drag_group:
+            artists.append(self._artists[i])
+            ann = self._anns[i] if i < len(self._anns) else None
+            if ann is not None:
+                artists.append(ann)
         return artists
 
     def _blit(self):
@@ -854,7 +960,80 @@ class PointOverlay(QObject):
             self._ax.draw_artist(artist)
         self._canvas.blit(self._ax.bbox)
 
+    # ── box selection (multi_select) ──────────────────────────────────────
+
+    def _start_box(self, event) -> None:
+        from matplotlib.patches import Rectangle
+
+        self._box_start = (event.xdata, event.ydata)
+        self._box_end = (event.xdata, event.ydata)
+        self._canvas._overlay_consuming_event = True  # the canvas drops its pan
+        self._box_artist = Rectangle(
+            self._box_start,
+            0.0,
+            0.0,
+            fill=False,
+            edgecolor=self._selected_color,
+            linestyle="--",
+            linewidth=1.0,
+            zorder=9,
+            animated=True,
+        )
+        self._ax.add_patch(self._box_artist)
+        self._canvas.draw()
+        self._blit_bg = self._canvas.copy_from_bbox(self._ax.bbox)
+
+    def _update_box(self, x: float, y: float) -> None:
+        self._box_end = (x, y)
+        if self._box_artist is None or self._canvas is None or self._ax is None:
+            return
+        x0, y0 = self._box_start
+        self._box_artist.set_bounds(min(x0, x), min(y0, y), abs(x - x0), abs(y - y0))
+        if self._blit_bg is None:
+            self._canvas.draw_idle()
+            return
+        self._canvas.restore_region(self._blit_bg)
+        self._ax.draw_artist(self._box_artist)
+        self._canvas.blit(self._ax.bbox)
+
+    def _finish_box(self) -> None:
+        """Add every point inside the box to the selection."""
+        (x0, y0), (x1, y1) = self._box_start, self._box_end
+        self._box_start = None
+        self._blit_bg = None
+        self._remove_box()
+        xlo, xhi = min(x0, x1), max(x0, x1)
+        ylo, yhi = min(y0, y1), max(y0, y1)
+        inside = [
+            i
+            for i, (px, py) in enumerate(self._points)
+            if xlo <= px <= xhi and ylo <= py <= yhi
+        ]
+        changed = self._apply_selection(self._selection + inside)
+        if self._canvas is not None:
+            self._canvas.draw_idle()
+        if changed:
+            self.selection_changed.emit(self.selected_indices())
+
+    def _remove_box(self) -> None:
+        if self._box_artist is not None:
+            try:
+                self._box_artist.remove()
+            except Exception:
+                pass
+            self._box_artist = None
+
     # ── mouse / key events ────────────────────────────────────────────────
+
+    def _modifiers(self, event) -> Tuple[str, ...]:
+        """Held modifiers, e.g. ``("Shift",)`` — only consulted with multi_select, so
+        a single-select overlay ignores them exactly as it always has. Cmd on macOS
+        arrives as "Control"."""
+        if not self._multi_select:
+            return ()
+        from fibsem.ui.widgets.canvas.canvas_base import _modifiers_from_event
+
+        return _modifiers_from_event(event)
 
     def _on_press(self, event):
         if self._canvas is None or self._ax is None:
@@ -875,54 +1054,122 @@ class PointOverlay(QObject):
         if event.button != 1:
             return
 
+        mods = self._modifiers(event)
         hit = self._hit_point(event)
-        if hit is not None:
-            old_sel = self._selected
-            self._selected = hit
-            if old_sel is not None and old_sel != hit:
-                self._update_artist_appearance(old_sel)
-            self._update_artist_appearance(hit)
+        if hit is not None and ("Control" in mods or "Shift" in mods):
+            # Ctrl toggles, Shift adds; neither drags. The press is still claimed so
+            # the canvas does not pan if the hand moves a little.
+            self._canvas._overlay_consuming_event = True
+            if "Control" in mods:
+                if hit in self._selection:
+                    new = [i for i in self._selection if i != hit]
+                else:
+                    new = self._selection + [hit]
+            else:
+                new = self._selection + [hit]
+            if self._apply_selection(new):
+                self._canvas.draw_idle()
+                self.selection_changed.emit(self.selected_indices())
+        elif hit is not None:
+            # A member of a multi-selection keeps the group, so it can be dragged;
+            # a click anywhere else selects just the point.
+            keep_group = len(self._selection) > 1 and hit in self._selection
+            changed = False if keep_group else self._apply_selection([hit])
+            self._collapse_on_release = keep_group
             # Drag state first, emit last: a listener may rebuild this overlay
             # (set_points) while handling the signal, and the drag has to have
             # captured its artist and blit background before that can happen.
             self._start_drag(hit, event)
             self.point_selected.emit(hit, self._points[hit][0], self._points[hit][1])
-        elif self._selected is not None:
+            if changed:
+                self.selection_changed.emit(self.selected_indices())
+        elif "Shift" in mods:
+            self._start_box(event)  # adds to the selection on release
+        elif "Control" in mods:
+            return  # a near-miss with a modifier held keeps the selection
+        elif self._selection and self._multi_select:
+            self._clear_press_xy = (event.x, event.y)  # decided on release
+        elif self._selection:
             # left-click empty → deselect
-            old_sel = self._selected
-            self._selected = None
-            self._update_artist_appearance(old_sel)
+            self._apply_selection([])
             self._canvas.draw_idle()
+            self.selection_changed.emit([])
 
     def _on_motion(self, event):
+        if self._box_start is not None:
+            if event.xdata is not None and event.ydata is not None:
+                self._update_box(event.xdata, event.ydata)
+            return
         if self._drag_idx is None:
             return
         if event.xdata is None or event.ydata is None:
             return
-        x, y = self._clamp_to_content(
-            event.xdata - self._drag_offset[0], event.ydata - self._drag_offset[1]
-        )
-        self._points[self._drag_idx] = [x, y]
-        self._update_artist_position(self._drag_idx)
+        gx, gy = event.xdata - self._drag_offset[0], event.ydata - self._drag_offset[1]
+        if len(self._drag_group) == 1:
+            x, y = self._clamp_to_content(gx, gy)
+            self._points[self._drag_idx] = [x, y]
+            self._update_artist_position(self._drag_idx)
+        else:
+            dx, dy = self._clamp_group_delta(
+                gx - self._drag_start_xy[0], gy - self._drag_start_xy[1]
+            )
+            for i, (sx, sy) in zip(self._drag_group, self._drag_starts):
+                self._points[i] = [sx + dx, sy + dy]
+                self._update_artist_position(i)
+            x, y = self._points[self._drag_idx]
         self._blit()
         self.point_dragging.emit(self._drag_idx, x, y)
+
+    def _clamp_group_delta(self, dx: float, dy: float) -> Tuple[float, float]:
+        """Clamp a group move so every point stays inside the content bounds. The
+        group moves rigidly: it stops at the edge rather than squashing against it."""
+        rect = self._rect
+        if rect is None or rect.is_empty or not self._drag_starts:
+            return 0.0, 0.0
+        xs = [p[0] for p in self._drag_starts]
+        ys = [p[1] for p in self._drag_starts]
+        dx = max(rect.x0 - min(xs), min(dx, rect.x1 - 1 - max(xs)))
+        dy = max(rect.y0 - min(ys), min(dy, rect.y1 - 1 - max(ys)))
+        return dx, dy
 
     def _on_release(self, event):
         if self._canvas is None:
             return
         self._canvas._overlay_consuming_event = False
+        if self._box_start is not None:
+            self._finish_box()
+            return
+        if self._clear_press_xy is not None:
+            (px, py), self._clear_press_xy = self._clear_press_xy, None
+            moved = (
+                event.x is None
+                or ((event.x - px) ** 2 + (event.y - py) ** 2) ** 0.5 >= 3
+            )
+            if not moved and self._apply_selection([]):
+                self._canvas.draw_idle()
+                self.selection_changed.emit([])
+            return
         if self._drag_idx is not None:
             idx = self._drag_idx
+            group = self._drag_group
+            collapse = self._collapse_on_release
+            self._set_drag_animated(False)
             self._drag_idx = None
+            self._drag_group = []
+            self._drag_starts = []
+            self._collapse_on_release = False
             self._blit_bg = None
-            self._artists[idx].set_animated(False)
-            ann = self._anns[idx] if idx < len(self._anns) else None
-            if ann is not None:
-                ann.set_animated(False)
             # Only a real move emits point_moved (a select-click without a drag
             # leaves the position unchanged; point_selected already covered it).
             if tuple(self._points[idx]) != self._drag_start_xy:
-                self.point_moved.emit(idx, self._points[idx][0], self._points[idx][1])
+                if len(group) == 1:
+                    self.point_moved.emit(
+                        idx, self._points[idx][0], self._points[idx][1]
+                    )
+                else:
+                    self.points_moved.emit(sorted(group))
+            elif collapse and self._apply_selection([idx]):
+                self.selection_changed.emit(self.selected_indices())
             self._canvas.draw_idle()
 
     def _on_key(self, event):
@@ -930,5 +1177,9 @@ class PointOverlay(QObject):
             return
         if not self._removable:
             return
-        if event.key in ("delete", "backspace") and self._selected is not None:
-            self.remove_point(self._selected)
+        if event.key in ("delete", "backspace") and self._selection:
+            if len(self._selection) == 1:
+                self.remove_point(self._selection[0])
+            else:
+                self.remove_points(self._selection)
+            self.selection_changed.emit(self.selected_indices())
