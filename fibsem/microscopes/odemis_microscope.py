@@ -736,23 +736,6 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
         """The Odemis stack drives its own FM, and has always built one unasked."""
         return True
 
-    def _get_available_values(self, key: str, beam_type: BeamType = None) -> list:
-        """The values of the keys the beam devices don't answer: detector_mode (the
-        detector type's, which can change) and plasma_gas (there is no plasma gas
-        parameter). The application files and scan directions are the milling
-        service's (``supported_settings``, ``supported_pattern_settings``)."""
-        values = []
-        if key == "detector_mode":
-            values = self.connection.detector_mode_info(beam_type_to_odemis[beam_type])[
-                "choices"
-            ]
-        if key == "plasma_gas":
-            values = ["Argon", "Oxygen", "Xenon"]
-
-        logging.debug({"msg": "get_available_values", "key": key, "values": values})
-
-        return values
-
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.
 

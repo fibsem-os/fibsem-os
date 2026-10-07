@@ -2048,25 +2048,6 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
 
     manipulator_move_types = ("relative", "corrected")
 
-    def _get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[str]:
-        """The values of the keys the beam devices don't answer: detector_mode (the
-        detector type's, which can change). The application files and scan directions
-        are the milling service's (``supported_settings``, ``supported_pattern_settings``)."""
-        values = []
-        # the detector's values are the active device's, so the channel is claimed
-        # for the read (FIB-544)
-        if key == "detector_mode":
-            with self._threading_lock:
-                if beam_type is not None:
-                    self.set_channel(beam_type)
-                values = self.connection.detector.mode.available_values
-
-        logging.debug({"msg": "get_available_values", "key": key, "values": values})
-
-        return values
-
     def _beam_device(self, beam_type: BeamType) -> Any:
         """The beam device for ``beam_type``; a column disabled in the config has none."""
         device = self.beams.get(beam_type)

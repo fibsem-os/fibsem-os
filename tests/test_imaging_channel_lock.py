@@ -257,12 +257,15 @@ def test_the_locked_region_stays_narrow(thermo):
         )
 
 
-# The detector property pairs (FIB-544). `_get` and `_set` set the channel and then
-# reach for `connection.detector.…`, which resolves against the active device, so a
-# channel taken in between reads, or writes, the other column's detector.
-# `get_detector_settings` is four of these, and `get_microscope_state` reads it per
-# beam from GUI-thread polls. Attribute accesses rather than calls, so these key on
-# `self.connection.detector.…`.
+# The detector property pairs (FIB-544). Setting the channel and then reaching for
+# `connection.detector.…`, which resolves against the active device, has to be one
+# locked step: a channel taken in between reads, or writes, the other column's
+# detector. `get_detector_settings` is four of these, and `get_microscope_state` reads
+# it per beam from GUI-thread polls. The beam device reaches the detector through its
+# `_detector` property; its detector parameters (`needs_channel`) are read and
+# written under the device's channel claim, which the core takes around the
+# `read_`/`write_` call, so those count as locked. Attribute accesses rather than
+# calls, so these key on `self.connection.detector.…` and `self._detector.…`.
 
 
 def _attr_chain(node: ast.AST) -> list:
@@ -277,30 +280,66 @@ def _attr_chain(node: ast.AST) -> list:
 
 
 def _detector_accesses(node: ast.AST) -> list:
-    """Every `self.connection.detector.<something>` access under `node`, one per line
-    (walking a chain also yields each of its prefixes)."""
+    """Every `self.connection.detector.<something>` or `self._detector.<something>`
+    access under `node`, one per line (walking a chain also yields each of its
+    prefixes)."""
     lines = {}
     for child in ast.walk(node):
         if not isinstance(child, ast.Attribute):
             continue
         chain = _attr_chain(child)
-        if chain[:3] == ["self", "connection", "detector"] and len(chain) > 3:
+        if (chain[:3] == ["self", "connection", "detector"] and len(chain) > 3) or (
+            chain[:2] == ["self", "_detector"] and len(chain) > 2
+        ):
             lines[child.lineno] = child
     return list(lines.values())
 
 
+def _claimed_methods(node: ast.AST) -> list:
+    """The `read_<name>`/`write_<name>` methods of the parameters a device class
+    declares in `needs_channel`, which the core runs under the channel claim."""
+    methods = []
+    for cls in (c for c in ast.walk(node) if isinstance(c, ast.ClassDef)):
+        names = set()
+        for stmt in cls.body:
+            if isinstance(stmt, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "needs_channel"
+                for t in stmt.targets
+            ):
+                names = {
+                    c.value
+                    for c in ast.walk(stmt.value)
+                    if isinstance(c, ast.Constant) and isinstance(c.value, str)
+                }
+        methods += [
+            stmt
+            for stmt in cls.body
+            if isinstance(stmt, ast.FunctionDef)
+            and stmt.name.split("_", 1)[0] in ("read", "write")
+            and stmt.name.split("_", 1)[1] in names
+        ]
+    return methods
+
+
 def test_every_detector_access_is_locked(thermo):
     accesses = _detector_accesses(thermo)
-    assert accesses, "no connection.detector access found -- the probe missed"
+    assert accesses, "no detector access found -- the probe missed"
 
     locked = {
         access.lineno
-        for block in _locked_blocks(thermo)
+        for block in _locked_blocks(thermo) + _claimed_methods(thermo)
         for access in _detector_accesses(block)
     }
-    unlocked = sorted({a.lineno for a in accesses} - locked)
+    # the property itself only names the detector; its callers are what is locked
+    named = {
+        access.lineno
+        for fn in ast.walk(thermo)
+        if isinstance(fn, ast.FunctionDef) and fn.name == "_detector"
+        for access in _detector_accesses(fn)
+    }
+    unlocked = sorted({a.lineno for a in accesses} - locked - named)
     assert unlocked == [], (
-        f"connection.detector is reached without the lock at line(s) {unlocked}: "
+        f"the detector is reached without the lock at line(s) {unlocked}: "
         f"whatever took the channel after set_channel is the detector this reaches"
     )
 
