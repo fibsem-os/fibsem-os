@@ -81,18 +81,16 @@ unrecorded.
 
 ## Python version
 
-`requires-python = ">=3.8"`, and CI builds 3.8 through 3.13. A green local run on a modern
-interpreter proves nothing about the two oldest jobs.
+`requires-python = ">=3.10"`, and CI builds 3.10 through 3.13. A green local run on a newer
+interpreter proves nothing about the 3.10 job.
 
-**Use `Optional[X]` and `Union[X, Y]` from `typing` in function signatures, not `X | Y`.**
-PEP 604 unions in a signature are evaluated at runtime, so on 3.8 and 3.9 the module fails
-at *collection*, not at the call. Same for `list[str]` and `dict[str, int]` as builtin
-generics. A file with `from __future__ import annotations` defers evaluation and may use
-the newer syntax.
+`X | Y` unions and builtin generics such as `list[str]` are safe in signatures. What still
+bites is the standard library: `tomllib`, `typing.Self`, `enum.StrEnum`, `ExceptionGroup`
+and `datetime.UTC` are 3.11+, and `typing.override` is 3.12+. Each passes locally and fails
+only on the 3.10 job.
 
-It is not only syntax: standard-library APIs have version floors too — `ast.unparse` is
-3.9+, `str.removeprefix` and `str.removesuffix` are 3.9+. Both have turned CI red here on
-the 3.8 job alone.
+0.5.3 is the last release that supports Python 3.8 and 3.9. A fix for those installs is
+cut from `release/v0.5.x`.
 
 ## Formatting and lint
 

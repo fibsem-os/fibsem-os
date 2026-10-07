@@ -78,6 +78,7 @@ from fibsem.microscopes.simulator import (
     DemoScene,
     DemoSession,
     initial_demo_parts,
+    sim_is_compustage,
 )
 from fibsem.services.drivers.demo import bind_demo_milling
 from fibsem.services.milling import ServiceMilling
@@ -210,7 +211,7 @@ class DemoMicroscope(
         FM API, in ``_local_fluorescence``.
         """
         defaults = DEMO_DEVICES
-        if self.stage_is_compustage:
+        if sim_is_compustage(self.system):
             defaults = (*DEMO_DEVICES, DEMO_SAMPLE_LOADER)
         resolved = [
             item
@@ -248,15 +249,6 @@ class DemoMicroscope(
         from fibsem.microscopes._stage import DeviceSampleLoader
 
         device = self.devices.get("sample_loader")
-        if device is None and self.stage_is_compustage:
-            # Made a compustage after it was built, as tests do: build it now,
-            # unless the configuration switches it off.
-            resolved = resolve_system_devices(
-                self.system, (DEMO_SAMPLE_LOADER,), types=("sample_loader",)
-            )
-            for name, built in build_device_entries(resolved, self).items():
-                self._set_device(name, built)
-                device = built
         if device is None:
             logging.info("No sample loader: grids are exchanged by hand.")
             return None
@@ -288,18 +280,13 @@ class DemoMicroscope(
         beam = self.beams[beam_type]
         return beam.sim_scanning_mode_value, beam.sim_beam
 
-    def get_available_values(
+    def _get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[Any]:
-        # A beam key's values are its parameter's choices, then the configured ones;
-        # a beam key asked without a beam type gets the shared answer.
-        param = self._route(key, beam_type)
-        if param is not None and param.choices is not None:
-            return list(param.choices)
+        # The values of a key no beam parameter's choices answer: the configured
+        # ones, and none for any other (or a beam the demo has not got).
         configured = self._configured_values(key)
-        if configured is not None:
-            return configured
-        return super().get_available_values(key, beam_type)
+        return [] if configured is None else configured
 
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType

@@ -49,7 +49,6 @@ from fibsem.structures import (
     FibsemStagePosition,
     TileOrderStrategy,
 )
-from fibsem.util.filename import remove_suffix
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -288,8 +287,8 @@ def acquire_image(
     if image is not None and filename is not None:
         try:
             # Set description from filename (without extension)
-            image.metadata.description = remove_suffix(
-                os.path.basename(filename), ".ome.tiff"
+            image.metadata.description = os.path.basename(filename).removesuffix(
+                ".ome.tiff"
             )
             image.metadata.filename = filename
             image.save(filename)

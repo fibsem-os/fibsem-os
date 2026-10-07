@@ -87,9 +87,7 @@ THERMO_API_IMPORT_ERROR: Optional[str] = None
 # THERMO_API_AVAILABLE is True.
 AUTOSCRIPT_VERSION: Optional[Version] = None
 
-# The voltages a ThermoFisher microscope offers, per beam, in volts. The API gives
-# only a range, and any value in it can be set, but these are the ones xT lists.
-# Shared with OdemisThermoMicroscope, which reaches the same columns.
+# The scan directions xT offers for a pattern.
 TFS_SCAN_DIRECTIONS = [
     "BottomToTop",
     "DynamicAllDirections",
@@ -103,6 +101,8 @@ TFS_SCAN_DIRECTIONS = [
     "TopToBottom",
 ]
 
+# The voltages a ThermoFisher microscope offers, per beam, in volts. The API gives
+# only a range, and any value in it can be set, but these are the ones xT lists.
 THERMO_VOLTAGE_CHOICES = {
     BeamType.ELECTRON: (1000, 2000, 3000, 5000, 10000, 20000, 30000),
     BeamType.ION: (500, 1000, 2000, 8000, 16000, 30000),
@@ -1610,7 +1610,7 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
 
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
-        (``ServiceMilling``). Without an ion beam there is none, and they stay here."""
+        (``ServiceMilling``). Without an ion beam there is none, and they raise."""
         from fibsem.services.drivers.autoscript import bind_autoscript_milling
 
         self.milling = bind_autoscript_milling(self)

@@ -18,7 +18,7 @@ from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
 @pytest.fixture
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     return microscope
 
@@ -159,7 +159,7 @@ def test_names_are_read_only_with_a_loader(qapp):
     from fibsem.microscopes._stage import DemoSampleLoader
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope._stage = _create_sample_stage(microscope)
     microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1,))
     microscope._stage.ensure_loaded("Grid-01")

@@ -131,6 +131,9 @@ def _demo():
 # backend raised or (Thermo's detector types and modes) answered for the active
 # channel.
 _NO_BEAM = {
+    "demo None current": "EXC KeyError: None",
+    "demo None detector_mode": ["SecondaryElectrons", "BackscatteredElectrons", "EDS"],
+    "demo None detector_type": ["ETD", "TLD", "EDS"],
     "odemis None current": "EXC KeyError: None",
     "odemis None detector_mode": "EXC KeyError: None",
     "odemis None detector_type": "EXC KeyError: None",

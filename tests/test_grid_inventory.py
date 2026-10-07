@@ -26,6 +26,7 @@ from fibsem.microscopes._stage import (
     _create_sample_stage,
 )
 from fibsem.structures import FibsemStagePosition
+from tests.fixtures.demo_stage import demo_session
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -33,15 +34,13 @@ from fibsem.structures import FibsemStagePosition
 
 
 def _compustage_demo():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope._stage = _create_sample_stage(microscope)
     return microscope
 
 
 def _fixed_demo():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope, _ = demo_session(compustage=False)
     microscope._stage = _create_sample_stage(microscope)
     return microscope
 
@@ -324,12 +323,11 @@ class TestInventoryOnFixedHolder:
 
 class TestCreateSampleStage:
     def test_compustage_demo_builds_the_loader_from_sim_config(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
-        # a copy, not a mutation: `system.sim` may be shared with other sessions
-        microscope.system.sim = dict(
-            microscope.system.sim,
-            loader={"capacity": 6, "occupied": [1, 4], "names": {4: "grid-elm"}},
+        microscope, _ = demo_session(
+            compustage=True,
+            sim={
+                "loader": {"capacity": 6, "occupied": [1, 4], "names": {4: "grid-elm"}}
+            },
         )
         stage = _create_sample_stage(microscope)
         assert isinstance(stage.loader, DeviceSampleLoader)
@@ -340,11 +338,15 @@ class TestCreateSampleStage:
         ]
 
     def test_compustage_demo_can_start_unscanned(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
-        microscope.system.sim = dict(
-            microscope.system.sim,
-            loader={"occupied": [1, 4], "start_unscanned": True, "scan_delay": 10.0},
+        microscope, _ = demo_session(
+            compustage=True,
+            sim={
+                "loader": {
+                    "occupied": [1, 4],
+                    "start_unscanned": True,
+                    "scan_delay": 10.0,
+                }
+            },
         )
         stage = _create_sample_stage(microscope)
         assert stage.loader.device.scan_delay == 10.0
@@ -389,8 +391,7 @@ class TestCreateSampleStage:
         assert slot.calibration.is_builtin
 
     def test_compustage_uses_a_captured_working_slot(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
+        microscope, _ = demo_session(compustage=True)
         self._captured_working_slot(microscope)
         stage = _create_sample_stage(microscope)
         (slot,) = stage.holder.slots.values()
@@ -404,8 +405,7 @@ class TestCreateSampleStage:
         assert slot.loaded_grid is None  # occupancy is the session's, not copied
 
     def test_compustage_drops_a_working_slot_captured_at_another_pre_tilt(self, caplog):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
+        microscope, _ = demo_session(compustage=True)
         self._captured_working_slot(microscope, pre_tilt=12.0)
         # setup_session configures the root logger; listen after it has
         logging.getLogger().addHandler(caplog.handler)

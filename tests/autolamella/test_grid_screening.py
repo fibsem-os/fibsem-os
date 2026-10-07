@@ -60,7 +60,7 @@ def arctis():
 def fixed_holder():
     """A plain Demo with a two-slot holder, both calibrated and occupied."""
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     holder = microscope._stage.holder
     for i, (name, x) in enumerate([("grid-aspen", -4e-3), ("grid-birch", 4e-3)]):
@@ -171,7 +171,7 @@ class TestOnAFixedHolder:
 
     def test_nothing_to_screen_is_an_empty_run(self, experiment, stub_tasks):
         microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
+        microscope.stage_device.compustage = False
         microscope._stage = _create_sample_stage(microscope)
         for slot in microscope._stage.holder.slots.values():
             slot.loaded_grid = None

@@ -740,8 +740,8 @@ class MicroscopeViewController(QObject):
         ``@ensure_main_thread`` ``update_ui`` — there is no synchronous draw to re-enter
         (which is what froze the original info bar)."""
         try:
-            if type(microscope).__name__ == "TescanMicroscope":
-                return  # no stage-position display yet
+            if microscope.stage is None:
+                return  # no stage, so no stage position to show
             if stage_position is None:
                 stage_position = microscope._stage_position
             orientation = microscope.get_stage_orientation(

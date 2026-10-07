@@ -898,7 +898,7 @@ class TescanMicroscope(ServiceMilling, TescanDrawBeam, FibsemMicroscope):
 
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
-        (``ServiceMilling``). Without an ion beam there is none, and they stay here."""
+        (``ServiceMilling``). Without an ion beam there is none, and they raise."""
         from fibsem.services.drivers.tescan import bind_tescan_milling
 
         self.milling = bind_tescan_milling(self)
