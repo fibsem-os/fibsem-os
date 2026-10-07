@@ -16,8 +16,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.config import STANDARD_RESOLUTIONS_ZIP
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
+from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, ImageSettings
 from fibsem.ui import stylesheets
@@ -27,6 +27,7 @@ from fibsem.ui.tokens import (
 from fibsem.ui.utils import (
     beam_choices,
     beam_limits,
+    find_data,
     install_wheel_blocker,
     set_range_from_limits,
 )
@@ -127,11 +128,11 @@ class ImageSettingsWidget(QWidget):
         # Resolution
         self.resolution_label = QLabel("Resolution")
         self.resolution_combo = QComboBox()
-        for res_str, res in STANDARD_RESOLUTIONS_ZIP:
-            self.resolution_combo.addItem(res_str, tuple(res))
+        for width, height in STANDARD_RESOLUTIONS:
+            self.resolution_combo.addItem(f"{width}x{height}", (width, height))
         # Set default resolution
         default_resolution = WIDGET_CONFIG["resolution"]["default"]
-        default_index = self.resolution_combo.findData(default_resolution)
+        default_index = find_data(self.resolution_combo, default_resolution)
         if default_index >= 0:
             self.resolution_combo.setCurrentIndex(default_index)
         install_wheel_blocker(self.resolution_combo)
@@ -364,7 +365,7 @@ class ImageSettingsWidget(QWidget):
         """Replace the resolution combo items with a custom list.
 
         Args:
-            resolutions: List of (display_str, value) tuples, e.g. from AVAILABLE_RESOLUTIONS_ZIP.
+            resolutions: List of (display_str, value) tuples, e.g. ("1536x1024", (1536, 1024)).
             default: Optional display string to select as the default item.
         """
         self.resolution_combo.blockSignals(True)
@@ -487,7 +488,7 @@ class ImageSettingsWidget(QWidget):
         # Set resolution
         # a value the beam doesn't list is added rather than snapped to a neighbour
         resolution = tuple(settings.resolution)
-        index = self.resolution_combo.findData(resolution)
+        index = find_data(self.resolution_combo, resolution)
         if index < 0:
             self.resolution_combo.addItem(
                 f"{resolution[0]}x{resolution[1]}", resolution

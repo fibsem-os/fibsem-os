@@ -11,13 +11,16 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
-from fibsem import config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
+from fibsem.devices.beam import STANDARD_RESOLUTIONS  # noqa: E402
 from fibsem.devices.core import ParameterMetadata  # noqa: E402
 from fibsem.structures import BeamType, ImageSettings, RangeLimit  # noqa: E402
 from fibsem.ui.utils import beam_limits  # noqa: E402
 from fibsem.ui.widgets.beam_settings_widget import (
     FibsemBeamSettingsWidget,  # noqa: E402
+)
+from fibsem.ui.widgets.fibsem_overview_settings_widget import (  # noqa: E402
+    FibsemOverviewSettingsWidget,
 )
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget  # noqa: E402
 
@@ -76,8 +79,7 @@ def test_beam_settings_keep_the_standard_values_when_the_beam_reports_none():
     widget = FibsemBeamSettingsWidget(microscope=microscope, beam_type=E)
     widget.populate_beam_combos()
 
-    standard = [tuple(r) for _, r in cfg.STANDARD_RESOLUTIONS_ZIP]
-    assert _items(widget.resolution_combo) == standard
+    assert _items(widget.resolution_combo) == list(STANDARD_RESOLUTIONS)
     assert _range(widget.dwell_time_spinbox) == pytest.approx((0.001, 1000))
 
 
@@ -105,3 +107,25 @@ def test_image_settings_keep_a_resolution_the_beam_does_not_list():
     widget.update_from_settings(ImageSettings(resolution=(3072, 2048)))
 
     assert widget.get_settings().resolution == (3072, 2048)
+
+
+def test_the_overview_offers_the_standard_resolutions_and_keeps_a_saved_one():
+    """Square tiles are no longer offered, but an overview saved with one keeps it."""
+    widget = FibsemOverviewSettingsWidget()
+    assert _items(widget.combo_resolution) == list(STANDARD_RESOLUTIONS)
+
+    settings = widget.get_settings()
+    settings.image_settings.resolution = (1024, 1024)
+    widget.update_from_settings(settings)
+
+    assert widget.get_settings().image_settings.resolution == (1024, 1024)
+
+
+def test_a_listed_resolution_is_found_when_built_elsewhere():
+    """A resolution read from a file is an equal tuple, not the combo's own object."""
+    widget = ImageSettingsWidget()
+    count = widget.resolution_combo.count()
+    widget.update_from_settings(ImageSettings(resolution=tuple([768, 512])))
+
+    assert widget.resolution_combo.count() == count
+    assert widget.get_settings().resolution == (768, 512)

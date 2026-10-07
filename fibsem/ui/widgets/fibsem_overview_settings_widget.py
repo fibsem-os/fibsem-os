@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import constants
-from fibsem.config import AVAILABLE_RESOLUTIONS_ZIP
+from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.structures import (
     AutoContrastMode,
     AutoFocusMode,
@@ -48,7 +48,7 @@ from fibsem.structures import (
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import NEUTRAL_400, TEXT_MUTED_COLOR
-from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.utils import find_data, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     QDirectoryLineEdit,
@@ -131,7 +131,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         )
         self.combo_resolution = self._field(
             ValueComboBox(
-                items=[value for _, value in AVAILABLE_RESOLUTIONS_ZIP],
+                items=list(STANDARD_RESOLUTIONS),
                 format_fn=lambda r: f"{r[0]}x{r[1]}",
             )
         )
@@ -499,7 +499,11 @@ class FibsemOverviewSettingsWidget(QWidget):
             widget.blockSignals(True)
         try:
             self.combo_beam.set_value(image.beam_type)
-            self.combo_resolution.set_value(list(image.resolution))
+            resolution = tuple(image.resolution)
+            if find_data(self.combo_resolution, resolution) == -1:
+                # a saved overview's size is shown as it is, not snapped
+                self.combo_resolution.add_value(resolution)
+            self.combo_resolution.set_value(resolution)
             self.spin_dwell.setValue(image.dwell_time * constants.SI_TO_MICRO)
             self.spin_hfw.setValue(image.hfw * constants.SI_TO_MICRO)
             self.combo_autocontrast.set_value(settings.autocontrast_mode)

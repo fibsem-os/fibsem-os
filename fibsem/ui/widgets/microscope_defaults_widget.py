@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import utils
 from fibsem.constants import METRE_TO_MICRON
+from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSystemSettings, BeamType, ImageSettings
 from fibsem.ui import notification_service
@@ -43,15 +44,6 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
-
-# Offered when the instrument cannot list its own; the current value is always
-# added beside them so a file's setting is never silently snapped to a neighbour.
-STANDARD_RESOLUTIONS: List[Tuple[int, int]] = [
-    (768, 512),
-    (1536, 1024),
-    (3072, 2048),
-    (6144, 4096),
-]
 
 
 def _micro(value: float) -> float:

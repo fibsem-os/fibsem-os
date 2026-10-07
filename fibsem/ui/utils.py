@@ -59,6 +59,18 @@ def set_range_from_limits(
     spinbox.setRange(limits.min * scale, limits.max * scale)
 
 
+def find_data(combo: QtWidgets.QComboBox, value) -> int:
+    """The index of the item whose data equals ``value``, or -1.
+
+    ``QComboBox.findData`` compares a Python object such as a resolution tuple by
+    identity, so an equal tuple built elsewhere is not found.
+    """
+    for index in range(combo.count()):
+        if combo.itemData(index) == value:
+            return index
+    return -1
+
+
 def open_path_in_file_explorer(path: str) -> bool:
     """Open a directory (or file's location) in the system file explorer.
 
