@@ -140,7 +140,9 @@ def test_tescan_without_beam_devices_keeps_the_manufacturer_rules(
     [
         (lambda mp: _demo(), False),
         (lambda mp: _tescan(mp), True),
-        (lambda mp: _tescan(mp, devices=False), True),
+        # no beams, so no milling service and nothing to mill with: the stage list
+        # no longer guesses a preset column from the manufacturer
+        (lambda mp: _tescan(mp, devices=False), False),
     ],
     ids=["demo", "tescan", "tescan-without-beam-devices"],
 )
