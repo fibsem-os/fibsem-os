@@ -12,6 +12,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 import fibsem.config as cfg  # noqa: E402
+import fibsem.ui.widgets.microscope_defaults_widget as defaults_widget  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.structures import MicroscopeSettings  # noqa: E402
 from fibsem.ui.widgets.microscope_defaults_widget import (  # noqa: E402
@@ -391,14 +392,14 @@ def preset_widget(qapp, microscope, monkeypatch):
         "beam_uses_presets",
         lambda beam_type: beam_type is BeamType.ION,
     )
-    original = microscope.get_available_values_cached
+    original = defaults_widget.beam_choices
 
-    def available(key, beam_type=None):
+    def available(microscope, key, beam_type):
         if key == "preset":
             return PRESETS
-        return original(key, beam_type)
+        return original(microscope, key, beam_type)
 
-    monkeypatch.setattr(microscope, "get_available_values_cached", available)
+    monkeypatch.setattr(defaults_widget, "beam_choices", available)
     microscope.system.ion.beam.preset = "30 keV; 150 pA"
     w = MicroscopeDefaultsWidget()
     w.set_microscope(microscope)
@@ -449,9 +450,9 @@ def test_a_configured_preset_the_instrument_does_not_list_is_kept(
         microscope, "beam_uses_presets", lambda beam_type: beam_type is BeamType.ION
     )
     monkeypatch.setattr(
-        microscope,
-        "get_available_values_cached",
-        lambda key, beam_type=None: PRESETS if key == "preset" else [],
+        defaults_widget,
+        "beam_choices",
+        lambda microscope, key, beam_type: PRESETS if key == "preset" else [],
     )
     microscope.system.ion.beam.preset = "10 keV; 5 pA"
     w = MicroscopeDefaultsWidget()

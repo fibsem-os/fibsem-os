@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
 from fibsem.devices.core import ParameterMetadata
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings
+from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import FormGrid, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
 
@@ -104,7 +105,7 @@ class FibsemMillingSettingsWidget(QWidget):
 
     def _dynamic_items(self, parameter: str):
         """Resolve an `items: "dynamic"` field: the milling service's choices for the
-        field, else the microscope's available values."""
+        field, else the milling beam's choices for its parameter."""
         if self._supported is not None:
             for name, m in _META.items():
                 if (
@@ -114,7 +115,7 @@ class FibsemMillingSettingsWidget(QWidget):
                     choices = self._supported[name].choices
                     if choices is not None:
                         return list(choices)
-        return self.microscope.get_available_values_cached(parameter, BeamType.ION)
+        return beam_choices(self.microscope, parameter, BeamType.ION)
 
     def _connect_signals(self) -> None:
         for row in self._rows:

@@ -1,4 +1,3 @@
-
 import logging
 import os
 import subprocess
@@ -23,6 +22,19 @@ from PyQt5.QtWidgets import (
 
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import BeamType
+
+
+def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -> list:
+    """The values a beam parameter can take: its device's choices, kept on the
+    parameter (read when the beam was built and again when a dependency changes), so
+    asking makes no instrument call. Empty when there is no such beam or parameter, or
+    the parameter has no choices."""
+    beam = microscope.beams.get(beam_type)
+    parameter = None if beam is None else beam.parameters.get(name)
+    if parameter is None or parameter.choices is None:
+        return []
+    return list(parameter.choices)
 
 
 def open_path_in_file_explorer(path: str) -> bool:
@@ -156,10 +168,12 @@ def set_arr_as_qlabel(
     return label
 
 
-def message_box_ui(title: str, 
-                   text: str, 
-                   buttons=QMessageBox.Yes | QMessageBox.No, 
-                   parent: Optional[QWidget] = None) -> bool:
+def message_box_ui(
+    title: str,
+    text: str,
+    buttons=QMessageBox.Yes | QMessageBox.No,
+    parent: Optional[QWidget] = None,
+) -> bool:
     msg = QMessageBox(parent=parent)
     msg.setWindowTitle(title)
     msg.setText(text)
@@ -175,17 +189,18 @@ def message_box_ui(title: str,
 
     return response
 
+
 def message_box_ui_with_custom_buttons(
-    message, 
-    title="Message", 
+    message,
+    title="Message",
     yes_text="Yes",
     no_text="No",
-    icon=QMessageBox.Question, 
-    parent=None
+    icon=QMessageBox.Question,
+    parent=None,
 ):
     """
     Create a custom QMessageBox dialog with two custom buttons.
-    
+
     Args:
         message: Dialog message text
         title: Dialog title (default: "Message")
@@ -193,9 +208,9 @@ def message_box_ui_with_custom_buttons(
         no_text: Text for the No button (default: "No")
         icon: QMessageBox icon (default: QMessageBox.Question)
         parent: Parent widget
-        
+
     Returns:
-        bool or None: True if Yes button is clicked, 
+        bool or None: True if Yes button is clicked,
                      False if No button is clicked,
                      None if dialog is closed
     """
@@ -203,22 +218,22 @@ def message_box_ui_with_custom_buttons(
     msg_box.setWindowTitle(title)
     msg_box.setText(message)
     msg_box.setIcon(icon)
-    
+
     # Create custom buttons
     yes_button = QPushButton(yes_text)
     no_button = QPushButton(no_text)
-    
+
     # Add buttons to message box
     msg_box.addButton(yes_button, QMessageBox.YesRole)
     msg_box.addButton(no_button, QMessageBox.NoRole)
-    
+
     # Set yes button as default
     msg_box.setDefaultButton(yes_button)
-    
+
     # Show dialog and get result
     msg_box.exec_()
     clicked_button = msg_box.clickedButton()
-    
+
     # Return boolean based on which button was clicked
     if clicked_button == yes_button:
         return True
@@ -228,13 +243,14 @@ def message_box_ui_with_custom_buttons(
         # Dialog was closed (X button or Escape)
         return None
 
+
 def _display_logo(path, label, shape=[50, 50]):
     label.setScaledContents(True)
     label.setFixedSize(*shape)
     label.setPixmap(QtGui.QPixmap(path))
 
 
-def create_combobox_message_box(text: str, title: str, options: list, parent = None):
+def create_combobox_message_box(text: str, title: str, options: list, parent=None):
     # create a q message box with combobox
     msg = QtWidgets.QMessageBox(parent=parent)
     msg.setIcon(QtWidgets.QMessageBox.Information)
@@ -261,18 +277,21 @@ def create_combobox_message_box(text: str, title: str, options: list, parent = N
         selected = combobox.currentText()
 
         return selected
-    
-    return None
 
+    return None
 
 
 # TODO: add filters for file types
 
+
 def open_existing_directory_dialog(
     msg: str = "Select a directory", path: str = cfg.LOG_PATH, parent=None
 ) -> str:
-    path = QtWidgets.QFileDialog.getExistingDirectory(parent=parent, caption=msg, directory=path)
+    path = QtWidgets.QFileDialog.getExistingDirectory(
+        parent=parent, caption=msg, directory=path
+    )
     return path
+
 
 def open_existing_file_dialog(
     msg: str = "Select a file",
@@ -281,12 +300,10 @@ def open_existing_file_dialog(
     parent: Optional[QWidget] = None,
 ) -> str:
     path, _ = QtWidgets.QFileDialog.getOpenFileName(
-        parent=parent, 
-        caption=msg, 
-        directory=path, 
-        filter=_filter
+        parent=parent, caption=msg, directory=path, filter=_filter
     )
     return path
+
 
 def open_save_file_dialog(
     msg: str = "Select a file",
@@ -301,6 +318,7 @@ def open_save_file_dialog(
         filter=_filter,
     )
     return path
+
 
 def open_text_input_dialog(
     msg: str = "Enter text",
@@ -317,6 +335,7 @@ def open_text_input_dialog(
     )
     return text, okPressed
 
+
 def open_information_dialog(
     microscope: Optional[FibsemMicroscope] = None,
     parent: Optional[QWidget] = None,
@@ -328,63 +347,66 @@ def open_information_dialog(
     open_about_dialog(microscope=microscope, application=application, parent=parent)
 
 
-
-
-def create_nested_squares(array_size: int = 1000, 
-                          orange_size: int = 800, 
-                          green_size: int = 600) -> np.ndarray:
+def create_nested_squares(
+    array_size: int = 1000, orange_size: int = 800, green_size: int = 600
+) -> np.ndarray:
     """
     Create a 2D numpy array with nested squares.
-    
+
     Colors:
       white = 0 (background)
       orange = 1 (outer square)
       green = 2 (inner square)
-      
+
     Args:
         array_size (int): Size of the output square array (array_size x array_size).
         orange_size (int): Side length of the orange square.
         green_size (int): Side length of the green square.
-        
+
     Returns:
         np.ndarray: 2D array representing the nested squares.
     """
     if green_size > orange_size:
         raise ValueError("green_size must be less than or equal to orange_size")
-        
-    # Create white background 
+
+    # Create white background
     img = np.zeros((array_size, array_size), dtype=np.uint8)
-    
+
     center = array_size // 2
-    
+
     # Draw the orange square
     half_orange = orange_size // 2
     orange_top = center - half_orange
     orange_bottom = orange_top + orange_size
-    img[orange_top:orange_bottom, orange_top:orange_bottom] = 1  # set orange square to 1
-    
+    # set orange square to 1
+    img[orange_top:orange_bottom, orange_top:orange_bottom] = 1
+
     # Draw the green square inside the orange square
     half_green = green_size // 2
     green_top = center - half_green
     green_bottom = green_top + green_size
     img[green_top:green_bottom, green_top:green_bottom] = 2  # set green square to 2
-    
+
     return img
 
-def tile_nested_squares(tile_rows: int, tile_cols: int,
-                        array_size: int = 1000, 
-                        orange_size: int = 800, 
-                        green_size: int = 600) -> np.ndarray:
+
+def tile_nested_squares(
+    tile_rows: int,
+    tile_cols: int,
+    array_size: int = 1000,
+    orange_size: int = 800,
+    green_size: int = 600,
+) -> np.ndarray:
     """
     Create a large grid by tiling nested squares.
-    
+
     Args:
         tile_rows (int): Number of tiles vertically.
         tile_cols (int): Number of tiles horizontally.
         array_size (int): Size of each nested square array.
         orange_size (int): Side length of the orange square.
         green_size (int): Side length of the green square.
-    
+
     Returns:
         np.ndarray: Tiled grid of nested squares.
     """
@@ -396,7 +418,6 @@ def tile_nested_squares(tile_rows: int, tile_cols: int,
 
 # Example usage:
 if __name__ == "__main__":
-
     gridbar_thickness = 200
     mesh_size = 700
     keepout = 100
@@ -404,19 +425,21 @@ if __name__ == "__main__":
 
     array_size = gridbar_thickness + mesh_size
     orange_size = mesh_size
-    green_size = mesh_size - 2*keepout
+    green_size = mesh_size - 2 * keepout
     # Create a 3x3 grid of nested squares
-    grid = tile_nested_squares(tile_rows=5,
-                               tile_cols=5,
-                               array_size=array_size,
-                               orange_size=orange_size,
-                               green_size=green_size)
+    grid = tile_nested_squares(
+        tile_rows=5,
+        tile_cols=5,
+        array_size=array_size,
+        orange_size=orange_size,
+        green_size=green_size,
+    )
     # Standalone harness: matplotlib rather than a napari labels layer (FIB-407).
     # Extent is in metres so the axes carry the same scale the napari scale bar did.
     import matplotlib.pyplot as plt
     from matplotlib.colors import BoundaryNorm, ListedColormap
 
-    cmap = ListedColormap(['red', 'orange', 'green'])
+    cmap = ListedColormap(["red", "orange", "green"])
     norm = BoundaryNorm([0, 1, 2, 3], cmap.N)
 
     extent = (0, grid.shape[1] * pixelsize, grid.shape[0] * pixelsize, 0)

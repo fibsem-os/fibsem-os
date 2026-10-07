@@ -37,12 +37,16 @@ def _pump(ms: int = 50) -> None:
 
 class FakeParameter:
     settable = True
-    choices = None
+
+    def __init__(self, choices=None):
+        self.choices = choices
 
 
 class FakeBeam:
     def __init__(self, parameters):
-        self.parameters = {name: FakeParameter() for name in parameters}
+        self.parameters = {
+            name: FakeParameter(choices) for name, choices in parameters.items()
+        }
 
 
 class FakeTescan:
@@ -53,8 +57,8 @@ class FakeTescan:
 
     def __init__(self, presets, current_preset, fail_activation=False):
         self.beams = {
-            BeamType.ELECTRON: FakeBeam(["current", "working_distance"]),
-            BeamType.ION: FakeBeam(["current", "preset"]),
+            BeamType.ELECTRON: FakeBeam({"current": [1e-9], "working_distance": None}),
+            BeamType.ION: FakeBeam({"current": [1e-9], "preset": list(presets)}),
         }
         self.presets = presets
         self.current_preset = current_preset
@@ -67,15 +71,6 @@ class FakeTescan:
 
     def get_beam_voltage(self, beam_type):
         return 30000.0
-
-    def get_available_values_cached(self, key, beam_type):
-        if key == "preset":
-            return list(self.presets)
-        if key == "current":
-            return [1e-9]
-        if key == "voltage":
-            return [30000.0]
-        return []
 
     def get_preset(self, beam_type):
         return self.current_preset
