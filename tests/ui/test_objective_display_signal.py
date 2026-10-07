@@ -199,8 +199,11 @@ class TestTheLabelStillExistsBeforeTheFirstMove:
 
         controller.update_info(microscope)  # a stage update, carrying no objective
 
+        # On the FM bar now (FIB-1186), and no longer in the canvas's info text.
+        shown = {f.label: f.value for f in controller.widget.fm_bar.visible_fields()}
+        assert shown.get("OBJ") == "200.0 µm"
         info = dict(controller._states[controller._widget.fm_canvas].info)
-        assert info.get("objective") == "OBJECTIVE: 200.0 µm"
+        assert "objective" not in info
 
     def test_the_seeding_read_happens_once_and_only_once(self):
         """The point of the exercise. One read to have something to show is not the

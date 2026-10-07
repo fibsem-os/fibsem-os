@@ -918,9 +918,9 @@ class MicroscopeViewController(QObject):
     def update_info(
         self, microscope, stage_position=None, objective_position=None
     ) -> None:
-        """Refresh the info bar from microscope state (what the old napari text
-        overlay used to show): STAGE on SEM+FIB, MILLING ANGLE on FIB, OBJECTIVE on
-        FM. It goes through the model + debounced render, so it is safe to call from an
+        """Refresh the live readouts from microscope state: STAGE on every canvas
+        and MILLING ANGLE on FIB in the canvas info text, and the objective position
+        on the FM bar. It goes through the model + debounced render, so it is safe to call from an
         ``@ensure_main_thread`` ``update_ui`` — there is no synchronous draw to re-enter
         (which is what froze the original info bar)."""
         try:
@@ -971,14 +971,30 @@ class MicroscopeViewController(QObject):
                     self._objective_seeded = True
                     self._objective_position = microscope.fm.objective.position
                 if self._objective_position is not None:
-                    self.set_fm_info(
-                        "objective",
-                        f"OBJECTIVE: {self._objective_position * constants.METRE_TO_MICRON:.1f} µm",
-                    )
+                    self._show_objective(self._objective_position)
         except Exception:
             _logger.warning(
                 "MicroscopeViewController.update_info failed", exc_info=True
             )
+
+    def _show_objective(self, position: float) -> None:
+        """The objective's position on the FM bar: `OBJ 200.0 µm` (FIB-1186).
+
+        `OBJ` and µm, as the canvas flashes it while focusing, so the same value reads
+        the same in both places.
+
+        The one live value in a bar that otherwise describes the image: where the
+        objective is now, not where it was for the stack on screen. It moved off the
+        canvas, where it was `OBJECTIVE: ...` in the bottom-left info text. A view
+        without bars keeps that text.
+        """
+        text = f"{position * constants.METRE_TO_MICRON:.1f} µm"
+        if self._fm_bar is None:
+            self.set_fm_info("objective", f"OBJECTIVE: {text}")
+            return
+        self._fm_bar.set_live_field(
+            "objective_position", "OBJ", text, name="Objective position (now)"
+        )
 
     def _update_chamber_view(self, microscope, stage_position, orientation) -> None:
         """Hand the quad view's chamber drawing the position the info bar just got.
