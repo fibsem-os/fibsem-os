@@ -960,7 +960,9 @@ class ThermoMilling:
             ValueError: If the application file is not available.
         """
         return match_application_file(
-            application_file, self.get_available_values("application_file"), strict
+            application_file,
+            self.connection.patterning.list_all_application_files(),
+            strict,
         )
 
     def set_application_file(
@@ -2656,12 +2658,10 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
     def _get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[str]:
-        """The values of the keys the beam devices don't answer: application_file,
-        detector_mode (the detector type's, which can change) and scan_direction."""
+        """The values of the keys the beam devices don't answer: detector_mode (the
+        detector type's, which can change) and scan_direction. The application files
+        are the milling service's (``milling.supported_settings()``)."""
         values = []
-        if key == "application_file":
-            values = self.connection.patterning.list_all_application_files()
-
         # the detector's values are the active device's, so the channel is claimed
         # for the read (FIB-544)
         if key == "detector_mode":

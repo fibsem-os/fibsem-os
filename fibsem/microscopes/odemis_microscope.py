@@ -735,12 +735,11 @@ class OdemisThermoMicroscope(ServiceMilling, OdemisPatterning, FibsemMicroscope)
         return True
 
     def _get_available_values(self, key: str, beam_type: BeamType = None) -> list:
-        """The values of the keys the beam devices don't answer: application_file,
-        scan_direction, detector_mode (the detector type's, which can change) and
-        plasma_gas (there is no plasma gas parameter)."""
+        """The values of the keys the beam devices don't answer: scan_direction,
+        detector_mode (the detector type's, which can change) and plasma_gas (there is
+        no plasma gas parameter). The application files are the milling service's
+        (``milling.supported_settings()``)."""
         values = []
-        if key == "application_file":
-            values = self.connection.get_available_application_files()
         if key == "scan_direction":
             values = ["TopToBottom", "BottomToTop", "LeftToRight", "RightToLeft"]
         if key == "detector_mode":

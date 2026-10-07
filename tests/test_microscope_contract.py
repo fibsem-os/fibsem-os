@@ -649,7 +649,7 @@ def test_demo_reads_its_configuration():
 
 def test_demo_sets_its_milling_recipe():
     microscope = _connect("Demo")
-    files = microscope.get_available_values("application_file")
+    files = microscope.milling_system.application_files
     microscope.set_milling_settings(
         FibsemMillingSettings(
             milling_channel=BeamType.ELECTRON,
@@ -703,10 +703,19 @@ def test_demo_has_no_simulated_parts_beside_its_devices():
         assert not hasattr(microscope, part)
 
 
-@pytest.mark.parametrize("key", ["plasma_gas", "application_file", "scan_direction"])
+@pytest.mark.parametrize("key", ["plasma_gas", "scan_direction"])
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_choice_only_keys_list_strings(microscope, key, beam_type):
     choices = microscope.get_available_values(key, beam_type)
+    assert choices and all(isinstance(c, str) for c in choices)
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_application_files_are_the_milling_services(microscope, beam_type):
+    """The milling service lists them (``supported_settings``); as a key they are
+    unknown."""
+    assert microscope.get_available_values("application_file", beam_type) == []
+    choices = microscope.milling.supported_settings()["application_file"].choices
     assert choices and all(isinstance(c, str) for c in choices)
 
 
