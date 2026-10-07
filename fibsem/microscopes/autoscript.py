@@ -2049,19 +2049,11 @@ class ThermoMicroscope(ServiceMilling, ThermoMilling, FibsemMicroscope):
     def _get_available_values(
         self, key: str, beam_type: Optional[BeamType] = None
     ) -> List[str]:
-        """The values of the keys the beam devices don't answer: application_file,
-        detector_mode (the detector type's, which can change) and scan_direction."""
+        """The values of the keys the beam devices don't answer: application_file
+        and scan_direction."""
         values = []
         if key == "application_file":
             values = self.connection.patterning.list_all_application_files()
-
-        # the detector's values are the active device's, so the channel is claimed
-        # for the read (FIB-544)
-        if key == "detector_mode":
-            with self._threading_lock:
-                if beam_type is not None:
-                    self.set_channel(beam_type)
-                values = self.connection.detector.mode.available_values
 
         if key == "scan_direction":
             values = TFS_SCAN_DIRECTIONS

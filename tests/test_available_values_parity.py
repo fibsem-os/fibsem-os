@@ -128,22 +128,36 @@ def _demo():
 
 # A beam key asked with no beam type has no beam device to answer it, so it now
 # gets no values, as the keys with no device home already did, where before the
-# backend raised or (Thermo's detector types) answered for the active channel.
+# backend raised or (Thermo's detector types and modes) answered for the active
+# channel.
 _NO_BEAM = {
     "odemis None current": "EXC KeyError: None",
+    "odemis None detector_mode": "EXC KeyError: None",
     "odemis None detector_type": "EXC KeyError: None",
     "odemis None voltage": "EXC KeyError: None",
     "tescan None preset": "EXC ValueError: Invalid beam type: None",
+    "thermo plasma=False None detector_mode": [
+        "SecondaryElectrons",
+        "BackscatterElectrons",
+    ],
     "thermo plasma=False None detector_type": ["ETD", "TLD", "ICE"],
     "thermo plasma=False None voltage": "EXC ValueError: Unknown beam type: None",
+    "thermo plasma=True None detector_mode": [
+        "SecondaryElectrons",
+        "BackscatterElectrons",
+    ],
     "thermo plasma=True None detector_type": ["ETD", "TLD", "ICE"],
     "thermo plasma=True None voltage": "EXC ValueError: Unknown beam type: None",
 }
-# The Odemis client gives the detector types as a set; the device lists them, in the
-# set's order.
+# The Odemis client gives the detector types and modes as sets; the device lists
+# them, in the set's order.
 _ODEMIS_DETECTOR_TYPES = {
     "odemis ELECTRON detector_type": {"set": ["ETD", "TLD"]},
     "odemis ION detector_type": {"set": ["ETD", "ICE"]},
+    "odemis ELECTRON detector_mode": {
+        "set": ["BackscatterElectrons", "SecondaryElectrons"]
+    },
+    "odemis ION detector_mode": {"set": ["BackscatterElectrons", "SecondaryElectrons"]},
 }
 CHANGED = {**_NO_BEAM, **_ODEMIS_DETECTOR_TYPES}
 
