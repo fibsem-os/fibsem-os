@@ -642,7 +642,7 @@ def test_ion_currents_follow_the_plasma_gas(backend):
 def test_demo_reads_its_configuration():
     """The configured keys and capabilities read the configuration."""
     microscope = _connect("Demo", _plasma_configuration())
-    assert microscope.get_available_values("plasma_gas")
+    assert microscope.get_available_values("plasma_gas", BeamType.ION)
     assert microscope._get_axis_limits()
 
 
@@ -702,10 +702,17 @@ def test_demo_has_no_simulated_parts_beside_its_devices():
         assert not hasattr(microscope, part)
 
 
-@pytest.mark.parametrize("beam_type", BEAMS)
-def test_plasma_gases_list_strings(microscope, beam_type):
-    choices = microscope.get_available_values("plasma_gas", beam_type)
+def test_plasma_gases_list_strings():
+    """Only a plasma ion column offers gases: the ion beam's plasma gas choices."""
+    microscope = _connect("Demo", _plasma_configuration())
+    choices = microscope.get_available_values("plasma_gas", BeamType.ION)
     assert choices and all(isinstance(c, str) for c in choices)
+    assert microscope.get_available_values("plasma_gas", BeamType.ELECTRON) == []
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_a_ga_column_offers_no_plasma_gas(microscope, beam_type):
+    assert microscope.get_available_values("plasma_gas", beam_type) == []
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)

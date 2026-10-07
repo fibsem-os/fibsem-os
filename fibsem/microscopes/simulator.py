@@ -370,12 +370,6 @@ class DemoConfiguration:
             return STAGE_LIMITS_COMPUSTAGE
         return STAGE_LIMITS_DEFAULT
 
-    def _configured_values(self, key: str) -> Optional[List[str]]:
-        """The values of a key that come from the simulator's constants alone."""
-        if key == "plasma_gas":
-            return SIMULATOR_PLASMA_GASES
-        return None
-
 
 class DemoImaging:
     """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
