@@ -2248,6 +2248,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self.status_bar.showMessage(msg)
 
+    def _refresh_fm_placeholder(self) -> None:
+        """Say so on the quad's FM panel when the connected system has no FM."""
+        view_controller = getattr(self, "view_controller", None)
+        if view_controller is None:
+            return
+        microscope = self.autolamella_ui.microscope if self.autolamella_ui else None
+        no_fm = microscope is not None and getattr(microscope, "fm", None) is None
+        view_controller.fm_canvas.set_placeholder(
+            "No fluorescence microscope available" if no_fm else "No image"
+        )
+
     def _on_microscope_connected(self):
         """Handle microscope connection and connect milling progress signal."""
         # Before the signal wiring below, which returns early on a disconnect: both
@@ -2260,6 +2271,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.quad_overview_page.set_microscope(
                 self.autolamella_ui.microscope if self.autolamella_ui else None
             )
+        self._refresh_fm_placeholder()
         if (
             self.autolamella_ui is not None
             and self.autolamella_ui.microscope is not None
