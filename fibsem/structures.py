@@ -19,6 +19,7 @@ from typing import (
     List,
     Literal,
     Mapping,
+    NamedTuple,
     Optional,
     Sequence,
     Set,
@@ -213,6 +214,34 @@ def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]
         merged_metadata = {**default_metadata, **declared}
         field_metadata[f.name] = merged_metadata
     return field_metadata
+
+
+class Resolution(NamedTuple):
+    """An image size in pixels. A tuple, so it compares equal to a plain
+    ``(width, height)`` and goes wherever one does; it adds the "WxH" spelling the
+    microscopes and the widgets use."""
+
+    width: int
+    height: int
+
+    def __str__(self) -> str:
+        return f"{self.width}x{self.height}"
+
+    @classmethod
+    def parse(cls, text: str) -> "Resolution":
+        """Read "1536x1024" (spaces and a capital X allowed)."""
+        try:
+            width, height = text.lower().replace(" ", "").split("x")
+            return cls(int(width), int(height))
+        except (AttributeError, ValueError):
+            raise ValueError(
+                f"A resolution is WxH, e.g. '1536x1024', got {text!r}"
+            ) from None
+
+    @property
+    def aspect(self) -> float:
+        """Width over height: 1.5 for 1536x1024."""
+        return self.width / self.height
 
 
 @dataclass

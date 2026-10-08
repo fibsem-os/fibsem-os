@@ -15,7 +15,7 @@ from superqt.utils import qdebounced
 from fibsem import constants, utils
 from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSettings, BeamType, Point
+from fibsem.structures import BeamSettings, BeamType, Point, Resolution
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import (
@@ -138,7 +138,9 @@ class FibsemBeamSettingsWidget(QWidget):
         # --- Resolution ---
         self.resolution_combo = QComboBox()
         for width, height in STANDARD_RESOLUTIONS:
-            self.resolution_combo.addItem(f"{width}x{height}", (width, height))
+            self.resolution_combo.addItem(
+                str(Resolution(width, height)), (width, height)
+            )
         self.resolution_combo.setCurrentIndex(
             find_data(self.resolution_combo, (1536, 1024))
         )
@@ -506,7 +508,9 @@ class FibsemBeamSettingsWidget(QWidget):
         self.resolution_combo.blockSignals(True)
         self.resolution_combo.clear()
         for width, height in choices:
-            self.resolution_combo.addItem(f"{width}x{height}", (width, height))
+            self.resolution_combo.addItem(
+                str(Resolution(width, height)), (width, height)
+            )
         idx = find_data(self.resolution_combo, selected)
         if idx != -1:
             self.resolution_combo.setCurrentIndex(idx)

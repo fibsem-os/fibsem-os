@@ -113,6 +113,7 @@ from fibsem.structures import (
     InsertableDeviceState,
     Point,
     RangeLimit,
+    Resolution,
     ScanMode,
 )
 
@@ -423,16 +424,15 @@ class AutoscriptBeam(Beam):
 
     def read_resolution(self) -> List[int]:
         # a list, as the old get returns it
-        resolution = self._beam.scanning.resolution.value
-        return [int(resolution.split("x")[0]), int(resolution.split("x")[-1])]
+        return list(Resolution.parse(self._beam.scanning.resolution.value))
 
     def write_resolution(self, value: Tuple[int, int]) -> None:
-        self._beam.scanning.resolution.value = f"{value[0]}x{value[1]}"
+        self._beam.scanning.resolution.value = str(Resolution(*value))
 
     def metadata_resolution(self) -> ParameterMetadata:
         return ParameterMetadata(
             choices=[
-                tuple(int(px) for px in r.split("x"))
+                tuple(Resolution.parse(r))
                 for r in self._beam.scanning.resolution.available_values
             ]
         )
@@ -617,7 +617,7 @@ class AutoscriptBeam(Beam):
             microscope.set_field_of_view(hfw=settings.hfw, beam_type=self.beam_type)
             logging.info(f"acquiring new {name} image.")
             frame_settings = thermo.GrabFrameSettings(
-                resolution=f"{settings.resolution[0]}x{settings.resolution[1]}",
+                resolution=str(Resolution(*settings.resolution)),
                 dwell_time=settings.dwell_time,
                 reduced_area=reduced_area,
                 line_integration=settings.line_integration,
