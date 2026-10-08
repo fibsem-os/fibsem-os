@@ -407,11 +407,11 @@ def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
     return volume / (rate * current)
 
 
-# The device types each connect step builds (``TescanMicroscope._build_devices``);
-# any other type a configuration adds is built last.
+# The device types each connect step builds (``TescanMicroscope._build_devices``).
+# The FM is built on its own path; any other type a configuration adds is built last.
 _BEAM_TYPES = ("beam",)
 _STAGE_TYPES = ("stage",)
-_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES
+_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + ("fm",)
 
 
 class TescanMicroscope(FibsemMicroscope):

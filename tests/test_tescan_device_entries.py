@@ -71,3 +71,13 @@ def test_a_required_device_it_cannot_build_fails_connect(monkeypatch):
             monkeypatch,
             _system({"name": "laser", "type": "laser", "required": True}),
         )
+
+
+def test_connect_does_not_try_to_build_the_fm(monkeypatch, caplog):
+    # Every configuration has an fm entry; the FM is built on its own path, so the
+    # step for whatever else the configuration adds must leave it alone.
+    with caplog.at_level(logging.WARNING):
+        microscope, _ = connect(monkeypatch, _system())
+
+    assert "fm" not in microscope.devices
+    assert "'fm' device" not in caplog.text
