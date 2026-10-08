@@ -40,14 +40,12 @@ from fibsem.ui.widgets.custom_widgets import (
 # GUI Configuration Constants
 WIDGET_CONFIG = {
     "dwell_time": {
-        "range": (0.001, 1000),
         "decimals": 2,
         "step": 0.01,
         "default": 1.0,
         "suffix": " μs",
     },
     "hfw": {
-        "range": (0.001, 10000),
         "decimals": 1,
         "step": 50.0,
         "default": 150.0,
@@ -144,7 +142,9 @@ class ImageSettingsWidget(QWidget):
         self.dwell_time_spinbox = QDoubleSpinBox()
         install_wheel_blocker(self.dwell_time_spinbox)
         dwell_config = WIDGET_CONFIG["dwell_time"]
-        self.dwell_time_spinbox.setRange(*dwell_config["range"])
+        set_range_from_limits(
+            self.dwell_time_spinbox, beam_limits(None, "dwell_time", None), SI_TO_MICRO
+        )
         self.dwell_time_spinbox.setDecimals(dwell_config["decimals"])
         self.dwell_time_spinbox.setSingleStep(dwell_config["step"])
         self.dwell_time_spinbox.setValue(dwell_config["default"])
@@ -157,7 +157,9 @@ class ImageSettingsWidget(QWidget):
         self.hfw_spinbox = QDoubleSpinBox()
         install_wheel_blocker(self.hfw_spinbox)
         hfw_config = WIDGET_CONFIG["hfw"]
-        self.hfw_spinbox.setRange(*hfw_config["range"])
+        set_range_from_limits(
+            self.hfw_spinbox, beam_limits(None, "hfw", None), SI_TO_MICRO
+        )
         self.hfw_spinbox.setDecimals(hfw_config["decimals"])
         self.hfw_spinbox.setSingleStep(hfw_config["step"])
         self.hfw_spinbox.setValue(hfw_config["default"])

@@ -196,12 +196,24 @@ class OdemisBeam(Beam):
         self._client.set_field_of_view(value, self.channel)
         self._set_log("HFW", value, " m")
 
+    def metadata_hfw(self) -> ParameterMetadata:
+        return self._range_metadata(self._client.field_of_view_info(self.channel))
+
     def read_dwell_time(self) -> float:
         return self._client.get_dwell_time(self.channel)
 
     def write_dwell_time(self, value: float) -> None:
         self._client.set_dwell_time(value, self.channel)
         self._set_log("dwell time", value, " s")
+
+    def metadata_dwell_time(self) -> ParameterMetadata:
+        return self._range_metadata(self._client.dwell_time_info(self.channel))
+
+    @staticmethod
+    def _range_metadata(info: dict) -> ParameterMetadata:
+        """Limits from a client ``*_info`` answer, ``{"unit": ..., "range": (min, max)}``."""
+        low, high = info["range"]
+        return ParameterMetadata(limits=RangeLimit(min=low, max=high))
 
     def read_scan_rotation(self) -> float:
         return self._client.get_scan_rotation(self.channel)

@@ -46,6 +46,13 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 
 
+def _use_declared_ranges(hfw: ValueSpinBox, dwell_time: ValueSpinBox) -> None:
+    """The field of view and dwell time ranges every beam declares, until a beam's
+    own are applied."""
+    for name, spinbox in (("hfw", hfw), ("dwell_time", dwell_time)):
+        set_range_from_limits(spinbox, beam_limits(None, name, None), METRE_TO_MICRON)
+
+
 def _micro(value: float) -> float:
     """A µm or µs spin box value in metres or seconds, without the float noise the
     conversion leaves (100 µm is 1e-4, not 9.999999999999999e-05), so the file reads
@@ -93,13 +100,10 @@ class BeamDefaultsForm(QWidget):
         self.preset = ValueComboBox()
         self.voltage = ValueComboBox(format_fn=_format_voltage)
         self.current = ValueComboBox(format_fn=_format_current)
-        self.hfw = ValueSpinBox(
-            suffix="µm", minimum=1.0, maximum=5000.0, decimals=1, step=10.0
-        )
+        self.hfw = ValueSpinBox(suffix="µm", decimals=1, step=10.0)
         self.resolution = ValueComboBox(format_fn=_format_resolution)
-        self.dwell_time = ValueSpinBox(
-            suffix="µs", minimum=0.01, maximum=1000.0, decimals=2, step=0.1
-        )
+        self.dwell_time = ValueSpinBox(suffix="µs", decimals=2, step=0.1)
+        _use_declared_ranges(self.hfw, self.dwell_time)
         self.detector_type = ValueComboBox()
         self.detector_mode = ValueComboBox()
         # A standing choice some sites make -- a FIB run at 180 degrees -- and Apply
@@ -246,14 +250,11 @@ class ImagingDefaultsForm(QWidget):
         super().__init__(parent)
         self.beam_type = ValueComboBox(format_fn=lambda name: str(name).title())
         self.beam_type.set_values([BeamType.ELECTRON.name, BeamType.ION.name])
-        self.hfw = ValueSpinBox(
-            suffix="µm", minimum=1.0, maximum=5000.0, decimals=1, step=10.0
-        )
+        self.hfw = ValueSpinBox(suffix="µm", decimals=1, step=10.0)
         self.resolution = ValueComboBox(format_fn=_format_resolution)
         self.resolution.set_values([_resolution_key(r) for r in STANDARD_RESOLUTIONS])
-        self.dwell_time = ValueSpinBox(
-            suffix="µs", minimum=0.01, maximum=1000.0, decimals=2, step=0.1
-        )
+        self.dwell_time = ValueSpinBox(suffix="µs", decimals=2, step=0.1)
+        _use_declared_ranges(self.hfw, self.dwell_time)
         self.autocontrast = QCheckBox()
 
         form = QFormLayout()

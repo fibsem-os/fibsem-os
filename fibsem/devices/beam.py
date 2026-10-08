@@ -40,13 +40,18 @@ STANDARD_RESOLUTIONS: Tuple[Tuple[int, int], ...] = (
     (6144, 4096),
 )
 
+# Field of view and dwell time limits for a driver that can't report its instrument's:
+# wide enough not to refuse a real setting. A driver reports its own in metadata.
+DEFAULT_HFW_LIMITS = RangeLimit(min=1e-9, max=1e-2)
+DEFAULT_DWELL_TIME_LIMITS = RangeLimit(min=1e-9, max=1e-3)
+
 
 class Beam(Device):
     voltage = Parameter(float, unit="V")
     current = Parameter(float, unit="A", depends_on=("plasma_gas",))
     plasma_gas = Parameter(str)
     working_distance = Parameter(float, unit="m")
-    hfw = Parameter(float, unit="m")
+    hfw = Parameter(float, unit="m", limits=DEFAULT_HFW_LIMITS)
     scan_rotation = Parameter(float, unit="rad", limits=RangeLimit(min=0.0, max=2 * pi))
     blanked = Parameter(bool)
     preset = Parameter(str)
@@ -60,7 +65,7 @@ class Beam(Device):
         choices=STANDARD_RESOLUTIONS,
         doc="(width, height). The choices are what the scan can be set to.",
     )
-    dwell_time = Parameter(float, unit="s")
+    dwell_time = Parameter(float, unit="s", limits=DEFAULT_DWELL_TIME_LIMITS)
     stigmation = Parameter(Point)
     shift = Parameter(Point, unit="m", doc="Beam shift.")
     on = Parameter(bool, doc="The beam is switched on.")

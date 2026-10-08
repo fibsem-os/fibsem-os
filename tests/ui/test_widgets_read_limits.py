@@ -12,7 +12,11 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem import utils  # noqa: E402
-from fibsem.devices.beam import STANDARD_RESOLUTIONS  # noqa: E402
+from fibsem.devices.beam import (  # noqa: E402
+    DEFAULT_DWELL_TIME_LIMITS,
+    DEFAULT_HFW_LIMITS,
+    STANDARD_RESOLUTIONS,
+)
 from fibsem.devices.core import ParameterMetadata  # noqa: E402
 from fibsem.structures import BeamType, ImageSettings, RangeLimit  # noqa: E402
 from fibsem.ui.utils import beam_limits  # noqa: E402
@@ -54,8 +58,12 @@ def test_beam_limits_reads_the_device():
     microscope = _demo()
     assert beam_limits(microscope, "scan_rotation", E) == RangeLimit(0.0, 2 * math.pi)
     assert beam_limits(microscope, "not_a_parameter", E) is None
+    _report(microscope, E, "hfw")
+    assert beam_limits(microscope, "hfw", E) == DEFAULT_HFW_LIMITS
+    # no such beam, or no microscope: the range every beam declares
     microscope.beams = {E: microscope.beams[E]}
-    assert beam_limits(microscope, "scan_rotation", I) is None
+    assert beam_limits(microscope, "hfw", I) == DEFAULT_HFW_LIMITS
+    assert beam_limits(None, "dwell_time", I) == DEFAULT_DWELL_TIME_LIMITS
 
 
 def test_beam_settings_follow_the_beam():
@@ -80,6 +88,7 @@ def test_beam_settings_keep_the_standard_values_when_the_beam_reports_none():
     widget.populate_beam_combos()
 
     assert _items(widget.resolution_combo) == list(STANDARD_RESOLUTIONS)
+    # the range every beam declares, 1 ns to 1 ms
     assert _range(widget.dwell_time_spinbox) == pytest.approx((0.001, 1000))
 
 
@@ -148,3 +157,15 @@ def test_the_overview_offers_the_selected_beams_resolutions():
     widget.update_from_settings(settings)
     assert _items(widget.combo_resolution) == list(STANDARD_RESOLUTIONS)
     assert widget.get_settings().image_settings.resolution == (768, 512)
+
+
+def test_the_overview_bounds_field_of_view_and_dwell_by_the_selected_beam():
+    microscope = _demo()
+    _report(microscope, I, "hfw", limits=RangeLimit(1e-6, 900e-6))
+    widget = FibsemOverviewSettingsWidget()
+    # no microscope: the range every beam declares
+    assert _range(widget.spin_hfw) == pytest.approx((0.001, 10000), abs=0.01)
+
+    widget.set_microscope(microscope)
+    widget.combo_beam.set_value(I)
+    assert _range(widget.spin_hfw) == pytest.approx((1, 900))

@@ -10,7 +10,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.devices.beam import STANDARD_RESOLUTIONS
+from fibsem.devices.beam import DEFAULT_DWELL_TIME_LIMITS, STANDARD_RESOLUTIONS
 from fibsem.structures import BeamType
 
 E, I = BeamType.ELECTRON, BeamType.ION
@@ -54,3 +54,5 @@ def test_tescan_offers_the_standard_resolutions_read_only(monkeypatch):
     for beam in microscope.beams.values():
         assert list(beam.resolution.choices) == list(STANDARD_RESOLUTIONS)
         assert not beam.resolution.settable
+        # Tescan can't report a dwell range: the beam's default is offered
+        assert beam.dwell_time.limits == DEFAULT_DWELL_TIME_LIMITS
