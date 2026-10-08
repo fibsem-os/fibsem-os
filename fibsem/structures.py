@@ -5434,7 +5434,7 @@ class SampleHolder:
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Sample holder config not found: {path}")
-        with open(path, "r") as f:
+        with open(path) as f:
             data = yaml.safe_load(f)
         return cls.from_dict(data)
 

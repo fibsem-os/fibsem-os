@@ -28,7 +28,7 @@ SAVED_POSITIONS = "saved_positions"
 def _read_list(path: str) -> list:
     if not path or not os.path.exists(path):
         return []
-    with open(path, "r") as f:
+    with open(path) as f:
         data = yaml.safe_load(f)
     return data if isinstance(data, list) else []
 

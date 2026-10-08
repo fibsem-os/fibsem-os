@@ -662,7 +662,7 @@ class HookManager:
 
     @classmethod
     def load_yaml(cls, path: str) -> "HookManager":
-        with open(path, "r") as f:
+        with open(path) as f:
             d = yaml.safe_load(f) or {}
         return cls.from_dict(d)
 
