@@ -30,15 +30,22 @@ from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
     fluorescence_images,
 )
-from fibsem.fm.preview import is_fluorescence_image, load_projection
+from fibsem.fm.preview import composite_projection, is_fluorescence_image
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.imaging.drawing import draw_image_overlays
-from fibsem.imaging.export import image_fields
+from fibsem.imaging.export import (
+    ImageFields,
+    image_caption,
+    image_fields,
+    image_summary,
+)
 from fibsem.structures import FibsemImage
 from fibsem.ui.tokens import (
     NEUTRAL_200,
     NEUTRAL_400,
     NEUTRAL_550,
     NEUTRAL_900,
+    NUMBER_FONT,
     SURFACE_COLOR,
 )
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
@@ -47,6 +54,10 @@ _TARGET_WIDTH = 1024 // 2
 _PLACEHOLDER_HEIGHT = 768 // 2  # estimated height for placeholder labels
 _MAX_IMAGES_PER_TASK = 2  # last 2 files = highest-res SEM + FIB
 _IMAGES_PER_LINE = 2  # tiles per line before wrapping; matches the SEM/FIB pair
+_CAPTION_STYLE = (
+    f"color: {NEUTRAL_550}; font-family: {NUMBER_FONT}; font-size: 11px;"
+    " background: transparent;"
+)
 
 
 def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
@@ -66,7 +77,7 @@ def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
 
 def _load_and_resize(
     filepath: str, target_width: int = _TARGET_WIDTH
-) -> Tuple[np.ndarray, float, str]:
+) -> Tuple[np.ndarray, float, ImageFields]:
     """Load an image and resize to target width, preserving aspect ratio.
 
     Handles both a plain .tif and a fluorescence z-stack, which becomes an RGB
@@ -75,18 +86,28 @@ def _load_and_resize(
 
     Returns:
         Tuple of (resized array, pixel_size_x in metres adjusted for resize, the
-        image's kind: "SEM", "FIB", "FM", or "Image" when the file does not say).
+        image's fields, as its bar would show them). The fields come from the file
+        already open for the pixels, so a caption costs no second read.
     """
     if is_fluorescence_image(filepath):
-        data, pixel_size_x = load_projection(filepath)
-        kind = "FM"
+        stack = FluorescenceImage.load(filepath)
+        pixel_size_x = stack.metadata.pixel_size_x
+        info = image_fields(stack)
+        try:
+            data = composite_projection(stack)
+        except ValueError as e:
+            raise ValueError(f"{e}: {filepath}") from e
+        finally:
+            # A real METEOR stack is ~530 MB in memory where its projection is
+            # ~25 MB, and the loader reads several in a row: keep only the latter.
+            del stack
     else:
         img = FibsemImage.load(filepath)
         data = img.data
         if data.ndim == 3 and data.shape[2] in (3, 4):
             data = data[..., :3].mean(axis=2).astype(data.dtype)
         pixel_size_x = img.metadata.pixel_size.x
-        kind = image_fields(img).kind
+        info = image_fields(img)
     h, w = data.shape[:2]
     # Fit inside the tile box rather than filling its width. Beam images are 3:2 and
     # are width-limited, but a fluorescence stack is square: scaling it to the full
@@ -96,7 +117,7 @@ def _load_and_resize(
     scale = min(target_width / w, max_height / h)
     new_w, new_h = int(w * scale), int(h * scale)
     resized = resize(data, (new_h, new_w), preserve_range=True).astype(np.uint8)
-    return resized, pixel_size_x / scale, kind
+    return resized, pixel_size_x / scale, info
 
 
 class ClickableLabel(QLabel):
@@ -185,8 +206,8 @@ class ExpandedImageDialog(QDialog):
 class _ImageLoaderWorker(QThread):
     """Background worker that loads images one at a time."""
 
-    # filepath, array, pixel_size_x, kind
-    image_loaded = pyqtSignal(str, np.ndarray, float, str)
+    # filepath, array, pixel_size_x, ImageFields
+    image_loaded = pyqtSignal(str, np.ndarray, float, object)
 
     def __init__(self, filepaths: List[str], target_width: int, parent=None):
         super().__init__(parent)
@@ -202,10 +223,10 @@ class _ImageLoaderWorker(QThread):
             if self._cancel.is_set():
                 return
             try:
-                arr, pixel_size_x, kind = _load_and_resize(fpath, self._target_width)
+                arr, pixel_size_x, info = _load_and_resize(fpath, self._target_width)
                 if self._cancel.is_set():
                     return
-                self.image_loaded.emit(fpath, arr, pixel_size_x, kind)
+                self.image_loaded.emit(fpath, arr, pixel_size_x, info)
             except Exception as e:
                 logging.warning(f"Failed to load image {fpath}: {e}")
 
@@ -234,8 +255,11 @@ class LamellaTaskImageWidget(QWidget):
         self._lamella_id: Optional[str] = None
         self._pixmap_cache: Dict[str, QPixmap] = {}
         self._placeholder_labels: Dict[str, QLabel] = {}
+        self._caption_labels: Dict[str, QLabel] = {}
         self._task_names: Dict[str, str] = {}  # image path -> the task that made it
         self._kinds: Dict[str, str] = {}  # image path -> SEM / FIB / FM, once read
+        # image path -> (caption, tooltip), kept with the pixmaps they came with
+        self._captions: Dict[str, Tuple[str, str]] = {}
         self._worker: Optional[_ImageLoaderWorker] = None
 
         self._setup_ui()
@@ -280,6 +304,7 @@ class LamellaTaskImageWidget(QWidget):
         self._lamella = lamella
         self._lamella_id = new_id
         self._pixmap_cache.clear()
+        self._captions.clear()
         self._placeholder_labels.clear()
         self._rebuild()
 
@@ -296,6 +321,7 @@ class LamellaTaskImageWidget(QWidget):
             return
         self._cancel_worker()
         self._pixmap_cache.clear()
+        self._captions.clear()
         self._rebuild()
 
     # ------------------------------------------------------------------
@@ -322,6 +348,7 @@ class LamellaTaskImageWidget(QWidget):
         """Build layout with placeholders, then kick off background image loading."""
         self._clear_layout()
         self._placeholder_labels.clear()
+        self._caption_labels.clear()
         self._task_names.clear()
 
         if self._lamella is None:
@@ -394,6 +421,7 @@ class LamellaTaskImageWidget(QWidget):
                 label = self._placeholder_labels.get(fpath)
                 if label is not None:
                     label.setPixmap(self._pixmap_cache[fpath])
+                self._show_caption(fpath)
             else:
                 to_load.append(fpath)
 
@@ -451,9 +479,20 @@ class LamellaTaskImageWidget(QWidget):
             img_label.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 4px;")
             img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             img_label.setText("Loading...")
+            # The tile, then one line saying what it is: `FIB · HFW 100 µm · 18:55`.
+            caption = QLabel()
+            caption.setStyleSheet(_CAPTION_STYLE)
+            tile = QWidget()
+            tile.setStyleSheet("background: transparent;")
+            tile_layout = QVBoxLayout(tile)
+            tile_layout.setContentsMargins(0, 0, 0, 0)
+            tile_layout.setSpacing(2)
+            tile_layout.addWidget(img_label)
+            tile_layout.addWidget(caption)
             row, column = divmod(index, _IMAGES_PER_LINE)
-            img_layout.addWidget(img_label, row, column)
+            img_layout.addWidget(tile, row, column, Qt.AlignmentFlag.AlignTop)
             self._placeholder_labels[fpath] = img_label
+            self._caption_labels[fpath] = caption
 
         # trailing stretch column, so tiles stay left-aligned as before
         img_layout.setColumnStretch(_IMAGES_PER_LINE, 1)
@@ -462,11 +501,13 @@ class LamellaTaskImageWidget(QWidget):
         return container
 
     def _on_image_loaded(
-        self, filepath: str, arr: np.ndarray, pixel_size_x: float, kind: str
+        self, filepath: str, arr: np.ndarray, pixel_size_x: float, info: ImageFields
     ) -> None:
         """Slot called on main thread when a background image finishes loading."""
-        if kind != "Image":
-            self._kinds[filepath] = kind
+        if info.kind != "Image":
+            self._kinds[filepath] = info.kind
+        self._captions[filepath] = (image_caption(info), image_summary(info))
+        self._show_caption(filepath)
         arr = draw_image_overlays(arr, pixel_size_x)
         h, w = arr.shape[:2]
         pixmap = _arr_to_pixmap(arr, w, h)
@@ -479,6 +520,18 @@ class LamellaTaskImageWidget(QWidget):
             label.setPixmap(pixmap)
             if isinstance(label, ClickableLabel):
                 label.clicked.connect(self._open_expanded)
+
+    def _show_caption(self, filepath: str) -> None:
+        """Put the image's caption under its tile, and everything its bar would say
+        on hover over either."""
+        text, summary = self._captions.get(filepath, ("", ""))
+        caption = self._caption_labels.get(filepath)
+        if caption is not None:
+            caption.setText(text)
+            caption.setToolTip(summary)
+        tile = self._placeholder_labels.get(filepath)
+        if tile is not None:
+            tile.setToolTip(summary)
 
     def _open_expanded(self, filepath: str) -> None:
         """Open the image at full resolution in the image viewer (FIB-1189), with all
