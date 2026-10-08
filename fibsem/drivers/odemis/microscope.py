@@ -382,9 +382,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.connection.set_active_view(channel.value)
         self.connection.set_active_device(channel.value)
 
-    def acquire_chamber_image(self) -> FibsemImage:
-        pass
-
     def acquire_image(
         self,
         image_settings: Optional[ImageSettings] = None,

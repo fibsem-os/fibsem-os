@@ -351,6 +351,14 @@ def test_actions_are_plain_methods_that_describe_themselves(beams):
     assert isinstance(sem.acquire(), FibsemImage)
 
 
+def test_a_beam_without_an_acquire_hook_raises_instead_of_recursing():
+    class Bare(Beam):
+        pass
+
+    with pytest.raises(NotImplementedError, match="no _acquire"):
+        Bare(BeamType.ELECTRON).acquire()
+
+
 def test_an_action_can_be_unavailable():
     class Gun(Device):
         @command(available=lambda gun: False)

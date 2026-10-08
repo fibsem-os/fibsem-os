@@ -295,6 +295,13 @@ def test_acquire_image_needs_settings_or_a_beam(microscope):
         microscope.acquire_image()
 
 
+def test_there_is_no_chamber_camera(microscope):
+    with pytest.raises(
+        NotImplementedError, match="does not support acquire_chamber_image"
+    ):
+        microscope.acquire_chamber_image()
+
+
 @pytest.mark.parametrize("returns_tuple", [False, True])
 def test_last_image(microscope, returns_tuple):
     frame = np.full((512, 768), 7, dtype=np.uint8)

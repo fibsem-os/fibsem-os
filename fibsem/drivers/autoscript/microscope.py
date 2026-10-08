@@ -824,6 +824,10 @@ class ThermoMicroscope(FibsemMicroscope):
     # depend on the vendor stage read this; everything else asks the stage device.
     _compustage_installed: bool = False
 
+    # The port connect_to_microscope used: info.port, or the driver's default.
+    # reconnect uses it again.
+    _port: Optional[int] = None
+
     def __init__(self, system_settings: SystemSettings):
         if not THERMO_API_AVAILABLE:
             raise Exception(autoscript_unavailable_message())
@@ -853,7 +857,10 @@ class ThermoMicroscope(FibsemMicroscope):
             raise ConnectionError("Please connect to the microscope first")
 
         self.disconnect()
-        self.connect_to_microscope(self.system.info.ip_address)
+        if self._port is None:
+            self.connect_to_microscope(self.system.info.ip_address)
+        else:
+            self.connect_to_microscope(self.system.info.ip_address, port=self._port)
 
     def disconnect(self):
         """Disconnect from the microscope client."""
@@ -891,9 +898,9 @@ class ThermoMicroscope(FibsemMicroscope):
         if self.connection is None:
             self.connection = SdbMicroscopeClient()
 
-        # TODO: get the port
         logging.info(f"Microscope client connecting to [{ip_address}:{port}]")
         self.connection.connect(host=ip_address, port=port)
+        self._port = port
         logging.info(f"Microscope client connected to [{ip_address}:{port}]")
 
         # system information

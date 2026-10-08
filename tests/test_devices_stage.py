@@ -49,6 +49,26 @@ def test_the_driver_lists_the_axes_with_their_limits_in_si_units(stage):
     assert stage.describe()["position"]["limits"]["z"] == {"min": 0.0, "max": 40e-3}
 
 
+def test_is_homed_reads_the_homed_parameter(stage):
+    assert stage.is_homed is True
+    stage.sim_homed = False
+    assert stage.is_homed is False
+
+
+def test_is_homed_is_none_for_a_stage_that_cannot_say(stage, monkeypatch):
+    parameters = {k: v for k, v in stage.parameters.items() if k != "homed"}
+    monkeypatch.setattr(type(stage), "parameters", property(lambda _: parameters))
+    assert stage.is_homed is None
+
+
+def test_the_sample_stage_asks_the_stage_device_whether_it_is_homed():
+    microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
+    microscope._create_sample_stage()
+    assert microscope._stage.is_homed is True
+    microscope.stage.sim_homed = False
+    assert microscope._stage.is_homed is False
+
+
 def test_a_compustage_has_no_rotation_axis_and_cannot_link():
     stage = _demo_stage(_ARCTIS_CONFIG)
     assert list(stage.axes) == ["x", "y", "z", "t"]

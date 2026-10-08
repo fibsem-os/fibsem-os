@@ -198,10 +198,12 @@ class Beam(Device):
         self._auto_focus(reduced_area)
 
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
-        # Until a driver implements it: the microscope's own acquire_image.
-        if image_settings is None:
-            return self.parent.acquire_image(beam_type=self.beam_type)
-        return self.parent.acquire_image(image_settings)
+        # Not the microscope's acquire_image: that goes through this beam, so it
+        # would recurse for a driver without the hook.
+        raise NotImplementedError(
+            f"{type(self).__name__} can't acquire an image: its driver has no "
+            "_acquire and no scanner is bound"
+        )
 
     # A bound scanner images instead of the driver: the beam's settings (or the
     # given ones) say what to scan, the scanner scans it, and the beam builds the

@@ -407,11 +407,11 @@ def estimate_preset_milling_time(stage: FibsemMillingStage) -> Optional[float]:
     return volume / (rate * current)
 
 
-# The device types each connect step builds (``TescanMicroscope._build_devices``);
-# any other type a configuration adds is built last.
+# The device types each connect step builds (``TescanMicroscope._build_devices``).
+# The FM is built on its own path; any other type a configuration adds is built last.
 _BEAM_TYPES = ("beam",)
 _STAGE_TYPES = ("stage",)
-_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES
+_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + ("fm",)
 
 
 class TescanMicroscope(FibsemMicroscope):
@@ -433,6 +433,10 @@ class TescanMicroscope(FibsemMicroscope):
     # The beam of the last requested (non-live) acquisition, for the settle before an
     # ion image that follows an electron one.
     _last_requested_beam_type: Optional[BeamType] = None
+
+    # The port connect_to_microscope used: info.port, or the driver's default. The
+    # milling service's stop opens a second connection on it.
+    _port: Optional[int] = None
 
     @staticmethod
     def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
@@ -513,6 +517,7 @@ class TescanMicroscope(FibsemMicroscope):
         """
         logging.info(f"Microscope client connecting to [{ip_address}:{port}]")
         self.connection = Automation(ip_address, port)
+        self._port = port
         logging.info(f"Microscope client connected to [{ip_address}:{port}]")
 
         # set up detectors
