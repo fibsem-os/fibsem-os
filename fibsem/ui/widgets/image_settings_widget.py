@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
 from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, ImageSettings
+from fibsem.structures import BeamType, ImageSettings, Resolution
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     NEUTRAL_400,
@@ -127,7 +127,9 @@ class ImageSettingsWidget(QWidget):
         self.resolution_label = QLabel("Resolution")
         self.resolution_combo = QComboBox()
         for width, height in STANDARD_RESOLUTIONS:
-            self.resolution_combo.addItem(f"{width}x{height}", (width, height))
+            self.resolution_combo.addItem(
+                str(Resolution(width, height)), (width, height)
+            )
         # Set default resolution
         default_resolution = WIDGET_CONFIG["resolution"]["default"]
         default_index = find_data(self.resolution_combo, default_resolution)
@@ -387,7 +389,8 @@ class ImageSettingsWidget(QWidget):
         if resolutions:
             selected = self.resolution_combo.currentText()
             self.set_available_resolutions(
-                [(f"{w}x{h}", (w, h)) for w, h in resolutions], default=selected
+                [(str(Resolution(w, h)), (w, h)) for w, h in resolutions],
+                default=selected,
             )
         for name, spinbox in (
             ("hfw", self.hfw_spinbox),
@@ -492,9 +495,7 @@ class ImageSettingsWidget(QWidget):
         resolution = tuple(settings.resolution)
         index = find_data(self.resolution_combo, resolution)
         if index < 0:
-            self.resolution_combo.addItem(
-                f"{resolution[0]}x{resolution[1]}", resolution
-            )
+            self.resolution_combo.addItem(str(Resolution(*resolution)), resolution)
             index = self.resolution_combo.count() - 1
         self.resolution_combo.setCurrentIndex(index)
 

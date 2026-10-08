@@ -44,6 +44,7 @@ from fibsem.structures import (
     FocusStackSettings,
     ImageSettings,
     OverviewAcquisitionSettings,
+    Resolution,
     TileOrderStrategy,
 )
 from fibsem.ui import stylesheets
@@ -179,7 +180,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.combo_resolution = self._field(
             ValueComboBox(
                 items=list(STANDARD_RESOLUTIONS),
-                format_fn=lambda r: f"{r[0]}x{r[1]}",
+                format_fn=lambda r: str(Resolution(*r)),
             )
         )
         self.spin_dwell = self._field(
