@@ -2404,17 +2404,17 @@ class FibsemMicroscope(ABC):
         return self._stage_value("linked")
 
     def pump(self) -> Optional[str]:
-        """Pump the chamber; returns its state, or None where there is no chamber."""
+        """Pump the chamber and return its state. Raises where there is no chamber
+        device, rather than doing nothing."""
         if self.chamber_device is None:
-            logging.debug("There is no chamber to pump here.")
-            return None
+            raise self._unsupported("pump")
         return _chamber_state_name(self.chamber_device.pump())
 
     def vent(self) -> Optional[str]:
-        """Vent the chamber; returns its state, or None where there is no chamber."""
+        """Vent the chamber and return its state. Raises where there is no chamber
+        device, rather than doing nothing."""
         if self.chamber_device is None:
-            logging.debug("There is no chamber to vent here.")
-            return None
+            raise self._unsupported("vent")
         return _chamber_state_name(self.chamber_device.vent())
 
     def _beam_parameter(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
