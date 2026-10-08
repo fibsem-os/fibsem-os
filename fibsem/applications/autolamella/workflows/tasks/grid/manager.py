@@ -28,6 +28,12 @@ A task taken out of the grid protocol while the run is going is skipped where
 it is queued, before its grid is loaded for it: the operator removed it, and
 nothing failed.
 
+A task that works from the grid's files rather than under the beam
+(``requires_microscope`` False) is neither loaded for nor skipped as "grid not
+loaded": it runs whether or not the grid is in the beam, and a grid whose
+queued tasks are all like it gets no load step. Its entry still lands on the
+grid's history, as every task's does; no ``load`` entry goes with it.
+
 Where Stop lands
 ----------------
 The hardware calls are atomic; Stop is honoured at the checkpoints between them.
@@ -75,7 +81,7 @@ if TYPE_CHECKING:
 # the exchanges fall and the timeline shows how each one went, and the history
 # entry the exchange leaves on the grid. Not a task in the protocol: loading is
 # the manager's job. It is in the queue so it can be *seen*, not so it can be
-# switched off -- a task whose grid is not loaded loads it anyway, so
+# switched off -- a task that needs its grid in the beam loads it anyway, so
 # removing or reordering a load item changes what is shown, never what runs.
 # Readable where it shows: the queue, the timeline, the summary, the history.
 LOAD_ENTRY_NAME = "Load grid"
@@ -87,6 +93,7 @@ SKIP_GRID_NOT_LOADED = "grid_not_loaded"
 SKIP_MISSING_PREREQS = "missing_prereqs"  # the lamella manager's word for it
 SKIP_NOTHING_TO_RUN = "nothing_to_run"  # a load with no runnable task behind it
 SKIP_TASK_REMOVED = "task_removed"  # taken out of the grid protocol mid-run
+SKIP_LOAD_NOT_NEEDED = "load_not_needed"  # a load whose tasks need no beam
 
 
 def grid_has_run(grid: GridRecord) -> bool:
@@ -147,16 +154,31 @@ class GridTaskManager(BaseTaskManager):
         Run re-runs it."""
         if grid_names is None:
             grid_names = [g.name for g in self.experiment.grids]
+        pairs = [
+            (grid, step)
+            for grid, step in plan_grid_run(task_names, grid_names)
+            if not (self.review_enabled and self._awaiting_decision(grid, step))
+        ]
         self.queue.build_from_pairs(
-            [
-                (grid, step)
-                for grid, step in plan_grid_run(task_names, grid_names)
-                if not (self.review_enabled and self._awaiting_decision(grid, step))
-            ],
+            self._without_unneeded_loads(pairs),
             task_names=task_names,
             item_names=grid_names,
         )
         self._run_queue()
+
+    def _without_unneeded_loads(
+        self, pairs: List[Tuple[str, str]]
+    ) -> List[Tuple[str, str]]:
+        """The plan less the load step of each grid whose tasks all work from its
+        files: nothing in the run wants that grid in the beam. A grid with no
+        tasks left keeps its load, which is then a load someone asked for."""
+        with_tasks = {g for g, s in pairs if s != LOAD_ENTRY_NAME}
+        in_beam = {g for g, s in pairs if s != LOAD_ENTRY_NAME and self._needs_grid(s)}
+        return [
+            (g, s)
+            for g, s in pairs
+            if not (s == LOAD_ENTRY_NAME and g in with_tasks - in_beam)
+        ]
 
     def build_run_summary_dataframe(self) -> pd.DataFrame:
         """One row per (grid, task) attempted in this run, skipped tasks included.
@@ -184,11 +206,13 @@ class GridTaskManager(BaseTaskManager):
                     "grid_name": item.item_name,
                     "task_name": item.task_name,
                     "task_status": item.status.name,
-                    # A task that never ran has no answer to "was the grid in
-                    # the beam for it": blank, not the last load's outcome.
+                    # A task that never ran, or never wanted the grid in the
+                    # beam, has no answer to "was the grid in the beam for it":
+                    # blank, not the last load's outcome.
                     "loaded": (
                         None
                         if item.status is AutoLamellaTaskStatus.NotStarted
+                        or not self._needs_grid(item.task_name)
                         else item.item_name not in self._not_loaded
                     ),
                     "completed_at": completed_at,
@@ -254,6 +278,19 @@ class GridTaskManager(BaseTaskManager):
         except ValueError:  # no task protocol on this experiment
             return False
 
+    def _needs_grid(self, task_name: str) -> bool:
+        """Whether this step wants the grid in the beam: the load step does, and
+        so does a task whose config says ``requires_microscope``. A task the
+        protocol does not have counts as one that does, so the rules for a
+        removed task stay as they were."""
+        if task_name == LOAD_ENTRY_NAME:
+            return True
+        try:
+            config = self.experiment.grid_protocol.task_config.get(task_name)
+        except ValueError:  # no task protocol on this experiment
+            return True
+        return config is None or config.requires_microscope
+
     def _skip_if_removed(self, item: WorkItem, grid: GridRecord) -> bool:
         """Retire a queued task that is no longer in the protocol, as a skip: the
         operator took it out, nothing failed. Asked before the load, so it costs
@@ -282,14 +319,17 @@ class GridTaskManager(BaseTaskManager):
         """An exchange is the expensive step, so a grid is loaded for work that
         can run now, not for work still waiting (FIB-1005). The load waits while
         every task queued for the grid waits on a decision or a queued
-        requirement, and goes ahead once one can run. A load with no tasks
-        queued behind it is a load someone asked for, and runs."""
+        requirement, and goes ahead once one can run. Only tasks that need the
+        grid in the beam count: one that works from its files runs meanwhile.
+        A load with no tasks queued behind it is a load someone asked for, and
+        runs."""
         pending = self._pending_tasks(grid)
-        if not pending or any(self._runnable_now(grid, i.task_name) for i in pending):
+        in_beam = [i for i in pending if self._needs_grid(i.task_name)]
+        if not pending or any(self._runnable_now(grid, i.task_name) for i in in_beam):
             return None
-        if any(self._defer_reason(grid, i.task_name) for i in pending):
+        if any(self._defer_reason(grid, i.task_name) for i in in_beam):
             return "waiting_for_work"
-        return None  # every task will be skipped: the load step retires itself
+        return None  # nothing will need the grid: the load step retires itself
 
     def _missing_requirements(self, grid: GridRecord, task_name: str) -> List[str]:
         """Required tasks whose latest run on this grid did not complete: failed,
@@ -384,34 +424,37 @@ class GridTaskManager(BaseTaskManager):
 
             self._expire_what_this_consumes(grid.id, item.task_name)
 
-            try:
-                loaded = self._ensure_loaded(grid)
-            except OperationCancelledError as e:
-                self._cancel_load(item, grid, str(e))
-                continue
-            if not loaded:
-                reason = self._not_loaded[grid.name]
-                msg = f"Skipping {item.task_name} on {grid.name}: grid not loaded."
-                logging.info(f"{msg} {reason}")
-                self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
-                self._emit_report(
-                    item=item,
-                    item_name=grid.name,
-                    status=AutoLamellaTaskStatus.Skipped,
-                    msg=msg,
-                    error_message=reason,
-                    skip_reason=SKIP_GRID_NOT_LOADED,
-                )
-                self._fire_skipped_hook(
-                    item.task_name,
-                    grid.name,
-                    SKIP_GRID_NOT_LOADED,
-                    task_type=self._task_type(item.task_name),
-                    item_id=grid.id,
-                )
-                continue
-            if self._skip_if_removed(item, grid):
-                continue
+            # A task that works from the grid's files runs where the grid is:
+            # no exchange for it, and no skip when the grid would not load.
+            if self._needs_grid(item.task_name):
+                try:
+                    loaded = self._ensure_loaded(grid)
+                except OperationCancelledError as e:
+                    self._cancel_load(item, grid, str(e))
+                    continue
+                if not loaded:
+                    reason = self._not_loaded[grid.name]
+                    msg = f"Skipping {item.task_name} on {grid.name}: grid not loaded."
+                    logging.info(f"{msg} {reason}")
+                    self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
+                    self._emit_report(
+                        item=item,
+                        item_name=grid.name,
+                        status=AutoLamellaTaskStatus.Skipped,
+                        msg=msg,
+                        error_message=reason,
+                        skip_reason=SKIP_GRID_NOT_LOADED,
+                    )
+                    self._fire_skipped_hook(
+                        item.task_name,
+                        grid.name,
+                        SKIP_GRID_NOT_LOADED,
+                        task_type=self._task_type(item.task_name),
+                        item_id=grid.id,
+                    )
+                    continue
+                if self._skip_if_removed(item, grid):
+                    continue
 
             self._emit_report(
                 item=item,
@@ -460,14 +503,25 @@ class GridTaskManager(BaseTaskManager):
         timeline shows a grid that would not load where it failed. Skipped,
         with no exchange, when every task queued for the grid is going to be
         skipped: a requirement did not complete (FIB-1005), or the task has been
-        taken out of the protocol."""
+        taken out of the protocol. Skipped too when what is left works from the
+        grid's files, which a run that started with a task needing the beam can
+        come to (FIB-940); no ``load`` entry is written either way."""
         pending = self._pending_tasks(grid)
-        if pending and not any(self._runnable_now(grid, i.task_name) for i in pending):
-            msg = (
-                f"Not loading grid {grid.name}: none of its selected tasks can run "
-                "(removed from the protocol, or a task they require did not "
-                "complete)."
-            )
+        in_beam = [i for i in pending if self._needs_grid(i.task_name)]
+        if pending and not any(self._runnable_now(grid, i.task_name) for i in in_beam):
+            if len(in_beam) < len(pending):
+                msg = (
+                    f"Not loading grid {grid.name}: none of its tasks still to run "
+                    "needs it in the beam."
+                )
+                skip_reason = SKIP_LOAD_NOT_NEEDED
+            else:
+                msg = (
+                    f"Not loading grid {grid.name}: none of its selected tasks can "
+                    "run (removed from the protocol, or a task they require did "
+                    "not complete)."
+                )
+                skip_reason = SKIP_NOTHING_TO_RUN
             logging.info(msg)
             self.queue.mark_done(item, AutoLamellaTaskStatus.Skipped)
             self._emit_report(
@@ -475,7 +529,7 @@ class GridTaskManager(BaseTaskManager):
                 item_name=grid.name,
                 status=AutoLamellaTaskStatus.Skipped,
                 msg=msg,
-                skip_reason=SKIP_NOTHING_TO_RUN,
+                skip_reason=skip_reason,
             )
             return
         self._emit_report(
@@ -708,9 +762,6 @@ class GridTaskManager(BaseTaskManager):
         lines = []
         items = self.queue.items
         for name in self._grids_in_run():
-            if name in self._not_loaded:
-                lines.append(f"{name}: not loaded ({self._not_loaded[name]})")
-                continue
             outcomes = [
                 i.status.name
                 for i in items
@@ -718,6 +769,11 @@ class GridTaskManager(BaseTaskManager):
             ]
             counts = {s: outcomes.count(s) for s in dict.fromkeys(outcomes)}
             summary = ", ".join(f"{n} {s.lower()}" for s, n in counts.items())
+            if name in self._not_loaded:
+                # its tasks that work from its files may still have run
+                parts = [f"not loaded ({self._not_loaded[name]})", summary]
+                lines.append(f"{name}: " + "; ".join(p for p in parts if p))
+                continue
             lines.append(f"{name}: {summary}")
         return lines
 
