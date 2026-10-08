@@ -15,7 +15,7 @@ from superqt.utils import qdebounced
 from fibsem import utils
 from fibsem.devices.beam import STANDARD_RESOLUTIONS, Beam
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSettings, BeamType, Point
+from fibsem.structures import BeamSettings, BeamType, Point, Resolution
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import find_data, install_wheel_blocker
@@ -100,7 +100,9 @@ class FibsemBeamSettingsWidget(QWidget):
         # --- Resolution ---
         self.resolution_combo = QComboBox()
         for width, height in STANDARD_RESOLUTIONS:
-            self.resolution_combo.addItem(f"{width}x{height}", (width, height))
+            self.resolution_combo.addItem(
+                str(Resolution(width, height)), (width, height)
+            )
         self.resolution_combo.setCurrentIndex(
             find_data(self.resolution_combo, (1536, 1024))
         )
@@ -243,6 +245,7 @@ class FibsemBeamSettingsWidget(QWidget):
         voltage = self.beam_voltage_combo.itemData(index)
         if voltage is not None:
             self.microscope.set_beam_voltage(voltage, self.beam_type)
+            self._populate_currents()  # the current choices follow the voltage
             logging.info(
                 {
                     "msg": "_on_beam_voltage_changed",
@@ -409,17 +412,7 @@ class FibsemBeamSettingsWidget(QWidget):
         self._populate_resolutions()
         self._apply_display()
 
-        self.beam_current_combo.blockSignals(True)
-        self.beam_current_combo.clear()
-        current = self.microscope.get_beam_current(self.beam_type)
-        _create_combobox_control(
-            value=current,
-            items=self._combo_items("current", current),
-            units="A",
-            format_fn=utils.format_value,
-            control=self.beam_current_combo,
-        )
-        self.beam_current_combo.blockSignals(False)
+        self._populate_currents()
 
         self.beam_voltage_combo.blockSignals(True)
         self.beam_voltage_combo.clear()
@@ -450,6 +443,20 @@ class FibsemBeamSettingsWidget(QWidget):
         # (Tescan exposes them on the FIB but not the SEM), so re-apply visibility
         self._update_visibility()
 
+    def _populate_currents(self):
+        """The current combo from the beam's current choices, at its current value."""
+        self.beam_current_combo.blockSignals(True)
+        self.beam_current_combo.clear()
+        current = self.microscope.get_beam_current(self.beam_type)
+        _create_combobox_control(
+            value=current,
+            items=self._combo_items("current", current),
+            units="A",
+            format_fn=utils.format_value,
+            control=self.beam_current_combo,
+        )
+        self.beam_current_combo.blockSignals(False)
+
     def _populate_resolutions(self) -> None:
         """List the beam's resolutions, keeping the selection; a beam that lists none
         keeps the standard ones."""
@@ -460,7 +467,9 @@ class FibsemBeamSettingsWidget(QWidget):
         self.resolution_combo.blockSignals(True)
         self.resolution_combo.clear()
         for width, height in choices:
-            self.resolution_combo.addItem(f"{width}x{height}", (width, height))
+            self.resolution_combo.addItem(
+                str(Resolution(width, height)), (width, height)
+            )
         idx = find_data(self.resolution_combo, selected)
         if idx != -1:
             self.resolution_combo.setCurrentIndex(idx)

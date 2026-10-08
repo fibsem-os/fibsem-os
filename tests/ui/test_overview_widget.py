@@ -1715,6 +1715,44 @@ class TestTheHolderIsDrawnOnEveryStage:
         assert centres == markers, "a boundary is not concentric with its slot marker"
         assert len({c[0] for c in centres}) == 2, "both circles landed in one place"
 
+    def _view_origin_at(self, widget, x, y=0.0):
+        """Re-anchor the displayed view, as if its first image were taken at (x, y)."""
+        frame = widget._frame()
+        assert frame is not None, "the fixture's view has no frame to anchor"
+        origin = deepcopy(frame.origin)
+        origin.x, origin.y = x, y
+        widget._origins[widget._current_view] = origin
+
+    def test_the_grid_bars_sit_on_the_grid_being_viewed(self, widget, monkeypatch):
+        """On the slot nearest the view, as its boundary is. They were centred on the
+        stage origin and clipped to a grid's disc there, which on a shuttle is 5 mm from
+        either grid: turned on, they drew nothing on the overview."""
+        self._two_slots(widget, monkeypatch)
+        self._view_origin_at(widget, 4.5e-3)
+        widget.overlay_controls.set_visible("gridbars", True)
+        widget._refresh_gridbars()
+
+        frame = widget._frame()
+        slot = widget._slot_landmark(widget.microscope._stage.holder.slots["Slot-02"])
+        assert widget.gridbar_overlay._centre == pytest.approx(
+            frame.to_canvas(slot), abs=1e-6
+        )
+
+    def test_with_no_slot_position_the_grid_bars_sit_on_the_view(
+        self, widget, monkeypatch
+    ):
+        """A holder not yet calibrated says nowhere: the bars go where the overview is."""
+        holder = widget.microscope._stage.holder
+        monkeypatch.setattr(holder, "slots", {})
+        self._view_origin_at(widget, 3.0e-3, 4.0e-3)
+        widget.overlay_controls.set_visible("gridbars", True)
+        widget._refresh_gridbars()
+
+        frame = widget._frame()
+        assert widget.gridbar_overlay._centre == pytest.approx(
+            frame.to_canvas(frame.origin), abs=1e-6
+        )
+
     def test_a_slot_carries_the_orientation_it_was_defined_in(
         self, widget, monkeypatch
     ):

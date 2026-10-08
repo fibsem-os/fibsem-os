@@ -294,7 +294,7 @@ def _fake_beam(beam, beam_type):
         "scanning.resolution.value": "1536x1024",
         "scanning.resolution.available_values": ["768x512", "1536x1024", "3072x2048"],
         "scanning.dwell_time.limits": STRUCTS.Limits(min=25e-9, max=1e-3),
-        "scanning.mode.value": "FullFrame",
+        "scanning.mode.value": 1,  # ScanningMode.FULL_FRAME
         "beam_shift.value": STRUCTS.Point(x=1e-7, y=-2e-7),
         "stigmator.value": STRUCTS.Point(x=0.01, y=-0.02),
         "source.plasma_gas.value": "Xenon",

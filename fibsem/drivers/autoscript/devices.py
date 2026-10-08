@@ -113,6 +113,7 @@ from fibsem.structures import (
     InsertableDeviceState,
     Point,
     RangeLimit,
+    Resolution,
     ScanMode,
 )
 
@@ -301,7 +302,10 @@ class AutoscriptBeam(Beam):
         return self.parent._get_beam(self.beam_type)
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
-        logging.info(f"{self.beam_type.name} {what} set to {value}{unit}.")
+        logging.info(
+            f"{self.beam_type.name} {what} set to {value}{unit}.",
+            stacklevel=2,  # name the write_* method, not this helper
+        )
 
     def read_on(self) -> bool:
         return self._beam.is_on
@@ -423,16 +427,15 @@ class AutoscriptBeam(Beam):
 
     def read_resolution(self) -> List[int]:
         # a list, as the old get returns it
-        resolution = self._beam.scanning.resolution.value
-        return [int(resolution.split("x")[0]), int(resolution.split("x")[-1])]
+        return list(Resolution.parse(self._beam.scanning.resolution.value))
 
     def write_resolution(self, value: Tuple[int, int]) -> None:
-        self._beam.scanning.resolution.value = f"{value[0]}x{value[1]}"
+        self._beam.scanning.resolution.value = str(Resolution(*value))
 
     def metadata_resolution(self) -> ParameterMetadata:
         return ParameterMetadata(
             choices=[
-                tuple(int(px) for px in r.split("x"))
+                tuple(Resolution.parse(r))
                 for r in self._beam.scanning.resolution.available_values
             ]
         )
@@ -510,11 +513,16 @@ class AutoscriptBeam(Beam):
         # (line, external) or a failed read warns and reads None, so a scan command
         # that has already been made does not fail on its read-back.
         try:
-            mode = str(self._beam.scanning.mode.value)
+            mode = self._beam.scanning.mode.value
         except Exception as e:
             logging.warning(f"{self.beam_type.name} scan mode could not be read: {e}")
             return None
-        found = _SCAN_MODES.get(mode.replace("_", "").replace(" ", "").lower())
+        # AutoScript reads an int from its ScanningMode enumeration; a name is read
+        # too, in case a version reports one.
+        if isinstance(mode, int):
+            found = _SCAN_MODE_VALUES.get(mode)
+        else:
+            found = _SCAN_MODES.get(str(mode).replace("_", "").replace(" ", "").lower())
         if found is None:
             logging.warning(
                 f"{self.beam_type.name} scan mode {mode} is not one of ours."
@@ -617,7 +625,7 @@ class AutoscriptBeam(Beam):
             microscope.set_field_of_view(hfw=settings.hfw, beam_type=self.beam_type)
             logging.info(f"acquiring new {name} image.")
             frame_settings = thermo.GrabFrameSettings(
-                resolution=f"{settings.resolution[0]}x{settings.resolution[1]}",
+                resolution=str(Resolution(*settings.resolution)),
                 dwell_time=settings.dwell_time,
                 reduced_area=reduced_area,
                 line_integration=settings.line_integration,
@@ -732,6 +740,14 @@ _SCAN_MODES: Dict[str, ScanMode] = {
     "fullframe": ScanMode.FULL_FRAME,
     "reducedarea": ScanMode.REDUCED_AREA,
     "spot": ScanMode.SPOT,
+}
+
+# AutoScript's ScanningMode values (FULL_FRAME 1, LINE 2, SPOT 3, REDUCED_AREA 4,
+# EXTERNAL 5, OTHER 6, CROSSOVER 7); the ones with no ScanMode read None.
+_SCAN_MODE_VALUES: Dict[int, ScanMode] = {
+    1: ScanMode.FULL_FRAME,
+    3: ScanMode.SPOT,
+    4: ScanMode.REDUCED_AREA,
 }
 
 

@@ -39,8 +39,6 @@ from fibsem.imaging.tiling.progress import (
 )
 from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
     _inverse_y_corrected_stage_movement,
-    _to_raw_coordinate_system,
-    _to_specimen_coordinate_system,
     _transform_position,
     calculate_reprojected_stage_position,
     calculate_reprojected_stage_position2,

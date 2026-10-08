@@ -171,7 +171,9 @@ options:
 # Grid screening (FIB-1145). Sized to stay inside the Arctis compustage's reach
 # (+/-377.8 um in y about the working slot) at 1536 x 1024: a tile's height is
 # its field width x 1024 / 1536, so a square resolution reaches further in y and
-# would skip rows. Fixed holders reach further.
+# would skip rows. Both are at the SEM orientation, where the ion beam sees the
+# grid foreshortened in y, so the FIB overview takes fewer rows. Fixed holders
+# reach further.
 grid_tasks:
   tasks:
     SEM Overview:
@@ -191,7 +193,7 @@ grid_tasks:
         autofocus_mode: none
     FIB Overview:
       task_type: BEAM_OVERVIEW_GRID
-      orientation: FIB
+      orientation: SEM
       settings:
         image_settings:
           beam_type: ION
@@ -200,8 +202,8 @@ grid_tasks:
             - 1024
           dwell_time: 1.0e-06
           hfw: 250.0e-6
-        nrows: 5
-        ncols: 5
+        nrows: 4
+        ncols: 4
         overlap: 0.1
         autofocus_mode: none
   order:

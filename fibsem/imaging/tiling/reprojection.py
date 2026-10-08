@@ -236,34 +236,6 @@ def reproject_stage_positions_onto_image2(
     return points
 
 
-# The specimen offset of the instrument LEGACY_ROTATION_CENTRE was calibrated on. Only
-# the specimen/raw helpers below still read it; the half turn uses the centre.
-X_OFFSET = -0.0005127403888932854
-Y_OFFSET = 0.0007937916666666666
-
-
-def _to_specimen_coordinate_system(pos: FibsemStagePosition):
-    """Converts a position in the raw coordinate system to the specimen coordinate system"""
-
-    specimen_offset = FibsemStagePosition(
-        x=X_OFFSET, y=Y_OFFSET, z=0.0, r=0, t=0, coordinate_system="RAW"
-    )
-    specimen_position = pos - specimen_offset
-
-    return specimen_position
-
-
-def _to_raw_coordinate_system(pos: FibsemStagePosition):
-    """Converts a position in the raw coordinate system to the specimen coordinate system"""
-
-    specimen_offset = FibsemStagePosition(
-        x=X_OFFSET, y=Y_OFFSET, z=0.0, r=0, t=0, coordinate_system="RAW"
-    )
-    raw_position = pos + specimen_offset
-
-    return raw_position
-
-
 def _rotation_centre(image: FibsemImage) -> Tuple[float, float]:
     """The half-turn centre an image was acquired under; the legacy one if unrecorded."""
     geometry = getattr(image.metadata, "hardware_geometry", None)

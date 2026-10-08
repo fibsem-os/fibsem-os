@@ -473,6 +473,9 @@ EXTRA_READS = {
     "vent": [_PRESSURE],
     "set pump_chamber True": [_PRESSURE, ["get_chamber_state", [], {}]],
     "set vent_chamber True": [_PRESSURE, ["get_chamber_state", [], {}]],
+    # the currents on offer can change with the voltage, so they are read again
+    "set voltage 5000.0 ELECTRON": [["beam_current_info", ["electron"], {}]],
+    "set voltage 5000.0 ION": [["beam_current_info", ["ion"], {}]],
 }
 
 

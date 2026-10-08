@@ -351,9 +351,9 @@ class FibsemMicroscope(ABC):
 
     # Where a half turn of this backend's stage is centred, raw (x, y) in metres: a
     # position p on one side of the stage is at 2c - p on the other. A property of the
-    # hardware, so the driver sets it, not the configuration. None keeps each path as
-    # it was: stage moves use `_get_compucentric_rotation_offset` (ThermoFisher
-    # measures it, the rest assume the stage origin), and images record
+    # hardware, so the driver sets it (ThermoFisher adds the configured
+    # `rotation_centre_correction` to xT's centre). None means no rotating stage is
+    # known: stage moves assume the stage origin, and images record
     # LEGACY_ROTATION_CENTRE for reprojection (FIB-1081).
     rotation_centre: Optional[Tuple[float, float]] = None
 
@@ -1256,9 +1256,43 @@ class FibsemMicroscope(ABC):
         Returns:
             FibsemStagePosition: The new stage position after moving to the orientation.
         """
-        stage_position = self.get_orientation(orientation)
+        stage_position = self._orientation_move_target(orientation)
         self.safe_absolute_stage_movement(stage_position)
         return self._stage.position
+
+    def _orientation_move_target(self, orientation: str) -> FibsemStagePosition:
+        """Where a move to a named orientation ends: its pose (r, t), and on a stage
+        that turns a half turn, x and y carried round the rotation centre.
+
+        The pose alone left x and y to the vendor's own rotation, so a move to FIB
+        landed wherever xT's compucentric centre put it and never saw the configured
+        `rotation_centre_correction` -- about 50 um off on the Hydra (FIB-655), while
+        a saved position converted with `get_target_position` landed true. Now both
+        take the same conversion. z is left to the stage, as before.
+
+        Only where the driver reports its `rotation_centre` (ThermoFisher, the Demo).
+        Without one the centre is only assumed to be the stage origin, and the
+        vendor's own rotation is left to place x and y as it always did (Tescan,
+        Odemis). A position at no named orientation cannot be converted either, and
+        keeps the old move: the pose alone.
+        """
+        pose = deepcopy(self.get_orientation(orientation))
+        if not self.system.stage.rotation or self.rotation_centre is None:
+            return pose
+        current = self.get_stage_position()
+        try:
+            target = self.get_target_position(deepcopy(current), orientation)
+        except ValueError as e:
+            logging.warning(
+                f"Moving to {orientation} by its pose alone, so the rotation centre "
+                f"correction is not applied: {e}"
+            )
+            return pose
+        if target.r == current.r and target.t == current.t:
+            # Already at this orientation: nothing turns, so x and y stay put.
+            return pose
+        pose.x, pose.y = target.x, target.y
+        return pose
 
     def _safe_rotation_movement(self, stage_position: FibsemStagePosition):
         """Tilt the stage flat when performing a large rotation to prevent collision.
@@ -2798,8 +2832,7 @@ class FibsemMicroscope(ABC):
         `_get_compucentric_rotation_position` reflects a position through minus this,
         so a driver's `rotation_centre` c is an offset of -c -- the same centre its
         images are reprojected with (FIB-1081). Without one, the rotation centre is
-        assumed to be the stage origin, as it always was here. ThermoFisher overrides
-        this and measures it instead.
+        assumed to be the stage origin, as it always was here.
         """
         centre = self.rotation_centre
         if centre is None:

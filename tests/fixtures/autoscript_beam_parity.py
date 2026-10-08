@@ -251,7 +251,13 @@ def facts():
     microscope = routed(plasma=False)
     vendor = microscope.connection.beams.electron_beam.scanning.mode
     scan = {"full_frame": microscope.get("scanning_mode", BeamType.ELECTRON)}
-    _preset(vendor, "value", "Line")
+    _preset(vendor, "value", 3)  # ScanningMode.SPOT
+    scan["spot"] = microscope.get("scanning_mode", BeamType.ELECTRON)
+    _preset(vendor, "value", 4)  # ScanningMode.REDUCED_AREA
+    scan["reduced_area"] = microscope.get("scanning_mode", BeamType.ELECTRON)
+    _preset(vendor, "value", "ReducedArea")  # a name, should a version report one
+    scan["by_name"] = microscope.get("scanning_mode", BeamType.ELECTRON)
+    _preset(vendor, "value", 2)  # ScanningMode.LINE
     scan["line"] = run(lambda: microscope.get("scanning_mode", BeamType.ELECTRON))
     out["scanning_mode"] = scan
 
