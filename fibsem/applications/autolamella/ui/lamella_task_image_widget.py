@@ -32,6 +32,7 @@ from fibsem.applications.autolamella.task_outputs import (
 )
 from fibsem.fm.preview import is_fluorescence_image, load_projection
 from fibsem.imaging.drawing import draw_image_overlays
+from fibsem.imaging.export import image_fields
 from fibsem.structures import FibsemImage
 from fibsem.ui.tokens import (
     NEUTRAL_200,
@@ -40,7 +41,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_900,
     SURFACE_COLOR,
 )
-from fibsem.ui.widgets.image_viewer_dialog import open_image_viewer
+from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 
 _TARGET_WIDTH = 1024 // 2
 _PLACEHOLDER_HEIGHT = 768 // 2  # estimated height for placeholder labels
@@ -65,7 +66,7 @@ def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
 
 def _load_and_resize(
     filepath: str, target_width: int = _TARGET_WIDTH
-) -> Tuple[np.ndarray, float]:
+) -> Tuple[np.ndarray, float, str]:
     """Load an image and resize to target width, preserving aspect ratio.
 
     Handles both a plain .tif and a fluorescence z-stack, which becomes an RGB
@@ -73,16 +74,19 @@ def _load_and_resize(
     both shapes go through the same path below.
 
     Returns:
-        Tuple of (resized array, pixel_size_x in metres adjusted for resize).
+        Tuple of (resized array, pixel_size_x in metres adjusted for resize, the
+        image's kind: "SEM", "FIB", "FM", or "Image" when the file does not say).
     """
     if is_fluorescence_image(filepath):
         data, pixel_size_x = load_projection(filepath)
+        kind = "FM"
     else:
         img = FibsemImage.load(filepath)
         data = img.data
         if data.ndim == 3 and data.shape[2] in (3, 4):
             data = data[..., :3].mean(axis=2).astype(data.dtype)
         pixel_size_x = img.metadata.pixel_size.x
+        kind = image_fields(img).kind
     h, w = data.shape[:2]
     # Fit inside the tile box rather than filling its width. Beam images are 3:2 and
     # are width-limited, but a fluorescence stack is square: scaling it to the full
@@ -92,7 +96,7 @@ def _load_and_resize(
     scale = min(target_width / w, max_height / h)
     new_w, new_h = int(w * scale), int(h * scale)
     resized = resize(data, (new_h, new_w), preserve_range=True).astype(np.uint8)
-    return resized, pixel_size_x / scale
+    return resized, pixel_size_x / scale, kind
 
 
 class ClickableLabel(QLabel):
@@ -165,7 +169,7 @@ class ExpandedImageDialog(QDialog):
         layout.addWidget(self._view)
 
         try:
-            arr, pixel_size_x = _load_and_resize(filepath, self._EXPANDED_WIDTH)
+            arr, pixel_size_x, _ = _load_and_resize(filepath, self._EXPANDED_WIDTH)
             arr = draw_image_overlays(arr, pixel_size_x)
             h, w = arr.shape[:2]
             self._view.set_pixmap(_arr_to_pixmap(arr, w, h))
@@ -181,7 +185,8 @@ class ExpandedImageDialog(QDialog):
 class _ImageLoaderWorker(QThread):
     """Background worker that loads images one at a time."""
 
-    image_loaded = pyqtSignal(str, np.ndarray, float)  # filepath, array, pixel_size_x
+    # filepath, array, pixel_size_x, kind
+    image_loaded = pyqtSignal(str, np.ndarray, float, str)
 
     def __init__(self, filepaths: List[str], target_width: int, parent=None):
         super().__init__(parent)
@@ -197,10 +202,10 @@ class _ImageLoaderWorker(QThread):
             if self._cancel.is_set():
                 return
             try:
-                arr, pixel_size_x = _load_and_resize(fpath, self._target_width)
+                arr, pixel_size_x, kind = _load_and_resize(fpath, self._target_width)
                 if self._cancel.is_set():
                     return
-                self.image_loaded.emit(fpath, arr, pixel_size_x)
+                self.image_loaded.emit(fpath, arr, pixel_size_x, kind)
             except Exception as e:
                 logging.warning(f"Failed to load image {fpath}: {e}")
 
@@ -230,6 +235,7 @@ class LamellaTaskImageWidget(QWidget):
         self._pixmap_cache: Dict[str, QPixmap] = {}
         self._placeholder_labels: Dict[str, QLabel] = {}
         self._task_names: Dict[str, str] = {}  # image path -> the task that made it
+        self._kinds: Dict[str, str] = {}  # image path -> SEM / FIB / FM, once read
         self._worker: Optional[_ImageLoaderWorker] = None
 
         self._setup_ui()
@@ -456,9 +462,11 @@ class LamellaTaskImageWidget(QWidget):
         return container
 
     def _on_image_loaded(
-        self, filepath: str, arr: np.ndarray, pixel_size_x: float
+        self, filepath: str, arr: np.ndarray, pixel_size_x: float, kind: str
     ) -> None:
         """Slot called on main thread when a background image finishes loading."""
+        if kind != "Image":
+            self._kinds[filepath] = kind
         arr = draw_image_overlays(arr, pixel_size_x)
         h, w = arr.shape[:2]
         pixmap = _arr_to_pixmap(arr, w, h)
@@ -473,15 +481,23 @@ class LamellaTaskImageWidget(QWidget):
                 label.clicked.connect(self._open_expanded)
 
     def _open_expanded(self, filepath: str) -> None:
-        """Open the image at full resolution in the image viewer (FIB-1189), with the
-        tile showing until the file is read."""
-        parts = [self._lamella.name] if self._lamella is not None else []
-        task_name = self._task_names.get(filepath)
-        if task_name:
-            parts.append(task_name)
+        """Open the image at full resolution in the image viewer (FIB-1189), with all
+        of this lamella's images to step through in task order. Each tile stands in
+        for its image until the file is read."""
+        paths = list(self._task_names) or [filepath]
+        name = self._lamella.name if self._lamella is not None else ""
+        items = []
+        for path in paths:
+            task_name = self._task_names.get(path, "")
+            items.append(
+                ViewerItem(
+                    path=path,
+                    title=" › ".join(t for t in (name, task_name) if t)
+                    or os.path.basename(path),
+                    label=self._kinds.get(path, ""),
+                    thumbnail=self._pixmap_cache.get(path),
+                )
+            )
         open_image_viewer(
-            self,
-            filepath,
-            title=" › ".join(parts) or os.path.basename(filepath),
-            placeholder=self._pixmap_cache.get(filepath),
+            self, items, paths.index(filepath) if filepath in paths else 0
         )

@@ -10,6 +10,11 @@ same field choices.
 The full-resolution file loads off the GUI thread. Until it arrives the window shows
 the caller's thumbnail, so a click answers at once even for a stitched overview.
 
+The caller hands over the images it has -- a lamella's, in task order -- and the one
+clicked. Left and right, or the arrows in the header, step through them; a filmstrip
+along the bottom shows them all. Stepping swaps between the beam canvas and the FM
+viewer as the kind of image changes.
+
 :func:`open_image_viewer` keeps one non-modal window per application window and
 reuses it, so it can stay open beside the app while you click through tiles.
 """
@@ -18,18 +23,22 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional, Set, Union
+from dataclasses import dataclass
+from typing import List, Optional, Sequence, Set, Union
 
 from PyQt5 import sip
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtCore import QSize, Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QIcon, QKeySequence, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
+    QShortcut,
     QStackedWidget,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -44,7 +53,14 @@ from fibsem.imaging.export import (
 )
 from fibsem.structures import FibsemImage
 from fibsem.ui.stylesheets import NAPARI_STYLE, SECONDARY_BUTTON_STYLESHEET
-from fibsem.ui.tokens import CANVAS_BG, TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
+from fibsem.ui.tokens import (
+    ACCENT_COLOR,
+    BORDER_COLOR,
+    CANVAS_BG,
+    TEXT_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
+)
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar, show_fm_plane
@@ -53,8 +69,37 @@ ViewerImage = Union[FibsemImage, FluorescenceImage]
 
 _TITLE_STYLE = f"color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 600;"
 _LOADING_STYLE = f"color: {TEXT_MUTED_COLOR}; font-size: 12px; background: {CANVAS_BG};"
+_POSITION_STYLE = f"color: {TEXT_MUTED_COLOR}; font-size: 12px;"
+_HINT_STYLE = f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"
+_STEP_STYLE = (
+    f"QToolButton {{ background: transparent; color: {TEXT_COLOR}; border: none;"
+    " font-size: 16px; padding: 0 6px; }"
+    "QToolButton:disabled { color: #444; }"
+)
+_FILM_TILE = QSize(96, 64)
+_FILM_STYLE = (
+    f"QToolButton {{ background: transparent; color: {TEXT_MUTED_COLOR};"
+    f" font-size: 11px; border: 2px solid transparent; border-radius: 4px; padding: 2px; }}"
+    f"QToolButton:hover {{ border-color: {BORDER_COLOR}; }}"
+    f"QToolButton:checked {{ border-color: {ACCENT_COLOR}; color: {TEXT_STRONG_COLOR}; }}"
+)
 
 _LOADING, _BEAM, _FM = 0, 1, 2  # the stack's pages
+
+
+@dataclass
+class ViewerItem:
+    """One image the viewer can step to: its file, and what to call it.
+
+    *title* heads the window while it is shown (`01-fancy-mite › Rough Milling`);
+    *label* names it in the filmstrip and the position (`FIB`), and is the image's
+    own kind once it has been read; *thumbnail* stands in while the file loads.
+    """
+
+    path: str
+    title: str = ""
+    label: str = ""
+    thumbnail: Optional[QPixmap] = None
 
 
 def load_viewer_image(path: str) -> ViewerImage:
@@ -83,10 +128,15 @@ class _Loader(QThread):
 
 
 class ImageViewer(QWidget):
-    """A saved image on the real canvas, with its bar, a title and Export."""
+    """Saved images on the real canvas, one at a time, with the bar, a title, the
+    position among them, a filmstrip and Export."""
+
+    title_changed = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self._items: List[ViewerItem] = []
+        self._index = -1
         self._image: Optional[ViewerImage] = None
         self._path: Optional[str] = None
         self._pending: Optional[str] = None  # the load whose result we still want
@@ -101,6 +151,10 @@ class ImageViewer(QWidget):
 
         self.title_label = QLabel()
         self.title_label.setStyleSheet(_TITLE_STYLE)
+        self.previous_button = self._step_button("‹", "Previous image (←)", -1)
+        self.next_button = self._step_button("›", "Next image (→)", 1)
+        self.position_label = QLabel()
+        self.position_label.setStyleSheet(_POSITION_STYLE)
         self.export_button = QPushButton("Export…")
         self.export_button.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.export_button.setToolTip("Export this image with its metadata")
@@ -109,6 +163,10 @@ class ImageViewer(QWidget):
         header = QHBoxLayout()
         header.setContentsMargins(10, 6, 10, 6)
         header.addWidget(self.title_label, 1)
+        header.addWidget(self.previous_button)
+        header.addWidget(self.position_label)
+        header.addWidget(self.next_button)
+        header.addSpacing(8)
         header.addWidget(self.export_button)
 
         self.loading_label = QLabel(alignment=Qt.AlignCenter)
@@ -143,11 +201,58 @@ class ImageViewer(QWidget):
         self.stack.insertWidget(_BEAM, beam_page)
         self.stack.insertWidget(_FM, fm_page)
 
+        # The filmstrip: every image handed over, the one shown checked.
+        self._film_buttons: List[QToolButton] = []
+        self._film_row = QHBoxLayout()
+        self._film_row.setContentsMargins(8, 4, 8, 4)
+        self._film_row.setSpacing(6)
+        self._film_row.addStretch(1)
+        film_content = QWidget()
+        film_content.setLayout(self._film_row)
+        self.filmstrip = QScrollArea()
+        self.filmstrip.setWidget(film_content)
+        self.filmstrip.setWidgetResizable(True)
+        self.filmstrip.setFrameShape(QScrollArea.NoFrame)
+        self.filmstrip.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.filmstrip.setFixedHeight(_FILM_TILE.height() + 44)
+        self.hint_label = QLabel("← → to step · Esc to close")
+        self.hint_label.setStyleSheet(_HINT_STYLE)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addLayout(header)
         layout.addWidget(self.stack, 1)
+        layout.addWidget(self.filmstrip)
+        hint_row = QHBoxLayout()
+        hint_row.setContentsMargins(10, 0, 10, 6)
+        hint_row.addStretch(1)
+        hint_row.addWidget(self.hint_label)
+        layout.addLayout(hint_row)
+
+        # Shortcuts, not a key handler: the canvases are matplotlib widgets, which
+        # take the arrow keys for themselves before a parent hears of them. They
+        # follow the focus, so the viewer takes it when nothing inside has it.
+        self.setFocusPolicy(Qt.StrongFocus)
+        for key, slot in (
+            (Qt.Key_Left, lambda: self.step(-1)),
+            (Qt.Key_Right, lambda: self.step(1)),
+            (Qt.Key_Up, lambda: self._step_z(1)),
+            (Qt.Key_Down, lambda: self._step_z(-1)),
+        ):
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(slot)
+        self._update_navigation()
+
+    def _step_button(self, text: str, tooltip: str, step: int) -> QToolButton:
+        button = QToolButton()
+        button.setText(text)
+        button.setToolTip(tooltip)
+        button.setAutoRaise(True)
+        button.setStyleSheet(_STEP_STYLE)
+        button.clicked.connect(lambda: self.step(step))
+        return button
 
     # ── what is shown ──────────────────────────────────────────────────────
     @property
@@ -161,6 +266,93 @@ class ImageViewer(QWidget):
 
     def set_title(self, title: str) -> None:
         self.title_label.setText(title)
+        self.title_changed.emit(title)
+
+    # ── the images handed over ─────────────────────────────────────────────
+    @property
+    def items(self) -> List[ViewerItem]:
+        return list(self._items)
+
+    @property
+    def index(self) -> int:
+        """Which of the items is shown; -1 before any."""
+        return self._index
+
+    def set_items(self, items: Sequence[ViewerItem], index: int = 0) -> None:
+        """Hand over the images to step through, and show the one at *index*."""
+        self._items = list(items)
+        self._rebuild_filmstrip()
+        self._index = -1
+        if self._items:
+            self.go_to(max(0, min(index, len(self._items) - 1)))
+        else:
+            self._update_navigation()
+
+    def go_to(self, index: int) -> None:
+        """Show the item at *index*; out of range does nothing."""
+        if not 0 <= index < len(self._items) or index == self._index:
+            return
+        self._index = index
+        item = self._items[index]
+        self.set_title(item.title or os.path.basename(item.path))
+        self._update_navigation()
+        self.show_path(item.path, item.thumbnail)
+
+    def step(self, delta: int) -> None:
+        """The next (+1) or previous (-1) image; it stops at either end."""
+        self.go_to(self._index + delta)
+
+    def _step_z(self, delta: int) -> None:
+        if self.stack.currentIndex() == _FM:
+            self.fm_widget.step_z(delta)
+
+    def _update_navigation(self) -> None:
+        count, index = len(self._items), self._index
+        several = count > 1
+        for widget in (self.previous_button, self.next_button, self.filmstrip):
+            widget.setVisible(several)
+        self.hint_label.setText(
+            "← → to step · Esc to close" if several else "Esc to close"
+        )
+        self.previous_button.setEnabled(index > 0)
+        self.next_button.setEnabled(0 <= index < count - 1)
+        for i, button in enumerate(self._film_buttons):
+            button.setChecked(i == index)
+        if 0 <= index < count:
+            label = self._items[index].label
+            position = f"{index + 1} of {count}" if several else ""
+            self.position_label.setText(" · ".join(t for t in (label, position) if t))
+            if several:
+                self.filmstrip.ensureWidgetVisible(self._film_buttons[index])
+        else:
+            self.position_label.setText("")
+
+    def _rebuild_filmstrip(self) -> None:
+        for button in self._film_buttons:
+            self._film_row.removeWidget(button)
+            button.hide()
+            button.deleteLater()
+        self._film_buttons = []
+        for i, item in enumerate(self._items):
+            button = QToolButton()
+            button.setCheckable(True)
+            button.setAutoRaise(True)
+            button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            button.setIconSize(_FILM_TILE)
+            button.setStyleSheet(_FILM_STYLE)
+            button.setText(item.label or str(i + 1))
+            button.setToolTip(item.title or os.path.basename(item.path))
+            if item.thumbnail is not None and not item.thumbnail.isNull():
+                button.setIcon(
+                    QIcon(
+                        item.thumbnail.scaled(
+                            _FILM_TILE, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                        )
+                    )
+                )
+            button.clicked.connect(lambda _=False, i=i: self.go_to(i))
+            self._film_row.insertWidget(i, button)
+            self._film_buttons.append(button)
 
     def show_path(self, path: str, placeholder: Optional[QPixmap] = None) -> None:
         """Open the image at *path*, at full resolution, read off the GUI thread.
@@ -240,6 +432,18 @@ class ImageViewer(QWidget):
                 bar.set_image_fields(info)
             self.stack.setCurrentIndex(_BEAM)
         self.export_button.setEnabled(True)
+        self._learn_label(path, image_fields(image).kind)
+
+    def _learn_label(self, path: Optional[str], kind: str) -> None:
+        """Name the shown item by what the file says it is, once it has been read."""
+        if kind == "Image" or not 0 <= self._index < len(self._items):
+            return
+        item = self._items[self._index]
+        if item.path != path or item.label == kind:
+            return
+        item.label = kind
+        self._film_buttons[self._index].setText(kind)
+        self._update_navigation()
 
     def _refresh_fm_plane(self) -> None:
         show_fm_plane(self.fm_bar, self.fm_widget, self._fm_stack)
@@ -258,13 +462,6 @@ class ImageViewer(QWidget):
             export_image = from_fibsem_image(image, self._path)
         ImageExportDialog(export_image, self).exec_()
 
-    def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt naming
-        """Up and down step through a stack's planes."""
-        if self.stack.currentIndex() == _FM and event.key() in (Qt.Key_Up, Qt.Key_Down):
-            self.fm_widget.step_z(1 if event.key() == Qt.Key_Up else -1)
-            return
-        super().keyPressEvent(event)
-
 
 class ImageViewerDialog(QDialog):
     """The viewer in its own window. Non-modal: the app stays usable beside it."""
@@ -279,16 +476,13 @@ class ImageViewerDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.viewer)
+        self.viewer.title_changed.connect(self.setWindowTitle)
         screen = QApplication.primaryScreen().availableGeometry()
         self.resize(int(screen.width() * 0.7), int(screen.height() * 0.75))
 
-    def show_path(
-        self, path: str, title: str = "", placeholder: Optional[QPixmap] = None
-    ) -> None:
-        """Show the image at *path* and bring the window forward."""
-        self.setWindowTitle(title or os.path.basename(path))
-        self.viewer.set_title(title or os.path.basename(path))
-        self.viewer.show_path(path, placeholder)
+    def show_items(self, items: Sequence[ViewerItem], index: int = 0) -> None:
+        """Show *items*, starting at *index*, and bring the window forward."""
+        self.viewer.set_items(items, index)
         self.show()
         self.raise_()
         self.activateWindow()
@@ -299,11 +493,12 @@ _DIALOG_ATTRIBUTE = "_fibsem_image_viewer"
 
 
 def open_image_viewer(
-    parent: QWidget, path: str, title: str = "", placeholder: Optional[QPixmap] = None
+    parent: QWidget, items: Sequence[ViewerItem], index: int = 0
 ) -> ImageViewerDialog:
-    """Open *path* in the viewer of *parent*'s window, making it on first use.
+    """Show *items* in the viewer of *parent*'s window, at *index*, making the
+    viewer on first use.
 
-    One per application window, reused: a second click shows the new image in the
+    One per application window, reused: a second click shows the new images in the
     window already open rather than stacking another on top of it.
     """
     window = parent.window()
@@ -311,5 +506,5 @@ def open_image_viewer(
     if dialog is None or sip.isdeleted(dialog):
         dialog = ImageViewerDialog(window)
         setattr(window, _DIALOG_ATTRIBUTE, dialog)
-    dialog.show_path(path, title, placeholder)
+    dialog.show_items(items, index)
     return dialog
