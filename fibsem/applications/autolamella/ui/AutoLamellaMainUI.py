@@ -2449,6 +2449,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui._workflow_finished_signal.connect(
             self._on_workflow_finished
         )
+        # A grid task records its overview as it finishes, and says so in a status.
+        self.autolamella_ui.workflow_status_signal.connect(self._refresh_quad_overviews)
+        self.autolamella_ui._workflow_finished_signal.connect(
+            self._refresh_quad_overviews
+        )
         self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
         # Question lifecycle drives the agent watchdog (armed per prompt on
         # agent-designated tasks, disarmed by any answer). GUI thread: the
@@ -4179,6 +4184,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # keeps the two sources of that derivation the same two objects it reads.
         self.fm_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
         self.beam_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
+        # A finished run has saved its overview by the time it says so.
+        self.fm_overview_tab.acquiring_changed.connect(self._refresh_quad_overviews)
+        self.beam_overview_tab.acquiring_changed.connect(self._refresh_quad_overviews)
 
         self.tab_widget.insertTab(
             2,
@@ -4273,6 +4281,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.lamella_card_container.select_lamella(lamella.name)
         finally:
             self._syncing_selection = False
+
+    def _refresh_quad_overviews(self, *_args) -> None:
+        """Have the quad view's overview page look for new overviews. It redraws
+        only if it finds one, and not at all while hidden."""
+        page = getattr(self, "quad_overview_page", None)
+        if page is not None:
+            page.refresh()
 
     def _refresh_overview_positions(self):
         """Re-mark **both** overview canvases, tolerating either tab being absent.
