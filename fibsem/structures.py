@@ -2383,11 +2383,10 @@ def stage_device_entry_name(key: str) -> str:
 
 
 # Where a half turn of the stage is centred, in raw stage coordinates (x, y), metres:
-# a position p recorded on one side of the stage is at 2c - p on the other. This is
-# the value `reprojection._transform_position` has always used, which it wrote as a
-# specimen offset (X_OFFSET, Y_OFFSET) plus a (+50, +25) um "compucentric rotation
-# error" -- one centre, spelled as two constants, since p -> 2O - p + e reflects
-# through O + e/2. It was calibrated on one ThermoFisher instrument (FIB-655).
+# a position p recorded on one side of the stage is at 2c - p on the other. The centre
+# reprojection used before drivers reported one, calibrated on one ThermoFisher
+# instrument (FIB-655); kept for images that recorded no centre. ThermoFisher now
+# reports xT's centre plus `rotation_centre_correction`.
 LEGACY_ROTATION_CENTRE: Tuple[float, float] = (
     -0.0005127403888932854 + 25e-6,
     0.0007937916666666666 + 12.5e-6,
@@ -2464,6 +2463,12 @@ class StageSystemSettings:
     # from a dict stays a pure function of that dict.
     holders: Dict[str, "SampleHolder"] = field(default_factory=dict)
     active_holder: str = ""
+    # How far the true centre of a half turn sits from where the vendor's compucentric
+    # rotation puts it, in raw stage coordinates (x, y), metres (FIB-655). Zero means
+    # the vendor's rotation is taken as perfect. Measured per instrument: centre a
+    # feature, rotate, centre it again, and the midpoint of the two positions less the
+    # vendor's centre is this value. Stage moves and image reprojection both add it.
+    rotation_centre_correction: Tuple[float, float] = (0.0, 0.0)
 
     @property
     def rotation_180(self) -> float:
@@ -2553,6 +2558,9 @@ class StageSystemSettings:
             },
             "active_holder": self.active_holder,
         }
+        # Written only once measured, so a file that never calibrated it stays as it was.
+        if any(self.rotation_centre_correction):
+            ddict["rotation_centre_correction"] = list(self.rotation_centre_correction)
         # The pre-tilt has one home in the file. Once a holder is named it lives on
         # the holder, and writing it here as well would be a second copy that a hand
         # edit could put out of step -- silently, in the term every projection uses.
@@ -2591,6 +2599,10 @@ class StageSystemSettings:
             devices=_version_1_stage_devices(settings),
             holders=holders,
             active_holder=active_holder,
+            rotation_centre_correction=_parse_rotation_centre(
+                settings.get("rotation_centre_correction")
+            )
+            or (0.0, 0.0),
         )
 
 
@@ -3269,6 +3281,10 @@ class SystemSettings:
         }
         if "shuttle_pre_tilt" in stage:
             calibration["shuttle_pre_tilt"] = stage.pop("shuttle_pre_tilt")
+        if "rotation_centre_correction" in stage:
+            calibration["rotation_centre_correction"] = stage.pop(
+                "rotation_centre_correction"
+            )
         calibration["objective"] = self.fm.objective_to_dict()
 
         electron = self.electron.to_dict()
@@ -3356,7 +3372,12 @@ class SystemSettings:
             return entry.as_block() if entry is not None else {}
 
         stage = block("stage")
-        for key in ("holders", "active_holder", "shuttle_pre_tilt"):
+        for key in (
+            "holders",
+            "active_holder",
+            "shuttle_pre_tilt",
+            "rotation_centre_correction",
+        ):
             if key in calibration:
                 stage[key] = calibration[key]
         electron = {**block("electron"), **(defaults.get("electron") or {})}

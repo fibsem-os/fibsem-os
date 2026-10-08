@@ -351,9 +351,9 @@ class FibsemMicroscope(ABC):
 
     # Where a half turn of this backend's stage is centred, raw (x, y) in metres: a
     # position p on one side of the stage is at 2c - p on the other. A property of the
-    # hardware, so the driver sets it, not the configuration. None keeps each path as
-    # it was: stage moves use `_get_compucentric_rotation_offset` (ThermoFisher
-    # measures it, the rest assume the stage origin), and images record
+    # hardware, so the driver sets it (ThermoFisher adds the configured
+    # `rotation_centre_correction` to xT's centre). None means no rotating stage is
+    # known: stage moves assume the stage origin, and images record
     # LEGACY_ROTATION_CENTRE for reprojection (FIB-1081).
     rotation_centre: Optional[Tuple[float, float]] = None
 
@@ -2798,8 +2798,7 @@ class FibsemMicroscope(ABC):
         `_get_compucentric_rotation_position` reflects a position through minus this,
         so a driver's `rotation_centre` c is an offset of -c -- the same centre its
         images are reprojected with (FIB-1081). Without one, the rotation centre is
-        assumed to be the stage origin, as it always was here. ThermoFisher overrides
-        this and measures it instead.
+        assumed to be the stage origin, as it always was here.
         """
         centre = self.rotation_centre
         if centre is None:
