@@ -1,9 +1,9 @@
 """Standalone viewer for loading and displaying FluorescenceImages from file."""
+
 from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Union
 
@@ -23,6 +23,7 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.ui.fm.widgets.load_image_dialog import LoadImageDialog
 from fibsem.ui.stylesheets import NAPARI_STYLE, PRIMARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
+from fibsem.util.timestamps import acquisition_datetime_of, format_time
 
 # Qt.UserRole payload on each list row: the FluorescenceImage that row displays.
 _IMAGE_ROLE = int(Qt.UserRole)
@@ -176,7 +177,9 @@ class FMImageViewerWidget(QWidget):
         shape = getattr(image.data, "shape", ())
         if channels:
             n_z = shape[-3] if len(shape) >= 3 else 1
-            parts.append(f"{len(channels)} channel{'s' if len(channels) != 1 else ''} · {n_z} z-slice{'s' if n_z != 1 else ''}")
+            parts.append(
+                f"{len(channels)} channel{'s' if len(channels) != 1 else ''} · {n_z} z-slice{'s' if n_z != 1 else ''}"
+            )
             parts.append(", ".join(c.name for c in channels))
         if len(shape) >= 2:
             parts.append(f"{shape[-1]} × {shape[-2]} px")
@@ -184,23 +187,15 @@ class FMImageViewerWidget(QWidget):
         pixel_size = getattr(md, "pixel_size_x", None)
         if pixel_size:
             parts.append(f"{pixel_size * 1e9:.0f} nm/px")
-        acquired = getattr(md, "acquisition_date", None)
-        if acquired:
-            parts.append(FMImageViewerWidget._format_acquired(acquired))
+        acquired = format_time(acquisition_datetime_of(md))
+        if acquired is not None:
+            parts.append(acquired)
+        elif getattr(md, "acquisition_date", None):
+            # Images from other sources need not carry a parseable date; anything
+            # unrecognised is shown as-is rather than dropped.
+            parts.append(str(md.acquisition_date))
 
         return "<br>".join(parts)
-
-    @staticmethod
-    def _format_acquired(acquired: str) -> str:
-        """ISO timestamps read badly in a sidebar; show a date and time instead.
-
-        The field is a free-form string, and images from other sources need not carry a
-        parseable one — anything unrecognised is shown as-is rather than dropped.
-        """
-        try:
-            return datetime.fromisoformat(str(acquired)).strftime("%Y-%m-%d %H:%M")
-        except (TypeError, ValueError):
-            return str(acquired)
 
 
 def main() -> None:
