@@ -302,7 +302,10 @@ class AutoscriptBeam(Beam):
         return self.parent._get_beam(self.beam_type)
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
-        logging.info(f"{self.beam_type.name} {what} set to {value}{unit}.")
+        logging.info(
+            f"{self.beam_type.name} {what} set to {value}{unit}.",
+            stacklevel=2,  # name the write_* method, not this helper
+        )
 
     def read_on(self) -> bool:
         return self._beam.is_on
