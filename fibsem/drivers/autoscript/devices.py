@@ -510,11 +510,16 @@ class AutoscriptBeam(Beam):
         # (line, external) or a failed read warns and reads None, so a scan command
         # that has already been made does not fail on its read-back.
         try:
-            mode = str(self._beam.scanning.mode.value)
+            mode = self._beam.scanning.mode.value
         except Exception as e:
             logging.warning(f"{self.beam_type.name} scan mode could not be read: {e}")
             return None
-        found = _SCAN_MODES.get(mode.replace("_", "").replace(" ", "").lower())
+        # AutoScript reads an int from its ScanningMode enumeration; a name is read
+        # too, in case a version reports one.
+        if isinstance(mode, int):
+            found = _SCAN_MODE_VALUES.get(mode)
+        else:
+            found = _SCAN_MODES.get(str(mode).replace("_", "").replace(" ", "").lower())
         if found is None:
             logging.warning(
                 f"{self.beam_type.name} scan mode {mode} is not one of ours."
@@ -732,6 +737,14 @@ _SCAN_MODES: Dict[str, ScanMode] = {
     "fullframe": ScanMode.FULL_FRAME,
     "reducedarea": ScanMode.REDUCED_AREA,
     "spot": ScanMode.SPOT,
+}
+
+# AutoScript's ScanningMode values (FULL_FRAME 1, LINE 2, SPOT 3, REDUCED_AREA 4,
+# EXTERNAL 5, OTHER 6, CROSSOVER 7); the ones with no ScanMode read None.
+_SCAN_MODE_VALUES: Dict[int, ScanMode] = {
+    1: ScanMode.FULL_FRAME,
+    3: ScanMode.SPOT,
+    4: ScanMode.REDUCED_AREA,
 }
 
 

@@ -277,13 +277,18 @@ def test_the_scan_methods_make_the_old_scan_calls(recording):
 
 
 def test_the_scan_mode_is_read_and_an_unknown_one_warns(recording):
-    """New: nothing read the vendor's scan mode before. A mode with no ScanMode
-    warns and reads None rather than failing the scan command that read it back."""
+    """New: nothing read the vendor's scan mode before. AutoScript reads an int from
+    its ScanningMode enumeration (#1200 assumed a name, and warned on hardware). A
+    mode with no ScanMode warns and reads None rather than failing the scan command
+    that read it back."""
     facts = recording["facts"]["scanning_mode"]
     assert facts["full_frame"] == "full_frame"
+    assert facts["spot"] == "spot"
+    assert facts["reduced_area"] == "reduced_area"
+    assert facts["by_name"] == "reduced_area"
     result, calls, messages = facts["line"]
     assert result is None and calls == []
-    assert messages[0][0] == "WARNING" and "Line" in messages[0][1]
+    assert messages[0][0] == "WARNING" and "scan mode 2" in messages[0][1]
 
 
 @pytest.mark.parametrize(
