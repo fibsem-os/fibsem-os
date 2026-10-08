@@ -48,7 +48,8 @@ DEFAULT_DWELL_TIME_LIMITS = RangeLimit(min=1e-9, max=1e-3)
 
 class Beam(Device):
     voltage = Parameter(float, unit="V")
-    current = Parameter(float, unit="A", depends_on=("plasma_gas",))
+    # the currents an instrument offers change with the gas and the voltage (AutoScript)
+    current = Parameter(float, unit="A", depends_on=("plasma_gas", "voltage"))
     plasma_gas = Parameter(str)
     working_distance = Parameter(float, unit="m")
     hfw = Parameter(float, unit="m", limits=DEFAULT_HFW_LIMITS)
