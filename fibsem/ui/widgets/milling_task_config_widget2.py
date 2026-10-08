@@ -35,7 +35,6 @@ from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
 _WIDGET_CONFIG = {
     "name": {"default": "Milling Task", "placeholder": "Enter task name..."},
     "field_of_view": {
-        "range": (0.001, 10000),
         "decimals": 1,
         "step": 5.0,
         "default": 150.0,
@@ -115,8 +114,6 @@ class MillingTaskConfigWidget2(QWidget):
         fov = _WIDGET_CONFIG["field_of_view"]
         self.field_of_view_spinbox = ValueSpinBox(
             suffix=fov["suffix"],
-            minimum=fov["range"][0],
-            maximum=fov["range"][1],
             step=fov["step"],
             decimals=fov["decimals"],
         )

@@ -21,6 +21,8 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import config as cfg
+from fibsem.devices.beam import Beam
+from fibsem.devices.core import Parameter
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, RangeLimit
 
@@ -38,14 +40,18 @@ def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -
 
 
 def beam_limits(
-    microscope: FibsemMicroscope, name: str, beam_type: BeamType
+    microscope: Optional[FibsemMicroscope], name: str, beam_type: Optional[BeamType]
 ) -> Optional[RangeLimit]:
     """The range a beam parameter can take, from its device's limits, as
-    ``beam_choices`` reads its choices. None when there is no such beam or parameter,
-    or the parameter reports no single range."""
-    beam = microscope.beams.get(beam_type)
+    ``beam_choices`` reads its choices. Where there is no microscope, no such beam or
+    the beam reports no range, the range every beam declares (an editor with no
+    instrument still gets one). None when neither has a single range."""
+    beam = None if microscope is None else microscope.beams.get(beam_type)
     parameter = None if beam is None else beam.parameters.get(name)
     limits = None if parameter is None else parameter.limits
+    if not isinstance(limits, RangeLimit):
+        declared = getattr(Beam, name, None)
+        limits = declared.limits if isinstance(declared, Parameter) else None
     return limits if isinstance(limits, RangeLimit) else None
 
 

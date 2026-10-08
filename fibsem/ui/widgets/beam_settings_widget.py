@@ -34,21 +34,18 @@ WD_WHEEL_STEP_MM = 0.001
 WIDGET_CONFIG = {
     "hfw": {
         "label": "Field of View",
-        "range": (1, 3000),
         "decimals": 0,
         "step": 50.0,
         "suffix": f" {constants.MICRON_SYMBOL}",
     },
     "dwell_time": {
         "label": "Dwell Time",
-        "range": (0.001, 1000.0),
         "decimals": 3,
         "step": 0.01,
         "suffix": f" {constants.MICROSECOND_SYMBOL}",
     },
     "scan_rotation": {
         "label": "Scan Rotation",
-        "range": (0, 360),
         "decimals": 0,
         "step": 180,
         "suffix": f" {constants.DEGREE_SYMBOL}",
@@ -118,7 +115,8 @@ class FibsemBeamSettingsWidget(QWidget):
         def _make_spinbox(key: str) -> QDoubleSpinBox:
             c = WIDGET_CONFIG[key]
             sb = QDoubleSpinBox()
-            sb.setRange(*c["range"])
+            if "range" in c:
+                sb.setRange(*c["range"])
             sb.setDecimals(c["decimals"])
             sb.setSingleStep(c["step"])
             if c["suffix"] is not None:
@@ -209,6 +207,7 @@ class FibsemBeamSettingsWidget(QWidget):
             self.beam_voltage_label,
             self.beam_voltage_combo,
         ]
+        self._apply_limits()
 
     # ------------------------------------------------------------------
     # Signal connections

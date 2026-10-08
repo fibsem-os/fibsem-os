@@ -48,7 +48,12 @@ from fibsem.structures import (
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import NEUTRAL_400, TEXT_MUTED_COLOR
-from fibsem.ui.utils import beam_choices, install_wheel_blocker
+from fibsem.ui.utils import (
+    beam_choices,
+    beam_limits,
+    install_wheel_blocker,
+    set_range_from_limits,
+)
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     QDirectoryLineEdit,
@@ -86,7 +91,24 @@ class FibsemOverviewSettingsWidget(QWidget):
         """Offer the selected beam's resolutions; without a microscope the standard
         ones are offered."""
         self._microscope = microscope
+        self._follow_beam()
+
+    def _follow_beam(self) -> None:
+        """Offer the selected beam's resolutions, field of view and dwell time."""
         self._populate_resolutions()
+        self._apply_limits()
+
+    def _apply_limits(self) -> None:
+        """Bound the boxes to the selected beam's limits; with no microscope, to the
+        range every beam declares."""
+        for name, spinbox in (("hfw", self.spin_hfw), ("dwell_time", self.spin_dwell)):
+            blocked = spinbox.blockSignals(True)
+            set_range_from_limits(
+                spinbox,
+                beam_limits(self._microscope, name, self.combo_beam.value()),
+                constants.SI_TO_MICRO,
+            )
+            spinbox.blockSignals(blocked)
 
     def _populate_resolutions(self, saved: Optional[tuple] = None) -> None:
         """List the selected beam's resolutions. A ``saved`` overview's size is
@@ -163,8 +185,6 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.spin_dwell = self._field(
             ValueSpinBox(
                 suffix=f" {constants.MICROSECOND_SYMBOL}",
-                minimum=0.01,
-                maximum=1000.0,
                 step=0.5,
                 decimals=2,
             )
@@ -172,8 +192,6 @@ class FibsemOverviewSettingsWidget(QWidget):
         self.spin_hfw = self._field(
             ValueSpinBox(
                 suffix=f" {constants.MICRON_SYMBOL}",
-                minimum=1.0,
-                maximum=10000.0,
                 step=50.0,
                 decimals=1,
             )
@@ -361,9 +379,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         return self.output_panel
 
     def _connect(self) -> None:
-        self.combo_beam.currentIndexChanged.connect(
-            lambda _index: self._populate_resolutions()
-        )
+        self.combo_beam.currentIndexChanged.connect(lambda _index: self._follow_beam())
         self.combo_beam.currentIndexChanged.connect(self._on_changed)
         self.combo_resolution.currentIndexChanged.connect(self._on_changed)
         self.spin_dwell.valueChanged.connect(self._on_changed)
@@ -528,6 +544,7 @@ class FibsemOverviewSettingsWidget(QWidget):
         try:
             self.combo_beam.set_value(image.beam_type)
             self._populate_resolutions(tuple(image.resolution))
+            self._apply_limits()
             self.spin_dwell.setValue(image.dwell_time * constants.SI_TO_MICRO)
             self.spin_hfw.setValue(image.hfw * constants.SI_TO_MICRO)
             self.combo_autocontrast.set_value(settings.autocontrast_mode)

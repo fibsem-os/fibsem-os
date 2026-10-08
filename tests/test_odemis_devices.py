@@ -105,6 +105,8 @@ READS = {
         "electron": {"range": (500.0, 30000.0)},
         "ion": {"range": (500.0, 30000.0)},
     },
+    "field_of_view_info": {"range": (1e-6, 2.5e-3)},
+    "dwell_time_info": {"range": (25e-9, 1e-3)},
     "is_homed": True,
     "is_linked": False,
     "get_chamber_state": "vacuum",
@@ -691,6 +693,13 @@ def test_the_choices_are_the_old_available_values(odemis_cls, beam_type):
     for key in ("current", "voltage", "detector_type"):
         old = EXPECTED[f"available {key} {beam_type.name}"]["result"]
         assert sorted(beam.parameters[key].choices) == old, key
+
+
+@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
+def test_the_field_of_view_and_dwell_limits_are_the_clients(odemis_cls, beam_type):
+    beam = make(odemis_cls).beams[beam_type]
+    assert (beam.hfw.limits.min, beam.hfw.limits.max) == (1e-6, 2.5e-3)
+    assert (beam.dwell_time.limits.min, beam.dwell_time.limits.max) == (25e-9, 1e-3)
 
 
 def test_an_unlisted_chamber_state_reads_unknown(odemis_cls):

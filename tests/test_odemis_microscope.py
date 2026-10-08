@@ -142,6 +142,12 @@ class FakeOdemisClient:
     def high_voltage_info(self, channel):
         return {"unit": "V", "range": (1000, 20000)}
 
+    def field_of_view_info(self, channel):
+        return {"unit": "m", "range": (1e-6, 1.5e-3)}
+
+    def dwell_time_info(self, channel):
+        return {"unit": "s", "range": (25e-9, 1e-3)}
+
     # detector
     def get_detector_type(self, channel):
         return "ETD"
