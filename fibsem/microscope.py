@@ -1270,11 +1270,14 @@ class FibsemMicroscope(ABC):
         a saved position converted with `get_target_position` landed true. Now both
         take the same conversion. z is left to the stage, as before.
 
-        A position at no named orientation cannot be converted, and keeps the old
-        move: the pose alone.
+        Only where the driver reports its `rotation_centre` (ThermoFisher, the Demo).
+        Without one the centre is only assumed to be the stage origin, and the
+        vendor's own rotation is left to place x and y as it always did (Tescan,
+        Odemis). A position at no named orientation cannot be converted either, and
+        keeps the old move: the pose alone.
         """
         pose = deepcopy(self.get_orientation(orientation))
-        if not self.system.stage.rotation:
+        if not self.system.stage.rotation or self.rotation_centre is None:
             return pose
         current = self.get_stage_position()
         try:

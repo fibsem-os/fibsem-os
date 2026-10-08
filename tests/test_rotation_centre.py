@@ -343,3 +343,14 @@ class TestMoveToOrientation:
         again = microscope.move_to_orientation("SEM")
 
         assert (again.x, again.y) == pytest.approx((1e-3, 2e-3))
+
+    def test_without_a_reported_centre_the_vendor_places_xy(self):
+        """Tescan and Odemis report no centre: their own rotation decides, as before."""
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.rotation_centre = None
+        microscope.move_to_orientation("SEM")
+        microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, y=2e-3))
+
+        at_fib = microscope.move_to_orientation("FIB")
+
+        assert (at_fib.x, at_fib.y) == pytest.approx((1e-3, 2e-3))
