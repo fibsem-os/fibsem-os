@@ -8,16 +8,11 @@ import threading
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QRectF, Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QImage, QPainter, QPixmap
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
-    QApplication,
-    QDialog,
     QFrame,
-    QGraphicsScene,
-    QGraphicsView,
     QGridLayout,
-    QHBoxLayout,
     QLabel,
     QScrollArea,
     QVBoxLayout,
@@ -134,73 +129,6 @@ class ClickableLabel(QLabel):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self._filepath)
         super().mousePressEvent(event)
-
-
-class ZoomableImageView(QGraphicsView):
-    """QGraphicsView with scroll-to-zoom and drag-to-pan."""
-
-    _ZOOM_FACTOR = 1.05
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._scene = QGraphicsScene(self)
-        self.setScene(self._scene)
-        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        self.setBackgroundBrush(Qt.GlobalColor.black)
-        self.setFrameShape(QFrame.Shape.NoFrame)
-
-    def set_pixmap(self, pixmap: QPixmap) -> None:
-        self._scene.clear()
-        self._scene.addPixmap(pixmap)
-        self._scene.setSceneRect(QRectF(pixmap.rect()))
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        if self._scene.items():
-            self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-
-    def wheelEvent(self, event) -> None:
-        factor = (
-            self._ZOOM_FACTOR if event.angleDelta().y() > 0 else 1 / self._ZOOM_FACTOR
-        )
-        self.scale(factor, factor)
-
-
-class ExpandedImageDialog(QDialog):
-    """Modal dialog showing a zoomable/pannable expanded image."""
-
-    _EXPANDED_WIDTH = _TARGET_WIDTH * 2
-
-    def __init__(self, filepath: str, title: str = "", parent=None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(title or os.path.basename(filepath))
-        self.setModal(True)
-        self.setStyleSheet("background: black;")
-
-        screen = QApplication.primaryScreen().availableGeometry()
-        self.resize(int(screen.width() * 0.8), int(screen.height() * 0.8))
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._view = ZoomableImageView(self)
-        layout.addWidget(self._view)
-
-        try:
-            arr, pixel_size_x, _ = _load_and_resize(filepath, self._EXPANDED_WIDTH)
-            arr = draw_image_overlays(arr, pixel_size_x)
-            h, w = arr.shape[:2]
-            self._view.set_pixmap(_arr_to_pixmap(arr, w, h))
-        except Exception as e:
-            logging.warning(f"ExpandedImageDialog: failed to load {filepath}: {e}")
-
-    def keyPressEvent(self, event) -> None:
-        if event.key() == Qt.Key.Key_Escape:
-            self.close()
-        super().keyPressEvent(event)
 
 
 class _ImageLoaderWorker(QThread):
