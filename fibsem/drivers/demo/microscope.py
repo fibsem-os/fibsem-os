@@ -189,7 +189,9 @@ class DemoMicroscope(
             defaults = (*DEMO_DEVICES, DEMO_SAMPLE_LOADER)
         resolved = [
             item
-            for item in resolve_system_devices(self.system, defaults)
+            for item in resolve_system_devices(
+                self.system, defaults, driver=manufacturers.DEMO
+            )
             if item.type != "fm"
         ]
         # The builders start from this microscope's parts (``fibsem.drivers.demo

@@ -162,7 +162,11 @@ fibsemOS stores goes through `fibsem/util/timestamps.py` and follows these rules
    save.
 3. **Convert to the viewer's zone only to display,** with `format_time`. Comparing,
    subtracting and sorting aware datetimes goes by the instant, whatever their offsets.
-   Displays show no offset.
+   Displays show no offset. The one exception is a timeline that keeps a run on the
+   instrument's clock, such as the replay or a report: it reads with `wall_time_of`,
+   which drops an offset rather than converting it, and reads a POSIX time in the
+   instrument's zone as the experiment recorded it, `experiment.session.zone`
+   (FIB-1196).
 4. **Name the moment `*_at`** (`started_at`, `captured_at`), one field per moment, and
    derive durations from two of them rather than storing one.
 5. **Default with `field(default_factory=now)`,** never `= now()` in a class body,

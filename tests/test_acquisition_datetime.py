@@ -7,6 +7,7 @@ values come from the real metadata fixtures in tests/fixtures/metadata.
 
 import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -21,8 +22,14 @@ from fibsem.structures import (
     ImageSettings,
     MicroscopeState,
     Point,
+    SessionInfo,
 )
-from fibsem.util.timestamps import acquisition_datetime_of, format_time, zone_known
+from fibsem.util.timestamps import (
+    acquisition_datetime_of,
+    acquisition_wall_time_of,
+    format_time,
+    zone_known,
+)
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "metadata")
 
@@ -211,3 +218,59 @@ def test_an_older_beam_image_displays_as_it_did(name):
     again = FibsemImageMetadata.from_dict(metadata.to_dict())
     assert again.acquisition_datetime is None
     assert again.microscope_state.timestamp == metadata.microscope_state.timestamp
+
+
+@pytest.fixture
+def viewer_zone(monkeypatch):
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is POSIX-only")
+
+    def set_zone(zone: str) -> None:
+        monkeypatch.setenv("TZ", zone)
+        time.tzset()
+
+    yield set_zone
+    monkeypatch.undo()
+    time.tzset()
+
+
+def _one_run() -> list:
+    """Four images of one run at an instrument at UTC-6, each taken at 21:12:11
+    on its clock, each recording that the way its kind and age did."""
+    v11 = _fixture("demo_simulator_v5.json")
+    v11.acquisition_datetime = datetime.fromisoformat("2026-09-13T21:12:11-06:00")
+
+    thermofisher = _fixture("demo_simulator_v5.json")
+    thermofisher.acquisition_datetime = None
+    thermofisher.microscope_state.timestamp = "09/13/2026 21:12:11"
+
+    demo = _fixture("demo_simulator_v5.json")
+    demo.acquisition_datetime = None
+    demo.microscope_state.timestamp = 1789355531.0  # 2026-09-14 03:12:11 UTC
+
+    fm = FluorescenceImageMetadata(
+        acquisition_date="2026-09-13T21:12:11",
+        pixel_size_x=1e-7,
+        pixel_size_y=1e-7,
+        channels=[
+            FluorescenceChannelMetadata(
+                name="c",
+                excitation_wavelength=488,
+                power=1,
+                exposure_time=0.1,
+                gain=1,
+                offset=0,
+            )
+        ],
+    )
+    return [v11, thermofisher, demo, fm]
+
+
+@pytest.mark.parametrize("zone", ["UTC", "Australia/Sydney", "America/Los_Angeles"])
+def test_one_runs_images_read_on_the_instruments_clock_from_any_zone(viewer_zone, zone):
+    """FIB-1196: each kind of image lands at the same instrument-clock time,
+    whatever zone it is read in, given the zone the experiment recorded."""
+    viewer_zone(zone)
+    instrument = SessionInfo(utc_offset="-06:00", zone_name="MDT").zone
+    times = [acquisition_wall_time_of(md, instrument) for md in _one_run()]
+    assert times == [datetime(2026, 9, 13, 21, 12, 11)] * 4

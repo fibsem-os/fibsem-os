@@ -35,7 +35,7 @@ def export_model_checkpoint(
     # this makes it more portable and easier to load
 
     def load_json(path: str):
-        with open(path, "r") as f:
+        with open(path) as f:
             return json.load(f)
 
     # confirm that the path is a nnunet model directory

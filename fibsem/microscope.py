@@ -582,7 +582,9 @@ class FibsemMicroscope(ABC):
         return None
 
     #: Who answered each fitted-subsystem question at connect: ``"instrument"`` when
-    #: a probe did, ``"backend"`` when the backend's `DEFAULT_FITTED` stood in.
+    #: a probe did, ``"backend"`` when the backend's `DEFAULT_FITTED` stood in,
+    #: ``"device"`` for a configured device from another driver, and ``"not_built"``
+    #: when its device failed to build.
     capability_sources: Dict[str, str]
 
     def _read_hardware_capabilities(self) -> None:
@@ -628,6 +630,16 @@ class FibsemMicroscope(ABC):
         sources = getattr(self, "capability_sources", None)
         if sources is not None:
             sources[name] = "device"
+
+    def _mark_device_not_built(self, name: str) -> None:
+        """Record *name* as not fitted when its device failed to build, so the part
+        does not read as there (`fibsem.devices.entries.build_device_entries`)."""
+        if name not in self._FITTED_DEVICES:
+            return
+        self.set_available(name, False)
+        sources = getattr(self, "capability_sources", None)
+        if sources is not None:
+            sources[name] = "not_built"
 
     def _built_by_another_driver(self, name: str) -> bool:
         """Whether the configuration's entry for *name* names a driver other than
@@ -2404,17 +2416,17 @@ class FibsemMicroscope(ABC):
         return self._stage_value("linked")
 
     def pump(self) -> Optional[str]:
-        """Pump the chamber; returns its state, or None where there is no chamber."""
+        """Pump the chamber and return its state. Raises where there is no chamber
+        device, rather than doing nothing."""
         if self.chamber_device is None:
-            logging.debug("There is no chamber to pump here.")
-            return None
+            raise self._unsupported("pump")
         return _chamber_state_name(self.chamber_device.pump())
 
     def vent(self) -> Optional[str]:
-        """Vent the chamber; returns its state, or None where there is no chamber."""
+        """Vent the chamber and return its state. Raises where there is no chamber
+        device, rather than doing nothing."""
         if self.chamber_device is None:
-            logging.debug("There is no chamber to vent here.")
-            return None
+            raise self._unsupported("vent")
         return _chamber_state_name(self.chamber_device.vent())
 
     def _beam_parameter(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:

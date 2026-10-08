@@ -178,6 +178,7 @@ SOURCE_LABELS = {
     "instrument": "Instrument",
     "backend": "Backend default",
     "device": "Configured device",
+    "not_built": "Device failed to build",
 }
 
 

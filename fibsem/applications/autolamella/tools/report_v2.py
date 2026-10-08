@@ -31,8 +31,9 @@ import html
 import io
 import logging
 import math
+import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -44,6 +45,7 @@ from fibsem.applications.autolamella.tools.event_tables import (
     EventTables,
     read_event_tables,
 )
+from fibsem.util.timestamps import wall_time_of, zone_label
 
 REPORT_DIRNAME = "reporting"
 REPORT_FILENAME = "report.html"
@@ -114,11 +116,18 @@ def write_report(experiment: Any, path: Union[str, Path, None] = None) -> Path:
         items=[p.name for p in experiment.positions],
         tasks=workflow_tasks(experiment),
         folders={p.name: Path(p.path) for p in experiment.positions},
+        zone=_zone(experiment),
     )
     path = Path(path) if path is not None else folder / REPORT_DIRNAME / REPORT_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(page, encoding="utf-8")
     return path
+
+
+def _zone(experiment: Any) -> Optional[tzinfo]:
+    """The instrument's zone, as the experiment's latest session recorded it."""
+    session = getattr(experiment, "session", None)
+    return session.zone if session is not None else None
 
 
 def no_record(experiment: Any) -> Optional[str]:
@@ -145,12 +154,15 @@ def render_report(
     tasks: Sequence[str],
     generated: Optional[datetime] = None,
     folders: Optional[Dict[str, Path]] = None,
+    zone: Optional[tzinfo] = None,
 ) -> str:
     """The page, from the record's tables. ``items`` and ``tasks`` give the
     rows' and columns' order: the experiment's lamellae and its workflow. A
     lamella or task that ran without being in either is added after them.
     ``folders`` are the lamellae's folders, where their images are: without
-    them the cards have no thumbnails."""
+    them the cards have no thumbnails. ``zone`` is the instrument's, as the
+    experiment recorded it: the record's times are already on its clock, and
+    the header names it (FIB-1196)."""
     runs = _runs(tables)
     fm = _fm(tables)
     items = _ordered(items, [r["item"] for r in runs] + [a["item"] for a in fm])
@@ -159,9 +171,9 @@ def render_report(
     # but is not a lamella to count or to give an outcome
     lamellae = [item for item in items if item != _NO_ITEM]
     summary = summarise(tables, lamellae, tasks)
-    generated = generated or datetime.now()
+    generated = generated or wall_time_of(time.time(), zone)
     body = [
-        _header(name, summary, lamellae, tasks, generated),
+        _header(name, summary, lamellae, tasks, generated, zone),
         _headline(summary, lamellae, fm),
     ]
     if summary.start is not None:
@@ -212,7 +224,7 @@ def summarise(tables: EventTables, items: Sequence[str], tasks: Sequence[str]):
 # ── the page's parts ─────────────────────────────────────────────────────────
 
 
-def _header(name, summary, items, tasks, generated) -> str:
+def _header(name, summary, items, tasks, generated, zone=None) -> str:
     when = "no runs recorded"
     if summary.start is not None:
         when = (
@@ -224,13 +236,19 @@ def _header(name, summary, items, tasks, generated) -> str:
         facts.append(" → ".join(tasks))
     return (
         '<header><div><h1>{name}</h1><div class="muted">{facts}</div>'
-        '<div class="muted small">From events.jsonl · generated {generated}</div>'
+        '<div class="muted small">From events.jsonl · times on {clock} · generated'
+        " {generated}</div>"
         "</div>"
         '<button class="noprint" onclick="window.print()">Print or save as PDF</button>'
         "</header>"
     ).format(
         name=_e(name),
         facts=" · ".join(_e(f) for f in facts),
+        clock=_e(
+            f"the instrument's clock, {zone_label(zone)}"
+            if zone is not None
+            else "the instrument's clock"
+        ),
         generated=_e(generated.strftime("%d %b %Y, %H:%M")),
     )
 
