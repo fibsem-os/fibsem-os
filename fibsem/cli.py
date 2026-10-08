@@ -20,6 +20,7 @@ from fibsem.structures import (
     ImageSettings,
     Resolution,
 )
+from fibsem.util.timestamps import format_time
 
 # ---------------------------------------------------------------------------
 # Unit helpers
@@ -637,6 +638,7 @@ def cmd_experiments(args) -> int:
     Takes no microscope: this is a question about files.
     """
     from fibsem.applications.autolamella.tools.experiments import (
+        created_order,
         discover_experiments,
         filter_experiments,
         group_by_instrument,
@@ -659,7 +661,7 @@ def cmd_experiments(args) -> int:
             found.setdefault(os.path.realpath(experiment.path), experiment)
 
     experiments = filter_experiments(
-        sorted(found.values(), key=lambda e: e.created_at, reverse=True),
+        sorted(found.values(), key=created_order, reverse=True),
         instrument=args.instrument,
         operator=args.operator,
         since=since,
@@ -693,9 +695,7 @@ def _print_experiments(experiments) -> None:
     """One row each: when, what, where it ran, who ran it, how much was in it."""
     for e in experiments:
         when = (
-            datetime.fromtimestamp(e.created_at).strftime("%Y-%m-%d %H:%M")
-            if e.created_at
-            else "unknown"
+            format_time(e.created_at, "%Y-%m-%d %H:%M") if e.created_at else "unknown"
         )
         # An experiment written before the session record has no instrument and no
         # operator. Shown as "-" rather than blank so the column stays readable and

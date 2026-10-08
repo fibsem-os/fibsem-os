@@ -2,6 +2,7 @@ import dataclasses
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -10,6 +11,7 @@ import yaml
 import fibsem
 from fibsem import manufacturers
 from fibsem.drivers import registry
+from fibsem.util.timestamps import to_datetime
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445
@@ -604,7 +606,7 @@ class ExperimentSummary:
 
     path: str  # path to the experiment.yaml file
     name: str
-    created_at: float = 0.0
+    created_at: Optional[datetime] = None  # None when the file does not say
     num_lamella: int = 0
     exists: bool = True
     available: bool = True  # False if the file is missing or could not be read
@@ -646,7 +648,7 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
         return ExperimentSummary(
             path=experiment_yaml_path,
             name=ddict.get("name") or fallback_name,
-            created_at=ddict.get("created_at") or 0.0,
+            created_at=to_datetime(ddict.get("created_at")),
             num_lamella=len(ddict.get("positions") or []),
             exists=True,
             available=True,

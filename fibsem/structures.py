@@ -46,6 +46,8 @@ from fibsem.util.timestamps import (
     acquisition_datetime_of,
     now,
     to_aware,
+    to_datetime,
+    to_iso,
     utc_offset_of,
     zone_from_offset,
 )
@@ -3816,10 +3818,12 @@ class FibsemExperimentRef:
     # is a name. See FIB-446.
     id: Optional[str] = None
     name: Optional[str] = None
-    # default_factory, not a plain default: a plain default is evaluated once at
-    # class definition, so every experiment recorded the interpreter's import
-    # time rather than its own creation time.
-    date: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
+    # When the reference was made, which is when a session adopted the experiment.
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older images hold a
+    # POSIX float, which reads as this machine's zone. default_factory, not a plain
+    # default: a plain default is evaluated once at class definition, so every
+    # experiment recorded the interpreter's import time rather than its own.
+    date: Optional[datetime] = field(default_factory=now)
 
     # Where in the run. None outside a workflow -- the minimap, a manual acquisition,
     # a script -- which is a real answer rather than missing information.
@@ -3868,7 +3872,7 @@ class FibsemExperimentRef:
         return {
             "id": self.id,
             "name": self.name,
-            "date": self.date,
+            "date": to_iso(self.date),
             "item_id": self.item_id,
             "item_name": self.item_name,
             "task_id": self.task_id,
@@ -3892,7 +3896,8 @@ class FibsemExperimentRef:
             # as None rather than backfilled from `id`, so a reader can tell the two
             # eras apart instead of being handed a name that claims to be an ID.
             name=settings.get("name"),
-            date=settings.get("date", "Unknown"),
+            # None when absent or unreadable; files before FIB-1197 hold a float
+            date=to_datetime(settings.get("date")),
             # Absent before v8, and in any image acquired outside a workflow.
             item_id=settings.get("item_id"),
             item_name=settings.get("item_name"),
@@ -4016,9 +4021,9 @@ class SessionInfo:
       opening an experiment on another machine does not replace the instrument's.
     """
 
-    recorded_at: float = field(
-        default_factory=lambda: datetime.timestamp(datetime.now())
-    )
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older experiments hold
+    # a POSIX float, which reads as this machine's zone.
+    recorded_at: Optional[datetime] = field(default_factory=now)
     system: Optional[SystemInfo] = None
     user: Optional[FibsemUser] = None
     # Distribution name -> version for every installed extension; see
@@ -4075,7 +4080,7 @@ class SessionInfo:
 
     def to_dict(self) -> dict:
         return {
-            "recorded_at": self.recorded_at,
+            "recorded_at": to_iso(self.recorded_at),
             "system": self.system.to_dict() if self.system is not None else None,
             "user": self.user.to_dict() if self.user is not None else None,
             "plugins": dict(self.plugins),
@@ -4088,7 +4093,7 @@ class SessionInfo:
         system = ddict.get("system")
         user = ddict.get("user")
         return SessionInfo(
-            recorded_at=ddict.get("recorded_at"),
+            recorded_at=to_datetime(ddict.get("recorded_at")),
             system=SystemInfo.from_dict(system) if system else None,
             user=FibsemUser.from_dict(user) if user else None,
             plugins=dict(ddict.get("plugins") or {}),

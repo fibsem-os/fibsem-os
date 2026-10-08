@@ -146,7 +146,7 @@ class TaskOutcome:
 class GridReport:
     experiment_name: str
     experiment_path: str
-    created_at: float
+    created_at: Optional[datetime]
     generated_at: float
     microscope: Optional[str]
     protocol: List[str]  # the grid protocol's tasks, in order
