@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -35,9 +36,13 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment, GridTaskProtocol
+from fibsem.applications.autolamella.ui.autolamella_task_config_widget import (
+    build_parameter_rows,
+)
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     GRID_TASK_REGISTRY,
     BeamOverviewGridTaskConfig,
+    CryoCleaningGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,
     GridTaskConfig,
 )
@@ -65,6 +70,7 @@ _ORIENTATIONS = ["SEM", "FIB", "MILLING"]
 _DEFAULT_NAMES = {
     BeamOverviewGridTaskConfig.task_type: "overview_sem",
     FluorescenceOverviewGridTaskConfig.task_type: "overview_fm",
+    CryoCleaningGridTaskConfig.task_type: "cryo_clean",
 }
 _BTN_SIZE = 28
 
@@ -136,6 +142,7 @@ class AddGridTaskDialog(QDialog):
 
 class _BeamOverviewEditor(QWidget):
     changed = pyqtSignal()
+    hint = "Same settings form as the Overview tab."
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -184,6 +191,7 @@ class _BeamOverviewEditor(QWidget):
 
 class _FluorescenceOverviewEditor(QWidget):
     changed = pyqtSignal()
+    hint = "Same settings form as the FM Overview tab."
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -251,6 +259,46 @@ class _FluorescenceOverviewEditor(QWidget):
         config.autofocus_settings = self.settings.autofocus_settings
 
 
+class _ParametersEditor(QWidget):
+    """A form of the config's own fields, from their metadata, as the lamella
+    task form builds one: for a task with flat settings and no editor of its own.
+    Rebuilt on every load, since one instance serves a task type and the form is
+    the config's."""
+
+    changed = pyqtSignal()
+    hint = ""
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self._form = QWidget()
+        self._grid = QGridLayout(self._form)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._form)
+        layout.addStretch(1)
+        self._rows: List = []
+
+    def load(self, config: GridTaskConfig) -> None:
+        self._rows = []
+        while self._grid.count():
+            widget = self._grid.takeAt(0).widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._rows = build_parameter_rows(config, self._grid)
+        for row in self._rows:
+            # A read-only row shows a value it cannot rebuild; wired up, a
+            # focus-out would write the displayed text back.
+            if row.control.editable:
+                row.control.connect(self.changed.emit)
+
+    def apply(self, config: GridTaskConfig) -> None:
+        for row in self._rows:
+            if row.control.editable:
+                setattr(config, row.field, row.control.read())
+
+
+# A task type with no editor here gets `_ParametersEditor`.
 _EDITORS: Dict[str, Type[QWidget]] = {
     BeamOverviewGridTaskConfig.task_type: _BeamOverviewEditor,
     FluorescenceOverviewGridTaskConfig.task_type: _FluorescenceOverviewEditor,
@@ -317,13 +365,10 @@ class GridTaskEditorPanel(QWidget):
         self.reach_label.setText(text)
         self.reach_label.setVisible(bool(text))
 
-    def editor_for(self, task_type: str) -> Optional[QWidget]:
+    def editor_for(self, task_type: str) -> QWidget:
         editor = self._editors.get(task_type)
         if editor is None:
-            editor_cls = _EDITORS.get(task_type)
-            if editor_cls is None:
-                return None
-            editor = editor_cls()
+            editor = _EDITORS.get(task_type, _ParametersEditor)()
             editor.changed.connect(self.changed)
             if hasattr(editor, "set_fm"):
                 editor.set_fm(getattr(self._microscope, "fm", None))
@@ -339,24 +384,17 @@ class GridTaskEditorPanel(QWidget):
         self.btn_reset.setEnabled(False)
         self.stack.setCurrentWidget(self._blank)
 
-    def show_config(self, config: GridTaskConfig) -> bool:
-        """Fill the form for `config`. Returns whether there is one for its type."""
+    def show_config(self, config: GridTaskConfig) -> None:
+        """Fill the form for `config`."""
         editor = self.editor_for(config.task_type)
-        if editor is None:
-            self.title.setText(config.display_name)
-            self.hint.setText(f"No settings editor for {config.task_type}.")
-            self.btn_reset.setEnabled(False)
-            self.stack.setCurrentWidget(self._blank)
-            return False
         self.title.setText(f"{config.task_name} · {config.display_name}")
         self.hint.setText(
             f"Saved as grids/<grid>/{config.task_name}/ under the experiment. "
-            "Same settings form as the Overview tab."
+            f"{editor.hint}".strip()
         )
         self.btn_reset.setEnabled(True)
         editor.load(config)
         self.stack.setCurrentWidget(editor)
-        return True
 
     def apply_to(self, config: GridTaskConfig) -> None:
         editor = self._editors.get(config.task_type)

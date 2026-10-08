@@ -26,6 +26,7 @@ from fibsem.applications.autolamella.ui.protocol_details_dialog import (
 )
 from fibsem.applications.autolamella.workflows.tasks.grid import (
     BeamOverviewGridTaskConfig,
+    CryoCleaningGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,
 )
 from fibsem.fm.structures import ChannelSettings, ZParameters
@@ -384,3 +385,35 @@ def test_without_a_microscope_there_is_no_warning(widget):
     widget.add_task(BEAM, "overview_sem")
     _size(widget, 6, 6, 1e-3)
     assert widget.editor_panel.reach_label.isHidden()
+
+
+def test_a_task_with_no_editor_of_its_own_gets_a_form_of_its_fields(widget, experiment):
+    """Cryo cleaning has flat settings: a form built from the fields' metadata, as
+    the lamella tasks have, edits them in the config's own units."""
+    clean = CryoCleaningGridTaskConfig.task_type
+    widget.add_task(clean, "cryo_clean")
+    editor = widget.editor_panel.editor_for(clean)
+    rows = {row.field: row for row in editor._rows}
+    assert list(rows) == [
+        "orientation",
+        "current",
+        "field_of_view",
+        "duration",
+        "acquire_reference",
+        "filename",
+    ]
+    assert rows["current"].label.text() == "Ion current"
+    assert rows["current"].control.widget.value() == pytest.approx(15.0)  # nA
+
+    rows["current"].control.widget.setValue(5.0)  # saved as it is made
+    rows["orientation"].control.write("FIB")
+    widget.apply_selected()
+    config = experiment.grid_protocol.task_config["cryo_clean"]
+    assert config.current == pytest.approx(5e-9) and config.orientation == "FIB"
+    saved = saved_protocol(experiment)["grid_tasks"]["tasks"]["cryo_clean"]
+    assert saved["current"] == pytest.approx(5e-9)
+
+    fresh = widget.reset_selected()
+    assert fresh.current == 15e-9
+    rows = {row.field: row for row in editor._rows}
+    assert rows["current"].control.widget.value() == pytest.approx(15.0)
