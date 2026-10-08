@@ -465,7 +465,7 @@ Each entry has:
 | `type` | The device type: `beam`, `stage`, `chamber`, `manipulator`, `fm`, or a type a plugin adds. May be left out where the name is a type (`name: fm`). |
 | `enabled` | Absent: the backend's default. `false`: never built, and its driver never touches it. |
 | `driver` | The driver that builds it, by its registry name. Absent: the driver for `info.manufacturer`. `remote` is a device on another computer, at `address` and `port`. |
-| `required` | `true`: connecting fails if the device cannot be built. Otherwise a device that fails to build is logged and left out. |
+| `required` | Whether connecting fails if the device cannot be built. Defaults to `true` for a device the file lists, since the site says it has it; `false` logs a failed build and leaves the device out. A device only the backend assumes (one the file doesn't list) is logged, left out and marked not fitted. |
 | `roles` | Binds a role of this device to another entry by name (`{scanner: scan_generator}`). The Demo binds it; see [Binding a role from the configuration](#binding-a-role-from-the-configuration). |
 
 Every other key belongs to the device or its driver (`column_tilt`, `address`,
@@ -562,8 +562,9 @@ then adds the device with an entry naming the driver:
         driver: KnifeCo
 ```
 
-The builder is imported only when an entry needs it. A builder that raises leaves the
-device out, or fails the connect if the entry is `required`.
+The builder is imported only when an entry needs it. A builder that raises fails the
+connect, since the file lists the device, unless the entry says `required: false`;
+then the device is left out.
 `BuildContext.shared` is scratch space the builders of one connect share, such as one
 connection per address.
 
