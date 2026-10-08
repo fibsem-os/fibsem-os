@@ -304,3 +304,53 @@ class TestCorrectionConfiguration:
         assert ddict["calibration"]["rotation_centre_correction"] == [19e-6, 11e-6]
         loaded = SystemSettings.from_dict(ddict)
         assert loaded.stage.rotation_centre_correction == (19e-6, 11e-6)
+
+
+class TestMoveToOrientation:
+    """A move to a named orientation turns about the same centre a saved position is
+    converted about, so the correction reaches the Move to FIB button (FIB-655)."""
+
+    def test_a_half_turn_carries_xy_round_the_centre(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.rotation_centre = CENTRE
+        microscope.move_to_orientation("SEM")
+        microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, y=2e-3))
+
+        at_fib = microscope.move_to_orientation("FIB")
+
+        assert (at_fib.x, at_fib.y) == pytest.approx(
+            (2 * CENTRE[0] - 1e-3, 2 * CENTRE[1] - 2e-3)
+        )
+        assert at_fib.r == pytest.approx(microscope.get_orientation("FIB").r)
+
+    def test_there_and_back_returns_to_the_feature(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.rotation_centre = CENTRE
+        microscope.move_to_orientation("SEM")
+        microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, y=2e-3))
+
+        microscope.move_to_orientation("FIB")
+        back = microscope.move_to_orientation("SEM")
+
+        assert (back.x, back.y) == pytest.approx((1e-3, 2e-3))
+
+    def test_staying_at_an_orientation_keeps_xy(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.rotation_centre = CENTRE
+        microscope.move_to_orientation("SEM")
+        microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, y=2e-3))
+
+        again = microscope.move_to_orientation("SEM")
+
+        assert (again.x, again.y) == pytest.approx((1e-3, 2e-3))
+
+    def test_without_a_reported_centre_the_vendor_places_xy(self):
+        """Tescan and Odemis report no centre: their own rotation decides, as before."""
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.rotation_centre = None
+        microscope.move_to_orientation("SEM")
+        microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, y=2e-3))
+
+        at_fib = microscope.move_to_orientation("FIB")
+
+        assert (at_fib.x, at_fib.y) == pytest.approx((1e-3, 2e-3))
