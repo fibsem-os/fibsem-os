@@ -755,7 +755,7 @@ class AutoLamellaTaskProtocol:
 
     @classmethod
     def load(cls, filename: str) -> "AutoLamellaTaskProtocol":
-        with open(filename, "r") as file:
+        with open(filename) as file:
             data = yaml.safe_load(file)
         return cls.from_dict(data)
 
@@ -2967,7 +2967,7 @@ class Experiment:
         path = Path(fname).with_suffix(".yaml")
         if not os.path.exists(path):
             raise FileNotFoundError(f"No file with name {path} found.")
-        with open(path, "r") as f:
+        with open(path) as f:
             ddict = yaml.safe_load(f)
 
         # create experiment from dict
