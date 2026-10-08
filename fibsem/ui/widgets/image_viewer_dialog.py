@@ -140,6 +140,7 @@ class ImageViewer(QWidget):
         super().__init__(parent)
         self._items: List[ViewerItem] = []
         self._index = -1
+        self._actions: List[QWidget] = []  # the current caller's, from set_actions
         self._image: Optional[ViewerImage] = None
         self._path: Optional[str] = None
         self._pending: Optional[str] = None  # the load whose result we still want
@@ -299,9 +300,27 @@ class ImageViewer(QWidget):
         self.go_to(len(self._items) - 1)
 
     def add_header_widget(self, widget: QWidget) -> None:
-        """Put a caller's action -- Open…, Mark positions -- in the header, before
-        Export."""
+        """Put a caller's action -- Open… -- in the header for good, before Export."""
         self._header.insertWidget(self._header.indexOf(self.export_button), widget)
+
+    def set_actions(self, widgets: Sequence[QWidget]) -> None:
+        """Replace the previous caller's actions with *widgets*, before Export.
+
+        For a viewer shared between callers: Grids › Results brings Mark positions,
+        the History tab brings none, and each open shows only its own.
+        """
+        for widget in self._actions:
+            self._header.removeWidget(widget)
+            widget.hide()
+            widget.deleteLater()
+        self._actions = list(widgets)
+        for widget in self._actions:
+            self.add_header_widget(widget)
+
+    @property
+    def current_item(self) -> Optional[ViewerItem]:
+        """The item shown, or None before any."""
+        return self._items[self._index] if 0 <= self._index < len(self._items) else None
 
     def go_to(self, index: int) -> None:
         """Show the item at *index*; out of range does nothing."""
@@ -501,8 +520,15 @@ class ImageViewerDialog(QDialog):
         screen = QApplication.primaryScreen().availableGeometry()
         self.resize(int(screen.width() * 0.7), int(screen.height() * 0.75))
 
-    def show_items(self, items: Sequence[ViewerItem], index: int = 0) -> None:
-        """Show *items*, starting at *index*, and bring the window forward."""
+    def show_items(
+        self,
+        items: Sequence[ViewerItem],
+        index: int = 0,
+        actions: Sequence[QWidget] = (),
+    ) -> None:
+        """Show *items*, starting at *index*, with the caller's *actions* in the
+        header, and bring the window forward."""
+        self.viewer.set_actions(actions)
         self.viewer.set_items(items, index)
         self.show()
         self.raise_()
@@ -514,10 +540,14 @@ _DIALOG_ATTRIBUTE = "_fibsem_image_viewer"
 
 
 def open_image_viewer(
-    parent: QWidget, items: Sequence[ViewerItem], index: int = 0
+    parent: QWidget,
+    items: Sequence[ViewerItem],
+    index: int = 0,
+    actions: Sequence[QWidget] = (),
 ) -> ImageViewerDialog:
     """Show *items* in the viewer of *parent*'s window, at *index*, making the
-    viewer on first use.
+    viewer on first use. *actions* are the caller's buttons for the header, which
+    replace any an earlier caller put there.
 
     One per application window, reused: a second click shows the new images in the
     window already open rather than stacking another on top of it.
@@ -527,5 +557,5 @@ def open_image_viewer(
     if dialog is None or sip.isdeleted(dialog):
         dialog = ImageViewerDialog(window)
         setattr(window, _DIALOG_ATTRIBUTE, dialog)
-    dialog.show_items(items, index)
+    dialog.show_items(items, index, actions)
     return dialog
