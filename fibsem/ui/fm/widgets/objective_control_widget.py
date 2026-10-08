@@ -18,6 +18,7 @@ from superqt import ensure_main_thread
 from superqt.utils import qdebounced
 
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
+from fibsem.devices.fm import Objective
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import FunctionWorker, thread_worker
@@ -29,22 +30,19 @@ from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_field_metadata
 
-OBJECTIVE_CONFIG = {
-    "position": {
-        "step_size": 1.0,  # µm
-        "decimals": 1,  # number of decimal places
-        "suffix": " µm",  # unit suffix
-        "tooltip": "Objective position in microns relative to current position",
-    },
-    "step_size_control": {
-        "range": (0.1, 250.0),  # µm
-        "step": 0.1,  # µm
-        "default": 1.0,  # µm
-        "decimals": 1,  # number of decimal places
-        "suffix": " µm",  # unit suffix
-        "tooltip": "Step size for objective movement in microns",
-    },
+# How a position is shown (unit, step, decimals) is the objective's display hint.
+POSITION_FIELD = parameter_field_metadata(Objective.position)
+
+# The step-size box is this widget's own state, not an objective parameter.
+STEP_SIZE_CONTROL = {
+    "range": (0.1, 250.0),  # µm
+    "step": 0.1,  # µm
+    "default": 1.0,  # µm
+    "decimals": 1,  # number of decimal places
+    "suffix": " µm",  # unit suffix
+    "tooltip": "Step size for objective movement in microns",
 }
 MAX_OBJECTIVE_STEP_SIZE_UM = 100.0  # µm
 _SAFE_TILT_TOLERANCE_DEG = 0.5
@@ -135,15 +133,7 @@ class ObjectiveControlWidget(QWidget):
             )
         else:
             self.doubleSpinBox_focus_position.setValue(0.0)
-        self.doubleSpinBox_focus_position.setSingleStep(
-            OBJECTIVE_CONFIG["position"]["step_size"]
-        )
-        self.doubleSpinBox_focus_position.setDecimals(
-            OBJECTIVE_CONFIG["position"]["decimals"]
-        )
-        self.doubleSpinBox_focus_position.setSuffix(
-            OBJECTIVE_CONFIG["position"]["suffix"]
-        )
+        configure_spinbox(self.doubleSpinBox_focus_position, POSITION_FIELD)
         self.doubleSpinBox_focus_position.setToolTip(
             "Focus position in microns - set and move to autofocus position"
         )
@@ -168,40 +158,22 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.setValue(
             self.fm.objective.position * METRE_TO_MICRON
         )  # Convert m to µm
-        self.doubleSpinBox_objective_position.setSingleStep(
-            OBJECTIVE_CONFIG["position"]["step_size"]
-        )
-        self.doubleSpinBox_objective_position.setDecimals(
-            OBJECTIVE_CONFIG["position"]["decimals"]
-        )
-        self.doubleSpinBox_objective_position.setSuffix(
-            OBJECTIVE_CONFIG["position"]["suffix"]
-        )
+        configure_spinbox(self.doubleSpinBox_objective_position, POSITION_FIELD)
         self.doubleSpinBox_objective_position.setToolTip(
-            OBJECTIVE_CONFIG["position"]["tooltip"]
+            "Objective position in microns relative to current position"
         )
         self.doubleSpinBox_objective_position.setKeyboardTracking(
             False
         )  # Disable keyboard tracking for immediate updates
         self.doubleSpinBox_objective_step_size = ValueSpinBox(parent=self)
-        self.doubleSpinBox_objective_step_size.setRange(
-            *OBJECTIVE_CONFIG["step_size_control"]["range"]
-        )
-        self.doubleSpinBox_objective_step_size.setSingleStep(
-            OBJECTIVE_CONFIG["step_size_control"]["step"]
-        )
-        self.doubleSpinBox_objective_step_size.setValue(
-            OBJECTIVE_CONFIG["step_size_control"]["default"]
-        )
+        self.doubleSpinBox_objective_step_size.setRange(*STEP_SIZE_CONTROL["range"])
+        self.doubleSpinBox_objective_step_size.setSingleStep(STEP_SIZE_CONTROL["step"])
+        self.doubleSpinBox_objective_step_size.setValue(STEP_SIZE_CONTROL["default"])
         self.doubleSpinBox_objective_step_size.setDecimals(
-            OBJECTIVE_CONFIG["step_size_control"]["decimals"]
+            STEP_SIZE_CONTROL["decimals"]
         )
-        self.doubleSpinBox_objective_step_size.setSuffix(
-            OBJECTIVE_CONFIG["step_size_control"]["suffix"]
-        )
-        self.doubleSpinBox_objective_step_size.setToolTip(
-            OBJECTIVE_CONFIG["step_size_control"]["tooltip"]
-        )
+        self.doubleSpinBox_objective_step_size.setSuffix(STEP_SIZE_CONTROL["suffix"])
+        self.doubleSpinBox_objective_step_size.setToolTip(STEP_SIZE_CONTROL["tooltip"])
         self.doubleSpinBox_objective_step_size.setKeyboardTracking(
             False
         )  # Disable keyboard tracking for immediate updates
@@ -215,15 +187,7 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_limit.setValue(
             self.fm.objective.limit_position * METRE_TO_MICRON
         )
-        self.doubleSpinBox_objective_limit.setSingleStep(
-            OBJECTIVE_CONFIG["position"]["step_size"]
-        )
-        self.doubleSpinBox_objective_limit.setDecimals(
-            OBJECTIVE_CONFIG["position"]["decimals"]
-        )
-        self.doubleSpinBox_objective_limit.setSuffix(
-            OBJECTIVE_CONFIG["position"]["suffix"]
-        )
+        configure_spinbox(self.doubleSpinBox_objective_limit, POSITION_FIELD)
         self.doubleSpinBox_objective_limit.setToolTip(
             "User-defined upper limit for objective position in microns"
         )

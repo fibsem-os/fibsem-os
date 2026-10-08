@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.devices.fm import Camera, LightSource
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
 from fibsem.ui.fm.widgets.emission_filter_combo import (
@@ -30,6 +31,7 @@ from fibsem.ui.fm.widgets.fm_limits import (
     show_native_units,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_field_metadata
 
 _MS_TO_S = 1e-3
 _S_TO_MS = 1e3
@@ -104,36 +106,25 @@ class ChannelSettingsWidget(QWidget):
         )
         form.addRow("Emission", self.emission_combo)
 
-        exposure_min, exposure_max = exposure_range_ms(self._fm)
-        self.exposure_spin = ValueSpinBox(
-            suffix="ms",
-            minimum=exposure_min,
-            maximum=exposure_max,
-            step=1.0,
-            decimals=1,
-        )
+        # Unit, step and decimals are the devices' display hints; the exposure and
+        # power ranges are what the FM reports.
+        exposure = parameter_field_metadata(Camera.exposure_time)
+        self.exposure_spin = ValueSpinBox()
+        configure_spinbox(self.exposure_spin, exposure)
+        self.exposure_spin.setRange(*exposure_range_ms(self._fm, exposure["decimals"]))
         self.exposure_spin.setToolTip("Exposure time (ms)")
         form.addRow("Exposure", self.exposure_spin)
 
-        power_min, power_max = power_range_percent(self._fm)
-        self.power_spin = ValueSpinBox(
-            suffix="%",
-            minimum=power_min,
-            maximum=power_max,
-            step=1.0,
-            decimals=1,
-        )
+        power = parameter_field_metadata(LightSource.power)
+        self.power_spin = ValueSpinBox()
+        configure_spinbox(self.power_spin, power)
+        self.power_spin.setRange(*power_range_percent(self._fm, power["decimals"]))
         self.power_spin.setToolTip("Light source power (%)")
         show_native_units(self.power_spin, power_scale(self._fm))
         form.addRow("Power", self.power_spin)
 
-        self.gain_spin = ValueSpinBox(
-            suffix="%",
-            minimum=0.0,
-            maximum=100.0,
-            step=1.0,
-            decimals=1,
-        )
+        self.gain_spin = ValueSpinBox(minimum=0.0, maximum=100.0)
+        configure_spinbox(self.gain_spin, parameter_field_metadata(Camera.gain))
         self.gain_spin.setToolTip("Detector gain (%)")
         show_native_units(self.gain_spin, gain_scale(self._fm))
         form.addRow("Gain", self.gain_spin)

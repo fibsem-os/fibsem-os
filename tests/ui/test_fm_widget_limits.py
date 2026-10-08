@@ -204,3 +204,39 @@ def test_hovering_shows_the_value_it_has_now(qapp, fm_with_units):
 
     assert QToolTip.text() == "Light source power (%): 0.12 W"
     QToolTip.hideText()
+
+
+def test_the_boxes_show_values_as_the_devices_declare(fm):
+    """Unit, step and decimals are the devices' display hints, not widget constants."""
+    from fibsem.ui.fm.widgets.camera_widget import CameraWidget
+    from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
+
+    channel = ChannelSettingsWidget(fm)
+    camera = CameraWidget(fm)
+
+    assert channel.exposure_spin.suffix() == " ms"
+    assert channel.power_spin.suffix() == " %"
+    assert (channel.gain_spin.suffix(), _range(channel.gain_spin)) == (
+        " %",
+        (0.0, 100.0),
+    )
+    assert camera.label_gain.text() == "Gain"
+    assert (camera.spinBox_gain.decimals(), _range(camera.spinBox_gain)) == (
+        1,
+        (0.0, 100.0),
+    )
+
+
+def test_the_z_stack_boxes_show_the_z_parameters_fields():
+    from fibsem.fm.structures import ZParameters
+    from fibsem.ui.fm.widgets.z_parameters_widget import ZParametersWidget
+
+    widget = ZParametersWidget(ZParameters(zmin=-5e-6, zmax=5e-6, zstep=0.5e-6))
+
+    assert widget.label_zstep.text() == "Z Step"
+    assert widget.doubleSpinBox_zmin.suffix() == " µm"
+    assert _range(widget.doubleSpinBox_zstep) == (0.1, 10.0)
+    assert widget.doubleSpinBox_zmin.value() == pytest.approx(-5.0)
+
+    widget.doubleSpinBox_zstep.setValue(2.0)
+    assert widget.z_parameters.zstep == pytest.approx(2e-6)

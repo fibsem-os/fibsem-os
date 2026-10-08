@@ -78,6 +78,7 @@ from fibsem.structures import (  # noqa: F401
     InsertableDeviceState,
     TileOrderStrategy,
     _parse_image_transform,
+    field_meta,
 )
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
@@ -422,11 +423,42 @@ class ChannelSettings:
         return self.pretty_name
 
 
+Z_DISTANCE_METADATA = field_meta(type=float, unit="m", scale=1e6, step=0.1, decimals=2)
+
+
 @dataclass
 class ZParameters:
-    zmin: float = -10e-6
-    zmax: float = 10e-6
-    zstep: float = 1e-6
+    # Relative to the objective's position when the stack starts. Bounds in µm.
+    zmin: float = field(
+        default=-10e-6,
+        metadata=field_meta(
+            Z_DISTANCE_METADATA,
+            label="Z Min",
+            minimum=-100.0,
+            maximum=-0.25,
+            tooltip="Minimum Z position relative to current position",
+        ),
+    )
+    zmax: float = field(
+        default=10e-6,
+        metadata=field_meta(
+            Z_DISTANCE_METADATA,
+            label="Z Max",
+            minimum=0.25,
+            maximum=100.0,
+            tooltip="Maximum Z position relative to current position",
+        ),
+    )
+    zstep: float = field(
+        default=1e-6,
+        metadata=field_meta(
+            Z_DISTANCE_METADATA,
+            label="Z Step",
+            minimum=0.1,
+            maximum=10.0,
+            tooltip="Step size between Z positions",
+        ),
+    )
     order: ZStackOrder = ZStackOrder.CHANNEL
 
     def to_dict(self) -> dict:
