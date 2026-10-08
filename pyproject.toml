@@ -263,7 +263,6 @@ ignore = [
     "UP007",  # Union[X, Y] -> X | Y
     "UP015",
     "UP031",  # no autofix: each %-format is rewritten by hand
-    "UP032",
     "UP004",
     "UP009",
     "UP020",
