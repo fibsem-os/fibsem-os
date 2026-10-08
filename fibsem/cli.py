@@ -18,6 +18,7 @@ from fibsem.structures import (
     FibsemDetectorSettings,
     FibsemStagePosition,
     ImageSettings,
+    Resolution,
 )
 
 # ---------------------------------------------------------------------------
@@ -48,9 +49,8 @@ def _rad_to_deg(v: Optional[float]) -> Optional[float]:
 def _parse_resolution(s: str) -> tuple:
     """Parse '1536x1024' into (1536, 1024). Used as argparse type=."""
     try:
-        w, h = s.lower().split("x")
-        return (int(w), int(h))
-    except (ValueError, AttributeError):
+        return tuple(Resolution.parse(s))
+    except ValueError:
         raise argparse.ArgumentTypeError(
             f"Resolution must be WxH, e.g. '1536x1024', got: {s!r}"
         )

@@ -263,7 +263,7 @@ class QuadOverviewPage(QWidget):
     def set_microscope(self, microscope) -> None:
         self._microscope = microscope
         self._seen.clear()
-        self.refresh()
+        self._reindex(force=True)
 
     def set_experiment(self, experiment: Optional[Experiment]) -> None:
         if experiment is not self._experiment:
@@ -273,7 +273,7 @@ class QuadOverviewPage(QWidget):
             self._seen.clear()
             self._images.clear()
             self._shown = None
-        self.refresh()
+        self._reindex(force=True)
 
     def set_stage(self, position: Optional[FibsemStagePosition]) -> None:
         """The stage moved: follow it to another grid, and move its marker."""
@@ -295,10 +295,18 @@ class QuadOverviewPage(QWidget):
         self.canvas.set_selected_position(self._selected)
 
     def refresh(self) -> None:
-        """The experiment changed: its overviews, grids or lamellae."""
-        self._index = self._build_index()
+        """The experiment's overviews may have changed: one was acquired, or a task
+        recorded one. Cheap enough to call on any hint -- a listing and a stat per
+        file, the metadata already read -- and redraws only when something did."""
+        self._reindex(force=False)
+
+    def _reindex(self, force: bool) -> None:
+        index = self._build_index()
+        changed = index != self._index
+        self._index = index
         self._under = self._grid_under_stage()
-        self._update()
+        if force or changed:
+            self._update()
 
     def refresh_positions(self) -> None:
         """The lamellae changed; the overviews did not."""
@@ -319,8 +327,8 @@ class QuadOverviewPage(QWidget):
 
     def showEvent(self, event) -> None:  # noqa: N802 - Qt naming
         super().showEvent(event)
-        if self._stale:
-            self._update()
+        # Back from the Overview tab, say, with a new overview saved meanwhile.
+        self._reindex(force=self._stale)
 
     # ── what to show ──────────────────────────────────────────────────────
     def _has_grids(self) -> bool:

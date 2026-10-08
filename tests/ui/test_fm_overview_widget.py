@@ -2149,6 +2149,8 @@ class _StubHost:
     _on_beam_overview_lamella_selected = _Real._on_beam_overview_lamella_selected
     _set_overviews_allowed = _Real._set_overviews_allowed
     _apply_overview_locks = _Real._apply_overview_locks
+    # A finished run tells the quad view's overview page; the stub has none.
+    _refresh_quad_overviews = _Real._refresh_quad_overviews
     _overview_may_work = _Real._overview_may_work
     _overviews_allowed = _Real._overviews_allowed
     _rebuild_lamella_list = _Real._rebuild_lamella_list

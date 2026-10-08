@@ -18,8 +18,10 @@ from PyQt5.QtWidgets import QApplication
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.devices.core import ParameterMetadata
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import BeamType
+from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
 from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget
 from tests.fixtures.tescan_sdk import connect
@@ -159,3 +161,27 @@ def test_milling_stages_show_preset_when_the_ion_beam_has_presets(
 ):
     widget = FibsemMillingStagesWidget(microscope=make(monkeypatch), stages=[])
     assert widget._list._show_preset is show_preset
+
+
+def test_the_current_choices_follow_a_voltage_change():
+    """An instrument offers different currents at another voltage (AutoScript's ion
+    column does), so changing the voltage lists the currents read again."""
+    microscope = _demo()
+    beam = microscope.beams[I]
+    voltages = beam_choices(microscope, "voltage", I)
+    assert len(voltages) >= 2
+    currents = {
+        v: [1e-12 * (i + 1) * v / 1e3, 2e-12 * (i + 1)] for i, v in enumerate(voltages)
+    }
+    beam.current._metadata_source = lambda: ParameterMetadata(
+        choices=currents[beam.voltage.cached]
+    )
+    widget = _widget(microscope, I)
+
+    target = next(v for v in voltages if v != beam.voltage.cached)
+    widget.beam_voltage_combo.setCurrentIndex(
+        widget.beam_voltage_combo.findData(target)
+    )
+
+    combo = widget.beam_current_combo
+    assert [combo.itemData(i) for i in range(combo.count())] == currents[target]

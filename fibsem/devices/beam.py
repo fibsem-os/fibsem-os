@@ -62,8 +62,12 @@ DEFAULT_STIGMATION_LIMITS = {
 
 class Beam(Device):
     voltage = Parameter(float, unit="V", display=Display("Beam Voltage", advanced=True))
+    # the currents an instrument offers change with the gas and the voltage (AutoScript)
     current = Parameter(
-        float, unit="A", depends_on=("plasma_gas",), display=Display("Beam Current")
+        float,
+        unit="A",
+        depends_on=("plasma_gas", "voltage"),
+        display=Display("Beam Current"),
     )
     plasma_gas = Parameter(str, display=Display("Plasma Gas"))
     working_distance = Parameter(

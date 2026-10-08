@@ -103,6 +103,7 @@ __all__ = [
     "canvas_span",
     "holder_slots",
     "slot_landmark",
+    "nearest_slot_landmark",
     "at_device",
     "limit_shapes",
     "boundary_shapes",
@@ -204,6 +205,36 @@ def slot_landmark(microscope, slot: object) -> Optional[FibsemStagePosition]:
         r=pose.r,
         t=pose.t,
     )
+
+
+def nearest_slot_landmark(
+    microscope, frame: StageFrame, device: Optional[str] = None
+) -> Optional[FibsemStagePosition]:
+    """The holder slot drawn nearest the view's origin, placed as `boundary_shapes`
+    places it, or None when the holder names no slot that can be drawn.
+
+    The grid a view is looking at: its origin is the first image placed in it.
+    """
+    try:
+        ox, oy = frame.to_canvas(frame.origin)
+    except Exception as e:
+        logger.debug(f"Could not place the view's origin: {e}")
+        return None
+    best, best_distance = None, None
+    for slot in holder_slots(microscope):
+        place = slot_landmark(microscope, slot)
+        if place is None:
+            continue
+        place = at_device(microscope, device, place)
+        try:
+            cx, cy = frame.to_canvas(place)
+        except Exception as e:
+            logger.debug(f"Could not place a holder slot: {e}")
+            continue
+        distance = (cx - ox) ** 2 + (cy - oy) ** 2
+        if best_distance is None or distance < best_distance:
+            best, best_distance = place, distance
+    return best
 
 
 def at_device(
