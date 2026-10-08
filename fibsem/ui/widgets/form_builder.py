@@ -143,10 +143,15 @@ def effective_scale(metadata: dict) -> Optional[float]:
 def display_suffix(metadata: dict) -> str:
     """The spinbox suffix, prefixed for the scale (1e6 + "m" -> "µm").
 
+    A declared ``display_unit`` wins: a scale that isn't an SI prefix (180/pi for
+    degrees, 100 for percent) would otherwise read "mrad" or "m%".
+
     Empty when the field declares no unit, even if it declares a scale. The
     milling forms used to render a bare prefix -- a lone "µ" with nothing after
     it -- for a scaled field with no unit.
     """
+    if metadata.get("display_unit"):
+        return metadata["display_unit"]
     unit = metadata.get("unit")
     if not unit:
         return ""
