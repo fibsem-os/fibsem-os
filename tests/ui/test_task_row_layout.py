@@ -101,7 +101,7 @@ def _render(tmp_path, resolution):
     )
     path = image.save(str(tmp_path / f"ref_{width}x{height}.tif"))
 
-    arr, _ = _load_and_resize(path)
+    arr, _, _ = _load_and_resize(path)
     h, w = arr.shape[:2]
     return w, h
 
