@@ -129,6 +129,12 @@ def world(qapp, tmp_path):
     )
 
 
+def _pin(page, key):
+    """Choose a grid in the selector, as a click does."""
+    page.grid_selector.setCurrentIndex(page.grid_selector.findData(key))
+    page._on_grid_chosen(page.grid_selector.currentIndex())
+
+
 def _views(page, grid):
     return sorted(o.view.split(" @ ")[0] for o in page._index.get(grid, []))
 
@@ -209,8 +215,7 @@ def test_empty_states(world, case, expected):
     if case == "no experiment":
         page.set_experiment(None)
     else:
-        page._mode = world.grids["Grid-C"].id
-        page.refresh()
+        _pin(page, world.grids["Grid-C"].id)
     assert page._stack.currentWidget() is page.empty
     assert page.empty.text().startswith(expected)
 
@@ -268,8 +273,7 @@ def test_old_chips_are_gone_at_once_not_left_over_the_selector(world):
     assert _visible_chips(page) == ["FIB", "SEM"]
     page.set_stage(_at(microscope, SLOT_X["Grid-B"]))
     assert _visible_chips(page) == ["SEM"]
-    page._mode = world.grids["Grid-C"].id
-    page.refresh()
+    _pin(page, world.grids["Grid-C"].id)
     assert _visible_chips(page) == []
 
 
@@ -299,8 +303,7 @@ def test_the_header_stays_at_the_top_of_an_empty_page(world):
     cell = controller.widget.page_cell
     cell.add_page("overview", "Overview", world.page, header=world.page.header)
     cell.set_page("overview")
-    world.page._mode = world.grids["Grid-C"].id
-    world.page.refresh()
+    _pin(world.page, world.grids["Grid-C"].id)
     controller.widget.resize(900, 700)
     controller.widget.show()
     QApplication.processEvents()
@@ -376,3 +379,86 @@ def test_no_rim_for_a_grid_no_slot_holds(world):
     page._on_grid_chosen(page.grid_selector.currentIndex())
     assert page._stack.currentWidget() is page.canvas
     assert _boundary_centre(page) == []
+
+
+def _shown_paths(page):
+    return sorted(os.path.basename(path) for path in (page._shown or (None, ()))[1])
+
+
+def test_a_new_overview_shows_on_refresh_and_nothing_else_redraws(world):
+    page, microscope, experiment = world.page, world.microscope, world.experiment
+    page.set_stage(_at(microscope, SLOT_X["Grid-A"]))
+    chips = dict(page._chips)
+    page.refresh()
+    assert page._chips == chips, "nothing new: nothing redrawn"
+
+    _overview(
+        microscope,
+        experiment,
+        "overview-image-a-sem-later",
+        _at(microscope, SLOT_X["Grid-A"]),
+        BeamType.ELECTRON,
+    )
+    page.refresh()
+    assert "overview-image-a-sem-later.tif" in _shown_paths(page)
+
+
+def test_a_hidden_page_finds_new_overviews_when_shown(world):
+    """Back from the Overview tab with an overview acquired there."""
+    page, microscope, experiment = world.page, world.microscope, world.experiment
+    page.set_stage(_at(microscope, SLOT_X["Grid-A"]))
+    page.hide()
+    _overview(
+        microscope,
+        experiment,
+        "overview-image-a-sem-later",
+        _at(microscope, SLOT_X["Grid-A"]),
+        BeamType.ELECTRON,
+    )
+    page.show()
+    assert "overview-image-a-sem-later.tif" in _shown_paths(page)
+
+
+@pytest.fixture
+def window(qapp, tmp_path):
+    window = AutoLamellaSingleWindowUI()
+    window.autolamella_ui.system_widget.connect_to_microscope()
+    window.autolamella_ui._adopt_experiment(
+        Experiment.create(path=tmp_path, name="refresh")
+    )
+    yield window
+    if window.autolamella_ui.microscope is not None:
+        window.autolamella_ui.microscope.disconnect()
+    # closeEvent ends in app.quit(); on the shared QApplication that latches.
+    original_quit = qapp.quit
+    qapp.quit = lambda: None
+    try:
+        window.close()
+    finally:
+        qapp.quit = original_quit
+
+
+@pytest.mark.parametrize("source", ["overview acquired", "workflow status"])
+def test_the_window_tells_the_page_to_look_for_new_overviews(window, source):
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+    )
+
+    page = window.quad_overview_page
+    experiment = window.autolamella_ui.experiment
+    microscope = window.autolamella_ui.microscope
+    assert page._index == {}
+    _overview(
+        microscope,
+        experiment,
+        "overview-image-new",
+        _at(microscope, 0.0),
+        BeamType.ELECTRON,
+    )
+    if source == "overview acquired":
+        window.beam_overview_tab.acquiring_changed.emit(False)
+    else:
+        window.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert [o.path for o in page._index.get(NO_GRID, [])] == [
+        os.path.join(str(experiment.path), "overview-image-new.tif")
+    ]
