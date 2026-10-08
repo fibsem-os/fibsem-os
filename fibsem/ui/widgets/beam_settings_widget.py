@@ -12,70 +12,27 @@ from PyQt5.QtWidgets import (
 )
 from superqt.utils import qdebounced
 
-from fibsem import constants, utils
-from fibsem.devices.beam import STANDARD_RESOLUTIONS
+from fibsem import utils
+from fibsem.devices.beam import STANDARD_RESOLUTIONS, Beam
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Point
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.utils import (
-    beam_choices,
-    beam_limits,
-    find_data,
-    install_wheel_blocker,
-    set_range_from_limits,
-)
+from fibsem.ui.utils import find_data, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import _create_combobox_control
+from fibsem.ui.widgets.form_builder import (
+    configure_spinbox,
+    effective_scale,
+    parameter_field_metadata,
+)
 
 # Working-distance step per Shift+scroll notch (mm). 1 um — fine focus control.
 WD_WHEEL_STEP_MM = 0.001
 
-# GUI Configuration Constants
-WIDGET_CONFIG = {
-    "hfw": {
-        "label": "Field of View",
-        "decimals": 0,
-        "step": 50.0,
-        "suffix": f" {constants.MICRON_SYMBOL}",
-    },
-    "dwell_time": {
-        "label": "Dwell Time",
-        "decimals": 3,
-        "step": 0.01,
-        "suffix": f" {constants.MICROSECOND_SYMBOL}",
-    },
-    "scan_rotation": {
-        "label": "Scan Rotation",
-        "decimals": 0,
-        "step": 180,
-        "suffix": f" {constants.DEGREE_SYMBOL}",
-    },
-    "shift": {
-        "label": "Shift X / Y",
-        "range": (-50.0, 50.0),
-        "decimals": 3,
-        "step": 0.01,
-        "suffix": f" {constants.MICRON_SYMBOL}",
-    },
-    "stigmation": {
-        "label": "Stigmation X / Y",
-        "range": (-1.0, 1.0),
-        "decimals": 4,
-        "step": 0.001,
-        "suffix": None,
-    },
-    "working_distance": {
-        "label": "Working Distance",
-        "range": (1.0, 30.0),
-        "decimals": 3,  # mm -> 1 um resolution (matches the Shift+scroll step)
-        "step": 0.01,
-        "suffix": f" {constants.MILLIMETRE_SYMBOL}",
-    },
-    "resolution": {"label": "Resolution"},
-    "beam_current": {"label": "Beam Current"},
-    "beam_voltage": {"label": "Beam Voltage"},
-    "preset": {"label": "Preset"},
-}
+# The spin boxes, by beam parameter. Label, unit, scale, step, decimals and range all
+# come from the parameter: its declared display hint, and the limits the beam reports.
+SPINBOX_PARAMETERS = ("hfw", "dwell_time", "working_distance", "scan_rotation")
+POINT_PARAMETERS = ("shift", "stigmation")
 
 
 class FibsemBeamSettingsWidget(QWidget):
@@ -112,27 +69,32 @@ class FibsemBeamSettingsWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
-        def _make_spinbox(key: str) -> QDoubleSpinBox:
-            c = WIDGET_CONFIG[key]
+        def _make_spinbox() -> QDoubleSpinBox:
             sb = QDoubleSpinBox()
-            if "range" in c:
-                sb.setRange(*c["range"])
-            sb.setDecimals(c["decimals"])
-            sb.setSingleStep(c["step"])
-            if c["suffix"] is not None:
-                sb.setSuffix(c["suffix"])
             sb.setKeyboardTracking(False)
             install_wheel_blocker(sb)
             return sb
 
+        def _make_label(name: str, suffix: str = "") -> QLabel:
+            return QLabel(self._field(name)["label"] + suffix)
+
+        def _make_point_row(name: str):
+            x, y = _make_spinbox(), _make_spinbox()
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.addWidget(x)
+            row_layout.addWidget(y)
+            return x, y, row, _make_label(name, " X / Y")
+
         # --- Field of View ---
-        self.hfw_spinbox = _make_spinbox("hfw")
-        self.hfw_label = QLabel(WIDGET_CONFIG["hfw"]["label"])
+        self.hfw_spinbox = _make_spinbox()
+        self.hfw_label = _make_label("hfw")
         layout.addRow(self.hfw_label, self.hfw_spinbox)
 
         # --- Dwell Time ---
-        self.dwell_time_spinbox = _make_spinbox("dwell_time")
-        self.dwell_time_label = QLabel(WIDGET_CONFIG["dwell_time"]["label"])
+        self.dwell_time_spinbox = _make_spinbox()
+        self.dwell_time_label = _make_label("dwell_time")
         layout.addRow(self.dwell_time_label, self.dwell_time_spinbox)
 
         # --- Resolution ---
@@ -143,57 +105,53 @@ class FibsemBeamSettingsWidget(QWidget):
             find_data(self.resolution_combo, (1536, 1024))
         )
         install_wheel_blocker(self.resolution_combo)
-        self.resolution_label = QLabel(WIDGET_CONFIG["resolution"]["label"])
+        self.resolution_label = _make_label("resolution")
         layout.addRow(self.resolution_label, self.resolution_combo)
 
         # --- Beam Current ---
         self.beam_current_combo = QComboBox()
         install_wheel_blocker(self.beam_current_combo)
-        self.beam_current_label = QLabel(WIDGET_CONFIG["beam_current"]["label"])
+        self.beam_current_label = _make_label("current")
         layout.addRow(self.beam_current_label, self.beam_current_combo)
 
         # --- Beam Voltage ---
         self.beam_voltage_combo = QComboBox()
         install_wheel_blocker(self.beam_voltage_combo)
-        self.beam_voltage_label = QLabel(WIDGET_CONFIG["beam_voltage"]["label"])
+        self.beam_voltage_label = _make_label("voltage")
         layout.addRow(self.beam_voltage_label, self.beam_voltage_combo)
 
         # --- Preset ---
         self.preset_combo = QComboBox()
         install_wheel_blocker(self.preset_combo)
-        self.preset_label = QLabel(WIDGET_CONFIG["preset"]["label"])
+        self.preset_label = _make_label("preset")
         layout.addRow(self.preset_label, self.preset_combo)
 
         # --- Working Distance ---
-        self.working_distance_spinbox = _make_spinbox("working_distance")
-        self.working_distance_label = QLabel(WIDGET_CONFIG["working_distance"]["label"])
+        self.working_distance_spinbox = _make_spinbox()
+        self.working_distance_label = _make_label("working_distance")
         layout.addRow(self.working_distance_label, self.working_distance_spinbox)
 
         # --- Scan Rotation ---
-        self.scan_rotation_spinbox = _make_spinbox("scan_rotation")
-        self.scan_rotation_label = QLabel(WIDGET_CONFIG["scan_rotation"]["label"])
+        self.scan_rotation_spinbox = _make_spinbox()
+        self.scan_rotation_label = _make_label("scan_rotation")
         layout.addRow(self.scan_rotation_label, self.scan_rotation_spinbox)
 
         # --- Shift X / Y ---
-        self.shift_x_spinbox = _make_spinbox("shift")
-        self.shift_y_spinbox = _make_spinbox("shift")
-        self.shift_row = QWidget()
-        shift_row_layout = QHBoxLayout(self.shift_row)
-        shift_row_layout.setContentsMargins(0, 0, 0, 0)
-        shift_row_layout.addWidget(self.shift_x_spinbox)
-        shift_row_layout.addWidget(self.shift_y_spinbox)
-        self.shift_label = QLabel(WIDGET_CONFIG["shift"]["label"])
+        (
+            self.shift_x_spinbox,
+            self.shift_y_spinbox,
+            self.shift_row,
+            self.shift_label,
+        ) = _make_point_row("shift")
         layout.addRow(self.shift_label, self.shift_row)
 
         # --- Stigmation X / Y ---
-        self.stigmation_x_spinbox = _make_spinbox("stigmation")
-        self.stigmation_y_spinbox = _make_spinbox("stigmation")
-        self.stigmation_row = QWidget()
-        stigmation_row_layout = QHBoxLayout(self.stigmation_row)
-        stigmation_row_layout.setContentsMargins(0, 0, 0, 0)
-        stigmation_row_layout.addWidget(self.stigmation_x_spinbox)
-        stigmation_row_layout.addWidget(self.stigmation_y_spinbox)
-        self.stigmation_label = QLabel(WIDGET_CONFIG["stigmation"]["label"])
+        (
+            self.stigmation_x_spinbox,
+            self.stigmation_y_spinbox,
+            self.stigmation_row,
+            self.stigmation_label,
+        ) = _make_point_row("stigmation")
         layout.addRow(self.stigmation_label, self.stigmation_row)
 
         # All widgets that are shown only when advanced mode is active
@@ -207,7 +165,7 @@ class FibsemBeamSettingsWidget(QWidget):
             self.beam_voltage_label,
             self.beam_voltage_combo,
         ]
-        self._apply_limits()
+        self._apply_display()
 
     # ------------------------------------------------------------------
     # Signal connections
@@ -238,14 +196,14 @@ class FibsemBeamSettingsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def _on_hfw_changed(self, value: float):
-        self.microscope.set_field_of_view(value * constants.MICRO_TO_SI, self.beam_type)
+        self.microscope.set_field_of_view(self._to_si("hfw", value), self.beam_type)
         logging.info(
             {"msg": "_on_hfw_changed", "beam_type": self.beam_type.name, "hfw": value}
         )
         self.settings_changed.emit(self.get_settings())
 
     def _on_dwell_time_changed(self, value: float):
-        self.microscope.set_dwell_time(value * constants.MICRO_TO_SI, self.beam_type)
+        self.microscope.set_dwell_time(self._to_si("dwell_time", value), self.beam_type)
         logging.info(
             {
                 "msg": "_on_dwell_time_changed",
@@ -336,7 +294,7 @@ class FibsemBeamSettingsWidget(QWidget):
         self.preset_combo.blockSignals(False)
 
     def _on_working_distance_changed(self, value: float):
-        wd = value * constants.MILLI_TO_SI
+        wd = self._to_si("working_distance", value)
         self.microscope.set_working_distance(wd, self.beam_type)
         logging.info(
             {
@@ -378,7 +336,7 @@ class FibsemBeamSettingsWidget(QWidget):
     def _execute_wd_wheel_move_impl(self) -> None:
         """Apply the settled Shift+scroll target to hardware. No large-change confirmation —
         WD is beam focus (lens), not a physical objective, so a big move isn't a collision risk."""
-        target_m = self._wd_wheel_target_mm * constants.MILLI_TO_SI
+        target_m = self._to_si("working_distance", self._wd_wheel_target_mm)
         logging.info(
             {
                 "msg": "_on_canvas_scroll",
@@ -395,11 +353,13 @@ class FibsemBeamSettingsWidget(QWidget):
     def _set_working_distance_spinbox(self, wd_m: float) -> None:
         """Set the WD spinbox from a value in metres without triggering a hardware move."""
         self.working_distance_spinbox.blockSignals(True)
-        self.working_distance_spinbox.setValue(wd_m * constants.SI_TO_MILLI)
+        self.working_distance_spinbox.setValue(self._shown("working_distance", wd_m))
         self.working_distance_spinbox.blockSignals(False)
 
     def _on_scan_rotation_changed(self, value: float):
-        self.microscope.set_scan_rotation(np.deg2rad(value), self.beam_type)
+        self.microscope.set_scan_rotation(
+            self._to_si("scan_rotation", value), self.beam_type
+        )
         logging.info(
             {
                 "msg": "_on_scan_rotation_changed",
@@ -410,10 +370,7 @@ class FibsemBeamSettingsWidget(QWidget):
         self.settings_changed.emit(self.get_settings())
 
     def _on_shift_changed(self):
-        shift = Point(
-            x=self.shift_x_spinbox.value() * constants.MICRO_TO_SI,
-            y=self.shift_y_spinbox.value() * constants.MICRO_TO_SI,
-        )
+        shift = self._read_point("shift")
         self.microscope.set_beam_shift(shift, self.beam_type)
         logging.info(
             {
@@ -425,10 +382,7 @@ class FibsemBeamSettingsWidget(QWidget):
         self.settings_changed.emit(self.get_settings())
 
     def _on_stigmation_changed(self):
-        stigmation = Point(
-            x=self.stigmation_x_spinbox.value(),
-            y=self.stigmation_y_spinbox.value(),
-        )
+        stigmation = self._read_point("stigmation")
         self.microscope.set_stigmation(stigmation, self.beam_type)
         logging.info(
             {
@@ -453,7 +407,7 @@ class FibsemBeamSettingsWidget(QWidget):
         if self._beam_device() is None:
             return
         self._populate_resolutions()
-        self._apply_limits()
+        self._apply_display()
 
         self.beam_current_combo.blockSignals(True)
         self.beam_current_combo.clear()
@@ -481,7 +435,7 @@ class FibsemBeamSettingsWidget(QWidget):
 
         self.preset_combo.blockSignals(True)
         self.preset_combo.clear()
-        presets = beam_choices(self.microscope, "preset", self.beam_type)
+        presets = self._choices("preset")
         if presets:
             for preset in presets:
                 self.preset_combo.addItem(str(preset), str(preset))
@@ -499,7 +453,7 @@ class FibsemBeamSettingsWidget(QWidget):
     def _populate_resolutions(self) -> None:
         """List the beam's resolutions, keeping the selection; a beam that lists none
         keeps the standard ones."""
-        choices = beam_choices(self.microscope, "resolution", self.beam_type)
+        choices = self._choices("resolution")
         if not choices:
             return
         selected = self.resolution_combo.currentData()
@@ -512,40 +466,39 @@ class FibsemBeamSettingsWidget(QWidget):
             self.resolution_combo.setCurrentIndex(idx)
         self.resolution_combo.blockSignals(False)
 
-    def _apply_limits(self) -> None:
-        """Bound the boxes to the beam's limits, where it reports them."""
-        for name, spinbox, scale in (
-            ("hfw", self.hfw_spinbox, constants.SI_TO_MICRO),
-            ("dwell_time", self.dwell_time_spinbox, constants.SI_TO_MICRO),
-            ("scan_rotation", self.scan_rotation_spinbox, constants.RADIANS_TO_DEGREES),
-        ):
+    def _apply_display(self) -> None:
+        """Set each box's suffix, step, decimals and range from its beam parameter,
+        with the limits the beam reports where it reports them."""
+        for name in SPINBOX_PARAMETERS:
+            spinbox = self._spinbox(name)
             spinbox.blockSignals(True)
-            set_range_from_limits(
-                spinbox, beam_limits(self.microscope, name, self.beam_type), scale
-            )
+            configure_spinbox(spinbox, self._field(name))
             spinbox.blockSignals(False)
+        for name in POINT_PARAMETERS:
+            for axis in ("x", "y"):
+                spinbox = self._spinbox(name, axis)
+                spinbox.blockSignals(True)
+                configure_spinbox(spinbox, self._field(name, axis))
+                spinbox.blockSignals(False)
 
     def get_settings(self) -> BeamSettings:
         """Return a BeamSettings built from the current widget values."""
         return BeamSettings(
             beam_type=self.beam_type,
-            working_distance=self.working_distance_spinbox.value()
-            * constants.MILLI_TO_SI,
-            hfw=self.hfw_spinbox.value() * constants.MICRO_TO_SI,
-            dwell_time=self.dwell_time_spinbox.value() * constants.MICRO_TO_SI,
+            working_distance=self._to_si(
+                "working_distance", self.working_distance_spinbox.value()
+            ),
+            hfw=self._to_si("hfw", self.hfw_spinbox.value()),
+            dwell_time=self._to_si("dwell_time", self.dwell_time_spinbox.value()),
             resolution=self.resolution_combo.currentData(),
             beam_current=self.beam_current_combo.currentData(),
             voltage=self.beam_voltage_combo.currentData(),
             preset=self.preset_combo.currentData(),
-            scan_rotation=np.deg2rad(self.scan_rotation_spinbox.value()),
-            shift=Point(
-                x=self.shift_x_spinbox.value() * constants.MICRO_TO_SI,
-                y=self.shift_y_spinbox.value() * constants.MICRO_TO_SI,
+            scan_rotation=self._to_si(
+                "scan_rotation", self.scan_rotation_spinbox.value()
             ),
-            stigmation=Point(
-                x=self.stigmation_x_spinbox.value(),
-                y=self.stigmation_y_spinbox.value(),
-            ),
+            shift=self._read_point("shift"),
+            stigmation=self._read_point("stigmation"),
         )
 
     def update_from_settings(self, settings: BeamSettings):
@@ -569,13 +522,13 @@ class FibsemBeamSettingsWidget(QWidget):
 
         if settings.working_distance is not None:
             self.working_distance_spinbox.setValue(
-                settings.working_distance * constants.METRE_TO_MILLIMETRE
+                self._shown("working_distance", settings.working_distance)
             )
         if settings.hfw is not None:
-            self.hfw_spinbox.setValue(settings.hfw * constants.SI_TO_MICRO)
+            self.hfw_spinbox.setValue(self._shown("hfw", settings.hfw))
         if settings.dwell_time is not None:
             self.dwell_time_spinbox.setValue(
-                settings.dwell_time * constants.SI_TO_MICRO
+                self._shown("dwell_time", settings.dwell_time)
             )
         if settings.resolution is not None:
             idx = find_data(self.resolution_combo, tuple(settings.resolution))
@@ -590,13 +543,13 @@ class FibsemBeamSettingsWidget(QWidget):
             if idx != -1:
                 self.preset_combo.setCurrentIndex(idx)
         if settings.scan_rotation is not None:
-            self.scan_rotation_spinbox.setValue(np.degrees(settings.scan_rotation))
+            self.scan_rotation_spinbox.setValue(
+                self._shown("scan_rotation", settings.scan_rotation)
+            )
         if settings.shift is not None:
-            self.shift_x_spinbox.setValue(settings.shift.x * constants.SI_TO_MICRO)
-            self.shift_y_spinbox.setValue(settings.shift.y * constants.SI_TO_MICRO)
+            self._write_point("shift", settings.shift)
         if settings.stigmation is not None:
-            self.stigmation_x_spinbox.setValue(settings.stigmation.x)
-            self.stigmation_y_spinbox.setValue(settings.stigmation.y)
+            self._write_point("stigmation", settings.stigmation)
 
         for w in widgets:
             w.blockSignals(False)
@@ -622,7 +575,41 @@ class FibsemBeamSettingsWidget(QWidget):
         parameter = self._beam_parameter(key)
         if parameter is not None and not parameter.settable:
             return [] if value is None else [value]
-        return beam_choices(self.microscope, key, self.beam_type)
+        return self._choices(key)
+
+    def _field(self, name: str, field=None) -> dict:
+        """How to show the beam parameter ``name`` (one ``field`` of a point): its
+        display hint, with the limits and choices this beam reports. With no such
+        beam, or a beam without the parameter, what every beam declares."""
+        parameter = self._beam_parameter(name) or getattr(Beam, name)
+        return parameter_field_metadata(parameter, field)
+
+    def _choices(self, name: str) -> list:
+        return self._field(name).get("items") or []
+
+    def _scale(self, name: str, field=None) -> float:
+        return effective_scale(self._field(name, field)) or 1.0
+
+    def _to_si(self, name: str, shown: float, field=None) -> float:
+        """A value as the box shows it, in the parameter's SI unit."""
+        return shown / self._scale(name, field)
+
+    def _shown(self, name: str, value: float, field=None) -> float:
+        """An SI value as the box shows it."""
+        return value * self._scale(name, field)
+
+    def _spinbox(self, name: str, axis: str = "") -> QDoubleSpinBox:
+        return getattr(self, f"{name}_{axis}_spinbox" if axis else f"{name}_spinbox")
+
+    def _read_point(self, name: str) -> Point:
+        return Point(
+            x=self._to_si(name, self._spinbox(name, "x").value(), "x"),
+            y=self._to_si(name, self._spinbox(name, "y").value(), "y"),
+        )
+
+    def _write_point(self, name: str, point: Point) -> None:
+        self._spinbox(name, "x").setValue(self._shown(name, point.x, "x"))
+        self._spinbox(name, "y").setValue(self._shown(name, point.y, "y"))
 
     def _update_visibility(self):
         """Apply visibility from the beam device's parameters and advanced mode.

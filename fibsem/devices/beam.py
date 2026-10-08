@@ -47,6 +47,18 @@ STANDARD_RESOLUTIONS: Tuple[Tuple[int, int], ...] = (
 DEFAULT_HFW_LIMITS = RangeLimit(min=1e-9, max=1e-2)
 DEFAULT_DWELL_TIME_LIMITS = RangeLimit(min=1e-9, max=1e-3)
 
+# What the beam panel has always allowed for the parameters no driver reports a range
+# for yet. Shift and stigmation are per field, so a write isn't clipped by them.
+DEFAULT_WORKING_DISTANCE_LIMITS = RangeLimit(min=1e-3, max=30e-3)
+DEFAULT_SHIFT_LIMITS = {
+    "x": RangeLimit(min=-50e-6, max=50e-6),
+    "y": RangeLimit(min=-50e-6, max=50e-6),
+}
+DEFAULT_STIGMATION_LIMITS = {
+    "x": RangeLimit(min=-1.0, max=1.0),
+    "y": RangeLimit(min=-1.0, max=1.0),
+}
+
 
 class Beam(Device):
     voltage = Parameter(float, unit="V", display=Display("Beam Voltage", advanced=True))
@@ -57,6 +69,7 @@ class Beam(Device):
     working_distance = Parameter(
         float,
         unit="m",
+        limits=DEFAULT_WORKING_DISTANCE_LIMITS,
         display=Display("Working Distance", scale=1e3, step=0.01, decimals=3),
     )
     hfw = Parameter(
@@ -108,11 +121,14 @@ class Beam(Device):
         display=Display("Dwell Time", scale=1e6, step=0.01, decimals=3),
     )
     stigmation = Parameter(
-        Point, display=Display("Stigmation", step=0.001, decimals=4, advanced=True)
+        Point,
+        limits=DEFAULT_STIGMATION_LIMITS,
+        display=Display("Stigmation", step=0.001, decimals=4, advanced=True),
     )
     shift = Parameter(
         Point,
         unit="m",
+        limits=DEFAULT_SHIFT_LIMITS,
         doc="Beam shift.",
         display=Display("Shift", scale=1e6, step=0.01, decimals=3, advanced=True),
     )

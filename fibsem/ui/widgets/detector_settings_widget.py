@@ -10,28 +10,11 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QDoubleSlider
 
+from fibsem.devices.beam import Beam
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemDetectorSettings
-from fibsem.ui.utils import beam_choices, install_wheel_blocker
-
-WIDGET_CONFIG = {
-    "brightness": {
-        "label": "Brightness",
-        "range": (0.0, 1.0),
-        "decimals": 3,
-        "step": 0.01,
-        "suffix": None,
-    },
-    "contrast": {
-        "label": "Contrast",
-        "range": (0.0, 1.0),
-        "decimals": 3,
-        "step": 0.01,
-        "suffix": None,
-    },
-    "type": {"label": "Detector Type"},
-    "mode": {"label": "Detector Mode"},
-}
+from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.widgets.form_builder import parameter_field_metadata
 
 
 class _LabeledSlider(QWidget):
@@ -119,27 +102,23 @@ class FibsemDetectorSettingsWidget(QWidget):
         # --- Detector Type ---
         self.type_combo = QComboBox()
         install_wheel_blocker(self.type_combo)
-        self.type_label = QLabel(WIDGET_CONFIG["type"]["label"])
+        self.type_label = QLabel(self._field("detector_type")["label"])
         layout.addRow(self.type_label, self.type_combo)
 
         # --- Detector Mode ---
         self.mode_combo = QComboBox()
         install_wheel_blocker(self.mode_combo)
-        self.mode_label = QLabel(WIDGET_CONFIG["mode"]["label"])
+        self.mode_label = QLabel(self._field("detector_mode")["label"])
         layout.addRow(self.mode_label, self.mode_combo)
 
         # --- Brightness ---
-        self.brightness_slider = _LabeledSlider(
-            decimals=WIDGET_CONFIG["brightness"]["decimals"]
-        )
-        self.brightness_label = QLabel(WIDGET_CONFIG["brightness"]["label"])
+        self.brightness_slider = self._make_slider("detector_brightness")
+        self.brightness_label = QLabel(self._field("detector_brightness")["label"])
         layout.addRow(self.brightness_label, self.brightness_slider)
 
         # --- Contrast ---
-        self.contrast_slider = _LabeledSlider(
-            decimals=WIDGET_CONFIG["contrast"]["decimals"]
-        )
-        self.contrast_label = QLabel(WIDGET_CONFIG["contrast"]["label"])
+        self.contrast_slider = self._make_slider("detector_contrast")
+        self.contrast_label = QLabel(self._field("detector_contrast")["label"])
         layout.addRow(self.contrast_label, self.contrast_slider)
 
         # All widgets shown only when advanced mode is active
@@ -232,7 +211,7 @@ class FibsemDetectorSettingsWidget(QWidget):
         """
         self.type_combo.blockSignals(True)
         self.type_combo.clear()
-        available_types = beam_choices(self.microscope, "detector_type", self.beam_type)
+        available_types = self._choices("detector_type")
         if available_types:
             self.type_combo.addItems(available_types)
             current_type = self.microscope.get_detector_type(self.beam_type)
@@ -245,12 +224,30 @@ class FibsemDetectorSettingsWidget(QWidget):
         """The mode combo from the beam's detector mode choices, at its current mode."""
         self.mode_combo.blockSignals(True)
         self.mode_combo.clear()
-        available_modes = beam_choices(self.microscope, "detector_mode", self.beam_type)
+        available_modes = self._choices("detector_mode")
         self.mode_combo.addItems(available_modes)
         current_mode = self.microscope.get_detector_mode(self.beam_type)
         if current_mode is not None:
             self.mode_combo.setCurrentText(current_mode)
         self.mode_combo.blockSignals(False)
+
+    def _field(self, name: str) -> dict:
+        """How to show the beam parameter ``name``: its display hint, with the limits
+        and choices this beam reports, or what every beam declares when it has none."""
+        beam = self.microscope.beams.get(self.beam_type)
+        parameter = None if beam is None else beam.parameters.get(name)
+        return parameter_field_metadata(parameter or getattr(Beam, name))
+
+    def _choices(self, name: str) -> list:
+        return [str(choice) for choice in self._field(name).get("items") or []]
+
+    def _make_slider(self, name: str) -> "_LabeledSlider":
+        field = self._field(name)
+        return _LabeledSlider(
+            min_val=field.get("minimum", 0.0),
+            max_val=field.get("maximum", 1.0),
+            decimals=field.get("decimals") or 3,
+        )
 
     def get_settings(self) -> FibsemDetectorSettings:
         """Return a FibsemDetectorSettings built from the current widget values."""
