@@ -93,13 +93,16 @@ class ViewerItem:
 
     *title* heads the window while it is shown (`01-fancy-mite › Rough Milling`);
     *label* names it in the filmstrip and the position (`FIB`), and is the image's
-    own kind once it has been read; *thumbnail* stands in while the file loads.
+    own kind once it has been read if nothing else named it; *thumbnail* stands in
+    while the file loads. *image* is one already in memory, shown without a read --
+    an FM stack handed over by the load dialog, which may have no file at all.
     """
 
-    path: str
+    path: str = ""
     title: str = ""
     label: str = ""
     thumbnail: Optional[QPixmap] = None
+    image: Optional["ViewerImage"] = None
 
 
 def load_viewer_image(path: str) -> ViewerImage:
@@ -168,6 +171,7 @@ class ImageViewer(QWidget):
         header.addWidget(self.next_button)
         header.addSpacing(8)
         header.addWidget(self.export_button)
+        self._header = header
 
         self.loading_label = QLabel(alignment=Qt.AlignCenter)
         self.loading_label.setStyleSheet(_LOADING_STYLE)
@@ -288,15 +292,30 @@ class ImageViewer(QWidget):
         else:
             self._update_navigation()
 
+    def add_item(self, item: ViewerItem) -> None:
+        """Append *item* to the images and show it."""
+        self._items.append(item)
+        self._rebuild_filmstrip()
+        self.go_to(len(self._items) - 1)
+
+    def add_header_widget(self, widget: QWidget) -> None:
+        """Put a caller's action -- Open…, Mark positions -- in the header, before
+        Export."""
+        self._header.insertWidget(self._header.indexOf(self.export_button), widget)
+
     def go_to(self, index: int) -> None:
         """Show the item at *index*; out of range does nothing."""
         if not 0 <= index < len(self._items) or index == self._index:
             return
         self._index = index
         item = self._items[index]
-        self.set_title(item.title or os.path.basename(item.path))
+        self.set_title(item.title or os.path.basename(item.path) or item.label)
         self._update_navigation()
-        self.show_path(item.path, item.thumbnail)
+        if item.image is not None:
+            self._pending = None  # a read still running for another item is moot
+            self.show_image(item.image, path=item.path or None)
+        else:
+            self.show_path(item.path, item.thumbnail)
 
     def step(self, delta: int) -> None:
         """The next (+1) or previous (-1) image; it stops at either end."""
@@ -319,7 +338,9 @@ class ImageViewer(QWidget):
         for i, button in enumerate(self._film_buttons):
             button.setChecked(i == index)
         if 0 <= index < count:
-            label = self._items[index].label
+            item = self._items[index]
+            # Not twice: a file's name can be both its title and its label.
+            label = item.label if item.label != item.title else ""
             position = f"{index + 1} of {count}" if several else ""
             self.position_label.setText(" · ".join(t for t in (label, position) if t))
             if several:
@@ -439,8 +460,8 @@ class ImageViewer(QWidget):
         if kind == "Image" or not 0 <= self._index < len(self._items):
             return
         item = self._items[self._index]
-        if item.path != path or item.label == kind:
-            return
+        if item.label or (item.path or None) != path:
+            return  # named already, by the caller or an earlier read
         item.label = kind
         self._film_buttons[self._index].setText(kind)
         self._update_navigation()
