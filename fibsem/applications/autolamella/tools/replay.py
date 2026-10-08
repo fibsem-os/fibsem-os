@@ -40,6 +40,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
 from fibsem.applications.autolamella.proposals import kind_label
+from fibsem.util.timestamps import wall_time_of
 
 logger = logging.getLogger(__name__)
 
@@ -762,9 +763,9 @@ def _fluorescence_event(path: Path) -> Optional[ReplayEvent]:
                 metadata = json.loads(value)
             except ValueError:
                 pass
-    started = _acquisition_time(metadata.get("acquisition_date"))
+    started = wall_time_of(metadata.get("acquisition_date"))
     if started is None and ome.images and ome.images[0].acquisition_date is not None:
-        started = _acquisition_time(ome.images[0].acquisition_date.isoformat())
+        started = wall_time_of(ome.images[0].acquisition_date)
     if started is None:
         return None
 
@@ -780,18 +781,6 @@ def _fluorescence_event(path: Path) -> Optional[ReplayEvent]:
         saved=True,
         position=metadata.get("stage_position"),
     )
-
-
-def _acquisition_time(value: Any) -> Optional[datetime]:
-    """When an FM acquisition started, as its metadata records it, on the
-    instrument's clock. An offset (FIB-1190) is dropped, not converted, as the
-    event records' own `t` is: converting put it in this machine's zone, hours
-    from the rest of the run when the two differ."""
-    try:
-        started = datetime.fromisoformat(str(value))
-    except (TypeError, ValueError):
-        return None
-    return started.replace(tzinfo=None)
 
 
 def _fluorescence_what(channels: List[str], planes: int, overview: bool = False) -> str:
@@ -1046,19 +1035,6 @@ _TASK_END_STEPS = {
     "task_skipped": "SKIPPED",
 }
 _SPOT_BURN_ENDS = ("finished", "cancelled", "failed")
-
-
-def _record_time(record: Dict[str, Any]) -> Optional[datetime]:
-    """When an event happened, on the instrument's wall clock.
-
-    ``t`` carries its UTC offset. The offset is dropped rather than converted
-    to this machine's zone, so the time reads as the log and the FM files
-    record theirs: naive, on the instrument's clock.
-    """
-    try:
-        return datetime.fromisoformat(record["t"]).replace(tzinfo=None)
-    except (KeyError, TypeError, ValueError):
-        return None
 
 
 def _recorded_image(time: datetime, payload: Dict[str, Any]) -> ReplayEvent:
@@ -1420,7 +1396,7 @@ def _recorded_fluorescence(
     if recorded:
         what += f" — {_pure_path(recorded).name}"
     return ReplayEvent(
-        time=_acquisition_time(payload.get("acquired_at")) or time,
+        time=wall_time_of(payload.get("acquired_at")) or time,
         kind=EventKind.FLUORESCENCE,
         summary=what,
         data={
@@ -1504,7 +1480,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
     decisions: Dict[Tuple[Any, Any], ReplayEvent] = {}
 
     for record in records:
-        time = _record_time(record)
+        time = wall_time_of(record.get("t"))
         if time is None:
             continue
         kind = record.get("kind")

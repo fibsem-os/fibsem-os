@@ -30,7 +30,7 @@ Qt-free, so the export renderer, the reports and the headless paths can share it
 from __future__ import annotations
 
 import numbers
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Optional
 
 # AutoScript's acquisition_datetime as the ThermoFisher driver saved it: the instrument
@@ -61,6 +61,18 @@ def iso_from_posix(ts: float) -> str:
     return from_posix(ts).isoformat()
 
 
+def _posix(value) -> Optional[float]:
+    """*value* as a POSIX number, or None when it is not one."""
+    if isinstance(value, numbers.Real) and not isinstance(value, bool):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
 def to_datetime(value) -> Optional[datetime]:
     """Read a recorded time, or None if it cannot be read.
 
@@ -70,14 +82,14 @@ def to_datetime(value) -> Optional[datetime]:
     """
     if isinstance(value, datetime):
         return value
+    posix = _posix(value)
+    if posix is not None:
+        try:
+            return from_posix(posix)
+        except (OverflowError, OSError, ValueError):
+            return None
     if isinstance(value, str):
         text = value.strip()
-        try:
-            number = float(text)
-        except ValueError:
-            pass
-        else:
-            return to_datetime(number)
         try:
             return datetime.fromisoformat(text)
         except ValueError:
@@ -85,11 +97,6 @@ def to_datetime(value) -> Optional[datetime]:
         try:
             return datetime.strptime(text, THERMOFISHER_FORMAT)
         except ValueError:
-            return None
-    if isinstance(value, numbers.Real) and not isinstance(value, bool):
-        try:
-            return from_posix(float(value))
-        except (OverflowError, OSError, ValueError):
             return None
     return None
 
@@ -110,15 +117,77 @@ def acquisition_datetime_of(metadata) -> Optional[datetime]:
     rewritten, so an image read this way is never "upgraded" to an instant it did not
     record. None when nothing readable is there.
     """
-    recorded = to_datetime(getattr(metadata, "acquisition_datetime", None))
-    if recorded is not None:
+    return to_datetime(_acquisition_value(metadata))
+
+
+def acquisition_wall_time_of(
+    metadata, zone: Optional[tzinfo] = None
+) -> Optional[datetime]:
+    """When an image was acquired, on the instrument's clock: :func:`wall_time_of`
+    the value :func:`acquisition_datetime_of` reads, as recorded, so that an older
+    image's POSIX time is read in *zone* rather than in this machine's."""
+    return wall_time_of(_acquisition_value(metadata), zone)
+
+
+def _acquisition_value(metadata):
+    """The value an image's acquisition time is read from, as recorded."""
+    recorded = getattr(metadata, "acquisition_datetime", None)
+    if to_datetime(recorded) is not None:
         return recorded
     # A beam image. Checked by attribute rather than read through, because
     # FibsemImageMetadata.acquisition_date is a property that calls this function.
     if hasattr(metadata, "microscope_state"):
-        state = metadata.microscope_state
-        return to_datetime(getattr(state, "timestamp", None))
-    return to_datetime(getattr(metadata, "acquisition_date", None))
+        return getattr(metadata.microscope_state, "timestamp", None)
+    return getattr(metadata, "acquisition_date", None)
+
+
+def wall_time_of(value, zone: Optional[tzinfo] = None) -> Optional[datetime]:
+    """*value* as the clock on the wall where it was written read it: naive, for a
+    timeline that keeps one run on the instrument's clock wherever it is read.
+
+    An aware value keeps its own wall time, with its offset dropped rather than
+    converted. A naive value is already a wall time, and is returned as it is. A
+    POSIX value has no wall time of its own: it is read in *zone*, the instrument's
+    as the experiment recorded it (``SessionInfo.zone``), or in this machine's when
+    there is none. None when it cannot be read.
+    """
+    if zone is not None:
+        posix = _posix(value)
+        if posix is not None:
+            try:
+                return datetime.fromtimestamp(posix, tz=zone).replace(tzinfo=None)
+            except (OverflowError, OSError, ValueError):
+                return None
+    parsed = to_datetime(value)
+    return parsed.replace(tzinfo=None) if parsed is not None else None
+
+
+def utc_offset_of(value: datetime) -> str:
+    """An aware datetime's UTC offset, as ISO 8601 writes it: ``+10:00``."""
+    return value.isoformat()[-6:]
+
+
+def zone_from_offset(
+    offset: Optional[str], name: Optional[str] = None
+) -> Optional[tzinfo]:
+    """The fixed zone a ``+10:00`` offset names, or None when it cannot be read."""
+    if not offset:
+        return None
+    try:
+        parsed = datetime.fromisoformat(f"2000-01-01T00:00:00{offset}").utcoffset()
+    except ValueError:
+        return None
+    if parsed is None or abs(parsed) >= timedelta(days=1):
+        return None
+    return timezone(parsed, name) if name else timezone(parsed)
+
+
+def zone_label(zone: tzinfo) -> str:
+    """A zone as a report names its clock: ``AEST (UTC+10:00)``, or ``UTC+10:00``
+    for a zone with no name."""
+    offset = timezone(zone.utcoffset(None)).tzname(None)
+    name = zone.tzname(None)
+    return offset if not name or name == offset else f"{name} ({offset})"
 
 
 def zone_known(value) -> bool:

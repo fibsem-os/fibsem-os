@@ -355,7 +355,7 @@ class CorrelationInputData:
     @staticmethod
     def load(filename: str) -> CorrelationInputData:
 
-        with open(filename, "r") as f:
+        with open(filename) as f:
             data = json.load(f)
             return CorrelationInputData.from_dict(data)
 
@@ -737,7 +737,7 @@ class CorrelationResult:
 
     @staticmethod
     def load(filename: str) -> CorrelationResult:
-        with open(filename, "r") as f:
+        with open(filename) as f:
             return CorrelationResult.from_dict(json.load(f))
 
 
@@ -790,7 +790,7 @@ class CorrelationState:
 
     @staticmethod
     def load(filename: str) -> CorrelationState:
-        with open(filename, "r") as f:
+        with open(filename) as f:
             return CorrelationState.from_dict(json.load(f))
 
 
@@ -810,7 +810,7 @@ def load_correlation_file(filename: str) -> CorrelationState:
     A result file carries its own ``input_data`` snapshot, which becomes the
     project's current points — the same behaviour the old result loader had.
     """
-    with open(filename, "r") as f:
+    with open(filename) as f:
         data = json.load(f)
 
     if "version" in data:

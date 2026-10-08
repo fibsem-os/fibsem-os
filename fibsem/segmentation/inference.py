@@ -74,7 +74,7 @@ if __name__ == "__main__":
     config_dir = args.config
 
     # NOTE: Setup your config.yml file
-    with open(config_dir, "r") as f:
+    with open(config_dir) as f:
         config = yaml.safe_load(f)
 
     print("Validating config file.")

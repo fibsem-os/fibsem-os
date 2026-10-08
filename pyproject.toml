@@ -178,6 +178,10 @@ filterwarnings = [
 # infers py310, so the two can never drift apart.
 extend-exclude = [
     "external",
+    # Vendored from Pyto (Vladan Lucic, MPI of Biochemistry) by way of tdct. It is
+    # someone else's code kept as it was, so neither the linter nor the formatter
+    # rewrites it.
+    "fibsem/correlation/pyto",
     # Ruff rewrites notebooks in place, re-sorting imports inside the cell JSON.
     # Whether the notebooks are in scope is a separate question to this config.
     "**/*.ipynb",
@@ -261,12 +265,7 @@ ignore = [
     "UP035",  # deprecated typing imports
     "UP037",  # quoted annotations
     "UP007",  # Union[X, Y] -> X | Y
-    "UP015",
     "UP032",
-    "UP004",
-    "UP020",
-    "UP024",
-    "UP034",
 ]
 
 # F401 is not a mechanical fix in this codebase, and `--fix` alone is enough to

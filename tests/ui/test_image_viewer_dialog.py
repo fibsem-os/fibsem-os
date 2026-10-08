@@ -16,8 +16,9 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtCore import QEvent, Qt
-from PyQt5.QtGui import QKeyEvent, QPixmap
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QWidget
 
 sys.path.insert(0, os.path.dirname(__file__))  # not str.rsplit: Windows paths
@@ -33,6 +34,7 @@ from fibsem.ui.widgets import image_viewer_dialog  # noqa: E402
 from fibsem.ui.widgets.image_viewer_dialog import (  # noqa: E402
     ImageViewer,
     ImageViewerDialog,
+    ViewerItem,
     open_image_viewer,
 )
 
@@ -94,15 +96,17 @@ def test_an_image_that_does_not_say_what_it_is_gets_no_bar():
 
 def test_a_stack_opens_in_the_fm_viewer_and_up_and_down_step_its_planes(fm_path):
     viewer = ImageViewer()
+    viewer.show()
     viewer.show_path(fm_path)
     _loaded(viewer, fm_path)
     assert viewer.stack.currentWidget() is viewer.fm_widget.parentWidget()
     fm = viewer.fm_widget
     fm.set_max_projection(False)  # a plane, not the projection
     start = fm.current_z
+    fm.canvas.setFocus()  # shortcuts follow the focus, as in the app
 
     def press(key):
-        viewer.keyPressEvent(QKeyEvent(QEvent.KeyPress, key, Qt.NoModifier))
+        QTest.keyClick(fm.canvas, key)  # through the canvas, as a user's key goes
 
     press(Qt.Key_Up)
     assert fm.current_z == start + 1
@@ -179,8 +183,12 @@ def test_export_opens_the_export_dialog_for_the_image_shown(beam_path, monkeypat
 
 def test_one_non_modal_window_per_app_window_reused(beam_path, fm_path):
     window = QWidget()
-    first = open_image_viewer(window, beam_path, title="01-fancy-mite › Rough Milling")
-    second = open_image_viewer(window, fm_path, title="01-fancy-mite › Fluorescence")
+    first = open_image_viewer(
+        window, [ViewerItem(beam_path, title="01-fancy-mite › Rough Milling")]
+    )
+    second = open_image_viewer(
+        window, [ViewerItem(fm_path, title="01-fancy-mite › Fluorescence")]
+    )
     assert first is second
     assert isinstance(first, ImageViewerDialog) and not first.isModal()
     assert first.windowTitle() == "01-fancy-mite › Fluorescence"
@@ -189,12 +197,99 @@ def test_one_non_modal_window_per_app_window_reused(beam_path, fm_path):
     window.deleteLater()
 
 
-def test_the_history_tab_opens_its_tile_in_the_viewer(tmp_path, monkeypatch):
+# --- stepping through a lamella's images -------------------------------------------
+
+
+@pytest.fixture
+def items(beam_path, fm_path, tmp_path):
+    sem_path = _beam_image(BeamType.ELECTRON).save(str(tmp_path / "sem.tif"))
+    return [
+        ViewerItem(sem_path, title="01-fancy-mite › Rough Milling", label="SEM"),
+        ViewerItem(beam_path, title="01-fancy-mite › Rough Milling", label="FIB"),
+        ViewerItem(fm_path, title="01-fancy-mite › Acquire Fluorescence"),
+    ]
+
+
+def test_it_opens_on_the_clicked_image_and_says_where_it_is(items):
+    viewer = ImageViewer()
+    viewer.set_items(items, index=1)
+    _loaded(viewer, items[1].path)
+    assert viewer.position_label.text() == "FIB · 2 of 3"
+    assert viewer.title_label.text() == "01-fancy-mite › Rough Milling"
+    assert [b.isChecked() for b in viewer._film_buttons] == [False, True, False]
+
+
+def test_left_and_right_step_through_and_swap_to_the_fm_viewer(items):
+    viewer = ImageViewer()
+    viewer.show()
+    viewer.set_items(items, index=1)
+    _loaded(viewer, items[1].path)
+    viewer.canvas.setFocus()
+    # Through the matplotlib canvas, which takes key presses for itself.
+    QTest.keyClick(viewer.canvas, Qt.Key_Right)
+    _loaded(viewer, items[2].path)
+    assert viewer.stack.currentWidget() is viewer.fm_widget.parentWidget()
+    assert viewer.title_label.text() == "01-fancy-mite › Acquire Fluorescence"
+    QTest.keyClick(viewer.fm_widget, Qt.Key_Left)
+    _loaded(viewer, items[1].path)
+    assert viewer.stack.currentWidget() is viewer.canvas.parentWidget()
+    viewer.close()
+
+
+def test_it_stops_at_either_end(items):
+    viewer = ImageViewer()
+    viewer.set_items(items, index=0)
+    assert not viewer.previous_button.isEnabled() and viewer.next_button.isEnabled()
+    viewer.step(-1)
+    assert viewer.index == 0
+    viewer.go_to(2)
+    viewer.step(1)
+    assert viewer.index == 2
+    assert not viewer.next_button.isEnabled()
+
+
+def test_a_filmstrip_tile_goes_to_its_image(items):
+    viewer = ImageViewer()
+    viewer.set_items(items, index=0)
+    viewer._film_buttons[2].click()
+    assert viewer.index == 2
+    _loaded(viewer, items[2].path)
+
+
+def test_an_unnamed_image_is_named_by_the_file_once_read(items):
+    viewer = ImageViewer()
+    viewer.set_items(items, index=2)
+    assert viewer._film_buttons[2].text() == "3", "a number until the file says"
+    _loaded(viewer, items[2].path)
+    assert viewer._film_buttons[2].text() == "FM"
+    assert viewer.position_label.text() == "FM · 3 of 3"
+
+
+def test_one_image_has_no_filmstrip_or_arrows(beam_path):
+    viewer = ImageViewer()
+    viewer.set_items([ViewerItem(beam_path, label="FIB")])
+    assert viewer.filmstrip.isHidden() and viewer.next_button.isHidden()
+    assert viewer.position_label.text() == "FIB"
+    assert viewer.hint_label.text() == "Esc to close"
+
+
+def test_the_window_title_follows_the_image(items):
+    dialog = ImageViewerDialog()
+    dialog.show_items(items, index=0)
+    dialog.viewer.go_to(2)
+    assert dialog.windowTitle() == "01-fancy-mite › Acquire Fluorescence"
+    _loaded(dialog.viewer, items[2].path)
+    dialog.close()
+
+
+def test_the_history_tab_hands_over_every_image_in_task_order(tmp_path, monkeypatch):
     from fibsem.applications.autolamella.ui import lamella_task_image_widget as history
 
     opened = []
     monkeypatch.setattr(
-        history, "open_image_viewer", lambda *args, **kwargs: opened.append(kwargs)
+        history,
+        "open_image_viewer",
+        lambda parent, items, index: opened.append((items, index)),
     )
     widget = history.LamellaTaskImageWidget()
 
@@ -202,12 +297,21 @@ def test_the_history_tab_opens_its_tile_in_the_viewer(tmp_path, monkeypatch):
         name = "01-fancy-mite"
 
     widget._lamella = _Lamella()
-    path = str(tmp_path / "ref_final_ib.tif")
-    widget._task_names[path] = "Rough Milling"
+    sem, fib, fm = (str(tmp_path / n) for n in ("eb.tif", "ib.tif", "fm.ome.tiff"))
+    widget._task_names.update({sem: "Rough Milling", fib: "Rough Milling"})
+    widget._task_names[fm] = "Acquire Fluorescence"
+    widget._kinds.update({sem: "SEM", fib: "FIB"})
     tile = QPixmap(8, 8)
-    widget._pixmap_cache[path] = tile
-    widget._open_expanded(path)
-    assert opened == [{"title": "01-fancy-mite › Rough Milling", "placeholder": tile}]
+    widget._pixmap_cache[fib] = tile
+    widget._open_expanded(fib)
+
+    ((items, index),) = opened
+    assert index == 1
+    assert [i.path for i in items] == [sem, fib, fm]
+    assert [i.label for i in items] == ["SEM", "FIB", ""]
+    assert items[1].title == "01-fancy-mite › Rough Milling"
+    assert items[2].title == "01-fancy-mite › Acquire Fluorescence"
+    assert items[1].thumbnail is tile and items[0].thumbnail is None
 
 
 def test_the_fm_stack_count_is_shared_with_the_export():
@@ -218,3 +322,120 @@ def test_the_fm_stack_count_is_shared_with_the_export():
     assert z_stack(_fm_image(slices=5)) == (5, 500e-9)
     assert z_stack(_fm_image(slices=1)) is None
     np.testing.assert_equal(_fm_image(slices=5).data.shape[-3], 5)
+
+
+# --- files dropped from the desktop ------------------------------------------------
+
+
+def _drag(paths):
+    """(mime, enter, drop) for dragging *paths*. Keep the mime data: the events hold
+    only a pointer to it, and Qt reads freed memory if Python collects it."""
+    from PyQt5.QtCore import QMimeData, QPoint, QUrl
+    from PyQt5.QtGui import QDragEnterEvent, QDropEvent
+
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(p)) for p in paths])
+    enter = QDragEnterEvent(
+        QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier
+    )
+    drop = QDropEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+    return mime, enter, drop
+
+
+def test_a_viewer_takes_no_drops_unless_asked(beam_path):
+    """History and Grids › Results show a lamella's or a grid's own images: nothing
+    dropped may join them."""
+    viewer = ImageViewer()
+    assert not viewer.acceptDrops()
+    mime, enter, _ = _drag([beam_path])
+    viewer.dragEnterEvent(enter)
+    assert not enter.isAccepted()
+
+
+def test_dropped_images_join_the_filmstrip_and_the_last_is_shown(beam_path, fm_path):
+    viewer = ImageViewer()
+    viewer.show()
+    viewer.set_accepts_drops(True)
+    mime, enter, drop = _drag([beam_path, fm_path])
+
+    viewer.dragEnterEvent(enter)
+    assert enter.isAccepted()
+    assert viewer.drop_hint.isVisible(), "the window says it will take them"
+
+    viewer.dropEvent(drop)
+    assert not viewer.drop_hint.isVisible()
+    assert [i.path for i in viewer.items] == [beam_path, fm_path]
+    assert viewer.index == 1
+    _loaded(viewer, fm_path)
+    assert viewer.title_label.text() == os.path.basename(fm_path)
+    viewer.close()
+
+
+def test_only_image_files_are_taken(beam_path, tmp_path):
+    notes = tmp_path / "notes.txt"
+    notes.write_text("not an image")
+    viewer = ImageViewer()
+    viewer.set_accepts_drops(True)
+    mime, enter, _ = _drag([notes])
+    viewer.dragEnterEvent(enter)
+    assert not enter.isAccepted()
+    mime, _, drop = _drag([notes, beam_path])
+    viewer.dropEvent(drop)
+    assert [i.path for i in viewer.items] == [beam_path]
+
+
+def test_the_canvases_leave_drops_to_the_viewer():
+    """Qt hands a drop to the nearest widget that accepts drops; a canvas that took
+    them would swallow every file dropped on the image."""
+    viewer = ImageViewer()
+    viewer.set_accepts_drops(True)
+    for child in (viewer.canvas, viewer.fm_widget, viewer.fm_widget.canvas):
+        assert not child.acceptDrops()
+
+
+def test_the_fm_image_viewer_takes_drops(fm_path):
+    from fibsem.ui.fm.widgets.fm_image_viewer_widget import FMImageViewerWidget
+
+    widget = FMImageViewerWidget()
+    assert widget.image_viewer.acceptDrops()
+    image = _fm_image()
+    widget.add_image(image)
+    mime, _, drop = _drag([fm_path])
+    widget.image_viewer.dropEvent(drop)
+    assert widget.image_viewer.index == 1
+    _loaded(widget.image_viewer, fm_path)
+    # A held image is found among the viewer's items, dropped files included.
+    widget.display_image(image)
+    assert widget.image_viewer.index == 0
+
+
+def test_a_viewer_closed_while_it_reads_does_not_take_the_app_down(
+    beam_path, monkeypatch
+):
+    """The FM Image Viewer is replaced on each reopen, perhaps while a dropped file is
+    still being read. Qt aborts on a thread destroyed while it runs, so a read must
+    outlive its viewer; its result then goes nowhere."""
+    import gc
+    import threading
+
+    from PyQt5 import sip
+
+    release = threading.Event()
+    real_load = image_viewer_dialog.load_viewer_image
+
+    def held(path):
+        release.wait(10)
+        return real_load(path)
+
+    monkeypatch.setattr(image_viewer_dialog, "load_viewer_image", held)
+    viewer = ImageViewer()
+    before = set(image_viewer_dialog._RUNNING)
+    viewer.show_path(beam_path)
+    (read,) = image_viewer_dialog._RUNNING - before
+    # Destroyed now: deleteLater waits for an event loop a test never returns to.
+    sip.delete(viewer)
+    del viewer
+    gc.collect()
+    release.set()
+    _wait_until(lambda: read not in image_viewer_dialog._RUNNING)
+    assert read not in image_viewer_dialog._RUNNING, "the read never finished"

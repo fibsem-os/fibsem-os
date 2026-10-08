@@ -755,7 +755,7 @@ class AutoLamellaTaskProtocol:
 
     @classmethod
     def load(cls, filename: str) -> "AutoLamellaTaskProtocol":
-        with open(filename, "r") as file:
+        with open(filename) as file:
             data = yaml.safe_load(file)
         return cls.from_dict(data)
 
@@ -2967,7 +2967,7 @@ class Experiment:
         path = Path(fname).with_suffix(".yaml")
         if not os.path.exists(path):
             raise FileNotFoundError(f"No file with name {path} found.")
-        with open(path, "r") as f:
+        with open(path) as f:
             ddict = yaml.safe_load(f)
 
         # create experiment from dict
@@ -3246,7 +3246,9 @@ class Experiment:
 
         # After _register_metadata, which sets `application` on the very SystemInfo
         # being snapshotted here.
-        self.session = SessionInfo.collect(microscope, user=self._declared_user())
+        self.session = SessionInfo.collect(
+            microscope, user=self._declared_user(), previous=self.session
+        )
 
         # Written now rather than left to whatever saves next -- relying on someone
         # else's save is how FIB-490 lost every failed task. Only for an experiment

@@ -371,7 +371,7 @@ def load_yaml(fname: Path) -> dict:
     Returns:
         dict: Items in yaml
     """
-    with open(fname, "r") as f:
+    with open(fname) as f:
         config = yaml.safe_load(f)
 
     return config

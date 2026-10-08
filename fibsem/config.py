@@ -161,7 +161,7 @@ def load_yaml(fname):
         IOError: If the file cannot be opened or read.
         yaml.YAMLError: If the file is not valid YAML.
     """
-    with open(fname, "r") as f:
+    with open(fname) as f:
         config = yaml.safe_load(f)
 
     return config
@@ -547,7 +547,7 @@ def load_user_preferences() -> UserPreferences:
         return UserPreferences()
 
     try:
-        with open(USER_PREFERENCES_PATH, "r") as f:
+        with open(USER_PREFERENCES_PATH) as f:
             loaded = yaml.safe_load(f) or {}
         return UserPreferences.from_dict(loaded)
     except Exception as e:
@@ -635,7 +635,7 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
         )
 
     try:
-        with open(experiment_yaml_path, "r") as f:
+        with open(experiment_yaml_path) as f:
             ddict = yaml.safe_load(f) or {}
         # `or {}` at each level, not `.get(k, {})`: a key present but null is how
         # an experiment no session has adopted serialises, and that has to read
