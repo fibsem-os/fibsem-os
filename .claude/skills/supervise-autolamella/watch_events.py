@@ -59,39 +59,35 @@ def _print_events(events, since):
         since = max(since, event.get("seq", since))
         if kind == "question_asked":
             print(
-                "QUESTION item=%s task=%s -- the run is stopped on a recorded "
-                "question: find it in get_pending_reviews (holding_the_run) and "
-                "decide it" % (data.get("item_name"), data.get("task_name")),
+                f"QUESTION item={data.get('item_name')} task={data.get('task_name')} "
+                "-- the run is stopped on a recorded question: find it in "
+                "get_pending_reviews (holding_the_run) and decide it",
                 flush=True,
             )
         elif kind == "question_released":
             print(
-                "QUESTION RELEASED item=%s task=%s"
-                % (data.get("item_name"), data.get("task_name")),
+                f"QUESTION RELEASED item={data.get('item_name')} "
+                f"task={data.get('task_name')}",
                 flush=True,
             )
         elif kind == "prompt_raised":
             print(
-                "PROMPT nonce=%s type=%s" % (data.get("nonce"), data.get("type")),
+                f"PROMPT nonce={data.get('nonce')} type={data.get('type')}",
                 flush=True,
             )
         elif kind == "prompt_answered":
             print(
-                "ANSWERED nonce=%s by=%s response=%s"
-                % (
-                    data.get("nonce"),
-                    data.get("answered_by"),
-                    data.get("response"),
-                ),
+                f"ANSWERED nonce={data.get('nonce')} by={data.get('answered_by')} "
+                f"response={data.get('response')}",
                 flush=True,
             )
         elif kind == "prompt_cancelled":
-            print("PROMPT WITHDRAWN nonce=%s" % data.get("nonce"), flush=True)
+            print(f"PROMPT WITHDRAWN nonce={data.get('nonce')}", flush=True)
         elif kind in TERMINAL:
-            print("RUN ENDED (%s)" % kind, flush=True)
+            print(f"RUN ENDED ({kind})", flush=True)
             run_ended = True
         elif kind in INTERESTING:
-            print("EVENT %s %s" % (kind, data.get("item_name", "")), flush=True)
+            print(f"EVENT {kind} {data.get('item_name', '')}", flush=True)
     return since, run_ended
 
 
@@ -119,8 +115,8 @@ def main():
         snapshot = _get(f"{base}/app/events?since=0&timeout=0", headers, timeout=10)
     except urllib.error.HTTPError as error:
         print(
-            "SERVER REFUSED: HTTP %s from /app/events — check the token in "
-            "%s and that an application is hosted." % (error.code, DISCOVERY)
+            f"SERVER REFUSED: HTTP {error.code} from /app/events — check the token "
+            f"in {DISCOVERY} and that an application is hosted."
         )
         return 1
     except (OSError, HTTPException, ValueError):
@@ -148,8 +144,8 @@ def main():
             failures += 1
             if failures >= 4:
                 print(
-                    "SERVER REFUSED: HTTP %s from /app/events — the token or "
-                    "hosting changed; reconnect from the discovery file." % error.code
+                    f"SERVER REFUSED: HTTP {error.code} from /app/events — the token "
+                    "or hosting changed; reconnect from the discovery file."
                 )
                 return 1
             try:
