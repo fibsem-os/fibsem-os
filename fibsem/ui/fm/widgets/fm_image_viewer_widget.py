@@ -1,7 +1,7 @@
 """Standalone viewer for loading and displaying FluorescenceImages from file.
 
-The image viewer (FIB-1189) with an Open… button: files picked in the load dialog join
-its filmstrip, and the newest is shown. The FM viewer brings the per-channel colour,
+The image viewer (FIB-1189) with an Open… button: files picked in the load dialog, or
+dropped onto the window, join its filmstrip, and the newest is shown. The FM viewer brings the per-channel colour,
 visibility and contrast, the z-slider, max projection and the scalebar; the bar under it
 says what the image is, in the same words as the quad view.
 """
@@ -56,6 +56,7 @@ class FMImageViewerWidget(QWidget):
         self.pushButton_load_image.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_load_image.setToolTip("Open fluorescence images from file")
         self.image_viewer.add_header_widget(self.pushButton_load_image)
+        self.image_viewer.set_accepts_drops(True)
         self.image_viewer.set_title("No image loaded")
 
         layout = QVBoxLayout(self)
@@ -105,7 +106,9 @@ class FMImageViewerWidget(QWidget):
     def display_image(self, image: FluorescenceImage) -> None:
         """Show *image*, one already in the filmstrip or not."""
         # By identity: images compare by their arrays, which have no single truth value.
-        index = next((i for i, held in enumerate(self._images) if held is image), None)
+        # Through the viewer's items, which also hold the files dropped onto it.
+        items = self.image_viewer.items
+        index = next((i for i, item in enumerate(items) if item.image is image), None)
         if index is None:
             self.add_image(image)
         else:

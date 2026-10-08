@@ -10,6 +10,10 @@ same field choices.
 The full-resolution file loads off the GUI thread. Until it arrives the window shows
 the caller's thumbnail, so a click answers at once even for a stitched overview.
 
+A viewer that opens arbitrary files (the FM Image Viewer) can also take them dropped
+from the desktop: :meth:`ImageViewer.set_accepts_drops`. One that shows a lamella's or a
+grid's own images leaves it off, so nothing foreign joins their set.
+
 The caller hands over the images it has -- a lamella's, in task order -- and the one
 clicked. Left and right, or the arrows in the header, step through them; a filmstrip
 along the bottom shows them all. Stepping swaps between the beam canvas and the FM
@@ -76,6 +80,11 @@ _STEP_STYLE = (
     " font-size: 16px; padding: 0 6px; }"
     "QToolButton:disabled { color: #444; }"
 )
+_DROP_SUFFIXES = (".tif", ".tiff")  # beam images, and .ome.tiff stacks
+_DROP_HINT_STYLE = (
+    f"background: rgba(30, 33, 36, 0.85); color: {TEXT_STRONG_COLOR};"
+    f" border: 2px dashed {ACCENT_COLOR}; border-radius: 6px; font-size: 14px;"
+)
 _FILM_TILE = QSize(96, 64)
 _FILM_STYLE = (
     f"QToolButton {{ background: transparent; color: {TEXT_MUTED_COLOR};"
@@ -105,12 +114,47 @@ class ViewerItem:
     image: Optional["ViewerImage"] = None
 
 
+def dropped_image_paths(mime) -> List[str]:
+    """The local image files in a drag's *mime* data, in the order dragged."""
+    if not mime.hasUrls():
+        return []
+    paths = [url.toLocalFile() for url in mime.urls() if url.isLocalFile()]
+    return [p for p in paths if p.lower().endswith(_DROP_SUFFIXES)]
+
+
 def load_viewer_image(path: str) -> ViewerImage:
     """The image at *path*: a fluorescence stack as a stack, anything else as a beam
     image. Full resolution; nothing is resized."""
     if is_fluorescence_image(path):
         return FluorescenceImage.load(path)
     return FibsemImage.load(path)
+
+
+# Every read still running, whichever viewer asked for it. A read belongs to no viewer:
+# a viewer can close, or be replaced -- the FM Image Viewer is, on each reopen -- while
+# it reads, and Qt aborts on a thread destroyed while it runs. Held here until it ends,
+# its result goes nowhere if the viewer is gone.
+_RUNNING: Set["_Loader"] = set()
+
+
+def wait_for_reads(timeout_ms: int = 5000) -> None:
+    """Let every running read finish: at quit, before the threads are torn down."""
+    for loader in list(_RUNNING):
+        loader.wait(timeout_ms)
+
+
+_QUIT_HOOKED = []  # the application whose quit waits for reads, once hooked
+
+
+def _start(loader: "_Loader") -> None:
+    app = QApplication.instance()
+    if app is not None and app not in _QUIT_HOOKED:
+        app.aboutToQuit.connect(wait_for_reads)
+        _QUIT_HOOKED.append(app)
+    _RUNNING.add(loader)
+    loader.finished.connect(lambda: _RUNNING.discard(loader))
+    loader.finished.connect(loader.deleteLater)
+    loader.start()
 
 
 class _Loader(QThread):
@@ -144,14 +188,9 @@ class ImageViewer(QWidget):
         self._image: Optional[ViewerImage] = None
         self._path: Optional[str] = None
         self._pending: Optional[str] = None  # the load whose result we still want
-        self._loaders: Set[_Loader] = set()
+        self._loaders: Set[_Loader] = set()  # this viewer's reads, still running
         self._fm_stack = None
         self._placeholder: Optional[QPixmap] = None
-        # A read still running when the app quits must finish first: Qt aborts on a
-        # thread destroyed while it runs.
-        app = QApplication.instance()
-        if app is not None:
-            app.aboutToQuit.connect(self._wait_for_loaders)
 
         self.title_label = QLabel()
         self.title_label.setStyleSheet(_TITLE_STYLE)
@@ -248,6 +287,10 @@ class ImageViewer(QWidget):
             shortcut = QShortcut(QKeySequence(key), self)
             shortcut.setContext(Qt.WidgetWithChildrenShortcut)
             shortcut.activated.connect(slot)
+        # Shown over the image while files are dragged over a viewer that takes them.
+        self.drop_hint = QLabel("Drop images to open", self, alignment=Qt.AlignCenter)
+        self.drop_hint.setStyleSheet(_DROP_HINT_STYLE)
+        self.drop_hint.hide()
         self._update_navigation()
 
     def _step_button(self, text: str, tooltip: str, step: int) -> QToolButton:
@@ -295,9 +338,59 @@ class ImageViewer(QWidget):
 
     def add_item(self, item: ViewerItem) -> None:
         """Append *item* to the images and show it."""
-        self._items.append(item)
+        self.add_items([item])
+
+    def add_items(self, items: Sequence[ViewerItem]) -> None:
+        """Append *items* to the images and show the last: one read, not one each."""
+        if not items:
+            return
+        self._items.extend(items)
         self._rebuild_filmstrip()
         self.go_to(len(self._items) - 1)
+
+    # ── files dropped from the desktop ─────────────────────────────────────
+    def set_accepts_drops(self, on: bool) -> None:
+        """Take image files dropped onto the window into the filmstrip.
+
+        For a viewer that opens arbitrary files. A dropped file is read directly,
+        without the FM load dialog: OME stacks and fibsem images say what they are;
+        a plain TIFF that needs its axes set still wants Open….
+        """
+        self.setAcceptDrops(on)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        if self.acceptDrops() and dropped_image_paths(event.mimeData()):
+            event.acceptProposedAction()
+            self._show_drop_hint(True)
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        if self.acceptDrops() and dropped_image_paths(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        self._show_drop_hint(False)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        self._show_drop_hint(False)
+        paths = dropped_image_paths(event.mimeData()) if self.acceptDrops() else []
+        if not paths:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self.add_items(
+            [ViewerItem(path=path, title=os.path.basename(path)) for path in paths]
+        )
+
+    def _show_drop_hint(self, on: bool) -> None:
+        if on:
+            self.drop_hint.setGeometry(self.stack.geometry().adjusted(12, 12, -12, -12))
+            self.drop_hint.raise_()
+        self.drop_hint.setVisible(on)
 
     def add_header_widget(self, widget: QWidget) -> None:
         """Put a caller's action -- Open… -- in the header for good, before Export."""
@@ -410,12 +503,11 @@ class ImageViewer(QWidget):
         self._fit_placeholder()
         self.stack.setCurrentIndex(_LOADING)
 
-        loader = _Loader(path, self)
+        loader = _Loader(path)  # no parent: see _RUNNING
         loader.loaded.connect(self._on_loaded)
         loader.finished.connect(lambda: self._loaders.discard(loader))
-        loader.finished.connect(loader.deleteLater)
         self._loaders.add(loader)
-        loader.start()
+        _start(loader)
 
     def _fit_placeholder(self) -> None:
         """Scale the waiting thumbnail to the room it has, which a window not yet
@@ -433,10 +525,6 @@ class ImageViewer(QWidget):
         super().resizeEvent(event)
         if self.stack.currentIndex() == _LOADING:
             self._fit_placeholder()
-
-    def _wait_for_loaders(self) -> None:
-        for loader in list(self._loaders):
-            loader.wait(5000)
 
     def _on_loaded(self, path: str, result) -> None:
         if path != self._pending:
