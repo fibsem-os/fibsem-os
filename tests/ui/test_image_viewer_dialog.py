@@ -322,3 +322,120 @@ def test_the_fm_stack_count_is_shared_with_the_export():
     assert z_stack(_fm_image(slices=5)) == (5, 500e-9)
     assert z_stack(_fm_image(slices=1)) is None
     np.testing.assert_equal(_fm_image(slices=5).data.shape[-3], 5)
+
+
+# --- files dropped from the desktop ------------------------------------------------
+
+
+def _drag(paths):
+    """(mime, enter, drop) for dragging *paths*. Keep the mime data: the events hold
+    only a pointer to it, and Qt reads freed memory if Python collects it."""
+    from PyQt5.QtCore import QMimeData, QPoint, QUrl
+    from PyQt5.QtGui import QDragEnterEvent, QDropEvent
+
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(p)) for p in paths])
+    enter = QDragEnterEvent(
+        QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier
+    )
+    drop = QDropEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+    return mime, enter, drop
+
+
+def test_a_viewer_takes_no_drops_unless_asked(beam_path):
+    """History and Grids › Results show a lamella's or a grid's own images: nothing
+    dropped may join them."""
+    viewer = ImageViewer()
+    assert not viewer.acceptDrops()
+    mime, enter, _ = _drag([beam_path])
+    viewer.dragEnterEvent(enter)
+    assert not enter.isAccepted()
+
+
+def test_dropped_images_join_the_filmstrip_and_the_last_is_shown(beam_path, fm_path):
+    viewer = ImageViewer()
+    viewer.show()
+    viewer.set_accepts_drops(True)
+    mime, enter, drop = _drag([beam_path, fm_path])
+
+    viewer.dragEnterEvent(enter)
+    assert enter.isAccepted()
+    assert viewer.drop_hint.isVisible(), "the window says it will take them"
+
+    viewer.dropEvent(drop)
+    assert not viewer.drop_hint.isVisible()
+    assert [i.path for i in viewer.items] == [beam_path, fm_path]
+    assert viewer.index == 1
+    _loaded(viewer, fm_path)
+    assert viewer.title_label.text() == os.path.basename(fm_path)
+    viewer.close()
+
+
+def test_only_image_files_are_taken(beam_path, tmp_path):
+    notes = tmp_path / "notes.txt"
+    notes.write_text("not an image")
+    viewer = ImageViewer()
+    viewer.set_accepts_drops(True)
+    mime, enter, _ = _drag([notes])
+    viewer.dragEnterEvent(enter)
+    assert not enter.isAccepted()
+    mime, _, drop = _drag([notes, beam_path])
+    viewer.dropEvent(drop)
+    assert [i.path for i in viewer.items] == [beam_path]
+
+
+def test_the_canvases_leave_drops_to_the_viewer():
+    """Qt hands a drop to the nearest widget that accepts drops; a canvas that took
+    them would swallow every file dropped on the image."""
+    viewer = ImageViewer()
+    viewer.set_accepts_drops(True)
+    for child in (viewer.canvas, viewer.fm_widget, viewer.fm_widget.canvas):
+        assert not child.acceptDrops()
+
+
+def test_the_fm_image_viewer_takes_drops(fm_path):
+    from fibsem.ui.fm.widgets.fm_image_viewer_widget import FMImageViewerWidget
+
+    widget = FMImageViewerWidget()
+    assert widget.image_viewer.acceptDrops()
+    image = _fm_image()
+    widget.add_image(image)
+    mime, _, drop = _drag([fm_path])
+    widget.image_viewer.dropEvent(drop)
+    assert widget.image_viewer.index == 1
+    _loaded(widget.image_viewer, fm_path)
+    # A held image is found among the viewer's items, dropped files included.
+    widget.display_image(image)
+    assert widget.image_viewer.index == 0
+
+
+def test_a_viewer_closed_while_it_reads_does_not_take_the_app_down(
+    beam_path, monkeypatch
+):
+    """The FM Image Viewer is replaced on each reopen, perhaps while a dropped file is
+    still being read. Qt aborts on a thread destroyed while it runs, so a read must
+    outlive its viewer; its result then goes nowhere."""
+    import gc
+    import threading
+
+    from PyQt5 import sip
+
+    release = threading.Event()
+    real_load = image_viewer_dialog.load_viewer_image
+
+    def held(path):
+        release.wait(10)
+        return real_load(path)
+
+    monkeypatch.setattr(image_viewer_dialog, "load_viewer_image", held)
+    viewer = ImageViewer()
+    before = set(image_viewer_dialog._RUNNING)
+    viewer.show_path(beam_path)
+    (read,) = image_viewer_dialog._RUNNING - before
+    # Destroyed now: deleteLater waits for an event loop a test never returns to.
+    sip.delete(viewer)
+    del viewer
+    gc.collect()
+    release.set()
+    _wait_until(lambda: read not in image_viewer_dialog._RUNNING)
+    assert read not in image_viewer_dialog._RUNNING, "the read never finished"
