@@ -336,7 +336,7 @@ class ObjectiveControlWidget(QWidget):
         """Flash where the objective is going, on the canvas being scrolled (FIB-635).
 
         The beam canvases have done this for the working distance since the quad view
-        shipped -- `flash_message(f"WD {v:.3f} mm")` -- and the FM, the one you focus by
+        shipped -- `WD 16.575 mm  +1 µm` -- and the FM, the one you focus by
         while watching the stream, showed nothing.
 
         Not a duplicate of the `OBJECTIVE` field in the info bar, which reports where the
@@ -354,7 +354,8 @@ class ObjectiveControlWidget(QWidget):
         canvas = self.sender()
         if canvas is None or not hasattr(canvas, "flash_message"):
             return
-        canvas.flash_message(f"OBJ {new_pos_um:.1f} um  ({step_um:+.1f} um)")
+        # In the bar's words and units (FIB-1188): the bar shows `OBJ 200.5 µm`.
+        canvas.flash_message(f"OBJ {new_pos_um:.1f} µm  {step_um:+.1f} µm")
 
     def _objective_busy_reason(self) -> Optional[str]:
         """What is driving the objective right now, phrased for a warning, or None.

@@ -277,11 +277,14 @@ class QuadViewWidget(QWidget):
         self.page_cell.add_page("chamber", "Chamber", self.chamber_view)
         # The cell's, not a page's: the stage readout stays whichever page is on show.
         self.stage_bar = ViewInfoBar(
-            "Stage", title=self.page_cell.cycler, choosable=False
+            "Stage",
+            title=self.page_cell.cycler,
+            choosable=False,
+            highlight_changes=True,
         )
-        self.sem_bar = ViewInfoBar("SEM")
-        self.fib_bar = ViewInfoBar("FIB")
-        self.fm_bar = ViewInfoBar("FM")
+        self.sem_bar = ViewInfoBar("SEM", highlight_changes=True)
+        self.fib_bar = ViewInfoBar("FIB", highlight_changes=True)
+        self.fm_bar = ViewInfoBar("FM", highlight_changes=True)
 
         sem_panel = _panel(self.sem_canvas, self.sem_bar)
         fm_panel = _panel(self.fm_widget, self.fm_bar)
