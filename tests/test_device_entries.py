@@ -2,8 +2,8 @@
 
 `hardware.devices` is an overlay: an entry switches a device the backend has off, gives
 it another driver, or adds one. `resolve_device_entries` says what to build and with
-which driver; `build_device_entries` builds it, failing connect only for a `required`
-device it cannot build.
+which driver; `build_device_entries` builds it, failing connect for a `required`
+device it cannot build: one the file names, unless it says `required: false`.
 """
 
 import logging
@@ -101,11 +101,31 @@ def test_without_a_driver_or_a_manufacturer_resolving_fails():
         _resolve(manufacturer=None)
 
 
+def test_a_configured_device_is_required_and_a_default_is_not():
+    resolved = {
+        item.name: item
+        for item in _resolve(
+            {"name": "stage", "x": 1},
+            {"name": "laser", "type": "laser"},
+            {"name": "camera", "type": "camera", "required": False},
+            {"name": "chamber", "required": True},
+        )
+    }
+
+    assert resolved["stage"].required  # the file names it
+    assert resolved["laser"].required
+    assert not resolved["camera"].required  # unless it says otherwise
+    assert not resolved["manipulator"].required  # only the backend's default
+    assert resolved["chamber"].required
+
+
 # -- building them ---------------------------------------------------------------
 
 
-def _item(name, type_, required=None, driver="Test"):
-    return ResolvedEntry(DeviceEntry(name=name, type=type_, required=required), driver)
+def _item(name, type_, required=None, driver="Test", listed=False):
+    return ResolvedEntry(
+        DeviceEntry(name=name, type=type_, required=required), driver, listed=listed
+    )
 
 
 class _Builder:
@@ -184,6 +204,41 @@ def test_a_builder_that_fails_skips_its_device_unless_it_is_required(builders, c
         build_device_entries([_item("chamber", "chamber", required=True)], None)
 
 
+def test_a_configured_device_without_a_builder_fails_connect(builders):
+    with pytest.raises(DeviceBuildError, match="'laser' was not built"):
+        build_device_entries([_item("laser", "laser", listed=True)], None)
+
+
+class _Microscope:
+    def __init__(self):
+        self.not_built = []
+
+    def _mark_device_not_built(self, name):
+        self.not_built.append(name)
+
+
+def test_a_default_that_fails_is_marked_not_built_on_the_microscope(builders):
+    def broken(entry, context):
+        raise RuntimeError("no answer")
+
+    builders["manipulator"] = broken
+    microscope = _Microscope()
+    built = build_device_entries([_item("manipulator", "manipulator")], microscope)
+
+    assert built == {}
+    assert microscope.not_built == ["manipulator"]
+
+
+def test_a_manipulator_that_failed_to_build_is_not_fitted(tmp_path):
+    microscope = _demo_with(tmp_path)
+    assert microscope.is_available("manipulator")
+
+    microscope._mark_device_not_built("manipulator")
+
+    assert not microscope.is_available("manipulator")
+    assert microscope.capability_sources["manipulator"] == "not_built"
+
+
 # -- on the Demo -------------------------------------------------------------------
 
 
@@ -252,13 +307,15 @@ def test_the_demo_builds_an_added_device_under_its_own_name(tmp_path):
     assert microscope.chamber_device is microscope.devices["chamber"]
 
 
-def test_the_demo_fails_connect_for_a_required_device_it_cannot_build(tmp_path):
+def test_the_demo_fails_connect_for_a_configured_device_it_cannot_build(tmp_path):
     with pytest.raises(DeviceBuildError, match="'laser'"):
-        _demo_with(tmp_path, {"name": "laser", "type": "laser", "required": True})
+        _demo_with(tmp_path, {"name": "laser", "type": "laser"})
 
 
-def test_the_demo_goes_on_without_a_device_it_cannot_build(tmp_path):
-    microscope = _demo_with(tmp_path, {"name": "laser", "type": "laser"})
+def test_the_demo_goes_on_without_a_device_marked_not_required(tmp_path):
+    microscope = _demo_with(
+        tmp_path, {"name": "laser", "type": "laser", "required": False}
+    )
 
     assert "laser" not in microscope.devices
     assert set(microscope.beams) == {BeamType.ELECTRON, BeamType.ION}

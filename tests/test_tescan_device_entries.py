@@ -53,23 +53,23 @@ def test_a_disabled_column_or_stage_is_not_built(monkeypatch):
     assert set(microscope.beams) == {BeamType.ION}
 
 
-def test_a_device_tescan_has_no_builder_for_is_skipped_with_a_warning(
+def test_a_device_tescan_has_no_builder_for_is_skipped_when_not_required(
     monkeypatch, caplog
 ):
     with caplog.at_level(logging.WARNING):
         microscope, _ = connect(
-            monkeypatch, _system({"name": "laser", "type": "laser"})
+            monkeypatch, _system({"name": "laser", "type": "laser", "required": False})
         )
 
     assert "laser" not in microscope.devices
     assert "driver 'Tescan' has no builder for a 'laser' device" in caplog.text
 
 
-def test_a_required_device_it_cannot_build_fails_connect(monkeypatch):
+def test_a_configured_device_it_cannot_build_fails_connect(monkeypatch):
     with pytest.raises(DeviceBuildError, match="'laser'"):
         connect(
             monkeypatch,
-            _system({"name": "laser", "type": "laser", "required": True}),
+            _system({"name": "laser", "type": "laser"}),
         )
 
 

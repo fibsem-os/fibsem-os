@@ -41,10 +41,15 @@ REMOTE_DRIVER = "remote"
 
 @dataclass(frozen=True)
 class ResolvedEntry:
-    """One device to build: its entry, and the driver that builds it."""
+    """One device to build: its entry, and the driver that builds it.
+
+    `listed` is whether the configuration names it, rather than it being only one of
+    the devices its backend builds by itself.
+    """
 
     entry: DeviceEntry
     driver: str
+    listed: bool = False
 
     @property
     def name(self) -> str:
@@ -56,8 +61,13 @@ class ResolvedEntry:
 
     @property
     def required(self) -> bool:
-        """Whether connecting fails when this device cannot be built."""
-        return bool(self.entry.required)
+        """Whether connecting fails when this device cannot be built: the entry's
+        `required`, else whether the configuration names it. A device the
+        configuration names is one the site says it has; one the backend only
+        assumes is left out instead."""
+        if self.entry.required is not None:
+            return bool(self.entry.required)
+        return self.listed
 
 
 def configured_device_entries(system: "SystemSettings") -> Dict[str, DeviceEntry]:
@@ -88,7 +98,8 @@ def resolve_device_entries(
     new name is a device the backend adds, after its own, in file order. An entry that
     is `enabled: false` is left out, so its driver never touches it; absent `enabled`
     is the default's, and a configured device the backend does not build by itself is
-    built unless it says otherwise.
+    built unless it says otherwise. A configured device is `required` unless its entry
+    says `required: false`; one only in *defaults* is not, unless it says so.
     """
     merged: Dict[str, DeviceEntry] = {}
     for default in defaults:
@@ -104,7 +115,13 @@ def resolve_device_entries(
         if entry.enabled is False:
             logging.info(f"Device '{entry.name}' is disabled in the configuration.")
             continue
-        resolved.append(ResolvedEntry(entry, _driver_name(entry.driver, manufacturer)))
+        resolved.append(
+            ResolvedEntry(
+                entry,
+                _driver_name(entry.driver, manufacturer),
+                listed=entry.name in configured,
+            )
+        )
     return resolved
 
 
@@ -148,8 +165,8 @@ def build_device_entries(
     *shared* starts the builders' scratch space (`BuildContext.shared`), for a backend
     that hands its driver's builders something of its own. A device whose driver has
     no builder for its type, or whose builder fails, is not built: connecting fails for
-    a `required` one (`DeviceBuildError`), and logs a warning and goes on without it
-    for any other. Returns the built devices by name, in the order they were built.
+    a `required` one (`DeviceBuildError`); any other is logged as a warning and marked
+    not fitted on *microscope*, and connecting goes on without it. Returns the built devices by name, in the order they were built.
     """
     from fibsem.drivers.registry import BuildContext
 
@@ -161,12 +178,12 @@ def build_device_entries(
         builder = _builder(item)
         if builder is None:
             reason = f"driver '{item.driver}' has no builder for a '{item.type}' device"
-            _not_built(item, reason)
+            _not_built(item, microscope, reason)
             continue
         try:
             device = builder.load()(item.entry, context)
         except Exception as e:
-            _not_built(item, f"building it failed: {e}", e)
+            _not_built(item, microscope, f"building it failed: {e}", e)
             continue
         if device is not None:
             built[item.name] = device
@@ -185,12 +202,18 @@ def _builder(item: ResolvedEntry) -> Optional["DeviceBuilder"]:
 
 
 def _not_built(
-    item: ResolvedEntry, reason: str, error: Optional[Exception] = None
+    item: ResolvedEntry,
+    microscope: Optional["FibsemMicroscope"],
+    reason: str,
+    error: Optional[Exception] = None,
 ) -> None:
     message = f"Device '{item.name}' was not built: {reason}."
     if item.required:
         raise DeviceBuildError(message) from error
     logging.warning(message)
+    mark = getattr(microscope, "_mark_device_not_built", None)
+    if mark is not None:
+        mark(item.name)
 
 
 class RoleBindingError(ValueError):
