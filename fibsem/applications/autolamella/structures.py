@@ -152,6 +152,10 @@ class AutoLamellaTaskState:
     # numpy scalars and enums and would fail the whole save. measured values belong
     # in a separate field, not here.
     outputs: Dict[str, List[str]] = field(default_factory=dict)
+    # where the stage was, as FibsemStagePosition.to_dict(). Set only on a grid's
+    # load entry, once an exchange has brought the grid in; None everywhere else,
+    # and then left out of to_dict so other entries are written as before.
+    stage_position: Optional[Dict[str, Any]] = None
 
     @property
     def completed(self) -> str:
@@ -185,6 +189,8 @@ class AutoLamellaTaskState:
         """Convert the task state to a dictionary."""
         ddict = asdict(self)
         ddict["status"] = self.status.name
+        if ddict["stage_position"] is None:
+            del ddict["stage_position"]
         return ddict
 
     @classmethod

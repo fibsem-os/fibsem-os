@@ -44,13 +44,16 @@ The hardware calls are atomic; Stop is honoured at the checkpoints between them.
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from copy import deepcopy
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from fibsem import acquire
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
     AutoLamellaTaskStatus,
@@ -64,7 +67,9 @@ from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
 from fibsem.hooks import HookEvent, HookManager
+from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.microscopes._stage import GridExchangeError
+from fibsem.structures import BeamType, ImageSettings
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -80,6 +85,21 @@ if TYPE_CHECKING:
 # Readable where it shows: the queue, the timeline, the summary, the history.
 LOAD_ENTRY_NAME = "Load grid"
 LOAD_TASK_TYPE = "LOAD_GRID"
+
+# What an exchange leaves on its load entry besides its outcome (FIB-895): where
+# the stage is once the grid is in, and one wide, low-resolution SEM frame of it,
+# recorded under this output role. Groundwork for measuring how well a grid comes
+# back to the same place after an exchange; nothing reads either yet. SEM, not
+# FIB, so recording it mills nothing. The field width is clipped to the beam's
+# widest on hardware, which is the point: as much of the grid as one frame holds.
+REFERENCE_AT_LOAD_ROLE = "reference_at_load"
+REFERENCE_AT_LOAD_SETTINGS = ImageSettings(
+    resolution=(768, 512),
+    dwell_time=1e-6,
+    hfw=2000e-6,
+    autocontrast=False,
+    beam_type=BeamType.ELECTRON,
+)
 
 # Skip reasons, in the vocabulary TASK_SKIPPED hooks and status reports carry.
 SKIP_GRID_NOT_FOUND = "grid_not_found"
@@ -523,7 +543,8 @@ class GridTaskManager(BaseTaskManager):
         A grid already in a holder slot is confirmed, not exchanged, and leaves no
         entry: the second task on a grid is not a second load. An exchange, or a
         refusal, is recorded on the grid's history as a ``load`` entry with how
-        long it took or why it did not happen. A failure is remembered for the
+        long it took or why it did not happen; a completed exchange's entry also
+        carries the stage position and a wide SEM frame taken once the grid is in. A failure is remembered for the
         rest of the run so the grid's other tasks skip without retrying it.
 
         An exchange is two hardware calls, the unload and the load, and Stop is
@@ -575,13 +596,47 @@ class GridTaskManager(BaseTaskManager):
         if not loaded:
             entry.status = AutoLamellaTaskStatus.Completed
             entry.status_message = f"Loaded into {slot.name}."
+            # The entry's duration is the exchange's; the reference after it is
+            # not part of what an exchange costs.
             entry.end_timestamp = datetime.timestamp(datetime.now())
+            self._record_load_reference(grid, entry)
             grid.task_history.append(entry)
             self.experiment.save()
             logging.info(
                 f"Grid {grid.name} loaded into {slot.name} in {entry.duration:.1f} s."
             )
         return True
+
+    def _record_load_reference(
+        self, grid: GridRecord, entry: AutoLamellaTaskState
+    ) -> None:
+        """Record on a completed exchange's entry where the stage is and what the
+        SEM sees there, without moving anything.
+
+        Each is best-effort and independent: the grid is loaded either way, and
+        nothing acts on either yet, so a failure is logged and the load still
+        completes.
+        """
+        try:
+            entry.stage_position = self.microscope.get_stage_position().to_dict()
+        except Exception as e:  # noqa: BLE001 - the grid is loaded regardless
+            logging.warning(f"Could not read the stage position at load: {e}")
+        directory = Path(self.experiment.grid_path(grid)) / LOAD_ENTRY_NAME
+        try:
+            settings = deepcopy(REFERENCE_AT_LOAD_SETTINGS)
+            settings.save = True
+            settings.path = str(directory)
+            settings.filename = stamped_overview_name(REFERENCE_AT_LOAD_ROLE)
+            directory.mkdir(parents=True, exist_ok=True)
+            image = acquire.acquire_image(self.microscope, settings)
+        except Exception as e:  # noqa: BLE001 - the grid is loaded regardless
+            logging.warning(f"Could not acquire the reference frame at load: {e}")
+            return
+        if image.filepath is not None:
+            # As GridTask.record_output records it: relative to the grid's
+            # directory, with forward slashes.
+            relative = os.path.relpath(image.filepath, self.experiment.grid_path(grid))
+            entry.outputs[REFERENCE_AT_LOAD_ROLE] = [Path(relative).as_posix()]
 
     @staticmethod
     def _working_slot_occupant(stage) -> Optional[str]:
