@@ -73,6 +73,7 @@ from fibsem.structures import (
     InsertableDeviceState,
     Point,
     RangeLimit,
+    Resolution,
 )
 
 # The voltages Odemis offers on a ThermoFisher column, before the column's own range
@@ -128,7 +129,10 @@ class OdemisBeam(Beam):
         return self.parent.connection
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
-        logging.info(f"{self.beam_type.name} {what} set to {value}{unit}.")
+        logging.info(
+            f"{self.beam_type.name} {what} set to {value}{unit}.",
+            stacklevel=2,  # name the write_* method, not this helper
+        )
 
     def read_on(self) -> bool:
         return self._client.get_beam_is_on(self.channel)
@@ -335,7 +339,7 @@ class OdemisBeam(Beam):
         tmp_resolution = None
         resolution = image_settings.resolution
         if resolution[0] == resolution[1]:
-            frame_settings = {"resolution": f"{resolution[0]}x{resolution[1]}"}
+            frame_settings = {"resolution": str(Resolution(*resolution))}
             tmp_resolution = resolution
             image_settings.resolution = microscope.get_resolution(
                 beam_type=self.beam_type

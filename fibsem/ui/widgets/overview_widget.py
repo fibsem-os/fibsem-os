@@ -1441,8 +1441,8 @@ class FibsemOverviewWidget(QWidget):
         the same way -- kept along the surface, squashed for the view -- so the bars
         stay on the grid's bars whichever view is shown.
 
-        The lattice *centre* is the grid centre, because building it with its own
-        rotation read as a position recorded half a turn away. See :meth:`_landmark`.
+        The lattice is centred on the holder grid the view is looking at; see
+        :meth:`_gridbar_anchor`.
         """
         if not self.overlay_controls.is_visible(_OVERLAY_GRIDBARS):
             return
@@ -1450,7 +1450,7 @@ class FibsemOverviewWidget(QWidget):
         if frame is None:
             return
         try:
-            anchor = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))
+            anchor = frame.to_canvas(self._gridbar_anchor(frame))
             squash = frame.surface_foreshortening()
             dx, dy = self._gridbar_offset
             centre = (
@@ -1477,6 +1477,21 @@ class FibsemOverviewWidget(QWidget):
             radius=frame.length(stage_context.GRID_BOUNDARY_RADIUS_M),
         )
 
+    def _gridbar_anchor(self, frame: StageFrame) -> FibsemStagePosition:
+        """Where undragged bars are centred: the holder grid this view is looking at.
+
+        The holder's slot nearest the view's origin, the same place its grid boundary
+        is drawn around. With no slot position (a holder not yet calibrated), the view's
+        origin -- the first image placed in it -- so the bars are on the overview. They
+        used to be centred on the stage origin and clipped to a grid's disc there, which
+        on a shuttle is millimetres from any grid and drew nothing on the overview.
+        """
+        place = stage_context.nearest_slot_landmark(self.microscope, frame)
+        if place is not None:
+            return place
+        origin = frame.origin
+        return self._landmark(frame, origin.x, origin.y, "Grid Centre")
+
     @property
     def gridbar_placement(self) -> Tuple[float, float, float]:
         """Where the bars have been dragged to: (dx, dy) metres along the sample
@@ -1496,7 +1511,7 @@ class FibsemOverviewWidget(QWidget):
         if frame is None:
             return
         try:
-            anchor = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))
+            anchor = frame.to_canvas(self._gridbar_anchor(frame))
             here = self.canvas.canvas_to_metres(cx, cy)
             there = self.canvas.canvas_to_metres(*anchor)
             squash = frame.surface_foreshortening() or 1.0

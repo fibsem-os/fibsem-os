@@ -27,7 +27,6 @@ can drive a stage it needs a threading story, and that is a different widget.
 from __future__ import annotations
 
 import math
-from datetime import datetime
 from typing import List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -49,6 +48,7 @@ from fibsem.ui.tokens import (
     WARN_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.util.timestamps import format_time
 from fibsem.utils import (
     NOT_AVAILABLE,
     format_angle,
@@ -360,9 +360,8 @@ def _separation(state: MicroscopeState, reference: MicroscopeState) -> Optional[
 
 
 def _timestamp(value: Optional[float]) -> str:
-    if not value:
-        return ""
-    return datetime.fromtimestamp(value).strftime("%Y-%m-%d %H:%M:%S")
+    # A state from an older ThermoFisher image holds AutoScript's string here.
+    return format_time(value, "%Y-%m-%d %H:%M:%S") or ""
 
 
 # ---------------------------------------------------------------------------
