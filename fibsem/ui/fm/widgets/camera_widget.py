@@ -58,9 +58,6 @@ class CameraWidget(QWidget):
         self.label_gain = QLabel(GAIN_FIELD["label"], self)
         self.spinBox_gain = ValueSpinBox(parent=self)
         configure_spinbox(self.spinBox_gain, GAIN_FIELD)
-        # Camera.gain declares no limits: a camera with no gain range keeps its own
-        # units. As a fraction it is 0 to 100 %.
-        self.spinBox_gain.setRange(0, 100)
         self.spinBox_gain.setToolTip("Camera gain in percentage (0 to 100)")
         self.spinBox_gain.setKeyboardTracking(False)
         gain = self.fm.camera.gain

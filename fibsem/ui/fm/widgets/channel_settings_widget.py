@@ -123,7 +123,7 @@ class ChannelSettingsWidget(QWidget):
         show_native_units(self.power_spin, power_scale(self._fm))
         form.addRow("Power", self.power_spin)
 
-        self.gain_spin = ValueSpinBox(minimum=0.0, maximum=100.0)
+        self.gain_spin = ValueSpinBox()
         configure_spinbox(self.gain_spin, parameter_field_metadata(Camera.gain))
         self.gain_spin.setToolTip("Detector gain (%)")
         show_native_units(self.gain_spin, gain_scale(self._fm))

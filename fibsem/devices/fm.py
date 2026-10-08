@@ -29,7 +29,7 @@ from fibsem.devices.core import Device, Parameter, Role, command
 from fibsem.devices.wire import Frame, to_wire
 from fibsem.display import Display
 from fibsem.fm.structures import EmissionFilter
-from fibsem.structures import CameraImageTransform, InsertableDeviceState
+from fibsem.structures import CameraImageTransform, InsertableDeviceState, RangeLimit
 from fibsem.util.timestamps import now_iso, zone_known
 
 
@@ -60,6 +60,7 @@ class Camera(Device):
     binning = Parameter(int, display=Display("Binning"))
     gain = Parameter(
         float,
+        limits=RangeLimit(0.0, 1.0),
         doc="A fraction of the camera's gain range, 0 to 1.",
         display=Display("Gain", scale=100, unit="%", step=1.0, decimals=1),
     )
