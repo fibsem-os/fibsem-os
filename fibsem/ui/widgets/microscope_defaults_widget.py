@@ -34,7 +34,7 @@ from fibsem import utils
 from fibsem.constants import METRE_TO_MICRON
 from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSystemSettings, BeamType, ImageSettings
+from fibsem.structures import BeamSystemSettings, BeamType, ImageSettings, Resolution
 from fibsem.ui import notification_service
 from fibsem.ui.icon import ICON_READ_FROM_ACQUIRE_TAB, ICON_READ_FROM_MICROSCOPE
 from fibsem.ui.utils import beam_choices, beam_limits, set_range_from_limits
@@ -75,12 +75,11 @@ def _format_current(a) -> str:
 # the QVariant round trip `findData` uses to select an item, so `set_value` fell
 # back to its closest-numeric rule, which cannot compare tuples and picked index 0.
 def _resolution_key(r) -> str:
-    return f"{int(r[0])}x{int(r[1])}"
+    return str(Resolution(int(r[0]), int(r[1])))
 
 
 def _resolution_from_key(key: str) -> Tuple[int, int]:
-    w, h = key.split("x")
-    return int(w), int(h)
+    return tuple(Resolution.parse(key))
 
 
 def _format_resolution(key: str) -> str:

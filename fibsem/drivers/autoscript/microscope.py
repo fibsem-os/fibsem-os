@@ -824,6 +824,11 @@ class ThermoMicroscope(FibsemMicroscope):
     # depend on the vendor stage read this; everything else asks the stage device.
     _compustage_installed: bool = False
 
+    # Specimen minus raw coordinates, (x, y) metres: where xT centres its compucentric
+    # rotation, as an offset. Read once at connect, since xT does not change it while
+    # connected; None on a compustage, which does not rotate, or before connect.
+    _compucentric_offset: Optional[Tuple[float, float]] = None
+
     # The port connect_to_microscope used: info.port, or the driver's default.
     # reconnect uses it again.
     _port: Optional[int] = None
@@ -946,6 +951,9 @@ class ThermoMicroscope(FibsemMicroscope):
         # set default coordinate system
         self._vendor_stage.set_default_coordinate_system(
             self._default_stage_coordinate_system
+        )
+        self._compucentric_offset = (
+            None if self._compustage_installed else self._read_compucentric_offset()
         )
         self._build_stage()
         # TODO: set default move settings, is this dependent on the stage type?
@@ -1489,30 +1497,36 @@ class ThermoMicroscope(FibsemMicroscope):
         else:
             raise ValueError(f"Unknown beam type: {beam_type}")
 
-    def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
-        """Get the difference between the stage position in specimen coordinates and raw coordinates."""
-        # no offset for compustage
-        if self._compustage_installed:
-            return FibsemStagePosition(x=0, y=0)
+    @property
+    def rotation_centre(self) -> Optional[Tuple[float, float]]:
+        """Where a half turn is centred, raw (x, y) in metres (FIB-655).
 
-        # get stage position in speciemn coordinates
-        self._vendor_stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
-        specimen_stage_position = stage_position_from_autoscript(
-            self._vendor_stage.current_position
+        xT's compucentric centre, read at connect, plus the instrument's calibrated
+        `rotation_centre_correction`. Stage moves and image reprojection both use it,
+        so a position reached by rotating and one drawn on the other side's image agree.
+        """
+        if self._compucentric_offset is None:
+            return None
+        ox, oy = self._compucentric_offset
+        cx, cy = self.system.stage.rotation_centre_correction
+        return (-ox + cx, -oy + cy)
+
+    def _read_compucentric_offset(self) -> Tuple[float, float]:
+        """Specimen minus raw stage coordinates, (x, y) metres, as xT reports them."""
+        try:
+            self._vendor_stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
+            specimen = stage_position_from_autoscript(
+                self._vendor_stage.current_position
+            )
+            self._vendor_stage.set_default_coordinate_system(CoordinateSystem.RAW)
+            raw = stage_position_from_autoscript(self._vendor_stage.current_position)
+        finally:
+            self._vendor_stage.set_default_coordinate_system(
+                self._default_stage_coordinate_system
+            )
+        offset = (specimen.x - raw.x, specimen.y - raw.y)
+        logging.info(
+            f"Compucentric rotation offset (specimen - raw): "
+            f"x={offset[0] * 1e6:.2f} um, y={offset[1] * 1e6:.2f} um."
         )
-
-        # get stage position in raw coordinates
-        self._vendor_stage.set_default_coordinate_system(CoordinateSystem.RAW)
-        raw_stage_position = stage_position_from_autoscript(
-            self._vendor_stage.current_position
-        )
-
-        # calculate the offset
-        offset = specimen_stage_position - raw_stage_position  # XY only
-
-        # restore stage coordinate system
-        self._vendor_stage.set_default_coordinate_system(
-            self._default_stage_coordinate_system
-        )
-
         return offset

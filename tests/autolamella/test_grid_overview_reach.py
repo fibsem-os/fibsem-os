@@ -237,10 +237,10 @@ def test_the_warning_names_whole_rows_and_columns_or_a_few_tiles():
 
 
 def test_the_shipped_grid_tasks_are_in_the_arctis_reach(microscope):
-    """The default protocol screens with an SEM and a FIB overview, each at its
-    own beam and orientation, and neither has a tile past the compustage's
-    travel. Two rows more of either would, so the check is not vacuous (the FIB
-    overview has room for one)."""
+    """The default protocol screens with an SEM and a FIB overview, each with its
+    own beam and both at the SEM orientation, and neither has a tile past the
+    compustage's travel. Two rows more of either would, so the check is not
+    vacuous."""
     from copy import deepcopy
 
     from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
@@ -254,7 +254,7 @@ def test_the_shipped_grid_tasks_are_in_the_arctis_reach(microscope):
     assert grid_tasks.ordered_task_names == ["SEM Overview", "FIB Overview"]
     expected = {
         "SEM Overview": (BeamType.ELECTRON, "SEM", 3, 500e-6),
-        "FIB Overview": (BeamType.ION, "FIB", 5, 250e-6),
+        "FIB Overview": (BeamType.ION, "SEM", 4, 250e-6),
     }
     for name, (beam, orientation, tiles, hfw) in expected.items():
         config = grid_tasks.task_config[name]
