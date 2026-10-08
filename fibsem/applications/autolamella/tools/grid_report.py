@@ -84,8 +84,8 @@ class OverviewEntry:
     modality: str  # SEM, FIB, FM
     status: AutoLamellaTaskStatus
     status_message: str
-    started: float
-    ended: Optional[float]
+    started: Optional[datetime]
+    ended: Optional[datetime]
     path: Optional[str] = None
     pose: str = ""  # the stage pose it was taken at, as text
     tiles: Optional[Tuple[int, int]] = None  # (rows, cols)
@@ -99,7 +99,7 @@ class OverviewEntry:
     unmarked: List[str] = field(default_factory=list)
 
     @property
-    def when(self) -> float:
+    def when(self) -> Optional[datetime]:
         return self.ended or self.started
 
 
@@ -107,7 +107,7 @@ class OverviewEntry:
 class LoadEntry:
     status: AutoLamellaTaskStatus
     status_message: str
-    when: float
+    when: Optional[datetime]
 
 
 @dataclass
@@ -154,13 +154,14 @@ class GridReport:
     outcomes: Dict[str, Dict[str, TaskOutcome]]  # grid name -> task name -> outcome
 
     @property
-    def screened(self) -> Optional[Tuple[float, float]]:
+    def screened(self) -> Optional[Tuple[datetime, datetime]]:
         """When the first and last recorded entry happened, or None if nothing ran."""
         stamps = [
             stamp
             for section in self.sections
             for stamp in ([section.load.when] if section.load else [])
             + [o.when for o in section.overviews]
+            if stamp is not None
         ]
         if not stamps:
             return None

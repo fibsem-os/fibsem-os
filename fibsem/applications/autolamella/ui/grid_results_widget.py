@@ -53,6 +53,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
+from fibsem.util.timestamps import format_time
 
 _TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-friendly size
 
@@ -68,7 +69,7 @@ _STATUS_COLOUR = {
 
 def _when(state: AutoLamellaTaskState) -> str:
     stamp = state.end_timestamp or state.start_timestamp
-    return datetime.fromtimestamp(stamp).strftime(TIME_DISPLAY_AMPM_SHORT)
+    return format_time(stamp, TIME_DISPLAY_AMPM_SHORT) or ""
 
 
 def _recorded(

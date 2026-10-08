@@ -87,7 +87,8 @@ def config_version(config) -> str:
 def _json_safe(value: Any) -> Any:
     """Coerce one cell of a dataframe/record into something JSON can carry."""
     if isinstance(value, datetime):
-        return value.isoformat()
+        # pandas' NaT is a datetime too: a time not yet known, as NaN is for a number
+        return None if value != value else value.isoformat()
     if isinstance(value, float) and math.isnan(value):
         return None
     if hasattr(value, "item") and not isinstance(value, str):

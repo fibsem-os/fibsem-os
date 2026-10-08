@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.proposals import (
     TaskResultProposer,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+from fibsem.util.timestamps import to_datetime
 
 # Provenance key -> output role, for a lamella task: the last final ion and
 # electron images. The last is the tightest field of view, the one the Review
@@ -31,6 +32,11 @@ LAMELLA_RESULT_IMAGES: Dict[str, str] = {
     "reference_image": "final_fib",
     "reference_image_eb": "final_sem",
 }
+
+
+def _iso(value) -> Optional[str]:
+    when = to_datetime(value)
+    return when.isoformat() if when is not None else None
 
 
 def propose(
@@ -79,8 +85,10 @@ def propose(
         "task_name": task.task_name,
         "task_id": state.task_id,
         "status": state.status.name,
-        "started_at": state.start_timestamp,
-        "ended_at": state.end_timestamp,
+        # ISO with offset, as the task state writes them (FIB-1197); older
+        # proposals hold POSIX floats here.
+        "started_at": _iso(state.start_timestamp),
+        "ended_at": _iso(state.end_timestamp),
         **images,
         "failure": failure,
         **proposal.provenance,

@@ -98,6 +98,7 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
 )
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE
+from fibsem.util.timestamps import to_datetime
 
 __all__ = [
     "REVIEW_RENDERERS",
@@ -569,10 +570,17 @@ class TaskResultReviewRenderer(ReviewRenderer):
     def _took(self) -> str:
         """How long the run took, or "" when the record does not say."""
         p = self._proposal.provenance if self._proposal else {}
-        started, ended = p.get("started_at"), p.get("ended_at")
-        if isinstance(started, (int, float)) and isinstance(ended, (int, float)):
-            return _duration(ended - started)
-        return ""
+        # ISO with offset, or the POSIX floats older proposals hold (FIB-1197)
+        started, ended = (
+            to_datetime(p.get("started_at")),
+            to_datetime(p.get("ended_at")),
+        )
+        if started is None or ended is None:
+            return ""
+        try:
+            return _duration((ended - started).total_seconds())
+        except TypeError:  # one with a zone, one without: not comparable
+            return ""
 
     # -- ReviewRenderer ------------------------------------------------------
 

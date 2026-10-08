@@ -162,23 +162,26 @@ fibsemOS stores goes through `fibsem/util/timestamps.py` and follows these rules
    save.
 3. **Convert to the viewer's zone only to display,** with `format_time`. Comparing,
    subtracting and sorting aware datetimes goes by the instant, whatever their offsets.
-   Displays show no offset. The one exception is a timeline that keeps a run on the
-   instrument's clock, such as the replay or a report: it reads with `wall_time_of`,
-   which drops an offset rather than converting it, and reads a POSIX time in the
-   instrument's zone as the experiment recorded it, `experiment.session.zone`
-   (FIB-1196).
+   Displays show no offset. The exception is what keeps a run on the instrument's
+   clock (FIB-1196). The replay reads with `wall_time_of`, which drops an offset rather
+   than converting it. A report converts into the instrument's zone as the experiment
+   recorded it, `experiment.session.zone`, and says so once in its header.
 4. **Name the moment `*_at`** (`started_at`, `captured_at`), one field per moment, and
    derive durations from two of them rather than storing one.
 5. **Default with `field(default_factory=now)`,** never `= now()` in a class body,
    which runs once when the module is imported (FIB-487).
 6. **POSIX only at the edges.** A vendor's time or a file's mtime becomes an aware
    datetime as soon as it is read (`from_posix`). Do not add a POSIX field. The ones
-   that exist (task `start_timestamp`/`end_timestamp`, the `created_at` fields) are
-   moving to `*_at` fields beside them (FIB-1197); `microscope_state.timestamp` stays.
+   that exist keep their keys and are written as ISO 8601 with offset from now on
+   (FIB-1197): task `start_timestamp`/`end_timestamp` first, the `created_at` fields
+   next. `microscope_state.timestamp` stays a float.
 7. **Old files keep reading as they did.** `to_datetime` reads every older form: a POSIX
-   float, AutoScript's `%m/%d/%Y %H:%M:%S` string, a naive ISO string. A naive value
-   stays naive, because its zone is unknown. Never upgrade an old value to an instant
-   by guessing its zone, and never rewrite one.
+   float, AutoScript's `%m/%d/%Y %H:%M:%S` string, a naive ISO string, and it reads
+   them where the key is now ISO, so an older file loads and shows the same times. A
+   POSIX float is an instant, so it is written back as ISO with this machine's offset
+   when the file is next saved. A naive value stays naive, because its zone is
+   unknown: never give it one by guessing. Backward compatibility is the goal; an
+   older fibsem need not open a newer file.
 
 Filenames and folder names (`overview-21-18-22`, `DATETIME_FILE`) are names, on the
 local clock, and nothing parses them as times.
