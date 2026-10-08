@@ -37,7 +37,7 @@ from fibsem.applications.autolamella.tools.grid_report import (
 )
 from fibsem.fm.preview import is_fluorescence_image, load_projection
 from fibsem.structures import FibsemImage
-from fibsem.util.timestamps import wall_time_of, zone_label
+from fibsem.util.timestamps import to_datetime, zone_label
 
 logger = logging.getLogger(__name__)
 
@@ -173,13 +173,17 @@ def render_overview(entry: OverviewEntry, max_edge: int = PRINT_MAX_EDGE) -> byt
 # ---------------------------------------------------------------------------
 
 
-def _when(
-    stamp: Optional[float], fmt: str = "%H:%M", zone: Optional[tzinfo] = None
-) -> str:
-    """A task's POSIX time on the instrument's clock when the experiment recorded
-    its zone, else on this machine's (FIB-1196)."""
-    when = wall_time_of(stamp, zone) if stamp else None
-    return when.strftime(fmt) if when is not None else ""
+def _when(stamp, fmt: str = "%H:%M", zone: Optional[tzinfo] = None) -> str:
+    """A time in the zone the cover names (FIB-1196): the instrument's when the
+    experiment recorded it, else this machine's. A task's time is aware (FIB-1197),
+    the report's own is POSIX; both are converted, so every time on the page is on
+    the one clock the cover states."""
+    when = to_datetime(stamp) if stamp else None
+    if when is None:
+        return ""
+    if when.tzinfo is not None:
+        when = when.astimezone(zone)
+    return when.strftime(fmt)
 
 
 def _clock(zone: Optional[tzinfo]) -> str:

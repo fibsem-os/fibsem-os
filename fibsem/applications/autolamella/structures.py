@@ -76,6 +76,7 @@ from fibsem.structures import (
     SessionInfo,
     get_fields_with_metadata,
 )
+from fibsem.util.timestamps import format_time, now, to_datetime
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
 
@@ -139,10 +140,11 @@ class AutoLamellaTaskState:
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_type: str = ""
     lamella_id: str = ""
-    start_timestamp: float = field(
-        default_factory=lambda: datetime.timestamp(datetime.now())
-    )
-    end_timestamp: Optional[float] = None
+    # When the run started and ended: aware datetimes, written as ISO 8601 with
+    # their offset (FIB-1197). Files written before that hold POSIX floats, which
+    # read as this machine's zone -- the clock time they always displayed.
+    start_timestamp: Optional[datetime] = field(default_factory=now)
+    end_timestamp: Optional[datetime] = None
     status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
     status_message: str = ""
     # files this run produced, keyed by role, as paths relative to lamella.path.
@@ -153,6 +155,11 @@ class AutoLamellaTaskState:
     # in a separate field, not here.
     outputs: Dict[str, List[str]] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # A caller that still passes a POSIX float gets it read as one.
+        self.start_timestamp = to_datetime(self.start_timestamp)
+        self.end_timestamp = to_datetime(self.end_timestamp)
+
     @property
     def completed(self) -> str:
         return f"{self.name} ({self.completed_at})"
@@ -161,21 +168,19 @@ class AutoLamellaTaskState:
     def completed_at(self) -> str:
         if self.end_timestamp is None:
             return "in progress"
-        return datetime.fromtimestamp(self.end_timestamp).strftime(
-            TIME_DISPLAY_AMPM_SHORT
-        )
+        return format_time(self.end_timestamp, TIME_DISPLAY_AMPM_SHORT) or ""
 
     @property
     def started_at(self) -> str:
-        return datetime.fromtimestamp(self.start_timestamp).strftime(
-            TIME_DISPLAY_AMPM_SHORT
-        )
+        return format_time(self.start_timestamp, TIME_DISPLAY_AMPM_SHORT) or ""
 
     @property
     def duration(self) -> float:
-        if self.end_timestamp is None:
+        """Seconds from start to end; 0 while it runs or when either is unknown."""
+        start, end = to_datetime(self.start_timestamp), to_datetime(self.end_timestamp)
+        if start is None or end is None:
             return 0
-        return self.end_timestamp - self.start_timestamp
+        return (end - start).total_seconds()
 
     @property
     def duration_str(self) -> str:
@@ -185,6 +190,9 @@ class AutoLamellaTaskState:
         """Convert the task state to a dictionary."""
         ddict = asdict(self)
         ddict["status"] = self.status.name
+        for key in ("start_timestamp", "end_timestamp"):
+            when = to_datetime(ddict[key])
+            ddict[key] = when.isoformat() if when is not None else None
         return ddict
 
     @classmethod
@@ -194,6 +202,10 @@ class AutoLamellaTaskState:
             return cls()
         data = data.copy()
         data["status"] = AutoLamellaTaskStatus[data.get("status", "NotStarted")]
+        # Either form: ISO with offset, or the POSIX float written before FIB-1197.
+        for key in ("start_timestamp", "end_timestamp"):
+            if key in data:
+                data[key] = to_datetime(data[key])
         # drop keys this build doesn't know about: an experiment written by a newer
         # version must still load in an older one rather than raising TypeError.
         known = {f.name for f in fields(cls)}

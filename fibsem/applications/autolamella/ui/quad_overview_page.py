@@ -85,6 +85,7 @@ from fibsem.ui.widgets.stored_overview_canvas import (
     StoredOverviewCanvas,
     _view_of_beam_image,
 )
+from fibsem.util.timestamps import format_time, from_posix
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ class _Overview:
 
     path: str
     view: str
-    when: float
+    when: datetime
     label: str
 
 
@@ -382,7 +383,7 @@ class QuadOverviewPage(QWidget):
                 read = self._read(path)
                 if read is None:
                     continue
-                stamp = state.end_timestamp or state.start_timestamp or 0.0
+                stamp = state.end_timestamp or state.start_timestamp or from_posix(0.0)
                 index.setdefault(grid.id, []).append(
                     _Overview(path, read[1], stamp, state.name)
                 )
@@ -392,7 +393,7 @@ class QuadOverviewPage(QWidget):
                 continue
             key = (read[0] or NO_GRID) if has_grids else NO_GRID
             index.setdefault(key, []).append(
-                _Overview(path, read[1], os.path.getmtime(path), "Overview")
+                _Overview(path, read[1], from_posix(os.path.getmtime(path)), "Overview")
             )
         for overviews in index.values():
             overviews.sort(key=lambda o: o.when)
@@ -507,9 +508,7 @@ class QuadOverviewPage(QWidget):
             image = self._image(overview.path)
             if image is None:
                 continue
-            when = datetime.fromtimestamp(overview.when).strftime(
-                TIME_DISPLAY_AMPM_SHORT
-            )
+            when = format_time(overview.when, TIME_DISPLAY_AMPM_SHORT)
             record = self.canvas.set_image(image, label=f"{overview.label} · {when}")
             if record is not None:
                 self._view_by_group.setdefault(

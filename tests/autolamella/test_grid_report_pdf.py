@@ -8,7 +8,7 @@ those tests skip there and run locally.
 import io
 import re
 import time
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -24,6 +24,7 @@ from fibsem.applications.autolamella.tools.grid_report_pdf import (
     render_overview,
     scale_bar_length,
 )
+from fibsem.util.timestamps import from_posix
 
 from .test_grid_report import report, screened  # noqa: F401 - fixtures
 
@@ -182,6 +183,17 @@ class TestTimes:
 
     def test_the_instruments_clock_from_any_zone(self, viewer_zone):
         assert _when(self.STAMP, "%d %b %Y %H:%M", self.MDT) == "13 Sep 2026 21:12"
+
+    def test_a_task_time_reads_on_the_instruments_clock_from_any_zone(
+        self, viewer_zone
+    ):
+        """A task's time is aware since FIB-1197: one loaded from an older float
+        carries this machine's offset, one written at the instrument carries its
+        own. Both land on the clock the cover names."""
+        loaded = from_posix(self.STAMP)
+        written = datetime.fromisoformat("2026-09-13T21:12:11-06:00")
+        for when in (loaded, written):
+            assert _when(when, "%d %b %Y %H:%M", self.MDT) == "13 Sep 2026 21:12"
 
     def test_this_computers_clock_without_a_recorded_zone(self, viewer_zone):
         expected = time.strftime("%H:%M", time.localtime(self.STAMP))

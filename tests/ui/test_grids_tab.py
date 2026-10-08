@@ -1,6 +1,7 @@
 """The Grids tab: cards for the experiment's records, chips from the hardware."""
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -51,7 +52,7 @@ def tab(qapp, arctis, experiment):
 
 def entry(status, name="overview_sem"):
     state = AutoLamellaTaskState(name=name, status=status)
-    state.end_timestamp = state.start_timestamp + 1
+    state.end_timestamp = state.start_timestamp + timedelta(seconds=1)
     return state
 
 
