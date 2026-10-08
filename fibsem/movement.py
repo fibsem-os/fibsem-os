@@ -1,4 +1,3 @@
-
 import numpy as np
 
 
@@ -48,4 +47,4 @@ def angle_difference(angle1: float, angle2: float) -> float:
     large_angle = np.max([angle1, angle2])
     small_angle = np.min([angle1, angle2])
 
-    return min((large_angle - small_angle), ((2 * np.pi + small_angle - large_angle)))
+    return min((large_angle - small_angle), (2 * np.pi + small_angle - large_angle))
