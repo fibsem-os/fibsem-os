@@ -40,6 +40,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_900,
     SURFACE_COLOR,
 )
+from fibsem.ui.widgets.image_viewer_dialog import open_image_viewer
 
 _TARGET_WIDTH = 1024 // 2
 _PLACEHOLDER_HEIGHT = 768 // 2  # estimated height for placeholder labels
@@ -228,6 +229,7 @@ class LamellaTaskImageWidget(QWidget):
         self._lamella_id: Optional[str] = None
         self._pixmap_cache: Dict[str, QPixmap] = {}
         self._placeholder_labels: Dict[str, QLabel] = {}
+        self._task_names: Dict[str, str] = {}  # image path -> the task that made it
         self._worker: Optional[_ImageLoaderWorker] = None
 
         self._setup_ui()
@@ -314,6 +316,7 @@ class LamellaTaskImageWidget(QWidget):
         """Build layout with placeholders, then kick off background image loading."""
         self._clear_layout()
         self._placeholder_labels.clear()
+        self._task_names.clear()
 
         if self._lamella is None:
             label = QLabel("Select a lamella card to view task images.")
@@ -374,6 +377,7 @@ class LamellaTaskImageWidget(QWidget):
             row = self._build_task_row_with_placeholders(task_name, filenames)
             self._content_layout.addWidget(row)
             all_filepaths.extend(filenames)
+            self._task_names.update(dict.fromkeys(filenames, task_name))
 
         self._content_layout.addStretch(1)
 
@@ -469,8 +473,15 @@ class LamellaTaskImageWidget(QWidget):
                 label.clicked.connect(self._open_expanded)
 
     def _open_expanded(self, filepath: str) -> None:
-        """Open an expanded, zoomable/pannable view of the image."""
-        dlg = ExpandedImageDialog(
-            filepath, title=os.path.basename(filepath), parent=self
+        """Open the image at full resolution in the image viewer (FIB-1189), with the
+        tile showing until the file is read."""
+        parts = [self._lamella.name] if self._lamella is not None else []
+        task_name = self._task_names.get(filepath)
+        if task_name:
+            parts.append(task_name)
+        open_image_viewer(
+            self,
+            filepath,
+            title=" › ".join(parts) or os.path.basename(filepath),
+            placeholder=self._pixmap_cache.get(filepath),
         )
-        dlg.exec_()

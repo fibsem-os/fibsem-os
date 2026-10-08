@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import constants
-from fibsem.imaging.export import image_fields, z_value
+from fibsem.imaging.export import image_fields, z_stack
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui.stylesheets import (
     CANVAS_BG as _BG,
@@ -61,7 +61,7 @@ from fibsem.ui.widgets.canvas.canvas_state import (
 from fibsem.ui.widgets.canvas.chamber_view import ChamberView
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
-from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar
+from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar, show_fm_plane
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -724,19 +724,13 @@ class MicroscopeViewController(QObject):
         canvas. See :meth:`FMCanvasWidget.set_fm_image`."""
         self._widget.fm_widget.set_fm_image(image)
         self._show_fields(self._fm_bar, image)
-        shape = getattr(image.data, "shape", ())
-        slices = shape[-3] if len(shape) >= 4 else 1  # as the export counts them
-        step = getattr(image.metadata, "pixel_size_z", None)
-        self._fm_z = (slices, step) if slices > 1 and step else None
+        self._fm_z = z_stack(image)
         self._refresh_fm_z()
 
     def _refresh_fm_z(self) -> None:
         """The FM bar's Z names the plane on screen: the projection, or `11 of 21`."""
-        if self._fm_bar is None or self._fm_z is None:
-            return
-        fm = self._widget.fm_widget
-        plane = None if fm.max_projection else fm.current_z
-        self._fm_bar.set_field_value("z", z_value(*self._fm_z, plane=plane))
+        if self._fm_bar is not None:
+            show_fm_plane(self._fm_bar, self._widget.fm_widget, self._fm_z)
 
     def clear_fm(self) -> None:
         """Drop all composited FM channels. Used on a lamella/task swap so a prior
