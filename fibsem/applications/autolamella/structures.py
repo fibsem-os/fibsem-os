@@ -3246,7 +3246,9 @@ class Experiment:
 
         # After _register_metadata, which sets `application` on the very SystemInfo
         # being snapshotted here.
-        self.session = SessionInfo.collect(microscope, user=self._declared_user())
+        self.session = SessionInfo.collect(
+            microscope, user=self._declared_user(), previous=self.session
+        )
 
         # Written now rather than left to whatever saves next -- relying on someone
         # else's save is how FIB-490 lost every failed task. Only for an experiment
