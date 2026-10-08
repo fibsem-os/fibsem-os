@@ -12,8 +12,8 @@ from PyQt5.QtWidgets import (
 )
 from superqt.utils import qdebounced
 
-from fibsem import config as cfg
 from fibsem import constants, utils
+from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamSettings, BeamType, Point
 from fibsem.ui import notification_service
@@ -21,6 +21,7 @@ from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import (
     beam_choices,
     beam_limits,
+    find_data,
     install_wheel_blocker,
     set_range_from_limits,
 )
@@ -138,9 +139,11 @@ class FibsemBeamSettingsWidget(QWidget):
 
         # --- Resolution ---
         self.resolution_combo = QComboBox()
-        for res_str, res_data in cfg.STANDARD_RESOLUTIONS_ZIP:
-            self.resolution_combo.addItem(res_str, tuple(res_data))
-        self.resolution_combo.setCurrentText(cfg.DEFAULT_STANDARD_RESOLUTION)
+        for width, height in STANDARD_RESOLUTIONS:
+            self.resolution_combo.addItem(f"{width}x{height}", (width, height))
+        self.resolution_combo.setCurrentIndex(
+            find_data(self.resolution_combo, (1536, 1024))
+        )
         install_wheel_blocker(self.resolution_combo)
         self.resolution_label = QLabel(WIDGET_CONFIG["resolution"]["label"])
         layout.addRow(self.resolution_label, self.resolution_combo)
@@ -505,7 +508,7 @@ class FibsemBeamSettingsWidget(QWidget):
         self.resolution_combo.clear()
         for width, height in choices:
             self.resolution_combo.addItem(f"{width}x{height}", (width, height))
-        idx = self.resolution_combo.findData(selected)
+        idx = find_data(self.resolution_combo, selected)
         if idx != -1:
             self.resolution_combo.setCurrentIndex(idx)
         self.resolution_combo.blockSignals(False)
@@ -576,7 +579,7 @@ class FibsemBeamSettingsWidget(QWidget):
                 settings.dwell_time * constants.SI_TO_MICRO
             )
         if settings.resolution is not None:
-            idx = self.resolution_combo.findData(tuple(settings.resolution))
+            idx = find_data(self.resolution_combo, tuple(settings.resolution))
             if idx != -1:
                 self.resolution_combo.setCurrentIndex(idx)
         if settings.beam_current is not None:

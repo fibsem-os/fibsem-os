@@ -11,11 +11,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import constants
-from fibsem.config import (
-    AVAILABLE_RESOLUTIONS_ZIP,
-    DEFAULT_STANDARD_RESOLUTION,
-    DEFAULT_STANDARD_RESOLUTION_LIST,
-)
+from fibsem.config import DEFAULT_STANDARD_RESOLUTION_LIST
 from fibsem.imaging.tiled import stamped_overview_name as _stamped_overview_name
 from fibsem.structures import (
     AutoContrastMode,
@@ -233,11 +229,6 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         )
         self.image_settings_widget.hfw_label.setText("Field of View")
         self.image_settings_widget.set_show_advanced_button(False)
-
-        # All standard + square resolutions are supported (non-square aspect handled in acquisition)
-        self.image_settings_widget.set_available_resolutions(
-            AVAILABLE_RESOLUTIONS_ZIP, default=DEFAULT_STANDARD_RESOLUTION
-        )
 
         self._btn_advanced_imaging = IconToolButton(
             icon="mdi:tune",

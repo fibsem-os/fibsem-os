@@ -36,7 +36,7 @@ from fibsem.ui.tokens import (
     CANVAS_BG,
     TEXT_MUTED_COLOR,
 )
-from fibsem.ui.utils import install_wheel_blocker
+from fibsem.ui.utils import find_data, install_wheel_blocker
 from fibsem.utils import format_value
 
 
@@ -278,7 +278,7 @@ class ValueComboBox(QComboBox):
 
     def set_value(self, value) -> None:
         """Select the item matching value; falls back to closest numeric match."""
-        idx = self.findData(value)
+        idx = find_data(self, value)
         if idx == -1 and self.count() > 0:
             items = [self.itemData(i) for i in range(self.count())]
             if items and isinstance(items[0], (int, float)):
