@@ -1461,7 +1461,7 @@ def render_fluorescence(h: Harness) -> None:
         target=viewer,
         callouts=[
             Box(vcanvas),
-            Box(viewer.listWidget_images),
+            Box(viewer.image_viewer.fm_bar),
             viewer.pushButton_load_image,
         ],
         numbered=True,
