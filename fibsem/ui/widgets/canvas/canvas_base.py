@@ -246,6 +246,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         # Axes + figure background; overridable via set_background_color (the minimap
         # uses black). The label/hint bboxes keep their own colours.
         self._facecolor = _BG
+        # What the canvas says while it has no image; see set_placeholder.
+        self._placeholder = "No image"
         # Extra empty space around the image when fitting the view, as a fraction of the
         # image size per side (0 = tight to the image; set via set_view_margin). Lets
         # overlays that extend past the image (stage limits, grid boundary) stay visible.
@@ -992,6 +994,13 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._fit_view()
         self._schedule_redraw()
 
+    def set_placeholder(self, text: str) -> None:
+        """Set what the canvas says while it has no image, e.g. that the instrument
+        behind it is not there. Shown at once if the canvas is empty."""
+        self._placeholder = text
+        if self._img_w is None:
+            self.clear()
+
     def set_background_color(self, color: str) -> None:
         """Set the axes + figure background colour (the area around the image)."""
         self._facecolor = color
@@ -1114,7 +1123,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._ax.text(
             0.5,
             0.5,
-            "No image",
+            self._placeholder,
             ha="center",
             va="center",
             transform=self._ax.transAxes,
