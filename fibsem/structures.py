@@ -8,7 +8,7 @@ import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import InitVar, asdict, dataclass, field, fields
-from datetime import datetime
+from datetime import datetime, tzinfo
 from enum import Enum, auto
 from pathlib import Path
 from typing import (
@@ -41,8 +41,14 @@ from fibsem.config import (
     SUPPORTED_COORDINATE_SYSTEMS,
     UNVERSIONED_METADATA,
 )
-from fibsem.manufacturers import normalize_manufacturer
-from fibsem.util.timestamps import acquisition_datetime_of, to_aware
+from fibsem.manufacturers import DEMO, normalize_manufacturer
+from fibsem.util.timestamps import (
+    acquisition_datetime_of,
+    now,
+    to_aware,
+    utc_offset_of,
+    zone_from_offset,
+)
 from fibsem.versioning import get_revision
 
 if TYPE_CHECKING:
@@ -3995,6 +4001,19 @@ class SessionInfo:
     images and v0.5.2 here -- two true facts, which is the same reasoning that put
     the version fields on ``SystemInfo`` in the first place (FIB-445 D1). Keeping
     every session rather than the latest is FIB-452's shape, not this record's.
+
+    **The instrument's zone** (FIB-1196): ``utc_offset`` and ``zone_name``, so a time
+    that carries no offset of its own -- a POSIX float, which every task time and
+    most beam images before FIB-1190 are -- can be read on the instrument's clock
+    on any machine (``wall_time_of(value, session.zone)``). New times carry their own
+    offset and do not need it. Three limits:
+
+    - An offset belongs to a moment, not a zone. A run that crosses a daylight
+      saving change reads an hour out on the side the session did not record.
+    - ``zone_name`` is what the OS calls the zone, as given: ``AEST`` on macOS and
+      Linux, ``AUS Eastern Standard Time`` on Windows. It labels, it is not parsed.
+    - A Demo session records no zone of its own and keeps the last one recorded, so
+      opening an experiment on another machine does not replace the instrument's.
     """
 
     recorded_at: float = field(
@@ -4006,10 +4025,20 @@ class SessionInfo:
     # `installed_plugin_versions`. A plain dict so it survives `yaml.safe_dump`,
     # which is how an experiment is written.
     plugins: Dict[str, str] = field(default_factory=dict)
+    utc_offset: Optional[str] = None  # "+10:00"
+    zone_name: Optional[str] = None
+
+    @property
+    def zone(self) -> Optional[tzinfo]:
+        """The instrument's zone, fixed at its recorded offset; None when unknown."""
+        return zone_from_offset(self.utc_offset, self.zone_name)
 
     @classmethod
     def collect(
-        cls, microscope: "FibsemMicroscope", user: Optional[FibsemUser] = None
+        cls,
+        microscope: "FibsemMicroscope",
+        user: Optional[FibsemUser] = None,
+        previous: Optional["SessionInfo"] = None,
     ) -> "SessionInfo":
         """Snapshot what is running right now.
 
@@ -4020,6 +4049,8 @@ class SessionInfo:
         The system info is copied. It is a live object on the microscope -- the
         application field is set on it during registration, and a driver may update
         it -- and a record that quietly changes after the fact is not a record.
+
+        ``previous`` is the session this one replaces: a Demo session keeps its zone.
         """
         from copy import deepcopy
 
@@ -4028,10 +4059,18 @@ class SessionInfo:
         from fibsem.plugins.report import installed_plugin_versions
 
         info = getattr(getattr(microscope, "system", None), "info", None)
+        if normalize_manufacturer(getattr(info, "manufacturer", None)) == DEMO:
+            utc_offset = previous.utc_offset if previous is not None else None
+            zone_name = previous.zone_name if previous is not None else None
+        else:
+            here = now()
+            utc_offset, zone_name = utc_offset_of(here), here.tzname()
         return cls(
             system=deepcopy(info) if info is not None else None,
             user=user if user is not None else FibsemUser.from_environment(),
             plugins=installed_plugin_versions(),
+            utc_offset=utc_offset,
+            zone_name=zone_name,
         )
 
     def to_dict(self) -> dict:
@@ -4040,6 +4079,8 @@ class SessionInfo:
             "system": self.system.to_dict() if self.system is not None else None,
             "user": self.user.to_dict() if self.user is not None else None,
             "plugins": dict(self.plugins),
+            "utc_offset": self.utc_offset,
+            "zone_name": self.zone_name,
         }
 
     @staticmethod
@@ -4051,6 +4092,8 @@ class SessionInfo:
             system=SystemInfo.from_dict(system) if system else None,
             user=FibsemUser.from_dict(user) if user else None,
             plugins=dict(ddict.get("plugins") or {}),
+            utc_offset=ddict.get("utc_offset"),
+            zone_name=ddict.get("zone_name"),
         )
 
 

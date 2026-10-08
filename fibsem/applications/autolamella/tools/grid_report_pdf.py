@@ -17,7 +17,7 @@ from __future__ import annotations
 import io
 import logging
 import os
-from datetime import datetime
+from datetime import tzinfo
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -37,6 +37,7 @@ from fibsem.applications.autolamella.tools.grid_report import (
 )
 from fibsem.fm.preview import is_fluorescence_image, load_projection
 from fibsem.structures import FibsemImage
+from fibsem.util.timestamps import wall_time_of, zone_label
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +173,19 @@ def render_overview(entry: OverviewEntry, max_edge: int = PRINT_MAX_EDGE) -> byt
 # ---------------------------------------------------------------------------
 
 
-def _when(stamp: Optional[float], fmt: str = "%H:%M") -> str:
-    return datetime.fromtimestamp(stamp).strftime(fmt) if stamp else ""
+def _when(
+    stamp: Optional[float], fmt: str = "%H:%M", zone: Optional[tzinfo] = None
+) -> str:
+    """A task's POSIX time on the instrument's clock when the experiment recorded
+    its zone, else on this machine's (FIB-1196)."""
+    when = wall_time_of(stamp, zone) if stamp else None
+    return when.strftime(fmt) if when is not None else ""
+
+
+def _clock(zone: Optional[tzinfo]) -> str:
+    if zone is None:
+        return "this computer's clock"
+    return f"the instrument's clock, {zone_label(zone)}"
 
 
 def _fov_text(fov: Optional[Tuple[float, float]]) -> str:
@@ -238,6 +250,8 @@ def generate_grid_report(
     )
 
     report = collect_grid_report(experiment, inventory=inventory)
+    session = getattr(experiment, "session", None)
+    zone = session.zone if session is not None else None
     if output_path is None:
         output_path = os.path.join(str(experiment.path), REPORT_FILENAME)
 
@@ -338,13 +352,14 @@ def generate_grid_report(
     story.append(p(report.experiment_name, "title"))
     screened = report.screened
     meta = [
-        ("Generated", _when(report.generated_at, "%d %b %Y %H:%M")),
+        ("Generated", _when(report.generated_at, "%d %b %Y %H:%M", zone)),
         (
             "Screened",
-            f"{_when(screened[0], '%d %b %Y %H:%M')} to {_when(screened[1])}"
+            f"{_when(screened[0], '%d %b %Y %H:%M', zone)} to {_when(screened[1], zone=zone)}"
             if screened
             else "nothing ran",
         ),
+        ("Times", _clock(zone)),
         ("Microscope", report.microscope or "not recorded"),
         ("Grid protocol", " → ".join(report.protocol) or "none"),
         ("Experiment folder", report.experiment_path),
@@ -450,7 +465,7 @@ def generate_grid_report(
             facts.append(f"Slot {section.slot}")
         if section.load is not None:
             facts.append(
-                f"Load {_STATUS_TEXT.get(section.load.status, section.load.status.name).lower()} {_when(section.load.when)} · {section.load.status_message}"
+                f"Load {_STATUS_TEXT.get(section.load.status, section.load.status.name).lower()} {_when(section.load.when, zone=zone)} · {section.load.status_message}"
             )
         facts.append(
             "Lamellae " + (", ".join(section.lamellae) if section.lamellae else "none")
@@ -474,7 +489,7 @@ def generate_grid_report(
                 _escape(entry.modality + (f" · {entry.pose}" if entry.pose else "")),
             ]
             details = [
-                ("When", _when(entry.when)),
+                ("When", _when(entry.when, zone=zone)),
                 ("Tiles", _tiles_text(entry.tiles)),
                 ("FOV", _fov_text(entry.fov)),
                 ("Status", status),
