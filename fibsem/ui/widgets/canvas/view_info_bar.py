@@ -49,6 +49,7 @@ from fibsem.imaging.export import (
     ExportField,
     ImageFields,
     field_keys_for,
+    z_value,
 )
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -151,6 +152,18 @@ def choose_field_keys(kind: str, keys: Optional[Sequence[str]]) -> Tuple[str, ..
             continue
         bar.set_field_keys(effective)
     return effective
+
+
+def show_fm_plane(bar: "ViewInfoBar", fm_widget, stack: Optional[Tuple[int, float]]):
+    """Make an FM bar's Z name the plane on screen: the projection, or `11 of 21`.
+
+    *stack* is :func:`fibsem.imaging.export.z_stack` of the image shown; a single
+    plane has no Z to follow.
+    """
+    if stack is None:
+        return
+    plane = None if fm_widget.max_projection else fm_widget.current_z
+    bar.set_field_value("z", z_value(*stack, plane=plane))
 
 
 def field_title(item: ExportField) -> str:

@@ -429,6 +429,18 @@ def z_value(slices: int, step: float, plane: Optional[int] = None) -> str:
     return f"{plane + 1} of {slices} × {step_text}"
 
 
+def z_stack(image: FluorescenceImage) -> Optional[Tuple[int, float]]:
+    """(slices, z step in metres) of a stack with more than one plane, else None.
+
+    Slices counted from the data, not z_positions: some files list a position per
+    channel per slice -- 132 for a 4-channel, 33-slice stack on a real one.
+    """
+    shape = np.shape(image.data)
+    slices = shape[-3] if len(shape) >= 4 else 1  # (C, Z, Y, X) or (T, C, Z, Y, X)
+    step = image.metadata.pixel_size_z
+    return (slices, step) if slices > 1 and step else None
+
+
 def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
     """A fluorescence stack's fields. Z reads as the projection the export draws."""
     md = image.metadata
@@ -444,11 +456,9 @@ def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
         hfw = format_si(md.pixel_size_x * shape[-1], "m")
         _add(fields, "hfw", hfw)
         _add(fields, "pixel_size", format_si(md.pixel_size_x, "m"))
-    # Slices counted from the data, not z_positions: some files list a position per
-    # channel per slice -- 132 for a 4-channel, 33-slice stack on a real one.
-    slices = shape[-3] if len(shape) >= 4 else 1  # (C, Z, Y, X) or (T, C, Z, Y, X)
-    if slices > 1 and md.pixel_size_z:
-        _add(fields, "z", z_value(slices, md.pixel_size_z))
+    stack = z_stack(image)
+    if stack is not None:
+        _add(fields, "z", z_value(*stack))
 
     system = md.system_info or {}
     provenance = _provenance(
