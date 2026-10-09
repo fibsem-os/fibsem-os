@@ -76,6 +76,12 @@ from fibsem.applications.autolamella.ui.review_tab_widget import (
     ReviewTabWidget,
     review_tab_icon,
 )
+from fibsem.applications.autolamella.ui.workflow_controls import (
+    AGENT,
+    AUTOMATED,
+    SUPERVISED,
+    WorkflowControls,
+)
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     WorkflowPreflightDialog,
 )
@@ -111,7 +117,6 @@ from fibsem.ui import notification_service
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
-    DANGER_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
     MENU_BUTTON_STYLESHEET,
     MUTED_GHOST_BUTTON_STYLESHEET,
@@ -119,10 +124,6 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
     STATUS_BAR_STYLESHEET,
-    SUPERVISION_STATUS_AGENT_STYLESHEET,
-    SUPERVISION_STATUS_AUTOMATED_STYLESHEET,
-    SUPERVISION_STATUS_SUPERVISED_STYLESHEET,
-    USER_ATTENTION_BUTTON_STYLESHEET,
     border_stylesheet,
 )
 from fibsem.ui.tokens import (
@@ -1591,20 +1592,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._run_total = 0
         self.status_bar.failure_details_requested.connect(self._show_run_failures)
 
-        # Add user attention button (shown when waiting for user interaction)
-        self.user_attention_btn = QPushButton("Attention Required")
-        self.user_attention_btn.setStyleSheet(USER_ATTENTION_BUTTON_STYLESHEET)
-        self.user_attention_btn.setIcon(
-            fibsem_icon("mdi:alert-circle", color=GRAY_ICON_COLOR)
-        )
-        self.user_attention_btn.hide()  # Hidden by default
-        self.user_attention_btn.setToolTip(
-            "User Input Required - Click to go to Microscope tab"
-        )
-        self.user_attention_btn.clicked.connect(self._on_user_attention_clicked)
-        self.status_bar.add_action(self.user_attention_btn)
-
-        # Add supervised status chip (shown during workflow to indicate supervision mode)
         self._current_task_name = None  # Track current task for supervision toggle
         # The agent watchdog: a question addressed to the agent that goes
         # unanswered this long stops being the agent's and becomes yours —
@@ -1621,36 +1608,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_liveness_check = QTimer(self)
         self._agent_liveness_check.setInterval(AGENT_LIVENESS_CHECK_MS)
         self._agent_liveness_check.timeout.connect(self._on_agent_liveness_check)
-        self.supervised_status_btn = QPushButton("Supervised")
-        self.supervised_status_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self.supervised_status_btn.setToolTip("Click to toggle supervision")
-        self.supervised_status_btn.clicked.connect(self._on_supervised_status_clicked)
-        self.supervised_status_btn.hide()  # Hidden by default
-        self.status_bar.add_action(self.supervised_status_btn)
-
-        # Add run workflow button (visible when workflow is not running)
-        self.run_workflow_btn = QPushButton("Run Workflow")
-        self.run_workflow_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        self.run_workflow_btn.setIcon(
-            fibsem_icon("mdi:play-circle", color=GRAY_ICON_COLOR)
+        # Attention Required, the supervision chip, Run and Stop: one component on the
+        # right of the bar, which shows what it is told; what a click does is here.
+        self.workflow_controls = WorkflowControls(self.status_bar)
+        self.workflow_controls.attention_clicked.connect(
+            self._on_user_attention_clicked
         )
-        self.run_workflow_btn.setEnabled(False)
-        self.run_workflow_btn.setToolTip("Run the AutoLamella workflow.")
-        self.run_workflow_btn.clicked.connect(self._on_run_workflow_clicked)
-        self.status_bar.add_action(self.run_workflow_btn)
-
-        # Add stop workflow button
-        self.stop_workflow_btn = QPushButton("Stop Workflow")
-        self.stop_workflow_btn.setStyleSheet(DANGER_BUTTON_STYLESHEET)
-        self.stop_workflow_btn.setIcon(
-            fibsem_icon("mdi:stop-circle", color=GRAY_ICON_COLOR)
+        self.workflow_controls.supervision_clicked.connect(
+            self._on_supervised_status_clicked
         )
-        self.stop_workflow_btn.hide()  # Hidden by default
-        self.stop_workflow_btn.setToolTip(
-            "Stop the current workflow. You will be asked to confirm."
-        )
-        self.stop_workflow_btn.clicked.connect(self._on_stop_workflow_clicked)
-        self.status_bar.add_action(self.stop_workflow_btn)
+        self.workflow_controls.run_clicked.connect(self._on_run_workflow_clicked)
+        self.workflow_controls.stop_clicked.connect(self._on_stop_workflow_clicked)
+        self.status_bar.add_action(self.workflow_controls)
 
     def _on_stop_workflow_clicked(self):
         """Handle stop workflow button click with confirmation."""
@@ -1940,12 +1909,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             n_grid = len(self.grid_workflow_widget.get_selected_grids())
             n_task = len(self.grid_workflow_widget.get_selected_task_names())
             valid = n_grid > 0 and n_task > 0
-            self.run_workflow_btn.setEnabled(valid)
-            self.run_workflow_btn.setToolTip(
+            self.workflow_controls.set_run_enabled(
+                valid,
                 f"Run grid workflow: {n_grid} grid{'s' if n_grid != 1 else ''}, "
                 f"{n_task} task{'s' if n_task != 1 else ''}"
                 if valid
-                else "Select a present grid and a task to run the grid workflow"
+                else "Select a present grid and a task to run the grid workflow",
             )
             if hasattr(self, "workflow_timeline"):
                 self.workflow_timeline.set_add_enabled(
@@ -1963,20 +1932,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         n_lam = len(self.lamella_workflow_widget.get_selected_lamella())
         n_task = len(self.lamella_workflow_widget.get_selected_tasks())
         valid = n_lam > 0 and n_task > 0
-        self.run_workflow_btn.setEnabled(valid)
         if valid:
-            self.run_workflow_btn.setToolTip(
-                f"Run workflow: {n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''}"
-            )
+            tooltip = f"Run workflow: {n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''}"
         else:
             missing = []
             if n_lam == 0:
                 missing.append("a lamella")
             if n_task == 0:
                 missing.append("a task")
-            self.run_workflow_btn.setToolTip(
-                f"Select {' and '.join(missing)} to run the workflow"
-            )
+            tooltip = f"Select {' and '.join(missing)} to run the workflow"
+        self.workflow_controls.set_run_enabled(valid, tooltip)
 
         # The timeline's Add button commits the same selection, so it follows the
         # same rule — there is nothing to add until something is ticked.
@@ -2002,8 +1967,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._run_failures = []
             self._run_total = 0
             self.status_bar.dismiss_failure()
-        self.run_workflow_btn.hide()
-        self.stop_workflow_btn.show()
+        self.workflow_controls.set_running(True)
         self._set_overviews_allowed(False)
         # A run owns the loader: no manual exchange from the Grids tab meanwhile.
         if getattr(self, "grids_tab", None) is not None:
@@ -2026,9 +1990,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._run_active = False
         self.status_bar.set_waiting(None)
         self.status_bar.set_run(None)
-        self.stop_workflow_btn.hide()
-        self.supervised_status_btn.hide()
-        self.run_workflow_btn.show()
+        self.workflow_controls.set_running(False)
         self._set_overviews_allowed(True)
         # The timeline stays on screen after a run, but there is no longer a
         # queue behind it — offering to reorder one would be a lie.
@@ -2151,41 +2113,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return False
         supervised = get_task_supervision(task_name, self.autolamella_ui)
         if supervised and self._agent_supervision_active(task_name):
-            self.supervised_status_btn.setIcon(
-                fibsem_icon("mdi:star-four-points", color="white")
-            )
-            self.supervised_status_btn.setText("Agent")
-            self.supervised_status_btn.setToolTip(
-                f"{task_name} is supervised by the connected agent. "
-                "You can still answer any question first. Click to toggle "
-                "supervision."
-            )
-            self.supervised_status_btn.setStyleSheet(
-                SUPERVISION_STATUS_AGENT_STYLESHEET
-            )
+            mode = AGENT
         elif supervised:
-            self.supervised_status_btn.setIcon(
-                fibsem_icon("mdi:account-hard-hat", color="white")
-            )
-            self.supervised_status_btn.setText("Supervised")
-            self.supervised_status_btn.setToolTip(
-                f"{task_name} is running in supervised mode. Your input will be required. Click to toggle."
-            )
-            self.supervised_status_btn.setStyleSheet(
-                SUPERVISION_STATUS_SUPERVISED_STYLESHEET
-            )
+            mode = SUPERVISED
         else:
-            self.supervised_status_btn.setIcon(
-                fibsem_icon("mdi:lightning-bolt", color="white")
-            )
-            self.supervised_status_btn.setText("Automated")
-            self.supervised_status_btn.setToolTip(
-                f"{task_name} is running in automated mode. Click to toggle."
-            )
-            self.supervised_status_btn.setStyleSheet(
-                SUPERVISION_STATUS_AUTOMATED_STYLESHEET
-            )
-        self.supervised_status_btn.show()
+            mode = AUTOMATED
+        self.workflow_controls.set_supervision(mode, task_name)
 
         return supervised
 
@@ -2415,7 +2348,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._update_experiment_header()
 
         # Show run workflow button when experiment is loaded
-        self.run_workflow_btn.show()
+        self.workflow_controls.run_btn.show()
 
         # enable all the tabs (except lamella tab, which is managed by _update_lamella_tab_enabled)
         lamella_tab_index = (
@@ -3849,18 +3782,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             else None
         )
         if hold is not None and hold.kind is not HoldKind.agent:
-            self.user_attention_btn.setText(_attention_label(hold))
-            self.user_attention_btn.setToolTip(
-                f"The run is waiting on you: {hold.releases}."
+            self.workflow_controls.set_attention(
+                _attention_label(hold), f"The run is waiting on you: {hold.releases}."
             )
-            self.user_attention_btn.show()
             # Play notification sound once when entering waiting state
             if not self._user_interaction_sound_played and self._sound_enabled:
                 play_notification_sound()
                 self._user_interaction_sound_played = True
         else:
             # Hide user attention button and reset to original dark theme
-            self.user_attention_btn.hide()
+            self.workflow_controls.set_attention(None)
             self._user_interaction_sound_played = False  # Reset for next time
 
         # Update border to reflect current workflow state
@@ -4004,7 +3935,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if sample is not None:
             sample.set_controls_enabled(True)
             sample.refresh()
-        self.user_attention_btn.hide()
+        self.workflow_controls.set_attention(None)
         self.lamella_list_widget.refresh_all()
         review_tab = getattr(self, "review_tab", None)
         if review_tab is not None:

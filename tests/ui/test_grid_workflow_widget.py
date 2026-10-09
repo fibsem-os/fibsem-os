@@ -584,8 +584,8 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     view = main_ui.grid_workflow_widget
     main_ui.workflow_left_tabs.setCurrentWidget(view)
     view.grid_header.select_all.setChecked(True)
-    assert main_ui.run_workflow_btn.isEnabled()
-    assert "1 grid, 1 task" in main_ui.run_workflow_btn.toolTip()
+    assert main_ui.workflow_controls.run_btn.isEnabled()
+    assert "1 grid, 1 task" in main_ui.workflow_controls.run_btn.toolTip()
 
     # A beam that is off is turned on before the first task; the preflight
     # said it would be.

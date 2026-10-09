@@ -97,7 +97,7 @@ def test_an_agent_question_holds_purple_and_quiet(main_ui, agent_question_standi
     assert main_ui._agent_watchdog.isActive()
     assert main_ui.autolamella_ui.hold.kind is HoldKind.agent
     assert main_ui._border_state == "agent"  # not "waiting"
-    assert main_ui.user_attention_btn.isHidden()
+    assert main_ui.workflow_controls.attention_btn.isHidden()
 
 
 def test_an_answer_disarms_the_watchdog(main_ui, agent_question_standing):
@@ -126,7 +126,7 @@ def test_expiry_hands_the_question_to_the_operator(
 
     assert ui.hold.kind is HoldKind.question  # handed to the operator
     assert main_ui._border_state == "waiting"  # the ordinary chrome took over
-    assert not main_ui.user_attention_btn.isHidden()
+    assert not main_ui.workflow_controls.attention_btn.isHidden()
 
 
 def test_a_human_question_escalates_immediately(main_ui, agent_question_standing):
@@ -137,7 +137,7 @@ def test_a_human_question_escalates_immediately(main_ui, agent_question_standing
     assert not main_ui._agent_watchdog.isActive()
     assert main_ui.autolamella_ui.hold.kind is HoldKind.question
     assert main_ui._border_state == "waiting"
-    assert not main_ui.user_attention_btn.isHidden()
+    assert not main_ui.workflow_controls.attention_btn.isHidden()
 
 
 def test_expiry_with_nothing_standing_is_a_noop(main_ui, agent_question_standing):
@@ -159,7 +159,7 @@ def test_a_question_for_an_absent_agent_is_yours_immediately(
     assert not main_ui._agent_watchdog.isActive()
     assert not main_ui._agent_liveness_check.isActive()
     assert main_ui._border_state == "waiting"
-    assert not main_ui.user_attention_btn.isHidden()
+    assert not main_ui.workflow_controls.attention_btn.isHidden()
 
 
 def test_an_agent_that_dies_mid_question_hands_over_early(
