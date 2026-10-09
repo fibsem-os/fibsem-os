@@ -166,12 +166,14 @@ class FibsemUI(QMainWindow):
     def connect_to_microscope(self) -> None:
         self.microscope = self.system_widget.microscope
         self.settings = self.system_widget.settings
+        self.status_bar.set_microscope(self.microscope)
         self.update_microscope_ui()
         self.update_ui()
 
     def disconnect_from_microscope(self) -> None:
         self.microscope = None
         self.settings = None
+        self.status_bar.set_microscope(None)
         self.update_microscope_ui()
         self.update_ui()
         self.image_widget = None
