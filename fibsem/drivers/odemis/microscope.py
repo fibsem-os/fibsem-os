@@ -290,19 +290,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self._build_devices()
         self._build_milling()
 
-        self.fm = None
-        try:
-            if (
-                self._fluorescence_is_configured()
-                and self._fluorescence_uses_own_driver()
-            ):
-                self.fm = self._connect_fluorescence_devices()
-        except (ImportError, AttributeError) as e:
-            logging.info(f"Fluorescence support is not available: {e}")
-        except Exception as e:
-            logging.warning(f"Failed to initialize fluorescence microscope: {e}")
-        if self.fm is None:
-            self.fm = self._connect_remote_fluorescence()
+        self.fm = self._build_fluorescence(manufacturers.ODEMIS)
         self._apply_fluorescence_calibration()
 
         try:
@@ -353,21 +341,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         from fibsem.drivers.odemis.services import bind_odemis_milling
 
         self.milling = bind_odemis_milling(self)
-
-    def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
-        """The FM as the FM API over the Odemis FM devices, which make the odemis
-        calls the old ``OdemisFluorescenceMicroscope`` made, on the same components and
-        stream. ``fm_devices`` are those devices."""
-        from fibsem.drivers.odemis.devices import bind_odemis_fm
-        from fibsem.fm.odemis import DeviceOdemisFluorescenceMicroscope
-
-        devices = bind_odemis_fm(self, config=self.system.fm.to_dict())
-        # The FM API's own live view pulls every frame, so nothing needs to stop it
-        # when no frame is asked for.
-        devices["fm"].live_timeout = None
-        fm = DeviceOdemisFluorescenceMicroscope(devices, parent=self)
-        self.fm_devices = MappingProxyType(dict(devices))
-        return fm
 
     def connect_to_microscope(
         self, ip_address: str, port: int, reset_beam_shift: bool = True

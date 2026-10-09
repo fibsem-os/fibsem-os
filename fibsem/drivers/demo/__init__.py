@@ -25,6 +25,7 @@ DRIVER = DriverEntry(
                 "chamber",
                 "manipulator",
                 "sample_loader",
+                "fm",
             )
         },
         # An external scan generator a beam's ``scanner`` role can be bound to.

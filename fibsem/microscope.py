@@ -55,7 +55,6 @@ from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
-    FM_DRIVER_REMOTE,
     STAGE_FRAME_FIBSEM,
     BeamSettings,
     BeamSystemSettings,
@@ -1124,75 +1123,55 @@ class FibsemMicroscope(ABC):
         return self._fm_is_a_pose()
 
     def _fluorescence_uses_own_driver(self) -> bool:
-        """Whether the FM, if there is one, comes from this microscope's own driver.
+        """Whether the FM, if there is one, comes from this microscope's own driver:
+        the configuration names no FM driver, which is every site with an FM on the
+        beams' connection. An FM on another driver (`fm.driver: remote`, an FM on its
+        own PC) must not be looked for there."""
+        return not self.system.fm.driver
 
-        True when the configuration names no FM driver, which is every site today, so
-        each backend builds exactly the FM it always has. An FM on its own PC
-        (`fm.driver: remote`) must not be looked for on the beams' connection: an
-        Aquilos with a METEOR would otherwise get an iFLM driver that finds nothing.
-        Such a site gets its FM from `_connect_remote_fluorescence` instead.
+    def _build_fluorescence(self, driver: str) -> Optional[FluorescenceMicroscope]:
+        """The FM, built from the configuration's `fm` entry like any other device
+        (`fibsem.devices.entries`), and its devices put in `fm_devices`; or None.
+
+        None when the site has no FM (`_fluorescence_is_configured`). Otherwise the
+        entry's `driver` builds it, else *driver*, this backend's own: an `fm` builder
+        returns the FM API over its devices. A driver with no FM builder, or a build
+        that fails, leaves the microscope without an FM, with a warning: an FM is not
+        required unless its entry says `required: true`, and then connecting fails
+        with `RequiredDeviceUnavailable`.
         """
-        driver = self.system.fm.driver
-        if driver is None:
-            return True
-        if driver != FM_DRIVER_REMOTE:
-            logging.error(
-                f"Unknown fluorescence microscope driver {driver!r}; the supported "
-                f"value is {FM_DRIVER_REMOTE!r}, or no `driver` key to use the "
-                "microscope's own. No fluorescence microscope will be available."
+        from fibsem.devices.entries import (
+            DeviceBuildError,
+            build_device_entries,
+            resolve_system_devices,
+        )
+        from fibsem.structures import DeviceEntry
+
+        if not self._fluorescence_is_configured():
+            logging.info(
+                "No fluorescence microscope configured for this system. Set "
+                "`fm.enabled` in the microscope configuration to enable it."
             )
-        return False
-
-    def _connect_remote_fluorescence(self) -> Optional[FluorescenceMicroscope]:
-        """The FM on its own PC (`fm.driver: remote`), or None.
-
-        A server that isn't answering yet gives an FM that is offline: its reads fail
-        closed, and it comes online by itself when the server starts (FIB-1086). The
-        beams never wait for the FM's PC. With `fm.required: true` an unreachable FM
-        raises `RequiredDeviceUnavailable` and the connect fails instead.
-
-        The objective calibration is pushed again each time the FM comes (back)
-        online, since a restarted FM computer starts from its own defaults.
-
-        None when the configuration names no remote FM, and when it can't be used
-        at all (no address, a server that serves no FM): the microscope connects
-        without an FM and says why, as when an FM driver of its own fails.
-        """
-        fm = self.system.fm
-        if fm.driver != FM_DRIVER_REMOTE or not self._fluorescence_is_configured():
             return None
-        if fm.mount_transform is not CameraImageTransform.NONE:
-            logging.warning(
-                "The configuration states the FM's mount_transform, but this FM is "
-                "remote: its server states its own (--mount-transform), and that "
-                "is what is used."
+        resolved = [
+            # Every configuration names the FM, so naming it does not make it
+            # required, as it does another device: only `required: true` does.
+            replace(item, entry=replace(item.entry, required=bool(item.entry.required)))
+            for item in resolve_system_devices(
+                self.system, [DeviceEntry(name="fm", type="fm")], ("fm",), driver=driver
             )
-        if fm.address is None or fm.port is None:
-            message = (
-                "The fluorescence microscope is configured as remote but has no "
-                "`address` and `port`."
-            )
-            if fm.required:
-                raise RequiredDeviceUnavailable(message)
-            logging.error(f"{message} No fluorescence microscope will be available.")
-            return None
+            if item.name == "fm"
+        ]
         try:
-            from fibsem.fm.remote import RemoteFluorescenceMicroscope
-
-            remote = RemoteFluorescenceMicroscope.connect(
-                fm.address, fm.port, parent=self, offline=not fm.required
-            )
-        except Exception as e:
-            message = (
-                f"Could not connect to the fluorescence microscope at "
-                f"{fm.address}:{fm.port}: {e}."
-            )
-            if fm.required:
-                raise RequiredDeviceUnavailable(message) from e
-            logging.error(f"{message} No fluorescence microscope will be available.")
+            built = build_device_entries(resolved, self)
+        except DeviceBuildError as e:
+            raise RequiredDeviceUnavailable(str(e)) from e.__cause__
+        fm = built.get("fm")
+        if fm is None:
             return None
-        remote.client.reconnected.connect(self._apply_fluorescence_calibration)
-        return remote
+        self.fm_devices = MappingProxyType(dict(fm.devices or {}))
+        logging.info(f"Fluorescence microscope connected: {type(fm).__name__}.")
+        return fm
 
     def _refuse_rotation_at_the_fluorescence_microscope(
         self, stage_position: FibsemStagePosition

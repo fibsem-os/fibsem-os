@@ -964,31 +964,12 @@ class ThermoMicroscope(FibsemMicroscope):
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
 
-        try:
-            if not self._fluorescence_is_configured():
-                logging.info(
-                    "No fluorescence microscope configured for this system. Set "
-                    "`fm.enabled` in the microscope configuration to enable it."
-                )
-                self.fm = None
-                self.set_channel(BeamType.ELECTRON)
-            elif not self._fluorescence_uses_own_driver():
-                self.fm = self._connect_remote_fluorescence()
-                self.set_channel(BeamType.ELECTRON)
-            else:
-                self.fm = self._connect_fluorescence_devices()
-                self.fm.set_active_channel()  # this will fail if no fm available
-                self.fm_devices = MappingProxyType(self.fm.devices)
-                logging.info(
-                    "Thermo Fisher Fluorescence Microscope initialized successfully."
-                )
-        except RequiredDeviceUnavailable:
-            raise
-        except Exception as e:
-            logging.error(
-                f"Failed to initialize Thermo Fisher Fluorescence Microscope: {e}"
-            )
-            self.fm = None
+        from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
+
+        # Its own FM leaves the shared imaging channel on the FM, as building it
+        # selects the channel; any other outcome leaves it on the electron beam.
+        self.fm = self._build_fluorescence(manufacturers.THERMOFISHER)
+        if not isinstance(self.fm, DeviceThermoFisherFluorescenceMicroscope):
             self.set_channel(BeamType.ELECTRON)
 
         self._apply_fluorescence_calibration()
@@ -1094,20 +1075,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
-
-    def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
-        """The FM API over the Thermo FM devices, sharing this microscope's
-        connection and its imaging channel lock with the beams.
-
-        Live view here is pulled by this process's own worker, which never stops
-        asking while it runs, so it has no watchdog: a slow frame handler must not
-        end it. A served FM keeps the default."""
-        from fibsem.drivers.autoscript.devices import bind_autoscript_fm
-        from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
-
-        devices = bind_autoscript_fm(self, config=self.system.fm.to_dict())
-        devices["fm"].live_timeout = None
-        return DeviceThermoFisherFluorescenceMicroscope(devices, parent=self)
 
     def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
         """The grid model over the ``sample_loader`` device, built when the

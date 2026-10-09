@@ -967,7 +967,13 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
     from types import SimpleNamespace
 
     import fibsem.drivers.odemis.microscope as odemis_microscope
-    from fibsem.structures import CameraImageTransform, FluorescenceSystemSettings
+    from fibsem.drivers.odemis.devices import build_odemis_fm
+    from fibsem.drivers.registry import BuildContext
+    from fibsem.structures import (
+        CameraImageTransform,
+        DeviceEntry,
+        FluorescenceSystemSettings,
+    )
 
     microscope = odemis_microscope.OdemisThermoMicroscope.__new__(
         odemis_microscope.OdemisThermoMicroscope
@@ -978,12 +984,15 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
     world = _World(_components("inserted"))
     _CURRENT.append(world)
     try:
-        fm = microscope._connect_fluorescence_devices()
+        fm = build_odemis_fm(
+            DeviceEntry.from_dict(microscope.system.fm.to_dict(), name="fm"),
+            BuildContext(microscope=microscope),
+        )
     finally:
         _CURRENT.pop()
     assert type(fm).__name__ == "DeviceOdemisFluorescenceMicroscope"
     assert fm.parent is microscope
-    assert sorted(microscope.fm_devices) == [
+    assert sorted(fm.devices) == [
         "camera",
         "filter_set",
         "fm",

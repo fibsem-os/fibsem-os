@@ -98,6 +98,7 @@ from fibsem.structures import (
 
 if TYPE_CHECKING:
     from fibsem.drivers.registry import BuildContext
+    from fibsem.fm.remote import RemoteFluorescenceMicroscope
     from fibsem.structures import DeviceEntry
 
 READ_TIMEOUT = 5.0
@@ -776,7 +777,7 @@ def _remote_fm_devices(
 
 
 # The remote device for each entry type a ``driver: remote`` entry can have. The FM's
-# group is not one: it comes from ``fm.driver: remote`` (``connect_remote_fm``).
+# group is not one: an ``fm`` entry is the whole FM (``build_remote_fm``).
 REMOTE_DEVICE_TYPES: Dict[str, type] = {
     "beam": RemoteBeam,
     **{name: part for name, part in REMOTE_FM_PARTS.items() if name != "fm"},
@@ -825,6 +826,47 @@ def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device
     return device.connect(description)
 
 
+def build_remote_fm(
+    entry: "DeviceEntry", context: "BuildContext"
+) -> "RemoteFluorescenceMicroscope":
+    """The FM API over the FM on its own PC, which an ``fm`` entry with
+    ``driver: remote`` names at its ``address`` and ``port``.
+
+    A server that isn't answering yet gives an FM that is offline: its reads fail
+    closed, and it comes online by itself when the server starts (FIB-1086), so the
+    beams never wait for the FM's PC. With ``required: true`` an unreachable server
+    fails the build instead. The objective calibration is pushed again each time the
+    FM comes (back) online, since a restarted FM computer starts from its own
+    defaults.
+    """
+    from fibsem.fm.remote import RemoteFluorescenceMicroscope
+
+    if entry.options.get("mount_transform") not in (None, "none"):
+        logging.warning(
+            "The configuration states the FM's mount_transform, but this FM is "
+            "remote: its server states its own (--mount-transform), and that is "
+            "what is used."
+        )
+    address, port = entry.options.get("address"), entry.options.get("port")
+    if address is None or port is None:
+        raise ValueError(
+            "the FM is configured as remote but has no `address` and `port`"
+        )
+    microscope = context.microscope
+    try:
+        fm = RemoteFluorescenceMicroscope.connect(
+            str(address), int(port), parent=microscope, offline=not entry.required
+        )
+    except Exception as error:
+        raise ConnectionError(
+            f"could not connect to the FM at {address}:{port}: {error}"
+        ) from error
+    apply_calibration = getattr(microscope, "_apply_fluorescence_calibration", None)
+    if apply_calibration is not None:
+        fm.client.reconnected.connect(apply_calibration)
+    return fm
+
+
 def _server(
     context: "BuildContext", address: str, port: int
 ) -> Tuple[DeviceClient, Dict[str, Any]]:
@@ -847,8 +889,11 @@ def _server(
 
 
 DEVICE_BUILDERS = {
-    device_type: DeviceBuilder("fibsem.drivers.remote.devices:build_remote_device")
-    for device_type in REMOTE_DEVICE_TYPES
+    **{
+        device_type: DeviceBuilder("fibsem.drivers.remote.devices:build_remote_device")
+        for device_type in REMOTE_DEVICE_TYPES
+    },
+    "fm": DeviceBuilder("fibsem.drivers.remote.devices:build_remote_fm"),
 }
 """How the remote driver builds each type, as the registry gives a driver's builders
 (``fibsem.drivers.registry.device_builder``)."""

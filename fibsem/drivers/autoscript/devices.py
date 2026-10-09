@@ -121,6 +121,7 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.drivers.autoscript.microscope import ThermoMicroscope
     from fibsem.drivers.registry import BuildContext
+    from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
 
 
 class AutoscriptStage(Stage):
@@ -1674,3 +1675,24 @@ def bind_autoscript_fm(
     parts["camera"].configure(config)
     group = AutoscriptFM(channel, **common).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}
+
+
+def build_autoscript_fm(
+    entry: DeviceEntry, context: BuildContext
+) -> "DeviceThermoFisherFluorescenceMicroscope":
+    """The FM API over the Thermo FM devices, sharing the microscope's connection and
+    its imaging channel lock with the beams.
+
+    Selecting the FM's channel is the only test AutoScript has for whether an FM is
+    fitted, so a microscope without one fails here and connects without an FM.
+    Live view is pulled by this process's own worker, which never stops asking while
+    it runs, so it has no watchdog: a slow frame handler must not end it. A served FM
+    keeps the default."""
+    from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
+
+    microscope = context.microscope
+    devices = bind_autoscript_fm(microscope, config=entry.as_block())
+    devices["fm"].live_timeout = None
+    fm = DeviceThermoFisherFluorescenceMicroscope(devices, parent=microscope)
+    fm.set_active_channel()
+    return fm
