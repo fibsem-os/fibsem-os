@@ -470,19 +470,30 @@ def test_adopt_interpolated_volume_only_resamples_the_view(qapp):
     assert w._fm_display._z_max == new_image.data.shape[1] - 1
 
 
-def test_rescale_only_touches_fm_side_points(qapp):
-    from fibsem.correlation.structures import PointType
+def test_moving_to_another_z_step_only_touches_fm_side_points():
+    from fibsem.correlation.structures import (
+        Coordinate,
+        CorrelationInputData,
+        PointType,
+        PointXYZ,
+    )
 
-    w = _widget(qapp)
-    w.set_fm_image(_meteor_like_fm())
-    w._on_canvas_add_requested(10.0, 10.0, PointType.FIB)  # FIB side
-    w._coords_tab.fib_list.coordinates[0].point.z = 5.0
-    w._on_canvas_add_requested(20.0, 20.0, PointType.FM)  # FM side
-    w._coords_tab.fm_list.coordinates[0].point.z = 5.0
+    def at(z, pt):
+        return Coordinate(PointXYZ(1.0, 2.0, z), pt)
 
-    w._rescale_fm_z(2.0)
-    assert w._coords_tab.fib_list.coordinates[0].point.z == 5.0  # FIB untouched
-    assert w._coords_tab.fm_list.coordinates[0].point.z == 10.0  # FM scaled
+    data = CorrelationInputData(
+        fib_coordinates=[at(5.0, PointType.FIB)],
+        fm_coordinates=[at(5.0, PointType.FM)],
+        poi_coordinates=[at(5.0, PointType.POI)],
+        surface_coordinate=at(5.0, PointType.SURFACE),
+        stored_fm_pixel_size_z=100e-9,
+    )
+    assert data.move_fm_z_to_step(500e-9) == pytest.approx(0.2)
+    assert data.fib_coordinates[0].point.z == 5.0  # FIB untouched
+    assert data.surface_coordinate.point.z == 5.0
+    assert data.fm_coordinates[0].point.z == pytest.approx(1.0)  # same depth
+    assert data.poi_coordinates[0].point.z == pytest.approx(1.0)
+    assert data.move_fm_z_to_step(500e-9) == 1.0  # now recorded at that step
 
 
 def _aniso_fm(nz=8, xy=1e-7, z=5e-7, shape=(8, 8)):

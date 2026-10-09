@@ -331,6 +331,33 @@ class CorrelationInputData:
         """The FM stack this run's fiducials were picked in, or None."""
         return _loaded_filename(self.fm_image) or self.stored_fm_image_filename
 
+    def move_fm_z_to_step(self, fm_pixel_size_z: Optional[float]) -> float:
+        """Re-express the FM-side z values in planes ``fm_pixel_size_z`` apart.
+
+        A file records its points in the planes of the stack they were picked
+        on, and that stack's z step. Runs saved from an interpolated stack, or
+        seeded from another acquisition, have a different step from the stack
+        now loaded; multiplying by the ratio keeps every point at its depth
+        (FIB-1239). For points moved there by the old interpolation, which kept
+        depth too, this returns them exactly to where they were picked.
+
+        No-op when either step is unknown or the two are equal. Returns the
+        factor applied.
+        """
+        recorded = self.stored_fm_pixel_size_z
+        if not recorded or not fm_pixel_size_z:
+            return 1.0
+        if abs(recorded - fm_pixel_size_z) <= 1e-9 * abs(fm_pixel_size_z):
+            return 1.0
+        scale = float(recorded) / float(fm_pixel_size_z)
+        coords = list(self.fm_coordinates) + list(self.poi_coordinates)
+        if self.fm_surface_coordinate is not None:
+            coords.append(self.fm_surface_coordinate)
+        for coord in coords:
+            coord.point.z *= scale
+        self.stored_fm_pixel_size_z = fm_pixel_size_z
+        return scale
+
     @staticmethod
     def from_dict(data: dict) -> CorrelationInputData:
         # Reject rather than default. to_dict always writes "fib_coordinates",

@@ -2942,6 +2942,7 @@ class CorrelationTabWidget(QWidget):
         only ordering because both come from one file.
         """
         data = state.input_data
+        self._in_loaded_stack(data)
         data.fib_image = self._fib_image
         data.fm_image = self._fm_image
         self.set_data(data)
@@ -3016,17 +3017,15 @@ class CorrelationTabWidget(QWidget):
         """Load a previous run's coordinates as starting points (FIB-299).
 
         Coordinates only — the previous result is from different images, so it is
-        not carried in. FM z is rescaled to the current volume's z-sampling when it
-        differs, so a seed picked in a differently-interpolated volume lands at the
-        right depth. Points are placed as-is; the user refines them on demand.
+        not carried in. FM z is brought into the loaded stack's planes when the
+        seed's were different, so it lands at the right depth
+        (:meth:`_in_loaded_stack`). Points are placed as-is; the user refines
+        them on demand.
         """
-        src_z = source.stored_fm_pixel_size_z  # read before we attach the current image
-        cur_z = self._fm_pixel_size_z()
+        self._in_loaded_stack(source)
         source.fib_image = self._fib_image
         source.fm_image = self._fm_image
         self.set_data(source)
-        if src_z and cur_z and abs(src_z - cur_z) > 1e-15:
-            self._rescale_fm_z(src_z / cur_z)
         self._discard_result()  # the seeded points are not what it was fitted to
         self.data_changed.emit(self.data)
 
@@ -3356,6 +3355,7 @@ class CorrelationTabWidget(QWidget):
         """
         logging.info("Loading correlation coordinates from %s", path)
         loaded = CorrelationInputData.load(path)
+        self._in_loaded_stack(loaded)
         loaded.fib_image = self._fib_image
         loaded.fm_image = self._fm_image
         with self._reading():
@@ -4677,7 +4677,9 @@ class CorrelationTabWidget(QWidget):
             # Deep-copy: the lists become editable, and sharing the Coordinate
             # objects with the result's snapshot would make every edit mutate it
             # too, permanently defeating matches_inputs (FIB-315).
-            self.set_data(copy.deepcopy(result.input_data))
+            adopted = copy.deepcopy(result.input_data)
+            self._in_loaded_stack(adopted)
+            self.set_data(adopted)
         # Continue commits result.poi[0].px_m to the protocol editor, so a result
         # that predates the current points must not arm it.
         self._on_result_ready(result, live=result.matches_inputs(self.fit_data))
@@ -4730,13 +4732,23 @@ class CorrelationTabWidget(QWidget):
     def _fm_point_count(self) -> int:
         return sum(len(lst.coordinates) for lst in self._fm_side_lists())
 
-    def _rescale_fm_z(self, scale: float) -> None:
-        """Scale every FM-side point's z index so its physical depth is preserved
-        after the z axis is resampled (depth = z_index * pixel_size_z)."""
-        coords = self._point_store.on_side("fm")
-        for coord in coords:
-            coord.point.z *= scale
-        self._point_store.notify_changed(coords)
+    def _in_loaded_stack(self, data: CorrelationInputData) -> None:
+        """Bring a record's FM z into the loaded stack's planes, before it is shown.
+
+        The one place a recorded z changes planes: a load, a legacy load and a
+        seed all come through here, so a run saved from an interpolated stack
+        or another acquisition opens at the depth it was picked at (FIB-1239).
+        Without a loaded stack there is nothing to convert to, and the values
+        are kept as recorded.
+        """
+        scale = data.move_fm_z_to_step(self._fm_pixel_size_z())
+        if scale != 1.0:
+            logging.info(
+                "FM z recorded at %.1f nm per plane; moved into the loaded "
+                "stack's planes (x%.4f)",
+                self._fm_pixel_size_z() * scale * 1e9,
+                scale,
+            )
 
     def _on_interpolate_fm(self) -> None:
         if self._fm_image is None:
