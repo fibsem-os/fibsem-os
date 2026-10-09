@@ -41,7 +41,7 @@ class TestRecordRoundTrip:
         again = GridSlot.from_dict(slot.to_dict())
         assert again.is_calibrated
         assert again.calibration.pre_tilt == 35.0
-        assert again.calibration.captured_at == "2026-09-02T11:20:00"
+        assert again.calibration.to_dict()["captured_at"] == "2026-09-02T11:20:00"
 
     def test_old_file_without_the_key_loads(self):
         slot = GridSlot.from_dict(

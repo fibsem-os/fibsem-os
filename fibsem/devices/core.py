@@ -41,6 +41,7 @@ from typing import (
 
 from psygnal import Signal
 
+from fibsem.devices.display import DisplayHint
 from fibsem.structures import RangeLimit
 
 IMAGING_CHANNEL = "imaging_channel"
@@ -115,17 +116,22 @@ class Parameter:
     snapped, with a warning when it moved, rather than refused; and after every write
     the parameter is read back, so its cache and its ``changed`` signal carry what the
     hardware applied rather than what was asked for.
+
+    ``display`` says how to show it (a ``fibsem.devices.display.Display``, or one per field for
+    a composite value). Like the type and unit it means the same on every backend: a
+    subclass that redeclares the parameter keeps it, and can't give another.
     """
 
     def __init__(
         self,
         type_: type,
         unit: Optional[str] = None,
-        limits: Optional[RangeLimit] = None,
+        limits: Optional[Limits] = None,
         choices: Optional[Sequence[Any]] = None,
         depends_on: Sequence[str] = (),
         doc: str = "",
         nearest: bool = False,
+        display: Optional[DisplayHint] = None,
     ):
         self.type = type_
         self.unit = unit
@@ -134,6 +140,7 @@ class Parameter:
         self.depends_on = tuple(depends_on)
         self.doc = doc
         self.nearest = nearest
+        self.display = display
         self.name = ""
 
     def __set_name__(self, owner: type, name: str) -> None:
@@ -243,6 +250,10 @@ class BoundParameter:
     @property
     def unit(self) -> Optional[str]:
         return self.spec.unit
+
+    @property
+    def display(self) -> Optional[DisplayHint]:
+        return self.spec.display
 
     @property
     def limits(self) -> Optional[Limits]:
@@ -611,6 +622,14 @@ class _Controllable:
                     f"but is declared {base_param.type.__name__} in "
                     f"{base_param.unit!r}; a backend can't change a parameter's type "
                     f"or unit"
+                )
+            if attr.display is None:
+                attr.display = base_param.display
+            elif attr.display != base_param.display:
+                raise TypeError(
+                    f"{cls.__name__}.{name} declares another display than "
+                    f"{base_param.display!r}; a backend can't change how a parameter "
+                    f"is shown"
                 )
         declared = cls.declared_parameters()
         for attr, value in vars(cls).items():

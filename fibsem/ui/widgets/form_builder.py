@@ -23,7 +23,7 @@ from __future__ import annotations
 import inspect
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from enum import Enum
 from typing import (
@@ -31,17 +31,20 @@ from typing import (
     Callable,
     List,
     Literal,
+    Mapping,
     Optional,
     Sequence,
     Tuple,
+    Union,
     get_args,
     get_origin,
 )
 
-from PyQt5.QtWidgets import QCheckBox, QHBoxLayout, QWidget
+from PyQt5.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QWidget
 
 from fibsem import utils
-from fibsem.structures import Point
+from fibsem.devices.core import BoundParameter, Parameter, ParameterMetadata
+from fibsem.structures import Point, RangeLimit
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     QFilePathLineEdit,
@@ -143,15 +146,98 @@ def effective_scale(metadata: dict) -> Optional[float]:
 def display_suffix(metadata: dict) -> str:
     """The spinbox suffix, prefixed for the scale (1e6 + "m" -> "µm").
 
+    A declared ``display_unit`` wins: a scale that isn't an SI prefix (180/pi for
+    degrees, 100 for percent) would otherwise read "mrad" or "m%".
+
     Empty when the field declares no unit, even if it declares a scale. The
     milling forms used to render a bare prefix -- a lone "µ" with nothing after
     it -- for a scaled field with no unit.
     """
+    if metadata.get("display_unit"):
+        return metadata["display_unit"]
     unit = metadata.get("unit")
     if not unit:
         return ""
     base = metadata.get("scale")
     return utils._get_display_unit(base, unit) if base else unit
+
+
+def _default_label(name: str) -> str:
+    """``dwell_time`` -> ``Dwell time``."""
+    return name.replace("_", " ").capitalize()
+
+
+def parameter_field_metadata(
+    parameter: Union[Parameter, BoundParameter], field: Optional[str] = None
+) -> dict:
+    """A device parameter as field metadata: its ``Display``, then what the
+    instrument reports laid over it (``runtime_overrides``).
+
+    A bound parameter carries what its instrument reports; a declared one (``Beam.hfw``,
+    for a form with no instrument) its static limits and choices. ``field`` picks one
+    field of a composite value (``"x"`` of a shift), for its hint and its limits.
+    """
+    spec = getattr(parameter, "spec", parameter)
+    hint = spec.display
+    if isinstance(hint, Mapping):
+        hint = hint.get(field)
+    metadata = {"label": _default_label(spec.name), "unit": spec.unit}
+    if spec.doc:
+        metadata["tooltip"] = spec.doc
+    if hint is not None:
+        metadata.update(hint.as_field_metadata(spec.unit))
+    return runtime_overrides(metadata, reported_metadata(parameter), field)
+
+
+def reported_metadata(parameter: Union[Parameter, BoundParameter]) -> ParameterMetadata:
+    """What a parameter allows: what its instrument reports, and what every
+    instrument has (its declared limits and choices) where it reports none."""
+    spec = getattr(parameter, "spec", parameter)
+    reported = getattr(parameter, "metadata", None) or ParameterMetadata()
+    return replace(
+        reported,
+        limits=spec.limits if reported.limits is None else reported.limits,
+        choices=spec.choices if reported.choices is None else reported.choices,
+    )
+
+
+def runtime_overrides(
+    metadata: dict, reported: ParameterMetadata, field: Optional[str] = None
+) -> dict:
+    """``metadata`` with what the instrument reports on top: its limits (SI, shown
+    through the scale) as minimum and maximum, and its choices as items.
+
+    What the instrument reports always wins over a static declaration. ``field``
+    picks one field's limits when they are given per field.
+    """
+    metadata = dict(metadata)
+    limits = reported.limits
+    if isinstance(limits, Mapping):
+        limits = limits.get(field)
+    if isinstance(limits, RangeLimit):
+        scale = effective_scale(metadata) or 1
+        metadata["minimum"], metadata["maximum"] = sorted(
+            (limits.min * scale, limits.max * scale)
+        )
+    if reported.choices is not None:
+        metadata["items"] = list(reported.choices)
+    return metadata
+
+
+def configure_spinbox(spinbox: QDoubleSpinBox, metadata: dict) -> None:
+    """Set a spin box's suffix, step, decimals, range and tooltip from field
+    metadata, for a panel that keeps its own boxes. Keys the metadata leaves out
+    keep the box's own."""
+    suffix = display_suffix(metadata)
+    spinbox.setSuffix(f" {suffix}" if suffix else "")
+    if metadata.get("decimals") is not None:
+        spinbox.setDecimals(metadata["decimals"])
+    if metadata.get("step") is not None:
+        spinbox.setSingleStep(metadata["step"])
+    if metadata.get("minimum") is not None and metadata.get("maximum") is not None:
+        spinbox.setRange(metadata["minimum"], metadata["maximum"])
+    if metadata.get("tooltip"):
+        spinbox.setToolTip(metadata["tooltip"])
 
 
 def _enum_label(member: Any) -> str:

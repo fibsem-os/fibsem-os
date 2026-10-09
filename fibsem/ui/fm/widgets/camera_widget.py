@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.devices.fm import Camera
 from fibsem.fm.structures import CameraImageTransform, CameraSettings
 from fibsem.ui.fm.widgets.fm_limits import (
     available_binnings,
@@ -20,24 +21,13 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_field_metadata
 
 if TYPE_CHECKING:
     from fibsem.fm.microscope import FluorescenceMicroscope
 
-CAMERA_CONFIG = {
-    "gain": {
-        "range": (0, 100),
-        "step": 1.0,
-        "suffix": " %",
-        "tooltip": "Camera gain in percentage (0 to 100)",
-    },
-    "binning": {
-        "tooltip": "Pixel binning",
-    },
-    "transform": {
-        "tooltip": "Image transformation (flip/rotate)",
-    },
-}
+# How the gain is shown (label, %, step, decimals) is the camera's display hint.
+GAIN_FIELD = parameter_field_metadata(Camera.gain)
 
 # Mapping for transform display names.
 # Rotations are not offered: a fixed rotation between sensor and stage is a property
@@ -65,12 +55,10 @@ class CameraWidget(QWidget):
         """Initialize the UI components for the camera widget."""
 
         # Gain
-        self.label_gain = QLabel("Gain", self)
+        self.label_gain = QLabel(GAIN_FIELD["label"], self)
         self.spinBox_gain = ValueSpinBox(parent=self)
-        self.spinBox_gain.setRange(*CAMERA_CONFIG["gain"]["range"])
-        self.spinBox_gain.setSingleStep(CAMERA_CONFIG["gain"]["step"])
-        self.spinBox_gain.setSuffix(CAMERA_CONFIG["gain"]["suffix"])
-        self.spinBox_gain.setToolTip(CAMERA_CONFIG["gain"]["tooltip"])
+        configure_spinbox(self.spinBox_gain, GAIN_FIELD)
+        self.spinBox_gain.setToolTip("Camera gain in percentage (0 to 100)")
         self.spinBox_gain.setKeyboardTracking(False)
         gain = self.fm.camera.gain
         if gain is None:
@@ -86,7 +74,7 @@ class CameraWidget(QWidget):
         self.combobox_binning = ValueComboBox(parent=self)
         for b in available_binnings(self.fm):
             self.combobox_binning.addItem(f"{b}x{b}", b)
-        self.combobox_binning.setToolTip(CAMERA_CONFIG["binning"]["tooltip"])
+        self.combobox_binning.setToolTip("Pixel binning")
 
         # Set current binning
         current_binning = self.fm.camera.binning
@@ -98,7 +86,7 @@ class CameraWidget(QWidget):
         # Image Transform
         self.label_transform = QLabel("Image Transform", self)
         self.comboBox_transform = ValueComboBox(parent=self)
-        self.comboBox_transform.setToolTip(CAMERA_CONFIG["transform"]["tooltip"])
+        self.comboBox_transform.setToolTip("Image transformation (flip/rotate)")
 
         # Populate transform combobox with enum values
         for transform in CameraImageTransform:

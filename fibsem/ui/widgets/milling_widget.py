@@ -44,6 +44,9 @@ class FibsemMillingWidget2(QWidget):
 
         self._milling_thread: Optional[FunctionWorker] = None
         self._milling_stop_event = threading.Event()
+        # Why the last mill failed, or None. Set on the worker thread before its
+        # `finished`, so a listener of `finished_milling_signal` reads this run's.
+        self.milling_error: Optional[Exception] = None
         self._has_stages = False
         # The last words a producer supplied, so a backend's messageless tick still
         # has a label to show. See `MillingMessageTracker`.
@@ -173,6 +176,7 @@ class FibsemMillingWidget2(QWidget):
 
         # clear the stop event, disable gui elements
         self._milling_stop_event.clear()
+        self.milling_error = None
         self.pushButton_run_milling.setEnabled(False)
 
         if config is None:
@@ -215,12 +219,14 @@ class FibsemMillingWidget2(QWidget):
                 microscope=microscope,
                 config=milling_task_config,
                 stop_event=self._milling_stop_event,
+                raise_on_failure=True,
             )
 
         except Exception as e:
             logging.error(
                 f"Error occurred while running milling task: {e}", exc_info=True
             )
+            self.milling_error = e
 
         finally:
             self._milling_thread = None

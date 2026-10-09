@@ -536,3 +536,20 @@ def _main() -> int:
 
 if __name__ == "__main__":
     sys.exit(_main())
+
+
+def test_shift_scroll_flashes_the_working_distance_in_the_bar_s_words():
+    """`WD 16.575 mm  +1 µm`: the bar's label and unit, the target to three decimals
+    (a notch is 1 µm, where the bar shows two decimals), then the step (FIB-1188)."""
+    host = _CanvasHost()
+    widget = _image_widget(host)
+    spinbox = _sem_beam_settings(widget).working_distance_spinbox
+    canvas = host.view_controller.sem_canvas
+    before = spinbox.value()
+
+    canvas.canvas_scrolled.emit(0.0, 0.0, 1, {"Shift"})
+
+    assert canvas._flash_text == f"WD {before + 0.001:.3f} mm  +1 µm"
+    canvas.canvas_scrolled.emit(0.0, 0.0, -1, {"Shift"})
+    assert canvas._flash_text.endswith("  -1 µm")
+    widget._teardown_connections()

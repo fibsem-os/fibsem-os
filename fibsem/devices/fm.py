@@ -26,9 +26,10 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 import numpy as np
 
 from fibsem.devices.core import Device, Parameter, Role, command
+from fibsem.devices.display import Display
 from fibsem.devices.wire import Frame, to_wire
 from fibsem.fm.structures import EmissionFilter
-from fibsem.structures import CameraImageTransform, InsertableDeviceState
+from fibsem.structures import CameraImageTransform, InsertableDeviceState, RangeLimit
 from fibsem.util.timestamps import now_iso, zone_known
 
 
@@ -51,9 +52,18 @@ def mount_transform_from_name(name: Optional[str]) -> CameraImageTransform:
 
 
 class Camera(Device):
-    exposure_time = Parameter(float, unit="s")
-    binning = Parameter(int)
-    gain = Parameter(float, doc="A fraction of the camera's gain range, 0 to 1.")
+    exposure_time = Parameter(
+        float,
+        unit="s",
+        display=Display("Exposure Time", scale=1e3, step=1.0, decimals=1),
+    )
+    binning = Parameter(int, display=Display("Binning"))
+    gain = Parameter(
+        float,
+        limits=RangeLimit(0.0, 1.0),
+        doc="A fraction of the camera's gain range, 0 to 1.",
+        display=Display("Gain", scale=100, unit="%", step=1.0, decimals=1),
+    )
     offset = Parameter(float)
     pixel_size = Parameter(tuple, unit="m", doc="(x, y), after binning.")
     resolution = Parameter(tuple, doc="(width, height) in pixels, after binning.")
@@ -96,7 +106,11 @@ class LightSource(Device):
     says what the next frame will use.
     """
 
-    power = Parameter(float, doc="A fraction of the source's maximum, 0 to 1.")
+    power = Parameter(
+        float,
+        doc="A fraction of the source's maximum, 0 to 1.",
+        display=Display("Power", scale=100, unit="%", step=1.0, decimals=1),
+    )
 
 
 class FilterSet(Device):
@@ -125,7 +139,11 @@ class FilterSet(Device):
 class Objective(Device):
     """Where the objective is and what it's doing. It moves only through commands."""
 
-    position = Parameter(float, unit="m")
+    position = Parameter(
+        float,
+        unit="m",
+        display=Display("Position", scale=1e6, step=1.0, decimals=1),
+    )
     state = Parameter(InsertableDeviceState)
     magnification = Parameter(float)
     numerical_aperture = Parameter(float)

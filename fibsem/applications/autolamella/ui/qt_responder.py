@@ -694,20 +694,34 @@ class QtResponder(QObject):
         request, future = active
         if future.cancelled():
             return
-        self._ui.workflow_status_signal.emit(
-            WorkflowStatusEvent(
-                message=f"Milling {request.config.name} Complete: "
+        # The widget this slot is wired to, which is the one that finished: not
+        # _milling_widget(), whose lookup raises once a disconnect has torn the
+        # tab down, and a raise here aborts the app under PyQt5 (FIB-329).
+        error = self._milling_finished_wired.milling_widget.milling_error
+        if error is None:
+            status = (
+                f"Milling {request.config.name} Complete: "
                 f"{len(request.config.stages)} stages completed."
             )
-        )
+        else:
+            status = f"Milling {request.config.name} Failed: {error}"
+        self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=status))
         if request.confirm():
             # Same prompt again: Run Milling reruns (after edits), Continue ends —
             # and confirm is read live, so a supervision flip made during the mill
             # decides here: auto→supervised drops the operator into the loop,
-            # supervised→auto continues without re-asking.
-            self._park_question(
-                request, future, request.message, "Run Milling", "Continue"
-            )
+            # supervised→auto continues without re-asking. A failed mill asks
+            # too, with the error: the operator retries, or Continues to accept
+            # what was milled -- their decision on the result (FIB-1112).
+            msg = request.message
+            if error is not None:
+                msg = f"Milling failed: {error}\n\n{msg}"
+            self._park_question(request, future, msg, "Run Milling", "Continue")
+            return
+        if error is not None:
+            # Nobody to ask: the task fails, as it does headless. Handed over,
+            # never raised -- this is a Qt slot (FIB-329).
+            self._fail(future, error)
             return
         try:
             self._deliver(future, self._finish_milling_question())

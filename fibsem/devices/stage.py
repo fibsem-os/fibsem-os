@@ -40,7 +40,9 @@ from typing import Any, Dict, Iterator, Mapping, Optional
 
 from psygnal import Signal
 
+from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.core import Device, Parameter, command
+from fibsem.devices.display import Display
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
     STAGE_FRAME_FIBSEM,
@@ -204,6 +206,14 @@ class Stage(Device):
     position = Parameter(
         FibsemStagePosition,
         doc="Raw stage coordinates, in the fibsem-os frame. Its limits are per axis.",
+        display={
+            **{
+                axis: Display(axis.upper(), scale=1e3, step=0.001, decimals=5)
+                for axis in ("x", "y", "z")
+            },
+            "r": Display("Rotation", scale=180 / math.pi, unit=DEGREE_SYMBOL),
+            "t": Display("Tilt", scale=180 / math.pi, unit=DEGREE_SYMBOL),
+        },
     )
     homed = Parameter(bool)
     linked = Parameter(bool, doc="z linked to the working distance.")

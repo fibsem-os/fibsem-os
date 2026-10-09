@@ -21,6 +21,8 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from PyQt5.QtCore import QEventLoop, QTimer
 from PyQt5.QtWidgets import QApplication
 
+from fibsem.devices.beam import Beam
+from fibsem.devices.core import ParameterMetadata
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
@@ -38,14 +40,16 @@ def _pump(ms: int = 50) -> None:
 class FakeParameter:
     settable = True
 
-    def __init__(self, choices=None):
+    def __init__(self, name, choices=None):
+        self.spec = getattr(Beam, name)
         self.choices = choices
+        self.metadata = ParameterMetadata(choices=choices)
 
 
 class FakeBeam:
     def __init__(self, parameters):
         self.parameters = {
-            name: FakeParameter(choices) for name, choices in parameters.items()
+            name: FakeParameter(name, choices) for name, choices in parameters.items()
         }
 
 

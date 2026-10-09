@@ -309,3 +309,98 @@ def test_the_status_is_written_on_the_gui_thread(movement):
     _run(lambda: _status(movement) is None)
     assert threads, "the status was never written"
     assert set(threads) == {"MainThread"}, threads
+
+
+# --- the status chips through a real move (FIB-1188) --------------------------------
+
+
+def _prefs(monkeypatch, sem: bool, fib: bool):
+    from fibsem import config as cfg
+
+    prefs = cfg.UserPreferences()
+    prefs.movement.acquire_sem_after_stage_movement = sem
+    prefs.movement.acquire_fib_after_stage_movement = fib
+    monkeypatch.setattr(cfg, "load_user_preferences", lambda: prefs)
+
+
+def _with_images(movement):
+    """An image on each beam's view, put up the way an acquisition puts it up: through
+    the image widget, which keeps its own reference and shows it again later."""
+    controller = movement._view_controller()
+    for beam in (BeamType.ELECTRON, BeamType.ION):
+        image = movement.microscope.acquire_image(beam_type=beam)
+        movement.image_widget._on_acquire(image)
+    return controller
+
+
+def test_a_move_that_retakes_both_beams_ends_with_no_chips(movement, monkeypatch):
+    """MOVING when it starts, ACQUIRING once it has landed and the frames are on
+    their way, nothing once they are in."""
+    _prefs(monkeypatch, sem=True, fib=True)
+    controller = _with_images(movement)
+    seen = []
+
+    def record(name):
+        original = getattr(controller, name)
+
+        def wrapped(*args):
+            original(*args)
+            seen.append((name, controller.sem_canvas.status_chip))
+
+        setattr(controller, name, wrapped)
+
+    record("stage_move_started")
+    record("stage_move_finished")
+    movement._move_to_absolute_position(TARGET)
+    _run(
+        lambda: (
+            not movement.image_widget.is_acquiring
+            and controller.sem_canvas.status_chip is None
+            and controller.fib_canvas.status_chip is None
+        ),
+        tries=30,
+    )
+    assert seen == [
+        ("stage_move_started", "MOVING"),
+        ("stage_move_finished", "ACQUIRING"),
+    ]
+    assert controller.sem_canvas.status_chip is None
+    assert controller.fib_canvas.status_chip is None
+
+
+def test_a_move_that_retakes_nothing_leaves_the_images_stage_moved(
+    movement, monkeypatch
+):
+    _prefs(monkeypatch, sem=False, fib=False)
+    controller = _with_images(movement)
+    movement._move_to_absolute_position(TARGET)
+    _run(lambda: controller.sem_canvas.status_chip == "STAGE MOVED", tries=30)
+    assert controller.sem_canvas.status_chip == "STAGE MOVED"
+    assert controller.fib_canvas.status_chip == "STAGE MOVED"
+
+
+def test_a_move_that_retakes_one_beam_leaves_the_other_stage_moved(
+    movement, monkeypatch
+):
+    """The image widget puts the FIB image it did not retake back up: still stale."""
+    _prefs(monkeypatch, sem=True, fib=False)
+    controller = _with_images(movement)
+    movement._move_to_absolute_position(TARGET)
+    _run(
+        lambda: (
+            not movement.image_widget.is_acquiring
+            and controller.sem_canvas.status_chip is None
+        ),
+        tries=30,
+    )
+    assert controller.sem_canvas.status_chip is None
+    assert controller.fib_canvas.status_chip == "STAGE MOVED"
+
+
+def test_a_plain_acquire_says_acquiring_until_the_frame_lands(movement):
+    controller = _with_images(movement)
+    movement.image_widget.acquire_fib_image()
+    assert controller.fib_canvas.status_chip == "ACQUIRING"
+    assert controller.sem_canvas.status_chip is None
+    _run(lambda: not movement.image_widget.is_acquiring, tries=30)
+    assert controller.fib_canvas.status_chip is None

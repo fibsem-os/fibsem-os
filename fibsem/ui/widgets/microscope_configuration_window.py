@@ -378,7 +378,6 @@ def slot_rows(holder) -> List[Tuple[str, str, str, str, str]]:
                 if position is not None and slot.is_calibrated
                 else NOT_STATED,
                 format_time(calibration.captured_at, "%Y-%m-%d %H:%M:%S")
-                or calibration.captured_at
                 if calibration is not None and calibration.captured_at
                 else NOT_STATED,
             )

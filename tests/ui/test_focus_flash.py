@@ -147,14 +147,14 @@ class TestTheFlashSaysWhereItIsGoing:
 
         self._scroll(widget, canvas)
 
-        assert canvas._flash_text == f"OBJ {base + 1.0:.1f} um  (+1.0 um)"
+        assert canvas._flash_text == f"OBJ {base + 1.0:.1f} µm  +1.0 µm"
 
     def test_the_step_is_signed_so_it_shows_direction(self, fm, widget, canvas):
         widget.doubleSpinBox_objective_step_size.setValue(2.5)
 
         self._scroll(widget, canvas, direction=-1)
 
-        assert "(-2.5 um)" in canvas._flash_text
+        assert "-2.5 µm" in canvas._flash_text
 
     def test_it_shows_the_step_currently_set_not_the_distance_travelled(
         self, fm, widget, canvas
@@ -167,7 +167,7 @@ class TestTheFlashSaysWhereItIsGoing:
         for _ in range(3):
             self._scroll(widget, canvas)
 
-        assert canvas._flash_text == f"OBJ {base + 3.0:.1f} um  (+1.0 um)"
+        assert canvas._flash_text == f"OBJ {base + 3.0:.1f} µm  +1.0 µm"
 
     def test_a_refused_scroll_flashes_nothing(self, fm, widget, canvas):
         """Nothing is going anywhere, so there is no target to show."""

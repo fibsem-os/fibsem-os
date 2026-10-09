@@ -14,13 +14,16 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     GridRecord,
     OverlayRecord,
+    QualityRecord,
+    Verdict,
 )
 from fibsem.applications.autolamella.tools.experiments import (
     created_order,
     filter_experiments,
 )
 from fibsem.config import ExperimentSummary, peek_experiment
-from fibsem.structures import FibsemExperimentRef, SessionInfo
+from fibsem.correlation.structures import CorrelationResult
+from fibsem.structures import FibsemExperimentRef, SessionInfo, SlotCalibration
 from fibsem.util.timestamps import format_time
 
 # 2026-09-14 03:12:11 UTC, as an older file holds it
@@ -154,3 +157,56 @@ def test_the_listing_reads_older_floats_and_sorts_the_unknown_last(tmp_path):
 
 def test_a_summary_built_without_a_time_is_unknown():
     assert ExperimentSummary(path="p", name="n").created_at is None
+
+
+def test_an_older_verdict_keeps_when_it_was_set(viewer_zone):
+    stored = {"verdict": "FAILED", "reason": "cracked", "updated_at": STAMP}
+    verdict = QualityRecord.from_dict(stored)
+    assert _aware_at_stamp(verdict.updated_at)
+    again = QualityRecord.from_dict(_saved(verdict))
+    assert again.updated_at == verdict.updated_at
+    # the pre-DefectState shape too
+    old = QualityRecord.from_dict({"has_defect": True, "updated_at": STAMP})
+    assert _aware_at_stamp(old.updated_at)
+
+
+def test_setting_a_verdict_records_an_aware_time():
+    verdict = QualityRecord()
+    verdict.set_defect("cracked", Verdict.FAILED)
+    assert verdict.updated_at.tzinfo is not None
+    assert QualityRecord().updated_at is None
+
+
+def test_an_older_correlation_result_keeps_its_time(viewer_zone):
+    result = CorrelationResult.from_dict(
+        dict(CorrelationResult().to_dict(), updated_at=STAMP)
+    )
+    assert _aware_at_stamp(result.updated_at)
+    assert CorrelationResult(updated_at=STAMP).updated_at == result.updated_at
+    again = CorrelationResult.from_dict(_saved(result))
+    assert again.updated_at == result.updated_at
+
+
+@pytest.mark.parametrize(
+    "written",
+    ["2026-09-02T11:20:00", "2026-09-02T11:20:00+10:00"],  # before FIB-1190, since
+)
+def test_a_slot_calibration_reads_its_time_as_written(written):
+    record = SlotCalibration.from_dict(
+        {
+            "orientation": "SEM",
+            "pre_tilt": 35.0,
+            "rotation_reference": 0.0,
+            "captured_at": written,
+        }
+    )
+    assert record.captured_at == datetime.fromisoformat(written)
+    assert record.to_dict()["captured_at"] == written
+    assert not record.is_builtin
+
+
+def test_a_builtin_slot_calibration_has_no_time():
+    record = SlotCalibration.builtin(35.0, 0.0)
+    assert record.captured_at is None and record.is_builtin
+    assert record.to_dict()["captured_at"] == ""
+    assert SlotCalibration.from_dict(record.to_dict()).is_builtin

@@ -1,4 +1,3 @@
-
 from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal
@@ -11,6 +10,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import ZParameters, ZStackOrder
+from fibsem.structures import get_fields_with_metadata
 from fibsem.ui.tokens import (
     NEUTRAL_650,
 )
@@ -18,25 +18,13 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox
 
-Z_PARAMETERS_CONFIG = {
-    "step_size": 0.1,  # µm
-    "decimals": 2,  # number of decimal places
-    "suffix": " µm",  # unit suffix
-    "tooltips": {
-        "zmin": "Minimum Z position relative to current position",
-        "zmax": "Maximum Z position relative to current position", 
-        "zstep": "Step size between Z positions",
-    },
-    "range": {
-        "zmin": (-100.0, -0.25),  # µm
-        "zmax": (0.25, 100.0),    # µm
-        "zstep": (0.1, 10.0),     # µm
-    },
-}
+# How each value is shown, and its bounds: ZParameters' field metadata.
+_META = get_fields_with_metadata(ZParameters)
+
 
 class ZParametersWidget(QWidget):
-
     settings_changed = pyqtSignal(ZParameters)
 
     def __init__(self, z_parameters: ZParameters, parent: Optional[QWidget] = None):
@@ -48,36 +36,24 @@ class ZParametersWidget(QWidget):
     def initUI(self):
 
         # Z minimum
-        self.label_zmin = QLabel("Z Min", self)
+        self.label_zmin = QLabel(_META["zmin"]["label"], self)
         self.doubleSpinBox_zmin = ValueSpinBox(parent=self)
-        self.doubleSpinBox_zmin.setRange(*Z_PARAMETERS_CONFIG["range"]["zmin"])  # ±100 µm range
-        self.doubleSpinBox_zmin.setValue(self.z_parameters.zmin * 1e6)  # Convert m to µm
-        self.doubleSpinBox_zmin.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
-        self.doubleSpinBox_zmin.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
-        self.doubleSpinBox_zmin.setSuffix(Z_PARAMETERS_CONFIG["suffix"])
-        self.doubleSpinBox_zmin.setToolTip(Z_PARAMETERS_CONFIG["tooltips"]["zmin"])
+        configure_spinbox(self.doubleSpinBox_zmin, _META["zmin"])
+        self.doubleSpinBox_zmin.setValue(self._shown("zmin"))
         self.doubleSpinBox_zmin.setKeyboardTracking(False)
 
         # Z maximum
-        self.label_zmax = QLabel("Z Max", self)
+        self.label_zmax = QLabel(_META["zmax"]["label"], self)
         self.doubleSpinBox_zmax = ValueSpinBox(parent=self)
-        self.doubleSpinBox_zmax.setRange(*Z_PARAMETERS_CONFIG["range"]["zmax"])  # ±100 µm range
-        self.doubleSpinBox_zmax.setValue(self.z_parameters.zmax * 1e6)  # Convert m to µm
-        self.doubleSpinBox_zmax.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
-        self.doubleSpinBox_zmax.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
-        self.doubleSpinBox_zmax.setSuffix(Z_PARAMETERS_CONFIG["suffix"])
-        self.doubleSpinBox_zmax.setToolTip(Z_PARAMETERS_CONFIG["tooltips"]["zmax"])
+        configure_spinbox(self.doubleSpinBox_zmax, _META["zmax"])
+        self.doubleSpinBox_zmax.setValue(self._shown("zmax"))
         self.doubleSpinBox_zmax.setKeyboardTracking(False)
 
         # Z step
-        self.label_zstep = QLabel("Z Step", self)
+        self.label_zstep = QLabel(_META["zstep"]["label"], self)
         self.doubleSpinBox_zstep = ValueSpinBox(parent=self)
-        self.doubleSpinBox_zstep.setRange(*Z_PARAMETERS_CONFIG["range"]["zstep"])  # 0.1 to 10 µm range
-        self.doubleSpinBox_zstep.setValue(self.z_parameters.zstep * 1e6)  # Convert m to µm
-        self.doubleSpinBox_zstep.setSingleStep(Z_PARAMETERS_CONFIG["step_size"])
-        self.doubleSpinBox_zstep.setDecimals(Z_PARAMETERS_CONFIG["decimals"])
-        self.doubleSpinBox_zstep.setSuffix(Z_PARAMETERS_CONFIG["suffix"])
-        self.doubleSpinBox_zstep.setToolTip(Z_PARAMETERS_CONFIG["tooltips"]["zstep"])
+        configure_spinbox(self.doubleSpinBox_zstep, _META["zstep"])
+        self.doubleSpinBox_zstep.setValue(self._shown("zstep"))
         self.doubleSpinBox_zstep.setKeyboardTracking(False)
 
         # Number of planes (calculated, read-only)
@@ -119,6 +95,10 @@ class ZParametersWidget(QWidget):
         self.doubleSpinBox_zstep.valueChanged.connect(self._on_zstep_changed)
         self.combo_order.currentIndexChanged.connect(self._on_order_changed)
 
+    def _shown(self, name: str) -> float:
+        """The parameter ``name`` as its box shows it (µm)."""
+        return getattr(self._z_parameters, name) * _META[name]["scale"]
+
     @property
     def z_parameters(self) -> ZParameters:
         """Get the ZParameters instance."""
@@ -136,9 +116,9 @@ class ZParametersWidget(QWidget):
         self.doubleSpinBox_zmax.blockSignals(True)
         self.doubleSpinBox_zstep.blockSignals(True)
         self.combo_order.blockSignals(True)
-        self.doubleSpinBox_zmin.setValue(self.z_parameters.zmin * 1e6)  # Convert m to µm
-        self.doubleSpinBox_zmax.setValue(self.z_parameters.zmax * 1e6)  # Convert m to µm
-        self.doubleSpinBox_zstep.setValue(self.z_parameters.zstep * 1e6)  # Convert m to µm
+        self.doubleSpinBox_zmin.setValue(self._shown("zmin"))
+        self.doubleSpinBox_zmax.setValue(self._shown("zmax"))
+        self.doubleSpinBox_zstep.setValue(self._shown("zstep"))
         self.combo_order.setCurrentIndex(
             0 if self.z_parameters.order == ZStackOrder.CHANNEL else 1
         )
@@ -163,9 +143,9 @@ class ZParametersWidget(QWidget):
 
     def _on_zmin_changed(self, value: float):
         """Handle Z min value change."""
-        self.z_parameters.zmin = value * 1e-6  # Convert µm to m
+        self.z_parameters.zmin = value / _META["zmin"]["scale"]
         self._update_num_planes_display()
-        
+
         # Ensure zmin <= zmax
         if self.z_parameters.zmin > self.z_parameters.zmax:
             self.doubleSpinBox_zmax.setValue(value)
@@ -173,9 +153,9 @@ class ZParametersWidget(QWidget):
 
     def _on_zmax_changed(self, value: float):
         """Handle Z max value change."""
-        self.z_parameters.zmax = value * 1e-6  # Convert µm to m
+        self.z_parameters.zmax = value / _META["zmax"]["scale"]
         self._update_num_planes_display()
-        
+
         # Ensure zmax >= zmin
         if self.z_parameters.zmax < self.z_parameters.zmin:
             self.doubleSpinBox_zmin.setValue(value)
@@ -183,7 +163,7 @@ class ZParametersWidget(QWidget):
 
     def _on_zstep_changed(self, value: float):
         """Handle Z step value change."""
-        self.z_parameters.zstep = value * 1e-6  # Convert µm to m
+        self.z_parameters.zstep = value / _META["zstep"]["scale"]
         self._update_num_planes_display()
         self.settings_changed.emit(self.z_parameters)
 

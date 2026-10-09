@@ -31,6 +31,8 @@ from dataclasses import is_dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+from fibsem.structures import get_fields_with_metadata
+
 __all__ = ["PatchError", "apply_patch"]
 
 
@@ -174,12 +176,15 @@ def _check_bounds(obj: Any, leaf: str, value: Any, path: str) -> None:
     for f in dataclass_fields(obj):
         if f.name != leaf:
             continue
-        minimum = f.metadata.get("minimum")
-        maximum = f.metadata.get("maximum")
+        # The merged view: a field bound to a beam parameter takes its scale from
+        # the beam's display hint rather than declaring its own.
+        metadata = get_fields_with_metadata(type(obj))[leaf]
+        minimum = metadata.get("minimum")
+        maximum = metadata.get("maximum")
         # The form metadata states bounds in *display* units (a depth of
         # 2e-6 m displays as 2.0 with scale 1e6, and min/max bound the 2.0).
         # Compare in that frame, or every valid SI value would be refused.
-        scale = f.metadata.get("scale") or 1.0
+        scale = metadata.get("scale") or 1.0
         display = value * scale
         # No unit label: metadata's "unit" is the SI unit of the STORED value,
         # while min/max bound the scaled display value — labelling either

@@ -38,6 +38,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_550,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
+from fibsem.util.timestamps import now
 
 _NAME_MIN_WIDTH = 160
 
@@ -187,11 +188,7 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
                 return
             lamella.defect = QualityRecord(
                 verdict=verdict,
-                updated_at=(
-                    None
-                    if verdict is Verdict.UNASSESSED
-                    else datetime.timestamp(datetime.now())
-                ),
+                updated_at=None if verdict is Verdict.UNASSESSED else now(),
             )
             on_changed()
 

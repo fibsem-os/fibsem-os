@@ -414,13 +414,11 @@ def test_unsupported_patterns_raise_naming_the_adapter(microscope, settings):
         microscope.draw_pattern(settings)
 
 
-def test_a_task_with_an_unsupported_pattern_returns_and_cleans_up(microscope):
+def test_a_task_with_an_unsupported_pattern_fails_and_cleans_up(microscope):
     """The raise replaces a silent no-op that left an empty stage to wait on.
 
-    It lands in FibsemMillingTask._mill_stage, which logs a stage's error and moves
-    on, so the stage never reports finished and the task's cleanup still restores the
-    beam. The task as a whole still reports finished: that is the task's handling of
-    any failed stage, on every backend, and not this backend's to change.
+    The stage never reports finished, the task ends failed with the error, and the
+    task's cleanup still restores the beam (FIB-1112).
     """
     progress = []
     microscope.milling_progress_signal.connect(progress.append)
@@ -434,11 +432,14 @@ def test_a_task_with_an_unsupported_pattern_returns_and_cleans_up(microscope):
     config.alignment.enabled = False
     config.acquisition.acquire_final_image = False
 
-    FibsemMillingTask(microscope, config).run()
+    task = FibsemMillingTask(microscope, config)
+    task.run()
 
     statuses = [p.status for p in progress]
     assert MillingProgressStatus.STAGE_STARTED in statuses
     assert MillingProgressStatus.STAGE_FINISHED not in statuses
+    assert statuses[-1] is MillingProgressStatus.TASK_FAILED
+    assert isinstance(task.error, NotImplementedError)
     assert ("set_patterning_mode", "Serial") in microscope.connection.calls
     assert "start_milling" not in [call[0] for call in microscope.connection.calls]
 
