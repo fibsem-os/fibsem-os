@@ -221,9 +221,33 @@ def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]
     for f in fields(struct_cls):
         declared = dict(f.metadata)
         _warn_unknown_metadata_keys(struct_cls, f.name, declared)
-        merged_metadata = {**default_metadata, **declared}
+        merged_metadata = {
+            **default_metadata,
+            **_beam_parameter_display(declared.get("microscope_parameter")),
+            **declared,
+        }
         field_metadata[f.name] = merged_metadata
     return field_metadata
+
+
+def _beam_parameter_display(name: Optional[str]) -> Dict[str, Any]:
+    """How the beam shows its parameter ``name``, for a field bound to it: the unit,
+    scale, step and decimals a field leaves out are the beam's, so a milling current
+    reads like the beam panel's current. Empty for a name the beam doesn't declare.
+    """
+    if not name:
+        return {}
+    from fibsem.devices.beam import Beam
+    from fibsem.devices.core import Parameter
+
+    parameter = getattr(Beam, name, None)
+    if not isinstance(parameter, Parameter) or parameter.display is None:
+        return {}
+    metadata = parameter.display.as_field_metadata(parameter.unit)
+    # the field names it in its own context, and says where its form shows it
+    metadata.pop("label", None)
+    metadata.pop("advanced", None)
+    return metadata
 
 
 class Resolution(NamedTuple):
@@ -925,18 +949,39 @@ class ImageSettings:
     # applied to the array afterwards -- and baking it into the stored data is
     # destructive and unrecoverable. The canvas's ContrastGammaControl does it at
     # display time instead, where it is adjustable and reversible.
-    resolution: Tuple[int, int] = (1536, 1024)
-    dwell_time: float = 1e-6
-    hfw: float = 150e-6
+    # How a form shows them. The beam-bound fields take their unit, scale, step and
+    # decimals from the beam's parameter, and an instrument's limits win over these.
+    resolution: Tuple[int, int] = field(
+        default=(1536, 1024),
+        metadata=field_meta(label="Resolution", microscope_parameter="resolution"),
+    )
+    dwell_time: float = field(
+        default=1e-6,
+        metadata=field_meta(label="Dwell Time", microscope_parameter="dwell_time"),
+    )
+    hfw: float = field(
+        default=150e-6,
+        metadata=field_meta(label="Field of View", microscope_parameter="hfw"),
+    )
     autocontrast: bool = False
     beam_type: BeamType = BeamType.ELECTRON
     save: bool = False
     filename: str = "default_image"
     path: Optional[Union[Path, str]] = None
     reduced_area: Optional[FibsemRectangle] = None
-    line_integration: Optional[int] = None  # (int32) 2 - 255
-    scan_interlacing: Optional[int] = None  # (int32) 2 - 8
-    frame_integration: Optional[int] = None  # (int32) 2 - 512
+    # None is off; a form shows it as 1.
+    line_integration: Optional[int] = field(
+        default=None,
+        metadata=field_meta(label="Line Integration", minimum=1, maximum=255),
+    )
+    scan_interlacing: Optional[int] = field(
+        default=None,
+        metadata=field_meta(label="Scan Interlacing", minimum=1, maximum=8),
+    )
+    frame_integration: Optional[int] = field(
+        default=None,
+        metadata=field_meta(label="Frame Integration", minimum=1, maximum=512),
+    )
     drift_correction: bool = False  # (bool) # requires frame_integration > 1
 
     def __post_init__(self):
@@ -1792,7 +1837,6 @@ class FibsemMillingSettings:
     milling_current: float = field(
         default=20.0e-12,
         metadata={
-            "unit": "A",
             "label": "Milling Current",
             "type": float,
             "items": "dynamic",
@@ -1803,7 +1847,6 @@ class FibsemMillingSettings:
     milling_voltage: float = field(
         default=30e3,
         metadata={
-            "unit": "V",
             "label": "Milling Voltage",
             "type": float,
             "items": "dynamic",
@@ -1839,13 +1882,9 @@ class FibsemMillingSettings:
         metadata={
             "label": "Field of View",
             "type": float,
-            "unit": "m",
-            "scale": 1e6,
             "default": 150.0,
             "minimum": 20.0,
             "maximum": 950.0,
-            "step": 10.0,
-            "decimals": 2,
             "microscope_parameter": "hfw",
             "hidden": True,
             "tooltip": "The horizontal field width used for milling. Patterns must fit within this field of view.",
