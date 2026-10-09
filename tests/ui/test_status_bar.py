@@ -540,20 +540,25 @@ def test_the_timeline_shows_its_first_failed_row(qapp):
 
 def test_a_long_failure_elides_rather_than_widening_the_window(no_quit, qapp):
     """A plain label's minimum is its text: one long failure set the status bar's
-    minimum, and the bar set the window's, so the whole app grew wider."""
+    minimum, and the bar set the window's, so the whole app grew wider.
+
+    Measured against a short failure, not against no failure: the failure line's
+    Show and Dismiss have widths of their own, which differ by platform font. What
+    must not move the window is the length of the message."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     window = module.AutoLamellaSingleWindowUI()
     window.resize(1200, 800)
     window.show()
+    window.status_bar.show_failure("Run finished", "1 of 5 failed · no peak")
     qapp.processEvents()
-    before = window.minimumSizeHint().width()
+    short = window.minimumSizeHint().width()
 
     reason = "the stage refused the move: " + "outside the travel range " * 40
     window.status_bar.show_failure("Run finished", f"1 of 5 failed · {reason}")
     qapp.processEvents()
 
-    assert window.minimumSizeHint().width() == before
+    assert window.minimumSizeHint().width() == short
     assert window.width() == 1200
     step = window.status_bar._step
     assert step.text().endswith("travel range "), "the whole text is kept"
