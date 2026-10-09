@@ -43,6 +43,9 @@ Reading is on for any connected agent — it is the point of the feature:
 - **Events** — task starts and finishes, milling progress, questions raised
   and answered (and by whom), as a live feed.
 - **Run history** — the run summary and each item's produced files.
+- **The microscope's devices** — every device's parameters (beams, stage,
+  chamber, FM parts) with their units, limits and choices, read live, and
+  the commands each device has.
 - **Each item's details** — status, failure flag, point of interest,
   alignment area, milling angle, and where its poses put the stage.
 - **Grids** — each grid the experiment records, its quality verdict and task
@@ -104,7 +107,7 @@ the plan (every grid, its load, its tasks) before it starts one.
 ## What the agent cannot do
 
 Command hardware. There is no permission that lets an agent move the stage,
-acquire, or mill directly — the switch exists in the dialog so the ladder is
+acquire, mill or write a device parameter directly — the switch exists in the dialog so the ladder is
 visible, and it is disabled. Milling happens only the way it always has:
 through a workflow's own steps, with its checks.
 

@@ -138,11 +138,29 @@ sem.describe()["hfw"]      # all of it as plain data, for a UI or a remote clien
 
 These come from the instrument once, when the device connects, and are cached; reading
 them makes no instrument call. They are refreshed when a parameter they depend on
-changes (the ion beam's current choices depend on its plasma gas). Units are SI
+changes (a beam's current choices depend on its voltage and, on a plasma FIB, its
+gas). Units are SI
 throughout: metres, amps, volts, seconds, radians. `limits` on a composite value such
 as the stage position is one `RangeLimit` per field.
 
 `choices` replaces `microscope.get_available_values(key, beam_type)`.
+
+### How a parameter is shown
+
+```python
+sem.hfw.display            # Display(label='Field of View', scale=1e6, step=50.0, decimals=1, ...)
+sem.hfw.display.as_field_metadata(sem.hfw.unit)   # the same, as field_meta keys
+```
+
+`display` (a `fibsem.display.Display`) is how a UI shows the parameter: its label,
+the scale from SI to the shown unit (1e6: metres to µm), the shown unit where the
+scale is not an SI prefix (degrees, percent), the step, the decimals, and whether it
+is an advanced setting. A composite value such as the stage position has one per
+field. It is declared on the device class, like the type and unit, so it is the same
+on every backend; what the instrument allows (limits, choices) is not part of it. The
+keys are those of a dataclass field's `field_meta`, so a form shows device
+parameters and recipe fields alike; the beam and detector panels build their controls
+from it, with the reported limits and choices laid over it.
 
 ### Writing
 
@@ -258,7 +276,9 @@ needle.named_positions()      # the named positions the driver reports
 needle.axes()                 # ("x", "y", "z"), with "r" or "t" if the arm rotates or tilts
 ```
 
-The chamber's commands are `pump()` and `vent()`. The manipulator's are
+The chamber's commands are `pump()` and `vent()`. On a microscope with no chamber
+device (Tescan, whose chamber fibsemOS does not drive), `microscope.pump()` and
+`vent()` raise rather than do nothing. The manipulator's are
 `insert(name)`, `retract()`, `move_absolute`, `move_relative`, `move_to_offset` and
 `stop()`. `stop` does not wait for the move it stops; a driver that cannot stop its
 needle raises `NotImplementedError`. Whether the arm rotates
@@ -480,14 +500,17 @@ A device class declares its parameters and commands. A driver implements each
 parameter with methods named after it, which `connect()` binds:
 
 ```python
+import math
+
 from fibsem.devices import Device, Parameter, ParameterMetadata, command
+from fibsem.display import Display
 from fibsem.structures import RangeLimit
 
 
 class Knife(Device):
     """A device type a plugin adds."""
 
-    angle = Parameter(float, unit="rad")
+    angle = Parameter(float, unit="rad", display=Display("Angle", scale=180 / math.pi, unit="°"))
 
     def __init__(self, name, parent=None):
         super().__init__(name, parent)
@@ -518,6 +541,9 @@ For each declared parameter, a device subclass may define:
 - `write_<name>(value)`: without it, the parameter is read-only;
 - `metadata_<name>()`: the limits, choices and settable flag the instrument reports;
 - `available_<name>()`: False leaves the parameter out on this instance.
+
+`display=` on the declaration says how a UI shows it (see
+[How a parameter is shown](#how-a-parameter-is-shown)).
 
 A method named after a parameter the class does not declare is an error when the
 class is defined, so a typo cannot silently hide a parameter. A subclass may not
@@ -597,3 +623,26 @@ server's event stream. `fibsem/server/devices.py` documents the server's endpoin
 INSTALLATION.md covers setting up a METEOR.
 
 The server has no authentication yet. Keep it on the microscope's private network.
+
+### Over the agent server
+
+The agent server mounts the same `/devices` routes over `microscope.devices`, behind
+its token: reads need any valid token, and writes and commands need the hardware
+scope. `FibsemClient.devices` gives a script the served beams and FM parts as live
+devices, by name, as `microscope.devices` does:
+
+<!-- not run -->
+```python
+from fibsem.server.client import FibsemClient
+
+with FibsemClient("localhost", 8001, token="...") as client:
+    ion = client.devices["ion"]
+    ion.current.get_value()       # a live read through the agent server
+    ion.current.choices
+```
+
+The agent server has no event stream, so these devices are not told of changes made
+elsewhere: `cached` and the metadata are as current as the client's last read. The
+stage, chamber and manipulator have no remote device class yet; reach their
+parameters and commands with `client.get_parameter`, `set_parameter` and
+`call_command`.

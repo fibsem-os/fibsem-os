@@ -30,7 +30,11 @@ fibsem/                     the instrument library (no application logic)
   server/                   the agent/bench HTTP server (build_server)
   mcp/                      the fibsem-mcp sidecar (MCP to HTTP)
   plugins/                  entry-point loading: fibsem.patterns,
-                            fibsem.strategies, fibsem.tasks
+                            fibsem.strategies, fibsem.tasks, fibsem.drivers
+  display.py                how a value is shown (label, scale, step), shared
+                            by device parameters and settings forms
+  microscopes/              old import paths, kept as shims (and _stage.py,
+                            still in use); new code imports from drivers/
 
 fibsem/applications/autolamella/
   structures.py             Experiment, Lamella, AutoLamellaTaskProtocol
