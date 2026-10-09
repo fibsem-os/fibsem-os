@@ -311,7 +311,7 @@ def run_tileset_autofocus(
     autofocus_settings: AutoFocusSettings,
     stop_event: Optional[threading.Event] = None,
 ) -> bool:
-    """Run autofocus during tileset acquisition with error handling and logging.
+    """Run autofocus during tileset acquisition.
 
     A thin wrapper over `run_coarse_fine_autofocus` -- the same sweep the live
     auto-focus button runs -- so a tileset focuses exactly the way focusing by hand
@@ -327,26 +327,27 @@ def run_tileset_autofocus(
 
     Returns:
         True if autofocus completed successfully, False if cancelled
+
+    Raises:
+        ValueError: if the microscope has no fluorescence microscope.
+        Whatever the sweep raised. A failure is not a cancel: the tile runner reads
+        False as the user stopping the run, so a failed sweep returning False ended
+        the overview reported as cancelled, with the error only in the log.
     """
     if microscope.fm is None:
-        logging.error(
+        raise ValueError(
             "Fluorescence microscope not initialized in the FibsemMicroscope instance"
         )
+    result = run_coarse_fine_autofocus(
+        microscope=microscope.fm,
+        autofocus_settings=autofocus_settings,
+        channel_settings=channel_settings,
+        stop_event=stop_event,
+    )
+    if result is None:
+        logging.info("Auto-focus cancelled")
         return False
-    try:
-        result = run_coarse_fine_autofocus(
-            microscope=microscope.fm,
-            autofocus_settings=autofocus_settings,
-            channel_settings=channel_settings,
-            stop_event=stop_event,
-        )
-        if result is None:
-            logging.info("Auto-focus cancelled")
-            return False
-        return True
-    except Exception as e:
-        logging.warning(f"Auto-focus failed: {e}")
-        return False
+    return True
 
 
 def _to_channel_planes(data: np.ndarray, n_channels: int) -> np.ndarray:

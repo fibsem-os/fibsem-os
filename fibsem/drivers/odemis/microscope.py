@@ -432,9 +432,8 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         """
         from fibsem.autofunctions.autofocus import AutoFocusSettings, run_auto_focus
 
-        # TODO: restore the beam's imaging settings afterwards. acquire_image writes
-        # resolution, dwell time and field of view to the beam, so the sweep leaves it
-        # at its probe settings.
+        # acquire_image writes resolution, dwell time and field of view to the beam;
+        # run_auto_focus puts them back when the sweep ends.
         run_auto_focus(
             self,
             beam_type=beam_type,
