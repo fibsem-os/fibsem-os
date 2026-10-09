@@ -130,7 +130,6 @@ class TestParityWithTheLiveMicroscope:
         tilt,
         beam_type,
         scan_rotation,
-        monkeypatch,
     ):
         base = _pose(
             microscope,
@@ -139,9 +138,7 @@ class TestParityWithTheLiveMicroscope:
             rotation_deg=rot,
             tilt_deg=tilt,
         )
-        monkeypatch.setattr(
-            microscope, "get_scan_rotation", lambda beam_type: scan_rotation
-        )
+        microscope.set_scan_rotation(scan_rotation, beam_type)
 
         dx, dy_up = 31e-6, -17e-6  # dy_up is the microscope's image y, pointing up
         live = microscope.project_stable_move(
