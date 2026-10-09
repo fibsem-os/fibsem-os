@@ -79,15 +79,21 @@ class FibsemDualBeamWidget(QWidget):
 
         # --- Beam on / blanked buttons ---
         self.btn_beam_on = QToolButton()
-        self.btn_beam_on.setIcon(fibsem_icon("mdi:power", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_beam_on.setIcon(
+            fibsem_icon("mdi:power", color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_beam_on.setToolTip("Toggle beam on/off")
 
         self.btn_beam_blanked = QToolButton()
-        self.btn_beam_blanked.setIcon(fibsem_icon("mdi:eye", color=stylesheets.GRAY_ICON_COLOR))
+        self.btn_beam_blanked.setIcon(
+            fibsem_icon("mdi:eye", color=stylesheets.GRAY_ICON_COLOR)
+        )
         self.btn_beam_blanked.setToolTip("Toggle beam blank/unblank")
 
         # --- Refresh button ---
-        self.btn_refresh = IconToolButton(icon="mdi:refresh", tooltip="Refresh from microscope")
+        self.btn_refresh = IconToolButton(
+            icon="mdi:refresh", tooltip="Refresh from microscope"
+        )
 
         self.btn_beam_on.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
         self.btn_beam_blanked.setStyleSheet(stylesheets.TOOLBUTTON_ICON_STYLESHEET)
@@ -148,9 +154,13 @@ class FibsemDualBeamWidget(QWidget):
         self.btn_beam_blanked.clicked.connect(self._on_beam_blanked_clicked)
         self.btn_refresh.clicked.connect(self._on_refresh_clicked)
         self.sem_widget.beam_settings_changed.connect(self.beam_settings_changed)
-        self.sem_widget.detector_settings_changed.connect(self.detector_settings_changed)
+        self.sem_widget.detector_settings_changed.connect(
+            self.detector_settings_changed
+        )
         self.fib_widget.beam_settings_changed.connect(self.beam_settings_changed)
-        self.fib_widget.detector_settings_changed.connect(self.detector_settings_changed)
+        self.fib_widget.detector_settings_changed.connect(
+            self.detector_settings_changed
+        )
 
     def _on_beam_selected(self, sem_checked: bool):
         self.sem_widget.setVisible(sem_checked)
@@ -186,7 +196,9 @@ class FibsemDualBeamWidget(QWidget):
 
     @property
     def active_widget(self) -> FibsemBeamWidget:
-        return self.sem_widget if self.beam_type is BeamType.ELECTRON else self.fib_widget
+        return (
+            self.sem_widget if self.beam_type is BeamType.ELECTRON else self.fib_widget
+        )
 
     def populate_combos(self):
         """Populate all comboboxes from the microscope for both beam types."""
@@ -199,7 +211,9 @@ class FibsemDualBeamWidget(QWidget):
         widget = self.sem_widget if bt is BeamType.ELECTRON else self.fib_widget
         return widget.get_beam_settings()
 
-    def get_detector_settings(self, beam_type: BeamType = None) -> FibsemDetectorSettings:
+    def get_detector_settings(
+        self, beam_type: BeamType = None
+    ) -> FibsemDetectorSettings:
         """Return FibsemDetectorSettings for the given beam type (defaults to active beam)."""
         bt = beam_type if beam_type is not None else self.beam_type
         widget = self.sem_widget if bt is BeamType.ELECTRON else self.fib_widget
@@ -211,7 +225,11 @@ class FibsemDualBeamWidget(QWidget):
         detector_settings: FibsemDetectorSettings,
     ):
         """Route settings to the correct sub-widget based on beam_settings.beam_type."""
-        widget = self.sem_widget if beam_settings.beam_type is BeamType.ELECTRON else self.fib_widget
+        widget = (
+            self.sem_widget
+            if beam_settings.beam_type is BeamType.ELECTRON
+            else self.fib_widget
+        )
         widget.update_from_settings(beam_settings, detector_settings)
 
     def sync_beam_status(self):
@@ -222,12 +240,18 @@ class FibsemDualBeamWidget(QWidget):
 
         power_color = stylesheets.GREEN_COLOR if is_on else stylesheets.ORANGE_COLOR
         self.btn_beam_on.setIcon(fibsem_icon("mdi:power", color=power_color))
-        self.btn_beam_on.setToolTip("Beam ON — click to turn off" if is_on else "Beam OFF — click to turn on")
+        self.btn_beam_on.setToolTip(
+            "Beam ON — click to turn off" if is_on else "Beam OFF — click to turn on"
+        )
 
         eye_icon = "mdi:eye-off" if is_blanked else "mdi:eye"
-        eye_color = stylesheets.ORANGE_COLOR if is_blanked else stylesheets.GRAY_ICON_COLOR
+        eye_color = (
+            stylesheets.ORANGE_COLOR if is_blanked else stylesheets.GRAY_ICON_COLOR
+        )
         self.btn_beam_blanked.setIcon(fibsem_icon(eye_icon, color=eye_color))
-        self.btn_beam_blanked.setToolTip("Blanked — click to unblank" if is_blanked else "Unblanked — click to blank")
+        self.btn_beam_blanked.setToolTip(
+            "Blanked — click to unblank" if is_blanked else "Unblanked — click to blank"
+        )
 
     def sync_from_microscope(self):
         """Read current settings from the microscope and update both sub-widgets."""
@@ -245,7 +269,9 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost", debug=True)
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", ip_address="localhost", debug=True
+    )
 
     main_widget = QWidget()
     main_layout = QVBoxLayout()
@@ -257,10 +283,13 @@ if __name__ == "__main__":
     main_layout.addWidget(widget)
 
     widget.beam_settings_changed.connect(lambda s: print(f"beam_settings_changed: {s}"))
-    widget.detector_settings_changed.connect(lambda s: print(f"detector_settings_changed: {s}"))
+    widget.detector_settings_changed.connect(
+        lambda s: print(f"detector_settings_changed: {s}")
+    )
 
     def _print(checked=False):
         from pprint import pprint
+
         bt = widget.beam_type
         print(f"--- {bt.name} beam ---")
         pprint(widget.get_beam_settings().to_dict())
