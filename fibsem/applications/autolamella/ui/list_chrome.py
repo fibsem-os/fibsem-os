@@ -12,11 +12,17 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QWidget
+from PyQt5.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QToolButton, QWidget
 
-from fibsem.ui.tokens import CANVAS_BG, TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.tokens import (
+    CANVAS_BG,
+    GRAY_ICON_COLOR,
+    TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
+)
 
 # Every row in the panel's lists, and the type in them: the name, then whatever
 # qualifies it (a status, what a task waits for, a task's type).
@@ -120,6 +126,32 @@ def tinted_chip_style(colour: str, selector: str = "QToolButton") -> str:
         "text-align: left; }"
         f"{selector}:hover {{ background: {hover}; }}"
     )
+
+
+def row_chip(text: str, colour: str) -> QLabel:
+    """A label chip in a row ("not present", "Loaded"): the attention chip's tint
+    and height, so the chips in the panel's lists are one kind."""
+    label = QLabel(text)
+    label.setFixedHeight(CHIP_HEIGHT)
+    label.setAlignment(Qt.AlignCenter)
+    label.setStyleSheet(
+        tinted_chip_style(colour, selector="QLabel").replace(
+            "padding: 0 6px 0 4px", "padding: 0 7px"
+        )
+    )
+    return label
+
+
+def help_button(tooltip: str) -> QToolButton:
+    """The ? on a list's header: how to work the list, as its tooltip, where a
+    line of hints under the list said it on every view."""
+    button = QToolButton()
+    button.setFixedSize(24, 24)
+    button.setAutoRaise(True)
+    button.setIcon(fibsem_icon("mdi:help-circle-outline", color=GRAY_ICON_COLOR))
+    button.setToolTip(tooltip)
+    button.setStyleSheet("QToolButton { border: none; background: transparent; }")
+    return button
 
 
 def apply_name_style(label: QLabel) -> None:

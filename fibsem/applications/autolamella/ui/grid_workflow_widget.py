@@ -5,10 +5,10 @@ and Stop buttons, the timeline on the right, the confirmation before a start.
 Grid rows come from the experiment's records with the hardware's word on each
 (slot, loaded) drawn as chips; only a present grid can be ticked. Task rows
 come from the grid protocol in its order, and the order can be changed here.
-Settings live on Grids → Protocol.
+Settings live on the Protocol tab's Grid page; the ⚙ on the task list opens it.
 
-"Screen all grids" is the Arctis user's one action: inventory, every present
-grid, the ticked tasks.
+"Screen all", on the grid list's header, is the Arctis user's one action:
+inventory, every present grid, the ticked tasks.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QDialog,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -40,6 +39,16 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
 )
 from fibsem.applications.autolamella.ui.grid_card_widget import grid_headline
+from fibsem.applications.autolamella.ui.list_chrome import (
+    CHIP_HEIGHT,
+    DETAIL_PX,
+    NAME_PX,
+    ROW_HEIGHT,
+    ListHeader,
+    column_label,
+    help_button,
+    row_chip,
+)
 from fibsem.applications.autolamella.ui.workflow_config_widget import (
     _BTN_SIZE,
     _CHIP_ICONS,
@@ -73,18 +82,18 @@ from fibsem.ui.icon import (
     drag_handle_pixmap,
     fibsem_icon,
 )
-from fibsem.ui.stylesheets import CANVAS_BG
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
     NEUTRAL_200,
     NEUTRAL_550,
     NEUTRAL_700,
     OK_COLOR,
+    TEXT_COLOR,
     TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import (
     ElidedLabel,
     IconToolButton,
-    chip,
     style_with_tooltip,
 )
 from fibsem.ui.widgets.preflight import (
@@ -101,14 +110,20 @@ from fibsem.ui.widgets.preflight import (
 from fibsem.util.durations import format_duration_rounded
 
 # The lamella list's metrics, so the two run views read alike.
-_ROW_HEIGHT = 40
+_ROW_HEIGHT = ROW_HEIGHT
 _NAME_MIN_WIDTH = 160
 _SIDE_COLUMN_WIDTH = 170  # the muted right-hand column: the task's kind, or why not
 # The slot column is narrower: "slot 02" is all it ever says, and at the task
 # column's width a row carrying the Loaded pill overran the list and lost it.
 _SLOT_COLUMN_WIDTH = 56
-_SIDE_FONT_PX = 10
+_SIDE_FONT_PX = DETAIL_PX
 _HEADER_STYLE = "font-weight: bold; background: transparent;"
+
+
+TASK_LIST_HINTS = (
+    "The order here is the order they run on each grid: drag to reorder"
+    "  \u2022  use \u270e to edit what a task requires"
+)
 
 
 def task_unavailable_reason(config: GridTaskConfig, microscope) -> Optional[str]:
@@ -139,7 +154,7 @@ class _GridRow(QWidget):
         self._chip_widgets: List[QLabel] = []
         self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setContentsMargins(6, 0, 6, 0)
         layout.setSpacing(8)
         self.checkbox = QCheckBox()
         self.checkbox.setStyleSheet("background: transparent;")
@@ -173,6 +188,10 @@ class _GridRow(QWidget):
         return self._entry is not None and self._entry.present
 
     @property
+    def selectable(self) -> bool:
+        return self.is_present
+
+    @property
     def loaded(self) -> bool:
         return self._entry is not None and self._entry.loaded
 
@@ -185,12 +204,13 @@ class _GridRow(QWidget):
         present = self.is_present
         style_with_tooltip(
             self.name_label,
-            f"background: transparent; color: {NEUTRAL_200 if present else NEUTRAL_550};",
+            f"background: transparent; font-size: {NAME_PX}px; "
+            f"color: {NEUTRAL_200 if present else NEUTRAL_550};",
         )
         text, colour = grid_headline(self.grid)
         self.status_label.setText(text)
         self.status_label.setStyleSheet(
-            f"font-size: 11px; color: {colour}; background: transparent;"
+            f"font-size: {DETAIL_PX}px; color: {colour}; background: transparent;"
         )
         for old in self._chip_widgets:
             self._chips.removeWidget(old)
@@ -199,14 +219,13 @@ class _GridRow(QWidget):
         entry = self._entry
         chips: List[Tuple[str, str]] = []
         if entry is not None and entry.state is GridSlotState.UNKNOWN:
-            chips.append(("not scanned", NEUTRAL_700))
+            chips.append(("not scanned", TEXT_MUTED_COLOR))
         elif entry is None or not entry.present:
-            chips.append(("not present", NEUTRAL_700))
+            chips.append(("not present", TEXT_MUTED_COLOR))
         elif entry.loaded:
             chips.append(("Loaded", OK_COLOR))
         for label, chip_colour in chips:
-            widget = chip(label, chip_colour)
-            widget.setFixedHeight(20)  # a pill: the radius is half the height
+            widget = row_chip(label, chip_colour)
             self._chips.addWidget(widget)
             self._chip_widgets.append(widget)
         self.slot_label.setText(
@@ -304,7 +323,7 @@ class _TaskRow(QWidget):
         self._reviewed: set = set()
         self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setContentsMargins(6, 0, 6, 0)
         layout.setSpacing(8)
         self.checkbox = QCheckBox()
         self.checkbox.setStyleSheet("background: transparent;")
@@ -336,7 +355,7 @@ class _TaskRow(QWidget):
         self.btn_attention = QToolButton()
         self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.btn_attention.setIconSize(QSize(14, 14))
-        self.btn_attention.setFixedSize(_CHIP_WIDTH, 24)
+        self.btn_attention.setFixedSize(_CHIP_WIDTH, CHIP_HEIGHT)
         self.btn_attention.setCursor(Qt.PointingHandCursor)
         self.btn_attention.setFocusPolicy(Qt.NoFocus)
         self.btn_attention.clicked.connect(self._toggle_attention)
@@ -362,6 +381,10 @@ class _TaskRow(QWidget):
     @property
     def task_name(self) -> str:
         return self.config.task_name
+
+    @property
+    def selectable(self) -> bool:
+        return self._reason is None
 
     def set_unavailable(self, reason: Optional[str]) -> None:
         self._reason = reason
@@ -391,7 +414,7 @@ class _TaskRow(QWidget):
         self.name_label.setText(self.task_name)
         style_with_tooltip(
             self.name_label,
-            f"background: transparent; "
+            f"background: transparent; font-size: {NAME_PX}px; "
             f"color: {NEUTRAL_200 if available else NEUTRAL_550};",
         )
         # the column carries the warning when a Review holds nothing; a reason
@@ -468,29 +491,6 @@ class _TaskRow(QWidget):
         self.btn_attention.setStyleSheet(_chip_style(colour))
 
 
-class _ListHeader(QWidget):
-    select_all_changed = pyqtSignal(bool)
-
-    def __init__(self, title: str, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setStyleSheet(f"background: {CANVAS_BG};")
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(8)
-        self.select_all = QCheckBox(title)
-        self.select_all.setStyleSheet(_HEADER_STYLE)
-        self.select_all.setMinimumWidth(24 + 8 + _NAME_MIN_WIDTH)
-        self.select_all.setToolTip("Select all / none")
-        self.select_all.toggled.connect(self.select_all_changed)
-        layout.addWidget(self.select_all)
-        layout.addStretch(1)
-        self.trailing = QLabel()
-        self.trailing.setStyleSheet(
-            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
-        )
-        layout.addWidget(self.trailing)
-
-
 class _DraggableList(QListWidget):
     """The task list: InternalMove drag-and-drop that says the new order after a
     drop. Qt drops the item widgets when items move, so the owner rebuilds rows."""
@@ -507,9 +507,15 @@ class _DraggableList(QListWidget):
         self.reordered.emit(names)
 
 
+# Rows sit flush with their header, as on the Lamella page.
+_LIST_STYLESHEET = (
+    stylesheets.LIST_WIDGET_STYLESHEET + "QListWidget::item { padding: 0; }"
+)
+
+
 def _list() -> QListWidget:
     widget = QListWidget()
-    widget.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
+    widget.setStyleSheet(_LIST_STYLESHEET)
     widget.setSelectionMode(QListWidget.NoSelection)
     widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     widget.setResizeMode(QListWidget.Adjust)
@@ -526,6 +532,29 @@ def _empty_line(text: str) -> QLabel:
         "padding: 6px 8px;"
     )
     return label
+
+
+def _screen_all_button() -> QToolButton:
+    """Screen all, on the grid list's header beside what it acts on: secondary,
+    since Run on the shared footer is the tab's primary action."""
+    button = QToolButton()
+    button.setText("Screen all")
+    button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+    button.setIcon(fibsem_icon("mdi:play-circle-outline", color=TEXT_COLOR))
+    button.setIconSize(QSize(14, 14))
+    button.setFixedHeight(CHIP_HEIGHT)
+    button.setCursor(Qt.PointingHandCursor)
+    button.setStyleSheet(
+        f"QToolButton {{ border: 1px solid {BORDER_COLOR}; border-radius: 3px; "
+        f"padding: 0 6px 0 4px; background: transparent; color: {TEXT_COLOR}; "
+        f"font-size: {DETAIL_PX}px; }}"
+        f"QToolButton:hover {{ background: {BORDER_COLOR}; }}"
+        f"QToolButton:disabled {{ color: {NEUTRAL_550}; }}"
+    )
+    button.setToolTip(
+        "Run inventory, then the ticked tasks on every grid it finds present"
+    )
+    return button
 
 
 def _add_row(widget: QListWidget, row: QWidget, key: Optional[str] = None) -> None:
@@ -552,6 +581,8 @@ class GridWorkflowWidget(QWidget):
     screen_all_requested = pyqtSignal()
     # The task order was changed here and saved to the protocol.
     protocol_changed = pyqtSignal()
+    # ⚙ on the task list: the host shows the Protocol tab's Grid page.
+    protocol_settings_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -565,30 +596,43 @@ class GridWorkflowWidget(QWidget):
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(6)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        self.grid_header = _ListHeader("Grids")
+        # The Lamella page's headers: tick box, title, muted count, then what
+        # acts on the list.
+        self.grid_header = ListHeader("Grids", title_width=_NAME_MIN_WIDTH)
         self.grid_header.select_all_changed.connect(self.set_all_grids_selected)
+        self.grid_header.add_widget(column_label("Status"), 1)
+        self.btn_screen_all = _screen_all_button()
+        self.btn_screen_all.clicked.connect(self.screen_all_requested)
+        self.grid_header.add_widget(self.btn_screen_all)
         root.addWidget(self.grid_header)
         self.grid_list = _list()
         root.addWidget(self.grid_list, 1)
         self.grid_empty = _empty_line(
             "No grids in this experiment yet. Run an inventory on the Grids tab, "
-            "or press Screen all grids to inventory and run in one go."
+            "or press Screen all to inventory and run in one go."
         )
         root.addWidget(self.grid_empty)
 
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("color: #3a3d42;")
-        root.addWidget(sep)
-
-        self.task_header = _ListHeader("Tasks")
+        self.task_header = ListHeader("Tasks")
         self.task_header.select_all_changed.connect(self.set_all_tasks_selected)
+        self.task_header.add_stretch()
+        # The settings are the protocol's, on the Protocol tab's Grid page: ⚙
+        # goes there, where a line under the list said so on every view.
+        self.btn_settings = IconToolButton(
+            icon="mdi:cog-outline",
+            tooltip="Grid task settings, on the Protocol tab's Grid page",
+            size=24,
+        )
+        self.btn_settings.clicked.connect(self.protocol_settings_requested)
+        self.task_header.add_widget(self.btn_settings)
+        self.btn_help = help_button(TASK_LIST_HINTS)
+        self.task_header.add_widget(self.btn_help)
         root.addWidget(self.task_header)
         self.task_list = _DraggableList()
-        self.task_list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
+        self.task_list.setStyleSheet(_LIST_STYLESHEET)
         self.task_list.setSelectionMode(QListWidget.SingleSelection)
         self.task_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.task_list.setResizeMode(QListWidget.Adjust)
@@ -603,36 +647,8 @@ class GridWorkflowWidget(QWidget):
             "No grid tasks in the protocol. Add them on the Protocol tab's Grid page."
         )
         root.addWidget(self.task_empty)
-        self.task_hint = QLabel(
-            "Settings are on the Protocol tab's Grid page. The order here is the "
-            "order they run on each grid."
-        )
-        self.task_hint.setWordWrap(True)
-        self.task_hint.setStyleSheet(
-            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
-        )
-        root.addWidget(self.task_hint)
-
-        self.summary_label = QLabel()
-        self.summary_label.setStyleSheet(
-            f"font-size: 11px; color: {TEXT_MUTED_COLOR}; background: transparent;"
-        )
-        root.addWidget(self.summary_label)
-
-        bottom = QHBoxLayout()
-        self.btn_screen_all = QPushButton("Screen all grids")
-        # Secondary: Run, on the shared footer, is the primary action of the tab.
-        self.btn_screen_all.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.btn_screen_all.setIcon(
-            fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
-        )
-        self.btn_screen_all.setToolTip(
-            "Run inventory, then the ticked tasks on every grid it finds present"
-        )
-        self.btn_screen_all.clicked.connect(self.screen_all_requested)
-        bottom.addWidget(self.btn_screen_all)
-        bottom.addStretch(1)
-        root.addLayout(bottom)
+        # No footer: what the selection allows is the status line's to say
+        # (`selection_summary`).
 
     # -- model -----------------------------------------------------------------
 
@@ -684,17 +700,31 @@ class GridWorkflowWidget(QWidget):
                 # Every task ticked by default: the usual run is the whole protocol.
                 row.checkbox.setChecked(name in checked_tasks or not checked_tasks)
             self._refresh_dependents()
-        # The header box reads the rows, so its next click means the opposite.
+        self._sync_headers()
+        self.refresh()
+
+    def _sync_headers(self) -> None:
+        """Each header's box reads its rows: ticked, unticked, or partly, as on
+        the Lamella page, so its next click means the opposite. Only the rows
+        that can be ticked count: an absent grid never is."""
         for header, rows in (
             (self.grid_header, self._grid_rows),
             (self.task_header, self._task_rows),
         ):
-            header.select_all.blockSignals(True)
-            header.select_all.setChecked(
-                bool(rows) and all(r.checkbox.isChecked() for r in rows.values())
-            )
-            header.select_all.blockSignals(False)
-        self.refresh()
+            # the row's own word, not isEnabled(): that is False for every row
+            # while the Workflow tab is, before an experiment is loaded
+            boxes = [r.checkbox for r in rows.values() if r.selectable]
+            n_checked = sum(b.isChecked() for b in boxes)
+            box = header.checkbox_all
+            box.blockSignals(True)
+            if boxes and n_checked == len(boxes):
+                box.setCheckState(Qt.CheckState.Checked)
+            elif n_checked:
+                box.setTristate(True)
+                box.setCheckState(Qt.CheckState.PartiallyChecked)
+            else:
+                box.setCheckState(Qt.CheckState.Unchecked)
+            box.blockSignals(False)
 
     def refresh(self) -> None:
         """Redraw from the inventory and the records; no hardware call."""
@@ -721,11 +751,14 @@ class GridWorkflowWidget(QWidget):
         self.grid_empty.setVisible(not self._grid_rows)
         self.task_empty.setVisible(not self._task_rows)
         present = sum(1 for r in self._grid_rows.values() if r.is_present)
-        self.grid_header.trailing.setText(
-            f"{present} of {len(self._grid_rows)} present" if self._grid_rows else ""
+        self.grid_header.set_count(
+            f"{len(self._grid_rows)} \u00b7 {present} present"
+            if self._grid_rows
+            else ""
         )
+        self.task_header.set_count(str(len(self._task_rows)) if self._task_rows else "")
+        self._sync_headers()
         self._apply_controls()
-        self._update_summary()
 
     def refresh_grid(self, grid: GridRecord) -> None:
         row = self._grid_rows.get(grid.name)
@@ -751,14 +784,13 @@ class GridWorkflowWidget(QWidget):
                 row.checkbox.setChecked(checked)
         # The window clears the ticks too (a run starting, an add); the header
         # follows, so its next click selects all rather than doing nothing.
-        self.grid_header.select_all.blockSignals(True)
-        self.grid_header.select_all.setChecked(checked)
-        self.grid_header.select_all.blockSignals(False)
+        self._sync_headers()
 
     def set_all_tasks_selected(self, checked: bool) -> None:
         for row in self._task_rows.values():
             if row.checkbox.isEnabled():
                 row.checkbox.setChecked(checked)
+        self._sync_headers()
 
     def exchange_seconds(self) -> float:
         """What the loader says one exchange costs; nothing on a fixed holder."""
@@ -785,21 +817,24 @@ class GridWorkflowWidget(QWidget):
         return count
 
     def _on_selection(self) -> None:
-        self._update_summary()
+        self._sync_headers()
         self._apply_controls()
         self.selection_changed.emit()
 
-    def _update_summary(self) -> None:
+    def selection_summary(self) -> str:
+        """What the ticks come to, for the status line: "3 grids, 2 tasks",
+        and on a loader the exchanges that run would make."""
         grids = self.get_selected_grids()
         tasks = self.get_selected_task_names()
-        exchanges = self.exchanges_for(grids)
         text = (
             f"{len(grids)} grid{'s' if len(grids) != 1 else ''}, "
-            f"{len(tasks)} task{'s' if len(tasks) != 1 else ''} selected"
+            f"{len(tasks)} task{'s' if len(tasks) != 1 else ''}"
         )
-        if grids:
-            text += f" · {exchanges} exchange{'s' if exchanges != 1 else ''}"
-        self.summary_label.setText(text)
+        stage = self.stage
+        if grids and stage is not None and stage.loader is not None:
+            exchanges = self.exchanges_for(grids)
+            text += f" \u00b7 {exchanges} exchange{'s' if exchanges != 1 else ''}"
+        return text
 
     # -- controls --------------------------------------------------------------
 
