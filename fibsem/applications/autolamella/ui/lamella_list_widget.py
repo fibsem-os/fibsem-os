@@ -30,6 +30,13 @@ from fibsem.applications.autolamella.structures import (
     QualityRecord,
     Verdict,
 )
+from fibsem.applications.autolamella.ui.list_chrome import (
+    DETAIL_PX,
+    NAME_PX,
+    ROW_HEIGHT,
+    ListHeader,
+    column_label,
+)
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
@@ -47,9 +54,9 @@ _NAME_MIN_WIDTH = 160
 # pushed to every list and card; the rows never read the stage themselves.
 GridContext = Dict[str, Tuple[str, bool]]
 
-# The rows' type scale: name / row text / secondary line.
+# The cards' type scale: name / row text / secondary line. The list's rows use
+# the workflow panel's (`list_chrome`).
 NAME_FONT_PX = 12
-ROW_FONT_PX = 11
 DETAIL_FONT_PX = 10
 
 
@@ -81,6 +88,7 @@ def apply_grid_label(
     grid: Optional[Tuple[str, bool]],
     shown: bool,
     followed: bool = True,
+    font_px: int = DETAIL_FONT_PX,
 ) -> None:
     """The grid's name ahead of the status: accent while that grid is on the
     stage, muted while it is not; hidden when there is nothing to say. The
@@ -92,7 +100,7 @@ def apply_grid_label(
     name, loaded = grid
     label.setText(f"{name} ·" if followed else name)
     label.setStyleSheet(
-        f"font-size: {DETAIL_FONT_PX}px; background: transparent; "
+        f"font-size: {font_px}px; background: transparent; "
         f"color: {ACCENT_COLOR if loaded else NEUTRAL_550};"
     )
     label.setToolTip(
@@ -203,7 +211,7 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
 
 
 _BTN_SIZE = QSize(24, 24)
-_ROW_HEIGHT = 34
+_ROW_HEIGHT = ROW_HEIGHT
 
 
 class _LamellaTooltip(QWidget):
@@ -318,7 +326,7 @@ class LamellaRowWidget(QWidget):
         self.name_label = QLabel()
         self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
         self.name_label.setStyleSheet(
-            f"font-size: {ROW_FONT_PX}px; background: transparent;"
+            f"font-size: {NAME_PX}px; background: transparent;"
         )
         layout.addWidget(self.name_label)
 
@@ -436,26 +444,17 @@ class LamellaRowWidget(QWidget):
         grid = grid_of(self.lamella, self._grid_context)
         status_text, status_style = _status_text(self.lamella)
         apply_grid_label(
-            self.grid_label, grid, grids_named(self._grid_context), bool(status_text)
+            self.grid_label,
+            grid,
+            grids_named(self._grid_context),
+            bool(status_text),
+            font_px=DETAIL_PX,
         )
         self.status_label.setText(status_text)
         self.status_label.setStyleSheet(
-            f"font-size: {DETAIL_FONT_PX}px; "
+            f"font-size: {DETAIL_PX}px; "
             + (status_style or f"color: {NEUTRAL_550}; background: transparent;")
         )
-
-
-class _ToggleLabel(QLabel):
-    """A label that toggles the tick box it captions, as a checkbox's own text
-    would."""
-
-    def __init__(self, text: str, checkbox: QCheckBox) -> None:
-        super().__init__(text)
-        self._checkbox = checkbox
-
-    def mousePressEvent(self, event) -> None:
-        self._checkbox.toggle()
-        super().mousePressEvent(event)
 
 
 # The filter's two fixed choices; a grid's own key is its record id.
@@ -541,50 +540,21 @@ class _GridFilterButton(QToolButton):
         )
 
 
-class _LamellaListHeader(QWidget):
-    select_all_changed = pyqtSignal(bool)
+class _LamellaListHeader(ListHeader):
+    """The list's header: the shared one (`list_chrome.ListHeader`), with the rows'
+    Status column named and the grid filter over the actions column."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setStyleSheet(f"background: {CANVAS_BG};")
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(8)
-
-        # The same shape as a row -- a textless tick box, then the name column
-        # -- so the style sizes the tick box here and there alike and "Status"
-        # starts where the rows' status does.
-        self.checkbox_all = QCheckBox()
-        self.checkbox_all.setChecked(True)
-        self.checkbox_all.setStyleSheet("background: transparent;")
-        self.checkbox_all.setToolTip("Select all")
-        layout.addWidget(self.checkbox_all)
-        self.label_all = _ToggleLabel("Select All", self.checkbox_all)
-        self.label_all.setMinimumWidth(_NAME_MIN_WIDTH)
-        self.label_all.setStyleSheet(
-            f"font-weight: bold; font-size: {ROW_FONT_PX}px; background: transparent;"
-        )
-        layout.addWidget(self.label_all)
-
-        status_header = QLabel("Status")
-        status_header.setStyleSheet(
-            f"font-weight: bold; font-size: {ROW_FONT_PX}px; background: transparent;"
-        )
-        layout.addWidget(status_header, 1)
-
+        super().__init__("Lamella", title_width=_NAME_MIN_WIDTH, parent=parent)
+        self.add_widget(column_label("Status"), 1)
         # Over the rows' two trailing buttons: a blank where the defect icon
         # sits, and the grid filter over the actions column.
         spacer = QWidget()
         spacer.setFixedWidth(_BTN_SIZE.width())
         spacer.setStyleSheet("background: transparent;")
-        layout.addWidget(spacer)
+        self.add_widget(spacer)
         self.grid_filter = _GridFilterButton()
-        layout.addWidget(self.grid_filter)
-
-        self.checkbox_all.stateChanged.connect(
-            lambda s: self.select_all_changed.emit(bool(s))
-        )
+        self.add_widget(self.grid_filter)
 
 
 class LamellaListWidget(QWidget):
@@ -774,6 +744,7 @@ class LamellaListWidget(QWidget):
 
     def clear(self) -> None:
         self._list.clear()
+        self._sync_select_all()
 
     def set_all_selected(self, checked: bool) -> None:
         """Tick or untick every row, and bring the header checkbox with them.
@@ -817,6 +788,7 @@ class LamellaListWidget(QWidget):
     def _sync_select_all(self) -> None:
         rows = self._visible_rows()
         count = len(rows)
+        self._header.set_count(str(count) if count else "")
         if count == 0:
             return
         n_checked = sum(row.checkbox.isChecked() for row in rows)
