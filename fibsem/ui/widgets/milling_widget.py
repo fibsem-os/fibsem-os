@@ -21,7 +21,7 @@ from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
 from fibsem.structures import MillingState
 from fibsem.ui import stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.utils import format_duration
+from fibsem.util.durations import format_duration_precise
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
@@ -156,7 +156,7 @@ class FibsemMillingWidget2(QWidget):
             percent_complete = int((1 - (remaining_time / report.estimated_time)) * 100)
             self.progressBar_milling.setValue(percent_complete)
             self.progressBar_milling.setFormat(
-                f"{label} - {format_duration(remaining_time)} remaining"
+                f"{label} - {format_duration_precise(remaining_time)} remaining"
             )
 
     def run_milling(self, config: Optional[FibsemMillingTaskConfig] = None):

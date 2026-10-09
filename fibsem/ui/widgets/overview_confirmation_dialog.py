@@ -23,9 +23,9 @@ from fibsem.ui.widgets.preflight import (
     OverviewPreflightDialog,
     PathValue,
     format_bytes,
-    format_duration,
     mosaic_pixels,
 )
+from fibsem.util.durations import format_duration_rounded
 
 # Beam images are 8-bit. Stated rather than read off a tile, because the dialog is shown
 # before anything has been acquired -- there is no image to ask.
@@ -165,8 +165,8 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
         detail.append(
             (
                 "Scan time",
-                f"{format_duration(s.scan_time)}"
-                f"   ({format_duration(image.scan_time)} per tile, before stage movement)",
+                f"{format_duration_rounded(s.scan_time, pad=True)}"
+                f"   ({format_duration_rounded(image.scan_time, pad=True)} per tile, before stage movement)",
             )
         )
         return detail

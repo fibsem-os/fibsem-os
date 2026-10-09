@@ -34,7 +34,6 @@ from fibsem.constants import DATETIME_DISPLAY_AMPM, TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets, tokens
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.utils import format_bytes as utils_format_bytes
-from fibsem.utils import format_time_remaining as utils_format_time_remaining
 
 BACKGROUND = stylesheets.SURFACE_COLOR
 PANEL = stylesheets.PANEL_COLOR
@@ -43,17 +42,6 @@ TEXT = stylesheets.TEXT_COLOR
 TEXT_STRONG = stylesheets.TEXT_STRONG_COLOR
 TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
 WARNING = tokens.SEMANTIC_WARNING_COLOR
-
-
-def format_duration(seconds: float) -> str:
-    """`2m 14s`, `1h 03m`, `45s` — whichever reads best at that magnitude.
-
-    The padded form of `fibsem.utils.format_time_remaining`, which was the same three
-    branches with the same thresholds written a second time (FIB-701). Kept as a name
-    here because every dialog in this module asks for the same shape, and `pad=True` at
-    a dozen call sites is a detail none of them should be restating.
-    """
-    return utils_format_time_remaining(seconds, pad=True)
 
 
 # Re-exported, not defined here. The experiment dialogs quote free disk space with it

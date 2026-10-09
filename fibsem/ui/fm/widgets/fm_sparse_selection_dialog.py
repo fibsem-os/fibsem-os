@@ -49,7 +49,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
-from fibsem.ui.widgets.preflight import format_duration
+from fibsem.util.durations import format_duration_rounded
 
 # Amber, matching the stage-limits box the preview draws it against.
 _WARNING = STAGE_LIMITS_COLOUR
@@ -201,9 +201,7 @@ class FMSparseSelectionDialog(QDialog):
         parent: Optional[QWidget] = None,
     ) -> Optional[SparseSelection]:
         """Run the dialog and return the selection, or None if it was cancelled."""
-        dialog = cls(
-            microscope, views, parameters, channel_settings, zparams, parent
-        )
+        dialog = cls(microscope, views, parameters, channel_settings, zparams, parent)
         dialog.exec_()
         return dialog.selection
 
@@ -226,7 +224,11 @@ class FMSparseSelectionDialog(QDialog):
 
     def _recompute(self) -> None:
         regions = self.selector.regions
-        if not regions or self.selector.base is None or self.selector.projection is None:
+        if (
+            not regions
+            or self.selector.base is None
+            or self.selector.projection is None
+        ):
             self.preview.clear()
         else:
             self.preview.set_selection(
@@ -254,7 +256,7 @@ class FMSparseSelectionDialog(QDialog):
         if total:
             parts.append(f"{enabled} of {total} tiles")
         if duration is not None and not unreachable:
-            parts.append(format_duration(duration))
+            parts.append(format_duration_rounded(duration, pad=True))
         self._status.setText("   ·   ".join(parts))
 
         # Said here rather than left to `raise_if_outside_stage_limits`, which refuses

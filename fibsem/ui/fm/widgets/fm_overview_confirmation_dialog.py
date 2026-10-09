@@ -30,9 +30,9 @@ from fibsem.ui.widgets.preflight import (
     OverviewPreflightDialog,
     PathValue,
     format_bytes,
-    format_duration,
     mosaic_pixels,
 )
+from fibsem.util.durations import format_duration_rounded
 
 # Fluorescence images are 16-bit. Stated rather than read off a tile, because the dialog
 # is shown before anything has been acquired.
@@ -215,11 +215,11 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
         detail.append(
             (
                 "Estimated time",
-                f"{format_duration(estimate['total_time'])}"
-                f"   ({format_duration(estimate['image_acquisition_time'])} imaging"
-                f" · {format_duration(estimate['stage_movement_time'])} moving"
+                f"{format_duration_rounded(estimate['total_time'], pad=True)}"
+                f"   ({format_duration_rounded(estimate['image_acquisition_time'], pad=True)} imaging"
+                f" · {format_duration_rounded(estimate['stage_movement_time'], pad=True)} moving"
                 + (
-                    f" · {format_duration(estimate['autofocus_time'])} focusing"
+                    f" · {format_duration_rounded(estimate['autofocus_time'], pad=True)} focusing"
                     if estimate["autofocus_time"]
                     else ""
                 )
