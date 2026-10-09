@@ -254,4 +254,4 @@ class TestCorrelationResultSerialization:
     def test_updated_at_preserved(self):
         r = _make_result()
         r2 = CorrelationResult.from_dict(r.to_dict())
-        assert math.isclose(r2.updated_at, r.updated_at)
+        assert r2.updated_at == r.updated_at

@@ -1033,8 +1033,14 @@ class QualityRecord:
     author: str = ""  # "human:<name>" | "agent:<model>"; "" when unrecorded
     reason: str = ""
     at_task: str = ""  # the task the item was judged at
-    updated_at: Optional[float] = None
+    # When the verdict was set: aware, written as ISO 8601 with its offset
+    # (FIB-1197); older files hold a POSIX float, which reads as this machine's zone.
+    updated_at: Optional[datetime] = None
     decision_id: Optional[Tuple[str, str]] = None  # (item_id, task_name)
+
+    def __post_init__(self) -> None:
+        # a caller that still passes a POSIX float gets it read as one
+        self.updated_at = to_datetime(self.updated_at)
 
     # -- names the old DefectState API used; kept so callers migrate one at a time
     @property
@@ -1067,7 +1073,7 @@ class QualityRecord:
             "author": self.author,
             "reason": self.reason,
             "at_task": self.at_task,
-            "updated_at": self.updated_at,
+            "updated_at": to_iso(self.updated_at),
             "decision_id": list(self.decision_id) if self.decision_id else None,
         }
 
@@ -1091,7 +1097,7 @@ class QualityRecord:
             return cls(
                 verdict=verdict,
                 reason=data.get("description", ""),
-                updated_at=data.get("updated_at", None),
+                updated_at=to_datetime(data.get("updated_at")),
             )
         decision_id = data.get("decision_id")
         return cls(
@@ -1099,7 +1105,7 @@ class QualityRecord:
             author=data.get("author", ""),
             reason=data.get("reason", data.get("description", "")),
             at_task=data.get("at_task", data.get("last_completed_task", "")),
-            updated_at=data.get("updated_at", None),
+            updated_at=to_datetime(data.get("updated_at")),
             decision_id=tuple(decision_id) if decision_id else None,
         )
 
@@ -1120,7 +1126,7 @@ class QualityRecord:
         self.verdict = state
         self.reason = description
         self.author = str(author)  # an Author or its kind:name form
-        self.updated_at = datetime.timestamp(datetime.now())
+        self.updated_at = now()
 
 
 _quality_record_init = QualityRecord.__init__
