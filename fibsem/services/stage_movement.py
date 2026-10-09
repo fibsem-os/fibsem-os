@@ -365,7 +365,12 @@ class StageMovement(Service):
                 fm = found
         return fm
 
-    def _require_fm(self, message: str) -> FM:
+    def _require_fm(self, message: str) -> Any:
+        """The FM the moves look through: the microscope's FM wrapper where it has
+        one (it may have no FM device, as on the Odemis stream FM), else the device."""
+        wrapper = getattr(self.parent, "fm", None)
+        if wrapper is not None:
+            return wrapper
         fm = self._fm_device()
         if fm is None:
             raise ValueError(message)
@@ -382,15 +387,26 @@ class StageMovement(Service):
         """
         return fm_camera_tilt(self.parent)
 
-    def _display_transform(self, fm: FM) -> CameraImageTransform:
-        """The transform the user displays FM images under, from the camera."""
+    def _display_transform(self, fm: Any) -> CameraImageTransform:
+        """The transform the user displays FM images under, from the camera (through
+        the wrapper, which keeps it on the camera device when there is one)."""
+        if not isinstance(fm, FM):
+            return fm._transform
         camera = fm._roles.get("camera")
         param = None if camera is None else camera.parameters.get("display_transform")
         if param is None:
             return CameraImageTransform.NONE
         return mount_transform_from_name(param.get_value())
 
-    def _fm_stage_delta(self, fm: FM, dx: float, dy: float) -> FibsemStagePosition:
+    def _objective_state(self, fm: Any) -> Optional[str]:
+        if not isinstance(fm, FM):
+            return fm.objective.state
+        objective = fm._roles.get("objective")
+        if objective is None:
+            return None
+        return objective_state_name(objective.state.get_value())
+
+    def _fm_stage_delta(self, fm: Any, dx: float, dy: float) -> FibsemStagePosition:
         """Relative stage movement for a displacement seen in the displayed FM image.
 
         Shared by `fm_stable_move` and `project_fm_stable_move`, so the two cannot
@@ -427,9 +443,8 @@ class StageMovement(Service):
             ValueError: if there is no fluorescence microscope.
         """
         fm = self._require_fm("Fluorescence microscope is not available. Cannot move.")
-        objective = fm._roles.get("objective")
-        if objective is not None:
-            state = objective_state_name(objective.state.get_value())
+        state = self._objective_state(fm)
+        if state is not None:
             if state != "Inserted":
                 logging.warning(
                     "Moving via the fluorescence image while the objective is not "
