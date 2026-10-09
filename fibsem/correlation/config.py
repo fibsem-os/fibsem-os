@@ -16,6 +16,17 @@ from typing import Any, Dict, Optional
 # Mirror the UI constants as plain strings so this module never imports the UI.
 FIT_METHODS = ("None", "Hole", "Gaussian")
 
+# What deleting a FIB or FM fiducial does to its partner on the other side
+# (FIB-1243): ask each time, remove the pair, or remove only that point.
+DELETE_FIDUCIAL_ASK = "ask"
+DELETE_FIDUCIAL_PAIR = "pair"
+DELETE_FIDUCIAL_ONE = "one"
+DELETE_FIDUCIAL_CHOICES = (
+    DELETE_FIDUCIAL_ASK,
+    DELETE_FIDUCIAL_PAIR,
+    DELETE_FIDUCIAL_ONE,
+)
+
 
 @dataclass
 class FitSettings:
@@ -121,6 +132,10 @@ class CorrelationConfig:
     # is for the display and for anything downstream that assumes isotropic
     # voxels. Off by default: it costs a rewrite of the volume.
     auto_interpolate: bool = False
+    # Fiducials pair by their place in the FIB and FM lists, so deleting one
+    # side shifts every later pair (FIB-1243). "ask" until someone ticks "Don't
+    # ask again", which stores their choice here; the Method panel sets it back.
+    delete_fiducial: str = DELETE_FIDUCIAL_ASK
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -129,6 +144,7 @@ class CorrelationConfig:
             "load_spot_burns": self.load_spot_burns,
             "auto_rerun": self.auto_rerun,
             "auto_interpolate": self.auto_interpolate,
+            "delete_fiducial": self.delete_fiducial,
         }
 
     @staticmethod
@@ -140,4 +156,9 @@ class CorrelationConfig:
             load_spot_burns=d.get("load_spot_burns", True),
             auto_rerun=d.get("auto_rerun", False),
             auto_interpolate=d.get("auto_interpolate", False),
+            delete_fiducial=(
+                d.get("delete_fiducial")
+                if d.get("delete_fiducial") in DELETE_FIDUCIAL_CHOICES
+                else DELETE_FIDUCIAL_ASK
+            ),
         )

@@ -49,6 +49,9 @@ def tab():
     widget = CorrelationTabWidget()
     widget.resize(1200, 800)
     widget.show()
+    # These check that a removal reaches every view, one point at a time; what a
+    # fiducial's partner does is test_correlation_delete_fiducial_pair (FIB-1243).
+    widget._coords_tab._delete_fiducial_combo.set_value("one")
     widget.set_fib_image(FibsemImage(data=np.zeros((200, 300), np.uint8)))
     fib = [_coord(40 + 40 * i, PointType.FIB) for i in range(4)]
     fm = [_coord(40 + 40 * i, PointType.FM) for i in range(4)]
