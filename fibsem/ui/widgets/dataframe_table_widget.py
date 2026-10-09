@@ -1,6 +1,7 @@
 """
 Widget for displaying a pandas DataFrame in a sortable table.
 """
+
 from typing import Any, Callable, Optional
 
 import pandas as pd
@@ -26,9 +27,12 @@ from fibsem.ui.tokens import (
 class DataFrameTableWidget(QWidget):
     """A widget that displays a pandas DataFrame in a sortable table."""
 
-    def __init__(self, dataframe: Optional[pd.DataFrame] = None,
-                 cell_formatter: Optional[Callable[[int, int, Any], dict]] = None,
-                 parent=None):
+    def __init__(
+        self,
+        dataframe: Optional[pd.DataFrame] = None,
+        cell_formatter: Optional[Callable[[int, int, Any], dict]] = None,
+        parent=None,
+    ):
         """
         Initialize the DataFrameTableWidget.
 
@@ -71,8 +75,11 @@ class DataFrameTableWidget(QWidget):
         if self.dataframe is not None:
             self.update_table()
 
-    def set_dataframe(self, dataframe: pd.DataFrame,
-                      cell_formatter: Optional[Callable[[int, int, Any], dict]] = None):
+    def set_dataframe(
+        self,
+        dataframe: pd.DataFrame,
+        cell_formatter: Optional[Callable[[int, int, Any], dict]] = None,
+    ):
         """
         Set a new dataframe and update the table.
 
@@ -125,11 +132,11 @@ class DataFrameTableWidget(QWidget):
                 if self.cell_formatter is not None:
                     format_dict = self.cell_formatter(i, j, value)
                     if format_dict:
-                        if 'color' in format_dict:
-                            item.setForeground(QColor(format_dict['color']))
-                        if 'background' in format_dict:
-                            item.setBackground(QColor(format_dict['background']))
-                        if format_dict.get('bold', False):
+                        if "color" in format_dict:
+                            item.setForeground(QColor(format_dict["color"]))
+                        if "background" in format_dict:
+                            item.setBackground(QColor(format_dict["background"]))
+                        if format_dict.get("bold", False):
                             font = item.font()
                             font.setBold(True)
                             item.setFont(font)
@@ -166,10 +173,10 @@ def main():
 
     # Create sample dataframe
     data = {
-        'Name': ['Alice', 'Bob', 'Charlie', 'David', 'Eve'],
-        'Age': [25, 30, 35, 28, 32],
-        'Score': [95.5, 87.3, 92.1, 88.9, 91.0],
-        'City': ['New York', 'London', 'Paris', 'Tokyo', 'Berlin']
+        "Name": ["Alice", "Bob", "Charlie", "David", "Eve"],
+        "Age": [25, 30, 35, 28, 32],
+        "Score": [95.5, 87.3, 92.1, 88.9, 91.0],
+        "City": ["New York", "London", "Paris", "Tokyo", "Berlin"],
     }
     df = pd.DataFrame(data)
 
