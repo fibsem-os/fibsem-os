@@ -528,6 +528,7 @@ class TescanMicroscope(FibsemMicroscope):
         self._build_beams()
         self._build_stage()
         self._build_milling()
+        self._build_spot_burn()
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
         # Tescan's own driver has no FM; one on its own PC is built from its entry.
@@ -611,6 +612,13 @@ class TescanMicroscope(FibsemMicroscope):
         from fibsem.drivers.tescan.services import bind_tescan_milling
 
         self.milling = bind_tescan_milling(self)
+
+    def _build_spot_burn(self) -> None:
+        """Build the spot burn service over the milling service; `run_spot_burn` then
+        goes to it. Without milling there is none, and the method below burns."""
+        from fibsem.drivers.tescan.services import bind_tescan_spot_burn
+
+        self.spot_burn = bind_tescan_spot_burn(self)
 
     def _build_stage(self) -> None:
         """Build the stage device and route the stage keys to it.
@@ -1007,6 +1015,10 @@ class TescanMicroscope(FibsemMicroscope):
     ) -> None:
         """Expose each coordinate with the ion beam for the configured exposure time.
 
+        With the spot burn service built (``self.spot_burn``, `TescanSpotBurn`) the
+        burn goes there, the same DrawBeam layer run through the milling service; the
+        code below runs only without it, until it is removed.
+
         TESCAN cannot implement the blank -> park -> unblank sequence the default
         implementation uses for spot burning: FIB.Scan is a strict subset of SEM.Scan,
         missing exactly SetBlanker, GetBlanker and SetBeamPosition, and no FIB blanker
@@ -1026,6 +1038,9 @@ class TescanMicroscope(FibsemMicroscope):
             beam_type: must be BeamType.ION.
             stop_event: set to cancel the exposition.
         """
+        if self.spot_burn is not None:
+            return super().run_spot_burn(settings, beam_type, stop_event)
+
         if beam_type is not BeamType.ION:
             raise ValueError(
                 f"Spot burn is only supported on the ion beam, got {beam_type.name}."
