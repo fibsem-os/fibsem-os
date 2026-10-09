@@ -3575,6 +3575,10 @@ class FibsemMicroscope(ABC):
         Raises:
             ValueError: if no fluorescence microscope is available.
         """
+        if self.stage_movement is not None:
+            return self.stage_movement.project_fm_stable_move(
+                dx=dx, dy=dy, base_position=base_position
+            )
         return apply_delta(base_position, self._fm_stage_delta(dx, dy))
 
     def hardware_geometry(self) -> FibsemHardwareGeometry:
@@ -3789,6 +3793,8 @@ class FibsemMicroscope(ABC):
         Raises:
             ValueError: if no fluorescence microscope is available.
         """
+        if self.stage_movement is not None:
+            return self.stage_movement.fm_stable_move(dx=dx, dy=dy)
         if self.fm is None:
             raise ValueError("Fluorescence microscope is not available. Cannot move.")
 
@@ -4186,6 +4192,9 @@ class FibsemMicroscope(ABC):
         for it from SEM used to be a refusal), the device's first declared
         acquisition orientation is used.
         """
+        if self.stage_movement is not None:
+            self.stage_movement.move_to_device(device, orientation=orientation)
+            return
         target_device = self._get_device(device)  # refuses by name
 
         if device == "FM" and not self.fm:

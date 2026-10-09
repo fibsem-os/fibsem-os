@@ -1,11 +1,13 @@
 """Stage movement as a service: moves measured in a view of the sample, turned into
 stage moves.
 
-`StageMovement` holds the moves that coordinate the stage with the beams: a stable
-move by a displacement seen in a beam image, the vertical move that restores
-coincidence, the safe absolute move that tilts flat before a large rotation, and the
-moves to a named orientation and a milling angle. It commands the stage and writes the
-beams' working distance through its roles. What it asks of the instrument's geometry
+`StageMovement` holds the moves that coordinate the stage with the beams and the
+fluorescence microscope: a stable move by a displacement seen in a beam image or the
+FM image, the vertical move that restores coincidence, the safe absolute move that
+tilts flat before a large rotation, the moves to a named orientation and a milling
+angle, and the move to a device (the FM, or back to the beams) that retracts and
+inserts the objective around the traverse. It commands the stage, writes the beams'
+working distance, and reads the FM camera and objective through its roles. What it asks of the instrument's geometry
 (the poses, the column tilt, the eucentric heights, the rotation centre, the milling
 angle) it reads from its parent microscope, which still owns that model.
 
@@ -28,7 +30,9 @@ import numpy as np
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Role, command
+from fibsem.devices.fm import FM, mount_transform_from_name
 from fibsem.devices.stage import Stage
+from fibsem.fm.structures import objective_state_name
 from fibsem.geometry.movement import (
     apply_delta,
     fib_offset_after_sem_move,
@@ -37,7 +41,7 @@ from fibsem.geometry.movement import (
     vertical_move_delta,
 )
 from fibsem.services.core import Service
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures import BeamType, CameraImageTransform, FibsemStagePosition
 
 _S = TypeVar("_S", bound="StageMovement")
 
@@ -46,6 +50,13 @@ _S = TypeVar("_S", bound="StageMovement")
 EUCENTRIC_RESET_THRESHOLD = 100e-6  # m
 
 _BEAM_ROLES = {BeamType.ELECTRON: "electron", BeamType.ION: "ion"}
+
+
+def _moves(translation: FibsemStagePosition) -> bool:
+    """Whether a relative move moves anything: an axis set and non-zero."""
+    from fibsem.microscope import _moves as moves
+
+    return moves(translation)
 
 
 def _records_stage_move(method):
@@ -79,6 +90,12 @@ class StageMovement(Service):
         doc="The electron beam: its view, and its working distance kept on a move.",
     )
     ion = Role(Beam, required=False, doc="The ion beam: its view.")
+    fm = Role(
+        FM,
+        required=False,
+        doc="The fluorescence microscope: its camera's view, and the objective that "
+        "is retracted for a traverse and inserted at the FM.",
+    )
 
     @property
     def vertical_move_views(self) -> Tuple[BeamType, ...]:
@@ -335,6 +352,107 @@ class StageMovement(Service):
         self._vertical_move_from_fib(dx=0, dy=dy, relaxation=relaxation)
         return self._position()
 
+    # -- the fluorescence view -----------------------------------------------------------
+
+    def _fm_device(self) -> Optional[FM]:
+        """The FM, or None. Some backends build their FM after the stage, so it is
+        found in the microscope's devices the first time it is asked for."""
+        fm = self._roles.get("fm")
+        if fm is None:
+            found = self.parent.devices.get("fm")
+            if isinstance(found, FM):
+                self.fill_roles(fm=found)
+                fm = found
+        return fm
+
+    def _require_fm(self, message: str) -> FM:
+        fm = self._fm_device()
+        if fm is None:
+            raise ValueError(message)
+        return fm
+
+    @property
+    def camera_tilt(self) -> float:
+        """Tilt of the FM camera's optical axis from the SEM column, in degrees.
+
+        The FM entry's ``camera_tilt`` where the configuration states one (FIB-335).
+        Otherwise from the mount: an FM the stage reaches by turning the grid over (a
+        compustage) looks up at it from the opposite side to the SEM, 180 degrees; an
+        offset FM sits parallel to the FIB column and shares its tilt.
+        """
+        return fm_camera_tilt(self.parent)
+
+    def _display_transform(self, fm: FM) -> CameraImageTransform:
+        """The transform the user displays FM images under, from the camera."""
+        camera = fm._roles.get("camera")
+        param = None if camera is None else camera.parameters.get("display_transform")
+        if param is None:
+            return CameraImageTransform.NONE
+        return mount_transform_from_name(param.get_value())
+
+    def _fm_stage_delta(self, fm: FM, dx: float, dy: float) -> FibsemStagePosition:
+        """Relative stage movement for a displacement seen in the displayed FM image.
+
+        Shared by `fm_stable_move` and `project_fm_stable_move`, so the two cannot
+        disagree. The input is in the frame the user is looking at, so the display
+        transform is undone first, the counterpart of a beam's scan rotation. The
+        driver hands out stage-aligned images (the camera's ``mount_transform`` is
+        applied before the display transform), and every transform is its own
+        inverse, so applying it maps the displacement back.
+        """
+        dx, dy = self._display_transform(fm).apply_to_delta(dx, dy)
+        return self._view_stage_delta(dx, dy, view_tilt=np.deg2rad(self.camera_tilt))
+
+    def project_fm_stable_move(
+        self, dx: float, dy: float, base_position: FibsemStagePosition
+    ) -> FibsemStagePosition:
+        """Where the stage would end up after an FM displacement, without moving.
+
+        The fluorescence counterpart of `project_stable_move`, in displayed image
+        coordinates.
+
+        Raises:
+            ValueError: if there is no fluorescence microscope.
+        """
+        fm = self._require_fm("Fluorescence microscope is not available.")
+        return apply_delta(base_position, self._fm_stage_delta(fm, dx, dy))
+
+    @command
+    def fm_stable_move(self, dx: float, dy: float) -> FibsemStagePosition:
+        """Move the stage by a displacement seen in the fluorescence image, holding
+        the focal plane: the same projection the beams use, with the camera's tilt in
+        place of a column tilt, so the move stays in the sample plane.
+
+        Raises:
+            ValueError: if there is no fluorescence microscope.
+        """
+        fm = self._require_fm("Fluorescence microscope is not available. Cannot move.")
+        objective = fm._roles.get("objective")
+        if objective is not None:
+            state = objective_state_name(objective.state.get_value())
+            if state != "Inserted":
+                logging.warning(
+                    "Moving via the fluorescence image while the objective is not "
+                    f"inserted (state: {state}); the view may not match the sample."
+                )
+
+        stage_position = self._fm_stage_delta(fm, dx, dy)
+
+        # No working-distance restore: that is beam bookkeeping; the objective keeps
+        # focus because the move stays in the sample plane.
+        self._move_stage(stage_position, relative=True)
+
+        logging.debug(
+            {
+                "msg": "fm_stable_move",
+                "dx": dx,
+                "dy": dy,
+                "camera_tilt": self.camera_tilt,
+                "position": stage_position.to_dict(),
+            }
+        )
+        return self._position()
+
     # -- moves to a place ------------------------------------------------------------------
 
     @command
@@ -430,6 +548,168 @@ class StageMovement(Service):
         # (FIB-853)
         return microscope.is_close_to_milling_angle(np.degrees(milling_angle))
 
+    def _objective(self) -> Any:
+        """The objective to insert and retract: through the FM API where the
+        microscope has one, which tells the displays the objective moved
+        (`ObjectiveLens.position_changed`), else the FM's objective device."""
+        if self.parent.fm is not None:
+            return self.parent.fm.objective
+        return self._require_fm("No fluorescence microscope.").objective
+
+    @command
+    @_records_stage_move
+    def move_to_device(self, device: str, orientation: Optional[str] = None) -> None:
+        """Travel to `device`, re-posing on the way when the pose has to change.
+
+        One call that owns the safe order -- retract the objective, re-pose at the
+        beams, travel out -- so a rotation never happens with the stage parked under
+        an objective. The rotation guard (FIB-841) stays underneath as the last-line
+        assert; the route this composes never trips it.
+
+        `orientation` names the pose to arrive in. Omitted, the pose is carried
+        across untouched whenever the target device can image from it -- that is the
+        point of a traverse, and the reason this must not pass the current
+        orientation's *name* through `move_to_orientation`: doing so would snap r and
+        t to nominal and quietly discard a milling angle somebody dialled in. When
+        the pose does have to change (an offset FM images in the FIB pose; asking
+        for it from SEM used to be a refusal), the device's first declared
+        acquisition orientation is used.
+        """
+        target_device = self.parent._get_device(device)  # refuses by name
+
+        if device == "FM" and self._fm_device() is None:
+            raise ValueError("FM module is not available. Cannot move to FM position.")
+
+        stage_position = self._position()
+        source = self.parent.get_current_device(stage_position)
+        if source is None:
+            raise ValueError(
+                f"The stage is not at any configured device "
+                f"({sorted(self.parent.system.stage.devices)}), so there is nothing to "
+                f"travel from. Position: {stage_position}."
+            )
+
+        # The pose to arrive in. An explicit ask is honoured as asked; otherwise the
+        # pose is carried across, unless the target device cannot image from it --
+        # then its first declared acquisition orientation stands in.
+        desired = self.parent._arrival_orientation(device, stage_position, orientation)
+        if desired is not None and orientation is None:
+            logging.info(
+                f"The {device} device images from "
+                f"{target_device.available_orientations}; re-posing to {desired} "
+                f"at the beams before travelling."
+            )
+
+        if desired is None and source == device:
+            logging.info(f"Already at {device} position, no need to move.")
+        else:
+            # Both ends checked before anything moves: the source by finding it, the
+            # target by converting to where the stage will arrive.
+            arrival = self._planned_arrival(device, stage_position, desired)
+            if arrival is not None:
+                self._check_arrival(device, arrival)
+
+            if desired is not None:
+                # The bracketing order: every re-pose happens at the beams, where the
+                # rotation is about the sample rather than a 48.8 mm arm.
+                #
+                # Driven to the *converted* position, not to the orientation by name.
+                # `move_to_orientation` rewrites r and t where the stage stands; a half
+                # turn there is compucentric about a centre that is not the sample, so the
+                # point that was under the beam is swung away and the traverse carries the
+                # wrong piece of sample out. The transform is what every pose derivation
+                # and overview marker uses, so arriving where it says is what puts the
+                # stage on the marked point. Falls back to the bare re-pose only from a
+                # pose the classifier cannot name: there is no point to keep there, and
+                # the fallback is how a stage in an unsupported pose gets back to a
+                # supported one.
+                try:
+                    at_the_beams = self.parent.get_target_position(
+                        stage_position, desired, target_device="FIBSEM"
+                    )
+                except ValueError as e:
+                    logging.warning(
+                        f"Re-posing to {desired} without keeping the sample point: {e}"
+                    )
+                    at_the_beams = None
+
+                self._retract_objective_to_move(device)
+                self._travel(source, "FIBSEM")
+                if at_the_beams is not None:
+                    self.safe_absolute_stage_movement(at_the_beams)
+                else:
+                    self.move_to_orientation(desired)
+                self._travel("FIBSEM", device)
+            elif _moves(self.parent._device_translation(source, device)):
+                self._retract_objective_to_move(device)
+                self._travel(source, device)
+
+        # Unconditional, so that the postcondition is the device *and* the objective
+        # state together: asking again for a device the stage is already at cannot
+        # leave the FM blind.
+        if device == "FM":
+            self._objective().insert()
+
+    def _travel(self, source: str, target: str) -> None:
+        """Move the stage by the translation from one device to another, if any.
+
+        Nothing is commanded between two devices at one place (a compustage's beams
+        and an FM without an origin of its own)."""
+        translation = self.parent._device_translation(source, target)
+        if _moves(translation):
+            self._move_stage(translation, relative=True)
+
+    def _retract_objective_to_move(self, device: str) -> None:
+        """Retract the objective immediately before the stage moves, and only then.
+
+        The objective must not be out over the sample while the stage moves, but every
+        reason to retract it is the motion itself -- so a call that refuses, or finds
+        it has nowhere to go, leaves the objective exactly as it found it rather than
+        pulling it out of the sample for nothing.
+        """
+        logging.info(f"Moving to {device} position...")
+        if self._fm_device() is not None:
+            self._objective().retract()
+
+    def _planned_arrival(
+        self,
+        device: str,
+        stage_position: FibsemStagePosition,
+        desired: Optional[str],
+    ) -> Optional[FibsemStagePosition]:
+        """Where `move_to_device` will put the stage: the `get_target_position`
+        conversion it drives to, or the bare translation from a pose the conversion
+        cannot name. `None` when neither can say -- a re-pose from such a pose, which
+        has no point to keep and is checked by nothing but the move itself."""
+        try:
+            return self.parent.get_target_position(
+                deepcopy(stage_position), desired, target_device=device
+            )
+        except ValueError as e:
+            if desired is not None:
+                logging.warning(f"Not checking where {device} will be reached: {e}")
+                return None
+            source = self.parent.get_current_device(stage_position)
+            return stage_position + self.parent._device_translation(source, device)
+
+    def _check_arrival(self, device: str, arrival: FibsemStagePosition) -> None:
+        """Refuse a traverse that would arrive outside *device*'s range.
+
+        The start is checked by finding the source (`get_current_device`); this is the
+        other end. Each device has its own range, and the stage keeps its offset from
+        the source's origin, so a position well inside the beams' range can land
+        outside an FM's -- where the stage would report it had not arrived, and could
+        not go back. Checked before the stage moves, and before the objective is
+        retracted for it.
+        """
+        if not self.parent.is_at_device(device, arrival):
+            raise ValueError(
+                f"Travelling to {device} from here would arrive at {arrival}, outside "
+                f"its range {self.parent._get_device(device).range} of its origin "
+                f"{self.parent._get_device(device).origin}. Move the stage nearer the "
+                "source's origin first."
+            )
+
 
 def bind_stage_movement(service: Type[_S], microscope: Any) -> Optional[_S]:
     """Build a microscope's stage movement service of class *service* over its stage
@@ -443,5 +723,20 @@ def bind_stage_movement(service: Type[_S], microscope: Any) -> Optional[_S]:
         beam = microscope.beams.get(beam_type)
         if beam is not None:
             movement.fill_roles(**{role: beam})
+    fm = microscope.devices.get("fm")
+    if isinstance(fm, FM):
+        movement.fill_roles(fm=fm)
     movement.connect()
     return movement
+
+
+def fm_camera_tilt(microscope: Any) -> float:
+    """Tilt of the FM camera's optical axis from the SEM column, in degrees: the FM
+    entry's ``camera_tilt``, else 180 where the FM is a stage pose, else the ion
+    column's tilt. See `StageMovement.camera_tilt`."""
+    configured = microscope.system.fm.camera_tilt
+    if configured is not None:
+        return float(configured)
+    if microscope._fm_is_a_pose():
+        return 180.0
+    return microscope.system.ion.column_tilt
