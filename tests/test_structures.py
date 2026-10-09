@@ -715,19 +715,52 @@ def test_metadata_round_trips_fibsem_revision():
     assert SystemInfo.from_dict(info.to_dict()).fibsem_revision == "v0.5.1-48-g4cd11d9c"
 
 
-def test_experiment_date_is_creation_time_not_import_time():
-    """A plain dataclass default would freeze this at module-import time."""
-    import time
+def test_experiment_date_is_creation_time_not_import_time(monkeypatch):
+    """A plain dataclass default would freeze this at module-import time.
 
+    A clock that advances on every read, not sleeps between real reads, as in
+    the state-stamp test below: Windows' clock ticks about every 15 ms.
+    """
+    import fibsem.util.timestamps as timestamps
     from fibsem.structures import FibsemExperimentRef
 
-    before = datetime.datetime.timestamp(datetime.datetime.now())
-    time.sleep(0.01)
-    experiment = FibsemExperimentRef()
-    time.sleep(0.01)
-    after = datetime.datetime.timestamp(datetime.datetime.now())
+    # real times: Windows' C time functions refuse ones near 1970
+    ticks = iter([1789355531.0, 1789355591.0])
 
-    assert before < experiment.date.timestamp() < after
+    class Clock(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.datetime.fromtimestamp(next(ticks), tz)
+
+    monkeypatch.setattr(timestamps, "datetime", Clock)
+
+    assert FibsemExperimentRef().date.timestamp() == 1789355531.0
+    assert FibsemExperimentRef().date.timestamp() == 1789355591.0
+
+
+def test_a_microscope_state_is_stamped_when_built_not_at_import(monkeypatch):
+    """FIB-487: a plain dataclass default froze this at module-import time, so two
+    states built apart claimed the same moment.
+
+    A clock that advances on every read, rather than sleeping between two real
+    reads: Windows' clock ticks about every 15 ms, so two reads 10 ms apart can
+    return the same time.
+    """
+    import fibsem.structures as structures
+    from fibsem.structures import MicroscopeState
+
+    # real times: Windows' C time functions refuse ones near 1970
+    ticks = iter([1789355531.0, 1789355591.0])
+
+    class Clock(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.datetime.fromtimestamp(next(ticks), tz)
+
+    monkeypatch.setattr(structures, "datetime", Clock)
+
+    assert MicroscopeState().timestamp == 1789355531.0
+    assert MicroscopeState().timestamp == 1789355591.0
 
 
 def test_a_chamber_state_reads_any_vendor_name():
