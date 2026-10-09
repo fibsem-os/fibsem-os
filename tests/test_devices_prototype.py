@@ -23,6 +23,7 @@ from fibsem.devices import (
     Resources,
     command,
 )
+from fibsem.devices.beam import DEFAULT_WORKING_DISTANCE_LIMITS
 from fibsem.structures import BeamType, FibsemImage, RangeLimit
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
@@ -70,7 +71,9 @@ def test_parameters_describe_themselves(beams):
         min=0.0, max=2 * math.pi
     )  # static, from the class
     assert sem.hfw.limits == RangeLimit(min=100e-9, max=3e-3)  # from the driver
-    assert sem.working_distance.limits is None and sem.working_distance.settable
+    # static, from the class: the range the beam panel has always allowed
+    assert sem.working_distance.limits == DEFAULT_WORKING_DISTANCE_LIMITS
+    assert sem.working_distance.settable
     assert sem.describe()["voltage"] == {
         "type": "float",
         "unit": "V",

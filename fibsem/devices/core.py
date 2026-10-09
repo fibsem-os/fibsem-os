@@ -126,7 +126,7 @@ class Parameter:
         self,
         type_: type,
         unit: Optional[str] = None,
-        limits: Optional[RangeLimit] = None,
+        limits: Optional[Limits] = None,
         choices: Optional[Sequence[Any]] = None,
         depends_on: Sequence[str] = (),
         doc: str = "",
