@@ -133,7 +133,13 @@ def test_home_and_link_are_commands_that_report_the_result(stage):
     stage.sim_linked = False
     assert stage.home() is True and stage.homed.cached is True
     assert stage.link() is True and stage.linked.cached is True
-    assert set(stage.commands) == {"home", "link", "move_absolute", "move_relative"}
+    assert set(stage.commands) == {
+        "home",
+        "link",
+        "move_absolute",
+        "move_relative",
+        "pose_table",
+    }
     assert (
         stage.commands["move_absolute"].signature
         == "(position: 'FibsemStagePosition') -> 'FibsemStagePosition'"
