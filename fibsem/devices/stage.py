@@ -45,6 +45,7 @@ from fibsem.devices.core import Device, Parameter, command
 from fibsem.display import Display
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
+    KNOWN_ORIENTATIONS,
     STAGE_FRAME_FIBSEM,
     FibsemStagePosition,
     RangeLimit,
@@ -221,10 +222,6 @@ class Stage(Device):
     frame: str = STAGE_FRAME_FIBSEM
     """The frame ``position`` is in, stamped on every image (FIB-1114)."""
 
-    compustage: bool = False
-    """Whether this is a compustage, which tilts over instead of turning round: its
-    poses, the device it is at in each and its built-in shuttle follow from it."""
-
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="stage", parent=parent, **kwargs)
         self.axes = Axes({})
@@ -244,7 +241,16 @@ class Stage(Device):
         self.axes = Axes(axes)
 
     def facts(self) -> Dict[str, Any]:
-        return {"frame": self.frame, "compustage": self.compustage}
+        """The frame, the shuttle, and the device each orientation puts the stage at:
+        the answers a remote stage gives without asking again."""
+        return {
+            "frame": self.frame,
+            "has_builtin_shuttle": self.has_builtin_shuttle(),
+            "device_at_pose": {
+                orientation: self.device_at_pose(orientation)
+                for orientation in KNOWN_ORIENTATIONS
+            },
+        }
 
     @property
     def is_homed(self) -> Optional[bool]:
@@ -280,6 +286,14 @@ class Stage(Device):
         with self.resources.claim(STAGE_RESOURCE):
             self._link()
             return self.linked.get_value()
+
+    @command
+    def pose_table(
+        self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+    ) -> Dict[str, FibsemStagePosition]:
+        """``poses()`` as a command, so a stage on another computer can be asked for
+        its poses. It moves nothing."""
+        return self.poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
 
     def move_through(
         self, position: FibsemStagePosition, relative: bool = False
@@ -320,13 +334,9 @@ class Stage(Device):
         """The pose for each orientation name on this stage, from the geometry in degrees.
 
         A stage that turns round to face the ion beam by default, or stays at the
-        reference if it has no ``r`` axis; a compustage tilts over instead. A stage
-        that reaches the beams some other way overrides this.
+        reference if it has no ``r`` axis. A stage that reaches the beams some other
+        way (a compustage) overrides this.
         """
-        if self.compustage:
-            return compustage_poses(
-                rotation_reference, shuttle_pre_tilt, fib_column_tilt
-            )
         return rotating_stage_poses(
             rotation_reference,
             shuttle_pre_tilt,
@@ -339,20 +349,18 @@ class Stage(Device):
 
         None by default: the stage travels between devices, so where it is decides
         which one it is at (the nearest origin, `FibsemMicroscope.get_current_device`).
-        A compustage reaches its FM by re-posing instead of travelling, so there the
-        pose decides wherever x and y are; another such stage overrides this.
+        A stage that reaches a device by re-posing instead of travelling (a compustage
+        and its FM) overrides this, so the pose decides wherever x and y are.
         """
-        if self.compustage:
-            return compustage_device_at_pose(orientation)
         return None
 
     def has_builtin_shuttle(self) -> bool:
         """Whether the stage carries its own one-grid shuttle, so the sample holder is
         built in rather than read from the configuration.
 
-        A compustage, which is the autoloader's stage, has one.
+        False by default. A compustage, which is the autoloader's stage, overrides it.
         """
-        return self.compustage
+        return False
 
     def turned_over(self, tilt: float) -> bool:
         """Whether the sample is turned over at this stage tilt, in radians.

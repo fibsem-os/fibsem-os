@@ -40,6 +40,7 @@ from fibsem.structures import (  # noqa: E402
     FibsemStagePosition,
     InsertableDeviceState,
 )
+from tests.fixtures.demo_stage import demo_session  # noqa: E402
 
 
 @pytest.fixture
@@ -74,9 +75,30 @@ def test_a_remote_stage_has_the_local_axes_poses_and_frame(served):
     assert list(stage.axes) == list(here.axes)
     assert stage.axes.t.limits == here.axes.t.limits
     assert stage.frame == here.frame
-    assert stage.compustage == here.compustage
     assert stage.poses(0, 35, 52) == here.poses(0, 35, 52)
     assert stage.has_builtin_shuttle() == here.has_builtin_shuttle()
+    for orientation in ("SEM", "FIB", "MILLING", "FM"):
+        assert stage.device_at_pose(orientation) == here.device_at_pose(orientation)
+
+
+@pytest.mark.parametrize("compustage", [True, False])
+def test_a_remote_stage_answers_as_its_driver_does(compustage):
+    """A compustage's poses, FM and shuttle come from its driver on the server; the
+    remote stage holds no flag of its own."""
+    microscope, _ = demo_session(compustage=compustage)
+    here = microscope.stage
+    server = DeviceServer([here]).start()
+    client = DeviceClient("127.0.0.1", server.port)
+    try:
+        stage = RemoteStage(client=client).connect(client.describe()["stage"])
+        assert stage.poses(0, 35, 52) == here.poses(0, 35, 52)
+        assert ("FM" in stage.poses(0, 35, 52)) is compustage
+        assert stage.device_at_pose("FM") == here.device_at_pose("FM")
+        assert stage.has_builtin_shuttle() is compustage
+        assert list(stage.axes) == list(here.axes)
+    finally:
+        client.close()
+        server.stop()
 
 
 def test_a_remote_stage_moves_on_the_server(served):

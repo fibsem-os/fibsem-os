@@ -40,8 +40,9 @@ builds them from what a server has.
 
 ``RemoteStage``, ``RemoteChamber`` and ``RemoteManipulator`` move, pump and vent on the
 server, and wait for as long as that takes. What they say about themselves beyond
-their parameters (the stage's frame and whether it is a compustage, the needle's axes
-and named positions) comes from the device's ``facts`` in its description. A move
+their parameters (the stage's frame, shuttle and the device each orientation is at;
+the needle's axes and named positions) comes from the device's ``facts`` in its
+description, and a stage's poses from its ``pose_table`` command. A move
 is checked against the stage limits on the server too, so the old API's unchecked
 ``move_through`` is checked there.
 
@@ -56,6 +57,7 @@ import json
 import logging
 import math
 import threading
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -617,11 +619,42 @@ class RemoteStage(RemoteDevice, Stage):
     """A stage on another computer. The limit check runs here and again on the
     server, which moves and answers when the stage has stopped."""
 
+    _shuttle = False
+    _devices_at_pose: Dict[str, Optional[str]] = {}
+
     def _apply_facts(self, facts: Dict[str, Any]) -> None:
         self.frame = facts.get("frame", self.frame)
-        self.compustage = bool(facts.get("compustage", False))
+        self._shuttle = bool(facts.get("has_builtin_shuttle", False))
+        self._devices_at_pose = dict(facts.get("device_at_pose", {}))
+        self._poses: Dict[Tuple[float, float, float], Any] = {}
         if "position" in self.parameters:
             self._build_axes()
+
+    def has_builtin_shuttle(self) -> bool:
+        return self._shuttle
+
+    def device_at_pose(self, orientation: str) -> Optional[str]:
+        return self._devices_at_pose.get(orientation)
+
+    def poses(
+        self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+    ) -> Dict[str, FibsemStagePosition]:
+        """The server's stage's poses, asked once per geometry: they are a pure
+        function of it, and orientation checks ask often."""
+        key = (rotation_reference, shuttle_pre_tilt, fib_column_tilt)
+        if key not in self._poses:
+            answer = self.call_command(
+                "pose_table",
+                timeout=READ_TIMEOUT,
+                rotation_reference=rotation_reference,
+                shuttle_pre_tilt=shuttle_pre_tilt,
+                fib_column_tilt=fib_column_tilt,
+            )
+            self._poses[key] = {
+                name: FibsemStagePosition.from_dict(pose)
+                for name, pose in answer.items()
+            }
+        return {name: deepcopy(pose) for name, pose in self._poses[key].items()}
 
     def _move_absolute(self, position: FibsemStagePosition) -> None:
         self.call_command("move_absolute", timeout=UNTIL_DONE, position=position)
