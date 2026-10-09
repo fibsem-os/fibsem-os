@@ -85,6 +85,88 @@ def test_a_new_instruction_waits_behind_a_running_line(slot):
     assert slot.text == "Add a lamella to begin."
 
 
+# --- milling progress ------------------------------------------------------------
+
+
+def _stage_started(stage=1, total=3, name="Rough Mill"):
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    return MillingProgress(
+        MillingProgressStatus.STAGE_STARTED,
+        stage_name=name,
+        current_stage=stage,
+        total_stages=total,
+    )
+
+
+def _strategy_says(message="Running Rough Mill..."):
+    """What `strategy/standard.py` sends once a stage is under way: its words, no
+    figures."""
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    return MillingProgress(
+        MillingProgressStatus.STAGE_UPDATE, message=message, stage_name="Rough Mill"
+    )
+
+
+def _tick(remaining=30.0, estimated=60.0):
+    """A backend's tick: figures, no words."""
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    return MillingProgress(
+        MillingProgressStatus.STAGE_UPDATE,
+        remaining_time=remaining,
+        estimated_time=estimated,
+    )
+
+
+def _finished():
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    return MillingProgress(MillingProgressStatus.TASK_FINISHED)
+
+
+def test_milling_shows_its_stage_then_its_countdown(slot):
+    slot._on_milling_progress(_stage_started())
+    assert slot.text == "Preparing: Rough Mill stage 2 of 3"
+    assert slot.fraction is None, "no bar until there is a figure to draw"
+    slot._on_milling_progress(_strategy_says())
+    slot._on_milling_progress(_tick())
+    assert slot.fraction == pytest.approx(0.5)
+    assert slot.text == "Running Rough Mill... stage 2 of 3 50% · 30s left", (
+        "the strategy's words, kept over the backend's wordless tick"
+    )
+
+
+def test_milling_ending_gives_the_line_back(slot):
+    slot._on_milling_progress(_stage_started())
+    slot._on_milling_progress(_tick())
+    slot._on_milling_progress(_finished())
+    assert slot.text == INSTRUCTION
+    assert slot.fraction is None
+
+
+def test_milling_in_a_run_sits_under_the_task(slot):
+    slot.set_run("lamella-02 › Rough Milling", None, "3 of 5")
+    slot._on_milling_progress(_stage_started())
+    slot._on_milling_progress(_strategy_says())
+    slot._on_milling_progress(_tick())
+    assert slot.text == (
+        "lamella-02 › Rough Milling Running Rough Mill... · stage 2 of 3"
+        " 50% · 30s left · 3 of 5"
+    )
+    slot._on_milling_progress(_finished())
+    assert slot.text == "lamella-02 › Rough Milling · 3 of 5"
+
+
+def test_a_stage_move_outranks_milling_and_hides_its_bar(slot):
+    slot._on_milling_progress(_tick())
+    slot.set_stage_activity("Moving the stage…")
+    assert slot.fraction is None
+    slot.set_stage_activity(None)
+    assert slot.fraction == pytest.approx(0.5)
+
+
 # --- the real windows ----------------------------------------------------------
 
 
@@ -146,4 +228,33 @@ def test_fibsem_says_the_stage_move_too(qapp):
     assert window.status_bar.text == "Stage move moving the stage vertically…"
     window.view_controller.report_activity(None)
     assert window.status_bar.text == ""
+    _close(window, qapp)
+
+
+def test_autolamella_shows_milling_from_its_microscope(no_quit, qapp):
+    """Through the microscope's own signal, which the bar subscribes to itself; and a
+    disconnect lets it go."""
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+
+    window = module.AutoLamellaSingleWindowUI()
+    window.autolamella_ui.system_widget.connect_to_microscope()
+    microscope = window.autolamella_ui.microscope
+    microscope.milling_progress_signal.emit(_tick())
+    assert window.status_bar.fraction == pytest.approx(0.5)
+    assert not hasattr(window, "milling_progress_bar"), "one place for it"
+
+    window.status_bar.set_microscope(None)
+    microscope.milling_progress_signal.emit(_tick(remaining=15.0))
+    assert window.status_bar.fraction is None
+    microscope.disconnect()
+    _close(window, qapp)
+
+
+def test_fibsem_shows_milling_from_its_microscope(qapp):
+    from fibsem.ui.FibsemUI import FibsemUI
+
+    window = FibsemUI()
+    window.system_widget.connect_to_microscope()
+    window.microscope.milling_progress_signal.emit(_stage_started())
+    assert window.status_bar.text == "Preparing: Rough Mill stage 2 of 3"
     _close(window, qapp)
