@@ -18,12 +18,7 @@ from fibsem.structures import BeamType
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import (
-        BeamSettings,
-        BeamType,
-        FibsemRectangle,
-        ImageSettings,
-    )
+    from fibsem.structures import BeamType, FibsemRectangle, ImageSettings
 
 logger = logging.getLogger(__name__)
 
@@ -311,21 +306,6 @@ class AutoFocusResult:
         )
 
 
-def _restore_beam(microscope: "FibsemMicroscope", saved: "BeamSettings") -> None:
-    """Put the beam back as the sweep found it, except its working distance, which is
-    the sweep's answer.
-
-    A failing write is logged rather than raised: it must not hide the error that
-    ended the sweep.
-    """
-    try:
-        microscope.set_beam_settings(dataclasses.replace(saved, working_distance=None))
-    except Exception:
-        logger.exception(
-            "AutoFocus could not restore the %s beam's settings", saved.beam_type.name
-        )
-
-
 def _run_sweep(
     microscope: "FibsemMicroscope",
     probe_settings: "ImageSettings",
@@ -468,8 +448,16 @@ def run_auto_focus(
     # The probe images are acquired with the sweep's own resolution, dwell time and
     # field of view, and on some backends (Odemis) an acquire writes those to the beam.
     # Put the beam back as it was, however the sweep ends; only the working distance
-    # is left where the sweep put it.
-    beam_settings = microscope.get_beam_settings(beam_type)
+    # is left where the sweep put it. The stage and objective are left out: the sweep
+    # doesn't move them, and restoring them would be a stage move.
+    state = microscope.get_microscope_state(beam_type=beam_type)
+    beam_state = (
+        state.electron_beam if beam_type is BeamType.ELECTRON else state.ion_beam
+    )
+    if beam_state is not None:
+        beam_state.working_distance = None
+    state.stage_position = None
+    state.objective_position = None
     try:
         if settings.use_autocontrast:
             microscope.autocontrast(beam_type, settings.reduced_area)
@@ -504,7 +492,11 @@ def run_auto_focus(
 
         microscope.set_working_distance(best.working_distance, beam_type)
     finally:
-        _restore_beam(microscope, beam_settings)
+        try:
+            microscope.set_microscope_state(state)
+        except Exception:
+            # Logged, not raised: it must not hide the error that ended the sweep.
+            logger.exception("AutoFocus could not restore the %s beam", beam_type.name)
     logger.info(
         "AutoFocus complete: best WD=%.4e score=%.4f (%d passes, %d steps total)",
         best.working_distance,
