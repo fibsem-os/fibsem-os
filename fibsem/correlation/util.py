@@ -795,6 +795,26 @@ def hole_fitting_RL(
     return xr, yr, zr, fig
 
 
+# A spot burn in the FIB image is a dark spot a few pixels across. A fitted
+# Gaussian outside these widths, or bright, is a fit to something else: the
+# trench, the bright halo, a gradient (FIB-1216).
+_BURN_SIGMA_PX = (0.5, 12.0)
+
+
+def _burn_shaped(popt: np.ndarray, shape: Tuple[int, int]) -> bool:
+    """Whether a dark-Gaussian fit landed on something burn-like in its window."""
+    amplitude, xo, yo, sx, sy = popt[:5]
+    lo, hi = _BURN_SIGMA_PX
+    return bool(
+        np.all(np.isfinite(popt[:5]))
+        and amplitude < 0
+        and 0 <= xo < shape[1]
+        and 0 <= yo < shape[0]
+        and lo <= abs(sx) <= hi
+        and lo <= abs(sy) <= hi
+    )
+
+
 def hole_fitting_FIB(
     img: np.ndarray,
     x: float,
@@ -802,6 +822,15 @@ def hole_fitting_FIB(
     cutout: int = 15,
 ):
     """Refine selection of hole in FIB image.
+
+    The fit starts at the click, as it always has, and that answer stands when
+    it is burn-shaped (:func:`_burn_shaped`). From a click more than ~4 px off
+    the burn it is not -- the Gaussian starts 1 px wide at the click and has
+    nothing to pull on -- so the fit starts again at the window's darkest point
+    after smoothing, which finds a burn up to the window's edge. When neither
+    finds a burn the fit fails (:class:`FitOutsideWindow`) rather than handing
+    back the click as an unchanged fit (FIB-1216).
+
     Args:
         img: 2D numpy array (Y,X)
         x,y initial coordinates from the user click (may be sub-pixel)
@@ -809,6 +838,8 @@ def hole_fitting_FIB(
     Returns:
         xr, yr: refined x, y coordinates
         diagnostic: FitDiagnostic for the (XY-only) diagnostic figure
+    Raises:
+        FitOutsideWindow: no burn-shaped dark spot in the region searched.
     """
     # The click may be sub-pixel; round for integer slicing but keep the
     # fraction so the input marker is drawn exactly where the user clicked
@@ -816,21 +847,26 @@ def hole_fitting_FIB(
     xi, yi = int(round(x)), int(round(y))
     # cut out a box around the point
     roi = img[yi - cutout : yi + cutout, xi - cutout : xi + cutout]
-    # fit a 2D gaussian to estimate the hole position
-    err = None
-    try:
-        popt, _ = fit_gauss_2d_mod(roi, show=False)
-        xopt, yopt = popt[1], popt[2]
-    except Exception as e:
-        logging.warning(f"Error in XY fit: {e}")
-        xopt, yopt = cutout, cutout  # fallback to center of cutout if fit fails
-        err = e
 
-    if not (0 <= xopt < 2 * cutout and 0 <= yopt < 2 * cutout):
-        logging.warning(
-            f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}"
+    def _fit(center=None):
+        try:
+            popt, _ = fit_gauss_2d_mod(roi, show=False, center=center)
+        except Exception as e:  # maxfev, an empty or flat window
+            logging.debug(f"FIB hole fit from {center or 'the click'}: {e}")
+            return None
+        return popt if _burn_shaped(popt, roi.shape) else None
+
+    popt = _fit()
+    if popt is None and roi.size:
+        smooth = ndimage.gaussian_filter(np.asarray(roi, dtype=float), sigma=2)
+        dark_y, dark_x = np.unravel_index(np.argmin(smooth), smooth.shape)
+        popt = _fit(center=(float(dark_x), float(dark_y)))
+    if popt is None:
+        raise FitOutsideWindow(
+            f"no burn-shaped dark spot in the region searched: x {xi - cutout}-"
+            f"{xi + cutout - 1}, y {yi - cutout}-{yi + cutout - 1}"
         )
-        xopt, yopt = cutout, cutout
+    xopt, yopt = popt[1], popt[2]
 
     # get the refined positions in the coordinates of the original image
     xr = xopt + xi - cutout
@@ -845,9 +881,8 @@ def hole_fitting_FIB(
         title="FIB hole fit",
         roi_xy=roi,
         input_xy=(cutout + (x - xi), cutout + (y - yi)),
-        fitted_xy=None if err is not None else (xopt, yopt),
+        fitted_xy=(xopt, yopt),
         xy_title="XY",
-        xy_message=None if err is None else "fit failed — using input",
     )
     return xr, yr, diagnostic
 
