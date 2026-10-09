@@ -470,7 +470,7 @@ class DemoImaging:
                 beam_type=effective_beam_type
             )
 
-        logging.info(f"acquiring new {effective_beam_type.name} image.")
+        logging.debug(f"acquiring new {effective_beam_type.name} image.")
 
         # set the imaging hfw, as the hardware drivers do: an acquisition leaves
         # the beam at the field it imaged, so anything that follows in image
@@ -800,7 +800,7 @@ class DemoImaging:
             if reduced_area is not None:
                 self.set_reduced_area_scanning_mode(reduced_area, beam_type)
             # TODO: implement auto-contrast
-            logging.info(f"Autocontrasting {beam_type.name} beam.")
+            logging.debug(f"Autocontrasting {beam_type.name} beam.")
             sim_sleep(
                 random.uniform(0.5, 1.0)
             )  # simulate time taken to calculate auto-contrast
@@ -828,7 +828,7 @@ class DemoImaging:
             if reduced_area is not None:
                 self.set_reduced_area_scanning_mode(reduced_area, beam_type)
             # TODO: implement auto-focus
-            logging.info(f"Auto-focusing {beam_type.name} beam.")
+            logging.debug(f"Auto-focusing {beam_type.name} beam.")
             wd: float = self._beam_config(
                 "eucentric_height", beam_type
             ).eucentric_height

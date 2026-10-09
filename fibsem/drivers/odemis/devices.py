@@ -129,7 +129,7 @@ class OdemisBeam(Beam):
         return self.parent.connection
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
-        logging.info(
+        logging.debug(
             f"{self.beam_type.name} {what} set to {value}{unit}.",
             stacklevel=2,  # name the write_* method, not this helper
         )
@@ -147,7 +147,7 @@ class OdemisBeam(Beam):
     def write_blanked(self, value: bool) -> None:
         client = self._client
         client.blank_beam(self.channel) if value else client.unblank_beam(self.channel)
-        logging.info(
+        logging.debug(
             f"{self.beam_type.name} beam {'blanked' if value else 'unblanked'}."
         )
 
@@ -262,7 +262,7 @@ class OdemisBeam(Beam):
     def write_detector_type(self, value: str) -> None:
         if value in self._detector_choices("type"):
             self._client.set_detector_type(value, self.channel)
-            logging.info(f"Detector type set to {value}.")
+            logging.debug(f"Detector type set to {value}.")
         else:
             logging.warning(f"Detector type {value} not available.")
 
@@ -275,7 +275,7 @@ class OdemisBeam(Beam):
     def write_detector_mode(self, value: str) -> None:
         if value in self._detector_choices("mode"):
             self._client.set_detector_mode(value, self.channel)
-            logging.info(f"Detector mode set to {value}.")
+            logging.debug(f"Detector mode set to {value}.")
         else:
             logging.warning(f"Detector mode {value} not available.")
 
@@ -289,7 +289,7 @@ class OdemisBeam(Beam):
     def write_detector_brightness(self, value: float) -> None:
         if 0 < value <= 1:
             self._client.set_brightness(value, self.channel)
-            logging.info(f"Detector brightness set to {value}.")
+            logging.debug(f"Detector brightness set to {value}.")
         else:
             logging.warning(
                 f"Detector brightness {value} not available, must be between 0 and 1."
@@ -301,7 +301,7 @@ class OdemisBeam(Beam):
     def write_detector_contrast(self, value: float) -> None:
         if 0 < value <= 1:
             self._client.set_contrast(value, self.channel)
-            logging.info(f"Detector contrast set to {value}.")
+            logging.debug(f"Detector contrast set to {value}.")
         else:
             logging.warning(
                 f"Detector contrast {value} not available, mut be between 0 and 1."

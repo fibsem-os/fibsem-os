@@ -302,7 +302,7 @@ class AutoscriptBeam(Beam):
         return self.parent._get_beam(self.beam_type)
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
-        logging.info(
+        logging.debug(
             f"{self.beam_type.name} {what} set to {value}{unit}.",
             stacklevel=2,  # name the write_* method, not this helper
         )
@@ -321,7 +321,7 @@ class AutoscriptBeam(Beam):
     def write_blanked(self, value: bool) -> None:
         beam = self._beam
         beam.blank() if value else beam.unblank()
-        logging.info(
+        logging.debug(
             f"{self.beam_type.name} beam {'blanked' if value else 'unblanked'}."
         )
 
@@ -379,7 +379,7 @@ class AutoscriptBeam(Beam):
         limits = beam.horizontal_field_width.limits
         value = np.clip(value, limits.min, limits.max - 10e-6)
         beam.horizontal_field_width.value = value
-        logging.info(f"{self.beam_type.name} HFW set to {value} m.")
+        logging.debug(f"{self.beam_type.name} HFW set to {value} m.")
 
     def metadata_hfw(self) -> ParameterMetadata:
         limits = self._beam.horizontal_field_width.limits
@@ -454,7 +454,7 @@ class AutoscriptBeam(Beam):
         detector = self._detector
         if value in detector.type.available_values:
             detector.type.value = value
-            logging.info(f"Detector type set to {value}.")
+            logging.debug(f"Detector type set to {value}.")
         else:
             logging.warning(f"Detector type {value} not available.")
 
@@ -471,7 +471,7 @@ class AutoscriptBeam(Beam):
         detector = self._detector
         if value in detector.mode.available_values:
             detector.mode.value = value
-            logging.info(f"Detector mode set to {value}.")
+            logging.debug(f"Detector mode set to {value}.")
         else:
             logging.warning(f"Detector mode {value} not available.")
 
@@ -488,7 +488,7 @@ class AutoscriptBeam(Beam):
     def write_detector_brightness(self, value: float) -> None:
         if 0 < value <= 1:
             self._detector.brightness.value = value
-            logging.info(f"Detector brightness set to {value}.")
+            logging.debug(f"Detector brightness set to {value}.")
         else:
             logging.warning(
                 f"Detector brightness {value} not available, must be between 0 and 1."
@@ -500,7 +500,7 @@ class AutoscriptBeam(Beam):
     def write_detector_contrast(self, value: float) -> None:
         if 0 < value <= 1:
             self._detector.contrast.value = value
-            logging.info(f"Detector contrast set to {value}.")
+            logging.debug(f"Detector contrast set to {value}.")
         else:
             logging.warning(
                 f"Detector contrast {value} not available, mut be between 0 and 1."
@@ -550,7 +550,7 @@ class AutoscriptBeam(Beam):
 
     def write_angular_correction(self, value: float) -> None:
         self._beam.angular_correction.angle.value = value
-        logging.info(f"Angular correction angle set to {value} radians.")
+        logging.debug(f"Angular correction angle set to {value} radians.")
 
     def available_tilt_correction(self) -> bool:
         return self.beam_type is BeamType.ELECTRON
@@ -605,10 +605,10 @@ class AutoscriptBeam(Beam):
         if image_settings is None:
             # acquire_image(beam_type=...): the beam's current settings
             settings = microscope.get_imaging_settings(beam_type=self.beam_type)
-            logging.info(f"acquiring new {name} image.")
+            logging.debug(f"acquiring new {name} image.")
             with self.claim_channel():
                 adorned = microscope.connection.imaging.grab_frame(None)
-            logging.info(f"acquiring new {name} image.")
+            logging.debug(f"acquiring new {name} image.")
         else:
             settings = image_settings
             if settings.reduced_area is not None:
@@ -623,7 +623,7 @@ class AutoscriptBeam(Beam):
                 reduced_area = None
                 self.full_frame()
             microscope.set_field_of_view(hfw=settings.hfw, beam_type=self.beam_type)
-            logging.info(f"acquiring new {name} image.")
+            logging.debug(f"acquiring new {name} image.")
             frame_settings = thermo.GrabFrameSettings(
                 resolution=str(Resolution(*settings.resolution)),
                 dwell_time=settings.dwell_time,
@@ -727,7 +727,7 @@ class AutoscriptBeam(Beam):
                     image = self.parent._construct_image(
                         adorned_image, beam_type=self.beam_type
                     )
-                    logging.info(f"Acquired Image: {image.data.shape}")
+                    logging.debug(f"Acquired Image: {image.data.shape}")
                     self.live_frame.emit(image)
         except Exception as e:
             logging.error(f"Exception occurred during fast acquisition: {e}")
