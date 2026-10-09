@@ -127,3 +127,45 @@ def test_the_display_transform_is_held_on_the_camera(iflm):
     iflm.fm.set_image_transform(CameraImageTransform.NONE)
     plain = iflm.stage_movement.project_fm_stable_move(1e-6, 0.0, base)
     assert flipped.x - base.x == pytest.approx(-(plain.x - base.x))
+
+
+def test_the_sample_stage_moves_through_the_service(microscope):
+    movement = microscope.stage_movement
+    calls = []
+    for name in (
+        "stable_move",
+        "vertical_move",
+        "project_stable_move",
+        "move_to_orientation",
+        "move_to_milling_angle",
+    ):
+        original = getattr(movement, name)
+        setattr(
+            movement,
+            name,
+            lambda *a, _n=name, _o=original, **k: (calls.append(_n), _o(*a, **k))[1],
+        )
+    stage = microscope._stage
+    base = microscope.get_stage_position()
+
+    stage.stable_move(10e-6, 0.0, BeamType.ELECTRON)
+    stage.vertical_move(5e-6)
+    stage.project_stable_move(1e-6, 0.0, BeamType.ION, base)
+    stage.move_to_orientation("SEM")
+    stage.move_to_milling_angle(0.3)
+
+    assert calls[0] == "stable_move"
+    assert set(calls) == {
+        "stable_move",
+        "vertical_move",
+        "project_stable_move",
+        "move_to_orientation",
+        "move_to_milling_angle",
+    }
+
+
+def test_without_the_service_the_sample_stage_uses_the_microscope(microscope):
+    microscope.stage_movement = None
+    start = microscope.get_stage_position()
+    end = microscope._stage.stable_move(10e-6, 0.0, BeamType.ELECTRON)
+    assert end != start
