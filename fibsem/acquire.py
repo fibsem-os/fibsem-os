@@ -317,6 +317,9 @@ def acquire_focus_stacked_image(
     # fraction of the image height for each strip
     strip_height = 1.0 / n_steps
 
+    # A copy: the strips rewrite `save` and `reduced_area`, and the caller's settings
+    # were left scanning the last strip with saving turned off.
+    image_settings = copy.copy(image_settings)
     images: list[FibsemImage] = []
     image_settings.save = False  # ensure we don't save intermediate strips
     for i in range(n_steps):
