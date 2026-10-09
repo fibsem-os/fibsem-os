@@ -2135,12 +2135,6 @@ _POINT_TYPE_SIDES: Dict[PointType, str] = {
     PointType.SURFACE_FM: "fm",
 }
 
-# The point types whose z is a slice index into the FM volume, and so move when
-# that volume is resampled. Derived from the map above so the two can't drift.
-_FM_SIDE_POINT_TYPES = frozenset(
-    pt.value for pt, side in _POINT_TYPE_SIDES.items() if side == "fm"
-)
-
 
 def _has_coordinates(data: Optional[CorrelationInputData]) -> bool:
     """Whether a seed payload actually carries points to seed from.
@@ -2248,6 +2242,11 @@ class CorrelationTabWidget(QWidget):
         # FM z-stack interpolation (background) — held for the op's lifetime
         self._interp_worker = None
         self._interp_relay: Optional[_ProgressRelay] = None
+        # Planes of the displayed FM volume per plane of the loaded stack: 1.0
+        # unless an interpolated view is shown. Points, fits and the saved file
+        # stay in the loaded stack's planes; only the canvas is resampled
+        # (FIB-1248).
+        self._fm_view_scale = 1.0
         self._project_dir: Optional[str] = None
         # Auto-save is armed by a load or an edit, never by an image load: an
         # open must not write until there is something of the user's to keep
@@ -2530,7 +2529,7 @@ class CorrelationTabWidget(QWidget):
         self._fm_adapter = _CanvasAdapter(
             self._fm_display,
             side="fm",
-            z_provider=lambda: self._fm_display.current_z,
+            z_provider=self._fm_plane_in_stack,
         )
         self._adapters: Dict[str, _CanvasAdapter] = {
             "fib": self._fib_adapter,
@@ -2687,6 +2686,22 @@ class CorrelationTabWidget(QWidget):
             return None
         return getattr(self._fm_image.metadata, "pixel_size_z", None)
 
+    def _show_z_view_in_lists(self, view: Optional[Tuple[float, int]]) -> None:
+        """Tell the FM-side lists which view plane each z sits on, or that none
+        is shown: their z stays in the stack's slices."""
+        for spec in self._point_specs.values():
+            if spec.adapter is self._fm_adapter:
+                spec.list_widget.set_z_view(view)
+
+    def _fm_plane_in_stack(self) -> float:
+        """The displayed FM plane, in the loaded stack's planes.
+
+        The canvas may show an interpolated view; a point placed on it is stored
+        where that plane sits in the stack, so its z means the same thing to the
+        fits, the saved file and the next session (FIB-1248).
+        """
+        return self._fm_display.current_z / self._fm_view_scale
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -2740,6 +2755,8 @@ class CorrelationTabWidget(QWidget):
     def set_fm_image(self, fm_image: FluorescenceImage) -> None:
         """Load FM image into canvas and update images tab."""
         self._fm_image = fm_image
+        self._fm_view_scale = 1.0  # a new stack is shown as it is
+        self._show_z_view_in_lists(None)
         self._fm_display.set_fm_image(fm_image)
         self._set_name_label(self._fm_name_label, fm_image)
         px = self._effective_fm_pixel_size(fm_image)
@@ -3037,7 +3054,7 @@ class CorrelationTabWidget(QWidget):
         if not fib:
             self._lbl_status.setText("Cannot project: no FIB fiducials to project.")
             return
-        z_slice = float(self._fm_display.current_z)
+        z_slice = self._fm_plane_in_stack()
         new = predictions_for(fib, cl.fm_list.coordinates, z_slice=z_slice)
         if new:
             self._point_store.add_many(new)
@@ -3071,7 +3088,7 @@ class CorrelationTabWidget(QWidget):
                 nominal,
                 fib,
                 fm,
-                z_slice=float(self._fm_display.current_z),
+                z_slice=self._fm_plane_in_stack(),
                 fm_shape=tuple(self._fm_image.data.shape[-2:]),
             )
             place_predictions(
@@ -3312,21 +3329,6 @@ class CorrelationTabWidget(QWidget):
         coords = d.fib_coordinates + d.fm_coordinates + d.poi_coordinates
         coords += [c for c in (d.surface_coordinate, d.fm_surface_coordinate) if c]
         return [(c.point_type.value, c.point.x, c.point.y, c.point.z) for c in coords]
-
-    def _rescale_baseline_z(self, scale: float) -> None:
-        """Apply an FM z-rescale to the seeded baseline as well as the points.
-
-        Interpolation moves every FM-side z by the slice ratio. Rescaling only
-        the points would leave the baseline describing the old sampling, so the
-        next re-seed would announce that the coordinates "have been edited" when
-        the user edited nothing (FIB-319).
-        """
-        if self._seeded_positions is None:
-            return
-        self._seeded_positions = [
-            (t, x, y, z * scale if t in _FM_SIDE_POINT_TYPES else z)
-            for (t, x, y, z) in self._seeded_positions
-        ]
 
     def _has_manual_edits(self) -> bool:
         """Whether the points differ from what was last seeded."""
@@ -4745,9 +4747,8 @@ class CorrelationTabWidget(QWidget):
             InterpolateZDialog,
         )
 
-        dlg = InterpolateZDialog(
-            self._fm_image, parent=self, fm_point_count=self._fm_point_count()
-        )
+        # No point count: the points no longer move when the view is resampled.
+        dlg = InterpolateZDialog(self._fm_image, parent=self)
         if dlg.exec_() != QDialog.Accepted:
             return
         target_m, method = dlg.result_params()
@@ -4781,6 +4782,11 @@ class CorrelationTabWidget(QWidget):
 
         def _done(new_image) -> None:
             _finish()
+            if self._fm_image is not src:
+                # Another stack was loaded while this one was resampled; its
+                # planes are not this view's (FIB-1242).
+                logging.info("Interpolated view discarded: the FM stack changed")
+                return
             self._adopt_interpolated_volume(new_image, old_nz)
 
         def _fail(exc) -> None:
@@ -4796,25 +4802,31 @@ class CorrelationTabWidget(QWidget):
         worker.start()
 
     def _adopt_interpolated_volume(self, new_image, old_nz: int) -> None:
-        """Swap in the resampled volume and keep FM coordinates + metadata coherent.
+        """Show the resampled volume on the FM canvas; change nothing else.
 
-        Matched pair: rescale FM-point z by the ACTUAL resampling scale, then adopt
-        the new volume whose pixel_size_z was derived from that same scale — so
-        each point stays on its feature and keeps its physical depth
-        (z_index * pixel_size_z).
+        The loaded stack stays the one the points, the fits and the saved file
+        are in. Swapping the stack moved every point into the resampled planes,
+        so each consumer had to translate them back, and each did it its own way
+        or not at all: the hole fit searched a tenth of the depth, a reopened run
+        put its points at the wrong depth, and a prior read the wrong z scale
+        (FIB-1248). Picking on the view converts its plane back to the stack's
+        (:meth:`_fm_plane_in_stack`).
         """
         from fibsem.correlation.util import z_resample_scale
 
         new_nz = new_image.data.shape[1]
-        scale = z_resample_scale(old_nz, new_nz)
-        self._rescale_fm_z(scale)
-        self._rescale_baseline_z(scale)  # nothing was *edited* by this
-        self.set_fm_image(new_image)
-        self.set_data(self.data)  # redraw lists/canvas at the rescaled z
-        self.data_changed.emit(self.data)  # auto-save + RI refresh (new z step)
+        self._fm_view_scale = z_resample_scale(old_nz, new_nz)
+        self._fm_display.set_fm_image(new_image)
+        self._show_z_view_in_lists((self._fm_view_scale, new_nz))
+        # The canvas reads the raw metadata pixel size; keep the stack's
+        # corrected one, as set_fm_image does, so the scale bar stays right.
+        px = self._effective_fm_pixel_size(self._fm_image)
+        if px:
+            self._fm_display.set_pixel_size(px)
         notification_service.show(
-            f"Z-interpolation complete — {old_nz} → {new_nz} slices "
-            f"({new_image.metadata.pixel_size_z * 1e9:.0f} nm z step)",
+            f"Showing {new_nz} interpolated planes "
+            f"({new_image.metadata.pixel_size_z * 1e9:.0f} nm); points stay in "
+            f"the stack's {old_nz}",
             "info",
         )
 

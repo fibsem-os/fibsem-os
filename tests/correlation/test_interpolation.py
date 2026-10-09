@@ -441,9 +441,9 @@ def test_interpolating_shows_embedded_progress_and_locks_the_button(qapp):
     assert tab._btn_interpolate.isEnabled() is True  # re-armed
 
 
-def test_adopt_interpolated_volume_preserves_physical_depth(qapp):
-    """The end-to-end widget behaviour: after adopting the resampled volume, every
-    FM point keeps its physical depth and pixel_size_z propagates to the tab."""
+def test_adopt_interpolated_volume_only_resamples_the_view(qapp):
+    """The resampled volume is shown on the canvas; the points, the stack the
+    fits and the file use, and its z step are untouched (FIB-1248)."""
     from fibsem.correlation.structures import PointType
     from fibsem.correlation.util import interpolate_fm_volume
 
@@ -459,16 +459,15 @@ def test_adopt_interpolated_volume_preserves_physical_depth(qapp):
     w._coords_tab.poi_list.coordinates[0].point.z = 11.0
     assert w._fm_point_count() == 2
 
-    depth_before = 11.0 * old_z_step
-
     new_image = interpolate_fm_volume(fm, fm.metadata.pixel_size_x, "linear")
     w._adopt_interpolated_volume(new_image, old_nz)
 
-    new_z = w._coords_tab.poi_list.coordinates[0].point.z
-    depth_after = new_z * new_image.metadata.pixel_size_z
-    assert depth_after == pytest.approx(depth_before)  # matched pair holds
-    assert new_z != pytest.approx(11.0)  # it actually moved
-    assert w._fm_pixel_size_z() == pytest.approx(new_image.metadata.pixel_size_z)
+    assert w._coords_tab.fm_list.coordinates[0].point.z == 15.0
+    assert w._coords_tab.poi_list.coordinates[0].point.z == 11.0
+    assert w._fm_image is fm  # the stack the fits and the file use
+    assert w._fm_pixel_size_z() == pytest.approx(old_z_step)
+    # only the canvas changed: it scrubs the resampled planes
+    assert w._fm_display._z_max == new_image.data.shape[1] - 1
 
 
 def test_rescale_only_touches_fm_side_points(qapp):
