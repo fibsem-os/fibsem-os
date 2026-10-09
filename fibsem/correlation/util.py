@@ -1216,6 +1216,17 @@ def fit_gauss1d_mod_old(
 _MIN_Z_PLANES = 3
 
 
+class FitOutsideWindow(ValueError):
+    """A fit whose answer lies outside the region it searched.
+
+    A Gaussian fitted to a profile with no clear feature can put its centre
+    anywhere -- measured: 980 px away in xy, 2.5 mm deep in z -- and that
+    number used to come back as the fit, so the confirmation offered it as a
+    success (FIB-1219). Raised instead; the caller keeps the point where it
+    was and reports the fit as failed.
+    """
+
+
 def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     from scipy.ndimage import gaussian_filter
 
@@ -1248,6 +1259,13 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     popt, _ = fit_guass1d(intensity)
     zopt = popt[1]
     zreal = zopt + zmin1  # back to absolute z
+    # The planes searched span zmin1 - 0.5 .. zmax1 - 0.5; a peak beyond them
+    # is an extrapolation from a profile with no dip in it, not a fit.
+    if not np.isfinite(zreal) or not (zmin1 - 0.5 <= zreal <= zmax1 - 0.5):
+        raise FitOutsideWindow(
+            f"z fit fell outside the planes searched: {zreal:.1f}, "
+            f"searched {zmin1}-{zmax1 - 1}"
+        )
 
     # xy fitting on the fitted z-slice
     xy_cutout = 15
@@ -1257,6 +1275,17 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     roi_fitted = da[z_fitted, fy0:fy1, fx0:fx1]
     popt_xy, _ = fit_gauss_2d_mod(roi_fitted, center=(xi - fx0, yi - fy0))
     xopt, yopt = popt_xy[1], popt_xy[2]
+    if not (
+        np.isfinite(xopt)
+        and np.isfinite(yopt)
+        and 0 <= xopt < roi_fitted.shape[1]
+        and 0 <= yopt < roi_fitted.shape[0]
+    ):
+        raise FitOutsideWindow(
+            f"xy fit fell outside the region searched: "
+            f"({xopt + fx0:.0f}, {yopt + fy0:.0f}), searched x {fx0}-{fx1 - 1}, "
+            f"y {fy0}-{fy1 - 1}"
+        )
     xopt_real = xopt + fx0
     yopt_real = yopt + fy0
 
@@ -1265,8 +1294,6 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     # markers); a compact z panel answers "did z land right?". The old figure
     # had a raw-profile panel with six reference lines and a second z panel in a
     # different (cutout-relative) frame with the same labels — dropped.
-    # the window is only square away from the image's edges
-    fit_in_roi = 0 <= xopt < roi_fitted.shape[1] and 0 <= yopt < roi_fitted.shape[0]
 
     # z: signal + gaussian fit (grey). The hole is dark, so the signal is
     # inverted (z_inverted) — the peak is the hole.
@@ -1277,10 +1304,9 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
         title="Reflection hole fit",
         roi_xy=gaussian_filter(roi_fitted, sigma=1),
         input_xy=(x - fx0, y - fy0),  # the sub-pixel click, in the window's frame
-        # A failed 2D fit lands outside the ROI — say so instead of a marker.
-        fitted_xy=(xopt, yopt) if fit_in_roi else None,
+        # A 2D fit outside the window raised above (FIB-1219), so this is in it.
+        fitted_xy=(xopt, yopt),
         xy_title=f"XY  @ z = {zreal:.1f}",
-        xy_message=None if fit_in_roi else "fit fell outside\nthe search region",
         z_axis=z_axis,
         z_signal=intensity,
         z_fit=gauss_curve,
