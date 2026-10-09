@@ -191,12 +191,17 @@ class RunMillingTask(Request["FibsemMillingTaskConfig"]):
     dropped the operator into the loop). The responder consults it at each
     decision point — at entry (prompt or run immediately) and when a run finishes
     (re-ask or complete) — to keep exactly that behaviour.
+
+    ``output_dir`` is the asking task's folder, which every run of the mill
+    writes under -- the operator's re-runs included. None for a mill nobody
+    gave one, which falls back to the config's imaging path.
     """
 
     config: "FibsemMillingTaskConfig"
     enabled: bool = True
     confirm: Callable[[], bool] = _always_confirm
     message: str = "Run Milling"
+    output_dir: Optional[str] = None
 
 
 @dataclass(frozen=True)

@@ -754,6 +754,7 @@ class AutoLamellaTask(ABC):
                 # next decision point — as the old loop's re-read did
                 confirm=lambda: self.validate,
                 message=msg,
+                output_dir=self.output_dir,
             ),
             abort=lambda: _abort_requested(self.parent_ui),
         )

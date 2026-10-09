@@ -162,12 +162,18 @@ class FibsemMillingWidget2(QWidget):
                 f"{label} - {format_duration_precise(remaining_time)} remaining"
             )
 
-    def run_milling(self, config: Optional[FibsemMillingTaskConfig] = None):
+    def run_milling(
+        self,
+        config: Optional[FibsemMillingTaskConfig] = None,
+        output_dir: Optional[str] = None,
+    ):
         """Start the milling task in a separate thread.
 
         Args:
             config: Optional pre-built config to use. If None, calls
                     ``parent_widget.get_config()`` to build one fresh.
+            output_dir: The folder the run writes under, when a task asked for
+                    the mill; see ``run_milling_task``. None from the Run button.
         """
         # If a milling task is already running, do nothing
         if self.is_milling:
@@ -184,7 +190,7 @@ class FibsemMillingWidget2(QWidget):
 
         # Start the milling task in a separate thread
         self._milling_thread = FunctionWorker(
-            self._milling_worker, self.microscope, config
+            self._milling_worker, self.microscope, config, output_dir
         )
         # Both of these used to run from inside the worker's `finally`, which put the
         # widget update on the worker thread. Connected here in the order they used to
@@ -202,7 +208,10 @@ class FibsemMillingWidget2(QWidget):
         self._update_button_states()
 
     def _milling_worker(
-        self, microscope: FibsemMicroscope, milling_task_config: FibsemMillingTaskConfig
+        self,
+        microscope: FibsemMicroscope,
+        milling_task_config: FibsemMillingTaskConfig,
+        output_dir: Optional[str] = None,
     ):
         """Run the milling task. Runs off the GUI thread — only signals may cross back.
 
@@ -220,6 +229,7 @@ class FibsemMillingWidget2(QWidget):
                 config=milling_task_config,
                 stop_event=self._milling_stop_event,
                 raise_on_failure=True,
+                output_dir=output_dir,
             )
 
         except Exception as e:
