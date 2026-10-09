@@ -17,7 +17,6 @@ Run directly:
 from __future__ import annotations
 
 import ast
-import io
 import os
 
 import numpy as np
@@ -189,7 +188,7 @@ class TestARotatedCompustagePoseIsUnreachable:
         """
         from fibsem.drivers.autoscript import microscope as autoscript_module
 
-        with io.open(autoscript_module.__file__, encoding="utf-8") as handle:
+        with open(autoscript_module.__file__, encoding="utf-8") as handle:
             source = handle.read()
         tree = ast.parse(source)
         function = next(

@@ -429,6 +429,36 @@ def z_value(slices: int, step: float, plane: Optional[int] = None) -> str:
     return f"{plane + 1} of {slices} × {step_text}"
 
 
+def image_caption(info: ImageFields) -> str:
+    """One line for a narrow tile: `FIB · HFW 100 µm · 18:55`.
+
+    The kind, the field width and the time of day it was taken; each is dropped
+    when the file does not record it, as the bar drops any missing value.
+    """
+    fields = {f.key: f.value for f in info.fields}
+    date = next((p.value for p in info.provenance if p.key == "date"), None)
+    parts = [
+        info.kind if info.kind != "Image" else None,
+        f"HFW {fields['hfw']}" if "hfw" in fields else None,
+        date.split(" ")[-1] if date else None,
+    ]
+    return " · ".join(p for p in parts if p)
+
+
+def image_summary(info: ImageFields) -> str:
+    """Everything the bar can say about an image, a line per field, for a tooltip:
+    the kind and detector, then each value by its full name, then when."""
+    head = " · ".join([info.kind] + [f.value for f in info.fields if not f.label])
+    lines = [head]
+    for f in info.fields:
+        if f.label:
+            lines.append(f"{FIELD_TITLES.get(f.key, f.name)}: {f.value}")
+    date = next((p.value for p in info.provenance if p.key == "date"), None)
+    if date:
+        lines.append(f"Acquired at: {date}")
+    return "\n".join(lines)
+
+
 def z_stack(image: FluorescenceImage) -> Optional[Tuple[int, float]]:
     """(slices, z step in metres) of a stack with more than one plane, else None.
 

@@ -146,6 +146,7 @@ from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
+from fibsem.util.timestamps import format_time, now
 from fibsem.utils import format_duration
 from fibsem.versioning import get_version_string
 
@@ -174,9 +175,9 @@ def experiment_tooltip(experiment: Experiment) -> str:
     """
     rows: List[Tuple[str, str]] = []
 
-    if experiment.created_at:
-        created = datetime.fromtimestamp(experiment.created_at)
-        rows.append(("Created", html.escape(created.strftime("%d %b %Y, %H:%M"))))
+    created = format_time(experiment.created_at, "%d %b %Y, %H:%M")
+    if created:
+        rows.append(("Created", html.escape(created)))
 
     lamella = str(len(experiment.positions))
     # `is_failure` is a human's judgement that a lamella is defective, not a record
@@ -3513,8 +3514,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             item = lamella_by_name.get(active.item_name)
             if item is None:
                 item = experiment.get_grid_by_name(active.item_name)
-            if item is not None and item.task_state.start_timestamp:
-                active_elapsed = max(0.0, time.time() - item.task_state.start_timestamp)
+            started = item.task_state.start_timestamp if item is not None else None
+            if started is not None:
+                active_elapsed = max(0.0, (now() - started).total_seconds())
 
         return estimate_addition(
             manager.queue.items,

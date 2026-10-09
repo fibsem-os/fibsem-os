@@ -37,7 +37,7 @@ class _Unanswered:
 
     @property
     def value(self):
-        raise IOError("the odemis backend did not answer")
+        raise OSError("the odemis backend did not answer")
 
 
 def test_the_odemis_fm_is_served_as_its_parts(odemis_stubs):

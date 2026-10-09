@@ -668,7 +668,9 @@ def test_a_device_odemis_has_no_builder_for_is_skipped_with_a_warning(
     odemis_cls, caplog
 ):
     with caplog.at_level(logging.WARNING):
-        microscope = _with(odemis_cls, {"name": "laser", "type": "laser"})
+        microscope = _with(
+            odemis_cls, {"name": "laser", "type": "laser", "required": False}
+        )
 
     assert "laser" not in microscope.devices
     assert "driver 'Odemis' has no builder for a 'laser' device" in caplog.text
@@ -678,7 +680,7 @@ def test_a_required_device_odemis_cannot_build_fails_the_connection(odemis_cls):
     from fibsem.devices.entries import DeviceBuildError
 
     with pytest.raises(DeviceBuildError, match="'laser'"):
-        _with(odemis_cls, {"name": "laser", "type": "laser", "required": True})
+        _with(odemis_cls, {"name": "laser", "type": "laser"})
 
 
 def test_a_disabled_column_cannot_image(odemis_cls):

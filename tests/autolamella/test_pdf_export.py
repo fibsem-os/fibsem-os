@@ -28,6 +28,7 @@ from fibsem.applications.autolamella.tools.report_v2 import render_report
 
 PDF = b"%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n"
 
+# Not an f-string: every literal brace would need doubling.
 STAND_IN = textwrap.dedent(
     """
     import json, os, subprocess, sys, time
@@ -50,7 +51,7 @@ STAND_IN = textwrap.dedent(
         with open(out, "wb") as f:
             f.write(b"%%PDF-1.4\\nhalf a page")
     time.sleep(60)
-    """
+    """  # noqa: UP031
     % PDF
 )
 

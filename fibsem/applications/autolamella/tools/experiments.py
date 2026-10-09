@@ -26,9 +26,11 @@ import os
 from typing import Dict, Iterable, List, Optional
 
 from fibsem.config import ExperimentSummary, get_recent_experiments, peek_experiment
+from fibsem.util.timestamps import from_posix, to_datetime
 
 __all__ = [
     "discover_experiments",
+    "created_order",
     "filter_experiments",
     "group_by_instrument",
 ]
@@ -61,7 +63,7 @@ def discover_experiments(
     root = os.path.abspath(root)
 
     for dirpath, dirnames, filenames in os.walk(root):
-        depth = dirpath[len(root):].count(os.sep)
+        depth = dirpath[len(root) :].count(os.sep)
         if "experiment.yaml" in filenames:
             found.append(peek_experiment(os.path.join(dirpath, "experiment.yaml")))
             # Whatever is inside an experiment belongs to it. Pruning here also
@@ -72,15 +74,20 @@ def discover_experiments(
         if depth >= max_depth:
             dirnames[:] = []
 
-    return sorted(found, key=lambda e: e.created_at, reverse=True)
+    return sorted(found, key=created_order, reverse=True)
+
+
+def created_order(summary: ExperimentSummary):
+    """Sort key: when it was created, with an experiment that does not say first."""
+    return summary.created_at or from_posix(0.0)
 
 
 def filter_experiments(
     experiments: Iterable[ExperimentSummary],
     instrument: Optional[str] = None,
     operator: Optional[str] = None,
-    since: Optional[float] = None,
-    until: Optional[float] = None,
+    since=None,
+    until=None,
 ) -> List[ExperimentSummary]:
     """Narrow a listing. Every argument left as None does not filter.
 
@@ -91,13 +98,17 @@ def filter_experiments(
     An experiment with no session record matches no instrument and no operator.
     It is not evidence of the instrument you asked about, and quietly including
     unknowns is how a per-instrument total comes out wrong.
+
+    ``since`` and ``until`` are a datetime or a POSIX time. An experiment that does
+    not say when it was created counts as the oldest.
     """
     results = list(experiments)
 
     if instrument is not None:
         needle = instrument.casefold()
         results = [
-            e for e in results
+            e
+            for e in results
             if needle in (e.instrument_serial or "").casefold()
             or needle in (e.instrument_model or "").casefold()
         ]
@@ -107,10 +118,12 @@ def filter_experiments(
         results = [e for e in results if needle in (e.operator or "").casefold()]
 
     if since is not None:
-        results = [e for e in results if e.created_at >= since]
+        start = to_datetime(since)
+        results = [e for e in results if created_order(e) >= start]
 
     if until is not None:
-        results = [e for e in results if e.created_at <= until]
+        end = to_datetime(until)
+        results = [e for e in results if created_order(e) <= end]
 
     return results
 

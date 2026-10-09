@@ -487,8 +487,16 @@ def test_go_to_lamella_hands_the_item_over(tab, experiment):
     assert heard == [experiment.positions[0]]
 
 
+@pytest.mark.parametrize(
+    "started, ended",
+    [
+        # as proposals recorded them before FIB-1197, and as they do since
+        (1000.0, 1130.0),
+        ("2026-09-13T21:12:11-06:00", "2026-09-13T21:14:21-06:00"),
+    ],
+)
 def test_a_task_result_renders_both_images_and_confirms_with_no_values(
-    tab, experiment, qapp
+    tab, experiment, qapp, started, ended
 ):
     """The generic kind: what a task did, for someone to look at. Nothing to
     drag, nothing written; the verbs are the same two."""
@@ -508,8 +516,8 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
                 "proposer": "task",
                 "task_name": ROUGH,
                 "status": "Completed",
-                "started_at": 1000.0,
-                "ended_at": 1130.0,
+                "started_at": started,
+                "ended_at": ended,
                 "reference_image": "ref_setup_ib.tif",
                 "reference_image_eb": "ref_rough_eb.tif",
                 "failure": "",

@@ -756,7 +756,7 @@ def _import_occupancy() -> Optional[dict]:
     path = Path(cfg.SAMPLE_HOLDER_OCCUPANCY_PATH)
     if not path.exists():
         return None
-    with open(path, "r") as f:
+    with open(path) as f:
         data = yaml.safe_load(f)
     return data if isinstance(data, dict) else None
 

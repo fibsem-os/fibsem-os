@@ -27,6 +27,7 @@ QToolButton + QLabel. That buys three things worth having:
 
 The constants immediately below are the knobs - widths, timings, palette.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -66,7 +67,7 @@ except ImportError:  # pragma: no cover - convenience fallback
         name = key.split(":", 1)[1] if ":" in key else key
         if color is not None:
             kwargs["color"] = color
-        return qta.icon("mdi6.{}".format(name), **kwargs)
+        return qta.icon(f"mdi6.{name}", **kwargs)
 
 
 # ── Geometry / timing ────────────────────────────────────────────────────────
@@ -74,8 +75,8 @@ COLLAPSED_WIDTH = 56
 EXPANDED_WIDTH = 208
 ITEM_HEIGHT = 44
 ICON_SIZE = 22
-ANIM_DURATION = 180   # ms, width animation
-EXPAND_DELAY = 100    # ms of hover before expanding (kills flicker on a fly-by)
+ANIM_DURATION = 180  # ms, width animation
+EXPAND_DELAY = 100  # ms of hover before expanding (kills flicker on a fly-by)
 COLLAPSE_DELAY = 220  # ms of grace before collapsing again
 
 # ── Palette (napari-dark leaning) ────────────────────────────────────────────
@@ -111,7 +112,9 @@ def _label_rect(width: int, height: int, mirrored: bool) -> Tuple[QRect, int]:
         right = width - COLLAPSED_WIDTH + 4
         return QRect(10, 0, max(0, right - 10), height), Qt.AlignRight | Qt.AlignVCenter
     left = COLLAPSED_WIDTH - 4
-    return QRect(left, 0, max(0, width - left - 10), height), Qt.AlignLeft | Qt.AlignVCenter
+    return QRect(
+        left, 0, max(0, width - left - 10), height
+    ), Qt.AlignLeft | Qt.AlignVCenter
 
 
 def _icon_x(width: int, mirrored: bool) -> int:
@@ -188,7 +191,9 @@ class _TabButton(QAbstractButton):
 
         icon = self._icon_active if checked else self._icon_idle
         icon_x = _icon_x(width, self._mirrored)
-        icon.paint(painter, QRect(icon_x, (height - ICON_SIZE) // 2, ICON_SIZE, ICON_SIZE))
+        icon.paint(
+            painter, QRect(icon_x, (height - ICON_SIZE) // 2, ICON_SIZE, ICON_SIZE)
+        )
 
         opacity = _label_opacity(width)
         if opacity > 0.01:
@@ -277,7 +282,9 @@ class VerticalTabBar(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(
             "VerticalTabBar {{ background-color: {}; {}: 1px solid {}; }}".format(
-                COLOR_RAIL_BG, "border-left" if self._mirrored else "border-right", COLOR_BORDER
+                COLOR_RAIL_BG,
+                "border-left" if self._mirrored else "border-right",
+                COLOR_BORDER,
             )
         )
         self.setFixedWidth(COLLAPSED_WIDTH)
@@ -479,43 +486,85 @@ class VerticalTabWidget(QWidget):
 # the right-hand rail swaps in when that section is selected.
 TABS = [
     (
-        "mdi:microscope", "Imaging", "Beam settings, detectors and live acquisition.",
+        "mdi:microscope",
+        "Imaging",
+        "Beam settings, detectors and live acquisition.",
         [
             ("mdi:tune-vertical", "Beam", "Voltage, current and working distance."),
             ("mdi:camera-iris", "Detector", "Detector type, brightness and contrast."),
-            ("mdi:image-filter-center-focus", "Autofocus", "Focus sweep and beam alignment."),
+            (
+                "mdi:image-filter-center-focus",
+                "Autofocus",
+                "Focus sweep and beam alignment.",
+            ),
         ],
     ),
     (
-        "mdi:target", "Milling", "Pattern definition, stages and mill supervision.",
+        "mdi:target",
+        "Milling",
+        "Pattern definition, stages and mill supervision.",
         [
-            ("mdi:shape-rectangle-plus", "Patterns", "Trench, undercut and microexpansion shapes."),
-            ("mdi:layers-triple", "Stages", "Ordering, currents and per-stage overrides."),
-            ("mdi:eye-check-outline", "Supervision", "Pause points and operator confirmation."),
+            (
+                "mdi:shape-rectangle-plus",
+                "Patterns",
+                "Trench, undercut and microexpansion shapes.",
+            ),
+            (
+                "mdi:layers-triple",
+                "Stages",
+                "Ordering, currents and per-stage overrides.",
+            ),
+            (
+                "mdi:eye-check-outline",
+                "Supervision",
+                "Pause points and operator confirmation.",
+            ),
             ("mdi:crosshairs", "Alignment", "Drift correction between milling stages."),
         ],
     ),
     (
-        "mdi:axis-arrow", "Movement", "Stage moves, compucentric rotation and tilts.",
+        "mdi:axis-arrow",
+        "Movement",
+        "Stage moves, compucentric rotation and tilts.",
         [
             ("mdi:stove", "Stage", "Absolute and relative stage positioning."),
-            ("mdi:robot-industrial", "Manipulator", "Needle insert, retract and saved positions."),
-            ("mdi:rotate-3d-variant", "Compucentric", "Rotation about the coincidence point."),
+            (
+                "mdi:robot-industrial",
+                "Manipulator",
+                "Needle insert, retract and saved positions.",
+            ),
+            (
+                "mdi:rotate-3d-variant",
+                "Compucentric",
+                "Rotation about the coincidence point.",
+            ),
         ],
     ),
     (
-        "mdi:image-multiple", "Correlation", "Fluorescence overlay and point picking.",
+        "mdi:image-multiple",
+        "Correlation",
+        "Fluorescence overlay and point picking.",
         [
-            ("mdi:vector-point", "Points", "Pick and pair fiducials across modalities."),
+            (
+                "mdi:vector-point",
+                "Points",
+                "Pick and pair fiducials across modalities.",
+            ),
             ("mdi:function-variant", "Transform", "Fit, residuals and RMS reporting."),
             ("mdi:layers-outline", "Overlay", "Channel blending and opacity."),
         ],
     ),
     (
-        "mdi:cog-outline", "System", "Hardware connection, calibration and logs.",
+        "mdi:cog-outline",
+        "System",
+        "Hardware connection, calibration and logs.",
         [
             ("mdi:lan-connect", "Connection", "Microscope address and handshake."),
-            ("mdi:ruler-square", "Calibration", "Beam shift, stage and detector calibration."),
+            (
+                "mdi:ruler-square",
+                "Calibration",
+                "Beam shift, stage and detector calibration.",
+            ),
             ("mdi:text-box-outline", "Logs", "Session log stream and export."),
         ],
     ),
@@ -528,45 +577,43 @@ class _SectionPage(QWidget):
     def __init__(self, title: str, subtitle: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("background-color: {};".format(COLOR_CONTENT_BG))
+        self.setStyleSheet(f"background-color: {COLOR_CONTENT_BG};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(10)
 
         heading = QLabel(title)
         heading.setStyleSheet(
-            "color: {}; font-size: 22px; font-weight: 600;".format(COLOR_TEXT)
+            f"color: {COLOR_TEXT}; font-size: 22px; font-weight: 600;"
         )
         caption = QLabel(subtitle)
-        caption.setStyleSheet("color: {}; font-size: 13px;".format(COLOR_TEXT_MUTED))
+        caption.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 13px;")
         layout.addWidget(heading)
         layout.addWidget(caption)
 
         rule = QFrame()
         rule.setFrameShape(QFrame.HLine)
-        rule.setStyleSheet("color: {};".format(COLOR_BORDER))
+        rule.setStyleSheet(f"color: {COLOR_BORDER};")
         layout.addWidget(rule)
 
         card = QFrame()
         card.setStyleSheet(
-            "QFrame {{ background-color: {}; border: 1px solid {}; border-radius: 10px; }}".format(
-                COLOR_CARD_BG, COLOR_BORDER
-            )
+            f"QFrame {{ background-color: {COLOR_CARD_BG}; border: 1px solid {COLOR_BORDER}; border-radius: 10px; }}"
         )
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(18, 16, 18, 16)
         card_layout.setSpacing(6)
         eyebrow = QLabel("SELECTED TOOL")
         eyebrow.setStyleSheet(
-            "color: {}; font-size: 10px; font-weight: 600; border: none;".format(COLOR_ACCENT)
+            f"color: {COLOR_ACCENT}; font-size: 10px; font-weight: 600; border: none;"
         )
         self._tool_name = QLabel("-")
         self._tool_name.setStyleSheet(
-            "color: {}; font-size: 16px; font-weight: 600; border: none;".format(COLOR_TEXT)
+            f"color: {COLOR_TEXT}; font-size: 16px; font-weight: 600; border: none;"
         )
         self._tool_blurb = QLabel("")
         self._tool_blurb.setStyleSheet(
-            "color: {}; font-size: 12px; border: none;".format(COLOR_TEXT_MUTED)
+            f"color: {COLOR_TEXT_MUTED}; font-size: 12px; border: none;"
         )
         card_layout.addWidget(eyebrow)
         card_layout.addWidget(self._tool_name)
@@ -577,7 +624,7 @@ class _SectionPage(QWidget):
             "Hover either rail to expand it. The right rail lists tools for this\n"
             "section only - switch sections and its whole tab set is swapped out."
         )
-        hint.setStyleSheet("color: {}; font-size: 12px;".format(COLOR_TEXT_MUTED))
+        hint.setStyleSheet(f"color: {COLOR_TEXT_MUTED}; font-size: 12px;")
         layout.addWidget(hint)
         layout.addStretch(1)
 
@@ -611,8 +658,12 @@ class DualRailDemo(QWidget):
         if overlay:
             left_slot = _float_rail(self, self._left)
             right_slot = _float_rail(self, self._right)
-            self._left.railWidthChanged.connect(lambda _w: _place_rail(self, self._left))
-            self._right.railWidthChanged.connect(lambda _w: _place_rail(self, self._right))
+            self._left.railWidthChanged.connect(
+                lambda _w: _place_rail(self, self._left)
+            )
+            self._right.railWidthChanged.connect(
+                lambda _w: _place_rail(self, self._right)
+            )
         else:
             left_slot, right_slot = self._left, self._right
         layout.addWidget(left_slot)
@@ -628,7 +679,7 @@ class DualRailDemo(QWidget):
     def _on_section_changed(self, index: int) -> None:
         self._stack.setCurrentIndex(index)
         _icon, name, _blurb, tools = TABS[index]
-        self._right.header.setTitle("{} tools".format(name))
+        self._right.header.setTitle(f"{name} tools")
         # Emits currentChanged(0) -> _on_tool_changed fills in the card.
         self._right.setTabs([(key, label) for key, label, _ in tools])
 
@@ -652,7 +703,7 @@ def build_window(overlay: bool = False, dual: bool = False) -> QWidget:
         "Vertical tab widget - {}hover to expand".format("dual rail, " if dual else "")
     )
     window.resize(1040 if dual else 880, 560)
-    window.setStyleSheet("background-color: {};".format(COLOR_CONTENT_BG))
+    window.setStyleSheet(f"background-color: {COLOR_CONTENT_BG};")
 
     if dual:
         content = DualRailDemo(overlay=overlay)  # type: QWidget

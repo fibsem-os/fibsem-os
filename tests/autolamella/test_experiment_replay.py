@@ -172,7 +172,8 @@ def _line(time: datetime, function: str, message: str, level: str = "DEBUG") -> 
 
 def _acquire(time, directory, filename, beam="ION", save=True):
     record = (
-        "{'msg': 'acquire_image', 'metadata': {'image': {'beam_type': '%s', "
+        # Not an f-string: every literal brace would need doubling.
+        "{'msg': 'acquire_image', 'metadata': {'image': {'beam_type': '%s', "  # noqa: UP031
         "'resolution': [1536, 1024], 'hfw': 0.0001, 'save': %s, 'path': %r, "
         "'filename': %r, 'reduced_area': None}, 'microscope_state': {}}}"
         % (beam, save, directory, filename)

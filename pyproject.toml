@@ -178,6 +178,10 @@ filterwarnings = [
 # infers py310, so the two can never drift apart.
 extend-exclude = [
     "external",
+    # Vendored from Pyto (Vladan Lucic, MPI of Biochemistry) by way of tdct. It is
+    # someone else's code kept as it was, so neither the linter nor the formatter
+    # rewrites it.
+    "fibsem/correlation/pyto",
     # Ruff rewrites notebooks in place, re-sorting imports inside the cell JSON.
     # Whether the notebooks are in scope is a separate question to this config.
     "**/*.ipynb",
@@ -253,22 +257,16 @@ ignore = [
     "E731",
     "F402",
     "F601",
-    # pyupgrade, switched on with the Python 3.10 floor. Every rule below is old
-    # syntax that still runs; none is a bug. The five annotation rules touch most
-    # of the tree, so burn those down one package per pull request.
+    # pyupgrade's annotation rules are off on purpose, unlike everything above:
+    # they are not waiting to be burned down. The old spellings run exactly the
+    # same, and converting thousands of them across most of the tree is churn with
+    # no behaviour behind it. Either spelling is fine in new code. Every other UP
+    # rule is enforced.
     "UP045",  # Optional[X] -> X | None
     "UP006",  # List[X] -> list[X]
     "UP035",  # deprecated typing imports
     "UP037",  # quoted annotations
     "UP007",  # Union[X, Y] -> X | Y
-    "UP015",
-    "UP031",  # no autofix: each %-format is rewritten by hand
-    "UP032",
-    "UP004",
-    "UP009",
-    "UP020",
-    "UP024",
-    "UP034",
 ]
 
 # F401 is not a mechanical fix in this codebase, and `--fix` alone is enough to

@@ -320,20 +320,22 @@ class FibsemBeamSettingsWidget(QWidget):
         if "Shift" not in modifiers:
             return
         sb = self.working_distance_spinbox
+        old_val = sb.value()
         new_val = float(
-            np.clip(
-                sb.value() + WD_WHEEL_STEP_MM * direction, sb.minimum(), sb.maximum()
-            )
+            np.clip(old_val + WD_WHEEL_STEP_MM * direction, sb.minimum(), sb.maximum())
         )
         # immediate visual feedback without a hardware call; debounce the actual move
         sb.blockSignals(True)
         sb.setValue(new_val)
         sb.blockSignals(False)
         self._wd_wheel_target_mm = new_val
-        # transient flash on the canvas that emitted the scroll (fades after scrolling stops)
+        # transient flash on the canvas that emitted the scroll (fades after scrolling
+        # stops): the target and the step, in the bar's words (FIB-1188). Three decimals,
+        # where the bar shows two: a notch is 1 µm, and each one should be seen.
         canvas = self.sender()
         if canvas is not None and hasattr(canvas, "flash_message"):
-            canvas.flash_message(f"WD {new_val:.3f} mm")
+            step_um = (new_val - old_val) * 1e3
+            canvas.flash_message(f"WD {new_val:.3f} mm  {step_um:+.0f} µm")
         self._execute_wd_wheel_move()
 
     def _execute_wd_wheel_move_impl(self) -> None:

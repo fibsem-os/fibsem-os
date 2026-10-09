@@ -12,7 +12,9 @@ Usage:
 
 import io
 import math
-from typing import Any, Dict, List, Optional, Tuple
+import threading
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 import requests
 
@@ -34,6 +36,10 @@ from fibsem.structures import (
     SystemSettings,
 )
 
+if TYPE_CHECKING:
+    from fibsem.devices.core import Device
+    from fibsem.drivers.remote.devices import DeviceClient
+
 
 def _beam(beam_type: BeamType) -> str:
     """A beam's device name: "electron" or "ion"."""
@@ -51,17 +57,36 @@ class FibsemClient:
         self, host: str = "localhost", port: int = 8001, token: Optional[str] = None
     ):
         self.base_url = f"http://{host}:{port}"
+        self._host, self._port, self._token = host, port, token
         self._session = requests.Session()
         if token is not None:
             self._session.headers["Authorization"] = f"Bearer {token}"
+        self._device_client: Optional["DeviceClient"] = None
+        self._devices: Optional[Dict[str, "Device"]] = None
+        self._devices_lock = threading.Lock()
         self._fetch_system()
+
+    def close(self) -> None:
+        """Close the connection, and the device proxies' if they were built."""
+        if self._device_client is not None:
+            self._device_client.close()
+        self._session.close()
+
+    def __enter__(self) -> "FibsemClient":
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.close()
 
     def _fetch_system(self) -> None:
         """Fetch and cache system settings from the server."""
         data = self._get("system")
         self.system: SystemSettings = SystemSettings.from_dict(data["system"])
-        for key, present in (data.get("fitted") or {}).items():
-            self.set_available(key, bool(present))
+        # What is fitted travels beside the configuration; the server sends only
+        # the manipulator.
+        fitted = data.get("fitted") or {}
+        if "manipulator" in fitted:
+            self.system.manipulator.enabled = bool(fitted["manipulator"])
 
     def _get(self, endpoint: str, timeout: int = 10) -> dict:
         resp = self._session.get(f"{self.base_url}/{endpoint}", timeout=timeout)
@@ -177,6 +202,53 @@ class FibsemClient:
     # --- Devices ---
     # Every device the microscope built (``microscope.devices``), by name: the beams
     # are "electron" and "ion", then "stage", "chamber", "manipulator", FM parts...
+
+    @property
+    def devices(self) -> Mapping[str, "Device"]:
+        """The server's beams and FM parts as live devices, by name, like
+        ``FibsemMicroscope.devices``: ``client.devices["ion"].current.get_value()``.
+
+        They are the remote driver's devices (``fibsem.drivers.remote.devices``)
+        over this server's ``/devices`` routes, with this client's token, built on
+        first access. A read is live, a write is checked here and again on the
+        server, and a command runs on the server; writes and commands need the
+        hardware scope armed.
+
+        The agent server has no event stream, so no change made elsewhere (the
+        microscope's own UI, another client) is signalled: ``changed`` fires only
+        for this client's own reads and writes, ``cached`` is as current as the
+        last of them, and limits and choices as current as the last
+        ``refresh_metadata()``. The client's ``disconnected`` and ``reconnected``
+        never fire; a read of an unreachable server raises
+        ``RemoteDeviceUnreachable``.
+
+        Only the devices the remote driver has a type for: not the stage, chamber
+        or manipulator, which ``list_devices``, ``get_parameter``,
+        ``set_parameter`` and ``call_command`` reach. A beam's ``acquire`` is
+        unavailable here; use ``acquire_image``.
+        """
+        with self._devices_lock:
+            if self._devices is None:
+                self._devices = self._connect_devices()
+        return MappingProxyType(self._devices)
+
+    def _connect_devices(self) -> Dict[str, "Device"]:
+        from fibsem.drivers.remote.devices import (
+            DeviceClient,
+            connect_remote_beams,
+            connect_remote_fm,
+        )
+
+        client = DeviceClient(self._host, self._port, token=self._token, events=False)
+        try:
+            beams = connect_remote_beams(self._host, self._port, client=client)
+            devices: Dict[str, "Device"] = {b.name: b for b in beams.values()}
+            devices.update(connect_remote_fm(self._host, self._port, client=client))
+        except Exception:
+            client.close()
+            raise
+        self._device_client = client
+        return devices
 
     def list_devices(self) -> Dict[str, Any]:
         """Every device: its parameters (type, unit, limits, choices, settable) and

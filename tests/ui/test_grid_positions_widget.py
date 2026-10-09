@@ -7,6 +7,7 @@ the grid is on the stage; nothing reads or moves the microscope.
 
 import os
 from copy import deepcopy
+from datetime import timedelta
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -70,7 +71,7 @@ def ui(qapp, monkeypatch, tmp_path):
 
 def _entry(name, relpath):
     state = AutoLamellaTaskState(name=name, status=AutoLamellaTaskStatus.Completed)
-    state.end_timestamp = state.start_timestamp + 60
+    state.end_timestamp = state.start_timestamp + timedelta(seconds=60)
     state.outputs = {name: [relpath]}
     return state
 
