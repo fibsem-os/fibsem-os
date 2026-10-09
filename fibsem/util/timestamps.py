@@ -101,6 +101,13 @@ def to_datetime(value) -> Optional[datetime]:
     return None
 
 
+def to_iso(value) -> Optional[str]:
+    """:func:`to_datetime` written as ISO 8601, with its offset when it has one: how a
+    stored time is written (FIB-1197). None when it cannot be read."""
+    parsed = to_datetime(value)
+    return parsed.isoformat() if parsed is not None else None
+
+
 def to_aware(value) -> Optional[datetime]:
     """:func:`to_datetime`, for a field that only holds instants: a value with no
     zone is not one, and reads as None."""

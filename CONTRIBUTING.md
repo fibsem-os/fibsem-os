@@ -172,9 +172,10 @@ fibsemOS stores goes through `fibsem/util/timestamps.py` and follows these rules
    which runs once when the module is imported (FIB-487).
 6. **POSIX only at the edges.** A vendor's time or a file's mtime becomes an aware
    datetime as soon as it is read (`from_posix`). Do not add a POSIX field. The ones
-   that exist keep their keys and are written as ISO 8601 with offset from now on
-   (FIB-1197): task `start_timestamp`/`end_timestamp` first, the `created_at` fields
-   next. `microscope_state.timestamp` stays a float.
+   that existed keep their keys and are written as ISO 8601 with offset (FIB-1197):
+   task `start_timestamp`/`end_timestamp`, the experiment's, grid's, overlay's and
+   proposal's `created_at`, a decision's `timestamp`, the experiment reference's
+   `date` and the session's `recorded_at`. `microscope_state.timestamp` stays a float.
 7. **Old files keep reading as they did.** `to_datetime` reads every older form: a POSIX
    float, AutoScript's `%m/%d/%Y %H:%M:%S` string, a naive ISO string, and it reads
    them where the key is now ISO, so an older file loads and shows the same times. A

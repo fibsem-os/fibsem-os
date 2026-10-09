@@ -691,7 +691,7 @@ def test_metadata_from_dict_accepts_pre_change_files():
     # raw dict for a file old enough to lack one. See FIB-448.
     experiment = FibsemExperimentRef.from_dict(legacy_experiment)
     assert experiment.id == "exp-1"
-    assert experiment.date == 1700000000.0
+    assert experiment.date.timestamp() == 1700000000.0
 
     # `application_version` is here because SystemInfo declared it up to v4. It is
     # constructed field by field, so a key it no longer knows is ignored rather than
@@ -727,7 +727,7 @@ def test_experiment_date_is_creation_time_not_import_time():
     time.sleep(0.01)
     after = datetime.datetime.timestamp(datetime.datetime.now())
 
-    assert before < experiment.date < after
+    assert before < experiment.date.timestamp() < after
 
 
 def test_a_chamber_state_reads_any_vendor_name():

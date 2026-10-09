@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
+from fibsem.util.timestamps import to_iso
 
 __all__ = ["AgentContext", "ITEM_PATCH_FIELDS", "config_version", "item_fields_version"]
 
@@ -1847,7 +1848,7 @@ class AgentContext:
             {
                 "name": summary.name,
                 "path": summary.path,
-                "created_at": summary.created_at,
+                "created_at": to_iso(summary.created_at),
                 "num_items": summary.num_lamella,
                 "available": summary.available,
                 "instrument_model": summary.instrument_model,
