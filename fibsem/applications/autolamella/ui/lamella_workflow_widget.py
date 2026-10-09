@@ -11,7 +11,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMessageBox,
     QSizePolicy,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -25,6 +24,7 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella_list_widget import LamellaListWidget
+from fibsem.applications.autolamella.ui.list_chrome import help_button
 from fibsem.applications.autolamella.ui.workflow_config_widget import (
     WorkflowConfigWidget,
 )
@@ -279,16 +279,7 @@ class LamellaWorkflowWidget(QWidget):
             lambda: self._settings_popup.show_under(self.btn_settings)
         )
         self.workflow.add_header_widget(self.btn_settings)
-        self.btn_help = QToolButton()
-        self.btn_help.setFixedSize(24, 24)
-        self.btn_help.setAutoRaise(True)
-        self.btn_help.setIcon(
-            fibsem_icon("mdi:help-circle-outline", color=GRAY_ICON_COLOR)
-        )
-        self.btn_help.setToolTip(TASK_LIST_HINTS)
-        self.btn_help.setStyleSheet(
-            "QToolButton { border: none; background: transparent; }"
-        )
+        self.btn_help = help_button(TASK_LIST_HINTS)
         self.workflow.add_header_widget(self.btn_help)
 
         # ── wire signals ─────────────────────────────────────────────────
