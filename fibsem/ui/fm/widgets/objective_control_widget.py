@@ -485,9 +485,12 @@ class ObjectiveControlWidget(QWidget):
         logging.info("Objective retracted.")
 
     def update_objective_position_labels(
-        self, objective_position: Optional[float] = None
+        self,
+        objective_position: Optional[float] = None,
+        objective_state: Optional[str] = None,
     ):
-        """Update the objective position input and label."""
+        """Update the objective position input and label, and the quad view's
+        chamber drawing with *objective_state* when the caller knows it."""
         if objective_position is None:
             objective_position = self.fm.objective.position
         self.doubleSpinBox_objective_position.blockSignals(
@@ -511,7 +514,9 @@ class ObjectiveControlWidget(QWidget):
                 controller = None
             if controller is not None:
                 controller.update_info(
-                    self.parent_widget.microscope, objective_position=objective_position
+                    self.parent_widget.microscope,
+                    objective_position=objective_position,
+                    objective_state=objective_state,
                 )
 
     @ensure_main_thread
@@ -527,9 +532,10 @@ class ObjectiveControlWidget(QWidget):
         moves the objective, which emits `position_changed` again. Qt does not warn
         about that; it simply never returns.
 
-        `state` is accepted and unused: the button states it would drive are decided by
-        guards that read the device deliberately, and a stale "Retracted" there is what
-        moves the stage with the objective still in the chamber (FIB-534).
+        `state` drives no buttons: those are decided by guards that read the device
+        deliberately, and a stale "Retracted" there is what moves the stage with the
+        objective still in the chamber (FIB-534). It is passed on only to the quad
+        view's chamber drawing, which draws the objective in or out by it.
 
         Stands aside while the wheel is driving: every emit then comes from the wheel's
         own move and reports a position the user has already scrolled past. Not decided
@@ -537,7 +543,7 @@ class ObjectiveControlWidget(QWidget):
         """
         if self._wheel_is_driving():
             return
-        self.update_objective_position_labels(position)
+        self.update_objective_position_labels(position, state)
 
     def closeEvent(self, event) -> None:
         """Drop the psygnal before Qt takes the widgets down.

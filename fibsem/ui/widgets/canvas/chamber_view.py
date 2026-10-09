@@ -5,7 +5,8 @@ is pointing at it", but on a Thermo system reading one takes the imaging channel
 beams and the fluorescence microscope share (`ThermoMicroscope.acquire_chamber_image`),
 so it cannot sit on screen refreshing. This draws the same answer from numbers the app
 already has: the side view the setup wizard draws (`StageDiagram`), at the stage's
-tilt, with the ion column at the system's own angle.
+tilt, with the ion column at the system's own angle, and on a system whose FM objective
+sits under the stage (an Arctis), that objective, drawn in or retracted.
 
 Nothing here reads the microscope. `MicroscopeViewController.update_info` hands it the
 position that every stage update already carries, so it is exactly as current as the
@@ -264,8 +265,15 @@ class ChamberView(QWidget):
         pre_tilt: float,
         column_tilt: float,
         rotation_reference: float,
+        objective_below: bool = False,
+        objective_inserted: bool = False,
     ) -> None:
         """Draw the stage at *stage_position*; angles in degrees, the position's in radians.
+
+        *objective_below* draws the FM objective under the stage, where it is on a
+        system that turns the grid over to face it (an Arctis); *objective_inserted*
+        draws it in rather than retracted. An offset FM is somewhere the stage travels
+        to, not under this view, so it is not drawn here.
 
         A position with no tilt leaves the drawing as it was: there is nothing to draw
         it at, and a guess would be worse than the last real one.
@@ -281,6 +289,8 @@ class ChamberView(QWidget):
             name="" if orientation in (None, "NONE") else orientation,
             stage_tilt=math.degrees(stage_position.t),
             mirrored=mirrored,
+            show_fm=objective_below,
+            objective_inserted=objective_inserted,
         )
         self.map.set_stage(stage_position)
         self._stack.setCurrentWidget(self.scene)

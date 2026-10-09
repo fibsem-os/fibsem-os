@@ -496,6 +496,10 @@ class StageDiagram(QtWidgets.QWidget):
             painter.drawRoundedRect(0, 0, width - 1, height - 1, 6, 6)
 
         cx, cy = width * 0.56, height * 0.66
+        if self._show_fm and self._station_offset_mm is None:
+            # The objective hangs below the sample, retracted about 100 px of barrel
+            # and label down, which the usual low pivot leaves no room for.
+            cy = min(height * 0.56, height - 110.0)
         total = self.surface_tilt()
 
         # Read-out first, in the top-left corner. At the bottom it sat where the stage
@@ -747,9 +751,13 @@ class StageDiagram(QtWidgets.QWidget):
         font.setPointSize(8)
         painter.setFont(font)
         painter.setPen(QtGui.QColor(TEXT_MUTED_COLOR))
-        label = "FM objective" + ("" if inserted else "  (retracted)")
+        # A display names it as it names the beams; in or out is the drawing's to say.
+        if self._show_readout:
+            label = "FM objective" + ("" if inserted else "  (retracted)")
+        else:
+            label = "FM"
         painter.drawText(
-            QtCore.QRectF(label_at.x() - 60, label_at.y() - 7, 120, 14),
+            QtCore.QRectF(label_at.x() - 90, label_at.y() - 7, 180, 14),
             Qt.AlignCenter,
             label,
         )

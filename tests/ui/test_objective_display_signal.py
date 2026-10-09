@@ -28,6 +28,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sys
+from contextlib import nullcontext
 
 import pytest
 
@@ -260,7 +261,7 @@ class TestTheLabelStillExistsBeforeTheFirstMove:
 
 
 class _StubObjective:
-    pass
+    state = "Retracted"
 
 
 class _StubFM:
@@ -269,6 +270,9 @@ class _StubFM:
         # objective's *class*, so a shared one would carry a previous test's read
         # counter -- or its raising getter -- into the next.
         self.objective = type("_StubObjective", (_StubObjective,), {})()
+
+    def active_channel(self):
+        return nullcontext()
 
 
 class _StubMicroscope:
