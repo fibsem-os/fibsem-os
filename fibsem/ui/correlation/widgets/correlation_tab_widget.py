@@ -2265,6 +2265,7 @@ class CorrelationTabWidget(QWidget):
         self._autosave_error: Optional[str] = None
         # Pre-correlation RI factor (FM surface mode); set via the RI tab Apply
         self._ri_pre_correction_factor: Optional[float] = None
+        self._ri_pre_correction_params: Optional[dict] = None
         # Experiment-global config; passed in on open, read back on close (FIB-298).
         self._correlation_config = CorrelationConfig()
 
@@ -2921,6 +2922,11 @@ class CorrelationTabWidget(QWidget):
             if data.fm_surface_coordinate is not None
             else None
         )
+        self._ri_pre_correction_params = (
+            data.ri_pre_correction_params
+            if self._ri_pre_correction_factor is not None
+            else None
+        )
 
     def load_correlation(self, path: str) -> None:
         """Load any correlation JSON — consolidated file or either legacy file.
@@ -3406,6 +3412,7 @@ class CorrelationTabWidget(QWidget):
             surface_coordinate=surf[0] if surf else None,
             fm_surface_coordinate=fm_surf[0] if fm_surf else None,
             ri_pre_correction_factor=self._ri_pre_correction_factor,
+            ri_pre_correction_params=self._ri_pre_correction_params,
         )
 
     @property
@@ -4365,6 +4372,7 @@ class CorrelationTabWidget(QWidget):
         """Store the pre-correlation RI factor and optionally re-run."""
         self._save_armed = True
         self._ri_pre_correction_factor = factor
+        self._ri_pre_correction_params = self._ri_params_record()
         self.data_changed.emit(self.data)  # auto-save + RI tab refresh
         # Apply is reachable before the points can support a correlation now the
         # RI tab is no longer gated on a finished run, and _run does not check --
@@ -4387,15 +4395,36 @@ class CorrelationTabWidget(QWidget):
         """
         if self._ri_pre_correction_factor is not None:
             return None  # a factor already chosen outranks arming a fresh one
-        factor = self._ri_tab._ri_widget.get_factor()
+        ri = self._ri_tab._ri_widget
+        # Pre-correction acts along the optical axis, so the tilt is 0; the RI
+        # tab locks it when it next refreshes, which used to be after this read,
+        # so the armed factor was the 15° one under a box reading 0° (FIB-1234).
+        ri.set_tilt_locked(True)
+        factor = ri.get_factor()
         self._ri_pre_correction_factor = factor
+        self._ri_pre_correction_params = self._ri_params_record()
         return factor
+
+    def _ri_params_record(self) -> dict:
+        """The optical parameters on screen, as the saved run records them with
+        the armed factor, and whether the factor is ζ of them or was entered."""
+        ri = self._ri_tab._ri_widget
+        p = ri.get_params()
+        return {
+            "tilt_deg": p.tilt_deg,
+            "depth_um": p.depth_um,
+            "na": p.NA,
+            "n2": p.n2,
+            "wavelength_um": p.wavelength_um,
+            "computed": ri.factor_is_computed(),
+        }
 
     def _clear_pre_correction_factor(self) -> None:
         """The pre-correction factor's lifecycle is tied to the FM surface point:
         removing the surface disarms the factor so it cannot silently re-apply
         on a later run."""
         self._ri_pre_correction_factor = None
+        self._ri_pre_correction_params = None
 
     def _on_run_error(self, msg: str) -> None:
         self._lbl_status.setText(f"Error: {msg}")
