@@ -58,6 +58,8 @@ def mock_microscope():
     """A microscope stub that records the calls run_spot_burn makes."""
     mic = MagicMock()
     mic.get_beam_current.return_value = IMAGING_CURRENT
+    # No spot burn service, so the microscope's own implementation runs.
+    mic.spot_burn = None
     return mic
 
 

@@ -57,6 +57,9 @@ _SPOT = re.compile(
     r"burning spot (\d+): Point\(x=([-+\d.e]+), y=([-+\d.e]+).*?"
     r"exposure time: ([-+\d.e]+), milling current: ([-+\d.e]+)"
 )
+# The functions that log that line: the microscope's own spot burn, and the spot burn
+# service's point-by-point burn (`SpotBurn._burn`).
+_SPOT_LOGGERS = ("run_spot_burn", "_burn")
 # `prompt answered: PickPOI response=True by=operator adjusted=False`
 _PROMPT = re.compile(
     r"^prompt answered: (\w+) response=(\w+) by=(\w+)(?: adjusted=(\w+))?"
@@ -874,7 +877,7 @@ def _load_from_log(root: Path) -> ExperimentReplay:
         if m is not None:
             events.append(_prompt_event(record, m, item, task, step))
             continue
-        if record.function == "run_spot_burn":
+        if record.function in _SPOT_LOGGERS:
             event = _spot_event(record)
             if event is not None:
                 event.item, event.task, event.step = item, task, step

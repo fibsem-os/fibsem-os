@@ -210,3 +210,20 @@ def test_a_channel_with_no_beam_has_no_settings(microscope):
     assert microscope.milling.supported_settings()["milling_channel"].choices == (
         BeamType.ION,
     )
+
+
+def test_building_the_service_reports_nothing_and_a_report_reaches_the_microscope(
+    microscope,
+):
+    """Binding used to send a stray ``1`` on the microscope's signal: psygnal calls
+    a SignalInstance's ``emit`` once, with junk, when it is connected."""
+    from fibsem.services.milling import bind_milling, progress_update
+
+    seen = []
+    microscope.milling_progress_signal.connect(seen.append)
+    milling = bind_milling(DemoMilling, microscope)
+    assert seen == []
+
+    report = progress_update(MillingState.RUNNING)
+    milling.progress.report(report)
+    assert seen == [report]
