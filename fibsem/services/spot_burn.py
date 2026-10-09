@@ -1,7 +1,7 @@
 """Spot burn as a service: points on the sample exposed one after another with a beam
 held still, and the beam put back as it was found.
 
-`SpotBurn` is what every backend shares. ``run`` takes a `SpotBurnSettings`: it drops
+`SpotBurn` is what every backend shares. It burns with the ion beam only. ``run`` takes a `SpotBurnSettings`: it drops
 the points outside the image (0 to 1), records what it is about to burn, reports
 ``progress`` as it goes and once more at the end (finished, cancelled or failed), and
 puts the beam back afterwards however the run ends. A restore that fails is logged
@@ -50,14 +50,13 @@ _S = TypeVar("_S", bound="SpotBurn")
 
 
 class SpotBurn(Service):
-    """Spot burns with the ion beam, or the electron beam when a run asks.
+    """Spot burns with the ion beam.
 
     ``run`` burns the points of a `SpotBurnSettings` and returns how it ended;
     ``stop`` ends a run from another thread; ``estimate`` says how long one takes.
     """
 
-    ion = Role(Beam, doc="The ion beam, which burns unless a run asks otherwise.")
-    electron = Role(Beam, required=False, doc="The electron beam, on a dual beam.")
+    ion = Role(Beam, doc="The ion beam, which burns.")
 
     # Reported by `run` as it goes; reading it doesn't touch the instrument.
     progress = Parameter(SpotBurnProgress, doc="The run's point and times; read-only.")
@@ -90,20 +89,14 @@ class SpotBurn(Service):
         self._progress = progress
         self.progress.report(progress)
 
-    def beam(self, beam_type: BeamType = BeamType.ION) -> Beam:
-        """The beam that burns with ``beam_type``."""
-        return self.electron if beam_type is BeamType.ELECTRON else self.ion
+    def supported_settings(self) -> Dict[str, ParameterMetadata]:
+        """The `SpotBurnSettings` fields this instrument burns with, each with its
+        choices and limits; the fields left out it ignores.
 
-    def supported_settings(
-        self, beam_type: BeamType = BeamType.ION
-    ) -> Dict[str, ParameterMetadata]:
-        """The `SpotBurnSettings` fields this instrument burns with on ``beam_type``,
-        each with its choices and limits; the fields left out it ignores.
-
-        The burn current has the beam's own current metadata, and is left out when
-        that beam can't set its current.
+        The burn current has the ion beam's own current metadata, and is left out
+        when the beam can't set its current.
         """
-        beam = getattr(self, "electron" if beam_type is BeamType.ELECTRON else "ion")
+        beam = self.ion
         supported: Dict[str, ParameterMetadata] = {}
         for name in self.setting_names:
             if name != "milling_current":
@@ -118,7 +111,6 @@ class SpotBurn(Service):
     def run(
         self,
         settings: SpotBurnSettings,
-        beam_type: BeamType = BeamType.ION,
         stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
     ) -> SpotBurnStatus:
         """Burn the points of ``settings`` and return how the run ended.
@@ -132,10 +124,10 @@ class SpotBurn(Service):
         exposure_time = float(settings.exposure_time)
         current = float(settings.milling_current)
         points, dropped = in_bounds(settings.coordinates)
-        beam = self.beam(beam_type)
+        beam = self.ion
         self._stop_requested.clear()
 
-        self._record_started(points, beam_type, exposure_time, current, len(dropped))
+        self._record_started(points, exposure_time, current, len(dropped))
         total = len(points) * exposure_time
         self._report(
             SpotBurnProgress(
@@ -155,7 +147,7 @@ class SpotBurn(Service):
         saved = save_beam_conditions(beam, self.saved_conditions)
         try:
             self._setup(beam, current)
-            status = self._burn(beam, points, exposure_time, stop_event)
+            status = self._burn(beam, points, exposure_time, current, stop_event)
             self._report_end(status, len(points))
             return status
         except Exception as e:
@@ -196,7 +188,6 @@ class SpotBurn(Service):
     def _record_started(
         self,
         points: List[Point],
-        beam_type: BeamType,
         exposure_time: float,
         current: float,
         dropped: int,
@@ -208,7 +199,7 @@ class SpotBurn(Service):
         # A driver that ignores the requested current records none.
         if "milling_current" not in self.setting_names:
             current = None
-        record(points, beam_type, exposure_time, current, dropped)
+        record(points, BeamType.ION, exposure_time, current, dropped)
 
     def _report_end(self, status: SpotBurnStatus, points: int) -> None:
         self._report(
@@ -226,6 +217,7 @@ class SpotBurn(Service):
         beam: Beam,
         points: Sequence[Point],
         exposure_time: float,
+        current: float,
         stop_event: Optional[Union[threading.Event, AnyStopEvent]],
     ) -> SpotBurnStatus:
         """Expose each point in turn, reporting as it goes: blank, park the beam on
@@ -236,7 +228,12 @@ class SpotBurn(Service):
             if self._stopped(stop_event):
                 logging.info(f"Spot burn cancelled before point {i}/{n}.")
                 return SpotBurnStatus.CANCELLED
-            logging.info(f"burning spot {i}: {point}, exposure time: {exposure_time}")
+            # The experiment replay reads this line from the log (its `_SPOT`), so
+            # keep its wording and this method's name.
+            logging.info(
+                f"burning spot {i}: {point}, exposure time: {exposure_time}, "
+                f"milling current: {current}"
+            )
             beam.blank()
             beam.spot(point)
             beam.unblank()
@@ -306,18 +303,14 @@ def in_bounds(points: Sequence[Point]) -> Tuple[List[Point], List[Point]]:
 
 
 def bind_spot_burn(service: Type[_S], microscope: Any) -> Optional[_S]:
-    """Build a microscope's spot burn service of class *service* over its beams, or
-    None when its ion beam can't burn (no ion beam, or one that can't park), which
+    """Build a microscope's spot burn service of class *service* over its ion beam,
+    or None when that beam can't burn (no ion beam, or one that can't park), which
     leaves the microscope's own spot burn code in charge."""
-    beams = microscope.beams
-    ion = beams.get(BeamType.ION)
+    ion = microscope.beams.get(BeamType.ION)
     if not service._can_burn(ion):
         return None
     spot_burn = service(parent=microscope)
     spot_burn.fill_roles(ion=ion)
-    electron = beams.get(BeamType.ELECTRON)
-    if electron is not None:
-        spot_burn.fill_roles(electron=electron)
     spot_burn.connect()
     signal = getattr(microscope, "spot_burn_progress_signal", None)
     if signal is not None:

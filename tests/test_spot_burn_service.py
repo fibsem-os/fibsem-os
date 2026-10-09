@@ -72,7 +72,7 @@ def test_the_demo_has_a_spot_burn_service_that_is_not_a_device(microscope):
     assert isinstance(spot_burn, DemoSpotBurn)
     assert isinstance(spot_burn, Service) and not isinstance(spot_burn, Device)
     assert spot_burn.ion is microscope.beams[BeamType.ION]
-    assert spot_burn.electron is microscope.beams[BeamType.ELECTRON]
+    assert "electron" not in spot_burn.declared_roles()
 
 
 def test_run_spot_burn_goes_to_the_service(microscope, burns):
@@ -239,14 +239,17 @@ def test_the_estimate_counts_only_the_points_it_burns(microscope):
 
 
 def test_the_supported_settings_carry_the_beam_current_choices(microscope):
-    supported = microscope.spot_burn.supported_settings(BeamType.ION)
+    supported = microscope.spot_burn.supported_settings()
     assert set(supported) == {"coordinates", "exposure_time", "milling_current"}
     assert supported["milling_current"] == _ion(microscope).current.metadata
 
 
-def test_the_electron_beam_burns_when_asked(microscope, burns):
-    microscope.spot_burn.run(_settings(Point(0.5, 0.5)), beam_type=BeamType.ELECTRON)
-    assert burns == [Point(0.5, 0.5)]
+def test_only_the_ion_beam_burns(microscope, burns):
+    with pytest.raises(ValueError, match="only supported on the ion beam"):
+        microscope.run_spot_burn(
+            _settings(Point(0.5, 0.5)), beam_type=BeamType.ELECTRON
+        )
+    assert burns == []
 
 
 def test_the_service_matches_the_microscope_s_own_burn(monkeypatch):

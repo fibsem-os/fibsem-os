@@ -2536,7 +2536,12 @@ class FibsemMicroscope(ABC):
             stop_event: Threading event to signal cancellation. (Default: None)
         """
         if self.spot_burn is not None:
-            self.spot_burn.run(settings, beam_type=beam_type, stop_event=stop_event)
+            # The service burns with the ion beam only, as Tescan always has.
+            if beam_type is not BeamType.ION:
+                raise ValueError(
+                    f"Spot burn is only supported on the ion beam, got {beam_type.name}."
+                )
+            self.spot_burn.run(settings, stop_event=stop_event)
             return
         # - QUERY: do we need to set the full frame scanning mode each time, or only at the end?
         SLEEP_TIME = 1
