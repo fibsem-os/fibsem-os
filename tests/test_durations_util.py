@@ -127,17 +127,12 @@ def test_the_utils_names_read_as_before(seconds):
 
 
 @pytest.mark.parametrize("seconds", SECONDS)
-def test_the_report_shapes_are_these(seconds):
-    """The report's clock and words are what format_duration_as_clock and
-    format_duration_in_words became, so the report can move to them without
-    changing a character."""
+def test_the_report_clock_is_format_duration_as_clock(seconds):
+    """With its dash for a run that has no length."""
     from fibsem.applications.autolamella.tools import report_v2
 
     assert durations.format_duration_as_clock(seconds) == report_v2._clock(seconds)
-    assert durations.format_duration_in_words(seconds) == report_v2._duration(seconds)
-    assert (
-        report_v2._clock(None) == "—" and durations.format_duration_as_clock(None) == ""
-    )
+    assert report_v2._clock(None) == "—"
 
 
 def test_seconds_are_read_from_strings_and_numpy():

@@ -58,6 +58,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.microscope_defaults_widget import MicroscopeDefaultsWidget
+from fibsem.util.durations import format_time_ago
 from fibsem.util.timestamps import format_time
 
 NOT_STATED = "—"
@@ -574,14 +575,6 @@ def session_sections(sections: dict) -> List[Tuple[str, Sequence[str], List[tupl
     return result
 
 
-def _ago(seconds: float) -> str:
-    for unit, size in (("day", 86400), ("hour", 3600), ("minute", 60)):
-        if seconds >= size:
-            n = int(seconds // size)
-            return f"{n} {unit}{'s' if n > 1 else ''} ago"
-    return "just now"
-
-
 def _show_in_folder(path) -> None:
     from PyQt5.QtCore import QUrl
     from PyQt5.QtGui import QDesktopServices
@@ -604,7 +597,7 @@ def session_tab(microscope: FibsemMicroscope) -> QWidget:
         head.addWidget(_value(path.name))
         head.addWidget(
             _muted(
-                f"written {_ago(time.time() - path.stat().st_mtime)}"
+                f"written {format_time_ago(time.time() - path.stat().st_mtime)}"
                 if path.exists()
                 else "nothing saved yet"
             )
