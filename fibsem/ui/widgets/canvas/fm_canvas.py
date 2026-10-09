@@ -1357,9 +1357,9 @@ class FMLayersPanel(QFrame):
             self.sel_name.setText(layer.name)
             self.colormap.setCurrentText(layer.color)
             self.opacity.setValue(int(layer.opacity * 100))
-            self.opacity_val.setText("%d%%" % int(layer.opacity * 100))
+            self.opacity_val.setText(f"{int(layer.opacity * 100)}%")
             self.gamma.setValue(int(layer.gamma * 100))
-            self.gamma_val.setText("%.2f" % layer.gamma)
+            self.gamma_val.setText(f"{layer.gamma:.2f}")
             # `manual`, not `autocontrast`: a z-scrub turns `autocontrast` off to hold
             # one clim across planes, and that is still Auto (FIB-1173).
             self.autocontrast_cb.setChecked(not layer.manual)
@@ -1379,8 +1379,8 @@ class FMLayersPanel(QFrame):
                         int((chi - lo_d) / span * 1000),
                     )
                 )
-                self.cmin_val.setText("%d" % round(clo))
-                self.cmax_val.setText("%d" % round(chi))
+                self.cmin_val.setText(f"{int(round(clo))}")
+                self.cmax_val.setText(f"{int(round(chi))}")
         self._updating = prev_updating
 
     # ── edits ─────────────────────────────────────────────────────────────
@@ -1402,7 +1402,7 @@ class FMLayersPanel(QFrame):
         self.changed.emit()
 
     def _on_opacity(self, value: int) -> None:
-        self.opacity_val.setText("%d%%" % value)
+        self.opacity_val.setText(f"{value}%")
         layer = self._current()
         if self._updating or layer is None:
             return
@@ -1450,8 +1450,8 @@ class FMLayersPanel(QFrame):
         lo_n, hi_n = self.contrast.value()
         lo = self._data_lo + lo_n / 1000.0 * self._data_span
         hi = self._data_lo + hi_n / 1000.0 * self._data_span
-        self.cmin_val.setText("%d" % round(lo))
-        self.cmax_val.setText("%d" % round(hi))
+        self.cmin_val.setText(f"{int(round(lo))}")
+        self.cmax_val.setText(f"{int(round(hi))}")
         if self._updating or layer is None:
             return
         if hi > lo:
