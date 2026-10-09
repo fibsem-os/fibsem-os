@@ -333,8 +333,10 @@ hardware:
       roles: {scanner: scan_generator}
 ```
 
-The Demo has a simulated scan generator (frames read "SG"), so a binding can be
-tried without hardware; only the Demo binds roles so far. Connecting fails
+Every backend (Demo, ThermoFisher, Tescan, Odemis) binds roles once all its devices are
+built; an `fm` entry's bindings are not read yet, since the FM fills its own roles. The
+Demo has a simulated scan generator (frames read "SG"), so a binding can be tried without
+hardware, on any backend. Connecting fails
 (`RoleBindingError`) for a role the device doesn't have, a device that isn't the
 role's interface, a name no entry has, or bindings that form a cycle. A bound device
 that is switched off (`enabled: false`) leaves the role empty, with a warning.
@@ -466,7 +468,7 @@ Each entry has:
 | `enabled` | Absent: the backend's default. `false`: never built, and its driver never touches it. |
 | `driver` | The driver that builds it, by its registry name. Absent: the driver for `info.manufacturer`. `remote` is a device on another computer, at `address` and `port`. |
 | `required` | Whether connecting fails if the device cannot be built. Defaults to `true` for a device the file lists, since the site says it has it; `false` logs a failed build and leaves the device out. A device only the backend assumes (one the file doesn't list) is logged, left out and marked not fitted. |
-| `roles` | Binds a role of this device to another entry by name (`{scanner: scan_generator}`). The Demo binds it; see [Binding a role from the configuration](#binding-a-role-from-the-configuration). |
+| `roles` | Binds a role of this device to another entry by name (`{scanner: scan_generator}`). Every backend binds it; see [Binding a role from the configuration](#binding-a-role-from-the-configuration). |
 
 Every other key belongs to the device or its driver (`column_tilt`, `address`,
 `port`, ...) and sits beside these in the entry.

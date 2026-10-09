@@ -530,6 +530,7 @@ class TescanMicroscope(FibsemMicroscope):
         self._build_milling()
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
+        self._bind_device_roles()
 
         available_detectors = self._get_available_detectors(BeamType.ELECTRON)
         if self._default_detector_names[BeamType.ELECTRON] not in [

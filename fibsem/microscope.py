@@ -641,6 +641,31 @@ class FibsemMicroscope(ABC):
         if sources is not None:
             sources[name] = "not_built"
 
+    def _bind_device_roles(self) -> None:
+        """Fill the roles the configuration's ``hardware.devices`` entries bind
+        (``roles: {scanner: scan_generator}``), once every device is built
+        (`fibsem.devices.entries.bind_device_roles`).
+
+        Each backend calls this after its last device is built. The FM's roles are
+        filled by the FM API, so an ``fm`` entry's bindings are not read here.
+        """
+        from fibsem.devices.entries import (
+            ResolvedEntry,
+            bind_device_roles,
+            configured_device_entries,
+        )
+
+        configured = configured_device_entries(self.system)
+        resolved = [
+            ResolvedEntry(entry, str(entry.driver or self.system.info.manufacturer))
+            for entry in configured.values()
+            if entry.roles
+            and entry.enabled is not False
+            and entry.name != "fm"
+            and entry.type != "fm"
+        ]
+        bind_device_roles(resolved, self.devices, configured.keys())
+
     def _built_by_another_driver(self, name: str) -> bool:
         """Whether the configuration's entry for *name* names a driver other than
         this backend's own."""
