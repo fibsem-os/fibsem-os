@@ -2225,7 +2225,7 @@ class AutoLamellaUI(QMainWindow):
             return
 
         lamella: Lamella = self.experiment.positions[idx]
-        logging.info(f"Updating Lamella UI for {lamella.status_info}")
+        logging.debug(f"Updating Lamella UI for {lamella.status_info}")
 
         # refresh objective position + pose display for the selected lamella
         self.selected_lamella_widget.set_lamella(lamella)
