@@ -38,12 +38,14 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Optional, Tuple
 
-from PyQt5.QtCore import QTimer, pyqtSignal
+from PyQt5.QtCore import QSize, QTimer, pyqtSignal
+from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QStatusBar,
     QWidget,
 )
@@ -73,6 +75,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.utils import format_time_remaining
 
 if TYPE_CHECKING:
@@ -128,6 +131,32 @@ _Line = Tuple[str, Optional[str], Optional[str]]
 _Progress = Tuple[str, Optional[str], Optional[float], Optional[str], bool, bool]
 
 
+class _LineLabel(ElidedLabel):
+    """A part of the line: it asks for its whole text while there is room, and gives
+    way to an ellipsis -- the whole text in its tooltip -- when there is not.
+
+    A plain QLabel's minimum is its text, so one long failure set the status bar's
+    minimum and the bar set the window's: the whole app grew wider. `ElidedLabel`
+    alone asks for nothing, which leaves a short line no room. This asks for its
+    text and settles for *floor* pixels.
+    """
+
+    def __init__(self, floor: int) -> None:
+        super().__init__()
+        self._floor = floor
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt naming
+        width = QFontMetrics(self.font()).horizontalAdvance(self.text()) + 4
+        return QSize(width, super().sizeHint().height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt naming
+        return QSize(
+            min(self._floor, self.sizeHint().width()),
+            super().minimumSizeHint().height(),
+        )
+
+
 class FibsemStatusBar(QStatusBar):
     """One line of status on the left -- an operation, else the run, else the
     instruction -- and the host's actions on the right."""
@@ -150,9 +179,11 @@ class FibsemStatusBar(QStatusBar):
         layout = QHBoxLayout(line)
         layout.setContentsMargins(4, 0, 4, 0)
         layout.setSpacing(8)
-        self._what = QLabel()
+        # What gives way first: the step (a failure's reason can run to a paragraph),
+        # then the subject and the detail, which keep enough to be recognised.
+        self._what = _LineLabel(floor=160)
         self._what.setStyleSheet(_WHAT_STYLE)
-        self._step = QLabel()
+        self._step = _LineLabel(floor=40)
         self._step.setStyleSheet(_STEP_STYLE)
         self._bar = QProgressBar()
         self._bar.setRange(0, 1000)
@@ -161,7 +192,7 @@ class FibsemStatusBar(QStatusBar):
         self._bar.setStyleSheet(_BAR_STYLE)
         self._numbers = QLabel()
         self._numbers.setStyleSheet(_STEP_STYLE)
-        self._detail = QLabel()
+        self._detail = _LineLabel(floor=120)
         self._detail.setStyleSheet(_MUTED_STYLE)
         self._details_btn = QPushButton("Show")
         self._details_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
