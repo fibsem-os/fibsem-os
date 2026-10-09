@@ -85,3 +85,11 @@ def test_a_failing_entry_applies_nothing(config):
             },
         )
     assert stage.pattern.depth == depth_before
+
+
+def test_a_beam_bound_field_is_bounded_in_the_beams_display_units(config):
+    # the milling field of view takes its scale (µm) from the beam, and keeps its
+    # own 20 to 950 µm bounds
+    apply_patch(config, {"milling.mill_rough.stages.0.milling.hfw": 400e-6})
+    with pytest.raises(PatchError, match="above the maximum"):
+        apply_patch(config, {"milling.mill_rough.stages.0.milling.hfw": 2e-3})

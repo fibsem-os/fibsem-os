@@ -21,7 +21,7 @@ from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
 from fibsem.structures import MillingState
 from fibsem.ui import stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.utils import format_duration
+from fibsem.util.durations import format_duration_precise
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
@@ -44,6 +44,9 @@ class FibsemMillingWidget2(QWidget):
 
         self._milling_thread: Optional[FunctionWorker] = None
         self._milling_stop_event = threading.Event()
+        # Why the last mill failed, or None. Set on the worker thread before its
+        # `finished`, so a listener of `finished_milling_signal` reads this run's.
+        self.milling_error: Optional[Exception] = None
         self._has_stages = False
         # The last words a producer supplied, so a backend's messageless tick still
         # has a label to show. See `MillingMessageTracker`.
@@ -156,7 +159,7 @@ class FibsemMillingWidget2(QWidget):
             percent_complete = int((1 - (remaining_time / report.estimated_time)) * 100)
             self.progressBar_milling.setValue(percent_complete)
             self.progressBar_milling.setFormat(
-                f"{label} - {format_duration(remaining_time)} remaining"
+                f"{label} - {format_duration_precise(remaining_time)} remaining"
             )
 
     def run_milling(self, config: Optional[FibsemMillingTaskConfig] = None):
@@ -173,6 +176,7 @@ class FibsemMillingWidget2(QWidget):
 
         # clear the stop event, disable gui elements
         self._milling_stop_event.clear()
+        self.milling_error = None
         self.pushButton_run_milling.setEnabled(False)
 
         if config is None:
@@ -215,12 +219,14 @@ class FibsemMillingWidget2(QWidget):
                 microscope=microscope,
                 config=milling_task_config,
                 stop_event=self._milling_stop_event,
+                raise_on_failure=True,
             )
 
         except Exception as e:
             logging.error(
                 f"Error occurred while running milling task: {e}", exc_info=True
             )
+            self.milling_error = e
 
         finally:
             self._milling_thread = None

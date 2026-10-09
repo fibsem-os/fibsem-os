@@ -28,6 +28,7 @@ from pathlib import Path
 import pytest
 
 from tests.fixtures.autoscript_recording import load
+from tests.fixtures.demoted_messages import as_logged_now
 
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_beam_parity.py"
 PINS = Path(__file__).parent / "fixtures" / "available_values_pins.json"
@@ -73,7 +74,8 @@ def recording(tmp_path_factory):
     old = load(RECORDED.read_text())["beam"]
     assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
     for case in recording["cases"]:
-        case["old"] = old[case["key"]]
+        result, calls, messages = old[case["key"]]
+        case["old"] = [result, calls, as_logged_now(messages)]
     return recording
 
 
@@ -83,7 +85,8 @@ def test_the_recording_covers_both_beams_and_makes_sdk_calls(recording):
     assert any(" ION " in c["key"] for c in cases)
     # writes and calls: the fake does not record plain reads, which show in the result
     assert sum(len(c["old"][1]) for c in cases) > 80
-    assert sum(len(c["old"][2]) for c in cases) > 50
+    # 109 recorded; the 66 per-write messages now at DEBUG are not compared
+    assert sum(len(c["old"][2]) for c in cases) > 30
 
 
 def test_no_old_call_raised(recording):
@@ -330,7 +333,6 @@ def test_the_angular_correction_is_set_as_before(recording):
     key = "plasma=False ELECTRON set angular_correction_angle 0.2"
     case = next(c for c in recording["cases"] if c["key"] == key)
     assert case["new"][0] == [None, 0.2]
-    assert ["INFO", "Angular correction angle set to 0.2 radians."] in case["new"][2]
 
 
 def test_the_tilt_correction_reads_on_the_new_api_only(recording):

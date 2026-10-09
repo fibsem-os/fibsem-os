@@ -426,12 +426,12 @@ class FibsemOverviewSettingsWidget(QWidget):
         fov_y = fov_x * (height / width) if width else fov_x
         self.grid.set_tile_fov(fov_x, fov_y)
 
-        from fibsem.ui.widgets.preflight import format_duration
+        from fibsem.util.durations import format_duration_rounded
 
         per_tile = settings.image_settings.scan_time
         self.label_scan_time.setText(
-            f"{format_duration(settings.scan_time)}  ·  "
-            f"{format_duration(per_tile)} per tile"
+            f"{format_duration_rounded(settings.scan_time, pad=True)}  ·  "
+            f"{format_duration_rounded(per_tile, pad=True)} per tile"
         )
         name = self.filename_edit.text().strip()
         # The shape of the name, not a name. The stamp is the time the run *starts*, so

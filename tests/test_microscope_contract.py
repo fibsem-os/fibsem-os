@@ -644,7 +644,7 @@ def test_demo_reads_its_configuration():
     """The configured keys and capabilities read the configuration."""
     microscope = _connect("Demo", _plasma_configuration())
     assert microscope.get_available_values("plasma_gas", BeamType.ION)
-    assert microscope._get_axis_limits()
+    assert microscope._stage.limits
 
 
 def test_demo_sets_its_milling_recipe():

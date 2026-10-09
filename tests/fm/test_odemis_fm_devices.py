@@ -49,7 +49,7 @@ def _components(state: str = "retracted"):
     if "inserted" in state:
         focus.position._value = {"z": 8.0e-3}
     if "gain" in state:
-        components["ccd"].gain = stubs.FakeVA(1.0)
+        components["ccd"].gain = stubs.FakeVA(1.0, range=(0.0, 1.0))
     if "no-favourites" in state:
         focus._metadata = {}
     if "lit" in state:
@@ -360,12 +360,11 @@ def test_gain_with_set_values_takes_the_nearest(odemis):
     assert va.value == 4.0
 
 
-def test_gain_without_a_range_stays_in_camera_units(odemis):
-    va = stubs.FakeVA(3.0)
-    camera = _camera_with_gain(odemis, va)
+def test_gain_without_a_range_is_not_offered(odemis):
+    # with no range or choices there is no maximum to scale it to a fraction by
+    camera = _camera_with_gain(odemis, stubs.FakeVA(3.0))
 
-    assert camera.gain.get_value() == 3.0
-    assert camera.gain.limits is None
+    assert "gain" not in camera.parameters
 
 
 def test_binning_is_checked_against_the_cameras_binnings(odemis):
@@ -471,7 +470,13 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
     from types import SimpleNamespace
 
     import fibsem.drivers.odemis.microscope as odemis_microscope
-    from fibsem.structures import CameraImageTransform, FluorescenceSystemSettings
+    from fibsem.drivers.odemis.devices import build_odemis_fm
+    from fibsem.drivers.registry import BuildContext
+    from fibsem.structures import (
+        CameraImageTransform,
+        DeviceEntry,
+        FluorescenceSystemSettings,
+    )
 
     microscope = odemis_microscope.OdemisThermoMicroscope.__new__(
         odemis_microscope.OdemisThermoMicroscope
@@ -480,10 +485,13 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
         fm=FluorescenceSystemSettings(mount_transform=CameraImageTransform.FLIP_X)
     )
     stubs.use_components(_components("inserted"))
-    fm = microscope._connect_fluorescence_devices()
+    fm = build_odemis_fm(
+        DeviceEntry.from_dict(microscope.system.fm.to_dict(), name="fm"),
+        BuildContext(microscope=microscope),
+    )
     assert type(fm).__name__ == "DeviceOdemisFluorescenceMicroscope"
     assert fm.parent is microscope
-    assert sorted(microscope.fm_devices) == [
+    assert sorted(fm.devices) == [
         "camera",
         "filter_set",
         "fm",

@@ -41,7 +41,7 @@ def test_the_driver_lists_the_axes_with_their_limits_in_si_units(stage):
     assert stage.axes.x.unit == "m" and stage.axes.t.unit == "rad"
     assert stage.axes.z.limits == RangeLimit(min=0.0, max=40e-3)
     assert stage.axes["z"] is stage.axes.z
-    # _get_axis_limits gives r and t in degrees; the axes carry radians
+    # the simulator's table gives r and t in degrees; the axes carry radians
     t = stage.axes.t.limits
     assert (t.min, t.max) == pytest.approx((math.radians(-10), math.radians(90)))
     r = stage.position.limits["r"]
@@ -133,7 +133,13 @@ def test_home_and_link_are_commands_that_report_the_result(stage):
     stage.sim_linked = False
     assert stage.home() is True and stage.homed.cached is True
     assert stage.link() is True and stage.linked.cached is True
-    assert set(stage.commands) == {"home", "link", "move_absolute", "move_relative"}
+    assert set(stage.commands) == {
+        "home",
+        "link",
+        "move_absolute",
+        "move_relative",
+        "pose_table",
+    }
     assert (
         stage.commands["move_absolute"].signature
         == "(position: 'FibsemStagePosition') -> 'FibsemStagePosition'"

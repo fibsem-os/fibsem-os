@@ -29,6 +29,7 @@ from fibsem import utils
 from fibsem.devices.beam import BEAM_ROUTES
 from fibsem.drivers.tescan.devices import TescanBeam, bind_tescan_beams
 from fibsem.structures import BeamType, Point
+from tests.fixtures.demoted_messages import as_logged_now
 from tests.fixtures.tescan_sdk import connect
 
 E, I = BeamType.ELECTRON, BeamType.ION
@@ -139,7 +140,10 @@ CASES = dict(_cases())
 
 
 with open(RECORDED) as f:
-    EXPECTED = json.load(f)
+    EXPECTED = {
+        case: {**old, "log": as_logged_now(old["log"])}
+        for case, old in json.load(f).items()
+    }
 
 #: A key the beam does not have is unsupported (absent = unsupported): it reads None
 #: as before, but quietly, where the old ``_get`` warned "Unknown key".

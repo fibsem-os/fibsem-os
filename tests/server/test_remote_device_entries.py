@@ -62,10 +62,19 @@ def _close(built):
         client.close()
 
 
-def test_the_remote_driver_builds_beams_and_the_fm_parts():
-    for device_type in ("beam", "camera", "light_source", "filter_set", "objective"):
+def test_the_remote_driver_builds_beams_motion_and_the_fm_parts():
+    for device_type in (
+        "beam",
+        "stage",
+        "chamber",
+        "manipulator",
+        "camera",
+        "light_source",
+        "filter_set",
+        "objective",
+    ):
         assert device_builder("remote", device_type) is not None
-    assert device_builder("Remote", "stage") is None
+    assert device_builder("Remote", "sample_loader") is None
 
 
 def test_remote_entries_build_the_devices_their_server_has(server):

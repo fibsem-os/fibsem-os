@@ -21,6 +21,7 @@ implements ``_stop``; ``axes()`` defaults to x, y and z.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Tuple
 
 from fibsem.devices.core import Device, Parameter, command
@@ -94,6 +95,20 @@ class Manipulator(Device):
     def _read_back(self) -> FibsemManipulatorPosition:
         self.state.get_value()
         return self.position.get_value()
+
+    def facts(self) -> Dict[str, Any]:
+        """The arm's axes, and its named positions with where each one is now."""
+        saved = {}
+        for name in self.named_positions():
+            try:
+                saved[name] = self.saved_position(name).to_dict()
+            except Exception as error:  # one unreadable name hides only itself
+                logging.warning(f"{self.name}: saved position {name}: {error}")
+        return {
+            "axes": list(self.axes()),
+            "named_positions": self.named_positions(),
+            "saved_positions": saved,
+        }
 
     # -- what a backend implements -------------------------------------------------
 

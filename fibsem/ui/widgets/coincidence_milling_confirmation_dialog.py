@@ -31,9 +31,9 @@ from fibsem.ui.widgets.preflight import (
     BACKGROUND,
     chip,
     detail_block,
-    format_duration,
     meta_label,
 )
+from fibsem.util.durations import format_duration_rounded
 from fibsem.utils import format_current
 
 # The dimensions that determine the milled volume, in the order they read. Driven off
@@ -148,7 +148,7 @@ class CoincidenceMillingConfirmationDialog(QDialog):
                 stage.name,
                 f"{format_current(stage.milling.milling_current)}"
                 f" · {_pattern_summary(stage)}"
-                f" · {format_duration(stage.estimated_time)}",
+                f" · {format_duration_rounded(stage.estimated_time, pad=True)}",
             )
             for stage in stages
         ]
@@ -176,8 +176,8 @@ class CoincidenceMillingConfirmationDialog(QDialog):
             detail.append(
                 (
                     "Monitoring",
-                    f"starts after {format_duration(config.warmup_duration)} warmup"
-                    f" · times out at {format_duration(config.timeout)}",
+                    f"starts after {format_duration_rounded(config.warmup_duration, pad=True)} warmup"
+                    f" · times out at {format_duration_rounded(config.timeout, pad=True)}",
                 )
             )
             detail.append(
@@ -198,7 +198,10 @@ class CoincidenceMillingConfirmationDialog(QDialog):
             detail.append(("FM images", saved))
 
         detail.append(
-            ("Estimated time", format_duration(self.task_config.estimated_time))
+            (
+                "Estimated time",
+                format_duration_rounded(self.task_config.estimated_time, pad=True),
+            )
         )
         return detail
 

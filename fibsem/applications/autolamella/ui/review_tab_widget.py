@@ -25,7 +25,6 @@ from __future__ import annotations
 import logging
 import math
 import os
-import time
 from copy import deepcopy
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Type, Union
@@ -98,6 +97,7 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
 )
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE
+from fibsem.util.durations import format_duration_in_words, format_time_ago
 from fibsem.util.timestamps import format_time, from_posix, now, to_aware, to_datetime
 
 __all__ = [
@@ -173,18 +173,11 @@ def clock(timestamp) -> str:
 
 
 def age(timestamp) -> str:
-    """How long ago, coarsely: "3 min", "2 h", "1 d"."""
+    """How long ago, coarsely: "3 min ago", "2 h ago", "1 d ago"."""
     when = to_aware(timestamp) if timestamp else None
     if when is None:
         return ""
-    seconds = max(0.0, (now() - when).total_seconds())
-    if seconds < 60:
-        return "just now"
-    if seconds < 3600:
-        return f"{int(seconds // 60)} min"
-    if seconds < 86400:
-        return f"{int(seconds // 3600)} h"
-    return f"{int(seconds // 86400)} d"
+    return format_time_ago((now() - when).total_seconds())
 
 
 def delta_label(proposal: Proposal, decision: Optional[Decision] = None) -> str:
@@ -578,7 +571,7 @@ class TaskResultReviewRenderer(ReviewRenderer):
         if started is None or ended is None:
             return ""
         try:
-            return _duration((ended - started).total_seconds())
+            return format_duration_in_words((ended - started).total_seconds())
         except TypeError:  # one with a zone, one without: not comparable
             return ""
 
@@ -1546,15 +1539,6 @@ class OverviewPositionsReviewRenderer(TaskResultReviewRenderer):
                     "Connect a microscope to place positions · "
                     + self.line.text().lower()
                 )
-
-
-def _duration(seconds: float) -> str:
-    seconds = max(0.0, float(seconds))
-    if seconds < 60:
-        return f"{seconds:.0f} s"
-    if seconds < 3600:
-        return f"{seconds / 60:.1f} min"
-    return f"{seconds / 3600:.1f} h"
 
 
 class _UnknownKindRenderer(ReviewRenderer):

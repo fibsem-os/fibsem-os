@@ -23,7 +23,7 @@ from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
-from fibsem.utils import format_duration, format_time_remaining
+from fibsem.util.durations import format_duration_precise, format_duration_rounded
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -220,7 +220,7 @@ class BaseTaskManager:
                 + (
                     "waiting until one is made."
                     if review_wait is None
-                    else f"giving up after {format_duration(review_wait)} without one."
+                    else f"giving up after {format_duration_precise(review_wait)} without one."
                 )
             )
             deadline = None if review_wait is None else time.monotonic() + review_wait
@@ -231,7 +231,7 @@ class BaseTaskManager:
                     if timeout <= 0:
                         self.stalled = True
                         self.stall_reason = (
-                            f"Timed out after {format_duration(review_wait)} "
+                            f"Timed out after {format_duration_precise(review_wait)} "
                             f"waiting for a review: {n} decision(s) still pending."
                         )
                         logging.warning(self.stall_reason)
@@ -239,7 +239,7 @@ class BaseTaskManager:
                 if self._decision_event.wait(timeout):
                     logging.info(
                         "A decision landed after "
-                        f"{format_duration(time.monotonic() - started)} parked; "
+                        f"{format_duration_precise(time.monotonic() - started)} parked; "
                         "rescanning the queue."
                     )
                     return True
@@ -955,7 +955,7 @@ class TaskManager(BaseTaskManager):
                 if now >= next_update:
                     msg = (
                         f"Waiting until {target_str} to start {task_name} on "
-                        f"{lamella.name} ({format_time_remaining(remaining)} remaining)."
+                        f"{lamella.name} ({format_duration_rounded(remaining)} remaining)."
                     )
                     update_status_ui(self.parent_ui, "", status_bar=msg)
                     next_update = now + 15.0

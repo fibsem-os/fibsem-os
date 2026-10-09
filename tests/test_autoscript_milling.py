@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.demoted_messages import as_logged_now
+
 SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_milling_parity.py"
 OLD_CALLS = Path(__file__).parent / "fixtures" / "autoscript_milling_calls.json"
 
@@ -47,7 +49,10 @@ def test_the_recording_makes_sdk_calls(recording):
 
 
 def test_the_service_makes_the_same_sdk_calls_logs_and_results(recording):
-    old = json.loads(OLD_CALLS.read_text())
+    old = {
+        key: [result, calls, as_logged_now(messages)]
+        for key, (result, calls, messages) in json.loads(OLD_CALLS.read_text()).items()
+    }
     assert [c["key"] for c in recording["cases"]] == list(old)
     different = [
         {"key": c["key"], "old": old[c["key"]], "new": c["new"]}

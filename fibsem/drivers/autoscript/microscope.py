@@ -964,31 +964,12 @@ class ThermoMicroscope(FibsemMicroscope):
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
 
-        try:
-            if not self._fluorescence_is_configured():
-                logging.info(
-                    "No fluorescence microscope configured for this system. Set "
-                    "`fm.enabled` in the microscope configuration to enable it."
-                )
-                self.fm = None
-                self.set_channel(BeamType.ELECTRON)
-            elif not self._fluorescence_uses_own_driver():
-                self.fm = self._connect_remote_fluorescence()
-                self.set_channel(BeamType.ELECTRON)
-            else:
-                self.fm = self._connect_fluorescence_devices()
-                self.fm.set_active_channel()  # this will fail if no fm available
-                self.fm_devices = MappingProxyType(self.fm.devices)
-                logging.info(
-                    "Thermo Fisher Fluorescence Microscope initialized successfully."
-                )
-        except RequiredDeviceUnavailable:
-            raise
-        except Exception as e:
-            logging.error(
-                f"Failed to initialize Thermo Fisher Fluorescence Microscope: {e}"
-            )
-            self.fm = None
+        from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
+
+        # Its own FM leaves the shared imaging channel on the FM, as building it
+        # selects the channel; any other outcome leaves it on the electron beam.
+        self.fm = self._build_fluorescence(manufacturers.THERMOFISHER)
+        if not isinstance(self.fm, DeviceThermoFisherFluorescenceMicroscope):
             self.set_channel(BeamType.ELECTRON)
 
         self._apply_fluorescence_calibration()
@@ -1094,20 +1075,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
-
-    def _connect_fluorescence_devices(self) -> "FluorescenceMicroscope":
-        """The FM API over the Thermo FM devices, sharing this microscope's
-        connection and its imaging channel lock with the beams.
-
-        Live view here is pulled by this process's own worker, which never stops
-        asking while it runs, so it has no watchdog: a slow frame handler must not
-        end it. A served FM keeps the default."""
-        from fibsem.drivers.autoscript.devices import bind_autoscript_fm
-        from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
-
-        devices = bind_autoscript_fm(self, config=self.system.fm.to_dict())
-        devices["fm"].live_timeout = None
-        return DeviceThermoFisherFluorescenceMicroscope(devices, parent=self)
 
     def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
         """The grid model over the ``sample_loader`` device, built when the
@@ -1320,42 +1287,6 @@ class ThermoMicroscope(FibsemMicroscope):
         if plasma_gas is None:
             return None
         return plasma_gas.value or None
-
-    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
-        """Get the stage axis limits for x, y, z, t, r."""
-        from fibsem.drivers.demo.simulator import (
-            STAGE_LIMITS_COMPUSTAGE,
-            STAGE_LIMITS_DEFAULT,
-        )
-
-        if self._compustage_installed:
-            return STAGE_LIMITS_COMPUSTAGE
-
-        if not hasattr(self._vendor_stage, "get_axis_limits"):
-            return STAGE_LIMITS_DEFAULT
-
-        limits: Dict[str, RangeLimit] = {}
-        for axis in ["x", "y", "z", "t"]:
-            axis_limit = self._vendor_stage.get_axis_limits(axis)
-            # t is in radians -> degrees
-            if axis == "t":
-                limits[axis] = RangeLimit(
-                    min=np.degrees(axis_limit.min), max=np.degrees(axis_limit.max)
-                )
-                continue
-
-            limits[axis] = RangeLimit(
-                min=axis_limit.min,
-                max=axis_limit.max,
-            )
-
-        # special case for r (no specified limits, infinite rotation)
-        if not self._compustage_installed:
-            limits["r"] = RangeLimit(
-                min=-360,
-                max=360,
-            )
-        return limits
 
     def _x_corrected_needle_movement(
         self, expected_x: float

@@ -76,9 +76,9 @@ from fibsem.structures import (
     SessionInfo,
     get_fields_with_metadata,
 )
+from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
-from fibsem.utils import format_duration
 
 if TYPE_CHECKING:
     import numpy as np
@@ -184,7 +184,7 @@ class AutoLamellaTaskState:
 
     @property
     def duration_str(self) -> str:
-        return format_duration(self.duration)
+        return format_duration_precise(self.duration)
 
     def to_dict(self) -> dict:
         """Convert the task state to a dictionary."""

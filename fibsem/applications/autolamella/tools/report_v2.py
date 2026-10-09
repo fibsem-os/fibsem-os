@@ -45,6 +45,7 @@ from fibsem.applications.autolamella.tools.event_tables import (
     EventTables,
     read_event_tables,
 )
+from fibsem.util.durations import format_duration_as_clock, format_duration_in_words
 from fibsem.util.timestamps import wall_time_of, zone_label
 
 REPORT_DIRNAME = "reporting"
@@ -229,7 +230,7 @@ def _header(name, summary, items, tasks, generated, zone=None) -> str:
     if summary.start is not None:
         when = (
             f"{_date_time(summary.start)} – {_time_of_day(summary.end, summary.start)}"
-            f" ({_duration(summary.span)})"
+            f" ({format_duration_in_words(summary.span)})"
         )
     facts = [when, f"{len(items)} lamellae"]
     if tasks:
@@ -271,9 +272,17 @@ def _headline(summary: Summary, items: Sequence[str], fm: List[Dict[str, Any]]) 
             f"{throughput:.1f} / h" if throughput is not None else "—",
             "finished lamellae per hour",
         ),
-        ("Machine", share(summary.machine), _duration(summary.machine)),
-        ("Waiting for an answer", share(summary.waiting), _duration(summary.waiting)),
-        ("Idle", share(summary.idle), f"{_duration(summary.idle)}, nothing running"),
+        ("Machine", share(summary.machine), format_duration_in_words(summary.machine)),
+        (
+            "Waiting for an answer",
+            share(summary.waiting),
+            format_duration_in_words(summary.waiting),
+        ),
+        (
+            "Idle",
+            share(summary.idle),
+            f"{format_duration_in_words(summary.idle)}, nothing running",
+        ),
     ]
     if fm:
         imaged = {a["item"] for a in fm if a["item"] != _NO_ITEM}
@@ -359,7 +368,7 @@ def _timeline(runs, fm, tables: EventTables, summary: Summary, items, tasks) -> 
         if x(b) - x(a) >= 60:
             parts.append(
                 f'<text x="{(x(a) + x(b)) / 2:.1f}" y="{top - 8}" '
-                f'text-anchor="middle">idle {_e(_duration((b - a).total_seconds()))}'
+                f'text-anchor="middle">idle {_e(format_duration_in_words((b - a).total_seconds()))}'
                 "</text>"
             )
     for tick, label in _ticks(start, end):
@@ -511,7 +520,7 @@ def _worth_a_look(runs, tables: EventTables, summary: Summary) -> str:
                     2,
                     start,
                     f"{_item(wait['item'])}: {_text(wait['task'])} waited "
-                    f"{_duration(wait['duration'])} for an answer, from {start:%H:%M}.",
+                    f"{format_duration_in_words(wait['duration'])} for an answer, from {start:%H:%M}.",
                 )
             )
     for a, b in summary.idle_gaps:
@@ -522,7 +531,7 @@ def _worth_a_look(runs, tables: EventTables, summary: Summary) -> str:
                 2,
                 a,
                 f"Nothing ran from {a:%H:%M} to {b:%H:%M} "
-                f"({_duration((b - a).total_seconds())}).",
+                f"({format_duration_in_words((b - a).total_seconds())}).",
             )
         )
     notes += _edits_mid_run(runs, tables)
@@ -707,10 +716,10 @@ def _card(item: str, of, summary: Summary, folder: Optional[Path]) -> str:
     facts = [status]
     run_time = sum(r["duration"] or 0.0 for r in runs)
     if run_time:
-        facts.append(f"{_duration(run_time)} run")
+        facts.append(f"{format_duration_in_words(run_time)} run")
     waiting = sum(r["waiting"] or 0.0 for r in runs)
     if waiting:
-        facts.append(f"{_duration(waiting)} waiting")
+        facts.append(f"{format_duration_in_words(waiting)} waiting")
     changed = sum(bool(d["changed"]) for d in of["decisions"])
     if changed:
         facts.append(f"{changed} decision{'s' if changed != 1 else ''} changed")
@@ -1017,24 +1026,8 @@ def _union(spans: List[Interval]) -> List[Interval]:
 
 
 def _clock(seconds: Optional[float]) -> str:
-    """A run's length as a clock reads: 4:05, or 1:02:05 past an hour."""
-    if seconds is None:
-        return "—"
-    total = int(round(seconds))
-    hours, rest = divmod(total, 3600)
-    minutes, secs = divmod(rest, 60)
-    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
-
-
-def _duration(seconds: float) -> str:
-    """A span in words: 3 h 40 min, 12 min, 45 s."""
-    total = int(round(seconds))
-    if total < 60:
-        return f"{total} s"
-    hours, minutes = divmod(total // 60, 60)
-    if not hours:
-        return f"{minutes} min"
-    return f"{hours} h {minutes} min" if minutes else f"{hours} h"
+    """A run's length as a clock reads, 4:05; the report's dash when it has none."""
+    return format_duration_as_clock(seconds) or "—"
 
 
 def _date_time(t: datetime) -> str:

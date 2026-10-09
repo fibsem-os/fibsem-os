@@ -14,6 +14,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 from skimage.transform import resize
 
+from fibsem import manufacturers
 from fibsem._timing import sim_sleep
 from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.fm.microscope import (
@@ -354,12 +355,6 @@ class DemoConfiguration:
     def _probe_plasma_gas(self) -> Optional[str]:
         return self.system.sim.get("plasma_gas")
 
-    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
-        """Get the axis limits for the stage."""
-        if sim_is_compustage(self.system):
-            return STAGE_LIMITS_COMPUSTAGE
-        return STAGE_LIMITS_DEFAULT
-
 
 class DemoImaging:
     """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
@@ -470,7 +465,7 @@ class DemoImaging:
                 beam_type=effective_beam_type
             )
 
-        logging.info(f"acquiring new {effective_beam_type.name} image.")
+        logging.debug(f"acquiring new {effective_beam_type.name} image.")
 
         # set the imaging hfw, as the hardware drivers do: an acquisition leaves
         # the beam at the field it imaged, so anything that follows in image
@@ -800,7 +795,7 @@ class DemoImaging:
             if reduced_area is not None:
                 self.set_reduced_area_scanning_mode(reduced_area, beam_type)
             # TODO: implement auto-contrast
-            logging.info(f"Autocontrasting {beam_type.name} beam.")
+            logging.debug(f"Autocontrasting {beam_type.name} beam.")
             sim_sleep(
                 random.uniform(0.5, 1.0)
             )  # simulate time taken to calculate auto-contrast
@@ -828,7 +823,7 @@ class DemoImaging:
             if reduced_area is not None:
                 self.set_reduced_area_scanning_mode(reduced_area, beam_type)
             # TODO: implement auto-focus
-            logging.info(f"Auto-focusing {beam_type.name} beam.")
+            logging.debug(f"Auto-focusing {beam_type.name} beam.")
             wd: float = self._beam_config(
                 "eucentric_height", beam_type
             ).eucentric_height
@@ -1102,8 +1097,8 @@ class DemoSession:
     """Building and connecting a demo.
 
     A demo's ``__init__`` is ``_start_session``, then its devices, then
-    ``_setup_fluorescence`` (which builds its FM in ``_local_fluorescence``) and
-    ``_finish_session``.
+    ``_setup_fluorescence`` (which builds its FM from the configuration's ``fm``
+    entry) and ``_finish_session``.
     """
 
     def _start_session(self, system_settings: SystemSettings) -> None:
@@ -1145,20 +1140,14 @@ class DemoSession:
         # configuration representable: an FM detected on a system nothing is
         # configured for -- a site upgrading -- gets no FM, and that is the case worth
         # being able to test.
-        if (
-            has_fm
-            and self._fluorescence_is_configured()
-            and self._fluorescence_uses_own_driver()
-        ):
-            self.fm = self._local_fluorescence()
-            # Bringing the FM up leaves the shared channel on it, as
-            # `ThermoMicroscope.__init__` does; taking it back is the next beam
-            # operation's job.
-            self.fm.set_active_channel()
+        # The probe only answers for the Demo's own FM; one on another driver (an FM
+        # on its own PC) is built as the configuration says.
+        if has_fm or not self._fluorescence_uses_own_driver():
+            self.fm = self._build_fluorescence(manufacturers.DEMO)
         else:
-            self.fm = self._connect_remote_fluorescence()
-            if self.fm is None:
-                logging.info("No fluorescence microscope in this simulated system.")
+            self.fm = None
+        if self.fm is None:
+            logging.info("No fluorescence microscope in this simulated system.")
 
         self._apply_fluorescence_calibration()
         self._warn_on_fluorescence_geometry()

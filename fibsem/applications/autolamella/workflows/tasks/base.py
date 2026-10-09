@@ -720,8 +720,13 @@ class AutoLamellaTask(ABC):
         # headless mode
         if self.parent_ui is None:
             if milling_enabled:
+                # Raise a failed mill, so the task manager records this task
+                # Failed rather than Completed with nothing milled (FIB-1112).
                 milling_task = run_milling_task(
-                    self.microscope, milling_config, stop_event=self._stop_event
+                    self.microscope,
+                    milling_config,
+                    stop_event=self._stop_event,
+                    raise_on_failure=True,
                 )
                 return milling_task.config
             return milling_config

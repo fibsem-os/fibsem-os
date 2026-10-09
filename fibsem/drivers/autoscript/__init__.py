@@ -18,6 +18,13 @@ DRIVER = DriverEntry(
         device_type: DeviceBuilder(
             f"fibsem.drivers.autoscript.devices:build_autoscript_{device_type}"
         )
-        for device_type in ("beam", "stage", "chamber", "manipulator", "sample_loader")
+        for device_type in (
+            "beam",
+            "stage",
+            "chamber",
+            "manipulator",
+            "sample_loader",
+            "fm",
+        )
     },
 )

@@ -189,6 +189,44 @@ def _loaded_filename(image) -> Optional[str]:
     return os.path.basename(filepath) if filepath else None
 
 
+_IMAGE_SUFFIXES = (".ome.tiff", ".ome.tif", ".tiff", ".tif")
+
+
+def recorded_image_basename(name: Optional[str]) -> Optional[str]:
+    """A recorded image name as a bare file name.
+
+    Runs written on the instrument PC can record a full Windows path, which
+    ``os.path.basename`` on another platform leaves whole, so both separators
+    are split on here (FIB-1237).
+    """
+    if not name:
+        return None
+    return str(name).replace("\\", "/").rstrip("/").split("/")[-1] or None
+
+
+def image_stem(name: Optional[str]) -> Optional[str]:
+    """What identifies an image file across the forms a run has recorded it in.
+
+    The bare name without its TIFF suffix, and without the ``_ib`` tag: older
+    runs recorded the acquisition stem (``ref_Spot Burn Fiducial_final_res_02``)
+    where newer ones record the file (``..._final_res_02_ib.tif``). An ``_eb``
+    image keeps its tag, so it never matches the ion image of the same stage.
+    """
+    base = recorded_image_basename(name)
+    if base is None:
+        return None
+    for suffix in _IMAGE_SUFFIXES:
+        if base.lower().endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+    return base[:-3] if base.endswith("_ib") else base
+
+
+# Pixel sizes closer than this are the same image's: they come back from JSON
+# exactly, so this only absorbs a re-derivation, never a different field of view.
+_PIXEL_SIZE_RTOL = 0.01
+
+
 @dataclass
 class CorrelationInputData:
     fib_image: Optional[FibsemImage] = None
@@ -717,7 +755,7 @@ class CorrelationResult:
             df_result.to_csv(f, index=False)
 
     def matches_inputs(self, current: CorrelationInputData) -> bool:
-        """Whether this result was computed from ``current``'s coordinates.
+        """Whether this result was computed from ``current``'s coordinates and images.
 
         ``input_data`` is a snapshot of the points the transform was fitted to,
         which makes staleness *derivable* — no flag anyone has to remember to
@@ -725,18 +763,54 @@ class CorrelationResult:
         :func:`_transform_inputs`); notably **excluded**:
 
           * ``fitted`` — provenance on a Coordinate, not a position;
-          * ``method`` — not read by ``run_correlation_from_data``;
-          * anything image-derived — see below.
+          * ``method`` — not read by ``run_correlation_from_data``.
 
-        Image parameters are *not* compared: changing the image now clears the
-        coordinates outright (see ``_confirm_image_change``), so a result can no
-        longer outlive the image it was fitted to by this route.
+        And the images it was fitted in (:meth:`image_mismatch`). Changing the
+        image in the widget clears the coordinates (``_confirm_image_change``),
+        but a loaded result arrives beside whatever images are already open: a
+        run opened with the wrong reference, or another lamella's file loaded
+        into this one's dialog, matched on points alone and armed Continue
+        against images it was never computed on (FIB-1237).
 
         A result with no snapshot can't be shown to match, so it reports False.
         """
         if self.input_data is None:
             return False
+        if self.image_mismatch(current) is not None:
+            return False
         return _transform_inputs(self.input_data) == _transform_inputs(current)
+
+    def image_mismatch(self, current: CorrelationInputData) -> Optional[str]:
+        """Why this result is not for ``current``'s images, or None.
+
+        Compares what each side records: the image names (as :func:`image_stem`)
+        and the FIB pixel size and FM z step. A side that records nothing is not
+        evidence either way -- a result loaded from JSON carries no images, and
+        runs before FIB-1019 recorded no names -- so only a value present on
+        both sides and different counts.
+        """
+        if self.input_data is None:
+            return None
+        then = self.input_data
+        for label, a, b in (
+            ("FIB image", then.fib_image_filename, current.fib_image_filename),
+            ("FM stack", then.fm_image_filename, current.fm_image_filename),
+        ):
+            if a and b and image_stem(a) != image_stem(b):
+                return (
+                    f"it was computed on {label} {recorded_image_basename(a)}, "
+                    f"not the loaded {recorded_image_basename(b)}"
+                )
+        for label, a, b in (
+            ("FIB pixel size", then.fib_image_pixel_size, current.fib_image_pixel_size),
+            ("FM z step", then.fm_pixel_size_z, current.fm_pixel_size_z),
+        ):
+            if a and b and abs(a - b) > _PIXEL_SIZE_RTOL * abs(b):
+                return (
+                    f"it was computed at {label} {a * 1e9:.1f} nm, "
+                    f"the loaded image's is {b * 1e9:.1f} nm"
+                )
+        return None
 
     def save(self, filename: str) -> None:
         with open(filename, "w") as f:

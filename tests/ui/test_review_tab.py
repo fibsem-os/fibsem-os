@@ -531,7 +531,8 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     assert renderer._image is not None and renderer._electron is not None
     assert renderer._controller.widget._sem_panel.isVisibleTo(renderer)
     assert renderer.line.text() == "Waiting for your decision · nothing is held"
-    assert "Rough Milling completed in 2.2 min" in renderer.line.toolTip()
+    # in words, as the report says it (FIB-1191): 130 s is "2 min", not "2.2 min"
+    assert "Rough Milling completed in 2 min" in renderer.line.toolTip()
     assert renderer.btn_confirm.text() == "Confirm · looks right"
     assert not renderer._controller.overlay_points(BeamType.ION, "poi")
 

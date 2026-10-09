@@ -146,8 +146,11 @@ from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
+from fibsem.util.durations import (
+    format_duration_precise,
+    format_duration_rounded,
+)
 from fibsem.util.timestamps import format_time, now
-from fibsem.utils import format_duration
 from fibsem.versioning import get_version_string
 
 # How wide the experiment name button in the tab corner is allowed to grow. Wide
@@ -323,7 +326,7 @@ def confirm_add_to_queue_dialog(
         metrics.addWidget(
             preflight.metric(
                 "Adds",
-                preflight.format_duration(estimate.work_seconds),
+                format_duration_rounded(estimate.work_seconds, pad=True),
                 _priced_note(estimate),
             ),
             1,
@@ -414,16 +417,16 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
     explain a wait that did not exist on a queue with nothing scheduled at all.
 
     **And the disagreement has to be one the reader can see.** Both figures are rendered
-    with `format_duration`, so a gap that rounds away is not a discrepancy needing an
+    with `format_duration_rounded`, so a gap that rounds away is not a discrepancy needing an
     explanation -- it is two identical numbers with a paragraph between them.
     """
     if estimate is None or not estimate.is_priced:
         return ""
     if estimate.hold_seconds <= 0 or estimate.work_seconds <= 0:
         return ""
-    if preflight.format_duration(estimate.delay_seconds) == preflight.format_duration(
-        estimate.work_seconds
-    ):
+    if format_duration_rounded(
+        estimate.delay_seconds, pad=True
+    ) == format_duration_rounded(estimate.work_seconds, pad=True):
         return ""
     if estimate.delay_seconds <= 0:
         return (
@@ -431,7 +434,7 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
             "fits inside that wait — so it costs no extra time overall."
         )
     return (
-        f"Only {preflight.format_duration(estimate.delay_seconds)} of this lands after "
+        f"Only {format_duration_rounded(estimate.delay_seconds, pad=True)} of this lands after "
         "the workflow's scheduled wait; the rest fits inside it."
     )
 
@@ -2343,7 +2346,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 )
                 self.milling_progress_bar.setValue(percent_complete)
                 self.milling_progress_bar.setFormat(
-                    f"{label} - {format_duration(remaining_time)} remaining"
+                    f"{label} - {format_duration_precise(remaining_time)} remaining"
                 )
             else:
                 # No countdown to draw, but the producer's words are still worth showing:
