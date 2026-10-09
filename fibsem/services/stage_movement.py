@@ -355,22 +355,16 @@ class StageMovement(Service):
     # -- the fluorescence view -----------------------------------------------------------
 
     def _fm_device(self) -> Optional[FM]:
-        """The FM, or None. Some backends build their FM after the stage, so it is
-        found in the microscope's devices the first time it is asked for."""
+        """The FM device, or None: the microscope's FM's own, since every FM is built
+        over its devices. Found the first time it is asked for, because some backends
+        build their FM after the stage."""
         fm = self._roles.get("fm")
-        if fm is None:
-            found = self.parent.devices.get("fm")
-            if isinstance(found, FM):
-                self.fill_roles(fm=found)
-                fm = found
+        if fm is None and getattr(self.parent, "fm", None) is not None:
+            fm = self.parent.fm.devices["fm"]
+            self.fill_roles(fm=fm)
         return fm
 
-    def _require_fm(self, message: str) -> Any:
-        """The FM the moves look through: the microscope's FM wrapper where it has
-        one (it may have no FM device, as on the Odemis stream FM), else the device."""
-        wrapper = getattr(self.parent, "fm", None)
-        if wrapper is not None:
-            return wrapper
+    def _require_fm(self, message: str) -> FM:
         fm = self._fm_device()
         if fm is None:
             raise ValueError(message)
@@ -387,26 +381,20 @@ class StageMovement(Service):
         """
         return fm_camera_tilt(self.parent)
 
-    def _display_transform(self, fm: Any) -> CameraImageTransform:
-        """The transform the user displays FM images under, from the camera (through
-        the wrapper, which keeps it on the camera device when there is one)."""
-        if not isinstance(fm, FM):
-            return fm._transform
-        camera = fm._roles.get("camera")
-        param = None if camera is None else camera.parameters.get("display_transform")
-        if param is None:
-            return CameraImageTransform.NONE
-        return mount_transform_from_name(param.get_value())
+    def _display_transform(self, fm: FM) -> CameraImageTransform:
+        """The transform the user displays FM images under, held by the camera."""
+        camera = fm._roles["camera"]
+        return mount_transform_from_name(
+            camera.parameters["display_transform"].get_value()
+        )
 
-    def _objective_state(self, fm: Any) -> Optional[str]:
-        if not isinstance(fm, FM):
-            return fm.objective.state
+    def _objective_state(self, fm: FM) -> Optional[str]:
         objective = fm._roles.get("objective")
         if objective is None:
             return None
         return objective_state_name(objective.state.get_value())
 
-    def _fm_stage_delta(self, fm: Any, dx: float, dy: float) -> FibsemStagePosition:
+    def _fm_stage_delta(self, fm: FM, dx: float, dy: float) -> FibsemStagePosition:
         """Relative stage movement for a displacement seen in the displayed FM image.
 
         Shared by `fm_stable_move` and `project_fm_stable_move`, so the two cannot
@@ -564,12 +552,10 @@ class StageMovement(Service):
         return microscope.is_close_to_milling_angle(np.degrees(milling_angle))
 
     def _objective(self) -> Any:
-        """The objective to insert and retract: through the FM API where the
-        microscope has one, which tells the displays the objective moved
-        (`ObjectiveLens.position_changed`), else the FM's objective device."""
-        if self.parent.fm is not None:
-            return self.parent.fm.objective
-        return self._require_fm("No fluorescence microscope.").objective
+        """The objective to insert and retract, through the FM API, which tells the
+        displays the objective moved (`ObjectiveLens.position_changed`)."""
+        self._require_fm("No fluorescence microscope.")
+        return self.parent.fm.objective
 
     @command
     @_records_stage_move
@@ -738,9 +724,8 @@ def bind_stage_movement(service: Type[_S], microscope: Any) -> Optional[_S]:
         beam = microscope.beams.get(beam_type)
         if beam is not None:
             movement.fill_roles(**{role: beam})
-    fm = microscope.devices.get("fm")
-    if isinstance(fm, FM):
-        movement.fill_roles(fm=fm)
+    if getattr(microscope, "fm", None) is not None:
+        movement.fill_roles(fm=microscope.fm.devices["fm"])
     movement.connect()
     return movement
 
