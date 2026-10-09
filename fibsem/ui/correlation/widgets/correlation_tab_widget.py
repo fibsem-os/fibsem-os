@@ -31,6 +31,7 @@ result_changed : CorrelationResult    — after a successful correlation run
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import dataclasses
 import io
@@ -101,6 +102,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
     load_correlation_file,
+    recorded_image_basename,
     scale_about_surface,
 )
 from fibsem.correlation.verdict import LOO_BAD_UM, LOO_CHECK_UM
@@ -2251,6 +2253,9 @@ class CorrelationTabWidget(QWidget):
         # open must not write until there is something of the user's to keep
         # (FIB-977, see _auto_save_state).
         self._save_armed = False
+        # Held while a file is being read in: an open is not an edit, and
+        # writing during one rewrote the file being read (FIB-1237).
+        self._loading = False
         # Positions as last seeded by the setup section, to detect manual edits
         # before replacing them (None = nothing seeded yet). FIB-302.
         self._seeded_positions: Optional[list] = None
@@ -2907,7 +2912,9 @@ class CorrelationTabWidget(QWidget):
         caller never picks the wrong loader — the FIB-263 crash can't recur.
         """
         logging.info("Loading correlation from %s", path)
-        self._adopt_state(load_correlation_file(path))
+        state = load_correlation_file(path)
+        with self._reading():
+            self._adopt_state(state)
 
     def _adopt_state(self, state: CorrelationState) -> None:
         """Apply a loaded correlation state: points first, then the result (if any).
@@ -3349,9 +3356,27 @@ class CorrelationTabWidget(QWidget):
         loaded = CorrelationInputData.load(path)
         loaded.fib_image = self._fib_image
         loaded.fm_image = self._fm_image
-        self.set_data(loaded)
-        self._discard_result()
-        self.data_changed.emit(self.data)
+        with self._reading():
+            self.set_data(loaded)
+            self._discard_result()
+            self.data_changed.emit(self.data)
+
+    @contextlib.contextmanager
+    def _reading(self):
+        """Read a file in without writing one: no auto-save during the load, and
+        none after it until an edit or a run arms it.
+
+        Opening a run used to rewrite it straight away -- ``set_data`` arms the
+        save and the load's own ``data_changed`` fired it -- so the file took the
+        names of whatever images happened to be open, and opening a folder with
+        the wrong reference overwrote the record of the right one (FIB-1237).
+        """
+        self._loading = True
+        try:
+            yield
+        finally:
+            self._loading = False
+            self._save_armed = False
 
     def save_correlation(self, path: str) -> None:
         """Save the whole correlation state (points + result) to one JSON.
@@ -3522,7 +3547,7 @@ class CorrelationTabWidget(QWidget):
         coordinate handlers and a delivered result arm it; ``set_project_dir``
         disarms it.
         """
-        if not self._project_dir or not self._save_armed:
+        if not self._project_dir or not self._save_armed or self._loading:
             return
         if self._result is None and not os.path.isdir(self._project_dir):
             return
@@ -3641,8 +3666,11 @@ class CorrelationTabWidget(QWidget):
         n_poi = len(d.poi_coordinates)
         if ok:
             stale = self._result is not None and not self._result.matches_inputs(d)
+            other = self._result.image_mismatch(d) if stale else None
             lead = (
-                "The points changed since the last run; run again"
+                f"The last result is for other images ({other}); run again"
+                if other
+                else "The points changed since the last run; run again"
                 if stale
                 else "Ready to run"
             )
@@ -4111,8 +4139,12 @@ class CorrelationTabWidget(QWidget):
         # Staleness outranks the RI note: this is the only line explaining why
         # Continue is greyed out, so "Done — RI ×1.500" must not mask it.
         if not live:
+            other = result.image_mismatch(self.fit_data)
             self._lbl_status.setText(
-                "Loaded result — the points have changed since this run. Re-run to update."
+                f"Loaded result is for other images: {other}. Re-run to update."
+                if other
+                else "Loaded result — the points have changed since this run. "
+                "Re-run to update."
             )
         elif (
             result.refractive_index_correction_mode == "pre"
@@ -4521,6 +4553,10 @@ class CorrelationTabWidget(QWidget):
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
+            # A committed result is recorded in this run's folder even when it
+            # was loaded and not edited, which arms nothing (FIB-1237).
+            self._save_armed = True
+            self._auto_save_state()
             # Auto-save the result plot alongside the auto-saved JSON.
             if self._project_dir:
                 try:
@@ -4611,7 +4647,9 @@ class CorrelationTabWidget(QWidget):
     def load_result(self, path: str, *, adopt_inputs: bool = True) -> None:
         """Load a correlation result from JSON and adopt it (mirrors load_data)."""
         logging.info("Loading correlation result from %s", path)
-        self._load_result(CorrelationResult.load(path), adopt_inputs=adopt_inputs)
+        result = CorrelationResult.load(path)
+        with self._reading():
+            self._load_result(result, adopt_inputs=adopt_inputs)
 
     def _load_result(
         self, result: CorrelationResult, *, adopt_inputs: bool = True
@@ -5141,9 +5179,9 @@ def _images_beside_a_run(lamella_dir: str) -> Dict[str, Optional[str]]:
     discovery order would take whichever sorts first. Correlation fiducials are
     picked on a post-burn reference, so prefer the spot-burn task's final one.
 
-    This is a guess: a saved run does not record the images it was picked on
-    (FIB-1019), and picking the wrong reference shifts every FIB coordinate.
-    The caller logs what it chose.
+    This is a guess, used only for a run that records no image names (before
+    FIB-1019): picking the wrong reference shifts every FIB coordinate. The
+    caller logs what it chose.
     """
     import glob
 
@@ -5164,32 +5202,124 @@ def _images_beside_a_run(lamella_dir: str) -> Dict[str, Optional[str]]:
     }
 
 
+def _recorded_image_names(found: Dict[str, Optional[str]]) -> Dict[str, Optional[str]]:
+    """The FIB and FM image names the run's own file records, or None for each.
+
+    Read from the file ``load_project`` will load, in the same order. An
+    unreadable file records nothing here; the load reports it.
+    """
+    for key in ("correlation", "data", "result"):
+        if not found.get(key):
+            continue
+        try:
+            state = load_correlation_file(found[key])
+        except Exception:
+            continue
+        sources = [state.input_data]
+        if state.result is not None and state.result.input_data is not None:
+            sources.append(state.result.input_data)
+        return {
+            "fib": next(
+                (
+                    d.stored_fib_image_filename
+                    for d in sources
+                    if d.stored_fib_image_filename
+                ),
+                None,
+            ),
+            "fm": next(
+                (
+                    d.stored_fm_image_filename
+                    for d in sources
+                    if d.stored_fm_image_filename
+                ),
+                None,
+            ),
+        }
+    return {"fib": None, "fm": None}
+
+
+# The forms a recorded name has taken: the file itself, or (older FIB records)
+# the acquisition stem that ``save`` appended its suffix to.
+_RECORDED_IMAGE_SUFFIXES = {
+    "fib": ("", "_ib.tif", "_ib.tiff", ".tif", ".tiff"),
+    "fm": ("", ".ome.tiff", ".ome.tif"),
+}
+
+
+def _find_recorded_image(name: str, kind: str, folders: List[str]) -> Optional[str]:
+    """The file a recorded image name refers to, in the first of ``folders``
+    that has it, or None. A full path recorded on another machine is reduced to
+    its file name."""
+    base = recorded_image_basename(name)
+    if base is None:
+        return None
+    for folder in folders:
+        for suffix in _RECORDED_IMAGE_SUFFIXES[kind]:
+            path = os.path.join(folder, base + suffix)
+            if os.path.isfile(path):
+                return path
+    return None
+
+
 def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     """Quickstart-load a correlation project directory into ``widget``.
 
     Sets the project dir, then loads the FIB + FM images and, if present, the
     saved correlation result (preferred) or coordinate data. Missing or
     unreadable pieces are logged and skipped so a partial project still opens.
+
+    The images are the ones the run records it was picked on (FIB-1019),
+    looked for in the run folder and then the lamella folder above it. A
+    recorded image that cannot be found is left unloaded rather than replaced
+    by a guess: the fiducials are pixels in that image (FIB-1237). Only a run
+    that records no names falls back to guessing.
     """
     found = _discover_correlation_files(directory)
     logging.info("Quickstart loading correlation project: %s", directory)
+
+    _, lamella_dir = _experiment_and_lamella_dirs(directory)
+    above_run = (
+        lamella_dir
+        if lamella_dir and os.path.abspath(lamella_dir) != os.path.abspath(directory)
+        else None
+    )
+    recorded = _recorded_image_names(found)
+    for key in ("fib", "fm"):
+        if not recorded[key]:
+            continue
+        folders = [directory] + ([above_run] if above_run else [])
+        found[key] = _find_recorded_image(recorded[key], key, folders)
+        if found[key]:
+            logging.info(
+                "  %s image as recorded by the run: %s",
+                key.upper(),
+                os.path.basename(found[key]),
+            )
+        else:
+            logging.warning(
+                "  the run records %s image %s, which is not in %s; not loading "
+                "another in its place",
+                key.upper(),
+                recorded_image_basename(recorded[key]),
+                " or ".join(folders),
+            )
 
     # A run folder holds correlation.json; the images live in the lamella
     # folder above it. The launcher already walks up there for the spot-burn
     # pattern and the transform priors, so do the same for the images rather
     # than opening with points and empty canvases (FIB-1018).
-    if not (found["fib"] and found["fm"]):
-        _, lamella_dir = _experiment_and_lamella_dirs(directory)
-        if lamella_dir and os.path.abspath(lamella_dir) != os.path.abspath(directory):
-            above = _images_beside_a_run(lamella_dir)
-            for key in ("fib", "fm"):
-                if not found[key] and above[key]:
-                    found[key] = above[key]
-                    logging.info(
-                        "  %s image taken from the lamella folder: %s",
-                        key.upper(),
-                        os.path.basename(above[key]),
-                    )
+    unrecorded = [k for k in ("fib", "fm") if not recorded[k] and not found[k]]
+    if unrecorded and above_run:
+        above = _images_beside_a_run(above_run)
+        for key in unrecorded:
+            if above[key]:
+                found[key] = above[key]
+                logging.info(
+                    "  %s image guessed from the lamella folder: %s",
+                    key.upper(),
+                    os.path.basename(above[key]),
+                )
 
     widget.set_project_dir(directory)
 

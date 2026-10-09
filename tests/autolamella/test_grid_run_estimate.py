@@ -36,7 +36,6 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
 from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusSweepPass
 from fibsem.drivers.autoscript.microscope import AutoscriptSampleLoader
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
-from fibsem.microscopes._stage import DemoSampleLoader
 from fibsem.structures import (
     AutoContrastMode,
     AutoFocusMode,
@@ -44,6 +43,7 @@ from fibsem.structures import (
     ImageSettings,
     OverviewAcquisitionSettings,
 )
+from tests.fixtures.demo_stage import demo_grid_loader
 
 NOW = datetime(2026, 10, 5, 14, 0, 0)
 
@@ -154,7 +154,7 @@ def test_a_fluorescence_overview_grows_with_tiles_channels_and_focus():
 
 def test_each_loader_declares_what_an_exchange_costs():
     assert (
-        DemoSampleLoader(SimpleNamespace(), exchange_delay=5.0).exchange_seconds == 10
+        demo_grid_loader(SimpleNamespace(), exchange_delay=5.0).exchange_seconds == 10
     )
     assert AutoscriptSampleLoader(SimpleNamespace()).exchange_seconds == 180
 

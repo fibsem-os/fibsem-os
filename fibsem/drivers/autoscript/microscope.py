@@ -983,6 +983,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # after the sample stage, which reads which subsystems are fitted
         self._build_parts()
+        self._bind_device_roles()
 
     def _build_devices(
         self,

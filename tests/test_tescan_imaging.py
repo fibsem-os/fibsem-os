@@ -28,6 +28,7 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
+from tests.fixtures.demoted_messages import as_logged_now
 from tests.fixtures.tescan_sdk import connect
 
 E, I = BeamType.ELECTRON, BeamType.ION
@@ -178,7 +179,10 @@ CASES = dict(_cases())
 
 
 with open(RECORDED) as f:
-    EXPECTED = json.load(f)
+    EXPECTED = {
+        case: {**old, "log": as_logged_now(old["log"])}
+        for case, old in json.load(f).items()
+    }
 
 
 def test_every_case_was_recorded():

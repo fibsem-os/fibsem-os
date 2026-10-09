@@ -23,6 +23,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.structures import (
     BeamType,
+    DeviceEntry,
     FibsemDetectorSettings,
     FibsemImage,
     FibsemManipulatorPosition,
@@ -31,6 +32,7 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
+from tests.fixtures.demoted_messages import as_logged_now
 from tests.fm import _odemis_stubs as stubs
 
 ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
@@ -443,7 +445,10 @@ CHANGED = {
     "set vent_chamber False": UNSUPPORTED,
 }
 with open(RECORDED) as f:
-    EXPECTED = json.load(f)
+    EXPECTED = {
+        case: {**old, "log": as_logged_now(old["log"])}
+        for case, old in json.load(f).items()
+    }
 
 # A beam key's values are the choices the device read when it was built, so asking
 # for them makes no client call.
@@ -762,3 +767,21 @@ def test_there_is_no_manipulator(odemis_cls, call):
     assert microscope.manipulator_device is None
     with pytest.raises(NotImplementedError, match="does not support"):
         call(microscope)
+
+
+def test_a_role_the_configuration_binds_is_filled(odemis_cls):
+    """``roles: {scanner: scan_generator}`` on the electron entry: the beam images
+    through the scan generator, as on the Demo (``tests/test_scan_generator.py``)."""
+    stubs.use_components({"fibsem": FakeClient(), "stage-bare": FakeStage()})
+    system = _system()
+    system.other_devices = [
+        DeviceEntry.from_dict(
+            {"name": "scan_generator", "type": "scan_generator", "driver": "demo"}
+        )
+    ]
+    system.device_roles = {"electron": {"scanner": "scan_generator"}}
+    microscope = odemis_cls(system)
+
+    scanner = microscope.devices["scan_generator"]
+    assert microscope.beams[BeamType.ELECTRON].scanner is scanner
+    assert "scanner" not in microscope.beams[BeamType.ION].roles
