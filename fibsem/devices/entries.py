@@ -164,7 +164,7 @@ def build_device_entries(
 
     *shared* starts the builders' scratch space (`BuildContext.shared`), for a backend
     that hands its driver's builders something of its own. A device whose driver has
-    no builder for its type, or whose builder fails, is not built: connecting fails for
+    no builder for its type or can't be imported, or whose builder fails, is not built: connecting fails for
     a `required` one (`DeviceBuildError`); any other is logged as a warning and marked
     not fitted on *microscope*, and connecting goes on without it. Returns the built devices by name, in the order they were built.
     """
@@ -175,7 +175,13 @@ def build_device_entries(
         microscope=microscope, built=built, shared=shared if shared is not None else {}
     )
     for item in resolved:
-        builder = _builder(item)
+        try:
+            builder = _builder(item)
+        except ImportError as e:
+            # such as the remote driver without the server extra
+            reason = f"driver '{item.driver}' could not be loaded: {e}"
+            _not_built(item, microscope, reason, e)
+            continue
         if builder is None:
             reason = f"driver '{item.driver}' has no builder for a '{item.type}' device"
             _not_built(item, microscope, reason)
