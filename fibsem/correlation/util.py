@@ -373,6 +373,20 @@ def _zoom_grid(nz: int, new_nz: int) -> np.ndarray:
     return np.linspace(0.0, nz - 1, new_nz)
 
 
+def z_resample_scale(nz: int, new_nz: int) -> float:
+    """The factor that moves a slice index of an ``nz``-slice volume onto its
+    ``new_nz``-slice resampling: source slice ``s`` lands at ``s * scale``.
+
+    The inverse of :func:`_zoom_grid`, whose end slices land on the end slices,
+    so the factor is ``(new_nz - 1) / (nz - 1)``, not ``new_nz / nz`` (FIB-1238).
+    """
+    if nz < 2 or new_nz < 2:
+        raise ValueError(
+            f"a z resampling needs at least two slices each side, got {nz} -> {new_nz}"
+        )
+    return (new_nz - 1) / (nz - 1)
+
+
 def _store_slice(out: np.ndarray, k: int, blend: np.ndarray) -> None:
     """``out[k] = blend`` with zoom's conversion for an integer ``out``: rounded
     half away from zero, in double precision, and clamped to the dtype's range
@@ -546,12 +560,13 @@ def interpolate_fm_volume(
     metadata consistent with the resampled data: ``pixel_size_z`` and
     ``z_positions`` are recomputed for the new slice count.
 
-    scipy's ``zoom`` rounds the output slice count to an integer, so the achieved
-    z-scale is ``new_nz / old_nz`` — not the nominal ``pixel_size_z / target``.
-    The effective z pixel size is derived from that actual ratio, keeping data,
+    The output slice count is rounded to an integer, and the end slices land on
+    the end slices, so the achieved z-scale is :func:`z_resample_scale` —
+    ``(new_nz - 1) / (old_nz - 1)`` — not the nominal ``pixel_size_z / target``.
+    The effective z pixel size is derived from that actual scale, keeping data,
     metadata, and any caller-side coordinate rescale exactly consistent. Callers
-    that must move z-bearing coordinates should scale by ``new_nz / old_nz``,
-    read from the returned image's shape versus the input's.
+    that must move z-bearing coordinates should scale by
+    ``z_resample_scale(old_nz, new_nz)``.
 
     Args:
         fm_image: source ``FluorescenceImage`` (CZYX, with ``pixel_size_z`` set)
@@ -562,7 +577,8 @@ def interpolate_fm_volume(
 
     Raises:
         ValueError: for a single-plane volume (no ``pixel_size_z``), a
-            non-positive target, or a non-CZYX array.
+            non-positive target, a non-CZYX array, or a target so coarse the
+            volume would resample to fewer than two slices.
     """
     import copy
 
@@ -588,14 +604,12 @@ def interpolate_fm_volume(
         progress_callback=progress_callback,
     )
     new_nz = interpolated.shape[1]
-    if new_nz < 1:
-        raise ValueError("interpolation produced an empty volume")
 
-    # Effective z pixel size from the ACTUAL resampled slice count, not the
-    # nominal target — so physical depth (z_index * pixel_size_z) is preserved
-    # when the caller rescales coordinates by new_nz / old_nz.
+    # Effective z pixel size from the ACTUAL resampled grid, not the nominal
+    # target — so physical depth (z_index * pixel_size_z) is preserved when the
+    # caller rescales coordinates by the same scale.
     new_meta = copy.deepcopy(meta)
-    new_meta.pixel_size_z = z_in * old_nz / new_nz
+    new_meta.pixel_size_z = z_in / z_resample_scale(old_nz, new_nz)
 
     # z_positions is a per-plane objective ramp; resample it to the new count so
     # its length scales with the volume (convention-agnostic — np.interp on the

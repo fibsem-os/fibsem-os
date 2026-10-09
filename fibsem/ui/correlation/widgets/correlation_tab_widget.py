@@ -4439,6 +4439,13 @@ class CorrelationTabWidget(QWidget):
     def _on_canvas_add_requested(self, x: float, y: float, pt: PointType) -> None:
         spec = self._point_specs[pt]
         coord = Coordinate(PointXYZ(x, y, spec.adapter.current_z()), pt)
+        if _POINT_TYPE_SIDES[pt] == "fm" and self._fm_display.max_projection:
+            # A projection has no plane to give the point (FIB-1241).
+            notification_service.show_toast(
+                "Placed at z = 0: the max projection has no plane. "
+                "Set the point's z, or turn off max projection and place it again.",
+                "warning",
+            )
         # The store replaces a surface point rather than adding a second, and
         # clears the other surface type; the lists and canvases follow.
         self._point_store.add(coord)
@@ -4753,13 +4760,17 @@ class CorrelationTabWidget(QWidget):
     def _adopt_interpolated_volume(self, new_image, old_nz: int) -> None:
         """Swap in the resampled volume and keep FM coordinates + metadata coherent.
 
-        Matched pair: rescale FM-point z by the ACTUAL slice ratio, then adopt the
-        new volume whose pixel_size_z was derived from that same ratio — so each
-        point's physical depth (z_index * pixel_size_z) is preserved.
+        Matched pair: rescale FM-point z by the ACTUAL resampling scale, then adopt
+        the new volume whose pixel_size_z was derived from that same scale — so
+        each point stays on its feature and keeps its physical depth
+        (z_index * pixel_size_z).
         """
+        from fibsem.correlation.util import z_resample_scale
+
         new_nz = new_image.data.shape[1]
-        self._rescale_fm_z(new_nz / old_nz)
-        self._rescale_baseline_z(new_nz / old_nz)  # nothing was *edited* by this
+        scale = z_resample_scale(old_nz, new_nz)
+        self._rescale_fm_z(scale)
+        self._rescale_baseline_z(scale)  # nothing was *edited* by this
         self.set_fm_image(new_image)
         self.set_data(self.data)  # redraw lists/canvas at the rescaled z
         self.data_changed.emit(self.data)  # auto-save + RI refresh (new z step)
