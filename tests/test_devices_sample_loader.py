@@ -1,10 +1,8 @@
 """The SampleLoader device on the Demo driver, and the grid model over it.
 
 The device reports numbered magazine slots, their states and descriptions, and does
-the exchanges; ``DeviceSampleLoader`` turns that into grids. The parity tests run
-one sequence of exchanges through the in-memory loader the simulator used before
-(``_stage.DemoSampleLoader``) and through the device, and compare what the grid
-model reports after each step.
+the exchanges; ``DeviceSampleLoader`` turns that into grids. The grid model's
+exchanges and inventory over the Demo device are tested in ``test_grid_inventory``.
 """
 
 import threading
@@ -26,7 +24,6 @@ from fibsem.drivers.demo.devices import DemoSampleLoader as DemoSampleLoaderDevi
 from fibsem.drivers.demo.devices import build_demo_sample_loader
 from fibsem.drivers.registry import BuildContext
 from fibsem.microscopes._stage import (
-    DemoSampleLoader,
     DeviceSampleLoader,
     SampleGrid,
     _create_sample_stage,
@@ -242,86 +239,33 @@ class TestBuilder:
 
 
 # ---------------------------------------------------------------------------
-# The grid model over the device, against the in-memory loader it replaces
+# The grid model over the device
 # ---------------------------------------------------------------------------
 
 
-def _arctis(loader_kind: str, **config):
+def _arctis(**config):
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
     microscope.stage_device.compustage = True
     microscope._stage = _create_sample_stage(microscope)
-    if loader_kind == "old":
-        loader = DemoSampleLoader(microscope, **config)
-    else:
-        device = _device(parent=microscope, **config)
-        loader = DeviceSampleLoader(microscope, device, read_at_connect=True)
-    microscope._stage.loader = loader
+    device = _device(parent=microscope, **config)
+    microscope._stage.loader = DeviceSampleLoader(
+        microscope, device, read_at_connect=True
+    )
     return microscope
 
 
-def _report(microscope) -> list:
-    return [
-        (e.slot_name, e.name, e.state.value) for e in microscope._stage.grid_inventory()
-    ]
-
-
-def _working(microscope):
-    grid = microscope._stage.loader.working_slot.loaded_grid
-    return grid.name if grid is not None else None
-
-
-class TestGridModelParity:
+class TestGridModel:
     CONFIG = dict(capacity=6, occupied=(1, 2, 5), names={5: "grid-elm"})
 
-    def _both(self, **config):
-        return _arctis("old", **config), _arctis("device", **config)
-
-    def test_inventory_matches_at_connect(self):
-        for old, new in [self._both(**self.CONFIG)]:
-            assert _report(new) == _report(old)
-
-    def test_exchanges_match_step_by_step(self):
-        old, new = self._both(**self.CONFIG)
-        steps = [
-            lambda m: m._stage.ensure_loaded("Grid-02"),
-            lambda m: m._stage.ensure_loaded("grid-elm"),
-            lambda m: m._stage.get_inventory(),
-            lambda m: m._stage.unload(),
-            lambda m: m._stage.run_inventory(),
-            lambda m: m._stage.ensure_loaded("Grid-01"),
-        ]
-        for step in steps:
-            step(old)
-            step(new)
-            assert _report(new) == _report(old)
-            assert _working(new) == _working(old)
-
     def test_the_loaded_grid_is_one_object_in_its_home_and_the_working_slot(self):
-        microscope = _arctis("device", **self.CONFIG)
+        microscope = _arctis(**self.CONFIG)
         microscope._stage.ensure_loaded("grid-elm")
         microscope._stage.get_inventory()  # a read must not split the identity
         loader = microscope._stage.loader
         assert loader.working_slot.loaded_grid is loader.slots["Slot-05"].loaded_grid
 
-    def test_unscanned_matches(self):
-        old, new = self._both(capacity=4, occupied=(2,), start_unscanned=True)
-        assert _report(new) == _report(old)
-        old._stage.run_inventory()
-        new._stage.run_inventory()
-        assert _report(new) == _report(old)
-
-    def test_a_failed_exchange_matches(self):
-        old, new = self._both(**self.CONFIG)
-        old._stage.loader.fail_next_exchange = True
-        new._stage.loader.device.fail_next_exchange = True
-        for microscope in (old, new):
-            with pytest.raises(GridExchangeError):
-                microscope._stage.ensure_loaded("Grid-01")
-        assert _report(new) == _report(old)
-        assert _working(new) is _working(old) is None
-
     def test_renaming_writes_the_slot_description(self):
-        microscope = _arctis("device", **self.CONFIG)
+        microscope = _arctis(**self.CONFIG)
         microscope._stage.assign_grid("Slot-01", SampleGrid(name="grid-ash"))
         device = microscope._stage.loader.device
         assert device.magazine.cached.slot(1).description == "grid-ash"
@@ -329,5 +273,5 @@ class TestGridModelParity:
         assert microscope._stage.loader.slots["Slot-01"].loaded_grid.name == "grid-ash"
 
     def test_exchange_seconds_is_the_devices(self):
-        microscope = _arctis("device", exchange_delay=3.0)
+        microscope = _arctis(exchange_delay=3.0)
         assert microscope._stage.loader.exchange_seconds == 6.0

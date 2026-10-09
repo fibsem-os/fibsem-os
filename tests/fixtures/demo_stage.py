@@ -31,3 +31,14 @@ def demo_session(
     path = os.path.join(tempfile.mkdtemp(prefix="demo-stage-"), config)
     utils.save_yaml(path, data)
     return utils.setup_session(config_path=path, manufacturer="Demo")
+
+
+def demo_grid_loader(parent, **kwargs) -> "DeviceSampleLoader":  # noqa: F821
+    """The grid model over a Demo sample loader device, built from *kwargs* (the
+    device's own: ``capacity``, ``occupied``, ``names``, ``start_unscanned`` ...), as
+    the Demo builds it at connect. Exchange failures are set on ``.device``."""
+    from fibsem.drivers.demo.devices import DemoSampleLoader
+    from fibsem.microscopes._stage import DeviceSampleLoader
+
+    device = DemoSampleLoader(parent=parent, **kwargs).connect()
+    return DeviceSampleLoader(parent, device, read_at_connect=True)

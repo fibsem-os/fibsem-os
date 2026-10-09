@@ -158,12 +158,12 @@ def test_naming_persists_to_the_session_state_not_the_calibration(qapp, microsco
 
 
 def test_names_are_read_only_with_a_loader(qapp):
-    from fibsem.microscopes._stage import DemoSampleLoader
+    from tests.fixtures.demo_stage import demo_grid_loader
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = True
     microscope._stage = _create_sample_stage(microscope)
-    microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1,))
+    microscope._stage.loader = demo_grid_loader(microscope, occupied=(1,))
     microscope._stage.ensure_loaded("Grid-01")
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(microscope._stage.holder)
