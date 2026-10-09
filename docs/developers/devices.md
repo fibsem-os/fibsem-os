@@ -152,15 +152,16 @@ sem.hfw.display            # Display(label='Field of View', scale=1e6, step=50.0
 sem.hfw.display.as_field_metadata(sem.hfw.unit)   # the same, as field_meta keys
 ```
 
-`display` (a `fibsem.display.Display`) is how a UI shows the parameter: its label,
-the scale from SI to the shown unit (1e6: metres to µm), the shown unit where the
-scale is not an SI prefix (degrees, percent), the step, the decimals, and whether it
-is an advanced setting. A composite value such as the stage position has one per
+`display` (a `fibsem.devices.display.Display`) is how a UI shows the parameter: its
+label, the scale from SI to the shown unit (1e6: metres to µm), the shown unit where
+the scale is not an SI prefix (degrees, percent), the step, the decimals, and whether
+it is an advanced setting. A composite value such as the stage position has one per
 field. It is declared on the device class, like the type and unit, so it is the same
 on every backend; what the instrument allows (limits, choices) is not part of it. The
 keys are those of a dataclass field's `field_meta`, so a form shows device
-parameters and recipe fields alike; the beam and detector panels build their controls
-from it, with the reported limits and choices laid over it.
+parameters and recipe fields alike. The beam, detector, FM, milling and image
+settings panels build their controls from it, with the reported limits and choices
+laid over it.
 
 ### Writing
 
@@ -503,7 +504,7 @@ parameter with methods named after it, which `connect()` binds:
 import math
 
 from fibsem.devices import Device, Parameter, ParameterMetadata, command
-from fibsem.display import Display
+from fibsem.devices.display import Display
 from fibsem.structures import RangeLimit
 
 
