@@ -112,14 +112,14 @@ def test_nothing_unfitted_is_built(recording):
 def test_the_configuration_switches_parts_off(recording):
     """`hardware.devices` is an overlay on what the instrument has: an entry turns a
     fitted part off, so it is never built; a device no driver builds is left out with
-    a warning."""
+    a warning when it says `required: false`."""
     facts = recording["facts"]["configured"]
     assert facts["devices"] == ["stage", "chamber"]
     assert facts["manipulator"] is True
     assert facts["routed"] is False
 
 
-def test_a_required_device_that_cannot_be_built_fails_connect(recording):
+def test_a_configured_device_that_cannot_be_built_fails_connect(recording):
     assert recording["facts"]["configured"]["required"] == (
         "Device 'laser' was not built: driver 'ThermoFisher' has no builder for a "
         "'laser' device."

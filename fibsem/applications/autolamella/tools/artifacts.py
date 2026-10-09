@@ -104,9 +104,7 @@ def _task_record(task: "AutoLamellaTaskState") -> dict:
         # earlier attempt, and this joins to the hook event that announced it.
         "task_id": task.task_id,
         "completed_at": (
-            iso_from_posix(task.end_timestamp)
-            if task.end_timestamp is not None
-            else None
+            task.end_timestamp.isoformat() if task.end_timestamp is not None else None
         ),
         "duration_s": round(task.duration, 1),
         "outputs": task.outputs,

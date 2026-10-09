@@ -91,7 +91,10 @@ def test_remote_entries_build_the_devices_their_server_has(server):
 def test_a_device_the_server_does_not_have_is_left_out(server, caplog):
     at = {"driver": "remote", "address": "127.0.0.1", "port": server.port}
     with caplog.at_level(logging.WARNING):
-        built = _build({"name": "ion", **at}, {"name": "cam2", "type": "camera", **at})
+        built = _build(
+            {"name": "ion", **at},
+            {"name": "cam2", "type": "camera", "required": False, **at},
+        )
     try:
         assert list(built) == ["ion"]
         assert "has no device 'cam2'" in caplog.text
@@ -102,21 +105,24 @@ def test_a_device_the_server_does_not_have_is_left_out(server, caplog):
 def test_a_server_that_does_not_answer_leaves_its_devices_out(caplog):
     at = {"driver": "remote", "address": "127.0.0.1", "port": _free_port()}
     with caplog.at_level(logging.WARNING):
-        built = _build({"name": "electron", **at}, {"name": "ion", **at})
+        built = _build(
+            {"name": "electron", "required": False, **at},
+            {"name": "ion", "required": False, **at},
+        )
     assert built == {}
     assert "'electron' was not built" in caplog.text
     assert "'ion' was not built" in caplog.text
 
 
-def test_a_required_device_on_a_server_that_does_not_answer_fails_connect():
+def test_a_configured_device_on_a_server_that_does_not_answer_fails_connect():
     at = {"driver": "remote", "address": "127.0.0.1", "port": _free_port()}
     with pytest.raises(DeviceBuildError, match="'electron' was not built"):
-        _build({"name": "electron", "required": True, **at})
+        _build({"name": "electron", **at})
 
 
 def test_an_entry_without_an_address_is_left_out(caplog):
     with caplog.at_level(logging.WARNING):
-        built = _build({"name": "electron", "driver": "remote"})
+        built = _build({"name": "electron", "driver": "remote", "required": False})
     assert built == {}
     assert "needs an `address` and a `port`" in caplog.text
 

@@ -8,6 +8,7 @@ reference images the task writes into task_state.outputs.
 """
 
 import os
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -122,7 +123,9 @@ def test_a_gated_task_records_its_result_and_the_consumer_waits(microscope, tmp_
     assert p["status"] == "Completed" and p["failure"] == ""
     assert p["reference_image"] == f"ref_{ROUGH}_final_res_01_ib.tif"
     assert p["reference_image_eb"] == f"ref_{ROUGH}_final_res_01_eb.tif"
-    assert p["ended_at"] >= p["started_at"] > 0
+    # ISO with offset, as the task state writes them (FIB-1197)
+    started, ended = (datetime.fromisoformat(p[k]) for k in ("started_at", "ended_at"))
+    assert ended >= started and started.tzinfo is not None
     assert lamella.is_awaiting_decision(ROUGH), "ran, not finished"
     assert task.task_manager._defer_reason(lamella, POLISH) == "awaiting_decision"
 

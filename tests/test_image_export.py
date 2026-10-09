@@ -26,7 +26,9 @@ from fibsem.imaging.export import (
     format_si,
     from_fibsem_image,
     from_fluorescence_image,
+    image_caption,
     image_fields,
+    image_summary,
     load_export_image,
     render_export,
     save_export,
@@ -490,3 +492,28 @@ def test_every_channel_hidden_is_a_black_image():
     export = from_fluorescence_image(_fm_image())
     out = render_export(export, ExportOptions(scalebar=False, hidden_channels=[0, 1]))
     assert out.shape == (256, 256, 3) and not out.any()
+
+
+# --- the one-line caption and the tooltip, for a History tile (FIB-1189) -----------
+
+
+def test_a_caption_is_one_line_for_a_narrow_tile():
+    # 256 px at 65 nm; the date is naive, so its wall time reads the same anywhere.
+    assert image_caption(image_fields(_fm_image())) == "FM · HFW 16.6 µm · 14:48"
+    sem = image_caption(image_fields(_sem_image()))
+    assert sem.startswith("SEM · HFW 150 µm")
+
+
+def test_a_caption_drops_what_the_file_does_not_say():
+    image = _sem_image()
+    image.metadata = None
+    assert image_caption(image_fields(image)) == ""
+
+
+def test_the_summary_is_everything_the_bar_can_say():
+    lines = image_summary(image_fields(_sem_image())).splitlines()
+    assert lines[0] == "SEM · ETD · SE"
+    assert "Horizontal field width: 150 µm" in lines
+    assert "Accelerating voltage: 2 kV" in lines
+    assert "Working distance: 4.00 mm" in lines
+    assert lines[-1].startswith("Acquired at: ")

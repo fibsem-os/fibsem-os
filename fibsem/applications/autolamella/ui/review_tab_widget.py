@@ -98,6 +98,7 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
 )
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE
+from fibsem.util.timestamps import format_time, from_posix, now, to_aware, to_datetime
 
 __all__ = [
     "REVIEW_RENDERERS",
@@ -166,17 +167,17 @@ def author_label(author: Author, experiment: Optional[Experiment]) -> str:
     return author.label
 
 
-def clock(timestamp: Optional[float]) -> str:
-    if not timestamp:
-        return ""
-    return datetime.fromtimestamp(timestamp).strftime("%H:%M")
+def clock(timestamp) -> str:
+    """A proposal's or decision's time, in the viewer's zone; "" when it has none."""
+    return (format_time(timestamp, "%H:%M") or "") if timestamp else ""
 
 
-def age(timestamp: Optional[float]) -> str:
+def age(timestamp) -> str:
     """How long ago, coarsely: "3 min", "2 h", "1 d"."""
-    if not timestamp:
+    when = to_aware(timestamp) if timestamp else None
+    if when is None:
         return ""
-    seconds = max(0.0, time.time() - timestamp)
+    seconds = max(0.0, (now() - when).total_seconds())
     if seconds < 60:
         return "just now"
     if seconds < 3600:
@@ -299,7 +300,7 @@ def decided_proposals(experiment: Experiment) -> List[tuple]:
                         decided.append((item, task_name, p, False))
                 else:
                     decided.append((item, task_name, p, True))
-    decided.sort(key=lambda e: e[2].current.timestamp, reverse=True)
+    decided.sort(key=lambda e: e[2].current.timestamp or from_posix(0.0), reverse=True)
     return decided
 
 
@@ -569,10 +570,17 @@ class TaskResultReviewRenderer(ReviewRenderer):
     def _took(self) -> str:
         """How long the run took, or "" when the record does not say."""
         p = self._proposal.provenance if self._proposal else {}
-        started, ended = p.get("started_at"), p.get("ended_at")
-        if isinstance(started, (int, float)) and isinstance(ended, (int, float)):
-            return _duration(ended - started)
-        return ""
+        # ISO with offset, or the POSIX floats older proposals hold (FIB-1197)
+        started, ended = (
+            to_datetime(p.get("started_at")),
+            to_datetime(p.get("ended_at")),
+        )
+        if started is None or ended is None:
+            return ""
+        try:
+            return _duration((ended - started).total_seconds())
+        except TypeError:  # one with a zone, one without: not comparable
+            return ""
 
     # -- ReviewRenderer ------------------------------------------------------
 

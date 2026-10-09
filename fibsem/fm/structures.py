@@ -2037,7 +2037,7 @@ class FluorescenceConfiguration:
             >>> config = FluorescenceConfiguration.load("config.yaml")
             >>> print(f"Loaded {len(config.channel_settings)} channels")
         """
-        with open(filename, "r") as f:
+        with open(filename) as f:
             config_dict = yaml.safe_load(f)
 
         config = cls.from_dict(config_dict)

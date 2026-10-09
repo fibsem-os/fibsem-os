@@ -4,6 +4,7 @@ from fibsem.segmentation._nnunet import convert_to_nnunet_dataset
 
 # Convert a fibsem dataset to nnunet format
 
+
 def main():
     parser = argparse.ArgumentParser(description="Convert a dataset to nnunet format")
     parser.add_argument("--data_path", type=str, help="path to data")
@@ -21,7 +22,7 @@ def main():
     if args.label_map is not None:
         print(args.label_map)
         # open text file, read each line, and add to list of labels, remove newline character
-        with open(args.label_map, "r") as f:
+        with open(args.label_map) as f:
             labels = [line.rstrip("\n") for line in f]
         args.label_map = labels
 

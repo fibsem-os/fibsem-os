@@ -96,6 +96,7 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     scrollable,
 )
+from fibsem.util import timestamps
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -2260,7 +2261,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             )
             written = image.save(filename)
 
-            now = datetime.datetime.now().timestamp()
+            now = timestamps.now()
             lamella.task_history.append(
                 AutoLamellaTaskState(
                     name=COINCIDENCE_REVIEW_TASK_NAME,

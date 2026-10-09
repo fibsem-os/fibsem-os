@@ -47,9 +47,11 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import CANVAS_BG as _BG
 from fibsem.ui.stylesheets import PRIMARY_ACCENT as _ACCENT
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
     GRAY_WHITE_COLOR,
     NEUTRAL_400,
     NEUTRAL_450,
+    TEXT_COLOR,
     WHITE_ICON_COLOR,
 )
 from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
@@ -132,6 +134,15 @@ _OVERLAY_GAP = 2
 _TOP_CHROME_INSET = _OVERLAY_MARGIN + _OVERLAY_BTN_SIZE + 4
 # The "● LIVE" chip shares the toolbar row, so it takes the buttons' height and corner
 # radius; the green is the badge's own, not a button state.
+# The status chips (FIB-1188): whether the image still matches the stage. Blue while
+# something is happening to it, grey once it is stale and nothing is coming.
+_BUSY_CHIP_BG = "#1f5f99"
+_STALE_CHIP_BG = BORDER_COLOR
+_STALE_CHIP_TEXT = TEXT_COLOR
+_CHIP_STYLE = (
+    "QLabel {{ background: {bg}; color: {fg}; border-radius: 3px; padding: 0px 6px;"
+    " font-size: 10px; font-weight: bold; }}"
+)
 _LIVE_BADGE_STYLE = (
     f"QLabel {{ background: {_LIVE_BADGE_BG}; color: {WHITE_ICON_COLOR};"
     " border-radius: 3px; padding: 0px 6px; font-size: 10px; font-weight: bold; }"
@@ -302,6 +313,11 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._info_text: Optional[str] = None  # remembered so it survives set_image
         self._live_badge = None  # top-right "● LIVE" chip during live acquisition
         self._live_on: bool = False  # remembered so it survives set_image
+        # The status chip in the same place, when not live: "MOVING", "ACQUIRING",
+        # "STAGE MOVED" (FIB-1188). Remembered, so it survives set_image.
+        self._chip_text: Optional[str] = None
+        self._chip_stale = False
+        self._chip_while_live = False
 
         # Transient status message (e.g. "WD 4.001 mm" on Shift+scroll); auto-clears.
         # Shares the top-left status zone with the hint, and outranks it while up.
@@ -642,11 +658,50 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         each frame, which the artists around it still need.
         """
         self._live_on = bool(on)
+        self._refresh_badge()
+
+    def set_status_chip(
+        self, text: Optional[str], stale: bool = False, while_live: bool = False
+    ) -> None:
+        """Say whether the image still matches the stage, in LIVE's place beside the
+        toolbar: "MOVING", "ACQUIRING", or -- *stale*, grey -- "STAGE MOVED". None
+        clears it.
+
+        One chip at a time, MOVING > LIVE > ACQUIRING > STAGE MOVED. A chip that
+        outranks LIVE says so (*while_live*): the stage moving under a streaming
+        beam is worth saying, and the view's green border still says it is live. A
+        frame on its way, or a stale one, is not: a live view's frames keep coming.
+        """
+        self._chip_text = text or None
+        self._chip_stale = bool(stale)
+        self._chip_while_live = bool(while_live)
+        self._refresh_badge()
+
+    @property
+    def status_chip(self) -> Optional[str]:
+        """The status chip's text, or None; live or not."""
+        return self._chip_text
+
+    def _refresh_badge(self) -> None:
+        """The one chip in the top-right: MOVING > LIVE > ACQUIRING > STAGE MOVED."""
+        chip_first = self._chip_text and self._chip_while_live
+        if chip_first or (self._chip_text and not self._live_on):
+            bg = _STALE_CHIP_BG if self._chip_stale else _BUSY_CHIP_BG
+            fg = _STALE_CHIP_TEXT if self._chip_stale else WHITE_ICON_COLOR
+            text, style = self._chip_text, _CHIP_STYLE.format(bg=bg, fg=fg)
+        elif self._live_on:
+            text, style = "● LIVE", _LIVE_BADGE_STYLE
+        else:
+            text = style = None
         if self._live_badge is None:
-            if not self._live_on:
+            if text is None:
                 return  # never shown, nothing to hide
             self._live_badge = self._make_live_badge()
-        self._live_badge.setVisible(self._live_on)
+        if text is not None:
+            self._live_badge.setText(text)
+            self._live_badge.setStyleSheet(style)
+            self._live_badge.adjustSize()
+        self._live_badge.setVisible(text is not None)
         self._reposition_overlay_buttons()
 
     def _make_live_badge(self) -> QLabel:
@@ -805,6 +860,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         if self._live_badge is not None:
             self._live_badge.hide()
         self._live_on = False
+        self._chip_text = None  # no image, nothing to be stale
+        self._chip_stale = False
         self._flash_text = None
         self._readout_text = None
         self._flash_timer.stop()

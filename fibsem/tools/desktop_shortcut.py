@@ -130,9 +130,7 @@ def create_desktop_shortcut(
     if os.name == "nt":
         _write_windows_lnk(destination, target)
     elif sys.platform == "darwin":
-        _write_script(
-            destination, "#!/bin/bash\nexec '{}'\n".format(_posix_quote(target))
-        )
+        _write_script(destination, f"#!/bin/bash\nexec '{_posix_quote(target)}'\n")
     else:
         _write_script(
             destination,
@@ -140,8 +138,8 @@ def create_desktop_shortcut(
             "Type=Application\n"
             "Name=AutoLamella\n"
             "Comment=Launch the AutoLamella UI\n"
-            'Exec="{}"\n'
-            "Terminal=false\n".format(str(target)),
+            f'Exec="{str(target)}"\n'
+            "Terminal=false\n",
         )
     return destination
 
@@ -169,12 +167,12 @@ def _write_windows_lnk(destination: Path, target: Path) -> None:
         return "'" + str(p).replace("'", "''") + "'"
 
     script = (
-        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut({dest}); "
-        "$s.TargetPath = {target}; "
-        "$s.WorkingDirectory = {workdir}; "
+        f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut({q(destination)}); "
+        f"$s.TargetPath = {q(target)}; "
+        f"$s.WorkingDirectory = {q(Path.home())}; "
         "$s.Description = 'Launch the AutoLamella UI'; "
         "$s.Save()"
-    ).format(dest=q(destination), target=q(target), workdir=q(Path.home()))
+    )
     subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         check=True,

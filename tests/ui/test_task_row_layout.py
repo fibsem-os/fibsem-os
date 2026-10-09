@@ -101,7 +101,7 @@ def _render(tmp_path, resolution):
     )
     path = image.save(str(tmp_path / f"ref_{width}x{height}.tif"))
 
-    arr, _ = _load_and_resize(path)
+    arr, _, _ = _load_and_resize(path)
     h, w = arr.shape[:2]
     return w, h
 
@@ -150,3 +150,42 @@ def test_a_square_image_is_limited_by_height_not_width(app, tmp_path):
 
     assert h == _PLACEHOLDER_HEIGHT
     assert w < _TARGET_WIDTH
+
+
+# --- captions (FIB-1189) -----------------------------------------------------------
+
+
+def _sem_file(tmp_path) -> str:
+    """A FIB image with its beam recorded, saved as the workflow saves one."""
+    import os
+    import sys
+
+    sys.path.insert(0, os.path.dirname(__file__))
+    from test_view_info_bar import _beam_image
+
+    from fibsem.structures import BeamType
+
+    image = _beam_image(BeamType.ION, voltage=30e3)
+    return image.save(str(tmp_path / "ref_final_ib.tif"))
+
+
+def test_a_loaded_tile_gets_a_caption_and_the_full_metadata_on_hover(app, tmp_path):
+    """Read from the file the loader already opens for the pixels: no second read."""
+    path = _sem_file(tmp_path)
+    widget = LamellaTaskImageWidget()
+    row = widget._build_task_row_with_placeholders("Rough Milling", [path])  # kept
+    caption = widget._caption_labels[path]
+    assert caption.text() == "", "nothing to say until the file is read"
+
+    from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
+        _load_and_resize,
+    )
+
+    widget._on_image_loaded(path, *_load_and_resize(path))
+
+    assert caption.text().startswith("FIB · HFW ")
+    tooltip = widget._placeholder_labels[path].toolTip()
+    assert tooltip == caption.toolTip()
+    assert "Accelerating voltage: 30 kV" in tooltip.splitlines()
+    assert widget._kinds[path] == "FIB"
+    row.deleteLater()

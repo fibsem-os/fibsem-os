@@ -242,7 +242,7 @@ def facts():
 
     microscope = configured(
         {"name": "manipulator", "enabled": False},
-        {"name": "laser", "type": "laser"},
+        {"name": "laser", "type": "laser", "required": False},
     )
     out["configured"] = {
         "devices": list(microscope.devices),
@@ -250,7 +250,7 @@ def facts():
         "routed": microscope._route("manipulator_state", None) is not None,
     }
     try:
-        configured({"name": "laser", "type": "laser", "required": True})
+        configured({"name": "laser", "type": "laser"})
         out["configured"]["required"] = None
     except DeviceBuildError as e:
         out["configured"]["required"] = str(e)

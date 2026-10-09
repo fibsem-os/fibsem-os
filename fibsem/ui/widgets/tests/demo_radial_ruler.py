@@ -20,12 +20,9 @@ import sys
 
 import numpy as np
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import QRectF, Qt
+from PyQt5.QtGui import QImage, QPainter, QPixmap
 
-from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
-    ZoomableImageView,
-)
 from fibsem.structures import FibsemImage
 from fibsem.ui.widgets.angle_measure import AngleMeasureOverlay
 from fibsem.ui.widgets.annotation_pin import AnnotationPinOverlay
@@ -58,6 +55,43 @@ def _fibsem_to_pixmap(img: FibsemImage) -> QPixmap:
     h, w, _ = arr.shape
     qimg = QImage(arr.data, w, h, w * 3, QImage.Format_RGB888)
     return QPixmap.fromImage(qimg)
+
+
+class ZoomableImageView(QtWidgets.QGraphicsView):
+    """QGraphicsView with scroll-to-zoom and drag-to-pan, for the overlay prototypes.
+
+    The app's images open on the real canvas now (FIB-1189); these overlays are
+    QGraphicsView prototypes, so the demo keeps the view they were built on.
+    """
+
+    _ZOOM_FACTOR = 1.05
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._scene = QtWidgets.QGraphicsScene(self)
+        self.setScene(self._scene)
+        self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+        self.setResizeAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
+        self.setDragMode(QtWidgets.QGraphicsView.ScrollHandDrag)
+        self.setRenderHint(QPainter.SmoothPixmapTransform)
+        self.setBackgroundBrush(Qt.black)
+        self.setFrameShape(QtWidgets.QFrame.NoFrame)
+
+    def set_pixmap(self, pixmap: QPixmap) -> None:
+        self._scene.clear()
+        self._scene.addPixmap(pixmap)
+        self._scene.setSceneRect(QRectF(pixmap.rect()))
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._scene.items():
+            self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
+
+    def wheelEvent(self, event) -> None:
+        factor = (
+            self._ZOOM_FACTOR if event.angleDelta().y() > 0 else 1 / self._ZOOM_FACTOR
+        )
+        self.scale(factor, factor)
 
 
 class MeasureImageView(ZoomableImageView):

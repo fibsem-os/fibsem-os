@@ -8,7 +8,7 @@ import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import InitVar, asdict, dataclass, field, fields
-from datetime import datetime
+from datetime import datetime, tzinfo
 from enum import Enum, auto
 from pathlib import Path
 from typing import (
@@ -41,8 +41,16 @@ from fibsem.config import (
     SUPPORTED_COORDINATE_SYSTEMS,
     UNVERSIONED_METADATA,
 )
-from fibsem.manufacturers import normalize_manufacturer
-from fibsem.util.timestamps import acquisition_datetime_of, to_aware
+from fibsem.manufacturers import DEMO, normalize_manufacturer
+from fibsem.util.timestamps import (
+    acquisition_datetime_of,
+    now,
+    to_aware,
+    to_datetime,
+    to_iso,
+    utc_offset_of,
+    zone_from_offset,
+)
 from fibsem.versioning import get_revision
 
 if TYPE_CHECKING:
@@ -3851,10 +3859,12 @@ class FibsemExperimentRef:
     # is a name. See FIB-446.
     id: Optional[str] = None
     name: Optional[str] = None
-    # default_factory, not a plain default: a plain default is evaluated once at
-    # class definition, so every experiment recorded the interpreter's import
-    # time rather than its own creation time.
-    date: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
+    # When the reference was made, which is when a session adopted the experiment.
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older images hold a
+    # POSIX float, which reads as this machine's zone. default_factory, not a plain
+    # default: a plain default is evaluated once at class definition, so every
+    # experiment recorded the interpreter's import time rather than its own.
+    date: Optional[datetime] = field(default_factory=now)
 
     # Where in the run. None outside a workflow -- the minimap, a manual acquisition,
     # a script -- which is a real answer rather than missing information.
@@ -3903,7 +3913,7 @@ class FibsemExperimentRef:
         return {
             "id": self.id,
             "name": self.name,
-            "date": self.date,
+            "date": to_iso(self.date),
             "item_id": self.item_id,
             "item_name": self.item_name,
             "task_id": self.task_id,
@@ -3927,7 +3937,8 @@ class FibsemExperimentRef:
             # as None rather than backfilled from `id`, so a reader can tell the two
             # eras apart instead of being handed a name that claims to be an ID.
             name=settings.get("name"),
-            date=settings.get("date", "Unknown"),
+            # None when absent or unreadable; files before FIB-1197 hold a float
+            date=to_datetime(settings.get("date")),
             # Absent before v8, and in any image acquired outside a workflow.
             item_id=settings.get("item_id"),
             item_name=settings.get("item_name"),
@@ -4036,21 +4047,44 @@ class SessionInfo:
     images and v0.5.2 here -- two true facts, which is the same reasoning that put
     the version fields on ``SystemInfo`` in the first place (FIB-445 D1). Keeping
     every session rather than the latest is FIB-452's shape, not this record's.
+
+    **The instrument's zone** (FIB-1196): ``utc_offset`` and ``zone_name``, so a time
+    that carries no offset of its own -- a POSIX float, which every task time and
+    most beam images before FIB-1190 are -- can be read on the instrument's clock
+    on any machine (``wall_time_of(value, session.zone)``). New times carry their own
+    offset and do not need it. Three limits:
+
+    - An offset belongs to a moment, not a zone. A run that crosses a daylight
+      saving change reads an hour out on the side the session did not record.
+    - ``zone_name`` is what the OS calls the zone, as given: ``AEST`` on macOS and
+      Linux, ``AUS Eastern Standard Time`` on Windows. It labels, it is not parsed.
+    - A Demo session records no zone of its own and keeps the last one recorded, so
+      opening an experiment on another machine does not replace the instrument's.
     """
 
-    recorded_at: float = field(
-        default_factory=lambda: datetime.timestamp(datetime.now())
-    )
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older experiments hold
+    # a POSIX float, which reads as this machine's zone.
+    recorded_at: Optional[datetime] = field(default_factory=now)
     system: Optional[SystemInfo] = None
     user: Optional[FibsemUser] = None
     # Distribution name -> version for every installed extension; see
     # `installed_plugin_versions`. A plain dict so it survives `yaml.safe_dump`,
     # which is how an experiment is written.
     plugins: Dict[str, str] = field(default_factory=dict)
+    utc_offset: Optional[str] = None  # "+10:00"
+    zone_name: Optional[str] = None
+
+    @property
+    def zone(self) -> Optional[tzinfo]:
+        """The instrument's zone, fixed at its recorded offset; None when unknown."""
+        return zone_from_offset(self.utc_offset, self.zone_name)
 
     @classmethod
     def collect(
-        cls, microscope: "FibsemMicroscope", user: Optional[FibsemUser] = None
+        cls,
+        microscope: "FibsemMicroscope",
+        user: Optional[FibsemUser] = None,
+        previous: Optional["SessionInfo"] = None,
     ) -> "SessionInfo":
         """Snapshot what is running right now.
 
@@ -4061,6 +4095,8 @@ class SessionInfo:
         The system info is copied. It is a live object on the microscope -- the
         application field is set on it during registration, and a driver may update
         it -- and a record that quietly changes after the fact is not a record.
+
+        ``previous`` is the session this one replaces: a Demo session keeps its zone.
         """
         from copy import deepcopy
 
@@ -4069,18 +4105,28 @@ class SessionInfo:
         from fibsem.plugins.report import installed_plugin_versions
 
         info = getattr(getattr(microscope, "system", None), "info", None)
+        if normalize_manufacturer(getattr(info, "manufacturer", None)) == DEMO:
+            utc_offset = previous.utc_offset if previous is not None else None
+            zone_name = previous.zone_name if previous is not None else None
+        else:
+            here = now()
+            utc_offset, zone_name = utc_offset_of(here), here.tzname()
         return cls(
             system=deepcopy(info) if info is not None else None,
             user=user if user is not None else FibsemUser.from_environment(),
             plugins=installed_plugin_versions(),
+            utc_offset=utc_offset,
+            zone_name=zone_name,
         )
 
     def to_dict(self) -> dict:
         return {
-            "recorded_at": self.recorded_at,
+            "recorded_at": to_iso(self.recorded_at),
             "system": self.system.to_dict() if self.system is not None else None,
             "user": self.user.to_dict() if self.user is not None else None,
             "plugins": dict(self.plugins),
+            "utc_offset": self.utc_offset,
+            "zone_name": self.zone_name,
         }
 
     @staticmethod
@@ -4088,10 +4134,12 @@ class SessionInfo:
         system = ddict.get("system")
         user = ddict.get("user")
         return SessionInfo(
-            recorded_at=ddict.get("recorded_at"),
+            recorded_at=to_datetime(ddict.get("recorded_at")),
             system=SystemInfo.from_dict(system) if system else None,
             user=FibsemUser.from_dict(user) if user else None,
             plugins=dict(ddict.get("plugins") or {}),
+            utc_offset=ddict.get("utc_offset"),
+            zone_name=ddict.get("zone_name"),
         )
 
 
@@ -5119,8 +5167,15 @@ class SlotCalibration:
     orientation: str
     pre_tilt: float
     rotation_reference: float
-    captured_at: str = ""
+    # When the wizard captured it: aware, written as ISO 8601 with its offset
+    # (FIB-1190, FIB-1197). Records before FIB-1190 hold a naive string, which stays
+    # naive. None for a position nobody captured.
+    captured_at: Optional[datetime] = None
     fibsem_version: str = ""
+
+    def __post_init__(self) -> None:
+        # the string a holder file or a caller holds
+        self.captured_at = to_datetime(self.captured_at) if self.captured_at else None
 
     @classmethod
     def builtin(cls, pre_tilt: float, rotation_reference: float) -> "SlotCalibration":
@@ -5135,7 +5190,7 @@ class SlotCalibration:
             orientation="SEM",
             pre_tilt=pre_tilt,
             rotation_reference=rotation_reference,
-            captured_at="",
+            captured_at=None,
             fibsem_version="built-in",
         )
 
@@ -5154,7 +5209,7 @@ class SlotCalibration:
             "orientation": self.orientation,
             "pre_tilt": self.pre_tilt,
             "rotation_reference": self.rotation_reference,
-            "captured_at": self.captured_at,
+            "captured_at": to_iso(self.captured_at) or "",
             "fibsem_version": self.fibsem_version,
         }
 
@@ -5164,7 +5219,7 @@ class SlotCalibration:
             orientation=str(data.get("orientation", "")),
             pre_tilt=float(data.get("pre_tilt", 0.0)),
             rotation_reference=float(data.get("rotation_reference", 0.0)),
-            captured_at=str(data.get("captured_at", "")),
+            captured_at=data.get("captured_at") or None,
             fibsem_version=str(data.get("fibsem_version", "")),
         )
 
@@ -5432,7 +5487,7 @@ class SampleHolder:
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Sample holder config not found: {path}")
-        with open(path, "r") as f:
+        with open(path) as f:
             data = yaml.safe_load(f)
         return cls.from_dict(data)
 

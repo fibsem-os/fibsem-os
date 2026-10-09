@@ -3,7 +3,9 @@
 Follows card selection, in the shape of the Lamella tab's Review view: the name,
 a line on the latest run, then one row per history entry in the order they
 happened. A task's row carries the thumbnail it recorded, and clicking it opens
-the full overview; a task that recorded nothing says why instead. The load is a
+the full overview in the image viewer, at full resolution, with every image
+the grid's runs recorded to step through in run order and Mark positions in
+its header; a task that recorded nothing says why instead. The load is a
 row like any other. Everything is read off the history and the outputs recorded
 on it, never by globbing the grid's directory.
 """
@@ -20,6 +22,7 @@ from PyQt5.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -33,13 +36,13 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
     ClickableLabel,
-    ExpandedImageDialog,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as _LOAD_ENTRY_NAME,
 )
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.ui import stylesheets
+from fibsem.ui.stylesheets import SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.tokens import (
     ERROR_COLOR,
     NEUTRAL_200,
@@ -49,6 +52,8 @@ from fibsem.ui.tokens import (
     OK_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
+from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
+from fibsem.util.timestamps import format_time
 
 _TILE_W, _TILE_H = 320, 213  # 3:2, the Review tab's proportions at a card-friendly size
 
@@ -64,7 +69,7 @@ _STATUS_COLOUR = {
 
 def _when(state: AutoLamellaTaskState) -> str:
     stamp = state.end_timestamp or state.start_timestamp
-    return datetime.fromtimestamp(stamp).strftime(TIME_DISPLAY_AMPM_SHORT)
+    return format_time(stamp, TIME_DISPLAY_AMPM_SHORT) or ""
 
 
 def _recorded(
@@ -113,6 +118,7 @@ class _HistoryRow(QWidget):
     and the image it recorded, if any -- with an offer to mark positions on it."""
 
     mark_clicked = pyqtSignal(str)  # the image's path
+    open_clicked = pyqtSignal(str)  # the image's path
 
     def __init__(
         self,
@@ -188,7 +194,7 @@ class _HistoryRow(QWidget):
                         _TILE_W, _TILE_H, Qt.KeepAspectRatio, Qt.SmoothTransformation
                     )
                 )
-            self.tile.clicked.connect(self._open)
+            self.tile.clicked.connect(self.open_clicked)
             layout.addWidget(self.tile, 0, Qt.AlignLeft)
         elif (
             state.name != _LOAD_ENTRY_NAME
@@ -199,14 +205,6 @@ class _HistoryRow(QWidget):
                 f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
             )
             layout.addWidget(note)
-
-    def _open(self, path: str) -> None:
-        dialog = ExpandedImageDialog(
-            path,
-            title=f"{self.name_label.text()} · {self.when_label.text()}",
-            parent=self,
-        )
-        dialog.show()
 
 
 class GridResultsWidget(QWidget):
@@ -336,5 +334,38 @@ class GridResultsWidget(QWidget):
             row.mark_clicked.connect(
                 lambda path: self.mark_requested.emit(self._grid, path)
             )
+            row.open_clicked.connect(self.open_image)
             self._rows_layout.addWidget(row)
             self._rows.append(row)
+
+    # -- the viewer --------------------------------------------------------------
+
+    def open_image(self, path: str) -> None:
+        """Open *path* in the image viewer, with every image this grid's runs
+        recorded to step through in run order, and Mark positions for the one shown.
+
+        The tile is a thumbnail; the viewer reads the image itself, at full
+        resolution -- a stitched overview is thousands of pixels across.
+        """
+        grid = self._grid
+        rows = [r for r in self._rows if isinstance(r, _HistoryRow) and r.image]
+        items = [
+            ViewerItem(
+                path=row.image,
+                title=f"{grid.name} › {row.state.name} · {_when(row.state)}",
+                thumbnail=row.tile.pixmap() if row.tile is not None else None,
+            )
+            for row in rows
+        ]
+        paths = [item.path for item in items]
+        mark = QPushButton("Mark positions")
+        mark.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        mark.setToolTip("Mark positions on this overview")
+        dialog = open_image_viewer(
+            self, items, paths.index(path) if path in paths else 0, actions=[mark]
+        )
+        mark.clicked.connect(lambda: self._mark_shown(dialog.viewer.current_item))
+
+    def _mark_shown(self, item: Optional[ViewerItem]) -> None:
+        if item is not None and self._grid is not None:
+            self.mark_requested.emit(self._grid, item.path)

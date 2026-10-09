@@ -132,11 +132,32 @@ class DeviceClient:
     read again, and every parameter that changed in the gap emitted ``changed``;
     devices built offline are bound."""
 
-    def __init__(self, host: str, port: int, heartbeat: float = HEARTBEAT):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        heartbeat: float = HEARTBEAT,
+        token: Optional[str] = None,
+        events: bool = True,
+    ):
+        """*token*, when given, goes on every HTTP request as a bearer token, for
+        the agent server, which serves the same ``/devices`` routes behind one
+        (``fibsem.server.server``); the event stream carries none.
+
+        *events* False never opens the event stream, for a server that has none
+        (the agent server). Reads, writes and commands work the same; but nothing
+        signals a change made on the far side, ``cached`` is only as current as
+        this client's last read or write, metadata (limits, choices) only as
+        current as its last ``refresh_metadata()``, and ``connected``,
+        ``disconnected`` and ``reconnected`` never change or fire.
+        """
         self.heartbeat = heartbeat
         self.base_url = f"http://{host}:{port}"
         self.events_url = f"ws://{host}:{port}/events"
+        self.events = events
         self._session = requests.Session()
+        if token is not None:
+            self._session.headers["Authorization"] = f"Bearer {token}"
         self._devices: Dict[str, Device] = {}
         self._events: Optional[threading.Thread] = None
         self._ready = threading.Event()
@@ -203,7 +224,7 @@ class DeviceClient:
         """Follow the device's events. The first device starts the event stream; with
         ``wait``, until it is open, so no change is missed from here on."""
         self._devices[device.name] = device
-        if self._events is None:
+        if self.events and self._events is None:
             self._events = threading.Thread(target=self._listen, daemon=True)
             self._events.start()
             if wait:
@@ -302,6 +323,8 @@ class DeviceClient:
             param.refresh_metadata()
 
     def _expect_echo(self, key: Tuple[str, str], value: Any) -> None:
+        if not self.events:
+            return  # no stream, so no echo will come back to take it
         with self._echoes_lock:
             self._echoes.setdefault(key, []).append(value)
 
