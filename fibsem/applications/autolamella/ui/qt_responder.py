@@ -694,7 +694,10 @@ class QtResponder(QObject):
         request, future = active
         if future.cancelled():
             return
-        error = self._milling_widget().milling_widget.milling_error
+        # The widget this slot is wired to, which is the one that finished: not
+        # _milling_widget(), whose lookup raises once a disconnect has torn the
+        # tab down, and a raise here aborts the app under PyQt5 (FIB-329).
+        error = self._milling_finished_wired.milling_widget.milling_error
         if error is None:
             status = (
                 f"Milling {request.config.name} Complete: "
