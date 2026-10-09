@@ -593,8 +593,9 @@ metadata and commands behave as they do locally. Beams, the stage, the chamber, 
 manipulator and the FM's parts can each be an entry with `driver: remote`; a stage,
 chamber or manipulator entry keeps its type's name. Moves, pumping and venting run on
 the server, which checks a stage move against the limits as well. What a device says
-about itself beyond its parameters (the stage's frame and whether it is a compustage,
-the needle's axes and named positions) crosses as the device's `facts()`.
+about itself beyond its parameters (the stage's frame, shuttle and the device each
+pose is at, the needle's axes and named positions) crosses as the device's `facts()`;
+a remote stage asks the server for its poses (`pose_table`).
 `python -m fibsem.server.devices --serve stage chamber manipulator` serves the Demo's,
 to try it. `connect_remote_beams` in the same module connects to served beams from a
 script. `get_value()` raises `RemoteDeviceUnreachable` when the server cannot
