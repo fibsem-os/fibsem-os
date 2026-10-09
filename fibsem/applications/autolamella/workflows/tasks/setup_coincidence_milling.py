@@ -187,7 +187,6 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             )
 
         image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         # 1. the milling pose, stage only. Tilt first: once the objective is in, z and
         # t are unavailable, so the order here is not negotiable.

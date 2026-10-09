@@ -173,7 +173,6 @@ class MillCoincidentTask(AutoLamellaTask):
             )
 
         image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         # 1. the milling pose, stage only; tilt lands before the objective goes in
         self._move_to_milling_pose()
@@ -269,7 +268,6 @@ class MillCoincidentTask(AutoLamellaTask):
         milling_task_config = self.config.milling[MILL_COINCIDENT_KEY]
         milling_task_config.field_of_view = setup.field_of_view
         milling_task_config.alignment.rect = self.lamella.alignment_area
-        milling_task_config.acquisition.imaging.path = self.lamella.path
 
         supervised = self.validate
         for stage in milling_task_config.enabled_stages:
