@@ -10,12 +10,14 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 
 from fibsem import acquire, utils
+from fibsem.cancellation import CANCELLED, COMPLETED, ended_by
 from fibsem.structures import (
     BeamType,
     FibsemImage,
     ImageSettings,
     Point,
 )
+from fibsem.util.timestamps import now_iso
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -450,8 +452,51 @@ def multi_step_alignment_v2(
     path: Optional[str] = None,
     method: AlignmentMethod = DEFAULT_ALIGNMENT_METHOD,
 ) -> AlignmentResult:
-    """Runs the beam shift alignment multiple times."""
+    """Runs the beam shift alignment multiple times.
 
+    Every run records one ``alignment`` event however it ends -- completed,
+    stopped, or raising -- with its ``status`` and when it ``started_at`` (the
+    event's own time is when it ended). A run that raises re-raises after.
+    """
+    started_at = now_iso()
+    try:
+        return _multi_step_alignment(
+            microscope=microscope,
+            ref_image=ref_image,
+            steps=steps,
+            use_autocontrast=use_autocontrast,
+            use_autofocus=use_autofocus,
+            subsystem=subsystem,
+            stop_event=stop_event,
+            run_name=run_name,
+            acquire_final_image=acquire_final_image,
+            validate=validate,
+            path=path,
+            method=method,
+            started_at=started_at,
+        )
+    except Exception as error:
+        _record_alignment_that_raised(
+            microscope, ref_image, run_name, subsystem, method, steps, started_at, error
+        )
+        raise
+
+
+def _multi_step_alignment(
+    microscope: FibsemMicroscope,
+    ref_image: FibsemImage,
+    steps: int,
+    use_autocontrast: bool,
+    use_autofocus: bool,
+    subsystem: AlignmentSubsystem,
+    stop_event: Optional[ThreadingEvent],
+    run_name: str,
+    acquire_final_image: bool,
+    validate: bool,
+    path: Optional[str],
+    method: AlignmentMethod,
+    started_at: str,
+) -> AlignmentResult:
     alignment_results = []
     aborted = False
     for i in range(steps):
@@ -475,15 +520,17 @@ def multi_step_alignment_v2(
     # persist. Skip the final-image acquisition (which would touch the
     # microscope after a stop request) and the save (which would otherwise
     # dump an empty AlignmentResult directory, into the CWD when no path is
-    # set), and return an empty result.
+    # set), and return an empty result -- recorded, so the stop shows.
     if aborted and not alignment_results:
-        return AlignmentResult(
+        run = AlignmentResult(
             name=run_name,
             reference_image=ref_image,
             subsystem=subsystem,
             method=method,
             results=[],
         )
+        _record_alignment(microscope, run, steps, aborted, None, started_at)
+        return run
 
     if validate:
         acquire_final_image = True
@@ -518,7 +565,7 @@ def multi_step_alignment_v2(
 
     save_path: str = path if path is not None else _alignment_save_path(ref_image)[0]
     run_dir = run.save(save_path, plot_title=run_name)
-    _record_alignment(microscope, run, steps, aborted, run_dir)
+    _record_alignment(microscope, run, steps, aborted, run_dir, started_at)
 
     # one line per run; each step's shift is logged at debug level
     if alignment_results:
@@ -537,12 +584,14 @@ def _record_alignment(
     run: AlignmentResult,
     steps: int,
     aborted: bool,
-    path: str,
+    path: Optional[str],
+    started_at: str,
 ) -> None:
     """Record an alignment run: one event, with every step's measured shift.
 
-    The corrections are recorded by the microscope, as beam shifts or stage
-    moves. Never raises: an alignment that cannot be described still aligned.
+    A stopped run is ``cancelled``, with whatever steps it took. The
+    corrections are recorded by the microscope, as beam shifts or stage moves.
+    Never raises: an alignment that cannot be described still aligned.
     """
     try:
         payload = {
@@ -551,6 +600,40 @@ def _record_alignment(
             "steps": steps,
             "aborted": aborted,
             "path": path,
+            "status": CANCELLED if aborted else COMPLETED,
+            "started_at": started_at,
+        }
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug("could not record an alignment", exc_info=True)
+        return
+    microscope.record_event("alignment", payload)
+
+
+def _record_alignment_that_raised(
+    microscope: FibsemMicroscope,
+    ref_image: FibsemImage,
+    run_name: str,
+    subsystem: AlignmentSubsystem,
+    method: AlignmentMethod,
+    steps: int,
+    started_at: str,
+    error: BaseException,
+) -> None:
+    """Record an alignment run that raised: ``failed`` with the error, or
+    ``cancelled`` for a Stop. Never raises, so the alignment's own error is the
+    one the caller sees."""
+    try:
+        payload = {
+            "name": run_name,
+            "subsystem": subsystem.value,
+            "method": method.value,
+            "results": [],
+            "validation": None,
+            "beam_type": ref_image.metadata.beam_type.name,
+            "steps": steps,
+            "path": None,
+            "started_at": started_at,
+            **ended_by(error),
         }
     except Exception:  # noqa: BLE001 - recording must not matter
         logging.debug("could not record an alignment", exc_info=True)

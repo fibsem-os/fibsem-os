@@ -94,7 +94,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
     update_alignment_area_ui,
 )
-from fibsem.cancellation import OperationCancelledError
+from fibsem.cancellation import SKIPPED, OperationCancelledError
 from fibsem.detection import detection as detection_module
 from fibsem.detection.detection import (
     DetectedFeatures,
@@ -823,6 +823,16 @@ class AutoLamellaTask(ABC):
                 f"Reference image {full_filename} for alignment does not exist, "
                 f"but was requested by {self.task_name}. Skipping alignment."
             )
+            # Recorded, not only logged: the alignment the task asked for did
+            # not happen, and the record should say so beside the ones that did.
+            self.microscope.record_event(
+                "alignment",
+                {
+                    "status": SKIPPED,
+                    "reason": f"reference image {filename} does not exist",
+                    "reference": full_filename,
+                },
+            )
             return None
 
         # load reference image, align
@@ -880,23 +890,21 @@ class AutoLamellaTask(ABC):
             hfw=hfw,
             settings=settings,
             stop_event=self._stop_event,
+            path=os.path.join(self.output_dir, "autofunctions"),
+            name=f"{self.task_name}_autofocus_{datetime.now():%Y%m%d_%H%M%S}",
         )
         if result is None:
             # run_auto_focus declined the sweep (the working distance is not settable
-            # for this beam on this backend -- TESCAN ION, see FIB-508). Say "skipped"
-            # and save nothing: a placeholder result would write a completed-looking
-            # artifact directory and log a working distance that was never applied.
+            # for this beam on this backend -- TESCAN ION, see FIB-508), and recorded
+            # it skipped. Nothing is saved: a placeholder result would write a
+            # completed-looking artifact directory and log a working distance that
+            # was never applied.
             self.log_status_message(
                 "AUTOFOCUS",
                 f"Autofocus skipped: the {beam_type.name} working distance is not settable on this system.",
                 f"Autofocus skipped ({beam_type.name})",
             )
             return None
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        result.save(
-            path=os.path.join(self.output_dir, "autofunctions"),
-            name=f"{self.task_name}_autofocus_{ts}",
-        )
         self.log_status_message(
             "AUTOFOCUS",
             f"Autofocus (image-based): WD={result.working_distance * 1e3:.3f}mm score={result.focus_score:.2f}",

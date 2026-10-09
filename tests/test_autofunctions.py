@@ -555,7 +555,9 @@ def test_run_auto_focus_skips_when_wd_not_settable(caplog):
         result = run_auto_focus(m, beam_type=BeamType.ION)
 
     assert result is None
-    assert m.method_calls == [call.is_working_distance_settable(BeamType.ION)]
+    # recording the skip is not touching the hardware (FIB-1255)
+    hardware = [c for c in m.method_calls if c[0] != "record_event"]
+    assert hardware == [call.is_working_distance_settable(BeamType.ION)]
     assert any("skipped" in r.getMessage().lower() for r in caplog.records)
 
 
