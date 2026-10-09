@@ -131,7 +131,7 @@ class TescanBeam(Beam):
         with self._lock:
             beam = self._prepared()
             beam.Optics.SetWD(value * constants.METRE_TO_MILLIMETRE)
-            logging.info(f"Electron beam working distance set to {value} m.")
+            logging.debug(f"Electron beam working distance set to {value} m.")
 
     # -- current and voltage: set by preset on the ion column ------------------------
 
@@ -151,7 +151,7 @@ class TescanBeam(Beam):
                 )
                 return
             beam.Beam.SetCurrent(value * constants.SI_TO_PICO)
-            logging.info(f"Electron beam current set to {value} A.")
+            logging.debug(f"Electron beam current set to {value} A.")
 
     def metadata_current(self) -> ParameterMetadata:
         # Not settable on either column: the ion current is the preset's, and the
@@ -173,7 +173,7 @@ class TescanBeam(Beam):
                 )
                 return
             beam.Beam.SetVoltage(value)
-            logging.info(f"Electron beam voltage set to {value} V.")
+            logging.debug(f"Electron beam voltage set to {value} V.")
 
     def metadata_voltage(self) -> ParameterMetadata:
         return ParameterMetadata(settable=self.beam_type is BeamType.ELECTRON)
@@ -192,7 +192,7 @@ class TescanBeam(Beam):
             limits = LIMITS[self.beam_type]["hfw"]
             value = np.clip(value, limits[0], limits[1])
             beam.Optics.SetViewfield(value * constants.METRE_TO_MILLIMETRE)
-            logging.info(f"{self.beam_type.name} HFW set to {value} m.")
+            logging.debug(f"{self.beam_type.name} HFW set to {value} m.")
 
     def metadata_hfw(self) -> ParameterMetadata:
         from fibsem.drivers.tescan.microscope import LIMITS
@@ -212,7 +212,9 @@ class TescanBeam(Beam):
         with self._lock:
             beam = self._prepared()
             beam.Optics.SetImageRotation(value * constants.RADIANS_TO_DEGREES)
-            logging.info(f"{self.beam_type.name} scan rotation set to {value} radians.")
+            logging.debug(
+                f"{self.beam_type.name} scan rotation set to {value} radians."
+            )
 
     def read_shift(self) -> Point:
         with self._lock:
@@ -230,7 +232,7 @@ class TescanBeam(Beam):
                 value.y * constants.METRE_TO_MILLIMETRE,
             )
             beam.Optics.SetImageShift(point.x, point.y)
-            logging.info(f"{self.beam_type.name} beam shift set to {value}.")
+            logging.debug(f"{self.beam_type.name} beam shift set to {value}.")
 
     # -- read from the last image: the API cannot read or set these ------------------
 
@@ -341,7 +343,7 @@ class TescanBeam(Beam):
             beam.Detector.SetGainBlack(
                 Detector=active_detector, Gain=contrast, Black=brightness
             )
-            logging.info(f"{self.beam_type.name} {key} set to {value}.")
+            logging.debug(f"{self.beam_type.name} {key} set to {value}.")
 
     # -- imaging and the autofunctions -----------------------------------------------
     # TescanMicroscope's acquire_image, last_image, autocontrast, auto_focus and live
@@ -358,7 +360,7 @@ class TescanBeam(Beam):
             if image_settings is not None
             else microscope.get_imaging_settings(beam_type=beam_type)
         )
-        logging.info(f"acquiring new {beam_type.name} image.")
+        logging.debug(f"acquiring new {beam_type.name} image.")
 
         if image_settings is not None:
             microscope._settle_after_electron_image(beam_type)
@@ -449,7 +451,7 @@ class TescanBeam(Beam):
         # The SDK's AutoSignal works on the whole frame: the area is not used.
         microscope = self.parent
         beam = microscope._prepare_beam(beam_type=self.beam_type)
-        logging.info(f"Running autocontrast on {self.beam_type.name}.")
+        logging.debug(f"Running autocontrast on {self.beam_type.name}.")
         with self._lock:
             beam.Detector.AutoSignal(
                 Detector=microscope._active_detector[self.beam_type]

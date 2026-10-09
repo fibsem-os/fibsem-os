@@ -31,6 +31,7 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
+from tests.fixtures.demoted_messages import as_logged_now
 from tests.fm import _odemis_stubs as stubs
 
 ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
@@ -443,7 +444,10 @@ CHANGED = {
     "set vent_chamber False": UNSUPPORTED,
 }
 with open(RECORDED) as f:
-    EXPECTED = json.load(f)
+    EXPECTED = {
+        case: {**old, "log": as_logged_now(old["log"])}
+        for case, old in json.load(f).items()
+    }
 
 # A beam key's values are the choices the device read when it was built, so asking
 # for them makes no client call.
