@@ -26,8 +26,8 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 import numpy as np
 
 from fibsem.devices.core import Device, Parameter, Role, command
+from fibsem.devices.display import Display
 from fibsem.devices.wire import Frame, to_wire
-from fibsem.display import Display
 from fibsem.fm.structures import EmissionFilter
 from fibsem.structures import CameraImageTransform, InsertableDeviceState
 from fibsem.util.timestamps import now_iso, zone_known
