@@ -1,4 +1,5 @@
 """Unit tests for CorrelationResult and CorrelationInputData."""
+
 import math
 import time
 from types import SimpleNamespace
@@ -20,7 +21,10 @@ from fibsem.structures import Point
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_poi(image_px_x: float = 100.0, image_px_y: float = 200.0) -> CorrelationPointOfInterest:
+
+def _make_poi(
+    image_px_x: float = 100.0, image_px_y: float = 200.0
+) -> CorrelationPointOfInterest:
     return CorrelationPointOfInterest(
         image_px=Point(x=image_px_x, y=image_px_y),
         px=Point(x=0.0, y=0.0),
@@ -28,8 +32,9 @@ def _make_poi(image_px_x: float = 100.0, image_px_y: float = 200.0) -> Correlati
     )
 
 
-def _make_coord(x: float = 0.0, y: float = 0.0, z: float = 0.0,
-                pt: PointType = PointType.FIB) -> Coordinate:
+def _make_coord(
+    x: float = 0.0, y: float = 0.0, z: float = 0.0, pt: PointType = PointType.FIB
+) -> Coordinate:
     return Coordinate(point=PointXYZ(x=x, y=y, z=z), point_type=pt)
 
 
@@ -60,9 +65,7 @@ def _make_result() -> CorrelationResult:
     )
 
 
-def _make_corrected_result(
-    poi_list=None, fib_image=None
-) -> CorrelationResult:
+def _make_corrected_result(poi_list=None, fib_image=None) -> CorrelationResult:
     """Result with input_data carrying a FIB surface at y=200.
 
     Carries a FIB image by default: correcting needs the image shape and pixel
@@ -84,8 +87,8 @@ def _make_corrected_result(
 # apply_refractive_index_correction (post mode: FIB image space)
 # ---------------------------------------------------------------------------
 
-class TestApplyRefractiveIndexCorrection:
 
+class TestApplyRefractiveIndexCorrection:
     def test_basic_correction(self):
         """Depth below surface is scaled by the correction factor."""
         result = _make_corrected_result()
@@ -181,23 +184,26 @@ class TestApplyRefractiveIndexCorrection:
         poi1 = _make_poi(image_px_y=400.0)
         result = _make_corrected_result(poi_list=[poi0, poi1])
         result.apply_refractive_index_correction(2.0)
-        assert math.isclose(result.poi[0].image_px.y, 400.0)   # corrected
-        assert math.isclose(result.poi[1].image_px.y, 400.0)   # unchanged
+        assert math.isclose(result.poi[0].image_px.y, 400.0)  # corrected
+        assert math.isclose(result.poi[1].image_px.y, 400.0)  # unchanged
 
 
 # ---------------------------------------------------------------------------
 # CorrelationResult serialization
 # ---------------------------------------------------------------------------
 
-class TestCorrelationResultSerialization:
 
+class TestCorrelationResultSerialization:
     def test_roundtrip(self):
         r = _make_result()
         r2 = CorrelationResult.from_dict(r.to_dict())
         assert r2.scale == r.scale
         assert r2.rms_error == r.rms_error
         assert r2.rotation_eulers == r.rotation_eulers
-        assert r2.refractive_index_correction_factor == r.refractive_index_correction_factor
+        assert (
+            r2.refractive_index_correction_factor
+            == r.refractive_index_correction_factor
+        )
         assert r2.refractive_index_correction_mode == r.refractive_index_correction_mode
         assert len(r2.poi) == 1
         assert math.isclose(r2.poi[0].image_px.x, 100.0)
@@ -214,7 +220,10 @@ class TestCorrelationResultSerialization:
         r2 = CorrelationResult.load(path)
         assert r2.scale == r.scale
         assert r2.rms_error == r.rms_error
-        assert r2.refractive_index_correction_factor == r.refractive_index_correction_factor
+        assert (
+            r2.refractive_index_correction_factor
+            == r.refractive_index_correction_factor
+        )
         assert len(r2.poi) == 1
 
     def test_input_data_embedded_and_restored(self):
