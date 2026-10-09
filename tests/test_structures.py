@@ -730,21 +730,28 @@ def test_experiment_date_is_creation_time_not_import_time():
     assert before < experiment.date.timestamp() < after
 
 
-def test_a_microscope_state_is_stamped_when_built_not_at_import():
+def test_a_microscope_state_is_stamped_when_built_not_at_import(monkeypatch):
     """FIB-487: a plain dataclass default froze this at module-import time, so two
-    states built apart claimed the same moment."""
-    import time
+    states built apart claimed the same moment.
 
+    A clock that advances on every read, rather than sleeping between two real
+    reads: Windows' clock ticks about every 15 ms, so two reads 10 ms apart can
+    return the same time.
+    """
+    import fibsem.structures as structures
     from fibsem.structures import MicroscopeState
 
-    before = datetime.datetime.timestamp(datetime.datetime.now())
-    time.sleep(0.01)
-    first = MicroscopeState()
-    time.sleep(0.01)
-    second = MicroscopeState()
-    after = datetime.datetime.timestamp(datetime.datetime.now())
+    ticks = iter([1000.0, 2000.0])
 
-    assert before < first.timestamp < second.timestamp < after
+    class Clock(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.datetime.fromtimestamp(next(ticks), tz)
+
+    monkeypatch.setattr(structures, "datetime", Clock)
+
+    assert MicroscopeState().timestamp == 1000.0
+    assert MicroscopeState().timestamp == 2000.0
 
 
 def test_a_chamber_state_reads_any_vendor_name():
