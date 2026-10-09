@@ -76,7 +76,7 @@ from fibsem.ui.tokens import (
     TEXT_STRONG_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
-from fibsem.utils import format_time_remaining
+from fibsem.util.durations import format_duration_rounded
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -517,7 +517,7 @@ class FibsemStatusBar(QStatusBar):
         ):
             fraction = min(max(1.0 - remaining / estimated, 0.0), 1.0)
             numbers = (
-                f"{int(fraction * 100)}% · {format_time_remaining(remaining)} left"
+                f"{int(fraction * 100)}% · {format_duration_rounded(remaining)} left"
             )
         self.set_progress(label, step, fraction, numbers)
 
@@ -555,7 +555,7 @@ class FibsemStatusBar(QStatusBar):
             self._tile_count = (fraction, f"{done} of {event.total}")
             numbers = f"{int(fraction * 100)}%"
             if event.estimated_remaining_seconds > 0:
-                left = format_time_remaining(event.estimated_remaining_seconds)
+                left = format_duration_rounded(event.estimated_remaining_seconds)
                 numbers += f" · {left} left"
         elif self._tile_count is not None:
             # The last count stands, but not its time left: it would sit frozen
@@ -589,7 +589,7 @@ class FibsemStatusBar(QStatusBar):
         if remaining is not None and total:
             fraction = min(max(1.0 - remaining / total, 0.0), 1.0)
             numbers = (
-                f"{int(fraction * 100)}% · {format_time_remaining(remaining)} left"
+                f"{int(fraction * 100)}% · {format_duration_rounded(remaining)} left"
             )
         self.set_progress(what, step, fraction, numbers)
 

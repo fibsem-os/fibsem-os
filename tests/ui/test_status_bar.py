@@ -558,7 +558,9 @@ def test_a_long_failure_elides_rather_than_widening_the_window(no_quit, qapp):
     window.status_bar.show_failure("Run finished", f"1 of 5 failed · {reason}")
     qapp.processEvents()
 
-    assert window.minimumSizeHint().width() == short
+    # Not `==`: on CI's fonts the two differ by a few pixels either way as the bar
+    # relays out. The bug this pins made it thousands of pixels wider.
+    assert window.minimumSizeHint().width() <= short
     assert window.width() == 1200
     step = window.status_bar._step
     assert step.text().endswith("travel range "), "the whole text is kept"

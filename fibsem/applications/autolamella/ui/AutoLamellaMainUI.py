@@ -136,10 +136,7 @@ from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.status_bar import FibsemStatusBar
-from fibsem.util.durations import (
-    format_duration_precise,
-    format_duration_rounded,
-)
+from fibsem.util.durations import format_duration_rounded
 from fibsem.util.timestamps import format_time, now
 from fibsem.versioning import get_version_string
 
