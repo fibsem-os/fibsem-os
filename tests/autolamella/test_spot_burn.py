@@ -51,6 +51,7 @@ requires_ui = pytest.mark.skipif(
     bool(_MISSING_UI_DEPS), reason=f"UI dependencies not installed: {_MISSING_UI_DEPS}"
 )
 
+
 @pytest.fixture
 def mock_microscope():
     return MagicMock()
