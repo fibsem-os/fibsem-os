@@ -18,7 +18,12 @@ from fibsem.structures import BeamType
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import BeamType, FibsemRectangle, ImageSettings
+    from fibsem.structures import (
+        BeamSettings,
+        BeamType,
+        FibsemRectangle,
+        ImageSettings,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -306,35 +311,18 @@ class AutoFocusResult:
         )
 
 
-def _read_imaging(microscope: "FibsemMicroscope", beam_type: BeamType) -> dict:
-    """The beam's resolution, dwell time and field of view, for `_restore_imaging`."""
-    return {
-        "resolution": tuple(microscope.get_resolution(beam_type)),
-        "dwell_time": microscope.get_dwell_time(beam_type),
-        "hfw": microscope.get_field_of_view(beam_type),
-    }
+def _restore_beam(microscope: "FibsemMicroscope", saved: "BeamSettings") -> None:
+    """Put the beam back as the sweep found it, except its working distance, which is
+    the sweep's answer.
 
-
-def _restore_imaging(
-    microscope: "FibsemMicroscope", beam_type: BeamType, saved: dict
-) -> None:
-    """Write back what `_read_imaging` saved, only where the sweep changed it.
-
-    Only the changed values, so a backend whose acquire leaves the beam alone (the
-    frame settings carry the probe's, as on ThermoFisher) sees no writes at all. A
-    failing write is logged rather than raised: it must not hide the error that
+    A failing write is logged rather than raised: it must not hide the error that
     ended the sweep.
     """
     try:
-        if tuple(microscope.get_resolution(beam_type)) != saved["resolution"]:
-            microscope.set_resolution(saved["resolution"], beam_type)
-        if not np.isclose(microscope.get_dwell_time(beam_type), saved["dwell_time"]):
-            microscope.set_dwell_time(saved["dwell_time"], beam_type)
-        if not np.isclose(microscope.get_field_of_view(beam_type), saved["hfw"]):
-            microscope.set_field_of_view(saved["hfw"], beam_type)
+        microscope.set_beam_settings(dataclasses.replace(saved, working_distance=None))
     except Exception:
         logger.exception(
-            "AutoFocus could not restore the %s beam's imaging settings", beam_type.name
+            "AutoFocus could not restore the %s beam's settings", saved.beam_type.name
         )
 
 
@@ -479,8 +467,9 @@ def run_auto_focus(
 
     # The probe images are acquired with the sweep's own resolution, dwell time and
     # field of view, and on some backends (Odemis) an acquire writes those to the beam.
-    # Put back what the beam was imaging with, however the sweep ends.
-    imaging = _read_imaging(microscope, beam_type)
+    # Put the beam back as it was, however the sweep ends; only the working distance
+    # is left where the sweep put it.
+    beam_settings = microscope.get_beam_settings(beam_type)
     try:
         if settings.use_autocontrast:
             microscope.autocontrast(beam_type, settings.reduced_area)
@@ -515,7 +504,7 @@ def run_auto_focus(
 
         microscope.set_working_distance(best.working_distance, beam_type)
     finally:
-        _restore_imaging(microscope, beam_type, imaging)
+        _restore_beam(microscope, beam_settings)
     logger.info(
         "AutoFocus complete: best WD=%.4e score=%.4f (%d passes, %d steps total)",
         best.working_distance,
