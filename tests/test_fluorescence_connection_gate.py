@@ -22,7 +22,7 @@ import os
 import pytest
 
 import fibsem.config as cfg
-from fibsem import utils
+from fibsem import manufacturers, utils
 from fibsem.structures import FluorescenceSystemSettings
 
 IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -267,7 +267,7 @@ def test_a_remote_fm_without_an_address_gets_no_fm(tmp_path, caplog):
     assert microscope.fm is None
     logging.getLogger().addHandler(caplog.handler)
     caplog.clear()
-    assert microscope._connect_remote_fluorescence() is None
+    assert microscope._build_fluorescence(manufacturers.DEMO) is None
     assert "no `address` and `port`" in caplog.text
 
 
@@ -282,4 +282,31 @@ def test_an_unknown_driver_gets_no_fm(tmp_path, caplog):
     logging.getLogger().addHandler(caplog.handler)
     caplog.clear()
     assert microscope._fluorescence_uses_own_driver() is False
-    assert "Unknown fluorescence microscope driver 'meteor'" in caplog.text
+    assert microscope._build_fluorescence(manufacturers.DEMO) is None
+    assert "driver 'meteor' has no builder for a 'fm' device" in caplog.text
+
+
+# ── built from its entry, like any other device ──────────────────────
+
+
+def test_the_fm_is_built_by_its_drivers_fm_builder():
+    """Each driver that has an FM registers a builder for the `fm` entry; Tescan's
+    own driver has none, so a Tescan FM can only be one on its own PC."""
+    from fibsem.drivers.registry import device_builder
+
+    for driver in (
+        manufacturers.THERMOFISHER,
+        manufacturers.ODEMIS,
+        manufacturers.DEMO,
+        "remote",
+    ):
+        assert device_builder(driver, "fm") is not None, driver
+    assert device_builder(manufacturers.TESCAN, "fm") is None
+
+
+def test_a_built_fm_puts_its_devices_in_the_microscopes_devices():
+    microscope = _microscope(ARCTIS_CONFIG)
+
+    assert microscope.fm is not None
+    for name in ("fm", "camera", "light_source", "filter_set", "objective"):
+        assert microscope.devices[name] is microscope.fm.devices[name]

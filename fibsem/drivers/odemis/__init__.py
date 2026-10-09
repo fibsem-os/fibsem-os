@@ -23,7 +23,7 @@ DRIVER = DriverEntry(
         device_type: DeviceBuilder(
             f"fibsem.drivers.odemis.devices:build_odemis_{device_type}"
         )
-        for device_type in ("beam", "stage", "chamber")
+        for device_type in ("beam", "stage", "chamber", "fm")
     },
 )
 

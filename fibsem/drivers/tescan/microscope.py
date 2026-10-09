@@ -477,7 +477,7 @@ class TescanMicroscope(FibsemMicroscope):
         self.last_image_eb: Optional[FibsemImage] = None
         self.last_image_ib: Optional[FibsemImage] = None
 
-        # fluorescence microscope (not available on Tescan)
+        # fluorescence microscope: none until connected (`connect_to_microscope`)
         self.fm = None
 
         # cached beam parameters
@@ -530,6 +530,9 @@ class TescanMicroscope(FibsemMicroscope):
         self._build_milling()
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
+        # Tescan's own driver has no FM; one on its own PC is built from its entry.
+        self.fm = self._build_fluorescence(manufacturers.TESCAN)
+        self._apply_fluorescence_calibration()
 
         available_detectors = self._get_available_detectors(BeamType.ELECTRON)
         if self._default_detector_names[BeamType.ELECTRON] not in [

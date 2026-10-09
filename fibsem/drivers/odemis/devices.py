@@ -87,6 +87,7 @@ ODEMIS_VOLTAGE_CHOICES = {
 if TYPE_CHECKING:
     from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
     from fibsem.drivers.registry import BuildContext
+    from fibsem.fm.odemis import DeviceOdemisFluorescenceMicroscope
     from fibsem.structures import DeviceEntry
 
 # The odemis client's name for each column (``beam_type_to_odemis``).
@@ -1095,3 +1096,19 @@ def bind_odemis_fm(
     parts["camera"].configure(config)
     group = OdemisFM(stream, **common).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}
+
+
+def build_odemis_fm(
+    entry: DeviceEntry, context: BuildContext
+) -> "DeviceOdemisFluorescenceMicroscope":
+    """The FM API over the Odemis FM devices, which make the odemis calls the old
+    ``OdemisFluorescenceMicroscope`` made, on the same components and stream.
+
+    The FM API's own live view pulls every frame, so nothing needs to stop it when no
+    frame is asked for."""
+    from fibsem.fm.odemis import DeviceOdemisFluorescenceMicroscope
+
+    microscope = context.microscope
+    devices = bind_odemis_fm(microscope, config=entry.as_block())
+    devices["fm"].live_timeout = None
+    return DeviceOdemisFluorescenceMicroscope(devices, parent=microscope)

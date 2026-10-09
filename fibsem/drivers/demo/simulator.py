@@ -14,6 +14,7 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 from skimage.transform import resize
 
+from fibsem import manufacturers
 from fibsem._timing import sim_sleep
 from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.fm.microscope import (
@@ -1102,8 +1103,8 @@ class DemoSession:
     """Building and connecting a demo.
 
     A demo's ``__init__`` is ``_start_session``, then its devices, then
-    ``_setup_fluorescence`` (which builds its FM in ``_local_fluorescence``) and
-    ``_finish_session``.
+    ``_setup_fluorescence`` (which builds its FM from the configuration's ``fm``
+    entry) and ``_finish_session``.
     """
 
     def _start_session(self, system_settings: SystemSettings) -> None:
@@ -1145,20 +1146,14 @@ class DemoSession:
         # configuration representable: an FM detected on a system nothing is
         # configured for -- a site upgrading -- gets no FM, and that is the case worth
         # being able to test.
-        if (
-            has_fm
-            and self._fluorescence_is_configured()
-            and self._fluorescence_uses_own_driver()
-        ):
-            self.fm = self._local_fluorescence()
-            # Bringing the FM up leaves the shared channel on it, as
-            # `ThermoMicroscope.__init__` does; taking it back is the next beam
-            # operation's job.
-            self.fm.set_active_channel()
+        # The probe only answers for the Demo's own FM; one on another driver (an FM
+        # on its own PC) is built as the configuration says.
+        if has_fm or not self._fluorescence_uses_own_driver():
+            self.fm = self._build_fluorescence(manufacturers.DEMO)
         else:
-            self.fm = self._connect_remote_fluorescence()
-            if self.fm is None:
-                logging.info("No fluorescence microscope in this simulated system.")
+            self.fm = None
+        if self.fm is None:
+            logging.info("No fluorescence microscope in this simulated system.")
 
         self._apply_fluorescence_calibration()
         self._warn_on_fluorescence_geometry()
