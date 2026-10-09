@@ -39,6 +39,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     MicroscopeState,
 )
+from fibsem.ui.widgets.canvas import view_info_bar
 from fibsem.ui.widgets.canvas.quad_view import (
     LamellaEditorView,
     MicroscopeViewController,
@@ -224,7 +225,8 @@ def test_the_time_drops_before_any_field():
     bar.set_image_fields(image_fields(_beam_image()))
     bar.show()
     _sized(bar, 2000)
-    fields = sum(label.sizeHint().width() for label in bar.field_labels) + 12 * 3
+    spacing = view_info_bar._FIELD_SPACING * (len(bar.field_labels) - 1)
+    fields = sum(label.sizeHint().width() for label in bar.field_labels) + spacing
     exact = bar.width() - bar._room(with_time=True) + fields
     _sized(bar, exact - 1)  # one pixel short of fitting the time as well
     assert bar.hidden_fields() == []
@@ -586,3 +588,76 @@ def test_the_choice_round_trips_and_an_old_file_has_none():
 )
 def test_z_value(plane, expected):
     assert z_value(21, 568e-9, plane=plane) == expected
+
+
+# --- a changed value lights up (FIB-1188) ------------------------------------------
+
+
+def _with_wd(wd: float, beam_type=BeamType.ELECTRON):
+    image = _beam_image(beam_type)
+    state = image.metadata.microscope_state
+    beam = state.ion_beam if beam_type is BeamType.ION else state.electron_beam
+    beam.working_distance = wd
+    return image
+
+
+def test_the_next_frame_lights_up_only_the_field_that_changed(controller):
+    controller.set_image(BeamType.ELECTRON, _with_wd(4.00e-3))
+    bar = controller.widget.sem_bar
+    assert bar.highlighted_fields() == [], "a view's first image has nothing to compare"
+
+    controller.set_image(BeamType.ELECTRON, _with_wd(4.02e-3))
+    assert bar.highlighted_fields() == ["working_distance"]
+    wd_label = bar.field_labels[
+        [f.key for f in bar._labelled].index("working_distance")
+    ]
+    assert "background: rgba(80, 166, 255" in wd_label.styleSheet()
+
+
+def test_a_value_that_rounds_to_the_same_text_does_not_light_up(controller):
+    controller.set_image(BeamType.ELECTRON, _with_wd(4.000e-3))
+    controller.set_image(BeamType.ELECTRON, _with_wd(4.001e-3))  # still `4.00 mm`
+    assert controller.widget.sem_bar.highlighted_fields() == []
+
+
+def test_the_highlight_fades_and_takes_its_tint_with_it(controller):
+    controller.set_image(BeamType.ELECTRON, _with_wd(4.00e-3))
+    controller.set_image(BeamType.ELECTRON, _with_wd(4.02e-3))
+    bar = controller.widget.sem_bar
+    assert bar._highlight_timer.isActive()
+    for _ in range(view_info_bar._HIGHLIGHT_MS // view_info_bar._HIGHLIGHT_TICK_MS):
+        bar._fade_highlights()
+    assert bar.highlighted_fields() == []
+    assert not bar._highlight_timer.isActive()
+    assert all("rgba" not in label.styleSheet() for label in bar.field_labels)
+
+
+def test_a_highlight_does_not_move_anything(controller):
+    controller.set_image(BeamType.ELECTRON, _with_wd(4.00e-3))
+    bar = controller.widget.sem_bar
+    widths = [label.sizeHint().width() for label in bar.field_labels]
+    controller.set_image(BeamType.ELECTRON, _with_wd(4.02e-3))
+    assert [label.sizeHint().width() for label in bar.field_labels] == widths
+
+
+def test_a_pushed_live_value_lights_up(controller):
+    controller.update_info(_Microscope(), objective_position=200e-6)
+    bar = controller.widget.fm_bar
+    assert bar.highlighted_fields() == []
+    controller.update_info(_Microscope(), objective_position=200.5e-6)
+    assert bar.highlighted_fields() == ["objective_position"]
+
+
+def test_scrubbing_the_planes_is_not_news(controller):
+    controller.set_fm_image(_fm_image(slices=5))
+    controller.widget.fm_widget.set_max_projection(False)
+    controller.widget.fm_widget.step_z(1)
+    assert controller.widget.fm_bar.highlighted_fields() == []
+
+
+def test_a_chosen_image_does_not_light_up():
+    """The lamella editor shows saved images: picking another lamella is not news."""
+    editor = MicroscopeViewController(view=LamellaEditorView())
+    editor.set_image(BeamType.ION, _with_wd(16.50e-3, BeamType.ION))
+    editor.set_image(BeamType.ION, _with_wd(16.60e-3, BeamType.ION))
+    assert editor.widget.fib_bar.highlighted_fields() == []
