@@ -1459,6 +1459,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         # Installed after the images are set, so seeding can rescale FM z.
         section = dialog.add_lamella_setup(
             spot_burns=spot_burns,
+            spot_burn_field_width=self._spot_burn_field_width(selected_lamella),
             history=history,
             config=protocol.correlation if protocol is not None else None,
             fib_options=self._image_paths(
@@ -1537,6 +1538,15 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             if isinstance(cfg, SpotBurnFiducialTaskConfig):
                 return list(cfg.coordinates)
         return []
+
+    @staticmethod
+    def _spot_burn_field_width(lamella: Lamella) -> Optional[float]:
+        """The field width (m) of the image the spot burns were placed on: the
+        task's reference image, at ``reference_imaging.field_of_view1``."""
+        for cfg in lamella.task_config.values():
+            if isinstance(cfg, SpotBurnFiducialTaskConfig):
+                return cfg.reference_imaging.field_of_view1 or None
+        return None
 
     def _handle_correlation_dialog_result(
         self, result: "CorrelationResult", run_folder: Optional[str] = None

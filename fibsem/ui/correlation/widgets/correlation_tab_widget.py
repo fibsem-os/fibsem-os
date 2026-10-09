@@ -2296,6 +2296,9 @@ class CorrelationTabWidget(QWidget):
         # Pre-correlation RI factor (FM surface mode); set via the RI tab Apply
         self._ri_pre_correction_factor: Optional[float] = None
         self._ri_pre_correction_params: Optional[dict] = None
+        # Field width (m) of the image the spot burns were placed on, when the
+        # protocol says; seeding refuses a FIB image at another width (FIB-1233).
+        self._spot_burn_field_width: Optional[float] = None
         # Experiment-global config; passed in on open, read back on close (FIB-298).
         self._correlation_config = CorrelationConfig()
 
@@ -3226,6 +3229,11 @@ class CorrelationTabWidget(QWidget):
         """
         if self._fib_image is None or not coordinates:
             return
+        mismatch = self._spot_burn_field_width_mismatch()
+        if mismatch is not None:
+            self._lbl_status.setText(mismatch)
+            notification_service.show_toast(mismatch, "warning")
+            return
         h, w = self._fib_image.data.shape[:2]
         fib_coords = [
             Coordinate(
@@ -3244,10 +3252,33 @@ class CorrelationTabWidget(QWidget):
         self._discard_result()
         self.data_changed.emit(self.data)
 
+    def _spot_burn_field_width_mismatch(self) -> Optional[str]:
+        """Why the burns cannot be seeded on this FIB image, or None.
+
+        The coordinates are fractions of the image the burns were placed on, so
+        they land right on any image with the same field width, at any
+        resolution, and nowhere useful on one at another: 1.5x out from the
+        centre on a 150 um image of a 100 um pattern (FIB-1233). Unknown on
+        either side is not a reason to refuse.
+        """
+        placed = self._spot_burn_field_width
+        settings = getattr(
+            getattr(self._fib_image, "metadata", None), "image_settings", None
+        )
+        loaded = getattr(settings, "hfw", None)
+        if not placed or not loaded or abs(loaded - placed) <= 0.01 * placed:
+            return None
+        return (
+            f"Spot burns not seeded: they were placed on a {placed * 1e6:.0f} µm "
+            f"image, and this FIB image is {loaded * 1e6:.0f} µm. Choose a "
+            f"{placed * 1e6:.0f} µm FIB image to seed them."
+        )
+
     def add_lamella_setup(
         self,
         *,
         spot_burns: Optional[List[Point]] = None,
+        spot_burn_field_width: Optional[float] = None,
         history=None,
         config: Optional[CorrelationConfig] = None,
         fib_options: Optional[List[str]] = None,
@@ -3261,8 +3292,10 @@ class CorrelationTabWidget(QWidget):
         stays lamella-agnostic. The section drives the live canvas: changing the
         starting-coordinates source re-seeds it through the normal seeding API,
         which makes the canvas itself the preview. Returns the section so the
-        caller can connect its image-selection combos.
+        caller can connect its image-selection combos. ``spot_burn_field_width``
+        is the field width (m) of the image the burns were placed on.
         """
+        self._spot_burn_field_width = spot_burn_field_width
         from fibsem.ui.correlation.widgets.correlation_setup_section import (
             CorrelationSetupSection,
         )
