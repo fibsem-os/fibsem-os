@@ -297,6 +297,11 @@ class StageControlWidget(QWidget):
         """
         logging.debug(msg)
         self._set_move_status(msg)
+        # The chips on the views (FIB-1188): every message here but the acquisition
+        # one opens a move.
+        controller = self._view_controller()
+        if controller is not None and msg != ACQUIRING_IMAGES:
+            controller.stage_move_started()
 
     def _set_move_status(self, msg: Optional[str]) -> None:
         """Put *msg* on the info bar of every canvas, or clear it when None.
@@ -424,6 +429,9 @@ class StageControlWidget(QWidget):
         Every path reaches here: each worker connects ``finished`` to this.
         """
         is_acquiring = self.image_widget.is_acquiring
+        controller = self._view_controller()
+        if controller is not None:
+            controller.stage_move_finished()
         if not is_acquiring:
             # Cleared, or the last line sits there afterwards as though the stage were
             # still moving.

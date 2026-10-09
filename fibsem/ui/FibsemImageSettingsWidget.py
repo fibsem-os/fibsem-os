@@ -649,12 +649,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         # TODO: implement progress bar for acquisition
 
-    def acquisition_finished(self) -> None:
+    def acquisition_finished(self, beams=()) -> None:
         """Imaging has finished, update the viewer and re-enable interactions"""
         if self.ib_image is not None:
             self._on_acquire(self.ib_image)
         if self.eb_image is not None:
             self._on_acquire(self.eb_image)
+        controller = self._view_controller()
+        if controller is not None:
+            controller.acquisition_done(beams)
         self._toggle_interactions(True)
         self.is_acquiring = False
 
@@ -694,9 +697,19 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         ts = utils.current_timestamp_v3()
         self.image_settings.filename = f"{self.image_settings.filename}-{ts}"
 
+        # The views' chips (FIB-1188): a frame is on its way to each of these.
+        beams = (
+            [BeamType.ELECTRON, BeamType.ION]
+            if both
+            else [self.image_settings.beam_type]
+        )
+        controller = self._view_controller()
+        if controller is not None:
+            controller.views_acquiring(beams)
+
         # start the acquisition worker
         worker = self.acquisition_worker(self.image_settings, both=both)
-        worker.finished.connect(self.acquisition_finished)
+        worker.finished.connect(lambda: self.acquisition_finished(beams))
         worker.start()
 
     @thread_worker
