@@ -85,8 +85,8 @@ def test_a_status_event_report_shows_the_run_on_the_status_bar(main_ui):
 
     assert main_ui.status_bar.text == "lamella-02 › Polishing · 3 of 4"
     assert main_ui.status_bar.showing == "run"
-    assert main_ui.stop_workflow_btn.isVisibleTo(main_ui)
-    assert not main_ui.run_workflow_btn.isVisibleTo(main_ui)
+    assert main_ui.workflow_controls.stop_btn.isVisibleTo(main_ui)
+    assert not main_ui.workflow_controls.run_btn.isVisibleTo(main_ui)
 
 
 def test_a_status_event_carries_transient_status_bar_text(main_ui):
@@ -156,11 +156,11 @@ def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
         HoldKind.question, "answer the question on the Microscope tab"
     )
     main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
-    assert main_ui.user_attention_btn.isVisibleTo(main_ui)
+    assert main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)
 
     main_ui.autolamella_ui.hold = None
     main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
-    assert not main_ui.user_attention_btn.isVisibleTo(main_ui)
+    assert not main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)
 
 
 def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
@@ -177,22 +177,22 @@ def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
         ("01-a/Setup", "02-b/Setup"),
     )
     ui.workflow_status_signal.emit(WorkflowStatusEvent())
-    assert main_ui.user_attention_btn.isVisibleTo(main_ui)
-    assert main_ui.user_attention_btn.text() == "Review Required (2)"
-    assert "decide 01-a and 02-b" in main_ui.user_attention_btn.toolTip()
+    assert main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)
+    assert main_ui.workflow_controls.attention_btn.text() == "Review Required (2)"
+    assert "decide 01-a and 02-b" in main_ui.workflow_controls.attention_btn.toolTip()
     assert main_ui._border_state == "waiting"
-    main_ui.user_attention_btn.click()
+    main_ui.workflow_controls.attention_btn.click()
     assert main_ui.tab_widget.currentWidget() is main_ui.review_tab
 
     ui.hold = None
     ui.workflow_status_signal.emit(WorkflowStatusEvent())
-    assert not main_ui.user_attention_btn.isVisibleTo(main_ui)
+    assert not main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)
 
     # a question at the beam has its own destination
     ui.hold = Hold(HoldKind.question, "answer the question on the Microscope tab")
     ui.workflow_status_signal.emit(WorkflowStatusEvent())
-    assert main_ui.user_attention_btn.text() == "Attention Required"
-    main_ui.user_attention_btn.click()
+    assert main_ui.workflow_controls.attention_btn.text() == "Attention Required"
+    main_ui.workflow_controls.attention_btn.click()
     assert main_ui.tab_widget.currentIndex() == 0
     ui.hold = None
 
