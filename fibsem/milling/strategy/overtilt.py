@@ -96,10 +96,12 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         initial_position = microscope.get_stage_position()
         overtilt_in_radians = np.deg2rad(self.config.overtilt)
 
-        # route the reference image + alignment output to the stage's configured
-        # imaging path (falling back to DATA_CC_PATH), mirroring
+        # route the reference image + alignment output to the stage's run folder,
+        # then its imaging path (falling back to DATA_CC_PATH), mirroring
         # milling.core.get_stage_reference_image — never the current working dir.
-        alignment_path = stage.imaging.path
+        alignment_path = stage.output_dir
+        if alignment_path is None:
+            alignment_path = stage.imaging.path
         if alignment_path is None:
             alignment_path = fcfg.DATA_CC_PATH
 

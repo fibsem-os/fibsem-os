@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -52,6 +53,14 @@ def setup_milling(
         logging.info(
             f"FIB Aligning at Milling Current: {milling_stage.milling.milling_current:.2e}"
         )
+        # The stage's run folder when the milling task gave it one -- the same
+        # <folder>/Alignment the reference image's own path led to before. A
+        # stage run on its own keeps finding it from the reference image.
+        alignment_path = None
+        if milling_stage.output_dir is not None:
+            alignment_path = os.path.join(
+                milling_stage.output_dir, alignment.ALIGNMENT_SUBDIR
+            )
         alignment.multi_step_alignment_v2(
             microscope=microscope,
             ref_image=reference_image,
@@ -61,6 +70,7 @@ def setup_milling(
             run_name=milling_stage.name,
             acquire_final_image=True,
             stop_event=stop_event,  # abort between alignment steps
+            path=alignment_path,
         )  # high current -> damaging
 
 
@@ -71,7 +81,9 @@ def get_stage_reference_image(
     if isinstance(ref_image, FibsemImage):
         return ref_image
     elif ref_image is None:
-        path = milling_stage.imaging.path
+        path = milling_stage.output_dir
+        if path is None:
+            path = milling_stage.imaging.path
         if path is None:
             path = Path(fcfg.DATA_CC_PATH)
         image_settings = ImageSettings(
