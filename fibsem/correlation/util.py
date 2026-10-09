@@ -845,42 +845,47 @@ def hole_fitting_FIB(
     # fraction so the input marker is drawn exactly where the user clicked
     # (otherwise a no-change fit shows the markers up to ~1px apart).
     xi, yi = int(round(x)), int(round(y))
-    # cut out a box around the point
-    roi = img[yi - cutout : yi + cutout, xi - cutout : xi + cutout]
+    # Cut out a box around the point, clamped to the image. A plain slice with
+    # a negative start wraps to the far end of the array: a click within the
+    # cutout of the top or left edge gave an empty window or one from the wrong
+    # side of the image. The offsets are kept so the fit comes back absolute.
+    height, width = img.shape
+    y0, y1 = max(0, yi - cutout), min(height, yi + cutout)
+    x0, x1 = max(0, xi - cutout), min(width, xi + cutout)
+    roi = img[y0:y1, x0:x1]
 
-    def _fit(center=None):
+    def _fit(center):
         try:
             popt, _ = fit_gauss_2d_mod(roi, show=False, center=center)
         except Exception as e:  # maxfev, an empty or flat window
-            logging.debug(f"FIB hole fit from {center or 'the click'}: {e}")
+            logging.debug(f"FIB hole fit from {center}: {e}")
             return None
         return popt if _burn_shaped(popt, roi.shape) else None
 
-    popt = _fit()
+    # the click, in the clamped window's frame (the window's middle when the
+    # window is not clipped)
+    popt = _fit(center=(xi - x0, yi - y0))
     if popt is None and roi.size:
         smooth = ndimage.gaussian_filter(np.asarray(roi, dtype=float), sigma=2)
         dark_y, dark_x = np.unravel_index(np.argmin(smooth), smooth.shape)
         popt = _fit(center=(float(dark_x), float(dark_y)))
     if popt is None:
         raise FitOutsideWindow(
-            f"no burn-shaped dark spot in the region searched: x {xi - cutout}-"
-            f"{xi + cutout - 1}, y {yi - cutout}-{yi + cutout - 1}"
+            f"no burn-shaped dark spot in the region searched: x {x0}-{x1 - 1}, "
+            f"y {y0}-{y1 - 1}"
         )
     xopt, yopt = popt[1], popt[2]
 
-    # get the refined positions in the coordinates of the original image
-    xr = xopt + xi - cutout
-    yr = yopt + yi - cutout
-
-    # clip the coordinates to the image bounds
-    xr = np.clip(xr, cutout, img.shape[1] - cutout)
-    yr = np.clip(yr, cutout, img.shape[0] - cutout)
+    # back to the coordinates of the original image; _burn_shaped kept the fit
+    # inside the window, so it is inside the image
+    xr = xopt + x0
+    yr = yopt + y0
 
     # --- Diagnostic (XY only — no z for the FIB image) ---
     diagnostic = FitDiagnostic(
         title="FIB hole fit",
         roi_xy=roi,
-        input_xy=(cutout + (x - xi), cutout + (y - yi)),
+        input_xy=(x - x0, y - y0),  # the sub-pixel click, in the window's frame
         fitted_xy=(xopt, yopt),
         xy_title="XY",
     )
