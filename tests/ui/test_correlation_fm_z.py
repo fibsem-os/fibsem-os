@@ -209,3 +209,34 @@ def test_a_run_saved_on_an_interpolated_stack_reopens_on_the_same_features(
     for z_feature, coord in zip(picked, _fm_points(tab)):
         on = np.interp(coord.point.z, np.arange(len(stack)), stack)
         assert on == pytest.approx(z_feature, abs=1e-6)
+
+
+def test_the_interpolated_view_keeps_the_stacks_corrected_pixel_size(tab):
+    """A stack whose data is narrower than its recorded resolution gets a
+    corrected scale bar; showing its interpolated view must not drop that."""
+    stack = _ramp_stack()
+    stack.metadata.resolution = (64, 64)  # recorded at twice the data width
+    tab.set_fm_image(stack)
+    corrected = tab._fm_display._pixel_size
+    assert corrected == pytest.approx(2 * _XY)
+
+    _show_interpolated(tab, 250e-9)
+
+    assert tab._fm_display._pixel_size == pytest.approx(corrected)
+
+
+def test_a_view_finished_after_the_stack_changed_is_not_shown(tab):
+    """FIB-1242: an interpolation that finishes after another stack was loaded
+    must not put its planes over that stack."""
+    import time
+
+    tab._start_fm_interpolation(250e-9, "linear")
+    tab.set_fm_image(_ramp_stack())  # the user opens another stack meanwhile
+    deadline = time.monotonic() + 30
+    while tab._interp_worker is not None and time.monotonic() < deadline:
+        _app.processEvents()
+        time.sleep(0.01)
+    assert tab._interp_worker is None, "interpolation did not finish"
+
+    assert tab._fm_view_scale == 1.0
+    assert tab._fm_display._z_max == _NZ - 1  # still the new stack's planes
