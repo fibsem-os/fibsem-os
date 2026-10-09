@@ -146,6 +146,7 @@ from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
+from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.utils import format_duration
 from fibsem.versioning import get_version_string
 
@@ -1588,17 +1589,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui._open_coincidence_milling_viewer()
 
     def _create_status_bar(self):
-        """Create the status bar."""
-        status_bar = self.statusBar()
-        if status_bar is None:
-            raise RuntimeError("Failed to create status bar for AutoLamella UI.")
-        self.status_bar = status_bar
-        self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
+        """Create the status bar: the shared bar's line on the left (FIB-1188), this
+        window's progress and workflow buttons on the right."""
+        self.status_bar = FibsemStatusBar(self)
+        self.setStatusBar(self.status_bar)
 
         # Add generic progress widget (tile acquisition, etc.)
         self.progress_widget = FibsemProgressWidget(self.status_bar)
         self.progress_widget.setMaximumWidth(400)
-        self.status_bar.addPermanentWidget(self.progress_widget)
+        self.status_bar.add_action(self.progress_widget)
 
         # Add milling progress bar
         self.milling_progress_bar = QProgressBar(self.status_bar)
@@ -1609,7 +1608,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.milling_progress_bar.setAlignment(Qt.AlignCenter)
         self.milling_progress_bar.setStyleSheet(PROGRESS_BAR_STYLESHEET)
         self.milling_progress_bar.hide()  # Hidden by default
-        self.status_bar.addPermanentWidget(self.milling_progress_bar)
+        self.status_bar.add_action(self.milling_progress_bar)
 
         # Add user attention button (shown when waiting for user interaction)
         self.user_attention_btn = QPushButton("Attention Required")
@@ -1622,7 +1621,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             "User Input Required - Click to go to Microscope tab"
         )
         self.user_attention_btn.clicked.connect(self._on_user_attention_clicked)
-        self.status_bar.addPermanentWidget(self.user_attention_btn)
+        self.status_bar.add_action(self.user_attention_btn)
 
         # Add supervised status chip (shown during workflow to indicate supervision mode)
         self._current_task_name = None  # Track current task for supervision toggle
@@ -1646,7 +1645,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.supervised_status_btn.setToolTip("Click to toggle supervision")
         self.supervised_status_btn.clicked.connect(self._on_supervised_status_clicked)
         self.supervised_status_btn.hide()  # Hidden by default
-        self.status_bar.addPermanentWidget(self.supervised_status_btn)
+        self.status_bar.add_action(self.supervised_status_btn)
 
         # Add run workflow button (visible when workflow is not running)
         self.run_workflow_btn = QPushButton("Run Workflow")
@@ -1657,7 +1656,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.run_workflow_btn.setEnabled(False)
         self.run_workflow_btn.setToolTip("Run the AutoLamella workflow.")
         self.run_workflow_btn.clicked.connect(self._on_run_workflow_clicked)
-        self.status_bar.addPermanentWidget(self.run_workflow_btn)
+        self.status_bar.add_action(self.run_workflow_btn)
 
         # Add stop workflow button
         self.stop_workflow_btn = QPushButton("Stop Workflow")
@@ -1670,7 +1669,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             "Stop the current workflow. You will be asked to confirm."
         )
         self.stop_workflow_btn.clicked.connect(self._on_stop_workflow_clicked)
-        self.status_bar.addPermanentWidget(self.stop_workflow_btn)
+        self.status_bar.add_action(self.stop_workflow_btn)
 
     def _on_stop_workflow_clicked(self):
         """Handle stop workflow button click with confirmation."""
@@ -2012,12 +2011,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 valid and not refused, refused or tip
             )
 
-    def set_workflow_running(self, message: str | None = None):
-        """Show stop button and update status message."""
+    def set_workflow_running(self):
+        """Show the stop button, and lock what a run owns."""
         self.run_workflow_btn.hide()
         self.stop_workflow_btn.show()
-        if message and self.status_bar is not None:
-            self.status_bar.showMessage(message)
         self._set_overviews_allowed(False)
         # A run owns the loader: no manual exchange from the Grids tab meanwhile.
         if getattr(self, "grids_tab", None) is not None:
@@ -2037,6 +2034,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def hide_workflow_running(self):
         """Hide the stop button and show run button."""
+        self.status_bar.set_run(None)
         self.stop_workflow_btn.hide()
         self.supervised_status_btn.hide()
         self.run_workflow_btn.show()
@@ -2246,7 +2244,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         else:
             msg = INSTRUCTIONS["AUTOLAMELLA_READY"]
 
-        self.status_bar.showMessage(msg)
+        self.status_bar.set_instruction(msg)
 
     def _refresh_fm_placeholder(self) -> None:
         """Say so on the quad's FM panel when the connected system has no FM."""
@@ -2481,6 +2479,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         splitter.setChildrenCollapsible(False)
 
         self.view_controller = MicroscopeViewController(parent=self)
+        self.status_bar.follow(self.view_controller)
         splitter.addWidget(self.view_controller.widget)
         splitter.addWidget(self.autolamella_ui)
         # The fourth cell's overview page: the experiment's overviews of the grid the
@@ -3718,9 +3717,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         }.get(action, "")
 
     def _show_queue_message(self, message: str) -> None:
-        """Transient confirmation for a queue edit — no modal, no interruption."""
-        if message and self.status_bar is not None:
-            self.status_bar.showMessage(message, 4000)
+        """Transient confirmation for a queue edit — no modal, no interruption.
+
+        A toast, not the status bar: there it covered the run's own line."""
+        if message:
+            notification_service.show_toast(message)
 
     def _on_workflow_status(self, event: "WorkflowStatusEvent"):
         """Handle a fire-and-forget status update, from workflow_status_signal.
@@ -3731,9 +3732,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         lifecycle report starts or finishes the run, and the responder pings
         this signal when a question flips the waiting state.
         """
-        # transient status-bar messages (e.g. scheduled-start countdown)
-        if event.status_bar is not None and self.status_bar is not None:
-            self.status_bar.showMessage(event.status_bar)
+        # What the run is doing now (a scheduled-start countdown, waiting on
+        # decisions, loading a grid), under the task it is for; "" clears it.
+        if event.status_bar is not None:
+            self.status_bar.set_run_step(event.status_bar)
 
         if event.report is not None:
             self._apply_status_report(event.report)
@@ -3762,14 +3764,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Position in the live queue, not the launch matrix — stays correct
         # when the queue is added to or reordered mid-run.
-        txt = f"Workflow: {task_name} | {lamella_name}"
         # `queue_total` is a count, so 0 means "nothing to be in the middle of"
         # rather than "unknown" -- truthiness, not `is not None`, or a malformed
-        # payload renders "3/0".
+        # payload renders "3 of 0".
+        where = None
         if queue_position is not None and queue_total:
-            txt += f" | {queue_position}/{queue_total}"
+            where = f"{queue_position} of {queue_total}"
 
-        self.set_workflow_running(txt)
+        self.status_bar.set_run(f"{lamella_name} › {task_name}", None, where)
+        self.set_workflow_running()
 
         # update current task
         self._current_task_name = task_name
@@ -4139,9 +4142,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             review_tab.set_running(False)
             review_tab.refresh()
         self.lamella_card_container.refresh_all()
-        if self.status_bar is not None:
-            self.status_bar.showMessage("Workflow: Finished")
-            self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
+        # The run's line has gone (hide_workflow_running); say it ended once, as a
+        # toast, and the slot goes back to the instruction.
+        notification_service.show_toast("Workflow finished.")
         self._set_border_state("idle")
 
     def add_overview_tab(self):
