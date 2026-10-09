@@ -19,6 +19,7 @@ import pytest
 
 from fibsem.correlation.fit_diagnostics import FitDiagnostic, plot_fit_diagnostic
 from fibsem.correlation.util import (
+    FitOutsideWindow,
     hole_fitting_FIB,
     hole_fitting_reflection,
     target_fitting_fluorescence,
@@ -157,6 +158,46 @@ def test_reflection_fit_at_the_centre_is_unchanged():
     assert (xr, yr, zr) == pytest.approx((30, 30, 10), abs=0.3)
     assert d.input_xy == pytest.approx((15.0, 15.0))
     assert d.z_axis[0] == 0 and len(d.z_axis) == 15
+
+
+# --- FIB-1219: an answer outside the region searched is a failure, not a fit --
+
+
+def _blend_in_at_plane_10(plane: np.ndarray, nz: int = 21) -> np.ndarray:
+    """A stack that is ``plane`` around z = 10 and plain 200 elsewhere."""
+    vol = np.full((nz,) + plane.shape, 200.0, dtype=np.float32)
+    for zi in range(nz):
+        w = np.exp(-((zi - 10) ** 2) / 8.0)
+        vol[zi] = (1 - w) * 200.0 + w * plane
+    return vol
+
+
+def test_a_profile_with_no_dip_fails_rather_than_returning_a_z_past_the_window():
+    """Brightness falling steadily with depth: no hole, so the inverted profile
+    rises to the window's edge and the Gaussian's centre lands beyond it."""
+    vol = np.stack([np.full((60, 60), 200.0 - 6.0 * z) for z in range(21)])
+    vol += np.random.default_rng(0).normal(0, 0.5, vol.shape)
+    with pytest.raises(FitOutsideWindow, match="z fit fell outside the planes"):
+        hole_fitting_reflection(vol.astype(np.float32), 30, 30, 10, 2)
+
+
+def test_a_slice_with_no_hole_fails_rather_than_returning_a_runaway_xy():
+    """A brightness ramp and no hole: the 2D fit put the centre ~6000 px away,
+    and that came back as the fit."""
+    xx = np.mgrid[0:60, 0:60][1].astype(np.float32)
+    vol = _blend_in_at_plane_10(150.0 - 2.0 * xx)
+    with pytest.raises(FitOutsideWindow, match="xy fit fell outside the region"):
+        hole_fitting_reflection(vol, 30, 30, 10, 2)
+
+
+def test_a_fit_that_left_its_window_reads_as_no_clear_burn():
+    pytest.importorskip("PyQt5")
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
+        humanize_fit_error,
+    )
+
+    msg = humanize_fit_error(FitOutsideWindow("z fit fell outside the planes searched"))
+    assert "No clear burn" in msg and "stays where you placed it" in msg
 
 
 def test_reflection_input_marker_tracks_subpixel_click():
