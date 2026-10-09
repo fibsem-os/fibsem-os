@@ -314,5 +314,7 @@ def bind_spot_burn(service: Type[_S], microscope: Any) -> Optional[_S]:
     spot_burn.connect()
     signal = getattr(microscope, "spot_burn_progress_signal", None)
     if signal is not None:
-        spot_burn.progress.changed.connect(signal.emit)
+        # The signal itself, not its ``emit``: given a psygnal ``emit``, connect
+        # calls it once with junk arguments to read its signature.
+        spot_burn.progress.changed.connect(signal)
     return spot_burn

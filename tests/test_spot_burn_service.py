@@ -292,3 +292,14 @@ def test_the_service_matches_the_microscope_s_own_burn(monkeypatch):
     reports, burned, _ = service
     assert len(reports) == 6 and burned == [Point(0.2, 0.3), Point(0.7, 0.4)]
     assert service == burn(use_service=False)
+
+
+def test_building_the_service_reports_nothing(microscope, reports):
+    """psygnal calls a SignalInstance's ``emit`` once, with junk, when it is
+    connected; the service connects the signal itself, so nothing is sent."""
+    from fibsem.services.spot_burn import bind_spot_burn
+
+    spot_burn = bind_spot_burn(DemoSpotBurn, microscope)
+    assert reports == []
+    spot_burn.run(_settings(Point(0.5, 0.5), exposure_time=1.0))
+    assert reports[-1].status is SpotBurnStatus.FINISHED

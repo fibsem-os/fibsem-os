@@ -423,7 +423,9 @@ def bind_milling(service: Type[_M], microscope: Any) -> Optional[_M]:
     milling.connect()
     signal = getattr(microscope, "milling_progress_signal", None)
     if signal is not None:
-        milling.progress.changed.connect(signal.emit)
+        # The signal itself, not its ``emit``: given a psygnal ``emit``, connect
+        # calls it once with junk arguments to read its signature.
+        milling.progress.changed.connect(signal)
     return milling
 
 
