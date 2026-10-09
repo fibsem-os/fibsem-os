@@ -23,9 +23,6 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.AutoLamellaMainUI import (  # noqa: E402
-    AutoLamellaSingleWindowUI,
-)
 from fibsem.applications.autolamella.ui.fluorescence_coincidence_viewer_widget import (  # noqa: E402
     FluorescenceCoincidenceViewerWidget,
 )
@@ -35,6 +32,7 @@ from fibsem.milling.progress import (  # noqa: E402
     MillingProgressStatus,
 )
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2  # noqa: E402
+from fibsem.ui.widgets.status_bar import FibsemStatusBar  # noqa: E402
 
 # --------------------------------------------------------------------------------------
 # One builder per producer, each shaped exactly as that producer builds it. Kept
@@ -133,21 +131,6 @@ class _MillingWidgetHost:
             widget.deleteLater()
 
 
-class _MainWindowHost:
-    """`AutoLamellaSingleWindowUI`'s status-bar progress bar."""
-
-    _on_milling_progress = AutoLamellaSingleWindowUI._on_milling_progress
-
-    def __init__(self):
-        from PyQt5.QtWidgets import QProgressBar
-
-        self.milling_progress_bar = QProgressBar()
-        self._milling_label = MillingMessageTracker()
-
-    def deleteLater(self):
-        self.milling_progress_bar.deleteLater()
-
-
 class _CoincidenceHost:
     """`FluorescenceCoincidenceViewerWidget`'s two bars and the controls its stage-start
     branch reveals."""
@@ -203,9 +186,11 @@ def milling_widget(qapp):
 
 @pytest.fixture
 def main_window(qapp):
-    host = _MainWindowHost()
-    yield host
-    host.deleteLater()
+    """The main windows' status bar, which decodes the reports itself since FIB-1188:
+    the real one, not a host borrowing its method."""
+    bar = FibsemStatusBar()
+    yield bar
+    bar.deleteLater()
 
 
 @pytest.fixture
@@ -238,9 +223,7 @@ class TestTheStageCountIsOneBased:
         main_window._on_milling_progress(
             stage_start(current_stage=1, total_stages=3, stage_name="Polish")
         )
-        assert (
-            main_window.milling_progress_bar.toolTip() == "Milling Stage: 2/3 - Polish"
-        )
+        assert main_window.text == "Preparing: Polish stage 2 of 3"
 
     def test_the_coincidence_viewer_counts_from_one(self, coincidence):
         coincidence._on_milling_progress(stage_start(current_stage=2, total_stages=3))
@@ -264,7 +247,7 @@ class TestTheStrategysWordsReachTheScreen:
 
     def test_the_main_window_shows_it(self, main_window):
         main_window._on_milling_progress(strategy_message())
-        assert "Running Rough Mill..." in main_window.milling_progress_bar.format()
+        assert "Running Rough Mill..." in main_window.text
 
     def test_the_coincidence_viewer_shows_it(self, coincidence):
         coincidence._on_milling_progress(strategy_message())
@@ -331,9 +314,7 @@ class TestAnUnknownProducerCannotKillTheApp:
 
     def test_the_main_window_survives_and_renders(self, main_window):
         main_window._on_milling_progress(out_of_tree_delegating_strategy())
-        assert (
-            "Running Rough Mill cycle 2..." in main_window.milling_progress_bar.format()
-        )
+        assert "Running Rough Mill cycle 2..." in main_window.text
 
     def test_the_coincidence_viewer_survives_and_renders(self, coincidence):
         coincidence._on_milling_progress(out_of_tree_delegating_strategy())
@@ -411,7 +392,8 @@ class TestATaskEnding:
     def test_the_main_window_hides_its_bar(self, main_window):
         main_window._on_milling_progress(stage_start())
         main_window._on_milling_progress(task_finished())
-        assert not main_window.milling_progress_bar.isVisible()
+        assert main_window.fraction is None, "the bar goes with the task"
+        assert main_window.text == "Milling done", "and the line says it ended"
 
     def test_a_stage_finishing_does_not_hide_the_bar(self, milling_widget):
         """`STAGE_FINISHED` is not terminal. Treating it as one hides the bar after the
@@ -433,7 +415,8 @@ class TestATaskEnding:
         main_window._on_milling_progress(
             MillingProgress(MillingProgressStatus.TASK_CANCELLED)
         )
-        assert not main_window.milling_progress_bar.isVisible()
+        assert main_window.fraction is None
+        assert main_window.text == "Milling cancelled"
 
 
 # --------------------------------------------------------------------------------------

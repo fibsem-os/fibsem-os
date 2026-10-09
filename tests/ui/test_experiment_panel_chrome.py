@@ -34,6 +34,7 @@ from fibsem.applications.autolamella.ui.AutoLamellaUI import (  # noqa: E402
     INSTRUCTIONS,
     AutoLamellaUI,
 )
+from fibsem.ui.widgets.status_bar import FibsemStatusBar  # noqa: E402
 
 
 @pytest.fixture
@@ -103,7 +104,8 @@ class _StatusHost(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.status_bar = self.statusBar()
+        self.status_bar = FibsemStatusBar(self)
+        self.setStatusBar(self.status_bar)
         self.autolamella_ui = _UIStub()
 
 
@@ -123,23 +125,23 @@ def test_status_bar_walks_the_whole_ladder(host, tmp_path):
     """
     assert host.autolamella_ui.microscope is None
     host._update_instructions()
-    assert host.status_bar.currentMessage() == INSTRUCTIONS["NOT_CONNECTED"]
+    assert host.status_bar.text == INSTRUCTIONS["NOT_CONNECTED"]
 
     host.autolamella_ui.microscope = object()
     host._update_instructions()
-    assert host.status_bar.currentMessage() == INSTRUCTIONS["NO_EXPERIMENT"]
+    assert host.status_bar.text == INSTRUCTIONS["NO_EXPERIMENT"]
 
     experiment = Experiment(path=str(tmp_path), name="ladder")
     host.autolamella_ui.experiment = experiment
     host._update_instructions()
-    assert host.status_bar.currentMessage() == INSTRUCTIONS["NO_PROTOCOL"]
+    assert host.status_bar.text == INSTRUCTIONS["NO_PROTOCOL"]
 
     host.autolamella_ui.protocol = AutoLamellaTaskProtocol()
     host._update_instructions()
-    assert host.status_bar.currentMessage() == INSTRUCTIONS["NO_LAMELLA"]
+    assert host.status_bar.text == INSTRUCTIONS["NO_LAMELLA"]
 
     experiment.positions.append(
         Lamella(petname="01-test", path=str(tmp_path / "01-test"), number=1)
     )
     host._update_instructions()
-    assert host.status_bar.currentMessage() == INSTRUCTIONS["AUTOLAMELLA_READY"]
+    assert host.status_bar.text == INSTRUCTIONS["AUTOLAMELLA_READY"]
