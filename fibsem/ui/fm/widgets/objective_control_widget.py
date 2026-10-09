@@ -888,7 +888,7 @@ class ObjectiveControlWidget(QWidget):
             self.update_objective_position_labels()
             return
         position_um = self._wheel_target_um
-        logging.info(f"Executing debounced wheel move to: {position_um:.1f} µm")
+        logging.debug(f"Executing debounced wheel move to: {position_um:.1f} µm")
         self._wheel_moving_to_um = position_um
         worker = self._wheel_move_worker(position_um * MICRON_TO_METRE)
         worker.returned.connect(self._on_wheel_move_finished)

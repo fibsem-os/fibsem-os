@@ -1186,7 +1186,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 lambda: milling.get(key),
             )
             milling[key] = config
-            logging.info(
+            logging.debug(
                 f"Updated {selected_lamella.name}, {selected_task_name} Task, milling key '{key}'"
             )
 
@@ -1275,7 +1275,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                 lambda: task_config.coordinates,
             )
             task_config.coordinates = list(settings.coordinates)
-        logging.info(
+        logging.debug(
             f"Updated {selected_lamella.name}, {selected_task_name} Spot Burn Coordinates"
         )
         self._save_experiment()

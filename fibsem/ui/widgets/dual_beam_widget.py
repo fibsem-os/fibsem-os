@@ -166,7 +166,7 @@ class FibsemDualBeamWidget(QWidget):
         self.sem_widget.setVisible(sem_checked)
         self.fib_widget.setVisible(not sem_checked)
         self.sync_beam_status()
-        logging.info({"msg": "_on_beam_selected", "beam_type": self.beam_type.name})
+        logging.debug({"msg": "_on_beam_selected", "beam_type": self.beam_type.name})
 
     def _on_beam_on_clicked(self):
         bt = self.beam_type
@@ -175,7 +175,7 @@ class FibsemDualBeamWidget(QWidget):
         else:
             self.microscope.turn_on(bt)
         self.sync_beam_status()
-        logging.info({"msg": "_on_beam_on_clicked", "beam_type": bt.name})
+        logging.debug({"msg": "_on_beam_on_clicked", "beam_type": bt.name})
 
     def _on_beam_blanked_clicked(self):
         bt = self.beam_type
@@ -184,11 +184,11 @@ class FibsemDualBeamWidget(QWidget):
         else:
             self.microscope.blank(bt)
         self.sync_beam_status()
-        logging.info({"msg": "_on_beam_blanked_clicked", "beam_type": bt.name})
+        logging.debug({"msg": "_on_beam_blanked_clicked", "beam_type": bt.name})
 
     def _on_refresh_clicked(self):
         self.sync_from_microscope()
-        logging.info({"msg": "_on_refresh_clicked", "beam_type": self.beam_type.name})
+        logging.debug({"msg": "_on_refresh_clicked", "beam_type": self.beam_type.name})
 
     # ------------------------------------------------------------------
     # Public API — delegates to the active sub-widget
