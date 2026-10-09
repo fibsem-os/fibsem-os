@@ -13,7 +13,13 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 import numpy as np
 
-from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
+from fibsem.cancellation import (
+    COMPLETED,
+    SKIPPED,
+    OperationCancelledError,
+    ended_by,
+    raise_if_cancelled,
+)
 from fibsem.structures import BeamType
 
 if TYPE_CHECKING:
@@ -364,6 +370,73 @@ def run_auto_focus(
     hfw: float = 150e-6,
     settings: AutoFocusSettings = None,
     stop_event: Optional[threading.Event] = None,
+    path: Optional[str] = None,
+    name: str = "autofocus",
+) -> Optional[AutoFocusResult]:
+    """Multi-pass image-based auto-focus sweep, recorded however it ends.
+
+    Every call records one ``autofocus`` event: ``completed`` with the working
+    distance it left, ``skipped`` when the working distance cannot be set,
+    ``cancelled`` or ``failed`` when it raised (and re-raises), each with when it
+    ``started_at``. Given a ``path``, a completed run is saved to
+    ``<path>/<name>`` first and the event says where.
+
+    See :func:`_auto_focus` for the sweep itself.
+    """
+    from fibsem.util.timestamps import now_iso
+
+    if beam_type is None:
+        beam_type = BeamType.ELECTRON
+    if settings is None:
+        settings = AutoFocusSettings()
+    started_at = now_iso()
+    record = {
+        "beam_type": beam_type.name,
+        "method": settings.method.value,
+        "hfw": hfw,
+        "passes": sum(1 for p in settings.passes if p.enabled),
+        "started_at": started_at,
+    }
+    try:
+        result = _auto_focus(microscope, beam_type, hfw, settings, stop_event)
+        saved = None
+        if result is not None and path is not None:
+            saved = str(result.save(path=path, name=name))
+    except Exception as error:
+        microscope.record_event("autofocus", {**record, **ended_by(error)})
+        raise
+    if result is None:
+        microscope.record_event(  # for the experiment's record; it never raises
+            "autofocus",
+            {
+                **record,
+                "status": SKIPPED,
+                "reason": f"the working distance is not settable for the "
+                f"{beam_type.name} beam on this system",
+            },
+        )
+        return None
+    microscope.record_event(
+        "autofocus",
+        {
+            **record,
+            "status": COMPLETED,
+            "steps": result.n_iterations,
+            "initial_working_distance": result.initial_working_distance,
+            "working_distance": result.working_distance,
+            "focus_score": result.focus_score,
+            "path": saved,
+        },
+    )
+    return result
+
+
+def _auto_focus(
+    microscope: "FibsemMicroscope",
+    beam_type: BeamType,
+    hfw: float,
+    settings: AutoFocusSettings,
+    stop_event: Optional[threading.Event],
 ) -> Optional[AutoFocusResult]:
     """Multi-pass image-based auto-focus sweep.
 
@@ -376,7 +449,7 @@ def run_auto_focus(
         microscope: FibsemMicroscope instance.
         beam_type: Which beam to focus.
         hfw: Horizontal field width for probe images (metres).
-        settings: ``AutoFocusSettings``; defaults constructed if ``None``.
+        settings: ``AutoFocusSettings``.
         stop_event: Cancellation event, polled between passes and between working
             distance steps. On cancel the starting working distance is restored and
             ``OperationCancelledError`` is raised.
@@ -391,12 +464,7 @@ def run_auto_focus(
         OperationCancelledError: if ``stop_event`` is set during the sweep.
     """
     from fibsem.autofunctions.metrics import get_focus_measure_function
-    from fibsem.structures import BeamType, ImageSettings
-
-    if beam_type is None:
-        beam_type = BeamType.ELECTRON
-    if settings is None:
-        settings = AutoFocusSettings()
+    from fibsem.structures import ImageSettings
 
     # Skip rather than fake success: on backends where the working-distance write is
     # a best-effort no-op (TESCAN ION), the sweep would run to completion, score
@@ -484,20 +552,6 @@ def run_auto_focus(
         len(settings.passes),
         len(iterations),
     )
-    microscope.record_event(  # for the experiment's record; it never raises
-        "autofocus",
-        {
-            "beam_type": beam_type.name,
-            "method": settings.method.value,
-            "hfw": hfw,
-            "passes": len(active_passes),
-            "steps": len(iterations),
-            "initial_working_distance": initial_wd,
-            "working_distance": best.working_distance,
-            "focus_score": best.focus_score,
-        },
-    )
-
     return AutoFocusResult(
         image=best.image,
         working_distance=best.working_distance,

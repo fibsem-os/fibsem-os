@@ -135,3 +135,22 @@ def test_the_wrappers_return_what_they_measured(microscope, experiment):
     )
     assert task._align_reference_image("no-such-reference") is None
     assert isinstance(task._run_autofocus(BeamType.ELECTRON), AutoFocusResult)
+
+
+def test_a_missing_reference_is_recorded_as_a_skipped_alignment(microscope, experiment):
+    """The alignment the task asked for did not happen; the record says so
+    beside the ones that did, instead of only a log line (FIB-1255)."""
+    lamella = experiment.positions[0]
+    task = MillRoughTask(microscope, lamella.task_config[ROUGH], lamella)
+    recorded = []
+    microscope.record_signal.connect(
+        lambda kind, payload: recorded.append(payload) if kind == "alignment" else None
+    )
+    try:
+        assert task._align_reference_image("no-such-reference") is None
+    finally:
+        microscope.record_signal.disconnect()
+
+    (skipped,) = recorded
+    assert skipped["status"] == "skipped"
+    assert "no-such-reference" in skipped["reason"]

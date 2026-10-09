@@ -6,6 +6,7 @@ at natural checkpoints (between passes/steps, before an irreversible action) via
 cleanly. Callers distinguish a cancel from a real failure — surface it as a neutral "...cancelled"
 (not an error), and in a workflow mark the task ``Cancelled`` rather than ``Failed``.
 """
+
 from __future__ import annotations
 
 import threading
@@ -56,3 +57,20 @@ def raise_if_cancelled(
     """
     if stop_event is not None and stop_event.is_set():
         raise OperationCancelledError(msg)
+
+
+# How an operation -- an alignment, an autofocus -- ended, as its recorded event
+# says it. Plain strings: events are JSON, and their readers compare text.
+COMPLETED = "completed"
+SKIPPED = "skipped"  # it did not run: a precondition was missing
+FAILED = "failed"
+CANCELLED = "cancelled"
+
+
+def ended_by(error: BaseException) -> dict:
+    """The ``status`` an operation that raised ``error`` ended with, and for a
+    failure the ``error`` text, as fields for its recorded event. A Stop is a
+    cancellation, not a failure, and carries no error."""
+    if isinstance(error, OperationCancelledError):
+        return {"status": CANCELLED}
+    return {"status": FAILED, "error": f"{type(error).__name__}: {error}"}
