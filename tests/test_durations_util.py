@@ -2,7 +2,6 @@
 
 import pytest
 
-from fibsem import utils
 from fibsem.util import durations
 
 # Values either side of each boundary, and the awkward ones.
@@ -90,7 +89,7 @@ def test_a_missing_value_is_blank(shape, missing):
     assert shape(missing) == ""
 
 
-# -- the names callers use until they move: same output as before ----------------
+# -- the formatters these replaced (FIB-1191): same output ------------------------
 
 
 def _old_format_duration(seconds):
@@ -118,10 +117,11 @@ def _old_format_time_remaining(seconds, pad=False):
 
 
 @pytest.mark.parametrize("seconds", SECONDS)
-def test_the_utils_names_read_as_before(seconds):
-    assert utils.format_duration(seconds) == _old_format_duration(seconds)
+def test_precise_and_rounded_read_as_the_formatters_they_replaced(seconds):
+    """utils.format_duration and utils.format_time_remaining, removed in FIB-1251."""
+    assert durations.format_duration_precise(seconds) == _old_format_duration(seconds)
     for pad in (False, True):
-        assert utils.format_time_remaining(
+        assert durations.format_duration_rounded(
             seconds, pad=pad
         ) == _old_format_time_remaining(seconds, pad=pad)
 
