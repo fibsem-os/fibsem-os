@@ -179,6 +179,21 @@ def test_reflection_fit_works_near_the_top_and_left_edges(cx, cy):
     assert d.fitted_xy is not None
 
 
+@pytest.mark.parametrize("cx, cy", [(5, 5), (5, 30), (30, 5), (76, 76)])
+def test_fib_hole_fit_works_near_the_edges(cx, cy):
+    """The FIB fit's window wrapped the same way within the cutout of the top or
+    left edge; near the bottom or right it only clipped, but the answer was then
+    clamped to a cutout from the edge, moving a burn the fit had found."""
+    img = _fib_burn(cx, cy)
+    x, y = cx + 0.3, cy - 0.4  # a sub-pixel click on the burn
+    xr, yr, d = hole_fitting_FIB(img, x, y)
+    assert xr == pytest.approx(cx, abs=0.75) and yr == pytest.approx(cy, abs=0.75)
+    # the input marker sits on the click, in the clamped window's frame
+    x0, y0 = max(0, round(x) - 15), max(0, round(y) - 15)
+    assert d.input_xy == pytest.approx((x - x0, y - y0))
+    assert d.fitted_xy == pytest.approx((xr - x0, yr - y0))
+
+
 def test_reflection_fit_works_at_the_top_plane_and_far_corner():
     vol = _refl_vol_at(57, 57, cz=19)
     xr, yr, zr, d = hole_fitting_reflection(vol, 57, 57, 20, 2)
