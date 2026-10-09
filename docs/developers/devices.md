@@ -589,9 +589,15 @@ On the microscope's computer, the `fm` entry names `driver: remote` and the serv
 `address` and `port`, as in the example under
 [Configuring devices](#configuring-devices). The FM's devices are then built from what
 the server has, backed by HTTP (`fibsem/drivers/remote/devices.py`), and parameters,
-metadata and commands behave as they do locally. The FM is the only device a
-configuration can put on another computer today; `connect_remote_beams` in the same
-module connects to served beams from a script. `get_value()` raises `RemoteDeviceUnreachable` when the server cannot
+metadata and commands behave as they do locally. Beams, the stage, the chamber, the
+manipulator and the FM's parts can each be an entry with `driver: remote`; a stage,
+chamber or manipulator entry keeps its type's name. Moves, pumping and venting run on
+the server, which checks a stage move against the limits as well. What a device says
+about itself beyond its parameters (the stage's frame and whether it is a compustage,
+the needle's axes and named positions) crosses as the device's `facts()`.
+`python -m fibsem.server.devices --serve stage chamber manipulator` serves the Demo's,
+to try it. `connect_remote_beams` in the same module connects to served beams from a
+script. `get_value()` raises `RemoteDeviceUnreachable` when the server cannot
 be reached, rather than return a stale value, and `cached` is kept current by the
 server's event stream. `fibsem/server/devices.py` documents the server's endpoints.
 INSTALLATION.md covers setting up a METEOR.

@@ -49,8 +49,6 @@ from fibsem.devices.scanner import Scanner
 from fibsem.devices.stage import (
     Stage,
     axis_limits_from_degrees,
-    compustage_device_at_pose,
-    compustage_poses,
 )
 from fibsem.drivers.demo.simulator import (
     BINNING_VALUES,
@@ -408,24 +406,6 @@ class DemoStage(Stage):
     # so on the new API "linked" is absent and link() is unavailable.
     def available_linked(self) -> bool:
         return not self.compustage
-
-    def has_builtin_shuttle(self) -> bool:
-        return self.compustage
-
-    # The simulator is a compustage or an offset stage by its configuration.
-    def poses(
-        self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
-    ) -> Dict[str, FibsemStagePosition]:
-        if self.compustage:
-            return compustage_poses(
-                rotation_reference, shuttle_pre_tilt, fib_column_tilt
-            )
-        return super().poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
-
-    def device_at_pose(self, orientation: str) -> Optional[str]:
-        if self.compustage:
-            return compustage_device_at_pose(orientation)
-        return super().device_at_pose(orientation)
 
     def read_linked(self) -> bool:
         return self.sim_linked

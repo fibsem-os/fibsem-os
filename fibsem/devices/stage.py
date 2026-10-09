@@ -221,6 +221,10 @@ class Stage(Device):
     frame: str = STAGE_FRAME_FIBSEM
     """The frame ``position`` is in, stamped on every image (FIB-1114)."""
 
+    compustage: bool = False
+    """Whether this is a compustage, which tilts over instead of turning round: its
+    poses, the device it is at in each and its built-in shuttle follow from it."""
+
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="stage", parent=parent, **kwargs)
         self.axes = Axes({})
@@ -228,12 +232,19 @@ class Stage(Device):
     def connect(self) -> Stage:
         """Bind the parameters, then build an axis for each one the driver reports."""
         super().connect()
+        self._build_axes()
+        return self
+
+    def _build_axes(self) -> None:
+        """An axis for each one the driver gives ``position`` limits for."""
         limits = self.position.limits or {}
         axes = {name: Axis(self, name) for name in AXIS_UNITS if name in limits}
         for axis in axes.values():
             self.position.changed.connect(axis._position_changed)
         self.axes = Axes(axes)
-        return self
+
+    def facts(self) -> Dict[str, Any]:
+        return {"frame": self.frame, "compustage": self.compustage}
 
     @property
     def is_homed(self) -> Optional[bool]:
@@ -309,9 +320,13 @@ class Stage(Device):
         """The pose for each orientation name on this stage, from the geometry in degrees.
 
         A stage that turns round to face the ion beam by default, or stays at the
-        reference if it has no ``r`` axis. A stage that reaches the beams some other
-        way (a compustage) overrides this.
+        reference if it has no ``r`` axis; a compustage tilts over instead. A stage
+        that reaches the beams some other way overrides this.
         """
+        if self.compustage:
+            return compustage_poses(
+                rotation_reference, shuttle_pre_tilt, fib_column_tilt
+            )
         return rotating_stage_poses(
             rotation_reference,
             shuttle_pre_tilt,
@@ -324,18 +339,20 @@ class Stage(Device):
 
         None by default: the stage travels between devices, so where it is decides
         which one it is at (the nearest origin, `FibsemMicroscope.get_current_device`).
-        A stage that reaches a device by re-posing instead of travelling (a compustage
-        and its FM) overrides this, so the pose decides wherever x and y are.
+        A compustage reaches its FM by re-posing instead of travelling, so there the
+        pose decides wherever x and y are; another such stage overrides this.
         """
+        if self.compustage:
+            return compustage_device_at_pose(orientation)
         return None
 
     def has_builtin_shuttle(self) -> bool:
         """Whether the stage carries its own one-grid shuttle, so the sample holder is
         built in rather than read from the configuration.
 
-        False by default. A compustage, which is the autoloader's stage, overrides it.
+        A compustage, which is the autoloader's stage, has one.
         """
-        return False
+        return self.compustage
 
     def turned_over(self, tilt: float) -> bool:
         """Whether the sample is turned over at this stage tilt, in radians.

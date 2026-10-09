@@ -29,6 +29,7 @@ own, they have no authentication yet, nor a one-commander lease.
 Try it on one computer:
 
     python -m fibsem.server.devices --port 8765        # terminal 1: Demo beams
+    python -m fibsem.server.devices --serve stage chamber manipulator  # or the rest
     python -m fibsem.server.devices --serve fm         # or a simulated FM's parts
 
 On a METEOR's Linux PC, serving its real FM to the PC that drives the beams (see
@@ -47,6 +48,7 @@ import asyncio
 import io
 import json
 import logging
+import math
 import threading
 from typing import (
     Any,
@@ -99,6 +101,7 @@ ERROR_STATUS = {
     ParameterReadOnly: 409,
     TypeError: 422,
     ValueError: 422,
+    NotImplementedError: 501,  # a command this driver has no hook for (a needle's stop)
 }
 
 
@@ -106,24 +109,52 @@ def _choices_to_wire(choices: Any) -> Any:
     return None if choices is None else [to_wire(choice) for choice in choices]
 
 
+def _bound(value: Any) -> Any:
+    """JSON has no infinity: an unbounded end of a limit (a Tescan stage axis) goes
+    as None, and the remote driver reads None back as unbounded."""
+    return None if isinstance(value, float) and math.isinf(value) else value
+
+
+def _limits_to_wire(limits: Any) -> Any:
+    """``_limits_to_dict``'s output with each infinite end as None."""
+    if limits is None:
+        return None
+    if set(limits) == {"min", "max"}:
+        return {end: _bound(value) for end, value in limits.items()}
+    return {name: _limits_to_wire(limit) for name, limit in limits.items()}
+
+
+def _facts(device: Device) -> Dict[str, Any]:
+    try:
+        return jsonable_encoder(device.facts())
+    except Exception as error:  # a description without facts beats none at all
+        logging.warning(f"{device.name}: facts: {type(error).__name__}: {error}")
+        return {}
+
+
 def describe_device(device: Device) -> Dict[str, Any]:
     return {
         "name": device.name,
         "class": type(device).__name__,
         "parameters": {
-            name: {**info, "choices": _choices_to_wire(info["choices"])}
+            name: {
+                **info,
+                "limits": _limits_to_wire(info["limits"]),
+                "choices": _choices_to_wire(info["choices"]),
+            }
             for name, info in device.describe().items()
         },
         "commands": {
             name: {"signature": info.signature, "available": info.available}
             for name, info in device.commands.items()
         },
+        "facts": _facts(device),
     }
 
 
 def metadata_payload(metadata: ParameterMetadata) -> Dict[str, Any]:
     return {
-        "limits": _limits_to_dict(metadata.limits),
+        "limits": _limits_to_wire(_limits_to_dict(metadata.limits)),
         "choices": _choices_to_wire(metadata.choices),
         "settable": metadata.settable,
         "native_max": metadata.native_max,
@@ -362,12 +393,23 @@ class DeviceServer:
             self._thread.join(timeout=5)
 
 
-def demo_devices() -> List[Device]:
-    """The Demo microscope's beams, standing in for real hardware."""
+DEMO_PARTS = ("beams", "stage", "chamber", "manipulator")
+"""What of the Demo microscope a device server can serve."""
+
+
+def demo_devices(parts: Sequence[str] = ("beams",)) -> List[Device]:
+    """The Demo microscope's beams, standing in for real hardware, and its stage,
+    chamber and manipulator when *parts* names them."""
     from fibsem import utils
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    return list(microscope.beams.values())
+    devices: List[Device] = []
+    for part in parts:
+        if part == "beams":
+            devices += microscope.beams.values()
+        else:
+            devices.append(microscope.devices[part])
+    return devices
 
 
 def demo_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
@@ -416,10 +458,11 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument(
         "--serve",
         nargs="+",
-        choices=("beams", "fm", "odemis-fm"),
+        choices=(*DEMO_PARTS, "fm", "odemis-fm"),
         default=["beams"],
-        help="beams: the Demo microscope's beams; fm: a simulated FM's parts; "
-        "odemis-fm: the FM of the METEOR this computer runs odemis for",
+        help="beams, stage, chamber, manipulator: the Demo microscope's; fm: a "
+        "simulated FM's parts; odemis-fm: the FM of the METEOR this computer runs "
+        "odemis for",
     )
     parser.add_argument(
         "--mount-transform",
@@ -430,8 +473,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     )
     args = parser.parse_args(argv)
     served: List[Device] = []
-    if "beams" in args.serve:
-        served += demo_devices()
+    demo_parts = [part for part in DEMO_PARTS if part in args.serve]
+    if demo_parts:
+        served += demo_devices(demo_parts)
     # The FM's configuration keys, as an fm entry in a microscope configuration
     # states them.
     fm_config = {"mount_transform": args.mount_transform}
