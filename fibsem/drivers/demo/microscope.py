@@ -50,7 +50,7 @@ from __future__ import annotations
 import logging
 from contextlib import contextmanager
 from types import MappingProxyType
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fibsem import manufacturers
 from fibsem._timing import sim_sleep
@@ -102,13 +102,6 @@ DEMO_DEVICES = (
 
 # A simulated compustage also has an autoloader, as an Arctis does.
 DEMO_SAMPLE_LOADER = DeviceEntry(name="sample_loader", type="sample_loader")
-
-# Today's scan-mode set keys, and the methods that run the beam commands for them.
-_SCAN_MODE_KEYS: Dict[str, Callable[[Any, Any, BeamType], None]] = {
-    "spot_mode": lambda m, point, bt: m.set_spot_scanning_mode(point, bt),
-    "reduced_area": lambda m, area, bt: m.set_reduced_area_scanning_mode(area, bt),
-    "full_frame": lambda m, _, bt: m.set_full_frame_scanning_mode(bt),
-}
 
 
 def _routes(device: str, routes: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
