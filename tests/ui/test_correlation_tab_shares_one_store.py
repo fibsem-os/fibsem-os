@@ -320,11 +320,10 @@ def test_any_change_to_the_store_arms_the_save_and_updates_the_counts(tab):
     assert "5" in tab._coords_tab._fib_count_label.text()
 
 
-def test_a_z_rescale_reaches_the_rows(tab):
+def test_a_z_changed_in_place_reaches_the_rows(tab):
     fm = _list(tab, PointType.FM).coordinates
-    fm[1].point.z = 4.0
-    tab._rescale_fm_z(2.0)
-    assert fm[1].point.z == 8.0
+    fm[1].point.z = 8.0
+    tab._point_store.notify_changed([fm[1]])
     assert _row(tab, PointType.FM, 1).z_spin.value() == 8.0
 
 

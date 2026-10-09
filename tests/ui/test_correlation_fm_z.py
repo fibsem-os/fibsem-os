@@ -173,3 +173,39 @@ def test_a_fib_point_never_warns_about_the_fm_projection(tab, toasts):
     tab._fm_display.set_max_projection(True)
     tab._on_canvas_add_requested(10.0, 12.0, PointType.FIB)
     assert toasts == []
+
+
+@pytest.mark.parametrize(
+    "recorded_nz,recorded_step",
+    [
+        (81, _Z_STEP * 20 / 80),  # saved after FIB-1238: the grid's own step
+        (81, _Z_STEP * _NZ / 81),  # saved before it: new_nz / old_nz
+    ],
+)
+def test_a_run_saved_on_an_interpolated_stack_reopens_on_the_same_features(
+    tab, tmp_path, recorded_nz, recorded_step
+):
+    """FIB-1239: a file records z in the planes of the stack it was picked on.
+    Opened on the acquired stack, its points used to keep those plane numbers,
+    four times too deep here and off the bottom of the stack."""
+    from fibsem.correlation.structures import CorrelationState
+
+    picked = [16.0, 7.0, 12.4]  # stack planes, i.e. the features
+    # where the old interpolation put them, with the step it recorded
+    saved = [z * _Z_STEP / recorded_step for z in picked]
+    path = tmp_path / "correlation.json"
+    CorrelationState(
+        input_data=CorrelationInputData(
+            fm_coordinates=[
+                Coordinate(PointXYZ(10.0, 10.0, z), PointType.FM) for z in saved
+            ],
+            stored_fm_pixel_size_z=recorded_step,
+        )
+    ).save(str(path))
+
+    tab.load_correlation(str(path))
+
+    stack = tab._fm_image.data[0, :, 0, 0].astype(float) / _PER_SLICE
+    for z_feature, coord in zip(picked, _fm_points(tab)):
+        on = np.interp(coord.point.z, np.arange(len(stack)), stack)
+        assert on == pytest.approx(z_feature, abs=1e-6)
