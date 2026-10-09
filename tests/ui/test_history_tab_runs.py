@@ -30,6 +30,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 )
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # noqa: E402
     LamellaTaskImageWidget,
+    _ClickableRow,
 )
 from fibsem.structures import FibsemImage, MicroscopeState  # noqa: E402
 
@@ -245,3 +246,44 @@ def test_the_menu_lists_the_lamellas_tasks(widget):
         "",
         "Reset filters",
     ]
+
+
+def _operation_lines(widget):
+    QApplication.processEvents()
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    return [
+        line
+        for line in widget._content.findChildren(_ClickableRow)
+        if line.isVisibleTo(widget)
+    ]
+
+
+def test_clicking_an_operation_shows_its_steps_and_stays_open(widget):
+    assert "Step 1" not in _shown(widget)
+    alignment = _operation_lines(widget)[1]  # the second Rough Milling's
+
+    alignment.clicked.emit()
+    texts = _shown(widget)
+    assert "Step 1" in texts and "(+300, +400) nm · score 0.00" in texts
+
+    widget.refresh()  # as after a task finishes
+    assert "Step 1" in _shown(widget), "a refresh keeps it open"
+
+    _operation_lines(widget)[1].clicked.emit()
+    assert "Step 1" not in _shown(widget)
+
+
+def test_a_runs_time_sits_on_its_name_line(widget):
+    QApplication.processEvents()
+    (name,) = [
+        label
+        for label in widget._content.findChildren(QLabel)
+        if label.text() == POLISH and label.isVisibleTo(widget)
+    ]
+    (when,) = [
+        label
+        for label in widget._content.findChildren(QLabel)
+        if label.text() == "18:10 · 1 m 30 s" and label.isVisibleTo(widget)
+    ]
+    assert when.parent() is name.parent()
+    assert abs(when.geometry().center().y() - name.geometry().center().y()) <= 2

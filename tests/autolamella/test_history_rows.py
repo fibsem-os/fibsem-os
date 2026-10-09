@@ -20,6 +20,7 @@ from fibsem.applications.autolamella.history_rows import (
     HistoryFilter,
     filter_runs,
     history_rows,
+    operation_facts,
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
@@ -243,6 +244,62 @@ def test_each_operation_says_how_it_ended(tmp_path):
         ("completed", "SEM WD 4.000 → 4.120 mm · 11 probes"),
     ]
     assert run.operations[3].duration == pytest.approx(5.0)
+
+
+def test_an_expanded_operation_lists_each_step_and_why_it_stopped(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    saved = tmp_path / "Alignment" / "lam - Rough Milling-18-05-00"
+    saved.mkdir(parents=True)
+    (saved / "figure.png").write_bytes(b"")
+    events = [
+        _event(
+            lamella,
+            "r",
+            "alignment",
+            status="completed",
+            beam_type="ION",
+            method="cross-correlation",
+            subsystem="beam-shift",
+            steps=3,
+            results=[
+                {"shift": {"x": 3e-8, "y": -1e-8}, "score": 0.8},
+                {"shift": {"x": 0.0, "y": 0.0}, "score": 0.2, "success": False},
+            ],
+            validation={"agreement": False, "max_disagreement_px": 70.04},
+            path=str(saved),
+        ),
+        _event(lamella, "r", "alignment", status="failed", error="RuntimeError: x"),
+        _event(
+            lamella,
+            "r",
+            "autofocus",
+            status="completed",
+            beam_type="ELECTRON",
+            hfw=1.5e-4,
+            steps=22,
+            initial_working_distance=0.004,
+            working_distance=0.0042,
+            path=str(tmp_path / "moved away"),
+        ),
+    ]
+
+    (run,) = history_rows(lamella, events)
+    align, failed, focus = run.operations
+
+    assert operation_facts(align) == [
+        ("Beam", "FIB"),
+        ("Method", "cross-correlation"),
+        ("Corrected by", "beam-shift"),
+        ("Step 1", "(+30, -10) nm · score 0.80"),
+        ("Step 2", "(+0, +0) nm · score 0.20 · too weak, not applied"),
+        ("Steps", "2 of 3"),
+        ("Methods", "disagree · 70.0 px apart at most"),
+    ]
+    assert align.plot == str(saved / "figure.png")
+    assert operation_facts(failed)[0] == ("Error", "RuntimeError: x")
+    assert ("Working distance", "4.000 → 4.200 mm") in operation_facts(focus)
+    assert focus.plot is None, "its folder is not where the record says"
 
 
 def test_only_this_lamellas_operations_are_its_own(tmp_path):
