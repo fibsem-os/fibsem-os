@@ -204,3 +204,38 @@ def test_a_view_finished_after_the_stack_changed_is_not_shown(tab):
 
     assert tab._fm_view_scale == 1.0
     assert tab._fm_display._z_max == _NZ - 1  # still the new stack's planes
+
+
+def _z_tip(tab, i=-1):
+    lst = tab._point_specs[PointType.FM].list_widget._list
+    row = lst.itemWidget(lst.item(lst.count() + i if i < 0 else i))
+    return row.z_spin.toolTip()
+
+
+def test_the_z_tooltip_gives_the_view_plane_as_the_slider_numbers_it(tab):
+    """The table keeps the stack's slice; the tooltip says where that is on
+    the interpolated view's slider, which counts from 1."""
+    tab.set_data(
+        CorrelationInputData(
+            fm_coordinates=[Coordinate(PointXYZ(10.0, 10.0, 16.0), PointType.FM)]
+        )
+    )
+    assert _z_tip(tab) == "Z (slice)"  # no view: as before
+
+    _show_interpolated(tab, 130e-9)
+    scale = tab._fm_view_scale
+    planes = tab._fm_display._z_max + 1
+    assert _z_tip(tab) == (
+        f"Stack slice 16.00 (of 0–{_NZ - 1}) · view plane "
+        f"{round(16.0 * scale) + 1}/{planes}"
+    )
+
+    # a pick on the view: its tooltip names the plane the slider showed
+    tab._fm_display.set_max_projection(False)
+    tab._fm_display.step_z(5)
+    shown = tab._fm_display._z_label.text()  # e.g. "46/81"
+    tab._on_canvas_add_requested(10.0, 12.0, PointType.FM)
+    assert _z_tip(tab).endswith(f"view plane {shown}")
+
+    tab.set_fm_image(_ramp_stack())  # a new stack is shown as it is
+    assert _z_tip(tab, 0) == "Z (slice)"

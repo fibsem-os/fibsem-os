@@ -2681,6 +2681,13 @@ class CorrelationTabWidget(QWidget):
             return None
         return getattr(self._fm_image.metadata, "pixel_size_z", None)
 
+    def _show_z_view_in_lists(self, view: Optional[Tuple[float, int]]) -> None:
+        """Tell the FM-side lists which view plane each z sits on, or that none
+        is shown: their z stays in the stack's slices."""
+        for spec in self._point_specs.values():
+            if spec.adapter is self._fm_adapter:
+                spec.list_widget.set_z_view(view)
+
     def _fm_plane_in_stack(self) -> float:
         """The displayed FM plane, in the loaded stack's planes.
 
@@ -2744,6 +2751,7 @@ class CorrelationTabWidget(QWidget):
         """Load FM image into canvas and update images tab."""
         self._fm_image = fm_image
         self._fm_view_scale = 1.0  # a new stack is shown as it is
+        self._show_z_view_in_lists(None)
         self._fm_display.set_fm_image(fm_image)
         self._set_name_label(self._fm_name_label, fm_image)
         px = self._effective_fm_pixel_size(fm_image)
@@ -4771,6 +4779,7 @@ class CorrelationTabWidget(QWidget):
         new_nz = new_image.data.shape[1]
         self._fm_view_scale = z_resample_scale(old_nz, new_nz)
         self._fm_display.set_fm_image(new_image)
+        self._show_z_view_in_lists((self._fm_view_scale, new_nz))
         # The canvas reads the raw metadata pixel size; keep the stack's
         # corrected one, as set_fm_image does, so the scale bar stays right.
         px = self._effective_fm_pixel_size(self._fm_image)
