@@ -16,8 +16,8 @@ here calls it -- its text would cover the line.
 No dot: running and waiting already colour the window's border. What is happening
 reads bright, with its subject in bold; an instruction reads muted.
 
-Progress that can be measured -- milling, an overview's tiles, a spot burn -- adds a
-thin bar and its numbers to the line: "**Milling: Rough Mill** stage 2 of 3 ▬▬ 42% ·
+Progress that can be measured -- milling, an overview's tiles, a spot burn, a
+fluorescence acquisition -- adds a thin bar and its numbers to the line: "**Milling: Rough Mill** stage 2 of 3 ▬▬ 42% ·
 1m 20s left". Inside a run it sits under the run's task instead. The bar listens for
 it itself, from the microscope a host hands it (`set_microscope`), so no window
 decodes a report. When one ends, the line says how -- done, cancelled, or failed in
@@ -38,17 +38,23 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Optional, Tuple
 
-from PyQt5.QtCore import QTimer, pyqtSignal
+from PyQt5.QtCore import QSize, QTimer, pyqtSignal
+from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QStatusBar,
     QWidget,
 )
 from superqt import ensure_main_thread
 
+from fibsem.fm.progress import (
+    FluorescenceAcquisitionProgress,
+    FluorescenceAcquisitionStatus,
+)
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
 from fibsem.imaging.tiling.progress import (
     MODALITY_FLUORESCENCE,
@@ -69,6 +75,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.utils import format_time_remaining
 
 if TYPE_CHECKING:
@@ -86,6 +93,13 @@ _FAILED_STYLE = _LABEL.format(color=ERROR_COLOR, extra="")
 
 # How long an outcome ("done", "cancelled", a failure) stays before the line goes back.
 OUTCOME_MS = 2000
+
+# How long a fluorescence acquisition's line outlives its last report. Only
+# `acquire_image` says FINISHED; the autofocus sweep and the device's own z-stack
+# stop without a word, and their line would otherwise stay for the session (the
+# FIB-374 failure). Every routine reports at least once per plane or step, well
+# inside this.
+FM_STALE_MS = 3000
 
 # What the line calls each state of a tiled run, under "FIB/SEM overview" or
 # "Fluorescence overview": what kind of thing is happening, read at a glance from
@@ -117,6 +131,32 @@ _Line = Tuple[str, Optional[str], Optional[str]]
 _Progress = Tuple[str, Optional[str], Optional[float], Optional[str], bool, bool]
 
 
+class _LineLabel(ElidedLabel):
+    """A part of the line: it asks for its whole text while there is room, and gives
+    way to an ellipsis -- the whole text in its tooltip -- when there is not.
+
+    A plain QLabel's minimum is its text, so one long failure set the status bar's
+    minimum and the bar set the window's: the whole app grew wider. `ElidedLabel`
+    alone asks for nothing, which leaves a short line no room. This asks for its
+    text and settles for *floor* pixels.
+    """
+
+    def __init__(self, floor: int) -> None:
+        super().__init__()
+        self._floor = floor
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt naming
+        width = QFontMetrics(self.font()).horizontalAdvance(self.text()) + 4
+        return QSize(width, super().sizeHint().height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt naming
+        return QSize(
+            min(self._floor, self.sizeHint().width()),
+            super().minimumSizeHint().height(),
+        )
+
+
 class FibsemStatusBar(QStatusBar):
     """One line of status on the left -- an operation, else the run, else the
     instruction -- and the host's actions on the right."""
@@ -130,12 +170,20 @@ class FibsemStatusBar(QStatusBar):
         self.setStyleSheet(STATUS_BAR_STYLESHEET)
 
         line = QWidget(self)
+        # Transparent, or the app sheet paints the line in the surface colour and
+        # the bar's own panel colour shows only in the gaps: a lighter box across
+        # the left with a step beside the buttons. By name, so the labels' tooltips
+        # keep their panel.
+        line.setObjectName("statusLine")
+        line.setStyleSheet("#statusLine { background: transparent; }")
         layout = QHBoxLayout(line)
         layout.setContentsMargins(4, 0, 4, 0)
         layout.setSpacing(8)
-        self._what = QLabel()
+        # What gives way first: the step (a failure's reason can run to a paragraph),
+        # then the subject and the detail, which keep enough to be recognised.
+        self._what = _LineLabel(floor=160)
         self._what.setStyleSheet(_WHAT_STYLE)
-        self._step = QLabel()
+        self._step = _LineLabel(floor=40)
         self._step.setStyleSheet(_STEP_STYLE)
         self._bar = QProgressBar()
         self._bar.setRange(0, 1000)
@@ -144,7 +192,7 @@ class FibsemStatusBar(QStatusBar):
         self._bar.setStyleSheet(_BAR_STYLE)
         self._numbers = QLabel()
         self._numbers.setStyleSheet(_STEP_STYLE)
-        self._detail = QLabel()
+        self._detail = _LineLabel(floor=120)
         self._detail.setStyleSheet(_MUTED_STYLE)
         self._details_btn = QPushButton("Show")
         self._details_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
@@ -187,6 +235,14 @@ class FibsemStatusBar(QStatusBar):
         # A bound method, not a lambda: Qt drops the connection with the bar, where a
         # lambda would still be called after the bar was gone, and crash.
         self._outcome_timer.timeout.connect(self._end_outcome)
+        # Whether the line's progress is a fluorescence acquisition's, for the
+        # expiry below; and whether a tiled run is going, whose line wins over the
+        # per-tile reports of the channels and planes inside it.
+        self._fm_owns_progress = False
+        self._fm_stale_timer = QTimer(self)
+        self._fm_stale_timer.setSingleShot(True)
+        self._fm_stale_timer.timeout.connect(self._end_stale_fm)
+        self._tiling = False
         self._render()
 
     # ── the host's side ──────────────────────────────────────────────────
@@ -216,11 +272,17 @@ class FibsemStatusBar(QStatusBar):
                 signal.connect(slot)
 
     def _subscriptions(self, microscope: "FibsemMicroscope"):
-        return (
+        subscriptions = [
             (microscope.milling_progress_signal, self._on_milling_progress),
             (microscope.tiled_acquisition_signal, self._on_tiled_progress),
             (microscope.spot_burn_progress_signal, self._on_spot_burn_progress),
-        )
+        ]
+        # On the optional fluorescence device, not the microscope: a system without
+        # one has no signal to connect.
+        fm = getattr(microscope, "fm", None)
+        if fm is not None:
+            subscriptions.append((fm.acquisition_progress_signal, self._on_fm_progress))
+        return subscriptions
 
     # ── the three sources ────────────────────────────────────────────────
     def set_instruction(self, text: Optional[str]) -> None:
@@ -264,6 +326,8 @@ class FibsemStatusBar(QStatusBar):
         """Measurable progress: *label* with its *step*, and a bar at *fraction* (0-1)
         beside *numbers* when there is a figure to draw. None when it is over."""
         self._outcome_timer.stop()
+        self._fm_owns_progress = False
+        self._fm_stale_timer.stop()
         self._progress = (
             (label, step, fraction, numbers, False, False) if label else None
         )
@@ -473,6 +537,7 @@ class FibsemStatusBar(QStatusBar):
             if event.modality == MODALITY_FLUORESCENCE
             else "FIB/SEM overview"
         )
+        self._tiling = not event.status.is_terminal
         if event.status.is_terminal:
             self._tile_count = None
             if event.status is TiledStatus.FAILED:
@@ -527,3 +592,56 @@ class FibsemStatusBar(QStatusBar):
                 f"{int(fraction * 100)}% · {format_time_remaining(remaining)} left"
             )
         self.set_progress(what, step, fraction, numbers)
+
+    # ── fluorescence ─────────────────────────────────────────────────────
+    def _end_stale_fm(self) -> None:
+        if self._fm_owns_progress:
+            self.set_progress(None)
+
+    @ensure_main_thread
+    def _on_fm_progress(self, report: FluorescenceAcquisitionProgress) -> None:
+        """One report from a fluorescence acquisition: the channel, and the plane,
+        the autofocus step or the channel count it is on.
+
+        Not while a tiled run is going: the tiles are its line, and each tile's
+        channels and planes report here too, so the two would take turns. And it
+        does not outlive its last report by more than `FM_STALE_MS`, because most
+        routines never say they have finished."""
+        if self._tiling:
+            return
+        status = report.status
+        if status is FluorescenceAcquisitionStatus.FINISHED:
+            if self._fm_owns_progress:
+                self.show_outcome("Fluorescence", "done")
+            return
+        channel = report.channel or None
+        count = fraction = None
+        if status is FluorescenceAcquisitionStatus.ACQUIRING_AUTOFOCUS:
+            parts = ["autofocus", channel]
+            if report.zlevel and report.total_zlevels:
+                count = f"step {report.zlevel} of {report.total_zlevels}"
+                fraction = report.zlevel / report.total_zlevels
+            if report.total_passes and report.total_passes > 1 and report.pass_index:
+                parts.append(f"pass {report.pass_index} of {report.total_passes}")
+        elif status is FluorescenceAcquisitionStatus.ACQUIRING_ZSTACK:
+            parts = [channel]
+            if report.zlevel and report.total_zlevels:
+                count = f"plane {report.zlevel} of {report.total_zlevels}"
+                fraction = report.zlevel / report.total_zlevels
+            if report.total_channels and report.total_channels > 1:
+                parts.append(
+                    f"channel {report.channel_index} of {report.total_channels}"
+                )
+        else:
+            parts = [channel]
+            if report.channel_index and report.total_channels:
+                count = f"channel {report.channel_index} of {report.total_channels}"
+                fraction = report.channel_index / report.total_channels
+        step = " · ".join(p for p in (*parts, count) if p) or None
+        numbers = None
+        if fraction is not None:
+            fraction = min(max(fraction, 0.0), 1.0)
+            numbers = f"{int(fraction * 100)}%"
+        self.set_progress("Fluorescence", step, fraction, numbers)
+        self._fm_owns_progress = True
+        self._fm_stale_timer.start(FM_STALE_MS)
