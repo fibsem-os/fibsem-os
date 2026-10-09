@@ -1457,7 +1457,7 @@ class FibsemMicroscope(ABC):
         return when the mill ends. Progress is reported on ``milling_progress_signal``.
         A set ``stop_event`` stops the beam and raises `OperationCancelledError`. To
         start a mill and return at once, use `start_milling`."""
-        logging.info("running milling now...")
+        logging.debug("running milling now...")
         self._milling_service().run(stop_event=stop_event)
 
     def finish_milling(

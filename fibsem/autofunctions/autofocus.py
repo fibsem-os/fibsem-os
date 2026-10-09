@@ -267,7 +267,7 @@ class AutoFocusResult:
         if save_plot:
             self.plot(save_path=str(result_dir / "plot.png"))
 
-        logger.info("AutoFocus result saved to %s", result_dir)
+        logger.debug("AutoFocus result saved to %s", result_dir)
         return result_dir
 
     @classmethod
@@ -349,7 +349,7 @@ def _run_sweep(
 
     best_idx = int(np.argmax([it.focus_score for it in iterations]))
     best_wd = iterations[best_idx].working_distance
-    logger.info(
+    logger.debug(
         "AutoFocus pass %d complete: best WD=%.4e score=%.4f",
         pass_index,
         best_wd,
