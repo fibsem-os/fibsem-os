@@ -19,8 +19,6 @@ add_odemis_path()
 
 # The drivers import odemis from here.
 from odemis import model  # noqa: E402
-from odemis.acq.acqmng import acquire  # noqa: E402, F401
-from odemis.acq.stream import FluoStream  # noqa: E402, F401
 from odemis.util import fluo  # noqa: E402, F401
 
 if TYPE_CHECKING:
@@ -98,9 +96,8 @@ class DeviceOdemisFilterSet(FilterSet):
 
 
 class DeviceOdemisFluorescenceMicroscope(FluorescenceMicroscope):
-    """The FM API over the Odemis FM devices (``fibsem.drivers.odemis.devices``):
-    what the old ``OdemisFluorescenceMicroscope`` did, through its devices. Live view
-    is the stream running, with each frame pulled."""
+    """The FM API over the Odemis FM devices (``fibsem.drivers.odemis.devices``).
+    Live view is the light on and the camera acquiring, with each frame pulled."""
 
     objective: DeviceOdemisObjectiveLens
     filter_set: DeviceOdemisFilterSet

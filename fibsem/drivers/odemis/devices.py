@@ -20,24 +20,24 @@ The FM.
 The METEOR's FM through odemis, as devices.
 
 ``OdemisFMCamera``, ``OdemisFMLightSource``, ``OdemisFMFilterSet``,
-``OdemisFMObjective`` and the ``OdemisFM`` group are the old
-``OdemisFluorescenceMicroscope``'s parts moved onto the FM devices: each read, write
-and command makes the odemis calls the old property or method made, in the same order,
-on the same components and the same ``FluoStream``
-(``tests/fixtures/odemis/old_fm_pins.json`` holds those calls). ``OdemisThermoMicroscope.fm`` is the FM API over
-them (``DeviceOdemisFluorescenceMicroscope``), and the device server serves them from the
+``OdemisFMObjective`` and the ``OdemisFM`` group drive the odemis components
+directly: the camera (``ccd``), the light (``light``), the emission filter wheel
+(``filter``), the focuser (``focus``) and the lens (``lens``).
+``OdemisThermoMicroscope.fm`` is the FM API over them
+(``DeviceOdemisFluorescenceMicroscope``), and the device server serves them from the
 METEOR PC.
 
-The stream stays. Excitation, emission and power are the stream's settings, which odemis
-applies to the light and the filter wheel only while the stream runs, so they are
-"settings for the next exposure" (see ``FilterSet``). Driving the components directly
-waits until the METEOR works.
+The light is on only while the camera exposes. Excitation and power are settings for
+the next exposure (see ``FilterSet``), kept by ``OdemisFMLight``: which of the
+light's sources, and its power as a fraction of that source's maximum. An
+acquisition turns that one source on, takes the camera's next frame and turns the
+light off again, whatever happens. The emission filter is the wheel's own position:
+writing it moves the wheel, and waits for it.
 
-Live view keeps what the old live view does, with each frame pulled rather than pushed:
-`OdemisFM.start_live` activates the stream (light on, filters set, the camera
-streaming), each ``acquire_frame`` while live is the camera's next frame
-(``data.get(asap=False)``, as ``acquire_image`` takes it while the stream runs), and
-stopping deactivates the stream (light off).
+Live view turns the light on and keeps the camera acquiring (subscribed); each
+``acquire_frame`` while live is the camera's next frame (``data.get(asap=False)``),
+and a power or excitation change while live reaches the light at once. Stopping turns
+the light off and unsubscribes.
 
 The FM parts need odemis, through ``fibsem.fm.odemis``, which each imports in the
 method that uses it, so the module still loads where odemis is not installed.
@@ -46,7 +46,18 @@ method that uses it, so the module still loads where odemis is not installed.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
+from contextlib import contextmanager
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 
@@ -571,13 +582,88 @@ def emission_filter_of(choice: Any) -> EmissionFilter:
     return EmissionFilter(band_name(bands), bands=bands)
 
 
+def _as_tuple(band: Any) -> Any:
+    """An odemis band with its lists made tuples, so it can be a key: odemis may give
+    a band, or a multi-band filter's bands, as lists."""
+    if isinstance(band, (list, tuple)):
+        return tuple(_as_tuple(b) for b in band)
+    return band
+
+
+class OdemisFMLight:
+    """The light's settings for the next exposure, and switching it on and off.
+
+    ``source`` is which of the light's sources (an index into its ``spectra`` and
+    ``power`` lists) and ``power`` its power as a fraction of that source's maximum.
+    At connect they are what the light is doing: the brightest source and its power,
+    or, with the light off, the source odemis matches to the wheel's filter
+    (``fluo.get_one_band_ex``) at no power, as odemis's own ``FluoStream`` starts.
+    """
+
+    def __init__(self, light: Any, current_emission: Any):
+        from fibsem.fm.odemis import fluo
+
+        self._light = light
+        self.live = False
+        spectra = self.spectra()
+        powers = list(light.power.value)
+        brightest = max(powers) if powers else 0
+        if brightest > 0:
+            self.source = powers.index(brightest)
+            self.power = brightest / self.max_power() if self.max_power() > 0 else 0.0
+        else:
+            band = fluo.get_one_band_ex(spectra, current_emission)
+            self.source = spectra.index(_as_tuple(band))
+            self.power = 0.0
+
+    def spectra(self) -> List[tuple]:
+        """Each source's band, a 5-tuple in metres; its centre is the third value."""
+        return [_as_tuple(band) for band in self._light.spectra.value]
+
+    def spectrum(self) -> tuple:
+        return self.spectra()[self.source]
+
+    def max_power(self) -> float:
+        return self._light.power.range[1][self.source]
+
+    def unit(self) -> Optional[str]:
+        return getattr(self._light.power, "unit", None)
+
+    def changed(self) -> None:
+        """A setting changed: while live, the light follows at once."""
+        if self.live:
+            self.on()
+
+    def on(self) -> None:
+        """The selected source at its power, every other source off."""
+        power = list(self._light.power.range[0])
+        power[self.source] = self.power * self.max_power()
+        self._light.power.value = power
+
+    def off(self) -> None:
+        """Every source at its minimum, as odemis turns a stream's light off."""
+        self._light.power.value = list(self._light.power.range[0])
+
+    @contextmanager
+    def lit(self) -> Iterator[None]:
+        """The light on for what runs inside, and off afterwards, even on an error."""
+        self.on()
+        try:
+            yield
+        finally:
+            try:
+                self.off()
+            except Exception as e:
+                logging.error(f"Failed to turn the FM light off: {e}")
+
+
 class OdemisFMCamera(Camera):
-    """The camera: the ``ccd`` component, with acquisitions through the stream."""
+    """The camera: the ``ccd`` component. A frame is taken with the light on."""
 
     def __init__(
         self,
         camera: Any,
-        stream: Any,
+        light: OdemisFMLight,
         parent: Any = None,
         resources: Optional[Resources] = None,
     ):
@@ -585,7 +671,7 @@ class OdemisFMCamera(Camera):
 
         super().__init__(name="camera", parent=parent, resources=resources)
         self._camera = camera
-        self._stream = stream
+        self._light = light
         camera_md = self._camera.getMetadata()
         # fallback values only: pixel_size/resolution are read live
         self._resolution = tuple(self._camera.resolution.value)
@@ -709,125 +795,138 @@ class OdemisFMCamera(Camera):
         return tuple(self._camera.resolution.value)
 
     def _acquire(self) -> np.ndarray:
-        from fibsem.fm.odemis import acquire
-
-        if self._stream.is_active.value:
-            # asap=False guarantees the frame is acquired after this call
+        """The camera's next frame (``asap=False``: one exposed after this call),
+        with the light on for it. While live the light is already on."""
+        if self._light.live:
             return self._camera.data.get(asap=False)
-
-        da: List[Any]
-        f = acquire([self._stream])
-        da, err = f.result()
-        if err:
-            raise RuntimeError(f"Error acquiring image: {err}")
-        if not da:
-            raise RuntimeError("Acquisition returned no data.")
-        return da[0]
+        with self._light.lit():
+            return self._camera.data.get(asap=False)
 
 
 class OdemisFMLightSource(LightSource):
-    """The light source: the stream's power, as a fraction of its maximum."""
+    """The light source: the power of the selected source, as a fraction of its
+    maximum. A setting for the next exposure; the light is off in between."""
 
     def __init__(
-        self, stream: Any, parent: Any = None, resources: Optional[Resources] = None
+        self,
+        light: OdemisFMLight,
+        parent: Any = None,
+        resources: Optional[Resources] = None,
     ):
         super().__init__(name="light_source", parent=parent, resources=resources)
-        self._stream = stream
+        self._light = light
 
     def read_power(self) -> float:
-        max_power = self._stream.power.range[1]
-        if max_power <= 0:
-            return 0.0
-        return self._stream.power.value / max_power
+        return self._light.power
 
     def write_power(self, value: float) -> None:
         if not 0.0 <= value <= 1.0:
             logging.warning(f"Power fraction {value} outside [0, 1], clipping.")
             value = min(max(value, 0.0), 1.0)
-        max_power = self._stream.power.range[1]
-        self._stream.power.value = value * max_power
+        self._light.power = value
+        self._light.changed()
 
     def metadata_power(self) -> ParameterMetadata:
-        power = self._stream.power
         return ParameterMetadata(
             limits=RangeLimit(min=0.0, max=1.0),
-            native_max=power.range[1],
-            native_unit=getattr(power, "unit", None),
+            native_max=self._light.max_power(),
+            native_unit=self._light.unit(),
         )
 
 
 class OdemisFMFilterSet(FilterSet):
-    """The filter set: the stream's excitation and emission bands."""
+    """The filter set: the light's source for excitation (a setting for the next
+    exposure), and the filter wheel's band for emission (the wheel's position)."""
 
     def __init__(
-        self, stream: Any, parent: Any = None, resources: Optional[Resources] = None
+        self,
+        light: OdemisFMLight,
+        wheel: Any,
+        parent: Any = None,
+        resources: Optional[Resources] = None,
     ):
         super().__init__(name="filter_set", parent=parent, resources=resources)
-        self._stream = stream
+        self._light = light
+        self._wheel = wheel
 
-    def _excitation_choices_by_nm(self) -> Dict[float, tuple]:
-        """Centre wavelength (nm) -> excitation choice, in one pass over the choices
-        (an unordered set), so selection and assignment use the same choice."""
-        return {c[2] * 1e9: c for c in self._stream.excitation.choices}
+    def _sources_by_nm(self) -> Dict[float, int]:
+        """Centre wavelength (nm) -> the light's source with that band."""
+        return {band[2] * 1e9: i for i, band in enumerate(self._light.spectra())}
 
     def read_excitation_wavelength(self) -> float:
-        return self._stream.excitation.value[2] * 1e9
+        return self._light.spectrum()[2] * 1e9
 
     def write_excitation_wavelength(self, value: float) -> None:
-        choices_by_nm = self._excitation_choices_by_nm()
-        if not choices_by_nm:
+        sources = self._sources_by_nm()
+        if not sources:
             raise ValueError("No excitation wavelengths available.")
-        closest_nm = min(choices_by_nm, key=lambda nm: abs(nm - value))
-        choice = choices_by_nm[closest_nm]
+        closest_nm = min(sources, key=lambda nm: abs(nm - value))
+        self._light.source = sources[closest_nm]
         logging.info(
             f"Setting excitation wavelength to {closest_nm:.0f} nm "
-            f"(requested: {value} nm, band: {choice})"
+            f"(requested: {value} nm, band: {self._light.spectrum()})"
         )
-        self._stream.excitation.value = choice
+        self._light.changed()
 
     def metadata_excitation_wavelength(self) -> ParameterMetadata:
-        return ParameterMetadata(choices=list(self._excitation_choices_by_nm()))
+        return ParameterMetadata(choices=list(self._sources_by_nm()))
 
-    def _emission_choices(self) -> List[Tuple[EmissionFilter, Any]]:
-        return [(emission_filter_of(c), c) for c in self._stream.emission.choices]
+    def _bands(self) -> Dict[Any, Any]:
+        """The wheel's positions and the band at each."""
+        return dict(self._wheel.axes["band"].choices)
+
+    def _position(self) -> Any:
+        return self._wheel.position.value["band"]
+
+    def _move_to(self, position: Any) -> None:
+        if self._position() == position:
+            return  # moving the wheel is slow, skip if it is there already
+        self._wheel.moveAbs({"band": position}).result()
 
     def read_emission_filter(self) -> EmissionFilter:
-        return emission_filter_of(self._stream.emission.value)
+        return emission_filter_of(self._bands()[self._position()])
 
     def write_emission_filter(self, value: EmissionFilter) -> None:
-        choice = next((c for f, c in self._emission_choices() if f == value), None)
-        if choice is None:
+        position = next(
+            (
+                p
+                for p, band in self._bands().items()
+                if emission_filter_of(band) == value
+            ),
+            None,
+        )
+        if position is None:
             raise ValueError(f"filter_set has no emission filter {value}")
-        if value == REFLECTION:
-            self._stream.emission.value = choice
-            return
-        if self._stream.emission.value == choice:
-            return  # setting the emission filter is slow, skip if unchanged
-        logging.info(f"Setting emission filter to {value.name} (band: {choice})")
-        self._stream.emission.value = choice
+        logging.info(
+            f"Setting emission filter to {value.name} (wheel position {position})"
+        )
+        self._move_to(position)
 
     def metadata_emission_filter(self) -> ParameterMetadata:
-        return ParameterMetadata(choices=[f for f, _ in self._emission_choices()])
+        return ParameterMetadata(
+            choices=[emission_filter_of(band) for band in self._bands().values()]
+        )
 
     def select_fluorescence(self) -> None:
-        """The band odemis matches to the current excitation: what the old class does
-        for a channel that names its emission "Fluorescence" (TFS-style)."""
+        """The band odemis matches to the current excitation: what a channel that
+        names its emission "Fluorescence" (TFS-style) asks for."""
         from fibsem.fm.odemis import fluo, model
 
         bands = {
-            c
-            for c in self._stream.emission.choices
-            if not (isinstance(c, str) and c == model.BAND_PASS_THROUGH)
+            _as_tuple(band): position
+            for position, band in self._bands().items()
+            if not (isinstance(band, str) and band == model.BAND_PASS_THROUGH)
         }
         if not bands:
             raise ValueError("No emission bands available for fluorescence mode.")
-        choice = fluo.get_one_band_em(bands, self._stream.excitation.value)
-        if self._stream.emission.value != choice:
+        band = _as_tuple(fluo.get_one_band_em(set(bands), self._light.spectrum()))
+        position = bands[band]
+        if self._position() != position:
             logging.info(
-                f"Mapping emission 'Fluorescence' to band {choice} for the "
+                f"Mapping emission 'Fluorescence' to band {band} for the "
                 f"current excitation"
             )
-            self._stream.emission.value = choice
+            self._move_to(position)
         # Through the parameter's own read, so the change is cached and signalled.
         self.emission_filter.get_value()
 
@@ -992,17 +1091,19 @@ class OdemisFMObjective(Objective):
 
 
 class OdemisFM(FM):
-    """The Odemis FM group: a channel set up on the stream, then a frame; and live
-    view, as the stream running with the camera's frames pulled."""
+    """The Odemis FM group: a channel set up on the parts, then a frame; and live
+    view, as the light on and the camera acquiring, with its frames pulled."""
 
     def __init__(
         self,
-        stream: Any,
+        light: OdemisFMLight,
+        camera: Any,
         parent: Any = None,
         resources: Optional[Resources] = None,
     ):
         super().__init__(name="fm", parent=parent, resources=resources)
-        self._stream = stream
+        self._light = light
+        self._camera = camera
 
     def check_health(self) -> Optional[str]:
         """Whether odemis answers: one live read, the camera's exposure time."""
@@ -1010,7 +1111,7 @@ class OdemisFM(FM):
         return None
 
     def _apply_channel(self, channel: Optional[Dict[str, Any]]) -> None:
-        """The old ``set_channel``: excitation, emission, power, exposure, gain."""
+        """Excitation, emission, power, exposure and gain, from a channel."""
         if channel is None:
             return
         from fibsem.fm.microscope import emission_filter_named
@@ -1046,17 +1147,35 @@ class OdemisFM(FM):
         metadata.update({key: to_wire(value) for key, value in stamped.items()})
         return Frame(data, metadata)
 
-    # -- live view: the stream running, frames pulled -----------------------------------
+    # -- live view: the light on and the camera acquiring, frames pulled -----------------
 
     def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
         self._apply_channel(channel)
-        self._stream.is_active.value = True  # light on, filters set, streaming
+        # Subscribed, the camera acquires continuously, so each `data.get` while live
+        # is its next frame rather than a fresh acquisition started for it.
+        self._camera.data.subscribe(self._on_live_frame)
+        self._light.live = True
+        try:
+            self._light.on()
+        except Exception:
+            self._light.live = False
+            self._camera.data.unsubscribe(self._on_live_frame)
+            raise
 
     def _stop_live(self) -> None:
+        self._light.live = False
         try:
-            self._stream.is_active.value = False  # light off, camera stopped
+            self._light.off()
         except Exception as e:
-            logging.error(f"Failed to deactivate stream after live view: {e}")
+            logging.error(f"Failed to turn the FM light off after live view: {e}")
+        try:
+            self._camera.data.unsubscribe(self._on_live_frame)
+        except Exception as e:
+            logging.error(f"Failed to stop the camera after live view: {e}")
+
+    def _on_live_frame(self, dataflow: Any, data: Any) -> None:
+        """Frames are pulled with ``data.get``; the subscription only keeps the camera
+        acquiring."""
 
 
 def bind_odemis_fm(
@@ -1065,33 +1184,25 @@ def bind_odemis_fm(
     config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Device]:
     """The METEOR's FM parts and group, by device name, from the odemis backend on
-    this computer: its components by role, and one ``FluoStream`` over them, as
-    the old ``OdemisFluorescenceMicroscope`` built it. *config* is the fm entry's own
-    keys (``mount_transform``)."""
-    from fibsem.fm.odemis import FluoStream, model
+    this computer: its components by role. *config* is the fm entry's own keys
+    (``mount_transform``)."""
+    from fibsem.fm.odemis import model
 
     resources = resources if resources is not None else resources_of(parent)
     camera = model.getComponent(role="ccd")
-    light_source = model.getComponent(role="light")
-    light_filter = model.getComponent(role="filter")
+    wheel = model.getComponent(role="filter")
     focuser = model.getComponent(role="focus")
-    stream = FluoStream(
-        name="fm-stream",
-        detector=camera,
-        dataflow=camera.data,
-        emitter=light_source,
-        em_filter=light_filter,
-        focuser=focuser,
-    )
+    current_emission = wheel.axes["band"].choices[wheel.position.value["band"]]
+    light = OdemisFMLight(model.getComponent(role="light"), current_emission)
     common = {"parent": parent, "resources": resources}
     parts: Dict[str, Device] = {
         "objective": OdemisFMObjective(
             focuser, model.getComponent(role="lens"), **common
         ),
-        "camera": OdemisFMCamera(camera, stream, **common),
-        "light_source": OdemisFMLightSource(stream, **common),
-        "filter_set": OdemisFMFilterSet(stream, **common),
+        "camera": OdemisFMCamera(camera, light, **common),
+        "light_source": OdemisFMLightSource(light, **common),
+        "filter_set": OdemisFMFilterSet(light, wheel, **common),
     }
     parts["camera"].configure(config)
-    group = OdemisFM(stream, **common).fill_roles(**parts)
+    group = OdemisFM(light, camera, **common).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}

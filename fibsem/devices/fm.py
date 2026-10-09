@@ -115,11 +115,13 @@ class LightSource(Device):
 class FilterSet(Device):
     """Which light reaches the sample and the camera.
 
-    Both parameters are settings for the next exposure, on every driver: what a
-    channel asks for, applied when the driver acquires. They are not a reading of the
-    hardware's position while idle: Odemis pushes them to the filter wheel and light
-    only while its stream runs, and Thermo applies the excitation when it grabs a
-    frame. Camera and objective parameters, by contrast, are live hardware state.
+    Both parameters say what the next exposure uses, on every driver: what a channel
+    asks for, applied by the time the driver acquires. The excitation is a setting,
+    not the light's live output (the light is off in between): Odemis turns the
+    selected source on for each frame, and Thermo applies the excitation when it grabs
+    a frame. A driver may move hardware as soon as the emission filter is written:
+    Odemis moves its filter wheel then. Camera and objective parameters are live
+    hardware state.
     """
 
     excitation_wavelength = Parameter(

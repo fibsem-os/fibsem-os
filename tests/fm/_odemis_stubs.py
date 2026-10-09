@@ -5,8 +5,8 @@ Install with install_odemis_stubs() BEFORE importing fibsem.fm.odemis (or
 fibsem.drivers.odemis.microscope). The stubs mimic the odemis conventions
 that matter to the driver:
 
-- excitation/emission/power stream VAs in SI units (bands in metres, power in
-  watts), choices as unordered sets
+- the light's sources (``spectra``, bands in metres) and a power per source (watts),
+  the filter wheel's bands by position
 - MD_PIXEL_SIZE includes binning (the backend recomputes it on binning change)
 - the camera resolution VA rescales when binning changes (AOI preserved)
 - focuser favourite positions via MD_FAV_POS_ACTIVE/DEACTIVE
@@ -46,9 +46,6 @@ class FakeDataArray(np.ndarray):
 ODEMIS_MODULE_NAMES = (
     "odemis",
     "odemis.model",
-    "odemis.acq",
-    "odemis.acq.acqmng",
-    "odemis.acq.stream",
     "odemis.util",
     "odemis.util.dataio",
     "odemis.util.fluo",
@@ -127,8 +124,18 @@ class FakeDataflow:
             self.listeners.remove(listener)
 
     def get(self, asap=True):
-        res = self._camera.resolution.value
-        return np.zeros(res[::-1], dtype=np.uint16)
+        """One frame, with the metadata a camera stamps at exposure (pixel size,
+        acquisition date, exposure time)."""
+        camera = self._camera
+        res = camera.resolution.value
+        return FakeDataArray(
+            np.zeros(res[::-1], dtype=np.uint16),
+            metadata={
+                MD_PIXEL_SIZE: camera.getMetadata()[MD_PIXEL_SIZE],
+                MD_ACQ_DATE: 1_780_000_000.0,  # fixed timestamp for determinism
+                MD_EXP_TIME: camera.exposureTime.value,
+            },
+        )
 
     def push(self, data):
         """Deliver a frame to all subscribers, like the camera driver would."""
@@ -213,66 +220,35 @@ class FakeLens:
 
 
 class FakeLight:
+    """A light with four sources: a power per source, set as a list."""
+
     def __init__(self, max_power: float = 0.4):
-        # one power entry per source; the stream slices out the selected channel
-        self.power = FakeVA([0.0], range=((0.0,), (max_power,)), unit="W")
-        self.spectra = FakeVA(
-            [band_ex(365), band_ex(450), band_ex(550), band_ex(635)], unit="m"
+        spectra = [band_ex(365), band_ex(450), band_ex(550), band_ex(635)]
+        self.spectra = FakeVA(spectra, unit="m")
+        self.power = FakeVA(
+            [0.0] * len(spectra),
+            range=((0.0,) * len(spectra), (max_power,) * len(spectra)),
+            unit="W",
         )
 
 
 class FakeFilter:
-    def __init__(self):
-        self.axes = {"band": types.SimpleNamespace(choices={})}
+    """An emission filter wheel: a band at each position, moved with ``moveAbs``."""
 
+    def __init__(self, position: int = 2):
+        bands = {
+            0: BAND_PASS_THROUGH,
+            1: band_em(420),
+            2: band_em(500),
+            3: band_em(590),
+            4: band_em(680),
+        }
+        self.axes = {"band": types.SimpleNamespace(choices=bands)}
+        self.position = FakeVA({"band": position})
 
-class FakeFluoStream:
-    """FluoStream stand-in: excitation/emission/power VAs in SI units."""
-
-    def __init__(
-        self, name, detector, dataflow, emitter, em_filter, focuser=None, **kwargs
-    ):
-        self.name = name
-        self._detector = detector
-        self._emitter = emitter
-        self._em_filter = em_filter
-        self._focuser = focuser
-
-        excitations = [band_ex(365), band_ex(450), band_ex(550), band_ex(635)]
-        self.excitation = FakeVA(
-            excitations[2], choices=frozenset(excitations), unit="m"
-        )
-        emissions = [
-            BAND_PASS_THROUGH,
-            band_em(420),
-            band_em(500),
-            band_em(590),
-            band_em(680),
-        ]
-        self.emission = FakeVA(emissions[2], choices=frozenset(emissions), unit="m")
-
-        max_power = emitter.power.range[1][0] if emitter is not None else 0.4
-        self.power = FakeVA(0.0, range=(0.0, max_power), unit="W")
-        self.is_active = FakeVA(False)
-
-
-def fake_acquire(streams, settings_obs=None):
-    """acqmng.acquire stand-in: future resolving to ([DataArray], None).
-
-    The returned frame carries per-exposure metadata like a real odemis
-    DataArray (pixel size, acquisition date, exposure time).
-    """
-    detector = streams[0]._detector
-    res = detector.resolution.value
-    data = FakeDataArray(
-        np.zeros(res[::-1], dtype=np.uint16),
-        metadata={
-            MD_PIXEL_SIZE: detector.getMetadata()[MD_PIXEL_SIZE],
-            MD_ACQ_DATE: 1_780_000_000.0,  # fixed timestamp for determinism
-            MD_EXP_TIME: detector.exposureTime.value,
-        },
-    )
-    return FakeFuture(([data], None))
+    def moveAbs(self, pos: Dict[str, int]):
+        self.position.value = dict(self.position.value, **pos)
+        return FakeFuture()
 
 
 def _band_center(band) -> float:
@@ -296,6 +272,17 @@ def fake_get_one_band_em(bands, ex_band):
     if above:
         return min(above, key=centers.get)
     return max(centers, key=centers.get)
+
+
+def fake_get_one_band_ex(bands, em_band):
+    """odemis.util.fluo.get_one_band_ex stand-in: the band closest below the
+    emission's centre, else the lowest."""
+    em_center = 0 if isinstance(em_band, str) else _band_center(em_band)
+    centers = {tuple(b): _band_center(b) for b in bands}
+    below = [b for b, c in centers.items() if c < em_center]
+    if below:
+        return max(below, key=centers.get)
+    return min(centers, key=centers.get)
 
 
 def default_components() -> Dict[str, object]:
@@ -347,15 +334,6 @@ def install_odemis_stubs() -> None:
     model_mod.getComponent = lambda role: _get_component(role)
     model_mod.hasVA = lambda comp, name: isinstance(getattr(comp, name, None), FakeVA)
 
-    acq_pkg = types.ModuleType("odemis.acq")
-    acq_pkg.__path__ = []
-
-    acqmng_mod = types.ModuleType("odemis.acq.acqmng")
-    acqmng_mod.acquire = fake_acquire
-
-    stream_mod = types.ModuleType("odemis.acq.stream")
-    stream_mod.FluoStream = FakeFluoStream
-
     util_pkg = types.ModuleType("odemis.util")
     util_pkg.__path__ = []
 
@@ -364,22 +342,17 @@ def install_odemis_stubs() -> None:
 
     fluo_mod = types.ModuleType("odemis.util.fluo")
     fluo_mod.get_one_band_em = fake_get_one_band_em
+    fluo_mod.get_one_band_ex = fake_get_one_band_ex
     fluo_mod.get_center = _band_center
 
     odemis_pkg.model = model_mod
-    odemis_pkg.acq = acq_pkg
     odemis_pkg.util = util_pkg
-    acq_pkg.acqmng = acqmng_mod
-    acq_pkg.stream = stream_mod
     util_pkg.dataio = dataio_mod
     util_pkg.fluo = fluo_mod
 
     modules = {
         "odemis": odemis_pkg,
         "odemis.model": model_mod,
-        "odemis.acq": acq_pkg,
-        "odemis.acq.acqmng": acqmng_mod,
-        "odemis.acq.stream": stream_mod,
         "odemis.util": util_pkg,
         "odemis.util.dataio": dataio_mod,
         "odemis.util.fluo": fluo_mod,
