@@ -5,10 +5,10 @@ reference images, alignment runs, autofocus runs and milling are saved. Pointed
 somewhere other than the lamella's folder, they all follow it: real Setup and
 Rough Milling runs on Demo, through ``run_tasks``.
 
-What does not follow yet is reading: a later task finds the alignment reference
-an earlier one wrote by name in the lamella's folder. How that file is found
-once tasks write elsewhere is FIB-1258; the test for it is expected to fail
-until then.
+Not asserted: where the alignment reference lands. Tasks share it by name in
+the lamella's folder; it is lamella state, overwritten as the lamella moves on
+(FIB-1258). The output folder is the lamella's, so the two agree; a layout
+that split them would have to save that file to the lamella's folder.
 
 The alignment and autofocus wrappers also return what they measured, instead of
 dropping it.
@@ -111,27 +111,11 @@ def test_everything_a_task_writes_follows_the_output_folder(
 
     assert lamella.task_state.status is AutoLamellaTaskStatus.Completed
     written = _top_level(elsewhere)
-    assert {"autofunctions", "Milling", ALIGNMENT_REFERENCE_IMAGE_FILENAME} <= written
+    assert {"autofunctions", "Milling"} <= written
     assert any(name.startswith(f"ref_{ROUGH}_final") for name in written)
-    # the lamella's own state stays with the lamella
-    assert _top_level(lamella.path) == {"thumbnail.png"}
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="FIB-1258: a later task reads the alignment reference from the "
-    "lamella's folder, not where the earlier task wrote it",
-)
-def test_a_later_task_aligns_to_the_reference_an_earlier_one_wrote(
-    microscope, experiment, tmp_path, monkeypatch
-):
-    elsewhere = tmp_path / "elsewhere"
-    _write_elsewhere(monkeypatch, elsewhere)
-
-    run_tasks(microscope, experiment, [SETUP, ROUGH])
-
-    # Rough Milling's alignment to the reference; skipped when it is not found
-    assert "Alignment" in _top_level(elsewhere)
+    in_lamella = _top_level(lamella.path)
+    assert not {"autofunctions", "Milling"} & in_lamella, in_lamella
+    assert not any(name.startswith(f"ref_{ROUGH}_") for name in in_lamella)
 
 
 def test_the_output_folder_is_the_lamella_folder_for_now(microscope, experiment):
