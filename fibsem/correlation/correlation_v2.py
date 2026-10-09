@@ -127,9 +127,11 @@ def correlate(
 
     # establish correlation
     # Suppress stdout and stderr
-    with open(os.devnull, "w") as fnull, contextlib.redirect_stdout(
-        fnull
-    ), contextlib.redirect_stderr(fnull):
+    with (
+        open(os.devnull, "w") as fnull,
+        contextlib.redirect_stdout(fnull),
+        contextlib.redirect_stderr(fnull),
+    ):
         transf = Rigid3D.find_32(
             x=mark_3d,
             y=mark_2d,
@@ -149,9 +151,11 @@ def correlate(
 
         mark_3d_cube = np.copy(mark_3d) + offset[::-1, np.newaxis]
         # Suppress stdout and stderr
-        with open(os.devnull, "w") as fnull, contextlib.redirect_stdout(
-            fnull
-        ), contextlib.redirect_stderr(fnull):
+        with (
+            open(os.devnull, "w") as fnull,
+            contextlib.redirect_stdout(fnull),
+            contextlib.redirect_stderr(fnull),
+        ):
             transf_cube = Rigid3D.find_32(
                 x=mark_3d_cube,
                 y=mark_2d,
@@ -512,6 +516,44 @@ def _fit_from_seed(
     return best
 
 
+def _fit_around_mirror(
+    fm_coords, fib_coords, eulers_deg, scale
+) -> Tuple[np.ndarray, float, float]:
+    """Best of :func:`_fit_from_seed` and the default restarts centred on the
+    seed, with the scale free as well: ``(R, s, rms)``.
+
+    The seeded restarts hold the scale at the seed's, and from some mirrors that
+    settles in a far worse minimum near the right rotation (RMS 30 where 3.1
+    sat 6 degrees away, on a saved METEOR run); letting the scale move as the
+    unseeded fit's own restarts do reaches it. Same fixed RNG, so the check is
+    a function of the picks (FIB-1249).
+    """
+    best = _fit_from_seed(fm_coords, fib_coords, eulers_deg, scale)
+    params = {
+        **DEFAULT_OPTIMIZATION_PARAMETERS,
+        "rotation_init": [float(a) for a in eulers_deg],
+    }
+    state = np.random.get_state()
+    np.random.seed(_SEED_RNG)
+    try:
+        transf = correlate(
+            markers_3d=fm_coords,
+            markers_2d=fib_coords,
+            poi_3d=np.zeros((0, 3), dtype=np.float32),
+            rotation_center=(0, 0, 0),
+            imageProps=None,
+            optimiser_params=params,
+        )["output"]["transform"]
+    finally:
+        np.random.set_state(state)
+    candidate = (
+        np.asarray(transf.q, dtype=float),
+        float(transf.s_scalar),
+        float(transf.rmsError),
+    )
+    return candidate if candidate[2] < best[2] else best
+
+
 def _eulers_deg(rotation: np.ndarray) -> List[float]:
     from fibsem.correlation.pyto.rigid_3d import Rigid3D
 
@@ -528,6 +570,28 @@ def _mirror_rotation(rotation: np.ndarray) -> np.ndarray:
     rows = np.asarray(rotation, dtype=float)[:2].copy()
     rows[:, 2] *= -1
     return _complete_rotation(rows)
+
+
+# The two branches of an unseeded fit are told apart only by the depth of the
+# fiducials; when they fit within this of each other, the points cannot say
+# which is real (FIB-1249). Relative, with a 1 px floor for very good fits.
+_MIRROR_CLOSE_FRACTION = 0.25
+_MIRROR_CLOSE_PX = 1.0
+
+
+def _unseeded_mirror_warning(rms: float, rms_mirror: Optional[float]) -> Optional[str]:
+    """The warning for an unseeded fit whose mirror branch fits nearly as well."""
+    if rms_mirror is None:
+        return None
+    close = max(_MIRROR_CLOSE_PX, _MIRROR_CLOSE_FRACTION * min(rms, rms_mirror))
+    if abs(rms_mirror - rms) > close:
+        return None
+    return (
+        f"The mirror branch fits nearly as well (RMS {rms_mirror:.1f} vs "
+        f"{rms:.1f} px): the fiducials barely set the depth direction, so the "
+        "target may be on the wrong side. Add fiducials at other depths, or "
+        "check the target against the FM image."
+    )
 
 
 def _fm_z_scale(data: CorrelationInputData) -> float:
@@ -708,13 +772,16 @@ def run_correlation_from_data(
     transf = out["transformation"]
     err = out["error"]
 
-    # Unseeded: report how well the *other* branch of what was found also fits.
-    # A mirror that fits as well is the coin flip FIB-880 describes -- the
-    # depth direction of this result is not supported by the fiducials.
+    # Unseeded: solve the *other* branch of what was found as well, and keep the
+    # better. The random starts all sit near one first guess, so which branch a
+    # run lands on was the draw's: on a saved run 4 of 8 seeds returned the
+    # mirror, RMS 24 against 8 px and the target 74 px off, with nothing said
+    # (FIB-1249). When the mirror wins, the final fit is re-run from it, as the
+    # seeded path does; when the first fit was better, it is returned as before.
     if branch_check is None and len(fm_coords) >= 3:
         try:
             fitted_r = np.asarray(transf["rotation_quaternion"], dtype=float)
-            r_m, s_m, rms_m = _fit_from_seed(
+            r_m, s_m, rms_m = _fit_around_mirror(
                 fm_coords,
                 fib_coords,
                 _eulers_deg(_mirror_rotation(fitted_r)),
@@ -725,16 +792,33 @@ def run_correlation_from_data(
             crossed = rotation_angle_deg(r_m, fitted_r) < rotation_angle_deg(
                 r_m, _mirror_rotation(fitted_r)
             )
+            rms_first = float(err["rms_error"])
+            switched = not crossed and rms_m < rms_first - 1e-6
+            if switched:
+                correlation_data = run_correlation(
+                    fib_coords=fib_coords,
+                    fm_coords=fm_coords,
+                    poi_coords=poi_coords,
+                    image_props=image_props,
+                    rotation_center=rotation_center,
+                    path=path,
+                    fib_image_filename=data.fib_image_filename or "",
+                    fm_image_filename=data.fm_image_filename or "",
+                    optimiser_params=seeded_optimiser_params(_eulers_deg(r_m), s_m),
+                )
+                out = correlation_data["output"]
+                transf = out["transformation"]
+                err = out["error"]
             rms_here = float(err["rms_error"])
+            rms_other = rms_first if switched else (None if crossed else float(rms_m))
             branch_check = {
                 "selected": "unseeded",
                 "rms_selected": rms_here,
-                "rms_mirror": None if crossed else float(rms_m),
+                "rms_mirror": rms_other,
+                "switched_to_mirror": switched,
                 "angle_to_nominal_deg": None,
                 "angle_to_mirror_deg": None,
-                "warning": None
-                if crossed or abs(rms_m - rms_here) > 1.0
-                else "The mirror branch fits the fiducials as well: the depth direction of this fit is a coin flip.",
+                "warning": _unseeded_mirror_warning(rms_here, rms_other),
             }
         except Exception as exc:  # the check is advisory; never fail a run over it
             logging.debug(f"Mirror-branch check skipped: {exc}")
