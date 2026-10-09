@@ -73,3 +73,57 @@ def test_a_move_called_on_it_is_recorded_once_under_its_name(microscope):
 
     assert [m["move"] for m in moves] == ["stable_move", "stable_move"]
     assert moves[0]["request"] == moves[1]["request"]
+
+
+@pytest.fixture
+def iflm():
+    from fibsem import config as cfg
+
+    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"),
+        setup_logging=False,
+    )
+    return microscope
+
+
+def test_an_fm_microscope_fills_the_fm_role(iflm, microscope):
+    assert iflm.stage_movement._fm_device() is iflm.devices["fm"]
+    assert iflm.stage_movement.fm is iflm.devices["fm"]
+    assert microscope.stage_movement._fm_device() is None
+    with pytest.raises(ValueError):
+        microscope.stage_movement.fm_stable_move(dx=1e-6, dy=0.0)
+
+
+def test_the_camera_tilt_is_derived_unless_configured(iflm):
+    derived = iflm.stage_movement.camera_tilt
+    assert derived == iflm.system.ion.column_tilt
+    assert iflm.fm.camera_tilt == derived
+
+    iflm.system.fm.camera_tilt = 45.0
+    assert iflm.stage_movement.camera_tilt == 45.0
+    assert iflm.fm.camera_tilt == 45.0
+
+
+def test_the_camera_tilt_survives_a_config_round_trip():
+    from fibsem.structures import FluorescenceSystemSettings
+
+    settings = FluorescenceSystemSettings.from_dict({"camera_tilt": 30.0})
+    assert settings.camera_tilt == 30.0
+    assert FluorescenceSystemSettings.from_dict(settings.to_dict()).camera_tilt == 30.0
+    assert FluorescenceSystemSettings.from_dict({}).camera_tilt is None
+
+
+def test_the_display_transform_is_held_on_the_camera(iflm):
+    from fibsem.fm.structures import CameraImageTransform
+
+    camera = iflm.devices["fm"]._roles["camera"]
+    iflm.fm.set_image_transform(CameraImageTransform.FLIP_X)
+    assert iflm.fm._transform == CameraImageTransform.FLIP_X
+    assert camera.parameters["display_transform"].value == "flip-x"
+
+    base = iflm.get_stage_position()
+    flipped = iflm.stage_movement.project_fm_stable_move(1e-6, 0.0, base)
+    iflm.fm.set_image_transform(CameraImageTransform.NONE)
+    plain = iflm.stage_movement.project_fm_stable_move(1e-6, 0.0, base)
+    assert flipped.x - base.x == pytest.approx(-(plain.x - base.x))

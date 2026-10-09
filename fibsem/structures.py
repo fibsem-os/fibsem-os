@@ -3030,6 +3030,12 @@ class FluorescenceSystemSettings:
     # its server (`--mount-transform`), so this is not read for `driver: remote`.
     mount_transform: "CameraImageTransform" = None  # type: ignore[assignment]
 
+    # Tilt of the camera's optical axis from the SEM column, in degrees: what the
+    # stage moves project a displacement in the FM image through (FIB-335). Absent,
+    # it follows from the mount: 180 where the stage turns the grid over to the FM (a
+    # compustage), the ion column's tilt for an FM beside the FIB column.
+    camera_tilt: Optional[float] = None
+
     def __post_init__(self) -> None:
         if self.mount_transform is None:
             self.mount_transform = CameraImageTransform.NONE
@@ -3047,6 +3053,8 @@ class FluorescenceSystemSettings:
         # Written only when stated, so a file that never named it is saved unchanged.
         if self.mount_transform is not CameraImageTransform.NONE:
             settings["mount_transform"] = self.mount_transform.value
+        if self.camera_tilt is not None:
+            settings["camera_tilt"] = self.camera_tilt
         return settings
 
     def objective_to_dict(self) -> dict:
@@ -3074,6 +3082,11 @@ class FluorescenceSystemSettings:
                 else None
             ),
             mount_transform=_mount_transform(settings.get("mount_transform")),
+            camera_tilt=(
+                float(settings["camera_tilt"])
+                if settings.get("camera_tilt") is not None
+                else None
+            ),
         )
 
 

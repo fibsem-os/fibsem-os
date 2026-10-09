@@ -634,6 +634,7 @@ def written_configuration_keys() -> Set[str]:
                     keys.update(f"{device}.{k}" for k in STAGE_POSITION_KEYS)
                     if entry["name"] == "fm":
                         keys.add(f"{device}.mount_transform")
+                        keys.add(f"{device}.camera_tilt")
                     keys.update(
                         f"{device}.{k}"
                         for k in entry

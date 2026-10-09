@@ -74,7 +74,15 @@ class Camera(Device):
         "before the user's own image transform.",
     )
 
+    display_transform = Parameter(
+        str,
+        doc="The flip the user views frames under: none, flip-x, flip-y or flip-xy. "
+        "A display preference, applied after mount_transform; a move by a "
+        "displacement seen in the displayed image undoes it.",
+    )
+
     _mount_transform: CameraImageTransform = CameraImageTransform.NONE
+    _display_transform: CameraImageTransform = CameraImageTransform.NONE
 
     def configure(self, config: Optional[Mapping[str, Any]]) -> None:
         """Take the facts about this camera that the site's configuration states and
@@ -93,6 +101,12 @@ class Camera(Device):
 
     def read_mount_transform(self) -> str:
         return mount_transform_name(self._mount_transform)
+
+    def read_display_transform(self) -> str:
+        return mount_transform_name(self._display_transform)
+
+    def write_display_transform(self, value: str) -> None:
+        self._display_transform = mount_transform_from_name(value)
 
     def _acquire(self) -> np.ndarray:
         raise NotImplementedError(f"{type(self).__name__} can't acquire")
