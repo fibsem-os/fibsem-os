@@ -207,7 +207,8 @@ def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
 # moment burning started, on v0.5.2rc1.
 #
 # Both tests below fail on that line, and neither needs hardware: the handler is called
-# directly, exactly as the queued connection would call it.
+# directly, exactly as the queued connection would call it. It is the status bar's
+# since FIB-1188, which decodes the microscope's reports itself.
 
 
 def test_a_burning_report_renders_without_taking_the_app_down(main_ui):
@@ -220,9 +221,12 @@ def test_a_burning_report_renders_without_taking_the_app_down(main_ui):
         total_estimated_time=50.0,
     )
 
-    main_ui._on_spot_burn_progress(report)
+    main_ui.status_bar._on_spot_burn_progress(report)
 
-    assert main_ui.progress_widget.isVisibleTo(main_ui)
+    assert main_ui.status_bar.fraction == pytest.approx(0.4)
+    # Under the run's task if this module's window has one going, on its own if not.
+    assert "Spot burn" in main_ui.status_bar.text
+    assert main_ui.status_bar.text.endswith("spot 2 of 5 40% · 30s left")
 
 
 def test_a_terminal_report_is_recognised_as_terminal(main_ui):
@@ -230,11 +234,14 @@ def test_a_terminal_report_is_recognised_as_terminal(main_ui):
     bar's reset, so a fix that stopped the crash but misread the outcome would leave the
     bar full forever. Read through `status.is_terminal`, which is what both consumers of
     this signal use."""
-    main_ui._on_spot_burn_progress(
+    main_ui.status_bar._on_spot_burn_progress(
         SpotBurnProgress(
             status=SpotBurnStatus.FINISHED, current_point=5, total_points=5
         )
     )
+
+    assert "Spot burn" in main_ui.status_bar.text
+    assert main_ui.status_bar.text.endswith("done")
 
     assert SpotBurnStatus.FINISHED.is_terminal
     assert not SpotBurnStatus.BURNING.is_terminal

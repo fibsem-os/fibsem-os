@@ -38,7 +38,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 import fibsem
 import fibsem.config as fibsem_cfg
@@ -107,11 +106,8 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
     estimate_workflow,
     grid_item_seconds,
 )
-from fibsem.imaging.spot import SpotBurnProgress
-from fibsem.imaging.tiling.progress import TiledProgress, TiledStatus
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
-from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
@@ -138,7 +134,6 @@ from fibsem.ui.widgets import preflight
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
-from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.util.durations import (
     format_duration_precise,
@@ -1583,15 +1578,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui._open_coincidence_milling_viewer()
 
     def _create_status_bar(self):
-        """Create the status bar: the shared bar's line on the left (FIB-1188), this
-        window's progress and workflow buttons on the right."""
+        """Create the status bar: the shared bar's line on the left (FIB-1188), with
+        the microscope's progress in it, and this window's workflow buttons on the
+        right."""
         self.status_bar = FibsemStatusBar(self)
         self.setStatusBar(self.status_bar)
-
-        # Add generic progress widget (tile acquisition, etc.)
-        self.progress_widget = FibsemProgressWidget(self.status_bar)
-        self.progress_widget.setMaximumWidth(400)
-        self.status_bar.add_action(self.progress_widget)
 
         # Add user attention button (shown when waiting for user interaction)
         self.user_attention_btn = QPushButton("Attention Required")
@@ -2254,108 +2245,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.autolamella_ui.microscope if self.autolamella_ui else None
             )
         self._refresh_fm_placeholder()
-        # Milling progress: the bar listens for it itself (FIB-1188).
+        # Milling, tiles, spot burn: the bar listens for them itself (FIB-1188).
         self.status_bar.set_microscope(
             self.autolamella_ui.microscope if self.autolamella_ui else None
         )
-        if (
-            self.autolamella_ui is not None
-            and self.autolamella_ui.microscope is not None
-        ):
-            try:
-                self.autolamella_ui.microscope.tiled_acquisition_signal.disconnect(
-                    self._on_tile_acquisition_progress
-                )
-            except Exception:
-                pass
-            self.autolamella_ui.microscope.tiled_acquisition_signal.connect(
-                self._on_tile_acquisition_progress
-            )
-            try:
-                self.autolamella_ui.microscope.spot_burn_progress_signal.disconnect(
-                    self._on_spot_burn_progress
-                )
-            except Exception:
-                pass
-            self.autolamella_ui.microscope.spot_burn_progress_signal.connect(
-                self._on_spot_burn_progress
-            )
         self._update_connection_chip()
         self._update_experiment_header()
         self._update_instructions()
-
-    @ensure_main_thread
-    def _on_spot_burn_progress(self, report: SpotBurnProgress) -> None:
-        """Handle spot burn progress updates from the microscope (supervised + unsupervised)."""
-        self.progress_widget.update_progress(build_spot_burn_progress_update(report))
-        if report.status.is_terminal:
-            # hide the Done/Failed state after a moment; reset_if_finished leaves the
-            # widget alone if another operation has started rendering progress since
-            QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
-
-    # What the status bar calls each state of a run. One table for both modalities and
-    # deliberately generic: this is read at a glance from another tab, so it says what
-    # kind of thing is happening rather than repeating the producer's own wording. It is
-    # also the seam FIB-742 needs -- saying *which* run is going is a modality prefix on
-    # these, which is only possible now the words live here instead of arriving baked
-    # into the report.
-    _STATUS_LABELS = {
-        TiledStatus.STARTING: "Collecting tiles",
-        TiledStatus.MOVING: "Moving stage",
-        TiledStatus.TILE_STARTED: "Collecting tiles",
-        TiledStatus.TILE_COLLECTED: "Collecting tiles",
-        TiledStatus.TILES_ACQUIRED: "Collecting tiles",
-        TiledStatus.STITCHING: "Stitching tiles",
-        TiledStatus.SAVING: "Saving overview",
-        TiledStatus.FINISHED: "Complete",
-        TiledStatus.CANCELLED: "Cancelled",
-        TiledStatus.FAILED: "Failed",
-    }
-
-    @ensure_main_thread
-    def _on_tile_acquisition_progress(self, event: TiledProgress) -> None:
-        """Handle tiled acquisition progress updates from the microscope.
-
-        Deliberately **not** filtered by modality,
-        unlike the two overview widgets: they each drive one modality's canvas and must
-        ignore the other's run, while the status bar is the one consumer that wants both
-        (FIB-725).
-        """
-        message = self._STATUS_LABELS.get(event.status, "Collecting tiles")
-
-        if event.status.is_terminal:
-            self.progress_widget.update_progress(
-                self._overview_outcome(event.status, message)
-            )
-            # Hide the Done state after a moment, the same way spot burn does above.
-            QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
-            return
-
-        if event.completed is None or not event.total:
-            # A state that carries no counts: a stage move, a stitch, a save. Nothing is
-            # drawn for them, which leaves the last real count standing -- still true
-            # while the stage moves or the mosaic is written.
-            return
-
-        if event.completed >= event.total:
-            self.progress_widget.update_progress(ProgressUpdate.indeterminate(message))
-        else:
-            self.progress_widget.update_progress(
-                ProgressUpdate.numeric(event.completed, event.total, message)
-            )
-
-    @staticmethod
-    def _overview_outcome(status: TiledStatus, message: str) -> ProgressUpdate:
-        """How a finished tiled acquisition reads once the bar is full.
-
-        A cancel is deliberately not `failed`, which paints the bar red: it is someone
-        getting what they asked for.
-        """
-        if status is TiledStatus.FAILED:
-            return ProgressUpdate.failed(message)
-        if status is TiledStatus.CANCELLED:
-            return ProgressUpdate(finished=True, message=message)
-        return ProgressUpdate.done()
 
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
