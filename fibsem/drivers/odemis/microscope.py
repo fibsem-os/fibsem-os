@@ -317,6 +317,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         built: Dict[str, Any] = build_device_entries(resolved, self)
         for name, device in built.items():
             self._set_device(name, device)
+        self._bind_device_roles()
 
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
         self._device_routes = MappingProxyType(

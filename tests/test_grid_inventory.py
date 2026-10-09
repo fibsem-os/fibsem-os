@@ -11,10 +11,10 @@ import logging
 import pytest
 
 from fibsem import utils
+from fibsem.drivers.demo import devices as demo_devices
 from fibsem.microscopes import _stage as stage_module
 from fibsem.microscopes._stage import (
     COMPUSTAGE_HOLDER_NAME,
-    DemoSampleLoader,
     DeviceSampleLoader,
     GridExchangeError,
     GridSlot,
@@ -26,7 +26,7 @@ from fibsem.microscopes._stage import (
     _create_sample_stage,
 )
 from fibsem.structures import FibsemStagePosition
-from tests.fixtures.demo_stage import demo_session
+from tests.fixtures.demo_stage import demo_grid_loader, demo_session
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,8 +45,8 @@ def _fixed_demo():
     return microscope
 
 
-def _with_magazine(microscope, occupied=(1, 2, 5), names=None) -> DemoSampleLoader:
-    loader = DemoSampleLoader(microscope, capacity=12, occupied=occupied, names=names)
+def _with_magazine(microscope, occupied=(1, 2, 5), names=None) -> DeviceSampleLoader:
+    loader = demo_grid_loader(microscope, capacity=12, occupied=occupied, names=names)
     microscope._stage.loader = loader
     return loader
 
@@ -113,7 +113,7 @@ class TestMagazine:
     def test_demo_occupied_outside_capacity_refused(self):
         microscope = _compustage_demo()
         with pytest.raises(ValueError):
-            DemoSampleLoader(microscope, capacity=4, occupied=(5,))
+            demo_grid_loader(microscope, capacity=4, occupied=(5,))
 
     def test_run_inventory_reports_occupied_slots(self):
         microscope = _compustage_demo()
@@ -127,9 +127,10 @@ class TestMagazine:
     def test_assign_and_find_grid(self):
         microscope = _compustage_demo()
         loader = _with_magazine(microscope)
-        loader.assign_grid("Slot-03", SampleGrid(name="grid-cedar"))
-        assert loader.find_grid("grid-cedar") is loader.slots["Slot-03"]
-        loader.assign_grid("Slot-03", None)
+        # a grid in slot 5, renamed: the device writes the name to the slot
+        loader.assign_grid("Slot-05", SampleGrid(name="grid-cedar"))
+        assert loader.find_grid("grid-cedar") is loader.slots["Slot-05"]
+        loader.assign_grid("Slot-05", None)
         assert loader.find_grid("grid-cedar") is None
 
     def test_assign_to_unknown_slot_raises(self):
@@ -167,9 +168,9 @@ class TestExchange:
         microscope = _compustage_demo()
         loader = _with_magazine(microscope)
         loader.load_grid("Slot-02")
-        loader.fail_next_exchange = True  # would raise if an exchange happened
+        loader.device.fail_next_exchange = True  # would raise if an exchange happened
         loader.load_grid("Slot-02")
-        assert loader.fail_next_exchange is True
+        assert loader.device.fail_next_exchange is True
 
     def test_unload_clears_the_working_slot(self):
         microscope = _compustage_demo()
@@ -182,9 +183,9 @@ class TestExchange:
     def test_unload_when_empty_is_a_noop(self):
         microscope = _compustage_demo()
         loader = _with_magazine(microscope)
-        loader.fail_next_exchange = True
+        loader.device.fail_next_exchange = True
         loader.unload_grid()
-        assert loader.fail_next_exchange is True
+        assert loader.device.fail_next_exchange is True
 
     def test_load_empty_slot_raises(self):
         microscope = _compustage_demo()
@@ -196,13 +197,13 @@ class TestExchange:
         microscope = _compustage_demo()
         loader = _with_magazine(microscope)
         loader.load_grid("Slot-01")
-        loader.fail_next_exchange = True
+        loader.device.fail_next_exchange = True
         with pytest.raises(GridExchangeError):
             loader.load_grid("Slot-02")
         working = microscope._stage.holder.slots["Slot-01"]
         # the unload half of the exchange failed, so Grid-01 is still loaded
         assert working.loaded_grid.name == "Grid-01"
-        assert loader.fail_next_exchange is False
+        assert loader.device.fail_next_exchange is False
 
 
 # ---------------------------------------------------------------------------
@@ -245,8 +246,8 @@ class TestUnscannedMagazine:
     unknown and no grid in any, until a scan finds them."""
 
     @staticmethod
-    def _unscanned(microscope, scan_delay=0.0) -> DemoSampleLoader:
-        loader = DemoSampleLoader(
+    def _unscanned(microscope, scan_delay=0.0) -> DeviceSampleLoader:
+        loader = demo_grid_loader(
             microscope,
             capacity=12,
             occupied=(1, 2, 5),
@@ -293,7 +294,7 @@ class TestUnscannedMagazine:
 
     def test_the_scan_waits_through_sim_sleep(self, monkeypatch):
         slept = []
-        monkeypatch.setattr(stage_module, "sim_sleep", slept.append)
+        monkeypatch.setattr(demo_devices, "sim_sleep", slept.append)
         microscope = _compustage_demo()
         self._unscanned(microscope, scan_delay=10.0)
         microscope._stage.get_inventory()
@@ -445,9 +446,9 @@ class TestEnsureLoadedWithLoader:
         microscope = _compustage_demo()
         loader = _with_magazine(microscope, names={2: "grid-birch"})
         microscope._stage.ensure_loaded("grid-birch")
-        loader.fail_next_exchange = True  # would raise if anything moved
+        loader.device.fail_next_exchange = True  # would raise if anything moved
         microscope._stage.ensure_loaded("grid-birch")
-        assert loader.fail_next_exchange is True
+        assert loader.device.fail_next_exchange is True
 
     def test_unknown_grid_raises(self):
         microscope = _compustage_demo()
@@ -458,7 +459,7 @@ class TestEnsureLoadedWithLoader:
     def test_hardware_failure_propagates(self):
         microscope = _compustage_demo()
         loader = _with_magazine(microscope)
-        loader.fail_next_exchange = True
+        loader.device.fail_next_exchange = True
         with pytest.raises(GridExchangeError):
             microscope._stage.ensure_loaded("Grid-01")
         assert microscope._stage.loaded_grids == []
@@ -534,9 +535,9 @@ class TestAssignGrid:
     def test_with_loader_names_the_magazine_slot(self):
         microscope = _compustage_demo()
         loader = _with_magazine(microscope)
-        microscope._stage.assign_grid("Slot-03", SampleGrid(name="grid-cedar"))
-        assert loader.slots["Slot-03"].loaded_grid.name == "grid-cedar"
-        assert _entry(microscope, "Slot-03").present is True
+        microscope._stage.assign_grid("Slot-05", SampleGrid(name="grid-cedar"))
+        assert loader.slots["Slot-05"].loaded_grid.name == "grid-cedar"
+        assert _entry(microscope, "Slot-05").present is True
 
     def test_on_fixed_holder_names_the_slot_and_saves_the_occupancy(self):
         microscope = _fixed_demo()

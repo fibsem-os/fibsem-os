@@ -57,12 +57,7 @@ from fibsem._timing import sim_sleep
 from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.core import Device, resources_of
-from fibsem.devices.entries import (
-    bind_device_roles,
-    build_device_entries,
-    configured_device_entries,
-    resolve_system_devices,
-)
+from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.drivers.demo.devices import bind_demo_fm
 from fibsem.drivers.demo.services import bind_demo_milling
@@ -197,11 +192,9 @@ class DemoMicroscope(
         # .devices``), so the devices and the shared demo code begin the same.
         shared = {manufacturers.DEMO: (resources_of(self), parts)}
         built = build_device_entries(resolved, self, shared=shared)
-        bind_device_roles(
-            resolved, built, configured_device_entries(self.system).keys()
-        )
         for name, device in built.items():
             self._set_device(name, device)
+        self._bind_device_roles()
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
         self._device_routes = MappingProxyType(
             {

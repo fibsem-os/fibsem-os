@@ -533,6 +533,7 @@ class TescanMicroscope(FibsemMicroscope):
         # Tescan's own driver has no FM; one on its own PC is built from its entry.
         self.fm = self._build_fluorescence(manufacturers.TESCAN)
         self._apply_fluorescence_calibration()
+        self._bind_device_roles()
 
         available_detectors = self._get_available_detectors(BeamType.ELECTRON)
         if self._default_detector_names[BeamType.ELECTRON] not in [
