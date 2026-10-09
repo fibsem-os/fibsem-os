@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
@@ -376,6 +376,11 @@ class DisplayPreferences:
     # everyone who never chose -- which a stored default would not, since every save
     # writes every key.
     info_bar_fields: Dict[str, List[str]] = field(default_factory=dict)
+    # What the History tab shows (FIB-1256): ``show``, ``status`` and ``task``, as
+    # ``HistoryFilter.to_dict`` writes them. Empty until someone filters, so the
+    # tab's default still reaches everyone who never did; a value the tab does not
+    # recognise shows everything.
+    history_filter: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
