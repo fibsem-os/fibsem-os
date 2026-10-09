@@ -377,9 +377,12 @@ class _CorrelationWorker(QThread):
         parent: Optional[QWidget] = None,
         nominal=None,
         rows: Optional[List[int]] = None,
+        generation: int = 0,
     ) -> None:
         super().__init__(parent)
         self._data = input_data
+        # The widget's result generation when this run started (FIB-1242).
+        self.generation = generation
         # A NominalTransform built from the images' geometry, or None to fit
         # unseeded (FIB-881). Built on the GUI thread, before the run.
         self._nominal = nominal
@@ -2269,6 +2272,10 @@ class CorrelationTabWidget(QWidget):
         self._fm_image: Optional[FluorescenceImage] = None
         self._result: Optional[CorrelationResult] = None
         self._worker: Optional[_CorrelationWorker] = None
+        # Bumped whenever the result is cleared or replaced; a run started
+        # before the bump delivers into a state it no longer describes, so its
+        # result is dropped (FIB-1242).
+        self._result_generation = 0
         # FM z-stack interpolation (background) — held for the op's lifetime
         self._interp_worker = None
         self._interp_relay: Optional[_ProgressRelay] = None
@@ -3039,7 +3046,11 @@ class CorrelationTabWidget(QWidget):
         keeps its numbers, CSV export writes it, and — because the auto-save
         pairs current inputs with ``self._result`` — it gets re-saved against
         coordinates it was never computed from (FIB-318).
+
+        A run still in flight is superseded too: it was started on the points
+        being cleared, so what it delivers is dropped (FIB-1242).
         """
+        self._result_generation += 1
         if self._result is None:
             return
         self._result = None
@@ -3806,7 +3817,10 @@ class CorrelationTabWidget(QWidget):
         nominal, self._seed_note = self._nominal_transform()
         self._run_nominal = nominal
         self._worker = _CorrelationWorker(
-            copy.deepcopy(self.fit_data), nominal=nominal, rows=self._fit_rows()
+            copy.deepcopy(self.fit_data),
+            nominal=nominal,
+            rows=self._fit_rows(),
+            generation=self._result_generation,
         )
         self._worker.result_ready.connect(self._on_run_finished)
         self._worker.errored.connect(self._on_run_error)
@@ -4113,7 +4127,15 @@ class CorrelationTabWidget(QWidget):
         while the run was in flight makes the delivered result describe points
         that no longer exist. Marking it live regardless armed Continue on a
         result whose ``matches_inputs`` was already False (FIB-321).
+
+        A run whose result was cleared or replaced while it ran (a new image,
+        a seed, a loaded file) delivers nothing: on the new image it would be
+        drawn, auto-saved and offered as the answer (FIB-1242).
         """
+        worker = self._worker
+        if worker is not None and worker.generation != self._result_generation:
+            self._update_run_button()
+            return
         result.placement_offset = self._measure_placement_offset(result)
         self._on_result_ready(result, live=result.matches_inputs(self.fit_data))
 
@@ -4807,6 +4829,7 @@ class CorrelationTabWidget(QWidget):
         fitted to, not the current truth, so applying it would silently discard
         every edit made after that run (FIB-295).
         """
+        self._result_generation += 1  # a run in flight is superseded (FIB-1242)
         # Populate the lists first so the RI tab sees the loaded surface points.
         # _on_result_ready refreshes the run button and sets the final status
         # text itself — no trailing update here, it would overwrite the status.
