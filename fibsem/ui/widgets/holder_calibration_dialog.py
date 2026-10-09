@@ -53,7 +53,7 @@ from fibsem.ui.tokens import (
 from fibsem.ui.utils import install_wheel_blocker_recursive
 from fibsem.ui.widgets.custom_widgets import ValueSpinBox
 from fibsem.ui.widgets.guided_setup_dialog import StageDiagram
-from fibsem.util.timestamps import now_iso
+from fibsem.util.timestamps import now
 
 # Slot positions are stored at this orientation; every other pose is derived from
 # them by the stable-move projection, which is what the startup stamping in
@@ -770,7 +770,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
             rotation_reference=float(
                 getattr(stage_settings, "rotation_reference", 0.0)
             ),
-            captured_at=now_iso(),
+            captured_at=now(),
             fibsem_version=fibsem_version(),
         )
         for name, position in self._captured.items():

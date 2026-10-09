@@ -5126,8 +5126,15 @@ class SlotCalibration:
     orientation: str
     pre_tilt: float
     rotation_reference: float
-    captured_at: str = ""
+    # When the wizard captured it: aware, written as ISO 8601 with its offset
+    # (FIB-1190, FIB-1197). Records before FIB-1190 hold a naive string, which stays
+    # naive. None for a position nobody captured.
+    captured_at: Optional[datetime] = None
     fibsem_version: str = ""
+
+    def __post_init__(self) -> None:
+        # the string a holder file or a caller holds
+        self.captured_at = to_datetime(self.captured_at) if self.captured_at else None
 
     @classmethod
     def builtin(cls, pre_tilt: float, rotation_reference: float) -> "SlotCalibration":
@@ -5142,7 +5149,7 @@ class SlotCalibration:
             orientation="SEM",
             pre_tilt=pre_tilt,
             rotation_reference=rotation_reference,
-            captured_at="",
+            captured_at=None,
             fibsem_version="built-in",
         )
 
@@ -5161,7 +5168,7 @@ class SlotCalibration:
             "orientation": self.orientation,
             "pre_tilt": self.pre_tilt,
             "rotation_reference": self.rotation_reference,
-            "captured_at": self.captured_at,
+            "captured_at": to_iso(self.captured_at) or "",
             "fibsem_version": self.fibsem_version,
         }
 
@@ -5171,7 +5178,7 @@ class SlotCalibration:
             orientation=str(data.get("orientation", "")),
             pre_tilt=float(data.get("pre_tilt", 0.0)),
             rotation_reference=float(data.get("rotation_reference", 0.0)),
-            captured_at=str(data.get("captured_at", "")),
+            captured_at=data.get("captured_at") or None,
             fibsem_version=str(data.get("fibsem_version", "")),
         )
 

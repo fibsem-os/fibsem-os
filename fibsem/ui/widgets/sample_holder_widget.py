@@ -75,7 +75,7 @@ def _captured_when(slot: GridSlot) -> str:
     # it has none, as records from before that do.
     when = to_datetime(record.captured_at)
     if when is None:
-        return record.captured_at
+        return ""
     if when.tzinfo is not None:
         when = when.astimezone()  # displayed in the viewer's zone, as format_time does
     months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()

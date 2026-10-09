@@ -175,7 +175,9 @@ fibsemOS stores goes through `fibsem/util/timestamps.py` and follows these rules
    that existed keep their keys and are written as ISO 8601 with offset (FIB-1197):
    task `start_timestamp`/`end_timestamp`, the experiment's, grid's, overlay's and
    proposal's `created_at`, a decision's `timestamp`, the experiment reference's
-   `date` and the session's `recorded_at`. `microscope_state.timestamp` stays a float.
+   `date`, the session's `recorded_at`, a verdict's and a correlation result's
+   `updated_at`. A slot calibration's `captured_at` was ISO already and is now a
+   datetime in memory. `microscope_state.timestamp` stays a float.
 7. **Old files keep reading as they did.** `to_datetime` reads every older form: a POSIX
    float, AutoScript's `%m/%d/%Y %H:%M:%S` string, a naive ISO string, and it reads
    them where the key is now ISO, so an older file loads and shows the same times. A
