@@ -83,9 +83,8 @@ def test_a_status_event_report_shows_the_run_on_the_status_bar(main_ui):
         WorkflowStatusEvent(report=report)
     )
 
-    assert (
-        main_ui.status_bar.currentMessage() == "Workflow: Polishing | lamella-02 | 3/4"
-    )
+    assert main_ui.status_bar.text == "lamella-02 › Polishing · 3 of 4"
+    assert main_ui.status_bar.showing == "run"
     assert main_ui.stop_workflow_btn.isVisibleTo(main_ui)
     assert not main_ui.run_workflow_btn.isVisibleTo(main_ui)
 
@@ -99,7 +98,7 @@ def test_a_status_event_carries_transient_status_bar_text(main_ui):
         WorkflowStatusEvent(status_bar="Scheduled start in 4 s")
     )
 
-    assert main_ui.status_bar.currentMessage() == "Scheduled start in 4 s"
+    assert "Scheduled start in 4 s" in main_ui.status_bar.text
 
 
 def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
@@ -246,13 +245,14 @@ def test_an_event_without_status_bar_text_leaves_the_bar_alone(main_ui):
         WorkflowStatusEvent,
     )
 
-    main_ui.status_bar.showMessage("previous message")
+    main_ui.status_bar.set_run_step("previous message")
+    before = main_ui.status_bar.text
 
     main_ui.autolamella_ui.workflow_status_signal.emit(
         WorkflowStatusEvent(message="not for the status bar")
     )
 
-    assert main_ui.status_bar.currentMessage() == "previous message"
+    assert main_ui.status_bar.text == before
 
 
 def test_the_review_badge_counts_to_check_apart_from_waiting(main_ui):
