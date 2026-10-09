@@ -332,6 +332,39 @@ def test_unseeded_run_reports_the_mirror_branch():
     assert check["fiducial_z_span_slices"] > 0
 
 
+# The METEOR runs whose unseeded fit landed on its mirror branch for some random
+# draws (FIB-1249): entries 2, 4 and 5 of the fixture, 3 of 8 draws or more.
+_FLIPPED_ON_SOME_DRAWS = [2, 4, 5]
+
+
+@pytest.mark.parametrize("index", _FLIPPED_ON_SOME_DRAWS)
+def test_an_unseeded_fit_keeps_the_better_branch_whatever_the_draw(index):
+    """The random starts sit near one first guess, so which branch an unseeded
+    run returned was the draw's: RMS 3.1 or 4.5, 3.9 or 11.3, 3.7 or 9.9 on these
+    runs, with the target moving ~40 px. The other branch is solved too now,
+    and the better kept."""
+    entry = ENTRIES[index]
+    results = []
+    for draw in range(8):
+        np.random.seed(draw)
+        results.append(run(_input_data(entry), None))
+    rms = {round(r.rms_error, 3) for r in results}
+    targets = {
+        (round(r.poi[0].image_px.x, 2), round(r.poi[0].image_px.y, 2)) for r in results
+    }
+    assert len(rms) == 1 and len(targets) == 1
+    assert all(r.branch_check["rms_mirror"] > r.rms_error for r in results)
+
+
+def test_the_mirror_warning_is_for_branches_within_a_quarter():
+    warn = correlation_v2._unseeded_mirror_warning
+    assert warn(10.0, None) is None  # no mirror solved
+    assert warn(10.0, 12.4).startswith("The mirror branch fits nearly as well")
+    assert warn(10.0, 12.6) is None  # more than 25 % apart: the points decide
+    assert warn(2.0, 2.9) is not None  # the 1 px floor for a very good fit
+    assert warn(2.0, 3.1) is None
+
+
 def test_pre_correction_scales_with_the_stack():
     """The FM surface z is in slices too, so the transient RI scaling must follow."""
     entry = next(
