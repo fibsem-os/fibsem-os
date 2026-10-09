@@ -186,14 +186,19 @@ def parameter_field_metadata(
         metadata["tooltip"] = spec.doc
     if hint is not None:
         metadata.update(hint.as_field_metadata(spec.unit))
-    # What every instrument has, where this one reports none.
+    return runtime_overrides(metadata, reported_metadata(parameter), field)
+
+
+def reported_metadata(parameter: Union[Parameter, BoundParameter]) -> ParameterMetadata:
+    """What a parameter allows: what its instrument reports, and what every
+    instrument has (its declared limits and choices) where it reports none."""
+    spec = getattr(parameter, "spec", parameter)
     reported = getattr(parameter, "metadata", None) or ParameterMetadata()
-    reported = replace(
+    return replace(
         reported,
         limits=spec.limits if reported.limits is None else reported.limits,
         choices=spec.choices if reported.choices is None else reported.choices,
     )
-    return runtime_overrides(metadata, reported, field)
 
 
 def runtime_overrides(

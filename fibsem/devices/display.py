@@ -5,7 +5,7 @@ same vocabulary as a dataclass field's ``field_meta``, so a form renders device
 parameters and recipe fields alike. What a value may be (limits, choices, settable) is
 not here: the instrument reports that, in ``ParameterMetadata``.
 
-No dependencies, so the devices and the structures can both import it.
+It imports nothing from fibsem.
 """
 
 from __future__ import annotations
