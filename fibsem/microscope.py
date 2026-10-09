@@ -541,8 +541,13 @@ class FibsemMicroscope(ABC):
         backend today, and deliberately does not ask that instead -- "has a rotation
         axis" is the property the derivation needs, and a future stage that lacks one
         without being a compustage would answer correctly here for free.
+
+        The stage device's axes say it: they are built from the limits its driver
+        reports. Without a stage device there is nothing to ask, and the field keeps
+        its default.
         """
-        self.system.stage.rotation = "r" in self._get_axis_limits()
+        if self.stage is not None:
+            self.system.stage.rotation = "r" in self.stage.axes
 
     def _create_sample_stage(self) -> None:
         """Create the sample stage and holder based on the system settings."""
@@ -551,9 +556,8 @@ class FibsemMicroscope(ABC):
         # Before the stage object, not after. Every backend wraps this call in a
         # try/except that logs and carries on, so a failure below leaves the
         # capability at its field default -- `True`, which on a compustage is the
-        # wrong answer and a silent one. Reading it first means the only way to miss
-        # it is `_get_axis_limits` itself raising, and on a compustage that is a
-        # lookup of a module constant, which cannot.
+        # wrong answer and a silent one. Reading it first cannot fail: it asks the
+        # stage device's axes, which were read when the device was built.
         self._read_stage_capabilities()
         self._read_hardware_capabilities()
 
@@ -777,18 +781,6 @@ class FibsemMicroscope(ABC):
         from fibsem.microscopes._stage import SampleGridLoader
 
         return SampleGridLoader(parent=self)
-
-    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
-        """Get the stage axis limits from the microscope."""
-
-        axes_limits: Dict[str, RangeLimit] = {}
-        axes_limits["x"] = RangeLimit(min=-100.0e-3, max=100.0e-3)
-        axes_limits["y"] = RangeLimit(min=-100.0e-3, max=100.0e-3)
-        axes_limits["z"] = RangeLimit(min=0.0e-3, max=50.0e-3)
-        axes_limits["r"] = RangeLimit(min=-360.0, max=360.0)
-        axes_limits["t"] = RangeLimit(min=-10.0, max=90.0)
-
-        return axes_limits
 
     # The raw moves go through the stage device when the backend builds one, without
     # its limit check (the old API never had one); a backend without one overrides

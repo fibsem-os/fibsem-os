@@ -413,6 +413,17 @@ def bind_odemis_beams(
     }
 
 
+#: The stage limits, r and t in degrees. Not read from odemis: this is the fixed table
+#: the base microscope class gave every backend that didn't ask its hardware.
+STAGE_LIMITS = {
+    "x": RangeLimit(min=-100.0e-3, max=100.0e-3),
+    "y": RangeLimit(min=-100.0e-3, max=100.0e-3),
+    "z": RangeLimit(min=0.0e-3, max=50.0e-3),
+    "r": RangeLimit(min=-360.0, max=360.0),
+    "t": RangeLimit(min=-10.0, max=90.0),
+}
+
+
 class OdemisStage(Stage):
     """The stage of a Thermo microscope driven through odemis.
 
@@ -422,8 +433,8 @@ class OdemisStage(Stage):
       component's position;
     - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked``
       branches, which ask the client;
-    - ``metadata_position``: ``_get_axis_limits``, the base class's fixed table, in
-      degrees for r and t, converted so limits and positions share one unit;
+    - ``metadata_position``: ``STAGE_LIMITS``, the fixed table the base class used to
+      give, in degrees for r and t, converted so limits and positions share one unit;
     - ``_move_absolute`` / ``_move_relative``: ``move_stage_absolute`` /
       ``move_stage_relative``, each waiting on the move's future;
     - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
@@ -446,9 +457,7 @@ class OdemisStage(Stage):
         return FibsemStagePosition.from_odemis_dict(self._stage.position.value)
 
     def metadata_position(self) -> ParameterMetadata:
-        return ParameterMetadata(
-            limits=axis_limits_from_degrees(self.parent._get_axis_limits())
-        )
+        return ParameterMetadata(limits=axis_limits_from_degrees(STAGE_LIMITS))
 
     def read_homed(self) -> bool:
         return self.parent.connection.is_homed()

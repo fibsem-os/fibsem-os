@@ -205,30 +205,15 @@ def test_applying_a_configuration_does_not_overwrite_the_capability():
 def test_the_thermo_backend_reports_a_compustage_without_a_rotation_axis():
     """The real Arctis path, which no test on CI can connect to.
 
-    `ThermoMicroscope._get_axis_limits` is where an AutoScript compustage becomes "no
-    `r` axis", and it is what `_read_stage_capabilities` asks. CI has no AutoScript, and
-    the simulator cannot stand in for this branch -- it has its own `_get_axis_limits`.
-    So the branch is asserted from the source, the way FIB-500 pinned its
-    `r=0.0` literal: crude, but it fails if someone deletes the short-circuit, which is
-    the failure that would otherwise reach an instrument.
+    `AutoscriptCompustage.metadata_position` is where an AutoScript compustage becomes
+    "no `r` axis", and `_read_stage_capabilities` asks the stage device's axes. CI has no
+    AutoScript, but the compustage's limits are a fixed table that needs no SDK, so the
+    driver is asked directly: it fails if someone gives the compustage the offset
+    stage's SDK read, which is the failure that would otherwise reach an instrument.
     """
-    import ast
-    import inspect
-    import textwrap
+    from fibsem.drivers.autoscript.devices import AutoscriptCompustage
 
-    from fibsem.drivers.autoscript.microscope import ThermoMicroscope
+    limits = AutoscriptCompustage(parent=None).metadata_position().limits
 
-    tree = ast.parse(
-        textwrap.dedent(inspect.getsource(ThermoMicroscope._get_axis_limits))
-    )
-    returns_under_a_compustage_test = [
-        node.body[0].value.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.If)
-        and isinstance(node.test, ast.Attribute)
-        and node.test.attr == "_compustage_installed"
-        and isinstance(node.body[0], ast.Return)
-        and isinstance(node.body[0].value, ast.Name)
-    ]
-    assert returns_under_a_compustage_test == ["STAGE_LIMITS_COMPUSTAGE"]
-    assert "r" not in STAGE_LIMITS_COMPUSTAGE
+    assert set(limits) == set(STAGE_LIMITS_COMPUSTAGE)
+    assert "r" not in limits

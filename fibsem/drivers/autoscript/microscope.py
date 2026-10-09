@@ -1321,42 +1321,6 @@ class ThermoMicroscope(FibsemMicroscope):
             return None
         return plasma_gas.value or None
 
-    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
-        """Get the stage axis limits for x, y, z, t, r."""
-        from fibsem.drivers.demo.simulator import (
-            STAGE_LIMITS_COMPUSTAGE,
-            STAGE_LIMITS_DEFAULT,
-        )
-
-        if self._compustage_installed:
-            return STAGE_LIMITS_COMPUSTAGE
-
-        if not hasattr(self._vendor_stage, "get_axis_limits"):
-            return STAGE_LIMITS_DEFAULT
-
-        limits: Dict[str, RangeLimit] = {}
-        for axis in ["x", "y", "z", "t"]:
-            axis_limit = self._vendor_stage.get_axis_limits(axis)
-            # t is in radians -> degrees
-            if axis == "t":
-                limits[axis] = RangeLimit(
-                    min=np.degrees(axis_limit.min), max=np.degrees(axis_limit.max)
-                )
-                continue
-
-            limits[axis] = RangeLimit(
-                min=axis_limit.min,
-                max=axis_limit.max,
-            )
-
-        # special case for r (no specified limits, infinite rotation)
-        if not self._compustage_installed:
-            limits["r"] = RangeLimit(
-                min=-360,
-                max=360,
-            )
-        return limits
-
     def _x_corrected_needle_movement(
         self, expected_x: float
     ) -> FibsemManipulatorPosition:

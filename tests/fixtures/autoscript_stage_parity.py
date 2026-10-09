@@ -397,7 +397,24 @@ def cases():
 
         # connect: the old limits (converted) and the calls reading them
         def old_limits(m):
-            limits = m._get_axis_limits()
+            # What the deleted ThermoMicroscope._get_axis_limits returned, kept here so
+            # the driver's own read is still checked against it.
+            from fibsem.drivers.demo.simulator import (
+                STAGE_LIMITS_COMPUSTAGE,
+                STAGE_LIMITS_DEFAULT,
+            )
+
+            if m._compustage_installed:
+                limits = STAGE_LIMITS_COMPUSTAGE
+            elif not hasattr(m._vendor_stage, "get_axis_limits"):
+                limits = STAGE_LIMITS_DEFAULT
+            else:
+                limits = {}
+                for axis in ("x", "y", "z", "t"):
+                    raw = m._vendor_stage.get_axis_limits(axis)
+                    scale = np.degrees if axis == "t" else float
+                    limits[axis] = A.RangeLimit(min=scale(raw.min), max=scale(raw.max))
+                limits["r"] = A.RangeLimit(min=-360, max=360)
             return {
                 k: A.RangeLimit(
                     min=float(np.radians(v.min)) if k in "rt" else v.min,
