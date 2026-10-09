@@ -1,12 +1,10 @@
 ######## TRENCH TASK DEFINITIONS ########
 
-import os
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Optional, Type
 
-from fibsem import alignment, calibration
-from fibsem.alignment import AlignmentSubsystem
+from fibsem import calibration
 from fibsem.applications.autolamella.protocol.constants import TRENCH_KEY
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (
@@ -18,17 +16,16 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
 )
 from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
-from fibsem.structures import BeamType, FibsemImage, field_meta
+from fibsem.structures import BeamType, field_meta
 
 
 @dataclass
 class MillTrenchTaskConfig(AutoLamellaTaskConfig):
     """Configuration for the MillTrenchTask."""
 
-    align_reference: bool = field(
-        default=False,  # whether to align to a trench reference image
-        metadata=field_meta(tooltip="Whether to align to a trench reference image"),
-    )
+    # align_reference aligned to ref_PositionReady.tif, which only the legacy
+    # workflow wrote.
+    retired_parameters: ClassVar[frozenset] = frozenset({"align_reference"})
     charge_neutralisation: bool = field(
         default=True,  # whether to perform charge neutralisation
         metadata=field_meta(tooltip="Whether to perform charge neutralisation"),
@@ -70,21 +67,6 @@ class MillTrenchTask(AutoLamellaTask):
             self.lamella.stage_position, self.config.orientation
         )
         self.microscope.safe_absolute_stage_movement(trench_position)
-
-        # align to reference image
-        # TODO: support saving a reference image when selecting the trench from minimap
-        reference_image_path = os.path.join(self.lamella.path, "ref_PositionReady.tif")
-        if os.path.exists(reference_image_path) and self.config.align_reference:
-            self.log_status_message(
-                "ALIGN_TRENCH_REFERENCE", "Aligning Trench Reference..."
-            )
-            ref_image = FibsemImage.load(reference_image_path)
-            alignment.multi_step_alignment_v2(
-                microscope=self.microscope,
-                ref_image=ref_image,
-                steps=1,
-                subsystem=AlignmentSubsystem.STAGE,
-            )
 
         # get trench milling stages
         milling_task_config = self.config.milling[TRENCH_KEY]
