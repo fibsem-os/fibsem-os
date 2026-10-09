@@ -63,7 +63,6 @@ class MillUndercutTask(AutoLamellaTask):
 
         # bookkeeping
         image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         checkpoint = "autolamella-waffle-20240107.pt"  # if self.lamella.protocol.options.checkpoint is None else self.lamella.protocol.options.checkpoint
 

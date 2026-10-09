@@ -89,7 +89,6 @@ class MillFiducialTask(AutoLamellaTask):
         from fibsem.structures import ImageSettings
 
         image_settings: ImageSettings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         # move to lamella milling position
         self._move_to_milling_pose()
@@ -108,7 +107,6 @@ class MillFiducialTask(AutoLamellaTask):
         self.log_status_message("MILL_FIDUCIAL", "Milling Fiducial...")
         msg = f"Press Run Milling to mill the Fiducial for {self.lamella.name}. Press Continue when done."
         fiducial_task_config.alignment.rect = self.lamella.alignment_area
-        fiducial_task_config.acquisition.imaging.path = self.lamella.path
         milling_task_config = self.update_milling_config_ui(
             fiducial_task_config, msg=msg
         )

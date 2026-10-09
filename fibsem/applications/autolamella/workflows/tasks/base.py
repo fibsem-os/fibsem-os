@@ -187,6 +187,12 @@ class AutoLamellaTask(ABC):
         self.microscope = microscope
         self.config = config
         self.lamella = lamella
+        # Every task's reference images are acquired with its config's imaging
+        # settings; they are saved under its output folder. Set here, once, for
+        # the run this task object is, rather than by hand at the top of each
+        # task's _run (FIB-1253). In __init__ rather than pre_task, so a task
+        # whose _run is called directly still writes there.
+        self.config.imaging.path = self.output_dir
         self.parent_ui = parent_ui
         self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())

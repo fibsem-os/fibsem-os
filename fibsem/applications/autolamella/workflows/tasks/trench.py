@@ -63,7 +63,6 @@ class MillTrenchTask(AutoLamellaTask):
 
         # bookkeeping
         image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         self.log_status_message("MOVE_TO_TRENCH", "Moving to Trench Position...")
         trench_position = self._get_stage_position_for_orientation(
@@ -97,7 +96,6 @@ class MillTrenchTask(AutoLamellaTask):
         # log the task configuration
         self.log_status_message("MILL_TRENCH", "Milling Trench...")
         msg = f"Press Run Milling to mill the Trench for {self.lamella.name}. Press Continue when done."
-        milling_task_config.acquisition.imaging.path = self.lamella.path
         milling_task_config = self.update_milling_config_ui(
             milling_task_config,
             msg=msg,

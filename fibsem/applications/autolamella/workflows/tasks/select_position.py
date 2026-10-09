@@ -184,7 +184,6 @@ class SelectMillingPositionTask(AutoLamellaTask):
 
         # bookkeeping
         self.image_settings: ImageSettings = self.config.imaging
-        self.image_settings.path = self.lamella.path
 
         # move to lamella milling position
         self._move_to_milling_pose()

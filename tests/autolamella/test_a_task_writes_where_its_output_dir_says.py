@@ -1,10 +1,14 @@
-"""A task's operations write where its output folder says (FIB-1253).
+"""A task writes where its output folder says (FIB-1253).
 
 ``AutoLamellaTask.output_dir`` is the one place a task decides where its
-alignment runs, autofocus runs and milling are saved. Pointed somewhere other
-than the lamella's folder, they all follow it: real Setup and Rough Milling
-runs on Demo, through ``run_tasks``. Reference images are still placed by hand
-in each task and stay in the lamella's folder until that moves too.
+reference images, alignment runs, autofocus runs and milling are saved. Pointed
+somewhere other than the lamella's folder, they all follow it: real Setup and
+Rough Milling runs on Demo, through ``run_tasks``.
+
+Not asserted: where the alignment reference lands. Tasks share it by name in
+the lamella's folder; it is lamella state, overwritten as the lamella moves on
+(FIB-1258). The output folder is the lamella's, so the two agree; a layout
+that split them would have to save that file to the lamella's folder.
 
 The alignment and autofocus wrappers also return what they measured, instead of
 dropping it.
@@ -92,23 +96,26 @@ def _top_level(folder: Path):
     return {p.name for p in folder.iterdir()} if folder.exists() else set()
 
 
-def test_alignment_autofocus_and_milling_follow_the_output_folder(
+def _write_elsewhere(monkeypatch, folder: Path) -> None:
+    monkeypatch.setattr(AutoLamellaTask, "output_dir", property(lambda _: str(folder)))
+
+
+def test_everything_a_task_writes_follows_the_output_folder(
     microscope, experiment, tmp_path, monkeypatch
 ):
     elsewhere = tmp_path / "elsewhere"
-    monkeypatch.setattr(
-        AutoLamellaTask, "output_dir", property(lambda _: str(elsewhere))
-    )
+    _write_elsewhere(monkeypatch, elsewhere)
     lamella = experiment.positions[0]
 
     run_tasks(microscope, experiment, [SETUP, ROUGH])
 
     assert lamella.task_state.status is AutoLamellaTaskStatus.Completed
-    assert {"Alignment", "autofunctions", "Milling"} <= _top_level(elsewhere)
+    written = _top_level(elsewhere)
+    assert {"autofunctions", "Milling"} <= written
+    assert any(name.startswith(f"ref_{ROUGH}_final") for name in written)
     in_lamella = _top_level(lamella.path)
-    assert not {"Alignment", "autofunctions", "Milling"} & in_lamella, in_lamella
-    # the reference both tasks share is read from the lamella's folder
-    assert ALIGNMENT_REFERENCE_IMAGE_FILENAME in in_lamella
+    assert not {"autofunctions", "Milling"} & in_lamella, in_lamella
+    assert not any(name.startswith(f"ref_{ROUGH}_") for name in in_lamella)
 
 
 def test_the_output_folder_is_the_lamella_folder_for_now(microscope, experiment):

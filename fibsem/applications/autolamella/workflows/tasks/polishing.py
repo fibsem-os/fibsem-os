@@ -57,7 +57,6 @@ class MillPolishingTask(AutoLamellaTask):
         """Run the task to mill the polishing trenches for a lamella."""
         # bookkeeping
         image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         # move to lamella milling position
         self._move_to_milling_pose()
@@ -75,7 +74,6 @@ class MillPolishingTask(AutoLamellaTask):
         self.log_status_message("MILL_LAMELLA", "Milling Polishing Lamella...")
         milling_task_config = self.config.milling[MILL_POLISHING_KEY]
         milling_task_config.alignment.rect = self.lamella.alignment_area
-        milling_task_config.acquisition.imaging.path = self.lamella.path
 
         msg = f"Press Run Milling to mill the polishing for {self.lamella.name}. Press Continue when done."
         milling_task_config = self.update_milling_config_ui(
