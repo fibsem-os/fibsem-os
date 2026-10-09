@@ -354,12 +354,6 @@ class DemoConfiguration:
     def _probe_plasma_gas(self) -> Optional[str]:
         return self.system.sim.get("plasma_gas")
 
-    def _get_axis_limits(self) -> Dict[str, RangeLimit]:
-        """Get the axis limits for the stage."""
-        if sim_is_compustage(self.system):
-            return STAGE_LIMITS_COMPUSTAGE
-        return STAGE_LIMITS_DEFAULT
-
 
 class DemoImaging:
     """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
