@@ -65,7 +65,8 @@ TFibsemPatternSettings = TypeVar(
 DEFAULT_FIELD_METADATA: Dict[str, Any] = {
     "label": None,  # the display label for the field
     "type": None,  # the data type of the field
-    "unit": None,  # the display unit for the field (after scaling)
+    "unit": None,  # the field's unit; shown with the scale's SI prefix (m + 1e6 -> µm)
+    "display_unit": None,  # the shown unit, when the scale isn't an SI prefix (° , %)
     "tooltip": None,  # the tooltip/help text for the field
     "scale": None,  # scale factor for display (e.g., 1e6 for metres to microns)
     "dimensions": None,  # for complex dimensions, e.g. areas or volumes
@@ -104,6 +105,7 @@ def field_meta(
     label: Optional[str] = None,
     type: Optional[Any] = None,
     unit: Optional[str] = None,
+    display_unit: Optional[str] = None,
     tooltip: Optional[str] = None,
     scale: Optional[float] = None,
     dimensions: Optional[int] = None,
@@ -219,9 +221,33 @@ def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]
     for f in fields(struct_cls):
         declared = dict(f.metadata)
         _warn_unknown_metadata_keys(struct_cls, f.name, declared)
-        merged_metadata = {**default_metadata, **declared}
+        merged_metadata = {
+            **default_metadata,
+            **_beam_parameter_display(declared.get("microscope_parameter")),
+            **declared,
+        }
         field_metadata[f.name] = merged_metadata
     return field_metadata
+
+
+def _beam_parameter_display(name: Optional[str]) -> Dict[str, Any]:
+    """How the beam shows its parameter ``name``, for a field bound to it: the unit,
+    scale, step and decimals a field leaves out are the beam's, so a milling current
+    reads like the beam panel's current. Empty for a name the beam doesn't declare.
+    """
+    if not name:
+        return {}
+    from fibsem.devices.beam import Beam
+    from fibsem.devices.core import Parameter
+
+    parameter = getattr(Beam, name, None)
+    if not isinstance(parameter, Parameter) or parameter.display is None:
+        return {}
+    metadata = parameter.display.as_field_metadata(parameter.unit)
+    # the field names it in its own context, and says where its form shows it
+    metadata.pop("label", None)
+    metadata.pop("advanced", None)
+    return metadata
 
 
 class Resolution(NamedTuple):
@@ -923,18 +949,39 @@ class ImageSettings:
     # applied to the array afterwards -- and baking it into the stored data is
     # destructive and unrecoverable. The canvas's ContrastGammaControl does it at
     # display time instead, where it is adjustable and reversible.
-    resolution: Tuple[int, int] = (1536, 1024)
-    dwell_time: float = 1e-6
-    hfw: float = 150e-6
+    # How a form shows them. The beam-bound fields take their unit, scale, step and
+    # decimals from the beam's parameter, and an instrument's limits win over these.
+    resolution: Tuple[int, int] = field(
+        default=(1536, 1024),
+        metadata=field_meta(label="Resolution", microscope_parameter="resolution"),
+    )
+    dwell_time: float = field(
+        default=1e-6,
+        metadata=field_meta(label="Dwell Time", microscope_parameter="dwell_time"),
+    )
+    hfw: float = field(
+        default=150e-6,
+        metadata=field_meta(label="Field of View", microscope_parameter="hfw"),
+    )
     autocontrast: bool = False
     beam_type: BeamType = BeamType.ELECTRON
     save: bool = False
     filename: str = "default_image"
     path: Optional[Union[Path, str]] = None
     reduced_area: Optional[FibsemRectangle] = None
-    line_integration: Optional[int] = None  # (int32) 2 - 255
-    scan_interlacing: Optional[int] = None  # (int32) 2 - 8
-    frame_integration: Optional[int] = None  # (int32) 2 - 512
+    # None is off; a form shows it as 1.
+    line_integration: Optional[int] = field(
+        default=None,
+        metadata=field_meta(label="Line Integration", minimum=1, maximum=255),
+    )
+    scan_interlacing: Optional[int] = field(
+        default=None,
+        metadata=field_meta(label="Scan Interlacing", minimum=1, maximum=8),
+    )
+    frame_integration: Optional[int] = field(
+        default=None,
+        metadata=field_meta(label="Frame Integration", minimum=1, maximum=512),
+    )
     drift_correction: bool = False  # (bool) # requires frame_integration > 1
 
     def __post_init__(self):
@@ -1790,7 +1837,6 @@ class FibsemMillingSettings:
     milling_current: float = field(
         default=20.0e-12,
         metadata={
-            "unit": "A",
             "label": "Milling Current",
             "type": float,
             "items": "dynamic",
@@ -1801,7 +1847,6 @@ class FibsemMillingSettings:
     milling_voltage: float = field(
         default=30e3,
         metadata={
-            "unit": "V",
             "label": "Milling Voltage",
             "type": float,
             "items": "dynamic",
@@ -1837,13 +1882,9 @@ class FibsemMillingSettings:
         metadata={
             "label": "Field of View",
             "type": float,
-            "unit": "m",
-            "scale": 1e6,
             "default": 150.0,
             "minimum": 20.0,
             "maximum": 950.0,
-            "step": 10.0,
-            "decimals": 2,
             "microscope_parameter": "hfw",
             "hidden": True,
             "tooltip": "The horizontal field width used for milling. Patterns must fit within this field of view.",
@@ -5126,8 +5167,15 @@ class SlotCalibration:
     orientation: str
     pre_tilt: float
     rotation_reference: float
-    captured_at: str = ""
+    # When the wizard captured it: aware, written as ISO 8601 with its offset
+    # (FIB-1190, FIB-1197). Records before FIB-1190 hold a naive string, which stays
+    # naive. None for a position nobody captured.
+    captured_at: Optional[datetime] = None
     fibsem_version: str = ""
+
+    def __post_init__(self) -> None:
+        # the string a holder file or a caller holds
+        self.captured_at = to_datetime(self.captured_at) if self.captured_at else None
 
     @classmethod
     def builtin(cls, pre_tilt: float, rotation_reference: float) -> "SlotCalibration":
@@ -5142,7 +5190,7 @@ class SlotCalibration:
             orientation="SEM",
             pre_tilt=pre_tilt,
             rotation_reference=rotation_reference,
-            captured_at="",
+            captured_at=None,
             fibsem_version="built-in",
         )
 
@@ -5161,7 +5209,7 @@ class SlotCalibration:
             "orientation": self.orientation,
             "pre_tilt": self.pre_tilt,
             "rotation_reference": self.rotation_reference,
-            "captured_at": self.captured_at,
+            "captured_at": to_iso(self.captured_at) or "",
             "fibsem_version": self.fibsem_version,
         }
 
@@ -5171,7 +5219,7 @@ class SlotCalibration:
             orientation=str(data.get("orientation", "")),
             pre_tilt=float(data.get("pre_tilt", 0.0)),
             rotation_reference=float(data.get("rotation_reference", 0.0)),
-            captured_at=str(data.get("captured_at", "")),
+            captured_at=data.get("captured_at") or None,
             fibsem_version=str(data.get("fibsem_version", "")),
         )
 

@@ -15,7 +15,9 @@ from typing import Any, Dict, Optional, Tuple
 
 from psygnal import Signal
 
+from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.core import Device, Parameter, Role, command
+from fibsem.devices.display import Display
 from fibsem.devices.scanner import Scanner
 from fibsem.structures import (
     BeamType,
@@ -45,30 +47,95 @@ STANDARD_RESOLUTIONS: Tuple[Tuple[int, int], ...] = (
 DEFAULT_HFW_LIMITS = RangeLimit(min=1e-9, max=1e-2)
 DEFAULT_DWELL_TIME_LIMITS = RangeLimit(min=1e-9, max=1e-3)
 
+# What the beam panel has always allowed for the parameters no driver reports a range
+# for yet. Shift and stigmation are per field, so a write isn't clipped by them.
+DEFAULT_WORKING_DISTANCE_LIMITS = RangeLimit(min=1e-3, max=30e-3)
+DEFAULT_SHIFT_LIMITS = {
+    "x": RangeLimit(min=-50e-6, max=50e-6),
+    "y": RangeLimit(min=-50e-6, max=50e-6),
+}
+DEFAULT_STIGMATION_LIMITS = {
+    "x": RangeLimit(min=-1.0, max=1.0),
+    "y": RangeLimit(min=-1.0, max=1.0),
+}
+
 
 class Beam(Device):
-    voltage = Parameter(float, unit="V")
+    voltage = Parameter(float, unit="V", display=Display("Beam Voltage", advanced=True))
     # the currents an instrument offers change with the gas and the voltage (AutoScript)
-    current = Parameter(float, unit="A", depends_on=("plasma_gas", "voltage"))
-    plasma_gas = Parameter(str)
-    working_distance = Parameter(float, unit="m")
-    hfw = Parameter(float, unit="m", limits=DEFAULT_HFW_LIMITS)
-    scan_rotation = Parameter(float, unit="rad", limits=RangeLimit(min=0.0, max=2 * pi))
-    blanked = Parameter(bool)
-    preset = Parameter(str)
-    detector_type = Parameter(str)
-    detector_mode = Parameter(str, depends_on=("detector_type",))
-    detector_contrast = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
-    detector_brightness = Parameter(float, limits=RangeLimit(min=0.0, max=1.0))
+    current = Parameter(
+        float,
+        unit="A",
+        depends_on=("plasma_gas", "voltage"),
+        display=Display("Beam Current"),
+    )
+    plasma_gas = Parameter(str, display=Display("Plasma Gas"))
+    working_distance = Parameter(
+        float,
+        unit="m",
+        limits=DEFAULT_WORKING_DISTANCE_LIMITS,
+        display=Display("Working Distance", scale=1e3, step=0.01, decimals=3),
+    )
+    hfw = Parameter(
+        float,
+        unit="m",
+        limits=DEFAULT_HFW_LIMITS,
+        display=Display("Field of View", scale=1e6, step=50.0, decimals=1),
+    )
+    scan_rotation = Parameter(
+        float,
+        unit="rad",
+        limits=RangeLimit(min=0.0, max=2 * pi),
+        display=Display(
+            "Scan Rotation",
+            scale=180 / pi,
+            unit=DEGREE_SYMBOL,
+            step=180.0,
+            decimals=0,
+            advanced=True,
+        ),
+    )
+    blanked = Parameter(bool, display=Display("Blanked"))
+    preset = Parameter(str, display=Display("Preset"))
+    detector_type = Parameter(str, display=Display("Detector Type"))
+    detector_mode = Parameter(
+        str, depends_on=("detector_type",), display=Display("Detector Mode")
+    )
+    detector_contrast = Parameter(
+        float,
+        limits=RangeLimit(min=0.0, max=1.0),
+        display=Display("Contrast", step=0.01, decimals=3),
+    )
+    detector_brightness = Parameter(
+        float,
+        limits=RangeLimit(min=0.0, max=1.0),
+        display=Display("Brightness", step=0.01, decimals=3),
+    )
     resolution = Parameter(
         tuple,
         unit="px",
         choices=STANDARD_RESOLUTIONS,
         doc="(width, height). The choices are what the scan can be set to.",
+        display=Display("Resolution"),
     )
-    dwell_time = Parameter(float, unit="s", limits=DEFAULT_DWELL_TIME_LIMITS)
-    stigmation = Parameter(Point)
-    shift = Parameter(Point, unit="m", doc="Beam shift.")
+    dwell_time = Parameter(
+        float,
+        unit="s",
+        limits=DEFAULT_DWELL_TIME_LIMITS,
+        display=Display("Dwell Time", scale=1e6, step=0.01, decimals=3),
+    )
+    stigmation = Parameter(
+        Point,
+        limits=DEFAULT_STIGMATION_LIMITS,
+        display=Display("Stigmation", step=0.001, decimals=4, advanced=True),
+    )
+    shift = Parameter(
+        Point,
+        unit="m",
+        limits=DEFAULT_SHIFT_LIMITS,
+        doc="Beam shift.",
+        display=Display("Shift", scale=1e6, step=0.01, decimals=3, advanced=True),
+    )
     on = Parameter(bool, doc="The beam is switched on.")
     scanning_mode = Parameter(
         ScanMode, doc="What the beam scans; the scan commands set it."

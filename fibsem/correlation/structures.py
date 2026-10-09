@@ -4,8 +4,8 @@ import copy
 import json
 import logging
 import os
-import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum, auto
 from typing import Optional
 
@@ -14,6 +14,7 @@ import numpy as np
 from fibsem.conversions import image_to_microscope_image_coordinates_px
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage, Point
+from fibsem.util.timestamps import now, to_datetime, to_iso
 
 
 class PointType(Enum):
@@ -446,7 +447,9 @@ class CorrelationResult:
     # "post": factor applied to the correlated POI in FIB image space
     # "pre":  factor applied to the input POI z (FM space) before correlation
     refractive_index_correction_mode: Optional[str] = None
-    updated_at: float = field(default_factory=time.time)
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older results hold a
+    # POSIX float, which reads as this machine's zone.
+    updated_at: Optional[datetime] = field(default_factory=now)
 
     # Geometry seeding (FIB-881). `fm_z_scale` is the factor the FM z (slices) was
     # multiplied by for the fit -- the slice thickness in xy pixels -- so the
@@ -464,6 +467,10 @@ class CorrelationResult:
     # put it, in microns in the FIB image's frame (x, y). The next lamella's
     # first projection adds it to its own metadata translation (FIB-979).
     placement_offset: Optional[list] = None
+
+    def __post_init__(self) -> None:
+        # a caller that still passes a POSIX float gets it read as one (FIB-1197)
+        self.updated_at = to_datetime(self.updated_at)
 
     @property
     def dimage_dz_px_per_slice(self) -> Optional[list]:
@@ -502,7 +509,7 @@ class CorrelationResult:
             "computed_from": self.input_data.to_dict() if self.input_data else None,
             "refractive_index_correction_factor": self.refractive_index_correction_factor,
             "refractive_index_correction_mode": self.refractive_index_correction_mode,
-            "updated_at": self.updated_at,
+            "updated_at": to_iso(self.updated_at),
             "fm_z_scale": self.fm_z_scale,
             "seed": self.seed,
             "diagnostics": self.diagnostics,
@@ -549,7 +556,7 @@ class CorrelationResult:
             refractive_index_correction_mode=data.get(
                 "refractive_index_correction_mode"
             ),
-            updated_at=data.get("updated_at", time.time()),
+            updated_at=to_datetime(data.get("updated_at", now())),
             fm_z_scale=data.get("fm_z_scale", 1.0),
             seed=data.get("seed"),
             branch_check=data.get("branch_check"),
@@ -633,7 +640,7 @@ class CorrelationResult:
         poi0.px_m.y = poi0.px.y * pixel_size
         self.refractive_index_correction_factor = correction_factor
         self.refractive_index_correction_mode = "post"
-        self.updated_at = time.time()
+        self.updated_at = now()
 
     def to_input_dataframe(self):
         """Return input coordinates (FIB, FM, POI, SURFACE) as a DataFrame."""

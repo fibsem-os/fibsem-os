@@ -29,6 +29,7 @@ import numpy as np
 from fibsem.correlation.geometry import NominalTransform
 from fibsem.correlation.history import CorrelationRun, LamellaCorrelation
 from fibsem.correlation.structures import CorrelationResult
+from fibsem.util.timestamps import to_datetime
 
 __all__ = [
     "PriorTransform",
@@ -139,7 +140,7 @@ MAX_RMS_UM_FOR_OFFSET = 2.0
 def placement_offset_from_runs(
     runs: Sequence[Tuple[str, CorrelationRun]],
     *,
-    now: Optional[float] = None,
+    now=None,
     max_rms_um: float = MAX_RMS_UM_FOR_OFFSET,
 ) -> Optional[PlacementOffset]:
     """The first run, in the given order, that recorded a usable placement offset.
@@ -159,7 +160,10 @@ def placement_offset_from_runs(
         if rms_um is None or rms_um > max_rms_um:
             logging.debug(f"placement offset from {label} skipped: rms {rms_um} um")
             continue
-        age = max(0.0, ((now if now is not None else time.time()) - result.updated_at))
+        # `now` and the result's time: aware datetimes, or POSIX (FIB-1197)
+        current = to_datetime(now if now is not None else time.time())
+        updated = to_datetime(result.updated_at)
+        age = max(0.0, (current - updated).total_seconds()) if updated else 0.0
         return PlacementOffset(
             offset_um=np.asarray(offset, dtype=float),
             source=label,

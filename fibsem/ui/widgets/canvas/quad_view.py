@@ -277,11 +277,14 @@ class QuadViewWidget(QWidget):
         self.page_cell.add_page("chamber", "Chamber", self.chamber_view)
         # The cell's, not a page's: the stage readout stays whichever page is on show.
         self.stage_bar = ViewInfoBar(
-            "Stage", title=self.page_cell.cycler, choosable=False
+            "Stage",
+            title=self.page_cell.cycler,
+            choosable=False,
+            highlight_changes=True,
         )
-        self.sem_bar = ViewInfoBar("SEM")
-        self.fib_bar = ViewInfoBar("FIB")
-        self.fm_bar = ViewInfoBar("FM")
+        self.sem_bar = ViewInfoBar("SEM", highlight_changes=True)
+        self.fib_bar = ViewInfoBar("FIB", highlight_changes=True)
+        self.fm_bar = ViewInfoBar("FM", highlight_changes=True)
 
         sem_panel = _panel(self.sem_canvas, self.sem_bar)
         fm_panel = _panel(self.fm_widget, self.fm_bar)
@@ -586,6 +589,9 @@ class MicroscopeViewController(QObject):
             canvas: None for canvas in self._states
         }
         self._dirty: Set[FibsemImageCanvas] = set()
+        # Views whose image is from before the last stage move (FIB-1188): a frame
+        # that never comes leaves these stale, and the others as they were.
+        self._moved: Set[FibsemImageCanvas] = set()
         self._render_scheduled = False
         self._render_requested.connect(self._do_render, Qt.QueuedConnection)
         # Last objective position anyone told us about, in metres. Remembered so
@@ -692,10 +698,13 @@ class MicroscopeViewController(QObject):
         canvas = self._canvases.get(beam)
         if canvas is None:
             return
+        new_frame = self._states[canvas].image is not image
         canvas.set_image(image)
         self._states[canvas].image = image
         self._mark_dirty(canvas)
         self._show_fields(self._bars.get(beam), image)
+        if new_frame:  # the image widget re-shows the image it already had, too
+            self._frame_landed(canvas)
 
     @staticmethod
     def _show_fields(bar: Optional[ViewInfoBar], image) -> None:
@@ -726,6 +735,7 @@ class MicroscopeViewController(QObject):
         self._show_fields(self._fm_bar, image)
         self._fm_z = z_stack(image)
         self._refresh_fm_z()
+        self._frame_landed(self._widget.fm_canvas)
 
     def _refresh_fm_z(self) -> None:
         """The FM bar's Z names the plane on screen: the projection, or `11 of 21`."""
@@ -912,6 +922,71 @@ class MicroscopeViewController(QObject):
         spec = self._states[canvas].overlays.get(overlay_id)
         pts = getattr(spec, "points", None)
         return list(pts) if pts else []
+
+    # ── stage moves: does each view still match the stage? (FIB-1188) ──────
+    MOVING, ACQUIRING, STAGE_MOVED = "MOVING", "ACQUIRING", "STAGE MOVED"
+
+    def _views_with_images(self) -> Dict[object, FibsemImageCanvas]:
+        """The views showing an image, by key: a view with nothing on it has nothing
+        to be stale."""
+        views: Dict[object, FibsemImageCanvas] = {
+            beam: canvas
+            for beam, canvas in self._canvases.items()
+            if self._states[canvas].image is not None
+        }
+        if self._widget.fm_widget.layers:
+            views["fm"] = self._widget.fm_canvas
+        return views
+
+    def _is_live(self, key) -> bool:
+        return key in getattr(self._widget, "_live", ())
+
+    def _frame_landed(self, canvas: FibsemImageCanvas) -> None:
+        """A new frame matches the stage -- unless the stage is still moving, which a
+        live view's frames arrive in the middle of."""
+        if canvas.status_chip != self.MOVING:
+            canvas.set_status_chip(None)
+            self._moved.discard(canvas)
+
+    def stage_move_started(self) -> None:
+        """The stage has started to move: every image on screen is about to show
+        somewhere it no longer is. Over LIVE too: the frames keep coming, but of a
+        stage in motion, and the green border still says the view is live."""
+        for canvas in self._views_with_images().values():
+            canvas.set_status_chip(self.MOVING, while_live=True)
+            self._moved.add(canvas)
+
+    def views_acquiring(self, beams) -> None:
+        """New frames are on their way to *beams*' views -- after a move or from a
+        plain Acquire; each chip clears when its frame lands (`set_image`)."""
+        for beam in beams:
+            canvas = self._canvases.get(beam)
+            if canvas is not None and self._states[canvas].image is not None:
+                canvas.set_status_chip(self.ACQUIRING)  # hidden while live
+
+    def stage_move_finished(self) -> None:
+        """The move is over, landed or not. A view still marked moving will not be
+        retaken: its image is from before, and says so until its next one."""
+        for key, canvas in self._views_with_images().items():
+            if canvas.status_chip != self.MOVING:
+                continue
+            if self._is_live(key):
+                canvas.set_status_chip(None)  # its next frame is of where it stopped
+            else:
+                canvas.set_status_chip(self.STAGE_MOVED, stale=True)
+
+    def acquisition_done(self, beams) -> None:
+        """The acquisition for *beams* is over. A view whose frame never came -- it
+        failed or was stopped -- is what it was before: stale if the stage has moved
+        since, otherwise as good as it was."""
+        for beam in beams:
+            canvas = self._canvases.get(beam)
+            if canvas is None or canvas.status_chip != self.ACQUIRING:
+                continue
+            if canvas in self._moved:
+                canvas.set_status_chip(self.STAGE_MOVED, stale=True)
+            else:
+                canvas.set_status_chip(None)
 
     # ── info bar ──────────────────────────────────────────────────────────
     def set_info(self, beam: BeamType, key: str, text: Optional[str]) -> None:

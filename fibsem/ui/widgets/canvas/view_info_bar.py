@@ -27,7 +27,7 @@ import weakref
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from PyQt5 import sip
-from PyQt5.QtCore import QPoint, Qt, pyqtSignal
+from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -72,7 +72,8 @@ BAR_HEIGHT = 26
 _VALUE_COLOR = "#e8e8e8"
 _HEADER_COLOR = "#aeb4b8"
 _DIVIDER_COLOR = "#2c3038"
-_FIELD_SPACING = 12
+# Between fields, with each field's own 3 px padding either side making up the 12 px.
+_FIELD_SPACING = 6
 
 _BAR_STYLE = f"#viewInfoBar {{ background: {CANVAS_BG}; border-top: 1px solid {_DIVIDER_COLOR}; }}"
 # Every part transparent over the bar: the app stylesheet gives a bare QLabel a
@@ -80,7 +81,18 @@ _BAR_STYLE = f"#viewInfoBar {{ background: {CANVAS_BG}; border-top: 1px solid {_
 _CLEAR = "background: transparent;"
 _KIND_STYLE = f"color: {TEXT_STRONG_COLOR}; font-size: 12px; font-weight: 700; {_CLEAR}"
 _HEADER_STYLE = f"color: {_HEADER_COLOR}; font-size: 11px; {_CLEAR}"
-_FIELD_STYLE = f"font-family: {NUMBER_FONT}; font-size: 11px; {_CLEAR}"
+# The padding and radius are there whether or not the field is highlighted, so a
+# highlight never changes a field's width and nothing beside it moves.
+_FIELD_STYLE = (
+    f"font-family: {NUMBER_FONT}; font-size: 11px; padding: 0px 3px;"
+    f" border-radius: 3px; {_CLEAR}"
+)
+# A field whose value just changed: an accent tint behind it, fading out (FIB-1188).
+_HIGHLIGHT_RGB = "80, 166, 255"  # ACCENT_COLOR
+_HIGHLIGHT_ALPHA = 0.22
+_HIGHLIGHT_VALUE_COLOR = "#8cc4ff"
+_HIGHLIGHT_MS = 1500
+_HIGHLIGHT_TICK_MS = 100
 _TIME_STYLE = (
     f"color: {TEXT_MUTED_COLOR}; font-family: {NUMBER_FONT}; font-size: 11px; {_CLEAR}"
 )
@@ -171,10 +183,10 @@ def field_title(item: ExportField) -> str:
     return FIELD_TITLES.get(item.key, item.name)
 
 
-def _field_html(item: ExportField) -> str:
+def _field_html(item: ExportField, value_color: str = _VALUE_COLOR) -> str:
     return (
         f'<span style="color: {TEXT_MUTED_COLOR}">{item.label}</span>&nbsp;'
-        f'<span style="color: {_VALUE_COLOR}">{item.value}</span>'
+        f'<span style="color: {value_color}">{item.value}</span>'
     )
 
 
@@ -184,6 +196,11 @@ class ViewInfoBar(QWidget):
     *title* takes the bold view name's place: the fourth cell's page selector, which
     names its view as the others' labels do. A bar that is not *choosable* has no
     field button, for one whose fields are not the image's.
+
+    With *highlight_changes*, a field whose value changes lights up and fades, so the
+    next frame -- or a value the microscope pushed -- is seen catching up (FIB-1188).
+    For a live view only: a bar whose image is chosen, in the lamella editor or the
+    image viewer, would light up every field that differs from the last one picked.
     """
 
     def __init__(
@@ -193,10 +210,17 @@ class ViewInfoBar(QWidget):
         *,
         title: Optional[QWidget] = None,
         choosable: bool = True,
+        highlight_changes: bool = False,
     ) -> None:
         super().__init__(parent)
         self._kind = kind
         self._choosable = choosable
+        self._highlight_changes = highlight_changes
+        self._highlights: Dict[str, float] = {}  # field key -> strength left, 1 to 0
+        self._quiet = False  # the next rebuild is the user's doing, not news
+        self._highlight_timer = QTimer(self)
+        self._highlight_timer.setInterval(_HIGHLIGHT_TICK_MS)
+        self._highlight_timer.timeout.connect(self._fade_highlights)
         self.setObjectName("viewInfoBar")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(_BAR_STYLE)
@@ -293,7 +317,12 @@ class ViewInfoBar(QWidget):
             self._overrides.pop(key, None)
         else:
             self._overrides[key] = value
-        self._rebuild()
+        # Scrubbing the planes is the user's own doing: nothing to point out.
+        self._quiet = True
+        try:
+            self._rebuild()
+        finally:
+            self._quiet = False
 
     def set_live_field(
         self, key: str, label: str, value: Optional[str], name: str
@@ -411,7 +440,18 @@ class ViewInfoBar(QWidget):
         if signature == self._shown:
             return
         self._shown = signature
+        before = {f.key: f.value for f in self._labelled}
         self._labelled = labelled
+        if self._highlight_changes and not self._quiet:
+            # A value that changed, not one that arrived: a view's first image, or a
+            # field just ticked on, has nothing to compare with.
+            changed = [
+                f.key for f in labelled if f.key in before and before[f.key] != f.value
+            ]
+            for key in changed:
+                self._highlights[key] = 1.0
+            if changed:
+                self._highlight_timer.start()
 
         self.header_label.setText(" · ".join(f.value for f in header))
         self.header_label.setToolTip(
@@ -439,12 +479,41 @@ class ViewInfoBar(QWidget):
         # The same fields with new values -- a z step, the next live frame -- keep
         # their labels and only change what they say.
         for item, label in zip(labelled, self.field_labels):
-            label.setText(_field_html(item))
             label.setToolTip(f"{field_title(item)}: {item.value}")
+        self._paint_fields()
 
         self._time = time
         self.time_label.setText(time or "")
         self._fit()
+
+    def _paint_fields(self) -> None:
+        """Each field's text, with the highlight it has left, if any."""
+        for item, label in zip(self._labelled, self.field_labels):
+            strength = self._highlights.get(item.key, 0.0)
+            if strength > 0:
+                alpha = _HIGHLIGHT_ALPHA * strength
+                label.setStyleSheet(
+                    f"{_FIELD_STYLE} background: rgba({_HIGHLIGHT_RGB}, {alpha:.3f});"
+                )
+                label.setText(_field_html(item, _HIGHLIGHT_VALUE_COLOR))
+            else:
+                label.setStyleSheet(_FIELD_STYLE)
+                label.setText(_field_html(item))
+
+    def _fade_highlights(self) -> None:
+        step = _HIGHLIGHT_TICK_MS / _HIGHLIGHT_MS
+        self._highlights = {
+            key: left - step
+            for key, left in self._highlights.items()
+            if left - step > 1e-6
+        }
+        if not self._highlights:
+            self._highlight_timer.stop()
+        self._paint_fields()
+
+    def highlighted_fields(self) -> List[str]:
+        """The keys of the fields lit up now."""
+        return list(self._highlights)
 
     def _fit(self) -> None:
         """Make the row fit: drop the time first, then whole fields from the right.
