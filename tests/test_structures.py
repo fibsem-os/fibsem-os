@@ -730,6 +730,23 @@ def test_experiment_date_is_creation_time_not_import_time():
     assert before < experiment.date.timestamp() < after
 
 
+def test_a_microscope_state_is_stamped_when_built_not_at_import():
+    """FIB-487: a plain dataclass default froze this at module-import time, so two
+    states built apart claimed the same moment."""
+    import time
+
+    from fibsem.structures import MicroscopeState
+
+    before = datetime.datetime.timestamp(datetime.datetime.now())
+    time.sleep(0.01)
+    first = MicroscopeState()
+    time.sleep(0.01)
+    second = MicroscopeState()
+    after = datetime.datetime.timestamp(datetime.datetime.now())
+
+    assert before < first.timestamp < second.timestamp < after
+
+
 def test_a_chamber_state_reads_any_vendor_name():
     from fibsem.structures import ChamberState
 
