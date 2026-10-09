@@ -160,3 +160,33 @@ def test_with_the_preference_off_the_record_is_still_theirs(ui, qapp):
     assert "error" not in outcome
     decision = ui.experiment.positions[0].proposal(ROUGH).current
     assert decision.author.kind is AuthorKind.human
+
+
+def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(
+    ui, qapp, monkeypatch
+):
+    """The supervised mill is run by the milling widget, not the task, and is
+    still handed the task's output folder (FIB-1253)."""
+    from fibsem.ui.widgets import milling_widget as mw
+
+    folders = []
+
+    def run(*args, **kwargs):
+        folders.append(kwargs.get("output_dir"))
+        time.sleep(0.05)
+
+    monkeypatch.setattr(mw, "run_milling_task", run)
+    task = _task(ui, review_enabled=False)
+    thread, outcome = _run_on_worker_thread(task, ui, qapp)
+
+    ui.pushButton_yes.click()  # Run Milling
+    deadline = time.monotonic() + 10
+    while not (folders and ui.pushButton_no.isEnabled()):
+        assert time.monotonic() < deadline, "the mill never ran"
+        qapp.processEvents()
+        time.sleep(0.01)
+    ui.pushButton_no.click()  # Continue
+    _finish(thread, qapp)
+
+    assert "error" not in outcome
+    assert folders == [task.output_dir]

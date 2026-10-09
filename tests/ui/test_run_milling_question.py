@@ -47,11 +47,12 @@ def ui(qapp, monkeypatch):
     """A real AutoLamellaUI, connected (Demo), with the mill run itself stubbed."""
     from fibsem.ui.widgets import milling_widget as mw
 
-    runs, actors, failures = [], [], []
+    runs, actors, failures, folders = [], [], [], []
 
     def fake_run_milling_task(microscope, config, parent_ui=None, **kwargs):
         runs.append(config)
         actors.append(current_actor())  # who the record would say milled
+        folders.append(kwargs.get("output_dir"))  # where the run would write
         time.sleep(0.05)  # long enough for is_milling to be observable
         if failures:  # as run_milling_task(raise_on_failure=True) does
             raise failures.pop(0)
@@ -62,6 +63,7 @@ def ui(qapp, monkeypatch):
     widget._mill_runs = runs  # for the tests to inspect
     widget._mill_actors = actors
     widget._mill_failures = failures  # errors the next runs raise, in order
+    widget._mill_folders = folders
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
@@ -389,6 +391,33 @@ def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp):
         time.sleep(0.01)
 
     assert ui._mill_actors == [None]
+
+
+def test_every_run_of_the_mill_writes_under_the_task_s_folder(ui, qapp, tmp_path):
+    """The asking task's folder reaches the mill, a re-run after a failure
+    included (FIB-1253). A mill run by hand is given none and falls back to the
+    config's imaging path, as before."""
+    folder = str(tmp_path / "rough-milling")
+    ui._mill_failures.append(RuntimeError("could not load type"))
+    request = RunMillingTask(
+        config=_config("rough-mill"), message=MSG, output_dir=folder
+    )
+    thread, _ = _ask_on_worker_thread(ui, qapp, request)
+
+    ui.pushButton_yes.click()  # run, and it fails
+    _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{MSG}")
+    ui.pushButton_yes.click()  # the operator's retry
+    _wait_for_prompt(ui, qapp, MSG)
+    ui.pushButton_no.click()
+    _finish(thread, qapp)
+
+    ui.ui_responder._milling_widget().milling_widget.run_milling(_config("by-hand"))
+    deadline = time.monotonic() + 10
+    while len(ui._mill_folders) < 3 and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+    assert ui._mill_folders == [folder, folder, None]
 
 
 def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_path):
