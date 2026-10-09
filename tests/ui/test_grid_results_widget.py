@@ -1,6 +1,7 @@
 """Grids · Results: what a grid's runs recorded, read off its history."""
 
 import os
+from datetime import timedelta
 
 import numpy as np
 import pytest
@@ -32,7 +33,7 @@ from fibsem.imaging.thumbnail import write_thumbnail
 
 def entry(name, status, message="", outputs=None, seconds=60):
     state = AutoLamellaTaskState(name=name, status=status, status_message=message)
-    state.end_timestamp = state.start_timestamp + seconds
+    state.end_timestamp = state.start_timestamp + timedelta(seconds=seconds)
     state.outputs = outputs or {}
     return state
 

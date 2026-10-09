@@ -117,7 +117,7 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
-from fibsem.util.timestamps import now_iso
+from fibsem.util.timestamps import now, now_iso
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
@@ -306,7 +306,7 @@ class AutoLamellaTask(ABC):
         """
         if self.lamella.task_state is None:
             raise ValueError("Task state is not set. Did you run pre_task()?")
-        self.lamella.task_state.end_timestamp = datetime.timestamp(datetime.now())
+        self.lamella.task_state.end_timestamp = now()
         self.lamella.task_history.append(deepcopy(self.lamella.task_state))
 
     def _is_cancellation(self, exc: Exception) -> bool:
@@ -360,7 +360,7 @@ class AutoLamellaTask(ABC):
         # their only refresh trigger; replacing the object orphans those connections and
         # they silently stop updating mid-workflow. See FIB-325 for the real fix.
         self.lamella.task_state.name = self.task_name
-        self.lamella.task_state.start_timestamp = datetime.timestamp(datetime.now())
+        self.lamella.task_state.start_timestamp = now()
         self.lamella.task_state.end_timestamp = None
         self.lamella.task_state.task_id = self.task_id
         self.lamella.task_state.task_type = self.task_type

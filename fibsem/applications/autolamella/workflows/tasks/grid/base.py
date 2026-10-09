@@ -42,7 +42,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.workflows.tasks.proposing import settle
 from fibsem.cancellation import OperationCancelledError
-from fibsem.util.timestamps import now_iso
+from fibsem.util.timestamps import now, now_iso
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -335,7 +335,7 @@ class GridTask(ABC):
         # the UI: reset field by field, never replace it.
         state = self.grid.task_state
         state.name = self.task_name
-        state.start_timestamp = datetime.timestamp(datetime.now())
+        state.start_timestamp = now()
         state.end_timestamp = None
         state.task_id = self.task_id
         state.task_type = self.task_type
@@ -368,7 +368,7 @@ class GridTask(ABC):
 
     def _record_outcome(self) -> None:
         """Freeze the finished task_state into task_history, on every terminal path."""
-        self.grid.task_state.end_timestamp = datetime.timestamp(datetime.now())
+        self.grid.task_state.end_timestamp = now()
         self.grid.task_history.append(deepcopy(self.grid.task_state))
 
     def _is_cancellation(self, exc: Exception) -> bool:

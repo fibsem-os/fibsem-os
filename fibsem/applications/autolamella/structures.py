@@ -76,6 +76,7 @@ from fibsem.structures import (
     SessionInfo,
     get_fields_with_metadata,
 )
+from fibsem.util.timestamps import format_time, now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.utils import format_duration
 
@@ -139,10 +140,11 @@ class AutoLamellaTaskState:
     task_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     task_type: str = ""
     lamella_id: str = ""
-    start_timestamp: float = field(
-        default_factory=lambda: datetime.timestamp(datetime.now())
-    )
-    end_timestamp: Optional[float] = None
+    # When the run started and ended: aware datetimes, written as ISO 8601 with
+    # their offset (FIB-1197). Files written before that hold POSIX floats, which
+    # read as this machine's zone -- the clock time they always displayed.
+    start_timestamp: Optional[datetime] = field(default_factory=now)
+    end_timestamp: Optional[datetime] = None
     status: AutoLamellaTaskStatus = AutoLamellaTaskStatus.NotStarted
     status_message: str = ""
     # files this run produced, keyed by role, as paths relative to lamella.path.
@@ -153,6 +155,11 @@ class AutoLamellaTaskState:
     # in a separate field, not here.
     outputs: Dict[str, List[str]] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # A caller that still passes a POSIX float gets it read as one.
+        self.start_timestamp = to_datetime(self.start_timestamp)
+        self.end_timestamp = to_datetime(self.end_timestamp)
+
     @property
     def completed(self) -> str:
         return f"{self.name} ({self.completed_at})"
@@ -161,21 +168,19 @@ class AutoLamellaTaskState:
     def completed_at(self) -> str:
         if self.end_timestamp is None:
             return "in progress"
-        return datetime.fromtimestamp(self.end_timestamp).strftime(
-            TIME_DISPLAY_AMPM_SHORT
-        )
+        return format_time(self.end_timestamp, TIME_DISPLAY_AMPM_SHORT) or ""
 
     @property
     def started_at(self) -> str:
-        return datetime.fromtimestamp(self.start_timestamp).strftime(
-            TIME_DISPLAY_AMPM_SHORT
-        )
+        return format_time(self.start_timestamp, TIME_DISPLAY_AMPM_SHORT) or ""
 
     @property
     def duration(self) -> float:
-        if self.end_timestamp is None:
+        """Seconds from start to end; 0 while it runs or when either is unknown."""
+        start, end = to_datetime(self.start_timestamp), to_datetime(self.end_timestamp)
+        if start is None or end is None:
             return 0
-        return self.end_timestamp - self.start_timestamp
+        return (end - start).total_seconds()
 
     @property
     def duration_str(self) -> str:
@@ -185,6 +190,9 @@ class AutoLamellaTaskState:
         """Convert the task state to a dictionary."""
         ddict = asdict(self)
         ddict["status"] = self.status.name
+        for key in ("start_timestamp", "end_timestamp"):
+            when = to_datetime(ddict[key])
+            ddict[key] = when.isoformat() if when is not None else None
         return ddict
 
     @classmethod
@@ -194,6 +202,10 @@ class AutoLamellaTaskState:
             return cls()
         data = data.copy()
         data["status"] = AutoLamellaTaskStatus[data.get("status", "NotStarted")]
+        # Either form: ISO with offset, or the POSIX float written before FIB-1197.
+        for key in ("start_timestamp", "end_timestamp"):
+            if key in data:
+                data[key] = to_datetime(data[key])
         # drop keys this build doesn't know about: an experiment written by a newer
         # version must still load in an older one rather than raising TypeError.
         known = {f.name for f in fields(cls)}
@@ -1717,9 +1729,9 @@ class OverlayRecord:
     # visibility, opacity, gamma and contrast. Empty means as loaded.
     display: Dict[str, Any] = field(default_factory=dict)
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    created_at: float = field(
-        default_factory=lambda: datetime.timestamp(datetime.now())
-    )
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
+    # POSIX float, which reads as this machine's zone.
+    created_at: Optional[datetime] = field(default_factory=now)
 
     def to_dict(self) -> dict:
         # Plain floats throughout: a numpy scalar that slipped in from a canvas
@@ -1740,7 +1752,7 @@ class OverlayRecord:
             "fit": _plain(self.fit),
             "display": _plain(self.display),
             "id": self.id,
-            "created_at": self.created_at,
+            "created_at": to_iso(self.created_at),
         }
 
     @classmethod
@@ -1760,7 +1772,7 @@ class OverlayRecord:
             fit=dict(data.get("fit") or {}),
             display=dict(data.get("display") or {}),
             id=data.get("id") or str(uuid.uuid4()),
-            created_at=data.get("created_at", datetime.timestamp(datetime.now())),
+            created_at=to_datetime(data.get("created_at", now())),
         )
 
 
@@ -1785,9 +1797,9 @@ class GridRecord:
     quality: QualityRecord = field(default_factory=QualityRecord)
     task_state: AutoLamellaTaskState = field(default_factory=AutoLamellaTaskState)
     task_history: List[AutoLamellaTaskState] = field(default_factory=list)
-    created_at: float = field(
-        default_factory=lambda: datetime.timestamp(datetime.now())
-    )
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
+    # POSIX float, which reads as this machine's zone.
+    created_at: Optional[datetime] = field(default_factory=now)
     proposals: Dict[str, List[Proposal]] = field(default_factory=dict)  # as on Lamella
     # What has been placed by hand over this grid's overviews; see `OverlayRecord`.
     overlays: List[OverlayRecord] = field(default_factory=list)
@@ -1873,7 +1885,7 @@ class GridRecord:
             "quality": self.quality.to_dict(),
             "task_state": self.task_state.to_dict(),
             "task_history": [t.to_dict() for t in self.task_history],
-            "created_at": self.created_at,
+            "created_at": to_iso(self.created_at),
             "proposals": proposals_to_dict(self.proposals),
             "overlays": [o.to_dict() for o in self.overlays],
         }
@@ -1889,7 +1901,7 @@ class GridRecord:
             task_history=[
                 AutoLamellaTaskState.from_dict(t) for t in data.get("task_history", [])
             ],
-            created_at=data.get("created_at", datetime.timestamp(datetime.now())),
+            created_at=to_datetime(data.get("created_at", now())),
             proposals=proposals_from_dict(data.get("proposals")),
             overlays=[OverlayRecord.from_dict(o) for o in data.get("overlays", [])],
         )
@@ -1994,9 +2006,9 @@ class Experiment:
     positions: EventedList[Lamella] = field(default_factory=EventedList)
     grids: EventedList[GridRecord] = field(default_factory=EventedList)
     landing_positions: List[FibsemStagePosition] = field(default_factory=list)
-    created_at: float = field(
-        default_factory=lambda: datetime.timestamp(datetime.now())
-    )
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
+    # POSIX float, which reads as this machine's zone.
+    created_at: Optional[datetime] = field(default_factory=now)
     task_protocol: "AutoLamellaTaskProtocol" = field(
         default_factory=lambda: AutoLamellaTaskProtocol()
     )
@@ -2019,7 +2031,7 @@ class Experiment:
         self.name: str = name
         self.id = str(uuid.uuid4())
         self.path: Path = os.path.join(path, name)
-        self.created_at: float = datetime.timestamp(datetime.now())
+        self.created_at: Optional[datetime] = now()
 
         self.positions: EventedList[Lamella] = EventedList()
         self.grids: EventedList[GridRecord] = EventedList()
@@ -2042,7 +2054,7 @@ class Experiment:
             "positions": [deepcopy(lamella.to_dict()) for lamella in self.positions],
             "grids": [grid.to_dict() for grid in self.grids],
             "landing_positions": [pos.to_dict() for pos in self.landing_positions],
-            "created_at": self.created_at,
+            "created_at": to_iso(self.created_at),
             "metadata": self.metadata,
             "session": self.session.to_dict() if self.session is not None else None,
         }
@@ -2060,7 +2072,7 @@ class Experiment:
         path = os.path.dirname(ddict["path"])
         name = ddict["name"]
         experiment = Experiment(path=path, name=name)
-        experiment.created_at = ddict.get("created_at", None)
+        experiment.created_at = to_datetime(ddict.get("created_at"))
         experiment.id = ddict.get("_id", "NULL")
 
         experiment.metadata = ddict.get("metadata", {})

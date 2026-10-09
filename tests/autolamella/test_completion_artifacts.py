@@ -12,7 +12,7 @@ even while it is dormant.
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -149,15 +149,13 @@ def test_it_records_the_files_each_task_left_behind(experiment):
 def test_it_records_how_long_each_task_took(experiment):
     lamella = _complete_lamella(experiment, "lam-1")
     task = lamella.task_history[0]
-    task.end_timestamp = task.start_timestamp + 412.34
+    task.end_timestamp = task.start_timestamp + timedelta(seconds=412.34)
 
     write_completion_summary(experiment, _context(lamella, experiment))
 
     record = _summary(lamella)["tasks_completed"][0]
     assert record["duration_s"] == 412.3
-    assert datetime.fromisoformat(record["completed_at"]).timestamp() == pytest.approx(
-        task.end_timestamp, abs=1
-    )
+    assert datetime.fromisoformat(record["completed_at"]) == task.end_timestamp
 
 
 def test_a_task_still_running_has_no_completion_time(experiment):

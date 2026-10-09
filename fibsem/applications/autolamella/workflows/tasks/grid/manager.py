@@ -65,6 +65,7 @@ from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
 from fibsem.hooks import HookEvent, HookManager
 from fibsem.microscopes._stage import GridExchangeError
+from fibsem.util import timestamps
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -564,7 +565,7 @@ class GridTaskManager(BaseTaskManager):
             self._not_loaded[grid.name] = str(e)
             entry.status = AutoLamellaTaskStatus.Failed
             entry.status_message = str(e)
-            entry.end_timestamp = datetime.timestamp(datetime.now())
+            entry.end_timestamp = timestamps.now()
             grid.task_history.append(entry)
             self.experiment.save()
             logging.warning(
@@ -575,7 +576,7 @@ class GridTaskManager(BaseTaskManager):
         if not loaded:
             entry.status = AutoLamellaTaskStatus.Completed
             entry.status_message = f"Loaded into {slot.name}."
-            entry.end_timestamp = datetime.timestamp(datetime.now())
+            entry.end_timestamp = timestamps.now()
             grid.task_history.append(entry)
             self.experiment.save()
             logging.info(
@@ -601,7 +602,7 @@ class GridTaskManager(BaseTaskManager):
             return
         entry.status = AutoLamellaTaskStatus.Cancelled
         entry.status_message = msg
-        entry.end_timestamp = datetime.timestamp(datetime.now())
+        entry.end_timestamp = timestamps.now()
         grid.task_history.append(entry)
         self.experiment.save()
         raise OperationCancelledError(msg)
@@ -648,7 +649,7 @@ class GridTaskManager(BaseTaskManager):
         The record's one task_state is set field by field, as a task does it,
         never replaced: the UI holds on to it."""
         state = grid.task_state
-        now = datetime.timestamp(datetime.now())
+        now = timestamps.now()
         state.name = task_name
         state.task_id = str(uuid.uuid4())
         state.task_type = self._task_type(task_name)
