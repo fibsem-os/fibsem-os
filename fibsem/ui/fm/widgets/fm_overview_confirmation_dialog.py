@@ -94,7 +94,9 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
         if self.tile_fov is not None:
             fov_x, fov_y = self.tile_fov
             width = ((p.cols - 1) * (1 - p.overlap) + 1) * fov_x * constants.SI_TO_MICRO
-            height = ((p.rows - 1) * (1 - p.overlap) + 1) * fov_y * constants.SI_TO_MICRO
+            height = (
+                ((p.rows - 1) * (1 - p.overlap) + 1) * fov_y * constants.SI_TO_MICRO
+            )
             bits.append(f"{width:.0f} × {height:.0f} µm")
         bits.append(f"{p.tile_order.value} order")
         # No "sparse" tag: the skipped chip states the same thing as a number.
@@ -122,15 +124,17 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
             # +/- range/2 -- so it is reported as a span rather than as +/-.
             # One pass per line: joined with a separator they wrap mid-pass, and the
             # separator can land at a line end where it reads as a bullet.
-            rows.append((
-                "Sweep",
-                "\n".join(
-                    f"{p.search_range * constants.SI_TO_MICRO:.0f} µm span, "
-                    f"{p.step_size * constants.SI_TO_MICRO:.1f} µm steps "
-                    f"({p.n_steps} images)"
-                    for p in enabled
-                ),
-            ))
+            rows.append(
+                (
+                    "Sweep",
+                    "\n".join(
+                        f"{p.search_range * constants.SI_TO_MICRO:.0f} µm span, "
+                        f"{p.step_size * constants.SI_TO_MICRO:.1f} µm steps "
+                        f"({p.n_steps} images)"
+                        for p in enabled
+                    ),
+                )
+            )
         return rows
 
     def _rows(self) -> List[tuple]:
@@ -150,14 +154,18 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
         # here, and then a sweep searches around it.
         focus = p.objective_start is ObjectiveStartPosition.FOCUS
         target = self.objective_focus if focus else self.objective_current
-        where = "the saved focus position" if focus else "the current objective position"
+        where = (
+            "the saved focus position" if focus else "the current objective position"
+        )
         if target is not None:
             where += f", {target * constants.SI_TO_MILLI:.3f} mm"
             # How far it will travel, which is the part worth checking before a run:
             # a start position an unexpected distance away is a setting left over from
             # something else.
-            if (self.objective_current is not None
-                    and abs(target - self.objective_current) > 1e-9):
+            if (
+                self.objective_current is not None
+                and abs(target - self.objective_current) > 1e-9
+            ):
                 delta = (target - self.objective_current) * constants.SI_TO_MILLI
                 where += f"  ({delta:+.3f} mm from here)"
         detail.append(("Start from", where))
@@ -167,8 +175,10 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
         else:
             mode = p.autofocus_mode.name.replace("_", " ").lower()
             note = ""
-            if (p.autofocus_mode is AutoFocusMode.EACH_ROW
-                    and p.tile_order is TileOrderStrategy.SPIRAL):
+            if (
+                p.autofocus_mode is AutoFocusMode.EACH_ROW
+                and p.tile_order is TileOrderStrategy.SPIRAL
+            ):
                 # The runner promotes this; say so before it happens rather than
                 # leaving the user to find it in the log afterwards.
                 note = "  → per tile, for a spiral"
@@ -187,24 +197,33 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
             channels = max(1, len(self.channel_settings))
             mosaic_w, mosaic_h = mosaic_pixels(p.rows, p.cols, p.overlap, width, height)
             tile_bytes = channels * width * height * FM_BYTES_PER_PIXEL
-            total = (p.n_enabled_tiles * tile_bytes
-                     + channels * mosaic_w * mosaic_h * FM_BYTES_PER_PIXEL)
-            detail.append((
-                "Disk",
-                f"~{format_bytes(total)}"
-                f"   ({format_bytes(tile_bytes)} per tile"
-                f" · {mosaic_w} × {mosaic_h} px stitched)",
-            ))
+            total = (
+                p.n_enabled_tiles * tile_bytes
+                + channels * mosaic_w * mosaic_h * FM_BYTES_PER_PIXEL
+            )
+            detail.append(
+                (
+                    "Disk",
+                    f"~{format_bytes(total)}"
+                    f"   ({format_bytes(tile_bytes)} per tile"
+                    f" · {mosaic_w} × {mosaic_h} px stitched)",
+                )
+            )
 
         if self.save_directory:
             detail.append(("Saving to", PathValue(self.save_directory)))
-        detail.append((
-            "Estimated time",
-            f"{format_duration(estimate['total_time'])}"
-            f"   ({format_duration(estimate['image_acquisition_time'])} imaging"
-            f" · {format_duration(estimate['stage_movement_time'])} moving"
-            + (f" · {format_duration(estimate['autofocus_time'])} focusing"
-               if estimate["autofocus_time"] else "")
-            + ")",
-        ))
+        detail.append(
+            (
+                "Estimated time",
+                f"{format_duration(estimate['total_time'])}"
+                f"   ({format_duration(estimate['image_acquisition_time'])} imaging"
+                f" · {format_duration(estimate['stage_movement_time'])} moving"
+                + (
+                    f" · {format_duration(estimate['autofocus_time'])} focusing"
+                    if estimate["autofocus_time"]
+                    else ""
+                )
+                + ")",
+            )
+        )
         return detail
