@@ -640,14 +640,14 @@ class OdemisFMCamera(Camera):
             b *= 2
         return tuple(binnings)
 
-    # A camera without a gain control has no gain parameter; the old class reads it as
-    # None and ignores a write.
+    # Gain is a fraction of the camera's maximum, as power is of the light's. A camera
+    # without a gain control, or whose gain gives no range or choices to scale by, has
+    # no gain parameter; the old class reads it as None and ignores a write.
     def available_gain(self) -> bool:
         from fibsem.fm.odemis import model
 
-        return model.hasVA(self._camera, "gain")
+        return model.hasVA(self._camera, "gain") and self._max_gain() is not None
 
-    # Gain is a fraction of the camera's maximum, as power is of the light's.
     def _max_gain(self) -> Optional[float]:
         """The top of the gain VA's range or choices; None when it gives neither."""
         va = self._camera.gain
@@ -657,31 +657,22 @@ class OdemisFMCamera(Camera):
         return float(top) if top is not None and top > 0 else None
 
     def read_gain(self) -> float:
-        max_gain = self._max_gain()
-        value = self._camera.gain.value
-        return value if max_gain is None else value / max_gain
+        return self._camera.gain.value / self._max_gain()
 
     def write_gain(self, value: float) -> None:
-        max_gain = self._max_gain()
-        if max_gain is None:
-            self._camera.gain.value = value
-            return
         if not 0.0 <= value <= 1.0:
             logging.warning(f"Gain fraction {value} outside [0, 1], clipping.")
             value = min(max(value, 0.0), 1.0)
-        raw = value * max_gain
+        raw = value * self._max_gain()
         choices = getattr(self._camera.gain, "choices", None)
         if choices:
             raw = min(choices, key=lambda c: abs(c - raw))
         self._camera.gain.value = raw
 
     def metadata_gain(self) -> ParameterMetadata:
-        max_gain = self._max_gain()
-        if max_gain is None:
-            return ParameterMetadata()
         return ParameterMetadata(
             limits=RangeLimit(min=0.0, max=1.0),
-            native_max=max_gain,
+            native_max=self._max_gain(),
             native_unit=getattr(self._camera.gain, "unit", None),
         )
 
