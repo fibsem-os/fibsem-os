@@ -251,4 +251,4 @@ def _save_figure(fig, save_path: Optional[str] = None) -> None:
             "autofocus", f"autofocus_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         )
     fig.savefig(save_path, dpi=120, bbox_inches="tight")
-    logger.info("Plot saved to %s", save_path)
+    logger.debug("Plot saved to %s", save_path)
