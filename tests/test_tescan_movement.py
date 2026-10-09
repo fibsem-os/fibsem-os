@@ -7,9 +7,10 @@ the sample along the FIB line of sight, computed in Tescan's own frame: y rides 
 tilt module, z is chamber-vertical with +z down. See
 https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414 for the derivation.
 
-No hardware or Tescan SDK required: the microscope object is created without
-__init__, the stage state is stubbed and there is no stage device, so the move is
-recorded in Tescan's frame.
+The move is `TescanStageMovement._vertical_move_from_sem`. No hardware or Tescan SDK
+required: the microscope object is created without __init__, the stage state is
+stubbed, and the service is given a stage that leaves the move in Tescan's frame
+rather than converting it to fibsem's, so the move is recorded in Tescan's frame.
 """
 
 import os
@@ -21,6 +22,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.tescan.microscope import TescanMicroscope
+from fibsem.drivers.tescan.services import TescanStageMovement
 from fibsem.structures import BeamType, FibsemStagePosition
 
 TESCAN_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
@@ -30,6 +32,21 @@ ROTATION_FLAT_TO_EB = np.deg2rad(180)  # stage.rotation_reference
 ROTATION_FLAT_TO_ION = np.deg2rad(0)  # stage.rotation_180
 
 FIB_COLUMN_TILT = np.deg2rad(55)
+
+
+class _TescanFrameStage:
+    """A stage that takes the move in Tescan's frame as it is, so it is recorded so."""
+
+    def native_delta(self, native, tilt):
+        return native
+
+
+class _StubbedTescanStageMovement(TescanStageMovement):
+    """Reads the scan rotation from the stubbed microscope, which has no beams."""
+
+    def _beam_value(self, beam_type, name):
+        assert name == "scan_rotation"
+        return self.parent.get_scan_rotation(beam_type)
 
 
 def make_microscope(
@@ -57,6 +74,9 @@ def make_microscope(
     microscope.move_stage_relative = lambda position: microscope._recorded_moves.append(
         position
     )
+    movement = _StubbedTescanStageMovement(parent=microscope)
+    movement._roles["stage"] = _TescanFrameStage()
+    microscope.stage_movement = movement
     return microscope
 
 
