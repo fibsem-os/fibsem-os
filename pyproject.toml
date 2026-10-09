@@ -265,7 +265,6 @@ ignore = [
     "UP035",  # deprecated typing imports
     "UP037",  # quoted annotations
     "UP007",  # Union[X, Y] -> X | Y
-    "UP032",
 ]
 
 # F401 is not a mechanical fix in this codebase, and `--fix` alone is enough to
