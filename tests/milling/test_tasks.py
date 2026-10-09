@@ -5,14 +5,17 @@ import pytest
 from fibsem import utils
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns2 import RectanglePattern
+from fibsem.milling.progress import MillingProgressStatus
 from fibsem.milling.tasks import (
     FibsemMillingTask,
     FibsemMillingTaskConfig,
     MillingTaskAcquisitionSettings,
+    run_milling_task,
 )
 from fibsem.structures import BeamType, FibsemMillingSettings, ImageSettings
 
 # ── MillingTaskAcquisitionSettings.estimated_time ────────────────────────────
+
 
 def test_acquisition_estimated_time_disabled():
     acq = MillingTaskAcquisitionSettings(acquire_sem=False, acquire_fib=False)
@@ -21,17 +24,22 @@ def test_acquisition_estimated_time_disabled():
 
 def test_acquisition_estimated_time_sem_only():
     img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
-    acq = MillingTaskAcquisitionSettings(acquire_sem=True, acquire_fib=False, imaging=img)
+    acq = MillingTaskAcquisitionSettings(
+        acquire_sem=True, acquire_fib=False, imaging=img
+    )
     assert acq.estimated_time == pytest.approx(img.estimated_time * 1)
 
 
 def test_acquisition_estimated_time_both_beams():
     img = ImageSettings(resolution=(1536, 1024), dwell_time=1e-6)
-    acq = MillingTaskAcquisitionSettings(acquire_sem=True, acquire_fib=True, imaging=img)
+    acq = MillingTaskAcquisitionSettings(
+        acquire_sem=True, acquire_fib=True, imaging=img
+    )
     assert acq.estimated_time == pytest.approx(img.estimated_time * 2)
 
 
 # ── FibsemMillingTaskConfig.estimated_time ────────────────────────────────────
+
 
 def test_milling_task_config_estimated_time_empty():
     cfg = FibsemMillingTaskConfig()
@@ -53,9 +61,13 @@ def test_milling_task_config_estimated_time_includes_acquisition():
         milling=FibsemMillingSettings(milling_current=2e-9),
         pattern=RectanglePattern(width=10e-6, height=5e-6, depth=1e-6),
     )
-    acq = MillingTaskAcquisitionSettings(acquire_sem=True, acquire_fib=False, imaging=img)
+    acq = MillingTaskAcquisitionSettings(
+        acquire_sem=True, acquire_fib=False, imaging=img
+    )
     cfg = FibsemMillingTaskConfig(stages=[stage], acquisition=acq)
-    assert cfg.estimated_time == pytest.approx(stage.estimated_time + acq.estimated_time)
+    assert cfg.estimated_time == pytest.approx(
+        stage.estimated_time + acq.estimated_time
+    )
 
 
 def test_milling_task_config_estimated_time_multiple_stages():
@@ -68,7 +80,9 @@ def test_milling_task_config_estimated_time_multiple_stages():
         pattern=RectanglePattern(width=20e-6, height=10e-6, depth=2e-6),
     )
     cfg = FibsemMillingTaskConfig(stages=[stage1, stage2])
-    assert cfg.estimated_time == pytest.approx(stage1.estimated_time + stage2.estimated_time)
+    assert cfg.estimated_time == pytest.approx(
+        stage1.estimated_time + stage2.estimated_time
+    )
 
 
 def test_milling_task_config_estimated_time_ignores_disabled_stages():
@@ -110,6 +124,7 @@ def test_milling_task_config_estimated_time_all_stages_disabled():
 # didn't already acquire one of its own. That is the right default, but it has never
 # been switchable — and for a low-kV polish, imaging the lamella with a higher-voltage
 # beam undoes the polish.
+
 
 def _spy(obj, name):
     """Replace ``obj.name`` with a wrapper that records calls, returns the recorder."""
@@ -172,6 +187,7 @@ def test_final_image_flag_round_trips():
 # paths have never been exercised at a second voltage. Low-kV polishing steps
 # 30 -> 8 -> 2 kV across stages, which is where the two paths disagreeing matters.
 
+
 def test_every_restore_uses_the_captured_voltage(tmp_path):
     """Regression: _acquire_milling_task_images restored system.ion.beam.voltage — the
     config default — while run()'s finally correctly used the captured value. A task
@@ -184,18 +200,23 @@ def test_every_restore_uses_the_captured_voltage(tmp_path):
     # image at a voltage that is neither the config default nor the milling voltage,
     # so a wrong restore is unambiguous
     microscope.set_beam_voltage(voltage=2e3, beam_type=BeamType.ION)
-    assert microscope.system.ion.beam.voltage != 2e3, "guard: config default must differ"
+    assert microscope.system.ion.beam.voltage != 2e3, (
+        "guard: config default must differ"
+    )
 
     restored = _spy(microscope, "finish_milling")
     task.run()
 
     assert restored, "finish_milling should have run"
     voltages = [call[1]["imaging_voltage"] for call in restored]
-    assert all(v == 2e3 for v in voltages), f"expected every restore at 2 kV, got {voltages}"
+    assert all(v == 2e3 for v in voltages), (
+        f"expected every restore at 2 kV, got {voltages}"
+    )
     assert microscope.get_beam_voltage(BeamType.ION) == 2e3
 
 
 # ── an unset save path is not a directory called "None" ──────────────────────
+
 
 def test_unset_path_does_not_resolve_under_a_none_directory(tmp_path, monkeypatch):
     """Regression: _configure_path stringified the imaging path before joining it, so a
@@ -211,7 +232,9 @@ def test_unset_path_does_not_resolve_under_a_none_directory(tmp_path, monkeypatc
     task._configure_path()
 
     configured = str(task.config.acquisition.imaging.path)
-    assert Path(configured).is_absolute(), f"unset path resolved to a relative {configured!r}"
+    assert Path(configured).is_absolute(), (
+        f"unset path resolved to a relative {configured!r}"
+    )
     assert "None" not in Path(configured).parts, configured
     assert Path(configured).parts[-2:] == ("Milling", "Milling-Task")
 
@@ -219,7 +242,9 @@ def test_unset_path_does_not_resolve_under_a_none_directory(tmp_path, monkeypatc
 def test_configured_path_is_preserved(tmp_path):
     """The fallback only applies when nothing is configured."""
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    cfg = FibsemMillingTaskConfig.from_stages(stages=[FibsemMillingStage(name="s")], name="t")
+    cfg = FibsemMillingTaskConfig.from_stages(
+        stages=[FibsemMillingStage(name="s")], name="t"
+    )
     cfg.acquisition.imaging.path = str(tmp_path)
 
     task = FibsemMillingTask(microscope, cfg)
@@ -238,3 +263,68 @@ def test_imaging_conditions_falls_back_before_capture(tmp_path):
 
     assert current == microscope.system.ion.beam.beam_current
     assert voltage == microscope.system.ion.beam.voltage
+
+
+# ── a stage that raises fails the task (FIB-1112) ────────────────────────────
+#
+# A stage's error used to be logged and the task reported finished. On an Aquilos
+# every pattern call was rejected and AutoLamella recorded the rough mill Completed
+# with nothing milled.
+
+
+class _Rejected(RuntimeError):
+    pass
+
+
+def _reject_milling(microscope):
+    """Make the microscope reject every mill, as the Aquilos did; return the calls."""
+    calls = []
+
+    def run_milling(*a, **k):
+        calls.append((a, k))
+        raise _Rejected("could not load type")
+
+    microscope.run_milling = run_milling
+    return calls
+
+
+def test_a_failed_stage_fails_the_task_and_skips_the_rest(tmp_path):
+    stages = [FibsemMillingStage(name="rough"), FibsemMillingStage(name="polish")]
+    microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)
+    milled = _reject_milling(microscope)
+    progress = []
+    microscope.milling_progress_signal.connect(progress.append)
+    restored = _spy(microscope, "finish_milling")
+
+    task.run()
+
+    assert len(milled) == 1, "polish must not mill on a rough that failed"
+    statuses = [p.status for p in progress]
+    assert MillingProgressStatus.STAGE_FINISHED not in statuses
+    assert statuses[-1] is MillingProgressStatus.TASK_FAILED
+    assert progress[-1].error == "could not load type"
+    assert task.outcome is MillingProgressStatus.TASK_FAILED
+    assert isinstance(task.error, _Rejected)
+    assert restored, "cleanup still runs"
+
+
+def test_a_finished_task_says_so(tmp_path):
+    _, task = _task(tmp_path, acquire_final_image=False)
+
+    task.run()
+
+    assert task.outcome is MillingProgressStatus.TASK_FINISHED
+    assert task.error is None
+
+
+def test_run_milling_task_raises_a_failure_when_asked(tmp_path):
+    microscope, task = _task(tmp_path, acquire_final_image=False)
+    _reject_milling(microscope)
+    restored = _spy(microscope, "finish_milling")
+
+    with pytest.raises(_Rejected):
+        run_milling_task(microscope, task.config, raise_on_failure=True)
+    assert restored, "raised after cleanup, not instead of it"
+
+    returned = run_milling_task(microscope, task.config)
+    assert returned.outcome is MillingProgressStatus.TASK_FAILED
