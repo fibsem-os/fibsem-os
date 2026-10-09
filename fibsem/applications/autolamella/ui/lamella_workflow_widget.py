@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import QPoint, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QMessageBox,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -31,21 +32,59 @@ from fibsem.applications.autolamella.ui.workflow_info_widget import WorkflowInfo
 from fibsem.applications.autolamella.ui.workflow_task_editor_widget import (
     WorkflowTaskEditorWidget,
 )
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
-    CANVAS_BG,
-    NEUTRAL_500,
-    PRIMARY_COLOR,
+    ACCENT_COLOR,
+    BORDER_COLOR,
+    GRAY_ICON_COLOR,
+    PANEL_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
+    TEXT_STRONG_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
     ValueComboBox,
 )
 
-_SECTION_LABEL_STYLE = (
-    f"font-size: 11px; font-weight: bold; color: {NEUTRAL_500};"
-    f" padding: 4px 6px 2px 6px; background: {CANVAS_BG};"
+# What the panel's ? says: how to work the task list. It was a line of text under
+# the list on every view; it is for the first time, not every time.
+TASK_LIST_HINTS = (
+    "Drag to reorder  \u2022  click the chip to change when you are involved"
+    "  \u2022  use \u270e to edit task details"
 )
+
+
+class _WorkflowSettingsPopup(QFrame):
+    """The workflow's name, description and run options, behind the ⚙ on the task
+    list's header: set once per run if at all, they took a quarter of the panel
+    on every view."""
+
+    def __init__(self, info: WorkflowInfoWidget, parent: QWidget) -> None:
+        super().__init__(parent, Qt.Popup)
+        self.setObjectName("workflowSettings")
+        self.setStyleSheet(
+            f"#workflowSettings {{ background: {PANEL_COLOR}; "
+            f"border: 1px solid {BORDER_COLOR}; border-radius: 4px; }}"
+        )
+        self.setFixedWidth(340)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 6)
+        layout.setSpacing(4)
+        title = QLabel("Workflow settings")
+        title.setStyleSheet(
+            f"color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 600; "
+            "background: transparent;"
+        )
+        layout.addWidget(title)
+        layout.addWidget(info)
+
+    def show_under(self, button: QWidget) -> None:
+        """Open below *button*, its right edge on the button's."""
+        self.adjustSize()
+        corner = button.mapToGlobal(QPoint(button.width(), button.height()))
+        self.move(corner.x() - self.width(), corner.y() + 2)
+        self.show()
 
 
 class AddTaskDialog(QDialog):
@@ -223,44 +262,34 @@ class LamellaWorkflowWidget(QWidget):
         self.lamella_list.enable_move_to_action(False)
         root.addWidget(self.lamella_list, 1)
 
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("color: #3a3d42;")
-        root.addWidget(sep)
-
-        # ── workflow info section ────────────────────────────────────────
-        self._info_header = QLabel("Workflow")
-        self._info_header.setStyleSheet(_SECTION_LABEL_STYLE)
-        root.addWidget(self._info_header)
-
-        self.info = WorkflowInfoWidget()
-        root.addWidget(self.info)
-
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.HLine)
-        sep2.setStyleSheet("color: #3a3d42;")
-        root.addWidget(sep2)
-
         # ── workflow section ─────────────────────────────────────────────
         self.workflow = WorkflowConfigWidget()
         self.workflow.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         root.addWidget(self.workflow, 1)
 
-        # ── summary label ────────────────────────────────────────────────
-        self._summary_label = QLabel("0 lamella, 0 tasks selected")
-        self._summary_label.setStyleSheet(
-            f"color: {PRIMARY_COLOR}; font-size: 11px; padding: 3px 6px;"
+        # The workflow's name, description and options, behind ⚙ on the task
+        # list's header; how to work the list, behind ?. No footer: the "select
+        # a lamella and a task" line is the status line's to say.
+        self.info = WorkflowInfoWidget()
+        self._settings_popup = _WorkflowSettingsPopup(self.info, self)
+        self.btn_settings = IconToolButton(
+            icon="mdi:cog-outline", tooltip="Workflow settings", size=24
         )
-        root.addWidget(self._summary_label)
-
-        # ── instructions ─────────────────────────────────────────────────
-        self._instructions_label = QLabel(
-            "Drag to reorder  \u2022  click the chip to change when you are involved  \u2022  use \u270e to edit task details"
+        self.btn_settings.clicked.connect(
+            lambda: self._settings_popup.show_under(self.btn_settings)
         )
-        self._instructions_label.setStyleSheet(
-            f"color: {NEUTRAL_500}; font-size: 10px; padding: 2px 6px 4px 6px;"
+        self.workflow.add_header_widget(self.btn_settings)
+        self.btn_help = QToolButton()
+        self.btn_help.setFixedSize(24, 24)
+        self.btn_help.setAutoRaise(True)
+        self.btn_help.setIcon(
+            fibsem_icon("mdi:help-circle-outline", color=GRAY_ICON_COLOR)
         )
-        root.addWidget(self._instructions_label)
+        self.btn_help.setToolTip(TASK_LIST_HINTS)
+        self.btn_help.setStyleSheet(
+            "QToolButton { border: none; background: transparent; }"
+        )
+        self.workflow.add_header_widget(self.btn_help)
 
         # ── wire signals ─────────────────────────────────────────────────
         self.lamella_list.move_to_requested.connect(self.lamella_move_to_requested)
@@ -276,12 +305,15 @@ class LamellaWorkflowWidget(QWidget):
         self.workflow.order_changed.connect(self.task_order_changed)
         self.workflow.add_task_clicked.connect(self._on_add_task_clicked)
 
-        self.lamella_list.selection_changed.connect(lambda _: self._update_summary())
-        self.workflow.selection_changed.connect(lambda _: self._update_summary())
-
         self.info.name_changed.connect(self.workflow_name_changed)
         self.info.description_changed.connect(self.workflow_description_changed)
         self.info.options_changed.connect(self.workflow_options_changed)
+        for changed in (
+            self.info.name_changed,
+            self.info.description_changed,
+            self.info.options_changed,
+        ):
+            changed.connect(lambda *_: self._refresh_settings_button())
 
     # ------------------------------------------------------------------
     # Public API
@@ -296,20 +328,35 @@ class LamellaWorkflowWidget(QWidget):
     def set_workflow_config(self, config: AutoLamellaWorkflowConfig) -> None:
         self.workflow.set_config(config)
         self.info.set_config(config)
-        self._update_summary()
+        self._refresh_settings_button()
 
     def set_options(self, options: AutoLamellaWorkflowOptions) -> None:
         self.info.set_options(options)
+        self._refresh_settings_button()
+
+    def _refresh_settings_button(self) -> None:
+        """The ⚙ in the accent colour while something in it is set, so a workflow
+        name or "turn beams off" is not hidden by the popover."""
+        info = self.info
+        changed = bool(
+            info.name_edit.text()
+            or info.desc_edit.text()
+            or info.turn_beams_off_cb.isChecked()
+        )
+        self.btn_settings.setIcon(
+            fibsem_icon(
+                "mdi:cog-outline", color=ACCENT_COLOR if changed else GRAY_ICON_COLOR
+            )
+        )
+        self.btn_settings.setToolTip(
+            "Workflow settings (some set)" if changed else "Workflow settings"
+        )
 
     def add_lamella(self, lamella: Lamella, checked: bool = False):
-        result = self.lamella_list.add_lamella(lamella, checked)
-        self._update_summary()
-        return result
+        return self.lamella_list.add_lamella(lamella, checked)
 
     def add_task(self, task: AutoLamellaTaskDescription, checked: bool = False):
-        result = self.workflow.add_task(task, checked)
-        self._update_summary()
-        return result
+        return self.workflow.add_task(task, checked)
 
     def get_selected_lamella(self) -> List[Lamella]:
         return self.lamella_list.get_selected()
@@ -323,7 +370,6 @@ class LamellaWorkflowWidget(QWidget):
     def clear(self) -> None:
         self.lamella_list.clear()
         self.workflow.clear()
-        self._update_summary()
 
     # ------------------------------------------------------------------
     # Internal
@@ -333,29 +379,6 @@ class LamellaWorkflowWidget(QWidget):
         if self.experiment is None:
             return []
         return sorted(self.experiment.task_protocol.task_config.keys())
-
-    def _update_summary(self) -> None:
-        n_lam = len(self.lamella_list.get_selected())
-        n_task = len(self.workflow.get_selected())
-        if n_lam == 0 or n_task == 0:
-            missing = []
-            if n_lam == 0:
-                missing.append("a lamella")
-            if n_task == 0:
-                missing.append("a task")
-            self._summary_label.setStyleSheet(
-                "color: #f0a040; font-size: 11px; padding: 3px 6px;"
-            )
-            self._summary_label.setText(
-                f"Select {' and '.join(missing)} to run the workflow"
-            )
-        else:
-            self._summary_label.setStyleSheet(
-                f"color: {PRIMARY_COLOR}; font-size: 11px; padding: 3px 6px;"
-            )
-            self._summary_label.setText(
-                f"{n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''} selected"
-            )
 
     def _on_task_edit_requested(self, task: AutoLamellaTaskDescription) -> None:
         available = [t.name for t in self.workflow.get_tasks()]
@@ -369,7 +392,6 @@ class LamellaWorkflowWidget(QWidget):
         # the list drops the row and re-emits remove_requested, which is wired
         # to task_remove_requested above
         self.workflow.request_remove(task)
-        self._update_summary()
 
     def _on_task_applied(self, task: AutoLamellaTaskDescription) -> None:
         self.workflow.refresh_task(task)
@@ -393,4 +415,3 @@ class LamellaWorkflowWidget(QWidget):
             )
             self.workflow.add_task(task)
             self.task_added.emit(task)
-            self._update_summary()

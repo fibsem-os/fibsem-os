@@ -593,6 +593,10 @@ class WorkflowConfigWidget(QWidget):
         dialog now; the host reads ``remove_allowed`` when it opens one."""
         self._btn_visible["remove"] = visible
 
+    def add_header_widget(self, widget: QWidget) -> None:
+        """Put *widget* on the header's right, after Add: the panel's ⚙ and ?."""
+        self._header.add_widget(widget)
+
     @property
     def remove_allowed(self) -> bool:
         return self._btn_visible["remove"]
