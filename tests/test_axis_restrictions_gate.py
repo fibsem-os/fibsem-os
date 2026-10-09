@@ -156,7 +156,7 @@ def test_moving_into_the_fluorescence_pose_is_still_restricted():
 
 
 def test_a_partial_pose_falls_back_to_where_the_stage_is():
-    """`_safe_rotation_movement` sends a bare tilt with no rotation: nothing to read a
+    """The safe move's rotation step sends a bare tilt with no rotation: nothing to read a
     destination from, so the stage's own pose stands in -- what such a move got before."""
     microscope = _microscope(ARCTIS_CONFIG)
     _at_fm_pose(microscope)
