@@ -19,6 +19,9 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
 from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
+from fibsem.applications.autolamella.workflows.tasks.trench import (
+    MillTrenchTaskConfig,
+)
 
 # a config of each kind with its parameters off their defaults, so a value that
 # was dropped on load and replaced by the default would show
@@ -70,3 +73,20 @@ def test_an_unknown_parameter_warns_once_naming_the_task(config, caplog):
     assert len(warnings) == 1
     assert "'exposure_tme'" in warnings[0]
     assert config.task_type in warnings[0]
+
+
+def test_a_retired_parameter_is_dropped_without_a_warning(caplog):
+    """Every saved Trench config carries ``align_reference``, retired with the
+    alignment to the legacy ref_PositionReady.tif. Loading one is not a problem
+    to report; a key nobody recognises still is."""
+    ddict = MillTrenchTaskConfig(charge_neutralisation=False).to_dict()
+    ddict["parameters"]["align_reference"] = True
+    ddict["parameters"]["charge_neutralistion"] = True
+
+    with caplog.at_level(logging.WARNING):
+        loaded = MillTrenchTaskConfig.from_dict(ddict)
+
+    warnings = _unknown_parameter_warnings(caplog)
+    assert len(warnings) == 1 and "'charge_neutralistion'" in warnings[0]
+    assert not hasattr(loaded, "align_reference")
+    assert loaded.charge_neutralisation is False
