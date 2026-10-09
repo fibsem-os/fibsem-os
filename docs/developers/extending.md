@@ -199,9 +199,9 @@ work unchanged.
 - **Reference implementations.** `DemoMicroscope` in
   `fibsem/drivers/demo/microscope.py` is the complete, hardware-free
   reference. `fibsem/drivers/tescan/microscope.py` shows a vendor SDK behind the
-  same interface. `microscopes/zeiss.py` is an empty placeholder awaiting a
-  SerialFIB migration; a Zeiss backend should be built there rather than in
-  a new file.
+  same interface. A Zeiss backend, awaiting a SerialFIB migration, would be a
+  new `fibsem/drivers/zeiss/` package laid out like the others;
+  `microscopes/zeiss.py` is only an empty placeholder.
 - **Registration.** Implementing the class is not sufficient. A driver is
   a `DriverEntry` in the registry (`fibsem/drivers/registry.py`): a
   module-level `DRIVER` record listed in `_BUILT_IN` for a backend in the
@@ -231,8 +231,8 @@ An FM is devices too: a `Camera`, a `LightSource`, a `FilterSet` and an
 device that acquires channels and z-stacks. Implement the four parts; the
 `FM` device and `microscope.fm` (`FluorescenceMicroscope`,
 `fibsem/fm/microscope.py`) are built on them. The simulated parts in
-`fibsem/drivers/demo/devices.py` are the hardware-free reference, and
-`autoscript_fm.py` and `odemis_fm.py` beside it are the two hardware
+`fibsem/drivers/demo/devices.py` are the hardware-free reference, and the
+`devices.py` of the `autoscript` and `odemis` drivers hold the two hardware
 implementations. An FM on its own computer needs no driver on the
 microscope's side: serve its parts with the device server and configure the
 FM as `driver: remote` ([Devices on another computer](devices.md#devices-on-another-computer)).

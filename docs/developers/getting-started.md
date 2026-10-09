@@ -15,7 +15,8 @@ fibsem/                     the instrument library (no application logic)
   microscope.py             FibsemMicroscope, the abstract class every backend
                             implements
   devices/                  the devices: beam, stage, chamber, manipulator,
-                            fm; vendor-neutral, never imports a driver
+                            fm, and display.py (how a parameter is shown);
+                            vendor-neutral, never imports a driver
   services/                 the services (milling); vendor-neutral
   drivers/                  one package per driver: autoscript (Thermo),
                             tescan, odemis, demo (the reference
@@ -30,7 +31,9 @@ fibsem/                     the instrument library (no application logic)
   server/                   the agent/bench HTTP server (build_server)
   mcp/                      the fibsem-mcp sidecar (MCP to HTTP)
   plugins/                  entry-point loading: fibsem.patterns,
-                            fibsem.strategies, fibsem.tasks
+                            fibsem.strategies, fibsem.tasks, fibsem.drivers
+  microscopes/              old import paths, kept as shims (and _stage.py,
+                            still in use); new code imports from drivers/
 
 fibsem/applications/autolamella/
   structures.py             Experiment, Lamella, AutoLamellaTaskProtocol
