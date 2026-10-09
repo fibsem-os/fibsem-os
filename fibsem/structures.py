@@ -65,7 +65,8 @@ TFibsemPatternSettings = TypeVar(
 DEFAULT_FIELD_METADATA: Dict[str, Any] = {
     "label": None,  # the display label for the field
     "type": None,  # the data type of the field
-    "unit": None,  # the display unit for the field (after scaling)
+    "unit": None,  # the field's unit; shown with the scale's SI prefix (m + 1e6 -> µm)
+    "display_unit": None,  # the shown unit, when the scale isn't an SI prefix (° , %)
     "tooltip": None,  # the tooltip/help text for the field
     "scale": None,  # scale factor for display (e.g., 1e6 for metres to microns)
     "dimensions": None,  # for complex dimensions, e.g. areas or volumes
@@ -104,6 +105,7 @@ def field_meta(
     label: Optional[str] = None,
     type: Optional[Any] = None,
     unit: Optional[str] = None,
+    display_unit: Optional[str] = None,
     tooltip: Optional[str] = None,
     scale: Optional[float] = None,
     dimensions: Optional[int] = None,
