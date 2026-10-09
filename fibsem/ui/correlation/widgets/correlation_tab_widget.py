@@ -4736,6 +4736,11 @@ class CorrelationTabWidget(QWidget):
 
         def _done(new_image) -> None:
             _finish()
+            if self._fm_image is not src:
+                # Another stack was loaded while this one was resampled; its
+                # planes are not this view's (FIB-1242).
+                logging.info("Interpolated view discarded: the FM stack changed")
+                return
             self._adopt_interpolated_volume(new_image, old_nz)
 
         def _fail(exc) -> None:
@@ -4766,6 +4771,11 @@ class CorrelationTabWidget(QWidget):
         new_nz = new_image.data.shape[1]
         self._fm_view_scale = z_resample_scale(old_nz, new_nz)
         self._fm_display.set_fm_image(new_image)
+        # The canvas reads the raw metadata pixel size; keep the stack's
+        # corrected one, as set_fm_image does, so the scale bar stays right.
+        px = self._effective_fm_pixel_size(self._fm_image)
+        if px:
+            self._fm_display.set_pixel_size(px)
         notification_service.show(
             f"Showing {new_nz} interpolated planes "
             f"({new_image.metadata.pixel_size_z * 1e9:.0f} nm); points stay in "
