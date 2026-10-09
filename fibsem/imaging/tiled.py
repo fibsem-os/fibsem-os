@@ -338,7 +338,7 @@ class TiledAcquisitionRunner:
             for tile in self._ordered
         ]
         for tile, sp in zip(self._ordered, self._tile_stage_positions):
-            logging.info(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
+            logging.debug(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
 
         raise_if_outside_stage_limits(
             self._ordered, self._tile_stage_positions, self.microscope._stage.limits
@@ -479,9 +479,9 @@ class TiledAcquisitionRunner:
 
             image_settings.filename = f"tile_{tile.row}_{tile.col}"
 
-            logging.info(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
+            logging.debug(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
             self.microscope.safe_absolute_stage_movement(stage_pos)
-            logging.info(
+            logging.debug(
                 f"Tile ({tile.row}, {tile.col}) — actual: {self.microscope.get_stage_position().pretty}"
             )
 

@@ -49,7 +49,7 @@ def setup_milling(
     if milling_stage.alignment.enabled:
         from fibsem import alignment
 
-        logging.info(
+        logging.debug(
             f"FIB Aligning at Milling Current: {milling_stage.milling.milling_current:.2e}"
         )
         alignment.multi_step_alignment_v2(

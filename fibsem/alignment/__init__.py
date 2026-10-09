@@ -429,7 +429,7 @@ def beam_shift_alignment_v2(
         subsystem=subsystem,
     )
 
-    logging.info(
+    logging.debug(
         f"Beam Shift Alignment: dx: {result.shift.x}, dy: {result.shift.y}, score: {result.score}"
     )
 
@@ -519,6 +519,15 @@ def multi_step_alignment_v2(
     save_path: str = path if path is not None else _alignment_save_path(ref_image)[0]
     run_dir = run.save(save_path, plot_title=run_name)
     _record_alignment(microscope, run, steps, aborted, run_dir)
+
+    # one line per run; each step's shift is logged at debug level
+    if alignment_results:
+        last = alignment_results[-1]
+        logging.info(
+            f"{run_name}: {len(alignment_results)}/{steps} steps, last shift "
+            f"({last.shift.x * 1e9:.0f}, {last.shift.y * 1e9:.0f}) nm, "
+            f"score {last.score:.2f}"
+        )
 
     return run
 
