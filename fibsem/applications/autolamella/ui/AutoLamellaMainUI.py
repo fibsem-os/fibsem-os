@@ -1584,6 +1584,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._run_active = False
         self._run_failures: List[Tuple[str, str]] = []
         self._run_total = 0
+        self.status_bar.failure_details_requested.connect(self._show_run_failures)
 
         # Add user attention button (shown when waiting for user interaction)
         self.user_attention_btn = QPushButton("Attention Required")
@@ -3092,6 +3093,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             fibsem_icon("mdi:play-circle-outline", color=GRAY_ICON_COLOR),
             "Workflow",
         )
+        self._workflow_tab_container = container
 
         # disable the workflow tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
@@ -4006,6 +4008,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._say_how_the_run_ended()
         self._set_border_state("idle")
 
+    def _show_run_failures(self) -> None:
+        """The failure line's Show: the Workflow tab, with the run's
+        first failed row selected and in view. The timeline is where the run is
+        laid out, failures marked, and where they are queued again."""
+        container = getattr(self, "_workflow_tab_container", None)
+        if container is None:
+            return
+        self.tab_widget.setCurrentWidget(container)
+        self.workflow_timeline.show_first_failed()
+
     def _say_how_the_run_ended(self) -> None:
         """The run's line has gone (`hide_workflow_running`). A run with failures,
         or one that stalled, leaves a line that stays until it is dismissed or the
@@ -4017,12 +4029,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             what, reason = failures[-1]
             n = len(failures)
             count = f"{n} of {self._run_total}" if self._run_total >= n else f"{n}"
-            details = [f"{w}: {r}" for w, r in failures] + ([note] if note else [])
             self.status_bar.show_failure(
-                "Run finished", f"{count} failed · {what}: {reason}", details
+                "Run finished", f"{count} failed · {what}: {reason}"
             )
         elif note:
-            self.status_bar.show_failure("Run stalled", note, [note])
+            self.status_bar.show_failure("Run stalled", note)
         else:
             notification_service.show_toast("Workflow finished.")
 
