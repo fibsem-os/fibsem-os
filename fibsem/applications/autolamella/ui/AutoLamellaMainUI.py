@@ -3002,9 +3002,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._refresh_grid_protocol_editor
         )
         self.workflow_left_tabs.addTab(self.grid_workflow_widget, "Grids")
-        # The selector's tab already says which list this is; the list's own
-        # "Lamella" title would say it twice.
-        self.lamella_workflow_widget.set_section_title_visible(False)
         # An inventory, a rename, a manual load on the Grids tab: the run view's
         # rows and chips follow. Built after the Grids tab, so the signal exists.
         self.grids_tab.experiment_changed.connect(self.grid_workflow_widget.refresh)

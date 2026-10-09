@@ -23,6 +23,14 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
 )
+from fibsem.applications.autolamella.ui.list_chrome import (
+    CHIP_HEIGHT,
+    DETAIL_PX,
+    NAME_PX,
+    ROW_HEIGHT,
+    ListHeader,
+    tinted_chip_style,
+)
 from fibsem.applications.autolamella.workflows.tasks.attendance import (
     Attendance,
     attendance_for,
@@ -36,20 +44,18 @@ from fibsem.ui.icon import (
     fibsem_icon,
 )
 from fibsem.ui.tokens import (
-    CANVAS_BG,
     NEUTRAL_700,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton
+from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 
-_NAME_MIN_WIDTH = 180
 # The dependency column: present, but never competing with the name it belongs to.
 # Fixed width, so the entries line up down the list and the text elides inside it
 # rather than the row clipping it mid-word.
 REQUIRES_COLOUR = NEUTRAL_700
-REQUIRES_FONT_PX = 10
-REQUIRES_MAX_WIDTH = 170
-_BTN_SIZE = QSize(32, 32)
-_ROW_HEIGHT = 40
+REQUIRES_FONT_PX = DETAIL_PX
+REQUIRES_MAX_WIDTH = 210
+_BTN_SIZE = QSize(24, 24)
+_ROW_HEIGHT = ROW_HEIGHT
 # The attention chip: the mode's icon (the same ones the lamella rows and
 # status chips use) and its name, fixed width so the row does not jump
 # between states. "Supervised" is the widest it shows. The schedule
@@ -60,7 +66,6 @@ _CHIP_ICONS = {
     "supervised": "mdi:account-hard-hat",
     "agent": "mdi:star-four-points",
 }
-_BTN_SPACER_WIDTH = _BTN_SIZE.width() + _CHIP_WIDTH + 8  # attention chip + edit + 1 gap
 # Long labels on purpose: the short set (Auto / Superv.) reads badly and the
 # long ones fit at the chip's width. Two modes: a person decides, or nobody
 # is asked. Where the run waits for the person is a property of the task,
@@ -189,15 +194,9 @@ def _attention_chip_words(
 
 
 def _chip_style(colour: str, muted: bool = False) -> str:
-    fg = NEUTRAL_700 if muted else colour
-    border = NEUTRAL_700 if muted else colour
-    return (
-        "QToolButton { border: 1px solid "
-        + border
-        + "; border-radius: 3px; padding: 1px 5px 1px 4px; background: transparent; "
-        + f"color: {fg}; font-size: 11px; text-align: left; }}"
-        "QToolButton:hover { background: rgba(255, 255, 255, 25); }"
-    )
+    """The mode's colour as a faint fill (`list_chrome.tinted_chip_style`); muted,
+    the neutral one."""
+    return tinted_chip_style(NEUTRAL_700 if muted else colour)
 
 
 def _requires_text(
@@ -268,7 +267,7 @@ class WorkflowTaskRowWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setContentsMargins(6, 0, 6, 0)
         layout.setSpacing(8)
 
         self.checkbox = QCheckBox()
@@ -278,16 +277,17 @@ class WorkflowTaskRowWidget(QWidget):
 
         # One line, not a name over a requirements line. The second line was blank
         # on most rows -- every task without a dependency -- and a name sitting at
-        # the top of a two-line block reads as floating above a gap.
-        self.name_label = QLabel()
-        self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
+        # the top of a two-line block reads as floating above a gap. Elided, and
+        # it takes the slack: at the panel's width a long name was cut mid-word
+        # ("Acquire Fluorescence Imag").
+        self.name_label = ElidedLabel()
         # Task names come from the protocol, and a QLabel left on AutoText renders
         # anything that looks like markup as markup.
         self.name_label.setTextFormat(Qt.PlainText)
-        self.name_label.setStyleSheet("background: transparent;")
-        layout.addWidget(self.name_label)
-
-        layout.addStretch(1)
+        self.name_label.setStyleSheet(
+            f"background: transparent; font-size: {NAME_PX}px;"
+        )
+        layout.addWidget(self.name_label, 1)
 
         # Its own column, right-aligned at a fixed width, so the dependencies line
         # up down the list and can be read as a column rather than hunted for at
@@ -308,7 +308,7 @@ class WorkflowTaskRowWidget(QWidget):
         self.btn_attention = QToolButton()
         self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.btn_attention.setIconSize(QSize(14, 14))
-        self.btn_attention.setFixedSize(_CHIP_WIDTH, _BTN_SIZE.height() - 8)
+        self.btn_attention.setFixedSize(_CHIP_WIDTH, CHIP_HEIGHT)
         self.btn_attention.setCursor(Qt.PointingHandCursor)
         self.btn_attention.setFocusPolicy(Qt.NoFocus)
         layout.addWidget(self.btn_attention)
@@ -394,14 +394,16 @@ class WorkflowTaskRowWidget(QWidget):
     def refresh(self) -> None:
         """Re-read all display fields from the stored task."""
         self.name_label.setText(self.task.name)
-        self.requires_label.setText(
-            _requires_text(
-                self.task,
-                self.requires_label.font(),
-                self._schedule_visible,
-                self._reviewed,
-            )
+        requires = _requires_text(
+            self.task,
+            self.requires_label.font(),
+            self._schedule_visible,
+            self._reviewed,
         )
+        self.requires_label.setText(requires)
+        # The column only where there is something in it: on the rows without a
+        # dependency the name has the room ("Acquire Fluorescence Image").
+        self.requires_label.setVisible(bool(requires))
         tips = []
         if self.task.requires:
             tips.append(
@@ -431,40 +433,19 @@ class WorkflowTaskRowWidget(QWidget):
         )
 
 
-class _WorkflowTaskListHeader(QWidget):
-    select_all_changed = pyqtSignal(bool)
+class _WorkflowTaskListHeader(ListHeader):
+    """The list's header: the shared one (`list_chrome.ListHeader`), with Add over
+    the rows' trailing column."""
+
     add_task_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setStyleSheet(f"background: {CANVAS_BG};")
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(8)
-
-        self.checkbox_all = QCheckBox("Select All")
-        self.checkbox_all.setChecked(True)
-        self.checkbox_all.setStyleSheet("font-weight: bold; background: transparent;")
-        self.checkbox_all.setMinimumWidth(24 + 8 + _NAME_MIN_WIDTH)
-        layout.addWidget(self.checkbox_all)
-
-        layout.addStretch(1)
-
-        # Spacer covers all row buttons except the last, so btn_add aligns with btn_remove
-        spacer = QWidget()
-        spacer.setFixedWidth(_BTN_SPACER_WIDTH - _BTN_SIZE.width() - 8)
-        spacer.setStyleSheet("background: transparent;")
-        layout.addWidget(spacer)
-
+        super().__init__("Tasks", parent=parent)
+        self.add_stretch()
         self.btn_add = IconToolButton(
             icon="mdi:plus", tooltip="Add Task", size=_BTN_SIZE.width()
         )
-        layout.addWidget(self.btn_add)
-
-        self.checkbox_all.stateChanged.connect(
-            lambda s: self.select_all_changed.emit(bool(s))
-        )
+        self.add_widget(self.btn_add)
         self.btn_add.clicked.connect(self.add_task_clicked)
 
 
@@ -508,7 +489,11 @@ class WorkflowConfigWidget(QWidget):
         self._list.setDragDropMode(QAbstractItemView.InternalMove)
         self._list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self._list.setSpacing(0)
-        self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
+        # No item padding, as on the lamella list: the app sheet pads items by 4px,
+        # which put the rows' tick boxes 4px in from the header's.
+        self._list.setStyleSheet(
+            stylesheets.LIST_WIDGET_STYLESHEET + "QListWidget::item { padding: 0; }"
+        )
         self._list.setAlternatingRowColors(False)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setFocusPolicy(Qt.NoFocus)
@@ -652,6 +637,7 @@ class WorkflowConfigWidget(QWidget):
     def clear(self) -> None:
         self._list.clear()
         self._checked.clear()
+        self._sync_select_all()
 
     def set_all_selected(self, checked: bool) -> None:
         """Tick or untick every row, and bring the header and the cache with them.
@@ -722,6 +708,7 @@ class WorkflowConfigWidget(QWidget):
 
     def _sync_select_all(self) -> None:
         count = self._list.count()
+        self._header.set_count(str(count) if count else "")
         if count == 0:
             return
         n_checked = sum(self._row(i).checkbox.isChecked() for i in range(count))
