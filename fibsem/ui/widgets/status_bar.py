@@ -23,8 +23,8 @@ it itself, from the microscope a host hands it (`set_microscope`), so no window
 decodes a report. When one ends, the line says how -- done, cancelled, or failed in
 red -- for a moment, then gives the line back.
 
-A run that ends with failures leaves a **failure** on the line, in red, with Details
-and Dismiss, until it is dismissed or the next run starts: "**Run finished** 2 of 5
+A run that ends with failures leaves a **failure** on the line, in red, with Show and
+Dismiss, until it is dismissed or the next run starts: "**Run finished** 2 of 5
 failed · 02-civil-cub › Polishing: autofocus found no focus peak". A run held for
 someone says what releases it and how long it has waited: "**01-fancy-mite › Rough
 Milling** review the milling patterns · waiting 2:14 · 3 of 5".
@@ -38,11 +38,10 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Optional, Tuple
 
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QProgressBar,
     QPushButton,
     QStatusBar,
@@ -122,6 +121,10 @@ class FibsemStatusBar(QStatusBar):
     """One line of status on the left -- an operation, else the run, else the
     instruction -- and the host's actions on the right."""
 
+    # The failure line's Show: where the failures are is the host's to
+    # say (AutoLamella's run timeline marks them); the bar only asks.
+    failure_details_requested = pyqtSignal()
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setStyleSheet(STATUS_BAR_STYLESHEET)
@@ -143,9 +146,9 @@ class FibsemStatusBar(QStatusBar):
         self._numbers.setStyleSheet(_STEP_STYLE)
         self._detail = QLabel()
         self._detail.setStyleSheet(_MUTED_STYLE)
-        self._details_btn = QPushButton("Details")
+        self._details_btn = QPushButton("Show")
         self._details_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        self._details_btn.clicked.connect(self._show_failure_details)
+        self._details_btn.clicked.connect(self.failure_details_requested)
         self._dismiss_btn = QPushButton("Dismiss")
         self._dismiss_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self._dismiss_btn.clicked.connect(self.dismiss_failure)
@@ -167,7 +170,6 @@ class FibsemStatusBar(QStatusBar):
         self._operation: Optional[_Line] = None
         self._progress: Optional[_Progress] = None
         self._failure: Optional[Tuple[str, str]] = None
-        self._failure_details: Tuple[str, ...] = ()
         # What releases a held run, and since when (monotonic): the line counts it.
         self._waiting: Optional[Tuple[str, float]] = None
         self._waiting_clock = QTimer(self)
@@ -282,11 +284,10 @@ class FibsemStatusBar(QStatusBar):
         self._outcome_timer.start(OUTCOME_MS)
 
     # ── a run's failures, and a run that waits ───────────────────────────
-    def show_failure(self, what: str, message: str, details=()) -> None:
-        """A failure that stays, in red with Details and Dismiss, until
+    def show_failure(self, what: str, message: str) -> None:
+        """A failure that stays, in red with Show and Dismiss, until
         `dismiss_failure` -- the Dismiss button, or the next run starting."""
         self._failure = (what, message)
-        self._failure_details = tuple(details)
         if self._outcome_timer.isActive():
             # A moment's outcome still up -- the failed task's own -- is what this
             # sums up: it gives way rather than covering the summary for its 2 s.
@@ -296,25 +297,12 @@ class FibsemStatusBar(QStatusBar):
 
     def dismiss_failure(self) -> None:
         self._failure = None
-        self._failure_details = ()
         self._render()
 
     @property
     def failure(self) -> Optional[str]:
         """The lasting failure's message, or None."""
         return self._failure[1] if self._failure else None
-
-    @property
-    def failure_details(self) -> Tuple[str, ...]:
-        return self._failure_details
-
-    def _show_failure_details(self) -> None:
-        if self._failure is None:
-            return
-        what, message = self._failure
-        QMessageBox.information(
-            self.window(), what, "\n".join(self._failure_details) or message
-        )
 
     def set_waiting(self, releases: Optional[str]) -> None:
         """The run is held until someone acts: say what releases it, and count how

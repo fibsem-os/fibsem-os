@@ -246,11 +246,9 @@ def test_a_spot_burn_that_fails_says_why_in_red(slot):
 # --- a run's failures, and a run that waits -------------------------------------
 
 
-def test_a_failure_stays_with_details_and_dismiss(slot):
+def test_a_failure_stays_with_a_way_there_and_dismiss(slot):
     slot.show_failure(
-        "Run finished",
-        "1 of 4 failed · 02-civil-cub › Polishing: no focus peak",
-        ["02-civil-cub › Polishing: no focus peak"],
+        "Run finished", "1 of 4 failed · 02-civil-cub › Polishing: no focus peak"
     )
     assert slot.showing == "failure"
     assert (
@@ -266,18 +264,14 @@ def test_a_failure_stays_with_details_and_dismiss(slot):
     assert slot._details_btn.isHidden() and slot._dismiss_btn.isHidden()
 
 
-def test_details_lists_each_failure(slot, monkeypatch):
-    from fibsem.ui.widgets import status_bar
-
-    shown = []
-    monkeypatch.setattr(
-        status_bar.QMessageBox,
-        "information",
-        lambda parent, title, text: shown.append((title, text)),
-    )
-    slot.show_failure("Run finished", "2 of 4 failed", ["a: one", "b: two"])
+def test_show_in_workflow_asks_the_host(slot):
+    """Where the failures are is the host's to say: the bar only asks."""
+    asked = []
+    slot.failure_details_requested.connect(lambda: asked.append(True))
+    slot.show_failure("Run finished", "2 of 4 failed")
+    assert slot._details_btn.text() == "Show"
     slot._details_btn.click()
-    assert shown == [("Run finished", "a: one\nb: two")]
+    assert asked == [True]
 
 
 def test_a_stage_move_passes_over_a_failure_and_gives_it_back(slot):
@@ -413,7 +407,9 @@ def test_fibsem_shows_milling_from_its_microscope(qapp):
     _close(window, qapp)
 
 
-def _report(status, item="02-civil-cub", task="Polishing", error=None):
+def _report(
+    status, item="02-civil-cub", task="Polishing", error=None, queue_items=None
+):
     from fibsem.applications.autolamella.workflows.tasks.status import (
         WorkflowStatusEvent,
         WorkflowStatusUpdate,
@@ -427,7 +423,7 @@ def _report(status, item="02-civil-cub", task="Polishing", error=None):
             error_message=error,
             queue_position=2,
             queue_total=4,
-            queue_items=None,
+            queue_items=queue_items,
         )
     )
 
@@ -447,8 +443,28 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     # A report locks the protocol editor, whose UI the first connect builds.
     window.autolamella_ui.system_widget.connect_to_microscope()
     signal = window.autolamella_ui.workflow_status_signal
-    signal.emit(_report(AutoLamellaTaskStatus.InProgress))
-    signal.emit(_report(AutoLamellaTaskStatus.Failed, error="no focus peak"))
+    from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
+
+    def _queue(second):
+        return [
+            WorkItem("01-fancy-mite", "Polishing", AutoLamellaTaskStatus.Completed),
+            WorkItem("02-civil-cub", "Polishing", second),
+            WorkItem("03-gentle-elk", "Polishing"),
+        ]
+
+    signal.emit(
+        _report(
+            AutoLamellaTaskStatus.InProgress,
+            queue_items=_queue(AutoLamellaTaskStatus.InProgress),
+        )
+    )
+    signal.emit(
+        _report(
+            AutoLamellaTaskStatus.Failed,
+            error="no focus peak",
+            queue_items=_queue(AutoLamellaTaskStatus.Failed),
+        )
+    )
     assert window.status_bar.text == "02-civil-cub › Polishing failed: no focus peak"
 
     window._on_workflow_finished()
@@ -457,8 +473,15 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     assert bar.text == (
         "Run finished 1 of 4 failed · 02-civil-cub › Polishing: no focus peak"
     )
-    assert bar.failure_details == ("02-civil-cub › Polishing: no focus peak",)
     assert "Workflow finished." not in toasts, "the line says it, not a toast"
+
+    # Show: the Workflow tab, the failed row selected.
+    window.tab_widget.setTabEnabled(
+        window.tab_widget.indexOf(window._workflow_tab_container), True
+    )
+    bar._details_btn.click()
+    assert window.tab_widget.currentWidget() is window._workflow_tab_container
+    assert window.workflow_timeline._outer._selected_index == 1
 
     signal.emit(_report(AutoLamellaTaskStatus.InProgress, item="01-fancy-mite"))
     assert bar.failure is None, "the next run starts clean"
@@ -492,3 +515,24 @@ def test_a_held_run_says_so_on_the_line(no_quit, qapp):
     assert "waiting" not in window.status_bar.text
     ui.microscope.disconnect()
     _close(window, qapp)
+
+
+def test_the_timeline_shows_its_first_failed_row(qapp):
+    from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
+        StepStatus,
+        TimelineStep,
+        WorkflowTimelineWidget,
+    )
+
+    timeline = WorkflowTimelineWidget()
+    timeline.set_steps(
+        [
+            TimelineStep("01 · Polishing", StepStatus.COMPLETED),
+            TimelineStep("02 · Polishing", StepStatus.FAILED),
+            TimelineStep("03 · Polishing", StepStatus.FAILED),
+        ]
+    )
+    assert timeline.show_first(StepStatus.FAILED) == 1
+    assert timeline._selected_index == 1
+    assert timeline.show_first(StepStatus.SKIPPED) is None
+    timeline.deleteLater()
