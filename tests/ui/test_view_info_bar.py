@@ -16,6 +16,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QLabel
 
 from fibsem import config as cfg
@@ -661,3 +662,123 @@ def test_a_chosen_image_does_not_light_up():
     editor.set_image(BeamType.ION, _with_wd(16.50e-3, BeamType.ION))
     editor.set_image(BeamType.ION, _with_wd(16.60e-3, BeamType.ION))
     assert editor.widget.fib_bar.highlighted_fields() == []
+
+
+# --- the status chips: does each view still match the stage? (FIB-1188) ------------
+
+
+def _chips(controller):
+    widget = controller.widget
+    return {
+        "SEM": widget.sem_canvas.status_chip,
+        "FIB": widget.fib_canvas.status_chip,
+        "FM": widget.fm_canvas.status_chip,
+    }
+
+
+def test_a_move_marks_every_view_with_an_image(controller):
+    controller.set_image(BeamType.ELECTRON, _beam_image())
+    controller.set_fm_image(_fm_image())
+    controller.stage_move_started()
+    assert _chips(controller) == {"SEM": "MOVING", "FIB": None, "FM": "MOVING"}, (
+        "a view with nothing on it has nothing to be stale"
+    )
+
+
+def test_retaken_views_say_acquiring_and_the_rest_say_stage_moved(controller):
+    controller.set_image(BeamType.ELECTRON, _beam_image())
+    controller.set_image(BeamType.ION, _beam_image(BeamType.ION))
+    controller.set_fm_image(_fm_image())
+    controller.stage_move_started()
+    controller.views_acquiring([BeamType.ELECTRON, BeamType.ION])
+    controller.stage_move_finished()
+    assert _chips(controller) == {
+        "SEM": "ACQUIRING",
+        "FIB": "ACQUIRING",
+        "FM": "STAGE MOVED",
+    }
+    controller.set_image(BeamType.ELECTRON, _beam_image())
+    assert _chips(controller)["SEM"] is None, "its new frame has landed"
+    controller.acquisition_done([BeamType.ELECTRON, BeamType.ION])  # no FIB frame
+    assert _chips(controller) == {
+        "SEM": None,
+        "FIB": "STAGE MOVED",
+        "FM": "STAGE MOVED",
+    }
+    controller.set_fm_image(_fm_image())
+    assert _chips(controller)["FM"] is None
+
+
+def test_a_plain_acquire_says_acquiring_until_its_frame_lands(controller):
+    controller.set_image(BeamType.ELECTRON, _beam_image())
+    controller.set_image(BeamType.ION, _beam_image(BeamType.ION))
+    controller.views_acquiring([BeamType.ION])
+    assert _chips(controller) == {"SEM": None, "FIB": "ACQUIRING", "FM": None}
+    controller.set_image(BeamType.ION, _beam_image(BeamType.ION))
+    controller.acquisition_done([BeamType.ION])
+    assert _chips(controller)["FIB"] is None
+
+
+def test_a_failed_acquire_leaves_the_view_as_it_was(controller):
+    """Nothing moved, so the old image is as good as it was: no chip."""
+    controller.set_image(BeamType.ION, _beam_image(BeamType.ION))
+    controller.views_acquiring([BeamType.ION])
+    controller.acquisition_done([BeamType.ION])
+    assert _chips(controller)["FIB"] is None
+
+
+def test_re_showing_the_same_image_is_not_a_new_frame(controller):
+    """The image widget puts both images back up after every acquisition; the one it
+    did not retake is still from before the move."""
+    image = _beam_image(BeamType.ION)
+    controller.set_image(BeamType.ION, image)
+    controller.stage_move_started()
+    controller.stage_move_finished()
+    controller.set_image(BeamType.ION, image)
+    assert _chips(controller)["FIB"] == "STAGE MOVED"
+
+
+def _badge(canvas):
+    badge = canvas._live_badge
+    return None if badge is None or badge.isHidden() else badge.text()
+
+
+def test_one_chip_at_a_time_moving_live_acquiring_stage_moved(controller):
+    """The green border already says live, so the corner says the most urgent thing."""
+    controller.set_image(BeamType.ELECTRON, _beam_image())
+    canvas = controller.widget.sem_canvas
+    controller.set_live(BeamType.ELECTRON, True)
+    assert _badge(canvas) == "● LIVE"
+    controller.stage_move_started()
+    assert _badge(canvas) == "MOVING", "the stage moving outranks live"
+    controller.set_image(BeamType.ELECTRON, _beam_image())  # a live frame, mid-move
+    assert _badge(canvas) == "MOVING", "a frame mid-move does not end the move"
+    controller.views_acquiring([BeamType.ELECTRON])
+    assert _badge(canvas) == "● LIVE", "a frame on its way is no news while live"
+    controller.set_live(BeamType.ELECTRON, False)
+    assert _badge(canvas) == "ACQUIRING"
+
+
+def test_a_live_view_has_no_chip_once_the_move_is_over(controller):
+    controller.set_image(BeamType.ELECTRON, _beam_image())
+    controller.set_image(BeamType.ION, _beam_image(BeamType.ION))
+    controller.set_live(BeamType.ELECTRON, True)
+    controller.stage_move_started()
+    controller.stage_move_finished()
+    assert _chips(controller)["SEM"] is None, "its next frame is of where it stopped"
+    assert _chips(controller)["FIB"] == "STAGE MOVED"
+
+
+def test_a_cleared_view_has_no_chip(controller):
+    controller.set_image(BeamType.ELECTRON, _beam_image())
+    controller.stage_move_started()
+    controller.widget.sem_canvas.clear()
+    assert controller.widget.sem_canvas.status_chip is None
+
+
+def test_the_chip_passes_clicks_through_to_the_image(controller):
+    """A chip over the image must not eat a double-click-to-move (the FIB-650 trap)."""
+    controller.set_image(BeamType.ELECTRON, _beam_image())
+    controller.stage_move_started()
+    badge = controller.widget.sem_canvas._live_badge
+    assert badge.testAttribute(Qt.WA_TransparentForMouseEvents)
