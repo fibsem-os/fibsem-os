@@ -120,8 +120,10 @@ from fibsem.structures import (
 from fibsem.util.timestamps import now, now_iso
 
 if TYPE_CHECKING:
+    from fibsem.alignment import AlignmentResult
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.autofunctions.autofocus import AutoFocusResult
     from fibsem.fm.structures import FluorescenceImage
 
 TAutoLamellaTaskConfig = TypeVar(
@@ -211,6 +213,14 @@ class AutoLamellaTask(ABC):
     def display_name(self) -> str:
         """Return the display name of the task type."""
         return self.config.display_name
+
+    @property
+    def output_dir(self) -> str:
+        """Where this task's run writes what it makes: its alignment and
+        autofocus runs, its milling. Every save path a run hands on starts here,
+        so where a task writes is decided once rather than at each call
+        (FIB-1253). The lamella's folder, for now."""
+        return str(self.lamella.path)
 
     @property
     def validate(self) -> bool:
@@ -727,6 +737,7 @@ class AutoLamellaTask(ABC):
                     milling_config,
                     stop_event=self._stop_event,
                     raise_on_failure=True,
+                    output_dir=self.output_dir,
                 )
                 return milling_task.config
             return milling_config
@@ -791,8 +802,10 @@ class AutoLamellaTask(ABC):
             timeout=INSTRUCTION_TIMEOUT_S,
         )
 
-    def _align_reference_image(self, filename: str):
-        """Align to a reference image."""
+    def _align_reference_image(self, filename: str) -> Optional["AlignmentResult"]:
+        """Align to a reference image in the lamella's folder, saving the run
+        under the task's output folder. Returns what the alignment measured, or
+        None when the reference image does not exist."""
         # beam_shift alignment
         self.log_status_message("ALIGN_REFERENCE_IMAGE", "Aligning Reference Images...")
         full_filename = os.path.join(self.lamella.path, filename)
@@ -803,21 +816,25 @@ class AutoLamellaTask(ABC):
                 f"Reference image {full_filename} for alignment does not exist, "
                 f"but was requested by {self.task_name}. Skipping alignment."
             )
-            return
+            return None
 
         # load reference image, align
         ref_image = FibsemImage.load(full_filename)
-        alignment.multi_step_alignment_v2(
+        return alignment.multi_step_alignment_v2(
             microscope=self.microscope,
             ref_image=ref_image,
             use_autocontrast=True,
             steps=MAX_ALIGNMENT_ATTEMPTS,
             stop_event=self._stop_event,
             run_name=f"{self.lamella.name} - {self.task_name}",
+            path=os.path.join(self.output_dir, alignment.ALIGNMENT_SUBDIR),
         )
 
-    def _run_autofocus(self, beam_type: BeamType, hfw: Optional[float] = None) -> None:
-        """Run the image-based autofocus sweep, saving diagnostics to the lamella path.
+    def _run_autofocus(
+        self, beam_type: BeamType, hfw: Optional[float] = None
+    ) -> Optional["AutoFocusResult"]:
+        """Run the image-based autofocus sweep, saving diagnostics under the task's
+        output folder. Returns what it measured, or None when the sweep was skipped.
 
         Args:
             beam_type: which beam to focus.
@@ -867,10 +884,10 @@ class AutoLamellaTask(ABC):
                 f"Autofocus skipped: the {beam_type.name} working distance is not settable on this system.",
                 f"Autofocus skipped ({beam_type.name})",
             )
-            return
+            return None
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         result.save(
-            path=os.path.join(self.lamella.path, "autofunctions"),
+            path=os.path.join(self.output_dir, "autofunctions"),
             name=f"{self.task_name}_autofocus_{ts}",
         )
         self.log_status_message(
@@ -878,6 +895,7 @@ class AutoLamellaTask(ABC):
             f"Autofocus (image-based): WD={result.working_distance * 1e3:.3f}mm score={result.focus_score:.2f}",
             f"Autofocus complete: WD={result.working_distance * 1e3:.3f}mm",
         )
+        return result
 
     def _acquire_reference_image(
         self,

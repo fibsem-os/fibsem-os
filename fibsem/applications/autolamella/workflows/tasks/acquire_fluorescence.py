@@ -260,7 +260,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         try:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             result.save(
-                path=os.path.join(self.lamella.path, "autofunctions"),
+                path=os.path.join(self.output_dir, "autofunctions"),
                 name=f"{self.task_name}_autofocus_{ts}",
             )
         except Exception as e:

@@ -76,9 +76,13 @@ def plot_multi_step_alignment(
 
     from matplotlib.figure import Figure
 
-    ref_path, prefix, ts = _alignment_save_path(ref_image)
+    # Only derived when no path was given: deriving it creates <reference's
+    # folder>/Alignment, which left an empty folder beside the reference image
+    # whenever the caller said where the run goes.
     if path is not None:
         ref_path = path
+    else:
+        ref_path, _, _ = _alignment_save_path(ref_image)
     ref_filename = ImageSettings.fromFibsemImage(ref_image).filename
     timestamp_str = datetime.now().strftime(DATETIME_DISPLAY)
     if title is None:
