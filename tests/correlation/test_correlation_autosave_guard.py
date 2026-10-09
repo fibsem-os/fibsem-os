@@ -78,12 +78,10 @@ def test_opening_a_saved_run_keeps_its_picks_on_disk_and_shows_them(widget, tmp_
 
     assert len(widget.data.fib_coordinates) == 8
     assert len(widget.data.fm_coordinates) == 8
-    with open(path) as fh:
-        raw = json.load(fh)
-    # the load may re-save the same state (adding the image's name and shape,
-    # which the file did not have); the user's picks are what must survive
-    for key in ("fib_coordinates", "fm_coordinates"):
-        assert raw["input_data"][key] == json.loads(before)["input_data"][key]
+    # an open writes nothing at all: re-saving it recorded the names of
+    # whatever images happened to be loaded (FIB-1237)
+    with open(path, "rb") as fh:
+        assert fh.read() == before
 
 
 def test_an_image_load_alone_never_writes(widget, tmp_path):
