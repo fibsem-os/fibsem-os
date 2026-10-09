@@ -243,6 +243,82 @@ def test_a_spot_burn_that_fails_says_why_in_red(slot):
     assert "#d04040" in slot._step.styleSheet()
 
 
+# --- a run's failures, and a run that waits -------------------------------------
+
+
+def test_a_failure_stays_with_details_and_dismiss(slot):
+    slot.show_failure(
+        "Run finished",
+        "1 of 4 failed · 02-civil-cub › Polishing: no focus peak",
+        ["02-civil-cub › Polishing: no focus peak"],
+    )
+    assert slot.showing == "failure"
+    assert (
+        slot.text
+        == "Run finished 1 of 4 failed · 02-civil-cub › Polishing: no focus peak"
+    )
+    assert "#d04040" in slot._step.styleSheet()
+    assert not slot._details_btn.isHidden() and not slot._dismiss_btn.isHidden()
+    _outlast_the_outcome()
+    assert slot.showing == "failure", "a failure is not an outcome: it stays"
+    slot._dismiss_btn.click()
+    assert slot.text == INSTRUCTION
+    assert slot._details_btn.isHidden() and slot._dismiss_btn.isHidden()
+
+
+def test_details_lists_each_failure(slot, monkeypatch):
+    from fibsem.ui.widgets import status_bar
+
+    shown = []
+    monkeypatch.setattr(
+        status_bar.QMessageBox,
+        "information",
+        lambda parent, title, text: shown.append((title, text)),
+    )
+    slot.show_failure("Run finished", "2 of 4 failed", ["a: one", "b: two"])
+    slot._details_btn.click()
+    assert shown == [("Run finished", "a: one\nb: two")]
+
+
+def test_a_stage_move_passes_over_a_failure_and_gives_it_back(slot):
+    slot.show_failure("Run finished", "1 of 4 failed")
+    slot.set_stage_activity("Moving the stage…")
+    assert slot.showing == "operation"
+    assert slot._dismiss_btn.isHidden()
+    slot.set_stage_activity(None)
+    assert slot.showing == "failure"
+
+
+def test_a_held_run_says_what_releases_it_and_counts_the_wait(slot, monkeypatch):
+    from fibsem.ui.widgets import status_bar
+
+    now = [1000.0]
+    monkeypatch.setattr(status_bar.time, "monotonic", lambda: now[0])
+    slot.set_run("01-fancy-mite › Rough Milling", None, "3 of 5")
+    slot.set_waiting("review the milling patterns")
+    assert slot.text == (
+        "01-fancy-mite › Rough Milling review the milling patterns · waiting 0:00 · 3 of 5"
+    )
+    now[0] += 134
+    slot.set_waiting("review the milling patterns")  # the same hold keeps its clock
+    assert "waiting 2:14" in slot.text
+    slot.set_waiting(None)
+    assert slot.text == "01-fancy-mite › Rough Milling · 3 of 5"
+
+
+def test_a_failed_task_names_itself_while_the_run_moves_on(slot):
+    slot.set_run("03-next-one › Polishing", None, "4 of 5")
+    slot.show_outcome(
+        "02-civil-cub › Polishing",
+        "failed: no focus peak",
+        failed=True,
+        standalone=True,
+    )
+    assert slot.text == "02-civil-cub › Polishing failed: no focus peak"
+    _outlast_the_outcome()
+    assert slot.text == "03-next-one › Polishing · 4 of 5"
+
+
 # --- the real windows ----------------------------------------------------------
 
 
@@ -334,4 +410,85 @@ def test_fibsem_shows_milling_from_its_microscope(qapp):
     window.system_widget.connect_to_microscope()
     window.microscope.milling_progress_signal.emit(_stage_started())
     assert window.status_bar.text == "Preparing: Rough Mill stage 2 of 3"
+    _close(window, qapp)
+
+
+def _report(status, item="02-civil-cub", task="Polishing", error=None):
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        WorkflowStatusEvent,
+        WorkflowStatusUpdate,
+    )
+
+    return WorkflowStatusEvent(
+        report=WorkflowStatusUpdate(
+            task_name=task,
+            item_name=item,
+            status=status,
+            error_message=error,
+            queue_position=2,
+            queue_total=4,
+            queue_items=None,
+        )
+    )
+
+
+def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
+    no_quit, qapp, monkeypatch
+):
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.ui import notification_service
+
+    toasts = []
+    monkeypatch.setattr(
+        notification_service, "show_toast", lambda msg, *a, **k: toasts.append(msg)
+    )
+    window = module.AutoLamellaSingleWindowUI()
+    # A report locks the protocol editor, whose UI the first connect builds.
+    window.autolamella_ui.system_widget.connect_to_microscope()
+    signal = window.autolamella_ui.workflow_status_signal
+    signal.emit(_report(AutoLamellaTaskStatus.InProgress))
+    signal.emit(_report(AutoLamellaTaskStatus.Failed, error="no focus peak"))
+    assert window.status_bar.text == "02-civil-cub › Polishing failed: no focus peak"
+
+    window._on_workflow_finished()
+    bar = window.status_bar
+    assert bar.showing == "failure"
+    assert bar.text == (
+        "Run finished 1 of 4 failed · 02-civil-cub › Polishing: no focus peak"
+    )
+    assert bar.failure_details == ("02-civil-cub › Polishing: no focus peak",)
+    assert "Workflow finished." not in toasts, "the line says it, not a toast"
+
+    signal.emit(_report(AutoLamellaTaskStatus.InProgress, item="01-fancy-mite"))
+    assert bar.failure is None, "the next run starts clean"
+    window._on_workflow_finished()
+    assert bar.failure is None
+    assert toasts[-1] == "Workflow finished."
+    window.autolamella_ui.microscope.disconnect()
+    _close(window, qapp)
+
+
+def test_a_held_run_says_so_on_the_line(no_quit, qapp):
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+    from fibsem.applications.autolamella.workflows.tasks.status import (
+        Hold,
+        HoldKind,
+        WorkflowStatusEvent,
+    )
+
+    window = module.AutoLamellaSingleWindowUI()
+    ui = window.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    ui.workflow_status_signal.emit(_report(AutoLamellaTaskStatus.InProgress))
+    ui.hold = Hold(HoldKind.question, "answer the question on the Microscope tab")
+    ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert window.status_bar.text.startswith(
+        "02-civil-cub › Polishing answer the question on the Microscope tab · waiting"
+    )
+    ui.hold = None
+    ui.workflow_status_signal.emit(WorkflowStatusEvent())
+    assert "waiting" not in window.status_bar.text
+    ui.microscope.disconnect()
     _close(window, qapp)
