@@ -65,8 +65,10 @@ def _result(data: CorrelationInputData) -> CorrelationResult:
 
 
 def test_a_windows_path_recorded_on_the_instrument_reduces_to_its_file_name():
-    recorded = r"C:\Users\User\Desktop\2026\exp\01-fancy-mite\01-fancy-mite-zstack-18-56-36.ome.tiff"
-    assert recorded_image_basename(recorded) == "01-fancy-mite-zstack-18-56-36.ome.tiff"
+    recorded = (
+        r"C:\Users\User\Desktop\2026\exp\01-lamella\01-lamella-zstack-12-00-00.ome.tiff"
+    )
+    assert recorded_image_basename(recorded) == "01-lamella-zstack-12-00-00.ome.tiff"
 
 
 def test_an_old_stem_and_the_file_it_was_saved_as_are_the_same_image():
