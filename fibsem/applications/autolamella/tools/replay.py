@@ -57,8 +57,8 @@ _SPOT = re.compile(
     r"burning spot (\d+): Point\(x=([-+\d.e]+), y=([-+\d.e]+).*?"
     r"exposure time: ([-+\d.e]+), milling current: ([-+\d.e]+)"
 )
-# The functions that log that line: the microscope's own spot burn, and the spot burn
-# service's point-by-point burn (`SpotBurn._burn`).
+# The functions that log that line: the spot burn service's point-by-point burn
+# (`SpotBurn._burn`), and the microscope's own spot burn in logs from before it.
 _SPOT_LOGGERS = ("run_spot_burn", "_burn")
 # `prompt answered: PickPOI response=True by=operator adjusted=False`
 _PROMPT = re.compile(

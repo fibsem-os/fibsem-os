@@ -1,12 +1,12 @@
-"""Thermo's spot burn makes the same SDK calls through the spot burn service.
+"""Thermo's spot burn through the spot burn service makes the SDK calls it always made.
 
-Each case burns on a ThermoMicroscope with the service built as connect builds it, and
-again on the same microscope without one, so that the microscope's own spot burn runs,
+Each case burns on a ThermoMicroscope with the service built as connect builds it,
 over the fake AutoScript client of ``autoscript_beam_parity.py``, which records every
-SDK call and write. The two must make the same calls in the same order, log the same
-messages and report the same progress. The recording runs in its own interpreter
-(``tests/fixtures/autoscript_spot_burn_parity.py``); the exposures are whole seconds,
-which the microscope's own burn counted down in. Nothing here has run on an instrument.
+SDK call and write. The calls, log lines and progress are pinned to what the
+microscope's own burn made before the service replaced it (it was checked against the
+service call for call until it was removed). The recording runs in its own interpreter
+(``tests/fixtures/autoscript_spot_burn_parity.py``). Nothing here has run on an
+instrument.
 """
 
 import json
@@ -54,25 +54,94 @@ def test_thermo_burns_through_the_service(recording):
     assert facts["no_ion"]
 
 
-def test_every_case_burns_and_makes_sdk_calls(recording):
+BEAM = "connection.beams.ion_beam"
+BURN_AT = [["set", f"{BEAM}.beam_current.value", 1e-09]]
+PUT_BACK = [
+    ["call", f"{BEAM}.scanning.mode.set_full_frame", [], "{}"],
+    ["set", f"{BEAM}.beam_current.value", 2e-11],
+]
+BURNING = (
+    "burning spot {}: Point(x={}, y={}, name=None), exposure time: {}, "
+    "milling current: 1e-09"
+)
+
+
+def _spot(x, y):
+    return [
+        ["call", f"{BEAM}.blank", [], "{}"],
+        ["call", f"{BEAM}.scanning.mode.set_spot", [], f"{{'x': {x}, 'y': {y}}}"],
+        ["call", f"{BEAM}.unblank", [], "{}"],
+    ]
+
+
+# Per case: the SDK calls in order, the log lines, and the progress reported as
+# (status, current point, seconds left on it).
+PINNED = {
+    "two points": (
+        BURN_AT + _spot(0.2, 0.3) + _spot(0.7, 0.4) + PUT_BACK,
+        [
+            ["INFO", BURNING.format(1, 0.2, 0.3, 2.0)],
+            ["INFO", BURNING.format(2, 0.7, 0.4, 2.0)],
+        ],
+        [
+            ("burning", 0, 2.0),
+            ("burning", 1, 1.0),
+            ("burning", 1, 0.0),
+            ("burning", 2, 1.0),
+            ("burning", 2, 0.0),
+            ("finished", 2, None),
+        ],
+    ),
+    "a point outside the image": (
+        BURN_AT + _spot(0.5, 0.5) + PUT_BACK,
+        [
+            [
+                "WARNING",
+                "Skipping 1 spot burn coordinate(s) outside image bounds (0-1): "
+                "[Point(x=1.5, y=0.5, name=None)]",
+            ],
+            ["INFO", BURNING.format(1, 0.5, 0.5, 2.0)],
+        ],
+        [
+            ("burning", 0, 2.0),
+            ("burning", 1, 1.0),
+            ("burning", 1, 0.0),
+            ("finished", 1, None),
+        ],
+    ),
+    "one point, one second": (
+        BURN_AT + _spot(0.5, 0.5) + PUT_BACK,
+        [["INFO", BURNING.format(1, 0.5, 0.5, 1.0)]],
+        [("burning", 0, 1.0), ("burning", 1, 0.0), ("finished", 1, None)],
+    ),
+    "stopped before the first point": (
+        BURN_AT + PUT_BACK,
+        [["INFO", "Spot burn cancelled before point 1/1."]],
+        [("burning", 0, 2.0), ("cancelled", 1, None)],
+    ),
+}
+
+
+def test_every_case_is_recorded(recording):
     assert [c["key"] for c in recording["cases"]] == KEYS
-    for case in recording["cases"]:
-        result, calls, _, reports = case["new"]
-        assert result is None, case["key"]
-        assert calls, case["key"]
-        assert reports[-1]["status"] in ("finished", "cancelled"), case["key"]
 
 
 @pytest.mark.parametrize("key", KEYS)
-def test_the_service_makes_the_same_calls_logs_and_reports(recording, key):
-    case = _case(recording, key)
-    assert case["new"] == case["old"]
+def test_a_burn_makes_the_calls_logs_and_reports_it_always_made(recording, key):
+    result, calls, messages, reports = _case(recording, key)["burn"]
+    pinned_calls, pinned_messages, pinned_reports = PINNED[key]
+    assert result is None
+    assert calls == pinned_calls
+    assert messages == pinned_messages
+    assert [
+        (r["status"], r["current_point"], r["remaining_time"]) for r in reports
+    ] == pinned_reports
 
 
 def test_a_burn_parks_blanked_and_puts_the_beam_back(recording):
     writes = [
         entry[1]
-        for entry in _case(recording, "two points")["new"][1]
+        for entry in _case(recording, "two points")["burn"][1]
         if entry[0] in ("set", "call")
     ]
     beam = "connection.beams.ion_beam"

@@ -1,12 +1,11 @@
-"""Record the AutoScript calls of Thermo's spot burn, through the service and without.
+"""Record the AutoScript calls of Thermo's spot burn through the spot burn service.
 
 Run as a script, in its own interpreter, for the same reason as
 ``autoscript_beam_parity.py``, whose fake SDK, microscope and recorder it reuses. It
-writes JSON to the path it is given: ``cases``, each holding, for one burn, what it
-returned, the SDK calls and writes it made, the messages it logged and the progress it
-reported, once on a microscope with the spot burn service built as connect builds it
-(``new``) and once on the same microscope with none, so the microscope's own spot
-burn runs (``old``); and ``facts``, what the service is.
+writes JSON to the path it is given: ``cases``, each holding, for one burn on a
+microscope with the service built as connect builds it, what it returned, the SDK
+calls and writes it made, the messages it logged and the progress it reported; and
+``facts``, what the service is.
 """
 
 import json
@@ -26,12 +25,10 @@ from fibsem.structures import Point  # noqa: E402
 time.sleep = lambda seconds: None
 
 
-def make(service):
+def make():
     microscope = B.make(plasma=False)
     microscope._build_beams()
     microscope._build_spot_burn()
-    if not service:
-        microscope.spot_burn = None
     return microscope
 
 
@@ -47,7 +44,6 @@ def _stopped():
     return event
 
 
-# Whole-second exposures: the microscope's own burn counts down in 1 s steps.
 CASES = (
     (
         "two points",
@@ -68,8 +64,8 @@ CASES = (
 )
 
 
-def _burn(service, call):
-    microscope = make(service)
+def _burn(call):
+    microscope = make()
     reports = []
     microscope.spot_burn_progress_signal.connect(
         lambda p: reports.append({**vars(p), "status": p.status.value})
@@ -79,16 +75,13 @@ def _burn(service, call):
 
 
 def cases():
-    return [
-        {"key": key, "old": _burn(False, call), "new": _burn(True, call)}
-        for key, call in CASES
-    ]
+    return [{"key": key, "burn": _burn(call)} for key, call in CASES]
 
 
 def facts():
     from fibsem.services.spot_burn import SpotBurn
 
-    spot_burn = make(True).spot_burn
+    spot_burn = make().spot_burn
     no_ion = B.make(plasma=False, ion=False)
     no_ion._build_beams()
     no_ion._build_spot_burn()

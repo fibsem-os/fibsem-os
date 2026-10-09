@@ -1,11 +1,11 @@
 """Tescan spot burn through the spot burn service, which drives the milling service.
 
 Each case runs over the fake SDK (tests/fixtures/tescan_sdk.py) with the DrawBeam of
-test_tescan_milling_service.py. The reference is the microscope's own DrawBeam spot
-burn, which still runs when the service is not built (``spot_burn = None``): the same
-layer, the same dots in the same order. What the service changes on purpose is asserted
-on its own: the preset and field of view are put back, and the milling progress signal
-stays quiet while it burns.
+test_tescan_milling_service.py. The layer and its dots are pinned to what the
+microscope's own DrawBeam spot burn drew before the service replaced it (it was checked
+against the service layer for layer until it was removed). What the service changed on
+purpose is asserted on its own: the preset and field of view are put back, and the
+milling progress signal stays quiet while it burns.
 """
 
 import threading
@@ -39,11 +39,9 @@ def tescan(connect, monkeypatch):
     )
     monkeypatch.setattr(tescan_module.time, "sleep", lambda s: None)
 
-    def make(service=True, running_looks=2):
+    def make(running_looks=2):
         microscope, fake = connect()
         microscope.milling.poll_interval = 0
-        if not service:
-            microscope.spot_burn = None
         _finishing(fake, running_looks)
         # the resolution of the last image, which the points are scaled to
         microscope.beams[BeamType.ION]._cache.resolution = (1536, 1024)
@@ -80,7 +78,7 @@ def _settings(*points, exposure_time=2.0, milling_current=1e-9):
 
 def layer(fake):
     """The layer's settings and the dots drawn on it, in order. (The layer's name is
-    left out: milling names its layers "Layer1", the old burn "SpotBurn".)"""
+    left out: milling names its layers "Layer1", the old burn named it "SpotBurn".)"""
     return [(p, k) for p, _, k in fake.log if p in ("DrawBeam.Layer", "Layer.addDot")]
 
 
@@ -106,20 +104,46 @@ def test_tescan_builds_its_spot_burn_service(tescan):
     assert set(spot_burn.supported_settings()) == {"coordinates", "exposure_time"}
 
 
-@pytest.mark.parametrize(
-    "points",
-    [TWO, (Point(0.5, 0.5),), (Point(1.5, 0.5), Point(0.5, 0.5), Point(-0.1, 0.2))],
+# The layer the old burn drew, at a 0.15 mm field of view over a 1536 x 1024 image.
+LAYER = (
+    "DrawBeam.Layer",
+    {
+        "syncWriteField": False,
+        "writeFieldSize": 0.00015,
+        "beamCurrent": 5e-11,
+        "spotSize": 1e-06,
+        "rate": 1.3e-08,
+        "dwellTime": 1e-06,
+        "parallel": False,
+        "preset": SPOT_BURN_PRESET,
+        "spacing": 0.005,
+    },
 )
-def test_the_service_draws_the_same_layer_as_the_microscope_s_own_burn(tescan, points):
-    old, old_fake = tescan(service=False)
-    old.run_spot_burn(_settings(*points))
-    new, new_fake = tescan()
-    new.run_spot_burn(_settings(*points))
 
-    assert layer(new_fake) == layer(old_fake)
-    assert len([p for p, _ in layer(new_fake) if p == "Layer.addDot"]) == len(
-        [p for p in points if 0 <= p.x <= 1 and 0 <= p.y <= 1]
+
+def _dot(x, y):
+    return (
+        "Layer.addDot",
+        {"CenterX": x, "CenterY": y, "Depth": 2.0, "DepthUnit": "Second"},
     )
+
+
+@pytest.mark.parametrize(
+    "points, dots",
+    [
+        (TWO, [_dot(-3.75e-05, 2.5e-05), _dot(3.75e-05, 0.0)]),
+        ((Point(0.5, 0.5),), [_dot(0.0, 0.0)]),
+        ((Point(1.5, 0.5), Point(0.5, 0.5), Point(-0.1, 0.2)), [_dot(0.0, 0.0)]),
+    ],
+)
+def test_the_service_draws_the_layer_the_old_burn_drew(tescan, points, dots):
+    microscope, fake = tescan()
+    microscope.run_spot_burn(_settings(*points))
+    drawn = layer(fake)
+    assert drawn[0] == LAYER
+    assert [p for p, _ in drawn[1:]] == [p for p, _ in dots]
+    for (_, got), (_, want) in zip(drawn[1:], dots):
+        assert got == pytest.approx(want)
 
 
 def test_the_dots_are_timed_at_the_exposure(tescan):
@@ -142,6 +166,8 @@ def test_the_layer_is_loaded_run_and_unloaded(tescan):
 
 
 def test_it_burns_at_the_spot_burn_preset_and_puts_the_preset_back(tescan):
+    """What the service changed: the old burn left the preset to the layer and
+    activated none afterwards."""
     microscope, fake = tescan()
     fake.FIB.Optics.viewfield = 0.15  # mm
     microscope.run_spot_burn(_settings(*TWO))
@@ -150,14 +176,6 @@ def test_it_burns_at_the_spot_burn_preset_and_puts_the_preset_back(tescan):
     assert settings["preset"] == SPOT_BURN_PRESET
     assert settings["writeFieldSize"] == pytest.approx(0.15e-3)
     assert settings["parallel"] is False
-
-
-def test_the_old_burn_never_put_the_preset_back(tescan):
-    """What the service changes: the microscope's own burn left the preset to the
-    layer, and activated none afterwards."""
-    microscope, fake = tescan(service=False)
-    microscope.run_spot_burn(_settings(*TWO))
-    assert activated(fake) == []
 
 
 def test_a_burn_reports_spot_burn_progress_not_milling(tescan):

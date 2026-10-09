@@ -304,8 +304,8 @@ def in_bounds(points: Sequence[Point]) -> Tuple[List[Point], List[Point]]:
 
 def bind_spot_burn(service: Type[_S], microscope: Any) -> Optional[_S]:
     """Build a microscope's spot burn service of class *service* over its ion beam,
-    or None when that beam can't burn (no ion beam, or one that can't park), which
-    leaves the microscope's own spot burn code in charge."""
+    or None when that beam can't burn (no ion beam, or one that can't park), and
+    ``run_spot_burn`` then raises."""
     ion = microscope.beams.get(BeamType.ION)
     if not service._can_burn(ion):
         return None

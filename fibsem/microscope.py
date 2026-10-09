@@ -341,8 +341,8 @@ class FibsemMicroscope(ABC):
     #: a stop has nothing to stop, and the state reads idle.
     milling: Optional[Milling] = None
     #: The spot burn service over the beams (`fibsem.services.spot_burn.SpotBurn`);
-    #: `run_spot_burn` goes to it. None where the driver builds none: the method
-    #: below burns itself then.
+    #: `run_spot_burn` goes to it. None when the ion beam can't burn (not built,
+    #: or it can't blank and park): the method raises then.
     spot_burn: Optional[SpotBurn] = None
     #: The file `system` was loaded from, when it was loaded from one. Set by
     #: `utils.setup_session`; what a calibration action writes back to.
@@ -2544,171 +2544,31 @@ class FibsemMicroscope(ABC):
     ) -> None:
         """Burn each coordinate in *settings* with the beam for the configured exposure time.
 
-        Goes to the microscope's spot burn service, ``spot_burn``, where the driver
-        builds one. Without one, the implementation below runs: blank -> park the beam on the point (spot scanning mode)
-        -> unblank, at ``settings.milling_current``, restoring full-frame scanning and
-        the imaging current afterwards. Backends whose scan API cannot park the beam
-        (e.g. TESCAN, whose FIB has no blanker) override this with a native
-        implementation.
-
-        Progress is reported via ``spot_burn_progress_signal`` (a dict), which the
-        status bar and the spot burn widget subscribe to.
+        Goes to the microscope's spot burn service, ``spot_burn``. Progress is reported
+        via ``spot_burn_progress_signal``, which the status bar and the spot burn
+        widget subscribe to.
 
         Args:
             settings: What to burn — coordinates (0-1 image coordinates), exposure time
                 per point in seconds, and the milling current to burn at.
-            beam_type: The type of beam to use. (Default: BeamType.ION)
+            beam_type: The type of beam to use. Only the ion beam burns.
+                (Default: BeamType.ION)
             stop_event: Threading event to signal cancellation. (Default: None)
+
+        Raises:
+            ValueError: *beam_type* is not the ion beam, or there is no spot burn
+                service on this microscope.
         """
-        if self.spot_burn is not None:
-            # The service burns with the ion beam only, as Tescan always has.
-            if beam_type is not BeamType.ION:
-                raise ValueError(
-                    f"Spot burn is only supported on the ion beam, got {beam_type.name}."
-                )
-            self.spot_burn.run(settings, stop_event=stop_event)
-            return
-        # - QUERY: do we need to set the full frame scanning mode each time, or only at the end?
-        SLEEP_TIME = 1
-
-        # coerce numeric parameters: protocol-editor fields can arrive as strings
-        # (e.g. "3e-11"), which would break beam-current/timing arithmetic on hardware.
-        # Read into locals rather than writing back — settings belongs to the caller.
-        exposure_time = float(settings.exposure_time)
-        milling_current = float(settings.milling_current)
-
-        # drop points outside the image bounds (0-1 normalised); set_spot rejects out-of-range
-        # coordinates on hardware. The supervised widget filters these, so filter here too for
-        # the unsupervised/automatic path (coordinates come straight from the stored config).
-        in_bounds, dropped = [], []
-        for pt in settings.coordinates:
-            (in_bounds if 0 <= pt.x <= 1 and 0 <= pt.y <= 1 else dropped).append(pt)
-        if dropped:
-            logging.warning(
-                f"Skipping {len(dropped)} spot burn coordinate(s) outside image bounds (0-1): {dropped}"
+        if beam_type is not BeamType.ION:
+            raise ValueError(
+                f"Spot burn is only supported on the ion beam, got {beam_type.name}."
             )
-        coordinates = in_bounds
-
-        self._record_spot_burn_started(
-            coordinates, beam_type, exposure_time, milling_current, len(dropped)
-        )
-
-        total_estimated_time = len(coordinates) * exposure_time
-        total_remaining_time = total_estimated_time
-
-        # emit initial progress signal
-        self.spot_burn_progress_signal.emit(
-            SpotBurnProgress(
-                status=SpotBurnStatus.BURNING,
-                current_point=0,
-                total_points=len(coordinates),
-                remaining_time=exposure_time,
-                total_remaining_time=total_remaining_time,
-                total_estimated_time=total_estimated_time,
+        if self.spot_burn is None:
+            raise ValueError(
+                "There is no spot burn on this microscope: the ION beam is not "
+                "enabled, or it can't blank and park."
             )
-        )
-
-        cancelled = False
-
-        # Read before the `try`, so the `finally` below can always restore it. A
-        # failure here means there is nothing to restore anyway.
-        imaging_current = self.get_beam_current(beam_type=beam_type)
-
-        try:
-            self.set_beam_current(current=milling_current, beam_type=beam_type)
-
-            for i, pt in enumerate(coordinates, 1):
-                if stop_event is not None and stop_event.is_set():
-                    logging.info(
-                        f"Spot burn cancelled before point {i}/{len(coordinates)}."
-                    )
-                    cancelled = True
-                    break
-
-                logging.info(
-                    f"burning spot {i}: {pt}, exposure time: {exposure_time}, milling current: {milling_current}"
-                )
-
-                self.blank(beam_type=beam_type)
-                self.set_spot_scanning_mode(point=pt, beam_type=beam_type)
-                self.unblank(beam_type=beam_type)
-
-                # countdown for the exposure time, emit progress signal
-                remaining_time = exposure_time
-                while remaining_time > 0:
-                    if stop_event is not None and stop_event.is_set():
-                        self.blank(beam_type=beam_type)
-                        logging.info(
-                            f"Spot burn cancelled during point {i}/{len(coordinates)}."
-                        )
-                        cancelled = True
-                        break
-                    time.sleep(SLEEP_TIME)
-                    remaining_time -= SLEEP_TIME
-                    total_remaining_time -= SLEEP_TIME
-                    self.spot_burn_progress_signal.emit(
-                        SpotBurnProgress(
-                            status=SpotBurnStatus.BURNING,
-                            current_point=i,
-                            total_points=len(coordinates),
-                            remaining_time=remaining_time,
-                            total_remaining_time=total_remaining_time,
-                            total_estimated_time=total_estimated_time,
-                        )
-                    )
-
-                if cancelled:
-                    # The inner `break` only leaves this point's countdown. The outer
-                    # loop's own stop_event check would catch it on the next iteration
-                    # anyway, so this is not a fix -- it just stops the run here rather
-                    # than one log line later, now that the outcome is recorded.
-                    break
-
-            # A cancelled burn is not a completed one. Both used to emit `{"finished": True}`,
-            # so cancelling rendered "Done" -- the defect the status enum exists to remove.
-            self.spot_burn_progress_signal.emit(
-                SpotBurnProgress(
-                    status=SpotBurnStatus.CANCELLED
-                    if cancelled
-                    else SpotBurnStatus.FINISHED,
-                    current_point=len(coordinates),
-                    total_points=len(coordinates),
-                )
-            )
-        except Exception as e:
-            logging.error(f"Error in run_spot_burn: {e}")
-            # The failure terminal belongs to the producer. It used to be emitted by
-            # `FibsemSpotBurnWidget`, which only ever sees a burn it started itself --
-            # so an unsupervised workflow burn that raised (`tasks/spot_burn.py` calls
-            # this directly) reported nothing at all, and left the bar mid-run for the
-            # rest of the session.
-            self.spot_burn_progress_signal.emit(
-                SpotBurnProgress(status=SpotBurnStatus.FAILED, error=str(e))
-            )
-            raise
-        finally:
-            # Restores the beam on the failing path too. The comment above this block
-            # used to say "always restore" while sitting in the success path only, so a
-            # burn that raised left the beam parked in spot scanning mode at the
-            # milling current -- a hazard, not just untidy state.
-            #
-            # Each restore is guarded separately so that a failing restore cannot
-            # replace the exception that actually ended the run: an error raised in a
-            # `finally` discards the one in flight, and the original is the one worth
-            # having. They are also independent -- neither should be skipped because
-            # the other failed.
-            try:
-                self.set_full_frame_scanning_mode(beam_type=beam_type)
-            except Exception:
-                logging.exception(
-                    "Failed to restore full-frame scanning after the spot burn"
-                )
-            try:
-                self.set_beam_current(current=imaging_current, beam_type=beam_type)
-            except Exception:
-                logging.exception(
-                    "Failed to restore the imaging current after the spot burn"
-                )
+        self.spot_burn.run(settings, stop_event=stop_event)
 
     def get_beam_current(self, beam_type: BeamType) -> float:
         """Get the beam current for the specified beam type."""
