@@ -65,7 +65,7 @@ from fibsem.devices.entries import (
 )
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.drivers.demo.devices import bind_demo_fm
-from fibsem.drivers.demo.services import bind_demo_milling
+from fibsem.drivers.demo.services import bind_demo_milling, bind_demo_spot_burn
 from fibsem.drivers.demo.simulator import (
     SIM_OBJECTIVE_FOCUS_POSITION,
     DemoConfiguration,
@@ -217,6 +217,7 @@ class DemoMicroscope(
             }
         )
         self.milling = bind_demo_milling(self)
+        self.spot_burn = bind_demo_spot_burn(self)
 
     def _create_grid_loader(self) -> Optional[SampleGridLoader]:
         """The grid model over the ``sample_loader`` device, or None when there is

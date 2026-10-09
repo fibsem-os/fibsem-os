@@ -8,6 +8,8 @@ Nothing on the Demo ends a mill but the clock, so a ``run`` is timed by the esti
 it starts with, on simulated time: each wait is ``sim_sleep``, which the test suite
 turns off, and the time counts as it would have passed. A ``start`` alone runs until
 something stops it.
+
+`DemoSpotBurn` is the shared point-by-point burn, also on simulated time.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from fibsem.drivers.demo.simulator import (
 )
 from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import Milling, bind_milling, progress_update
+from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     FibsemBitmapSettings,
@@ -183,3 +186,17 @@ class DemoMilling(Milling):
 def bind_demo_milling(microscope: DemoMicroscope) -> Optional[DemoMilling]:
     """Build ``milling`` for a Demo microscope whose beams are built."""
     return bind_milling(DemoMilling, microscope)
+
+
+class DemoSpotBurn(SpotBurn):
+    """The Demo's spot burn: the point-by-point burn on the simulated beams, where
+    unblanking a parked beam burns the spot into the sample scene. Its waits are
+    simulated time."""
+
+    def _wait(self, seconds: float) -> None:
+        sim_sleep(seconds)
+
+
+def bind_demo_spot_burn(microscope: DemoMicroscope) -> Optional[DemoSpotBurn]:
+    """Build ``spot_burn`` for a Demo microscope whose beams are built."""
+    return bind_spot_burn(DemoSpotBurn, microscope)

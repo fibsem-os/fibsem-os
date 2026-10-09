@@ -12,9 +12,29 @@ through roles (``beam = Role(Beam)``), so it doesn't care which driver's device 
 them.
 """
 
+import logging
+from typing import Any, Dict, Sequence
+
 from fibsem.devices.core import _Controllable
 
 
 class Service(_Controllable):
     """A capability of the instrument that uses devices: named, with parameters,
     commands and roles, and a parent."""
+
+
+def save_beam_conditions(beam: Any, names: Sequence[str]) -> Dict[str, Any]:
+    """The conditions in *names* the beam has, can set, and reports, to write back
+    after a service has changed them.
+
+    A condition the beam can't set (a Tescan ion column's current and voltage come
+    with its preset) is left out, and so is one it reads as None.
+    """
+    saved = {}
+    for name in names:
+        if name in beam.parameters and getattr(beam, name).settable:
+            value = getattr(beam, name).get_value()
+            if value is not None:
+                saved[name] = value
+    logging.debug({"msg": "saved the beam", "beam": beam.name, "saved": saved})
+    return saved

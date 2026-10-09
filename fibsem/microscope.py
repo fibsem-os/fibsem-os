@@ -96,6 +96,7 @@ if TYPE_CHECKING:
     from fibsem.microscopes._stage import SampleGridLoader
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.services.milling import Milling
+    from fibsem.services.spot_burn import SpotBurn
 
 
 # The device the orientation transform is defined at. `_get_compucentric_rotation_position`
@@ -339,6 +340,10 @@ class FibsemMicroscope(ABC):
     #: milling methods go to it. None when no ion beam was built: they raise then,
     #: a stop has nothing to stop, and the state reads idle.
     milling: Optional[Milling] = None
+    #: The spot burn service over the beams (`fibsem.services.spot_burn.SpotBurn`);
+    #: `run_spot_burn` goes to it. None where the driver builds none: the method
+    #: below burns itself then.
+    spot_burn: Optional[SpotBurn] = None
     #: The file `system` was loaded from, when it was loaded from one. Set by
     #: `utils.setup_session`; what a calibration action writes back to.
     configuration_path: Optional[str] = None
@@ -2514,7 +2519,8 @@ class FibsemMicroscope(ABC):
     ) -> None:
         """Burn each coordinate in *settings* with the beam for the configured exposure time.
 
-        Default implementation: blank -> park the beam on the point (spot scanning mode)
+        Goes to the microscope's spot burn service, ``spot_burn``, where the driver
+        builds one. Without one, the implementation below runs: blank -> park the beam on the point (spot scanning mode)
         -> unblank, at ``settings.milling_current``, restoring full-frame scanning and
         the imaging current afterwards. Backends whose scan API cannot park the beam
         (e.g. TESCAN, whose FIB has no blanker) override this with a native
@@ -2529,6 +2535,9 @@ class FibsemMicroscope(ABC):
             beam_type: The type of beam to use. (Default: BeamType.ION)
             stop_event: Threading event to signal cancellation. (Default: None)
         """
+        if self.spot_burn is not None:
+            self.spot_burn.run(settings, beam_type=beam_type, stop_event=stop_event)
+            return
         # - QUERY: do we need to set the full frame scanning mode each time, or only at the end?
         SLEEP_TIME = 1
 
