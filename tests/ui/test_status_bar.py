@@ -20,6 +20,22 @@ from fibsem.ui.widgets.status_bar import FibsemStatusBar  # noqa: E402
 INSTRUCTION = "Create or load an experiment to begin."
 
 
+@pytest.fixture(autouse=True)
+def quick_outcomes(monkeypatch):
+    """An outcome stays 2 s in the app; 20 ms here, so a test can watch it go."""
+    from fibsem.ui.widgets import status_bar
+
+    monkeypatch.setattr(status_bar, "OUTCOME_MS", 20)
+
+
+def _outlast_the_outcome():
+    from PyQt5.QtCore import QEventLoop, QTimer
+
+    loop = QEventLoop()
+    QTimer.singleShot(80, loop.quit)
+    loop.exec_()
+
+
 @pytest.fixture
 def slot(qapp):
     slot = FibsemStatusBar()
@@ -138,12 +154,41 @@ def test_milling_shows_its_stage_then_its_countdown(slot):
     )
 
 
-def test_milling_ending_gives_the_line_back(slot):
+def test_milling_ending_says_so_then_gives_the_line_back(slot):
     slot._on_milling_progress(_stage_started())
     slot._on_milling_progress(_tick())
     slot._on_milling_progress(_finished())
-    assert slot.text == INSTRUCTION
+    assert slot.text == "Milling done"
     assert slot.fraction is None
+    _outlast_the_outcome()
+    assert slot.text == INSTRUCTION
+
+
+def test_a_failed_mill_is_red_and_says_why(slot):
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    slot._on_milling_progress(
+        MillingProgress(MillingProgressStatus.TASK_FAILED, error="the column tripped")
+    )
+    assert slot.text == "Milling failed: the column tripped"
+    assert "#d04040" in slot._step.styleSheet()
+    _outlast_the_outcome()
+    assert "#d04040" not in slot._step.styleSheet()
+
+
+def test_a_cancelled_mill_is_not_red(slot):
+    from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+
+    slot._on_milling_progress(MillingProgress(MillingProgressStatus.TASK_CANCELLED))
+    assert slot.text == "Milling cancelled"
+    assert "#d04040" not in slot._step.styleSheet()
+
+
+def test_new_progress_is_not_cut_short_by_an_old_outcome(slot):
+    slot._on_milling_progress(_finished())
+    slot._on_milling_progress(_stage_started())
+    _outlast_the_outcome()
+    assert slot.text == "Preparing: Rough Mill stage 2 of 3"
 
 
 def test_milling_in_a_run_sits_under_the_task(slot):
@@ -156,6 +201,8 @@ def test_milling_in_a_run_sits_under_the_task(slot):
         " 50% · 30s left · 3 of 5"
     )
     slot._on_milling_progress(_finished())
+    assert slot.text == "lamella-02 › Rough Milling Milling · done · 3 of 5"
+    _outlast_the_outcome()
     assert slot.text == "lamella-02 › Rough Milling · 3 of 5"
 
 
@@ -165,6 +212,35 @@ def test_a_stage_move_outranks_milling_and_hides_its_bar(slot):
     assert slot.fraction is None
     slot.set_stage_activity(None)
     assert slot.fraction == pytest.approx(0.5)
+
+
+# --- spot burn -------------------------------------------------------------------
+
+
+def test_a_spot_burn_counts_its_spots_and_its_time(slot):
+    from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
+
+    slot._on_spot_burn_progress(
+        SpotBurnProgress(
+            status=SpotBurnStatus.BURNING,
+            current_point=2,
+            total_points=5,
+            total_remaining_time=30.0,
+            total_estimated_time=50.0,
+        )
+    )
+    assert slot.text == "Spot burn spot 2 of 5 40% · 30s left"
+    assert slot.fraction == pytest.approx(0.4)
+
+
+def test_a_spot_burn_that_fails_says_why_in_red(slot):
+    from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
+
+    slot._on_spot_burn_progress(
+        SpotBurnProgress(status=SpotBurnStatus.FAILED, error="beam blanked")
+    )
+    assert slot.text == "Spot burn failed: beam blanked"
+    assert "#d04040" in slot._step.styleSheet()
 
 
 # --- the real windows ----------------------------------------------------------
@@ -242,6 +318,7 @@ def test_autolamella_shows_milling_from_its_microscope(no_quit, qapp):
     microscope.milling_progress_signal.emit(_tick())
     assert window.status_bar.fraction == pytest.approx(0.5)
     assert not hasattr(window, "milling_progress_bar"), "one place for it"
+    assert not hasattr(window, "progress_widget"), "tiles and spot burn too"
 
     window.status_bar.set_microscope(None)
     microscope.milling_progress_signal.emit(_tick(remaining=15.0))

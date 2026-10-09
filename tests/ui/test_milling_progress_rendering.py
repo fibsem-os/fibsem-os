@@ -392,8 +392,8 @@ class TestATaskEnding:
     def test_the_main_window_hides_its_bar(self, main_window):
         main_window._on_milling_progress(stage_start())
         main_window._on_milling_progress(task_finished())
-        assert main_window.showing != "progress"
-        assert main_window.fraction is None
+        assert main_window.fraction is None, "the bar goes with the task"
+        assert main_window.text == "Milling done", "and the line says it ended"
 
     def test_a_stage_finishing_does_not_hide_the_bar(self, milling_widget):
         """`STAGE_FINISHED` is not terminal. Treating it as one hides the bar after the
@@ -415,7 +415,8 @@ class TestATaskEnding:
         main_window._on_milling_progress(
             MillingProgress(MillingProgressStatus.TASK_CANCELLED)
         )
-        assert main_window.showing != "progress"
+        assert main_window.fraction is None
+        assert main_window.text == "Milling cancelled"
 
 
 # --------------------------------------------------------------------------------------
