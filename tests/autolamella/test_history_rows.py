@@ -149,8 +149,9 @@ def test_a_rerun_takes_the_reference_images_it_wrote_over(tmp_path):
 
     first, second = history_rows(lamella, [])
 
-    assert first.images == []
+    assert first.images == [] and first.images_replaced_by == "second"
     assert second.images == [str(lamella.path / ref)]
+    assert second.images_replaced_by is None
 
 
 def test_a_failed_run_does_not_borrow_an_earlier_runs_images(tmp_path):
@@ -167,6 +168,7 @@ def test_a_failed_run_does_not_borrow_an_earlier_runs_images(tmp_path):
 
     assert ok.images == [str(lamella.path / ref)]
     assert broke.images == [] and broke.status is AutoLamellaTaskStatus.Failed
+    assert ok.images_replaced_by is None, "it recorded none, so it replaced none"
 
 
 def test_an_experiment_from_before_recorded_outputs_still_shows_its_images(tmp_path):
@@ -178,6 +180,7 @@ def test_an_experiment_from_before_recorded_outputs_still_shows_its_images(tmp_p
     a, b = history_rows(lamella, [])
 
     assert a.images == [] and b.images == [str(lamella.path / ref)]
+    assert a.images_replaced_by == "b"
 
 
 def test_the_run_still_going_is_a_row(tmp_path):

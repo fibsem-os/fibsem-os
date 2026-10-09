@@ -17,7 +17,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskState,
@@ -72,6 +72,9 @@ class HistoryRun:
     ended_at: Optional[datetime]
     images: List[str]  # final SEM/FIB images, then fluorescence stacks
     operations: List[HistoryOperation]
+    # The later run that wrote over images this one recorded, when one did:
+    # reference images are rewritten under the same name (FIB-1275).
+    images_replaced_by: Optional[str] = None
 
     @property
     def duration(self) -> Optional[float]:
@@ -171,7 +174,7 @@ def history_rows(
             continue
         operations.setdefault(task["id"], []).append(_operation(record, lamella.name))
 
-    images = _images_by_run(lamella, runs)
+    images, replaced_by = _images_by_run(lamella, runs)
     return [
         HistoryRun(
             task_id=run.task_id,
@@ -183,6 +186,7 @@ def history_rows(
             ended_at=to_datetime(run.end_timestamp),
             images=images.get(run.task_id, []),
             operations=operations.get(run.task_id, []),
+            images_replaced_by=replaced_by.get(run.task_id),
         )
         for run in runs
     ]
@@ -190,12 +194,13 @@ def history_rows(
 
 def _images_by_run(
     lamella: Lamella, runs: List[AutoLamellaTaskState]
-) -> Dict[str, List[str]]:
+) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     """Each run's images. A file two runs recorded belongs to the later one:
     reference images are rewritten to the same name on every run, so what is on
     disk is the later run's picture, and showing it under the earlier run would
     put the wrong image there. Uniquely named files (fluorescence stacks, stamped
-    reference sets) stay with their own run."""
+    reference sets) stay with their own run. Also returns, for a run that lost
+    files that way, the later run that has them."""
     # The filename fallback is for experiments from before runs recorded their
     # outputs. Once any run has, a run that recorded no final images made none.
     fallback = not any(run.outputs for run in runs)
@@ -205,10 +210,16 @@ def _images_by_run(
         for run in runs
     }
     owner = {path: run.task_id for run in runs for path in recorded[run.task_id]}
-    return {
+    images = {
         task_id: [path for path in paths if owner[path] == task_id]
         for task_id, paths in recorded.items()
     }
+    replaced_by = {}
+    for task_id, paths in recorded.items():
+        later = [owner[path] for path in paths if owner[path] != task_id]
+        if later:
+            replaced_by[task_id] = later[-1]
+    return images, replaced_by
 
 
 def _operation(record: Dict[str, Any], lamella_name: str) -> HistoryOperation:
