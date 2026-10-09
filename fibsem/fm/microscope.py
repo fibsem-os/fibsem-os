@@ -597,9 +597,6 @@ class FluorescenceMicroscope:
             self.filter_set = FilterSet(devices["filter_set"], parent=self)
         self._last_updated_at: Optional[datetime] = datetime.now()
         self._rate_limit = RATE_LIMIT_DEFAULT  # seconds between updates
-        # The display transform when the camera has no `display_transform` to hold
-        # it (a camera on an older FM server); see `_transform`.
-        self._local_transform: CameraImageTransform = CameraImageTransform.NONE
         self.default_orientation: str = (
             "FM"  # orientation used when computing fluorescence pose for new lamellas
         )
@@ -917,32 +914,22 @@ class FluorescenceMicroscope:
     def _transform(self) -> CameraImageTransform:
         """The display transform, held by the camera device (``display_transform``)
         so the stage movement service, which undoes it for a move by a displacement
-        seen in the image, reads the same one. Here where the camera has none.
+        seen in the image, reads the same one.
 
         Read from the cache: every frame applies it, and over the device server a
         live read would be a request per frame."""
-        param = self._display_transform_param()
-        if param is None:
-            return self._local_transform
         from fibsem.devices.fm import mount_transform_from_name
 
-        return mount_transform_from_name(param.cached)
+        return mount_transform_from_name(self._display_transform_param().cached)
 
     @_transform.setter
     def _transform(self, transform: CameraImageTransform) -> None:
-        param = self._display_transform_param()
-        if param is None:
-            self._local_transform = transform
-            return
         from fibsem.devices.fm import mount_transform_name
 
-        param.write_through(mount_transform_name(transform))
+        self._display_transform_param().write_through(mount_transform_name(transform))
 
     def _display_transform_param(self) -> Any:
-        camera = getattr(getattr(self, "camera", None), "_device", None)
-        if camera is None:
-            return None
-        return camera.parameters.get("display_transform")
+        return self.devices["camera"].parameters["display_transform"]
 
     @property
     def camera_tilt(self) -> float:
