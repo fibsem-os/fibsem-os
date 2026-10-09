@@ -117,6 +117,11 @@ def _every_field_changed() -> UserPreferences:
     prefs.display.lamella_card_mode = MODE_COMPACT
     prefs.display.guided_setup_dismissed = True
     prefs.display.info_bar_fields = {"SEM": ["hfw", "pixel_size"]}
+    prefs.display.history_filter = {
+        "show": "operations",
+        "status": "failed",
+        "task": "Rough Milling",
+    }
 
     for flag in dataclasses.fields(FeatureFlags):
         setattr(prefs.features, flag.name, True)

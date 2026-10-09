@@ -40,6 +40,15 @@ from fibsem.structures import (  # noqa: E402
 TASK = "Trench"
 
 
+@pytest.fixture(autouse=True)
+def _preferences(tmp_path, monkeypatch):
+    """A throwaway preferences file: the panel opens with the user's saved
+    filter, and a developer's own must not hide the rows these tests look for."""
+    import fibsem.config as cfg
+
+    monkeypatch.setattr(cfg, "USER_PREFERENCES_PATH", str(tmp_path / "prefs.yaml"))
+
+
 @pytest.fixture
 def main_ui(qapp):
     window = module.AutoLamellaSingleWindowUI()
@@ -114,13 +123,13 @@ def test_a_finished_task_shows_in_the_history_of_the_selected_lamella(
     one = experiment.positions[0]
     main_ui._on_lamella_card_selected(one)
     history = main_ui.lamella_task_image_widget
-    assert "No task images available." in _texts(history)
+    assert "No task runs yet." in _texts(history)
 
     _finish(one)
     main_ui._apply_status_report(_report("one", AutoLamellaTaskStatus.Completed))
 
     assert TASK in _texts(history)
-    assert "No task images available." not in _texts(history)
+    assert "No task runs yet." not in _texts(history)
     assert list(history._placeholder_labels) == [
         os.path.join(one.path, f"ref_{TASK}_final_high_res.tif")
     ]
