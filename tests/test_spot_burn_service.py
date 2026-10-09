@@ -2,9 +2,8 @@
 
 The Demo burns with the shared point-by-point burn through `microscope.spot_burn`:
 blank, park the beam on the point, unblank (which burns the spot into the sample
-scene), wait, and back to full frame at the burn current's start value. The
-reference for what it must do is the microscope's own implementation, which still
-runs where a driver builds no service: the parity test runs both on a Demo.
+scene), wait, and back to full frame at the burn current's start value. A
+microscope with no service refuses to burn.
 """
 
 import threading
@@ -252,46 +251,47 @@ def test_only_the_ion_beam_burns(microscope, burns):
     assert burns == []
 
 
-def test_the_service_matches_the_microscope_s_own_burn(monkeypatch):
-    """Parity with the implementation it replaces, on whole-second exposures (the
-    old one counted down in 1 s steps): the same points burned in order, the same
-    reports, and the beam left the same way."""
+def test_a_burn_on_demo_burns_the_points_in_order_and_puts_the_beam_back(
+    monkeypatch,
+):
+    """Through ``run_spot_burn`` on a Demo session: the points inside the image
+    burned in order, a report per second of exposure plus the first and last, and
+    the beam back at its imaging current, scanning full frame."""
     monkeypatch.setattr("time.sleep", lambda *_: None)
     settings = _settings(Point(0.2, 0.3), Point(1.5, 0.5), Point(0.7, 0.4))
+    microscope, _ = utils.setup_session(
+        config_path=cfg.DEFAULT_CONFIGURATION_PATH,
+        manufacturer="Demo",
+        setup_logging=False,
+    )
+    microscope.set_beam_current(IMAGING_CURRENT, BeamType.ION)
+    reports, burned = [], []
+    microscope.spot_burn_progress_signal.connect(reports.append)
+    scene_burn = microscope._burn_into_sample_scene
+    monkeypatch.setattr(
+        microscope,
+        "_burn_into_sample_scene",
+        lambda bt: (
+            burned.append(microscope.beams[bt].sim_scanning_mode_value),
+            scene_burn(bt),
+        ),
+    )
 
-    def burn(use_service):
-        microscope, _ = utils.setup_session(
-            config_path=cfg.DEFAULT_CONFIGURATION_PATH,
-            manufacturer="Demo",
-            setup_logging=False,
-        )
-        microscope.set_beam_current(IMAGING_CURRENT, BeamType.ION)
-        if not use_service:
-            microscope.spot_burn = None
-        reports, burned = [], []
-        microscope.spot_burn_progress_signal.connect(reports.append)
-        scene_burn = microscope._burn_into_sample_scene
-        monkeypatch.setattr(
-            microscope,
-            "_burn_into_sample_scene",
-            lambda bt: (
-                burned.append(microscope.beams[bt].sim_scanning_mode_value),
-                scene_burn(bt),
-            ),
-        )
-        microscope.run_spot_burn(settings)
-        ion = microscope.beams[BeamType.ION]
-        state = (
-            ion.current.get_value(),
-            ion.scanning_mode.get_value(),
-            ion.blanked.get_value(),
-        )
-        return reports, burned, state
+    microscope.run_spot_burn(settings)
 
-    service = burn(use_service=True)
-    reports, burned, _ = service
+    ion = microscope.beams[BeamType.ION]
     assert len(reports) == 6 and burned == [Point(0.2, 0.3), Point(0.7, 0.4)]
-    assert service == burn(use_service=False)
+    assert reports[-1].status is SpotBurnStatus.FINISHED
+    assert ion.current.get_value() == IMAGING_CURRENT
+    assert ion.scanning_mode.get_value() is ScanMode.FULL_FRAME
+    assert ion.blanked.get_value() is False
+
+
+def test_a_microscope_with_no_spot_burn_service_refuses_to_burn(microscope, reports):
+    microscope.spot_burn = None
+    with pytest.raises(ValueError, match="no spot burn"):
+        microscope.run_spot_burn(_settings(Point(0.5, 0.5)))
+    assert reports == []
 
 
 def test_building_the_service_reports_nothing(microscope, reports):

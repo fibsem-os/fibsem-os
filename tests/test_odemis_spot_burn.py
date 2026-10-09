@@ -1,15 +1,10 @@
 """Odemis spot burns through the spot burn service, with the writes it always made.
 
 Each case burns on an ``OdemisThermoMicroscope`` built as it is when created, over the
-recording fake client of tests/test_odemis_devices.py, once through
-``microscope.spot_burn`` and once with no service, so that the microscope's own spot
-burn runs. The two must make the same odemis writes in the same order, log the same
-and report the same progress. The exposures are whole seconds, which the
-microscope's own burn counted down in.
-
-What the service leaves out are reads: the microscope's own burn read the blanker
-back after every blank and unblank, and the current after every write, through the
-old methods' return values, which it never used.
+recording fake client of tests/test_odemis_devices.py, through ``run_spot_burn`` and
+``microscope.spot_burn``. The odemis writes and the log lines are pinned to what the
+microscope's own burn made before the service replaced it (it was checked against the
+service write for write until it was removed).
 """
 
 import threading
@@ -60,10 +55,8 @@ def _writes(calls):
     return [c for c in calls if not _is_read(c)]
 
 
-def _burn(odemis_cls, call, service):
+def _burn(odemis_cls, call):
     microscope = make(odemis_cls)
-    if not service:
-        microscope.spot_burn = None
     reports = []
     microscope.spot_burn_progress_signal.connect(reports.append)
     ran = run(microscope, call)
@@ -80,20 +73,63 @@ def test_without_an_ion_beam_there_is_no_spot_burn(odemis_cls):
     assert make(odemis_cls, ion=False).spot_burn is None
 
 
+def _spot(x, y):
+    return [
+        ["blank_beam", ["ion"], {}],
+        ["set_spot_scan_mode", [], {"channel": "ion", "x": x, "y": y}],
+        ["unblank_beam", ["ion"], {}],
+    ]
+
+
+_BURN_AT = [["set_beam_current", [1e-9, "ion"], {}]]
+_PUT_BACK = [
+    ["set_full_frame_scan_mode", ["ion"], {}],
+    ["set_beam_current", [3e-11, "ion"], {}],
+]
+_BURNING = "burning spot {}: Point(x={}, y={}, name=None), exposure time: 2.0, milling current: 1e-09"
+
+# The odemis writes each case makes, in order, and what it logs: what the
+# microscope's own burn made and logged before the service replaced it.
+PINNED = {
+    "two points": (
+        _BURN_AT + _spot(0.2, 0.3) + _spot(0.7, 0.4) + _PUT_BACK,
+        [
+            ["INFO", _BURNING.format(1, 0.2, 0.3)],
+            ["INFO", _BURNING.format(2, 0.7, 0.4)],
+        ],
+    ),
+    "a point outside the image": (
+        _BURN_AT + _spot(0.5, 0.5) + _PUT_BACK,
+        [
+            [
+                "WARNING",
+                "Skipping 1 spot burn coordinate(s) outside image bounds (0-1): "
+                "[Point(x=1.5, y=0.5, name=None)]",
+            ],
+            ["INFO", _BURNING.format(1, 0.5, 0.5)],
+        ],
+    ),
+    "stopped before the first point": (
+        _BURN_AT + _PUT_BACK,
+        [["INFO", "Spot burn cancelled before point 1/1."]],
+    ),
+}
+
+
 @pytest.mark.parametrize("key", list(CASES))
-def test_a_burn_makes_the_same_odemis_calls(odemis_cls, key):
-    new, new_reports = _burn(odemis_cls, CASES[key], service=True)
-    old, old_reports = _burn(odemis_cls, CASES[key], service=False)
-    assert _writes(new["calls"]), key
-    assert _writes(new["calls"]) == _writes(old["calls"])
-    assert all(c in old["calls"] for c in new["calls"] if _is_read(c))
-    assert new["result"] == old["result"]
-    assert new["log"] == old["log"]
-    assert new_reports == old_reports
+def test_a_burn_makes_the_odemis_writes_it_always_made(odemis_cls, key):
+    ran, reports = _burn(odemis_cls, CASES[key])
+    writes, log = PINNED[key]
+    assert _writes(ran["calls"]) == writes
+    assert ran["log"] == log
+    assert ran["result"] is None
+    assert reports[-1].status.name == (
+        "CANCELLED" if key.startswith("stopped") else "FINISHED"
+    )
 
 
 def test_a_burn_parks_blanked_and_puts_the_current_back(odemis_cls):
-    ran, _ = _burn(odemis_cls, CASES["two points"], service=True)
+    ran, _ = _burn(odemis_cls, CASES["two points"])
     point = [["blank_beam", ["ion"], {}], ["unblank_beam", ["ion"], {}]]
     writes = _writes(ran["calls"])
     assert writes[0] == ["set_beam_current", [1e-9, "ion"], {}]
