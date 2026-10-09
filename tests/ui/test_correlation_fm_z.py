@@ -103,8 +103,16 @@ def _fm_points(tab):
     return tab._point_specs[PointType.FM].list_widget.coordinates
 
 
+def _show_interpolated(tab, target_m):
+    """What the worker hands back, adopted on this thread rather than a worker's."""
+    src = tab._fm_image
+    view = interpolate_fm_volume(src, target_m)
+    tab._adopt_interpolated_volume(view, src.data.shape[1])
+    return view
+
+
 @pytest.mark.parametrize("target_m", [130e-9, 250e-9, 1200e-9])
-def test_interpolation_keeps_every_fm_point_on_its_feature(tab, target_m):
+def test_interpolating_the_view_leaves_every_fm_point_where_it_was(tab, target_m):
     placed = [16.0, 7.0, 20.0, 12.4]
     tab.set_data(
         CorrelationInputData(
@@ -113,20 +121,31 @@ def test_interpolation_keeps_every_fm_point_on_its_feature(tab, target_m):
             ]
         )
     )
-    src = tab._fm_image
+    stack = tab._fm_image
 
-    # what the worker hands back, adopted on this thread rather than a worker's
-    tab._adopt_interpolated_volume(
-        interpolate_fm_volume(src, target_m), src.data.shape[1]
-    )
+    _show_interpolated(tab, target_m)
 
-    ramp = tab._fm_image.data[0, :, 0, 0].astype(float) / _PER_SLICE
-    new_step = tab._fm_image.metadata.pixel_size_z
-    for z_before, coord in zip(placed, _fm_points(tab)):
-        on = np.interp(coord.point.z, np.arange(len(ramp)), ramp)
-        assert on == pytest.approx(z_before, abs=0.01)  # the same feature
-        # and the same physical depth, so the correlation sees no change
-        assert coord.point.z * new_step == pytest.approx(z_before * _Z_STEP)
+    assert [c.point.z for c in _fm_points(tab)] == placed
+    assert tab._fm_image is stack  # the fits and the file keep the stack
+
+
+@pytest.mark.parametrize("target_m", [130e-9, 250e-9, 1200e-9])
+def test_a_point_picked_on_the_interpolated_view_lands_on_the_same_feature(
+    tab, target_m
+):
+    """The view's plane is converted to the stack's: the stored z reads, in
+    the stack, the feature the view showed at the plane it was picked on."""
+    view = _show_interpolated(tab, target_m)
+    tab._fm_display.set_max_projection(False)
+    tab._fm_display.step_z(3)
+    plane = tab._fm_display.current_z
+    shown = view.data[0, plane, 0, 0] / _PER_SLICE  # the feature on screen
+
+    tab._on_canvas_add_requested(10.0, 12.0, PointType.FM)
+
+    z = _fm_points(tab)[-1].point.z
+    stack = tab._fm_image.data[0, :, 0, 0].astype(float) / _PER_SLICE
+    assert np.interp(z, np.arange(len(stack)), stack) == pytest.approx(shown, abs=0.01)
 
 
 def test_a_point_placed_on_the_max_projection_says_it_is_at_z0(tab, toasts):
