@@ -149,7 +149,7 @@ class FibsemDetectorSettingsWidget(QWidget):
         self.microscope.set_detector_type(detector_type, self.beam_type)
         # the modes depend on the type: the device has read them again
         self._populate_modes()
-        logging.info(
+        logging.debug(
             {
                 "msg": "_on_type_changed",
                 "beam_type": self.beam_type.name,
@@ -162,14 +162,14 @@ class FibsemDetectorSettingsWidget(QWidget):
         if not mode:
             return
         self.microscope.set_detector_mode(mode, self.beam_type)
-        logging.info(
+        logging.debug(
             {"msg": "_on_mode_changed", "beam_type": self.beam_type.name, "mode": mode}
         )
         self.settings_changed.emit(self.get_settings())
 
     def _on_brightness_changed(self, value: float):
         self.microscope.set_detector_brightness(value, self.beam_type)
-        logging.info(
+        logging.debug(
             {
                 "msg": "_on_brightness_changed",
                 "beam_type": self.beam_type.name,
@@ -180,7 +180,7 @@ class FibsemDetectorSettingsWidget(QWidget):
 
     def _on_contrast_changed(self, value: float):
         self.microscope.set_detector_contrast(value, self.beam_type)
-        logging.info(
+        logging.debug(
             {
                 "msg": "_on_contrast_changed",
                 "beam_type": self.beam_type.name,

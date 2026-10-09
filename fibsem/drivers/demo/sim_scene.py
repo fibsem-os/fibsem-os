@@ -771,7 +771,7 @@ class SampleScene:
         self._populate()
         # trenches were cut in grids that are no longer where they were
         self.milled = []
-        logging.info(
+        logging.debug(
             {
                 "msg": "sample_scene_grids_placed",
                 "grids": [
@@ -871,7 +871,7 @@ class SampleScene:
             points = np.array([world(x, y) for x, y in corners])
             regions.append(MilledRegion(points=points, depth=depth))
         self.milled.extend(regions)
-        logging.info(
+        logging.debug(
             {
                 "msg": "sample_scene_milled",
                 "regions": len(regions),
@@ -914,7 +914,7 @@ class SampleScene:
             pts = np.array([world(cx, cy) for cx, cy in corners])
             regions.append(MilledRegion(points=pts, depth=diameter, halo=halo))
         self.milled.extend(regions)
-        logging.info(
+        logging.debug(
             {
                 "msg": "sample_scene_burned",
                 "points": len(regions),
@@ -1341,7 +1341,7 @@ class SampleScene:
         reference = deepcopy(stage_position)
         reference.z = (reference.z or 0.0) - self.coincidence_offset
         self.reference_position = reference
-        logging.info(
+        logging.debug(
             {
                 "msg": "coincidence_scene_anchored",
                 "reference_position": reference.to_dict(),

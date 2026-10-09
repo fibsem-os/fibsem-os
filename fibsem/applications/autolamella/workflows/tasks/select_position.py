@@ -412,7 +412,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 alignment, diagnostics_path, prefix=f"tilt{i:02d}_"
             )
         if tilt.converged:
-            logging.info(
+            logging.debug(
                 {
                     "msg": "milling_tilt_coincident",
                     "tilt_axis_offset": tilt.tilt_axis_offset,

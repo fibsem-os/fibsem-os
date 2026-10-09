@@ -796,7 +796,6 @@ class TaskManager(BaseTaskManager):
             # finishable. Not fired on the cancelled path: an aborted run has not
             # established anything about the experiment.
             self._maybe_fire_experiment_completed()
-        print(self.experiment.task_history_dataframe())
 
     def build_run_summary_dataframe(self) -> pd.DataFrame:
         """Build a per-run summary of attempted tasks from the queue snapshot.

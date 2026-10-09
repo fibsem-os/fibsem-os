@@ -215,10 +215,6 @@ if not os.path.exists(DEFAULT_CONFIGURATION_PATH):
     )
     DEFAULT_CONFIGURATION_PATH = MICROSCOPE_CONFIGURATION_PATH
 
-print(
-    f"Default configuration {DEFAULT_CONFIGURATION_NAME}. Configuration Path: {DEFAULT_CONFIGURATION_PATH}"
-)
-
 
 def _is_same_path(path: Optional[str], other: Optional[str]) -> bool:
     """Compare two configuration paths, either of which may be unset."""
