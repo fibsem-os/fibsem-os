@@ -593,3 +593,32 @@ def test_wd_settable_capability_matrix():
         DemoMicroscope.is_working_distance_settable
         is FibsemMicroscope.is_working_distance_settable
     )
+
+
+def test_run_auto_focus_puts_back_the_beams_imaging_settings():
+    """Odemis writes an acquire's resolution, dwell time and field of view to the beam,
+    so the sweep left it imaging at the probe's. The Demo's acquire leaves the beam
+    alone, so this one is wrapped to write them the way Odemis does."""
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    beam = BeamType.ELECTRON
+    microscope.set_resolution((1536, 1024), beam)
+    microscope.set_dwell_time(3e-6, beam)
+    microscope.set_field_of_view(150e-6, beam)
+    real_acquire = microscope.acquire_image
+
+    def acquire_writing_the_beam(image_settings=None, **kwargs):
+        if image_settings is not None:
+            microscope.set_resolution(image_settings.resolution, beam)
+            microscope.set_dwell_time(image_settings.dwell_time, beam)
+            microscope.set_field_of_view(image_settings.hfw, beam)
+        return real_acquire(image_settings=image_settings, **kwargs)
+
+    microscope.acquire_image = acquire_writing_the_beam
+
+    run_auto_focus(microscope, beam_type=beam, hfw=80e-6, settings=AutoFocusSettings())
+
+    assert tuple(microscope.get_resolution(beam)) == (1536, 1024)
+    assert microscope.get_dwell_time(beam) == pytest.approx(3e-6)
+    assert microscope.get_field_of_view(beam) == pytest.approx(150e-6)

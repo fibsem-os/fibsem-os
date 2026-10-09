@@ -306,6 +306,38 @@ class AutoFocusResult:
         )
 
 
+def _read_imaging(microscope: "FibsemMicroscope", beam_type: BeamType) -> dict:
+    """The beam's resolution, dwell time and field of view, for `_restore_imaging`."""
+    return {
+        "resolution": tuple(microscope.get_resolution(beam_type)),
+        "dwell_time": microscope.get_dwell_time(beam_type),
+        "hfw": microscope.get_field_of_view(beam_type),
+    }
+
+
+def _restore_imaging(
+    microscope: "FibsemMicroscope", beam_type: BeamType, saved: dict
+) -> None:
+    """Write back what `_read_imaging` saved, only where the sweep changed it.
+
+    Only the changed values, so a backend whose acquire leaves the beam alone (the
+    frame settings carry the probe's, as on ThermoFisher) sees no writes at all. A
+    failing write is logged rather than raised: it must not hide the error that
+    ended the sweep.
+    """
+    try:
+        if tuple(microscope.get_resolution(beam_type)) != saved["resolution"]:
+            microscope.set_resolution(saved["resolution"], beam_type)
+        if not np.isclose(microscope.get_dwell_time(beam_type), saved["dwell_time"]):
+            microscope.set_dwell_time(saved["dwell_time"], beam_type)
+        if not np.isclose(microscope.get_field_of_view(beam_type), saved["hfw"]):
+            microscope.set_field_of_view(saved["hfw"], beam_type)
+    except Exception:
+        logger.exception(
+            "AutoFocus could not restore the %s beam's imaging settings", beam_type.name
+        )
+
+
 def _run_sweep(
     microscope: "FibsemMicroscope",
     probe_settings: "ImageSettings",
@@ -445,38 +477,45 @@ def run_auto_focus(
     centre_wd = initial_wd
     iterations: list[AutoFocusIteration] = []
 
-    if settings.use_autocontrast:
-        microscope.autocontrast(beam_type, settings.reduced_area)
-
+    # The probe images are acquired with the sweep's own resolution, dwell time and
+    # field of view, and on some backends (Odemis) an acquire writes those to the beam.
+    # Put back what the beam was imaging with, however the sweep ends.
+    imaging = _read_imaging(microscope, beam_type)
     try:
-        for pass_index, sweep_pass in enumerate(active_passes):
-            raise_if_cancelled(
-                stop_event, "AutoFocus cancelled by user."
-            )  # abort between passes
-            pass_iters, centre_wd = _run_sweep(
-                microscope,
-                probe_settings,
-                focus_fn,
-                centre_wd,
-                sweep_pass,
-                pass_index,
-                beam_type,
-                stop_event=stop_event,
-            )
-            iterations.extend(pass_iters)
-    except OperationCancelledError:
-        logger.info("AutoFocus cancelled — restoring initial WD %.4e", initial_wd)
-        microscope.set_working_distance(initial_wd, beam_type)
-        raise
-    except Exception:
-        logger.exception("AutoFocus failed — restoring initial WD %.4e", initial_wd)
-        microscope.set_working_distance(initial_wd, beam_type)
-        raise
+        if settings.use_autocontrast:
+            microscope.autocontrast(beam_type, settings.reduced_area)
 
-    best_idx = int(np.argmax([it.focus_score for it in iterations]))
-    best = iterations[best_idx]
+        try:
+            for pass_index, sweep_pass in enumerate(active_passes):
+                raise_if_cancelled(
+                    stop_event, "AutoFocus cancelled by user."
+                )  # abort between passes
+                pass_iters, centre_wd = _run_sweep(
+                    microscope,
+                    probe_settings,
+                    focus_fn,
+                    centre_wd,
+                    sweep_pass,
+                    pass_index,
+                    beam_type,
+                    stop_event=stop_event,
+                )
+                iterations.extend(pass_iters)
+        except OperationCancelledError:
+            logger.info("AutoFocus cancelled — restoring initial WD %.4e", initial_wd)
+            microscope.set_working_distance(initial_wd, beam_type)
+            raise
+        except Exception:
+            logger.exception("AutoFocus failed — restoring initial WD %.4e", initial_wd)
+            microscope.set_working_distance(initial_wd, beam_type)
+            raise
 
-    microscope.set_working_distance(best.working_distance, beam_type)
+        best_idx = int(np.argmax([it.focus_score for it in iterations]))
+        best = iterations[best_idx]
+
+        microscope.set_working_distance(best.working_distance, beam_type)
+    finally:
+        _restore_imaging(microscope, beam_type, imaging)
     logger.info(
         "AutoFocus complete: best WD=%.4e score=%.4f (%d passes, %d steps total)",
         best.working_distance,
