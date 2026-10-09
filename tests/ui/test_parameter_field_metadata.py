@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import QApplication, QDoubleSpinBox
 from fibsem import utils
 from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.beam import Beam
-from fibsem.structures import BeamType, RangeLimit
+from fibsem.structures import BeamType, ImageSettings, RangeLimit
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
 from fibsem.ui.widgets.detector_settings_widget import FibsemDetectorSettingsWidget
 from fibsem.ui.widgets.form_builder import (
@@ -110,3 +110,19 @@ def test_the_detector_panel_is_labelled_by_the_beam(microscope):
     assert widget.brightness_label.text() == "Brightness"
     assert widget.contrast_label.text() == "Contrast"
     assert widget.type_label.text() == "Detector Type"
+
+
+def test_the_image_settings_are_labelled_and_scaled_by_their_fields(microscope):
+    from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
+
+    widget = ImageSettingsWidget(show_advanced=True)
+
+    assert widget.hfw_label.text() == "Field of View"
+    assert widget.hfw_spinbox.suffix() == " µm"
+    assert widget.dwell_time_spinbox.suffix() == " µs"
+    assert widget.line_integration_label.text() == "Line Integration"
+    assert (
+        widget.frame_integration_spinbox.minimum(),
+        widget.frame_integration_spinbox.maximum(),
+    ) == (1, 512)
+    assert widget.get_settings().hfw == ImageSettings().hfw

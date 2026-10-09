@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
@@ -11,10 +11,10 @@ from PyQt5.QtWidgets import (
 
 from fibsem.devices.core import ParameterMetadata
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemMillingSettings, RangeLimit
+from fibsem.structures import BeamType, FibsemMillingSettings
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import FormGrid, align_form
-from fibsem.ui.widgets.form_builder import Control, build_control, effective_scale
+from fibsem.ui.widgets.form_builder import Control, build_control, runtime_overrides
 
 
 @dataclass
@@ -109,14 +109,10 @@ class FibsemMillingSettingsWidget(QWidget):
         reported = (self._supported or {}).get(field_name)
         if reported is None:
             return m
-        m = dict(m)
-        if reported.choices is not None and m.get("items") not in (None, "dynamic"):
-            m["items"] = list(reported.choices)
-        if isinstance(reported.limits, RangeLimit):
-            scale = effective_scale(m) or 1
-            m["minimum"] = reported.limits.min * scale
-            m["maximum"] = reported.limits.max * scale
-        return m
+        if m.get("items") in (None, "dynamic"):
+            # a number box stays one; a dynamic list is resolved by _dynamic_items
+            reported = replace(reported, choices=None)
+        return runtime_overrides(m, reported)
 
     def _dynamic_items(self, parameter: str):
         """Resolve an `items: "dynamic"` field: the milling service's choices for the
