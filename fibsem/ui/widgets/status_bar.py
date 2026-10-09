@@ -141,6 +141,12 @@ class FibsemStatusBar(QStatusBar):
         self.setStyleSheet(STATUS_BAR_STYLESHEET)
 
         line = QWidget(self)
+        # Transparent, or the app sheet paints the line in the surface colour and
+        # the bar's own panel colour shows only in the gaps: a lighter box across
+        # the left with a step beside the buttons. By name, so the labels' tooltips
+        # keep their panel.
+        line.setObjectName("statusLine")
+        line.setStyleSheet("#statusLine { background: transparent; }")
         layout = QHBoxLayout(line)
         layout.setContentsMargins(4, 0, 4, 0)
         layout.setSpacing(8)
