@@ -42,7 +42,7 @@ from psygnal import Signal
 
 from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.core import Device, Parameter, command
-from fibsem.display import Display
+from fibsem.devices.display import Display
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
     STAGE_FRAME_FIBSEM,
