@@ -289,6 +289,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
         self._build_devices()
         self._build_milling()
+        self._build_spot_burn()
 
         self.fm = self._build_fluorescence(manufacturers.ODEMIS)
         self._apply_fluorescence_calibration()
@@ -342,6 +343,13 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         from fibsem.drivers.odemis.services import bind_odemis_milling
 
         self.milling = bind_odemis_milling(self)
+
+    def _build_spot_burn(self) -> None:
+        """Build the spot burn service over the beams; `run_spot_burn` then goes to
+        it: the point-by-point burn, with the beams' spot and blank commands."""
+        from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
+
+        self.spot_burn = bind_spot_burn(SpotBurn, self)
 
     def connect_to_microscope(
         self, ip_address: str, port: int, reset_beam_shift: bool = True
