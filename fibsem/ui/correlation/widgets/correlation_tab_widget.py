@@ -4460,8 +4460,10 @@ class CorrelationTabWidget(QWidget):
         self._ri_pre_correction_params = None
 
     def _on_run_error(self, msg: str) -> None:
-        self._lbl_status.setText(f"Error: {msg}")
+        # Refresh first: its readiness text would otherwise replace the error
+        # before it was read. The next data change or run replaces it.
         self._update_run_button()
+        self._lbl_status.setText(f"Error: {msg}")
 
     def _overlay_result_on_fib(self, result: CorrelationResult) -> None:
         """Draw reprojected error markers and POI on the FIB canvas."""
