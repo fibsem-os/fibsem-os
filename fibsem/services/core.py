@@ -13,7 +13,7 @@ them.
 """
 
 import logging
-from typing import Any, Dict, Sequence
+from typing import Any, Callable, Dict, Sequence
 
 from fibsem.devices.core import _Controllable
 
@@ -38,3 +38,17 @@ def save_beam_conditions(beam: Any, names: Sequence[str]) -> Dict[str, Any]:
                 saved[name] = value
     logging.debug({"msg": "saved the beam", "beam": beam.name, "saved": saved})
     return saved
+
+
+def forward_to(signal: Any) -> Callable[[Any], None]:
+    """A slot that emits *signal* with each value it gets, to connect a service's
+    ``progress.changed`` to a microscope signal.
+
+    Not ``signal.emit`` itself: psygnal checks an ``emit`` it is given by calling it
+    once with junk arguments, which the microscope signal would send on.
+    """
+
+    def forward(value: Any) -> None:
+        signal.emit(value)
+
+    return forward

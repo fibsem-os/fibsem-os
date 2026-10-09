@@ -54,7 +54,7 @@ from fibsem.cancellation import raise_if_cancelled
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
-from fibsem.services.core import Service, save_beam_conditions
+from fibsem.services.core import Service, forward_to, save_beam_conditions
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamType,
@@ -423,9 +423,7 @@ def bind_milling(service: Type[_M], microscope: Any) -> Optional[_M]:
     milling.connect()
     signal = getattr(microscope, "milling_progress_signal", None)
     if signal is not None:
-        # The signal itself, not its ``emit``: given a psygnal ``emit``, connect
-        # calls it once with junk arguments to read its signature.
-        milling.progress.changed.connect(signal)
+        milling.progress.changed.connect(forward_to(signal))
     return milling
 
 
