@@ -536,3 +536,37 @@ def test_the_timeline_shows_its_first_failed_row(qapp):
     assert timeline._selected_index == 1
     assert timeline.show_first(StepStatus.SKIPPED) is None
     timeline.deleteLater()
+
+
+def test_a_long_failure_elides_rather_than_widening_the_window(no_quit, qapp):
+    """A plain label's minimum is its text: one long failure set the status bar's
+    minimum, and the bar set the window's, so the whole app grew wider."""
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+
+    window = module.AutoLamellaSingleWindowUI()
+    window.resize(1200, 800)
+    window.show()
+    qapp.processEvents()
+    before = window.minimumSizeHint().width()
+
+    reason = "the stage refused the move: " + "outside the travel range " * 40
+    window.status_bar.show_failure("Run finished", f"1 of 5 failed · {reason}")
+    qapp.processEvents()
+
+    assert window.minimumSizeHint().width() == before
+    assert window.width() == 1200
+    step = window.status_bar._step
+    assert step.text().endswith("travel range "), "the whole text is kept"
+    assert step.toolTip() == step.text(), "and readable on hover"
+    assert not window.status_bar._dismiss_btn.isHidden()
+    _close(window, qapp)
+
+
+def test_a_short_line_still_gets_its_whole_text(slot):
+    slot.resize(1000, 30)
+    slot.show()
+    slot.set_run("01-fancy-mite › Rough Milling", None, "3 of 5")
+    from PyQt5.QtWidgets import QApplication
+
+    QApplication.processEvents()
+    assert slot._what.width() >= slot._what.sizeHint().width() - 1, "not elided"
