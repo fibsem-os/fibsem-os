@@ -94,11 +94,11 @@ from fibsem.ui.widgets.preflight import (
     TEXT_STRONG,
     detail_block,
     format_clock,
-    format_duration,
     meta_label,
     metric,
     warning_label,
 )
+from fibsem.util.durations import format_duration_rounded
 
 # The lamella list's metrics, so the two run views read alike.
 _ROW_HEIGHT = 40
@@ -1066,14 +1066,19 @@ class GridRunPreflightDialog(QDialog):
         """The duration and the finish, as the lamella preflight and Add to queue
         quote them: a run's own, or what an addition adds and moves the finish to."""
         if estimate is not None:
-            first = metric("Estimated duration", format_duration(estimate.work_seconds))
+            first = metric(
+                "Estimated duration",
+                format_duration_rounded(estimate.work_seconds, pad=True),
+            )
             second = metric(
                 "Expected finish",
                 format_clock(estimate.expected_finish, estimate.started_at),
             )
         elif addition is not None and addition.is_priced:
             before = addition.finish_before
-            first = metric("Adds", format_duration(addition.work_seconds))
+            first = metric(
+                "Adds", format_duration_rounded(addition.work_seconds, pad=True)
+            )
             second = metric(
                 "Expected finish",
                 format_clock(addition.finish_after, before),

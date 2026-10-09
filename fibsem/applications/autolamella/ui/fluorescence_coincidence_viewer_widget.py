@@ -2159,10 +2159,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             if remaining is not None and report.estimated_time:
                 pct = int((1 - remaining / report.estimated_time) * 100)
                 self.progressBar_stage.setValue(pct)
-                from fibsem.utils import format_duration
+                from fibsem.util.durations import format_duration_precise
 
                 self.progressBar_stage.setFormat(
-                    f"{label} - {format_duration(remaining)} remaining"
+                    f"{label} - {format_duration_precise(remaining)} remaining"
                 )
             else:
                 # No countdown to draw, but the producer's words are still worth showing:

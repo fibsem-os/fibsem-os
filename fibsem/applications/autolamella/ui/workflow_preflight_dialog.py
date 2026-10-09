@@ -42,7 +42,6 @@ from fibsem.ui.widgets.preflight import (
     TEXT_MUTED,
     TEXT_STRONG,
     chip,
-    format_duration,
     meta_label,
 )
 from fibsem.ui.widgets.preflight import (
@@ -51,6 +50,7 @@ from fibsem.ui.widgets.preflight import (
 from fibsem.ui.widgets.preflight import (
     metric as _metric,
 )
+from fibsem.util.durations import format_duration_rounded
 
 # The duration column is fixed and right-aligned so the times hold one line down the
 # dialog however many chips a row carries. That column is what gets scanned; a ragged
@@ -91,7 +91,7 @@ def _task_row(task: TaskEstimate, reference: Optional[datetime] = None) -> QWidg
     if task.scheduled_at is not None:
         layout.addWidget(chip(f"Scheduled {_clock(task.scheduled_at, reference)}"))
 
-    duration = QLabel(format_duration(task.seconds))
+    duration = QLabel(format_duration_rounded(task.seconds, pad=True))
     duration.setStyleSheet(_ON_PANEL + f"color: {TEXT}; font-size: 11px;")
     duration.setFixedWidth(_DURATION_WIDTH)
     duration.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -173,7 +173,10 @@ class WorkflowPreflightDialog(QDialog):
         metrics = QHBoxLayout()
         metrics.setSpacing(10)
         metrics.addWidget(
-            _metric("Estimated duration", format_duration(est.work_seconds))
+            _metric(
+                "Estimated duration",
+                format_duration_rounded(est.work_seconds, pad=True),
+            )
         )
         metrics.addWidget(
             _metric("Expected finish", _clock(est.expected_finish, est.started_at))
@@ -283,14 +286,14 @@ class WorkflowPreflightDialog(QDialog):
                     f"{task.name} is scheduled for "
                     f"{_clock(task.scheduled_at, self.estimate.started_at)}. "
                     f"The workflow holds for about "
-                    f"{format_duration(task.hold_seconds)} before it."
+                    f"{format_duration_rounded(task.hold_seconds, pad=True)} before it."
                 )
             )
         elif scheduled:
             notes.append(
                 self._note(
                     f"{len(scheduled)} steps are scheduled. The workflow holds for "
-                    f"about {format_duration(self.estimate.hold_seconds)} in total, "
+                    f"about {format_duration_rounded(self.estimate.hold_seconds, pad=True)} in total, "
                     f"waiting for them."
                 )
             )

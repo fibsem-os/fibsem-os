@@ -31,7 +31,8 @@ from fibsem.ui.tokens import (
     NEUTRAL_700,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
-from fibsem.ui.widgets.preflight import format_clock, format_duration
+from fibsem.ui.widgets.preflight import format_clock
+from fibsem.util.durations import format_duration_rounded
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 _DOT_COMPLETED = stylesheets.GREEN_COLOR
@@ -1180,7 +1181,11 @@ class WorkflowProgressWidget(QWidget):
                 continue
             seconds = self._estimate_for(item)
             step = self._outer._steps[i]
-            step.trailing = format_duration(seconds) if seconds is not None else ""
+            step.trailing = (
+                format_duration_rounded(seconds, pad=True)
+                if seconds is not None
+                else ""
+            )
             self._outer._rows[i].set_trailing(step.trailing)
 
     def _update_summary(self) -> None:
@@ -1209,10 +1214,10 @@ class WorkflowProgressWidget(QWidget):
             # No clock: the wait is unbounded, so one would be a guess dressed as a fact.
             # The work still to do is knowable either way, and "of work" is what marks
             # that the number has narrowed to machine time.
-            text = f"{format_duration(estimate.work_seconds)} of work left · waiting for you"
+            text = f"{format_duration_rounded(estimate.work_seconds, pad=True)} of work left · waiting for you"
         else:
             text = (
-                f"{format_duration(estimate.remaining_seconds)} left · "
+                f"{format_duration_rounded(estimate.remaining_seconds, pad=True)} left · "
                 f"finishes {format_clock(estimate.expected_finish, datetime.now())}"
             )
         self._summary.setText(text)
@@ -1280,23 +1285,27 @@ class WorkflowProgressWidget(QWidget):
             # The subtitle keeps its elapsed rather than repeating the column: the
             # header already says "waiting for you", and how long it has been sitting
             # there is the thing not said anywhere else.
-            step.subtitle = f"{task_name} ({format_duration(elapsed)})"
+            step.subtitle = (
+                f"{task_name} ({format_duration_rounded(elapsed, pad=True)})"
+            )
             step.trailing = "waiting"
         elif estimate is None:
-            step.subtitle = f"{task_name} ({format_duration(elapsed)})"
+            step.subtitle = (
+                f"{task_name} ({format_duration_rounded(elapsed, pad=True)})"
+            )
             step.trailing = ""
         elif self._machine_elapsed(elapsed) < estimate:
-            step.subtitle = f"{task_name} ({format_duration(elapsed)})"
-            step.trailing = (
-                f"{format_duration(estimate - self._machine_elapsed(elapsed))} left"
+            step.subtitle = (
+                f"{task_name} ({format_duration_rounded(elapsed, pad=True)})"
             )
+            step.trailing = f"{format_duration_rounded(estimate - self._machine_elapsed(elapsed), pad=True)} left"
         else:
             # The estimate is spent, so the column stops predicting and reports instead —
             # elapsed, which is the same kind of number the row will show once it is
             # done. Nothing goes negative, nothing stalls, and nothing changes colour:
             # a task running long is variance, not an error.
             step.subtitle = task_name
-            step.trailing = format_duration(elapsed)
+            step.trailing = format_duration_rounded(elapsed, pad=True)
 
         self._outer._rows[self._outer_index].refresh(step)
         self._update_summary()
@@ -1329,7 +1338,9 @@ class WorkflowProgressWidget(QWidget):
             time_str = f" · {stamp.lstrip('0')}"
         self._outer._steps[outer_idx].subtitle = f"{task_name}{time_str}"
         if task_duration is not None:
-            self._outer._steps[outer_idx].trailing = format_duration(task_duration)
+            self._outer._steps[outer_idx].trailing = format_duration_rounded(
+                task_duration, pad=True
+            )
 
 
 # ── Demo ──────────────────────────────────────────────────────────────────────
