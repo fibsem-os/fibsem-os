@@ -548,6 +548,11 @@ class MicroscopeViewController(QObject):
     # the fourth cell can follow the stage on the same updates, reading nothing itself.
     stage_updated = pyqtSignal(object)
 
+    # What the instrument is doing, in words ("Moving to the SEM orientation…"), or
+    # None once it is over. For the host's status-bar slot (FIB-1188): the views say
+    # what a move did to them with their chips; the words go where there is room.
+    activity_changed = pyqtSignal(object)
+
     # Forwarded from the view when the selected view changes (BeamType or "fm"). Only the
     # quad view emits this; the lamella editor view has no selection concept.
     view_selected = pyqtSignal(object)
@@ -592,6 +597,7 @@ class MicroscopeViewController(QObject):
         # Views whose image is from before the last stage move (FIB-1188): a frame
         # that never comes leaves these stale, and the others as they were.
         self._moved: Set[FibsemImageCanvas] = set()
+        self._activity: Optional[str] = None
         self._render_scheduled = False
         self._render_requested.connect(self._do_render, Qt.QueuedConnection)
         # Last objective position anyone told us about, in metres. Remembered so
@@ -974,6 +980,19 @@ class MicroscopeViewController(QObject):
                 canvas.set_status_chip(None)  # its next frame is of where it stopped
             else:
                 canvas.set_status_chip(self.STAGE_MOVED, stale=True)
+
+    @property
+    def activity(self) -> Optional[str]:
+        """What the instrument is doing, in words, or None."""
+        return self._activity
+
+    def report_activity(self, text: Optional[str]) -> None:
+        """Say what the instrument is doing (`activity_changed`); None when it is over."""
+        text = text or None
+        if text == self._activity:
+            return
+        self._activity = text
+        self.activity_changed.emit(text)
 
     def acquisition_done(self, beams) -> None:
         """The acquisition for *beams* is over. A view whose frame never came -- it

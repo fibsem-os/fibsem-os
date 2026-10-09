@@ -46,6 +46,7 @@ from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.custom_widgets import scrollable
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
+from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.versioning import get_version_string
 
 NO_MICROSCOPE_MESSAGE = "Connect to a microscope to acquire an overview."
@@ -89,6 +90,11 @@ class FibsemUI(QMainWindow):
 
         self._create_microscope_tab()
         self._create_overview_tab()
+
+        # What the instrument is doing, in words, while it does it (FIB-1188).
+        self.status_bar = FibsemStatusBar(self)
+        self.setStatusBar(self.status_bar)
+        self.status_bar.follow(self.view_controller)
 
         self.setup_connections()
         self.update_ui()
