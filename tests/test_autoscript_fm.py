@@ -249,6 +249,7 @@ def test_the_drivers_are_the_fm_devices(facts):
     }
     assert facts["parameters"]["camera"] == [
         "binning",
+        "display_transform",
         "exposure_time",
         "gain",
         "mount_transform",
