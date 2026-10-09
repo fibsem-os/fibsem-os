@@ -79,7 +79,15 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.constants import DATETIME_FILE
-from fibsem.correlation.config import CorrelationConfig, FitSettings, RISettings
+from fibsem.correlation.config import (
+    DELETE_FIDUCIAL_ASK,
+    DELETE_FIDUCIAL_CHOICES,
+    DELETE_FIDUCIAL_ONE,
+    DELETE_FIDUCIAL_PAIR,
+    CorrelationConfig,
+    FitSettings,
+    RISettings,
+)
 from fibsem.correlation.correlation_v2 import run_correlation_from_data
 from fibsem.correlation.prediction import (
     Projection,
@@ -159,6 +167,11 @@ if TYPE_CHECKING:
     )
 
 _FIT_METHODS = ["None", "Hole", "Gaussian"]
+_DELETE_FIDUCIAL_LABELS = {
+    DELETE_FIDUCIAL_ASK: "Ask",
+    DELETE_FIDUCIAL_PAIR: "With its pair",
+    DELETE_FIDUCIAL_ONE: "Only that point",
+}
 
 # How long the points must be still before an automatic run (FIB-1020). Long
 # enough that a drag is one run rather than fifty, short enough to feel like a
@@ -1116,6 +1129,21 @@ class _CoordinatesTab(QWidget):
         self._fm_poi_ch_combo = ValueComboBox([])
         fit_form.addRow(_form_label("FM POI channel"), self._fm_poi_ch_combo)
 
+        # FIB and FM fiducials pair by their place in the lists, so deleting one
+        # side shifts every later pair (FIB-1243). Asked on delete until "Don't
+        # ask again" stores a choice here, where it can be set back.
+        self._delete_fiducial_combo = ValueComboBox(
+            list(DELETE_FIDUCIAL_CHOICES),
+            value=DELETE_FIDUCIAL_ASK,
+            format_fn=_DELETE_FIDUCIAL_LABELS.get,
+        )
+        self._delete_fiducial_combo.setToolTip(
+            "What deleting a FIB or FM fiducial does to its partner on the other "
+            "side.\nFiducials pair by their place in the lists: removing only one "
+            "side re-pairs every later fiducial."
+        )
+        fit_form.addRow(_form_label("Delete fiducial"), self._delete_fiducial_combo)
+
         # A checkbox carries its own label: the two share one row.
         self._show_diag_check = QCheckBox("Show diagnostic")
 
@@ -1139,6 +1167,7 @@ class _CoordinatesTab(QWidget):
             self._fm_poi_method_combo,
             self._fm_fid_ch_combo,
             self._fm_poi_ch_combo,
+            self._delete_fiducial_combo,
             self._show_diag_check,
             self._auto_accept_check,
             self._auto_rerun_check,
@@ -1150,6 +1179,7 @@ class _CoordinatesTab(QWidget):
             self._fm_poi_method_combo,
             self._fm_fid_ch_combo,
             self._fm_poi_ch_combo,
+            self._delete_fiducial_combo,
         ):
             _combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             _combo.setMinimumContentsLength(10)
@@ -2295,6 +2325,7 @@ class CorrelationTabWidget(QWidget):
         # them as if each held its own copy; with one store that is redundant
         # rather than wrong, and they go next.
         self._point_store = CorrelationPointStore(self)
+        self._point_store.set_removal_policy(self._pair_removal)
         fib_pane, fm_pane = self._build_image_panes()
         splitter.addWidget(fib_pane)
         splitter.addWidget(fm_pane)
@@ -3434,6 +3465,7 @@ class CorrelationTabWidget(QWidget):
         self._apply_fit_config()
         self._coords_tab._auto_rerun_check.setChecked(config.auto_rerun)
         self._images_tab._chk_auto_interpolate.setChecked(config.auto_interpolate)
+        self._coords_tab._delete_fiducial_combo.set_value(config.delete_fiducial)
         ri = config.ri
         self._ri_tab._ri_widget.set_params(
             ZetaParams(
@@ -3503,6 +3535,7 @@ class CorrelationTabWidget(QWidget):
             load_spot_burns=stored.load_spot_burns,
             auto_rerun=cl._auto_rerun_check.isChecked(),
             auto_interpolate=self._images_tab._chk_auto_interpolate.isChecked(),
+            delete_fiducial=cl._delete_fiducial_combo.value(),
         )
 
     # ------------------------------------------------------------------
@@ -4462,6 +4495,81 @@ class CorrelationTabWidget(QWidget):
         """The user moved, typed over or reordered a point. The view that took
         the gesture has already made the change in the store."""
         self.data_changed.emit(self.data)
+
+    def _pair_removal(self, coords: List[Coordinate]) -> Optional[List[Coordinate]]:
+        """The store's removal policy: what deleting a fiducial also removes.
+
+        FIB and FM fiducials pair by their place in the lists, so removing FIB 3
+        alone re-pairs FM 4 with FIB 3 and so on down: on a real run the RMS
+        rose 31 -> 42 px and the target moved ~25 px, with nothing said
+        (FIB-1243). So deleting one with a partner asks -- the pair, that point
+        only, or cancel -- unless "Don't ask again" stored an answer.
+        """
+        if len(coords) != 1:
+            return coords
+        coord = coords[0]
+        partner = self._fiducial_partner(coord)
+        if partner is None:
+            return coords
+        choice = self._coords_tab._delete_fiducial_combo.value()
+        if choice == DELETE_FIDUCIAL_ASK:
+            choice = self._ask_pair_removal(coord, partner)
+        if choice == DELETE_FIDUCIAL_PAIR:
+            return [coord, partner]
+        if choice == DELETE_FIDUCIAL_ONE:
+            return coords
+        return None  # cancelled
+
+    def _fiducial_partner(self, coord: Coordinate) -> Optional[Coordinate]:
+        """The fiducial at the same place in the other side's list, if any."""
+        other = {PointType.FIB: PointType.FM, PointType.FM: PointType.FIB}.get(
+            coord.point_type
+        )
+        if other is None:
+            return None
+        index = self._point_store.index_of(coord)
+        partners = self._point_store.of_type(other)
+        if index is None or index >= len(partners):
+            return None
+        return partners[index]
+
+    @staticmethod
+    def _fiducial_name(coord: Coordinate, store: CorrelationPointStore) -> str:
+        return f"{coord.point_type.value} {store.index_of(coord) + 1}"
+
+    def _ask_pair_removal(self, coord: Coordinate, partner: Coordinate) -> str:
+        """Ask what deleting ``coord`` does to its partner; the answer is a
+        DELETE_FIDUCIAL_* value, or "" for cancel. "Don't ask again" stores it
+        in the Method panel's Delete fiducial setting."""
+        name = self._fiducial_name(coord, self._point_store)
+        other = self._fiducial_name(partner, self._point_store)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("Delete fiducial")
+        box.setText(f"{name} is paired with {other}.")
+        box.setInformativeText(
+            "Fiducials pair by their place in the lists. Removing only "
+            f"{name} pairs every later {coord.point_type.value} fiducial with the "
+            "next one on the other side."
+        )
+        both = box.addButton("Remove both", QMessageBox.AcceptRole)
+        only = box.addButton(f"Remove only {name}", QMessageBox.DestructiveRole)
+        box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(both)
+        remember = QCheckBox("Don't ask again")
+        box.setCheckBox(remember)
+        box.exec_()
+        clicked = box.clickedButton()
+        choice = (
+            DELETE_FIDUCIAL_PAIR
+            if clicked is both
+            else DELETE_FIDUCIAL_ONE
+            if clicked is only
+            else ""
+        )
+        if choice and remember.isChecked():
+            self._coords_tab._delete_fiducial_combo.set_value(choice)
+        return choice
 
     def _on_point_removed(self, coord: Coordinate) -> None:
         """The user removed a point, from a canvas or a list."""
