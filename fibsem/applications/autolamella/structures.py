@@ -2467,7 +2467,7 @@ class Experiment:
             proposal.asking = False
             if apply_values is not None:
                 result.delta = proposal.delta(decision)
-            logging.info(
+            logging.debug(
                 {
                     "msg": "proposal_decided",
                     "item": item.name,
@@ -2582,7 +2582,7 @@ class Experiment:
                 return DecisionResult(
                     applied=False, reason=f"Could not apply the values: {e}"
                 )
-            logging.info(
+            logging.debug(
                 {
                     "msg": "proposal_applied_as_proposed",
                     "item": item.name,
@@ -2628,7 +2628,7 @@ class Experiment:
                     )
                 )
                 expired += 1
-                logging.info(
+                logging.debug(
                     {
                         "msg": "proposal_unreviewed",
                         "item": item.name,
@@ -2686,7 +2686,7 @@ class Experiment:
                     proposal_id=proposal.id,
                 )
             )
-        logging.info(
+        logging.debug(
             {
                 "msg": "proposal_unreviewed",
                 "lamella": item.name,
@@ -2760,7 +2760,7 @@ class Experiment:
                             )
                         )
                         withdrawn += 1
-                        logging.info(
+                        logging.debug(
                             {
                                 "msg": "proposal_withdrawn",
                                 "item": item.name,
@@ -2824,7 +2824,7 @@ class Experiment:
                     proposal_id=proposal.id,
                 )
             )
-            logging.info(
+            logging.debug(
                 {
                     "msg": "proposal_withdrawn",
                     "item": item.name,

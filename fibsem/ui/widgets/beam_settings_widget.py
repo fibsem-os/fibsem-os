@@ -199,14 +199,14 @@ class FibsemBeamSettingsWidget(QWidget):
 
     def _on_hfw_changed(self, value: float):
         self.microscope.set_field_of_view(self._to_si("hfw", value), self.beam_type)
-        logging.info(
+        logging.debug(
             {"msg": "_on_hfw_changed", "beam_type": self.beam_type.name, "hfw": value}
         )
         self.settings_changed.emit(self.get_settings())
 
     def _on_dwell_time_changed(self, value: float):
         self.microscope.set_dwell_time(self._to_si("dwell_time", value), self.beam_type)
-        logging.info(
+        logging.debug(
             {
                 "msg": "_on_dwell_time_changed",
                 "beam_type": self.beam_type.name,
@@ -219,7 +219,7 @@ class FibsemBeamSettingsWidget(QWidget):
         resolution = self.resolution_combo.itemData(index)
         if resolution is not None:
             self.microscope.set_resolution(resolution, self.beam_type)
-            logging.info(
+            logging.debug(
                 {
                     "msg": "_on_resolution_changed",
                     "beam_type": self.beam_type.name,
@@ -232,7 +232,7 @@ class FibsemBeamSettingsWidget(QWidget):
         current = self.beam_current_combo.itemData(index)
         if current is not None:
             self.microscope.set_beam_current(current, self.beam_type)
-            logging.info(
+            logging.debug(
                 {
                     "msg": "_on_beam_current_changed",
                     "beam_type": self.beam_type.name,
@@ -246,7 +246,7 @@ class FibsemBeamSettingsWidget(QWidget):
         if voltage is not None:
             self.microscope.set_beam_voltage(voltage, self.beam_type)
             self._populate_currents()  # the current choices follow the voltage
-            logging.info(
+            logging.debug(
                 {
                     "msg": "_on_beam_voltage_changed",
                     "beam_type": self.beam_type.name,
@@ -271,7 +271,7 @@ class FibsemBeamSettingsWidget(QWidget):
         worker.start()
 
     def _on_preset_applied(self, preset: str) -> None:
-        logging.info(
+        logging.debug(
             {
                 "msg": "_on_preset_changed",
                 "beam_type": self.beam_type.name,
@@ -299,7 +299,7 @@ class FibsemBeamSettingsWidget(QWidget):
     def _on_working_distance_changed(self, value: float):
         wd = self._to_si("working_distance", value)
         self.microscope.set_working_distance(wd, self.beam_type)
-        logging.info(
+        logging.debug(
             {
                 "msg": "_on_working_distance_changed",
                 "beam_type": self.beam_type.name,
@@ -342,7 +342,7 @@ class FibsemBeamSettingsWidget(QWidget):
         """Apply the settled Shift+scroll target to hardware. No large-change confirmation —
         WD is beam focus (lens), not a physical objective, so a big move isn't a collision risk."""
         target_m = self._to_si("working_distance", self._wd_wheel_target_mm)
-        logging.info(
+        logging.debug(
             {
                 "msg": "_on_canvas_scroll",
                 "beam_type": self.beam_type.name,
@@ -365,7 +365,7 @@ class FibsemBeamSettingsWidget(QWidget):
         self.microscope.set_scan_rotation(
             self._to_si("scan_rotation", value), self.beam_type
         )
-        logging.info(
+        logging.debug(
             {
                 "msg": "_on_scan_rotation_changed",
                 "beam_type": self.beam_type.name,
@@ -377,7 +377,7 @@ class FibsemBeamSettingsWidget(QWidget):
     def _on_shift_changed(self):
         shift = self._read_point("shift")
         self.microscope.set_beam_shift(shift, self.beam_type)
-        logging.info(
+        logging.debug(
             {
                 "msg": "_on_shift_changed",
                 "beam_type": self.beam_type.name,
@@ -389,7 +389,7 @@ class FibsemBeamSettingsWidget(QWidget):
     def _on_stigmation_changed(self):
         stigmation = self._read_point("stigmation")
         self.microscope.set_stigmation(stigmation, self.beam_type)
-        logging.info(
+        logging.debug(
             {
                 "msg": "_on_stigmation_changed",
                 "beam_type": self.beam_type.name,

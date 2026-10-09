@@ -985,7 +985,7 @@ class DemoScene:
         dx = (float(point.x) - 0.5) * hfw
         dy = (0.5 - float(point.y)) * hfw * (height / width)
         shift = self.get_beam_shift(beam_type)
-        logging.info(
+        logging.debug(
             {
                 "msg": "sim_spot_burn",
                 "point": (float(point.x), float(point.y)),
