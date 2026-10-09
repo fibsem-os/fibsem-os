@@ -29,7 +29,6 @@ from PyQt5.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -110,11 +109,6 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
 )
 from fibsem.imaging.spot import SpotBurnProgress
 from fibsem.imaging.tiling.progress import TiledProgress, TiledStatus
-from fibsem.milling.progress import (
-    MillingMessageTracker,
-    MillingProgress,
-    MillingProgressStatus,
-)
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
@@ -127,7 +121,6 @@ from fibsem.ui.stylesheets import (
     MUTED_GHOST_BUTTON_STYLESHEET,
     NAPARI_STYLE,
     PRIMARY_BUTTON_STYLESHEET,
-    PROGRESS_BAR_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
     STATUS_BAR_STYLESHEET,
     SUPERVISION_STATUS_AGENT_STYLESHEET,
@@ -466,9 +459,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        # The last words a producer supplied, so a backend's messageless tick still
-        # has a label to show. See `MillingMessageTracker`.
-        self._milling_label = MillingMessageTracker()
         self.setWindowTitle(f"AutoLamella v{get_version_string()} ")
         self.resize(1600, 1000)
 
@@ -1603,17 +1593,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.progress_widget.setMaximumWidth(400)
         self.status_bar.add_action(self.progress_widget)
 
-        # Add milling progress bar
-        self.milling_progress_bar = QProgressBar(self.status_bar)
-        self.milling_progress_bar.setMaximumWidth(400)
-        self.milling_progress_bar.setMaximum(100)
-        self.milling_progress_bar.setValue(0)
-        self.milling_progress_bar.setTextVisible(True)
-        self.milling_progress_bar.setAlignment(Qt.AlignCenter)
-        self.milling_progress_bar.setStyleSheet(PROGRESS_BAR_STYLESHEET)
-        self.milling_progress_bar.hide()  # Hidden by default
-        self.status_bar.add_action(self.milling_progress_bar)
-
         # Add user attention button (shown when waiting for user interaction)
         self.user_attention_btn = QPushButton("Attention Required")
         self.user_attention_btn.setStyleSheet(USER_ATTENTION_BUTTON_STYLESHEET)
@@ -2262,7 +2241,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
 
     def _on_microscope_connected(self):
-        """Handle microscope connection and connect milling progress signal."""
+        """Handle microscope connection: hand the microscope to what shows its
+        progress."""
         # Before the signal wiring below, which returns early on a disconnect: both
         # overview modalities have to hear about that case too, to let go of the old
         # microscope. They hold it for life, so each has to be handed the new one. It
@@ -2274,19 +2254,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.autolamella_ui.microscope if self.autolamella_ui else None
             )
         self._refresh_fm_placeholder()
+        # Milling progress: the bar listens for it itself (FIB-1188).
+        self.status_bar.set_microscope(
+            self.autolamella_ui.microscope if self.autolamella_ui else None
+        )
         if (
             self.autolamella_ui is not None
             and self.autolamella_ui.microscope is not None
         ):
-            try:
-                self.autolamella_ui.microscope.milling_progress_signal.disconnect(
-                    self._on_milling_progress
-                )
-            except Exception:
-                pass
-            self.autolamella_ui.microscope.milling_progress_signal.connect(
-                self._on_milling_progress
-            )
             try:
                 self.autolamella_ui.microscope.tiled_acquisition_signal.disconnect(
                     self._on_tile_acquisition_progress
@@ -2308,49 +2283,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._update_connection_chip()
         self._update_experiment_header()
         self._update_instructions()
-
-    @ensure_main_thread
-    def _on_milling_progress(self, payload: object):
-        """Handle milling progress updates from the microscope."""
-        # Total-by-construction decode. Every in-tree producer emits a
-        # `MillingProgress` and this is a no-op for them; it stands because a
-        # plugin-loaded strategy is a producer too, and psygnal hands whatever it
-        # emits to this slot unchanged (FIB-797).
-        report = MillingProgress.from_payload(payload)
-        if report.status.is_terminal:
-            self.milling_progress_bar.setVisible(False)
-            return
-
-        label = self._milling_label.label(report)
-
-        if report.status is MillingProgressStatus.STAGE_STARTED:
-            # `or 1` rather than a `.get` default: a producer that sends 0 total stages
-            # is as much a division by zero as one that sends nothing.
-            total_stages = report.total_stages or 1
-            stage = report.display_stage or 1
-            stage_name = report.stage_name or f"Stage {stage}"
-            self.milling_progress_bar.setVisible(True)
-            self.milling_progress_bar.setValue(0)
-            self.milling_progress_bar.setFormat(label)
-            self.milling_progress_bar.setToolTip(
-                f"Milling Stage: {stage}/{total_stages} - {stage_name}"
-            )
-
-        elif report.status is MillingProgressStatus.STAGE_UPDATE:
-            remaining_time = report.remaining_time
-            if remaining_time is not None and report.estimated_time:
-                percent_complete = int(
-                    (1 - (remaining_time / report.estimated_time)) * 100
-                )
-                self.milling_progress_bar.setValue(percent_complete)
-                self.milling_progress_bar.setFormat(
-                    f"{label} - {format_duration_precise(remaining_time)} remaining"
-                )
-            else:
-                # No countdown to draw, but the producer's words are still worth showing:
-                # this is the branch a strategy's own report lands in, and it used to
-                # match nothing at all and render nowhere.
-                self.milling_progress_bar.setFormat(label)
 
     @ensure_main_thread
     def _on_spot_burn_progress(self, report: SpotBurnProgress) -> None:
