@@ -724,7 +724,8 @@ def test_experiment_date_is_creation_time_not_import_time(monkeypatch):
     import fibsem.util.timestamps as timestamps
     from fibsem.structures import FibsemExperimentRef
 
-    ticks = iter([1000.0, 2000.0])
+    # real times: Windows' C time functions refuse ones near 1970
+    ticks = iter([1789355531.0, 1789355591.0])
 
     class Clock(datetime.datetime):
         @classmethod
@@ -733,8 +734,8 @@ def test_experiment_date_is_creation_time_not_import_time(monkeypatch):
 
     monkeypatch.setattr(timestamps, "datetime", Clock)
 
-    assert FibsemExperimentRef().date.timestamp() == 1000.0
-    assert FibsemExperimentRef().date.timestamp() == 2000.0
+    assert FibsemExperimentRef().date.timestamp() == 1789355531.0
+    assert FibsemExperimentRef().date.timestamp() == 1789355591.0
 
 
 def test_a_microscope_state_is_stamped_when_built_not_at_import(monkeypatch):
@@ -748,7 +749,8 @@ def test_a_microscope_state_is_stamped_when_built_not_at_import(monkeypatch):
     import fibsem.structures as structures
     from fibsem.structures import MicroscopeState
 
-    ticks = iter([1000.0, 2000.0])
+    # real times: Windows' C time functions refuse ones near 1970
+    ticks = iter([1789355531.0, 1789355591.0])
 
     class Clock(datetime.datetime):
         @classmethod
@@ -757,8 +759,8 @@ def test_a_microscope_state_is_stamped_when_built_not_at_import(monkeypatch):
 
     monkeypatch.setattr(structures, "datetime", Clock)
 
-    assert MicroscopeState().timestamp == 1000.0
-    assert MicroscopeState().timestamp == 2000.0
+    assert MicroscopeState().timestamp == 1789355531.0
+    assert MicroscopeState().timestamp == 1789355591.0
 
 
 def test_a_chamber_state_reads_any_vendor_name():
