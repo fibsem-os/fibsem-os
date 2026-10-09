@@ -217,6 +217,7 @@ class DemoMicroscope(
             }
         )
         self.milling = bind_demo_milling(self)
+        self._build_stage_movement()
 
     def _create_grid_loader(self) -> Optional[SampleGridLoader]:
         """The grid model over the ``sample_loader`` device, or None when there is

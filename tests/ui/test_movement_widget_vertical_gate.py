@@ -34,6 +34,7 @@ class RecordingMicroscope:
     """Records move calls. Corrects coincidence from either view (Thermo/Tescan)."""
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+    stage_movement = None  # no service: supports_vertical_move answers from the views
     supports_vertical_move = FibsemMicroscope.supports_vertical_move
 
     def __init__(self):

@@ -956,6 +956,7 @@ class ThermoMicroscope(FibsemMicroscope):
             None if self._compustage_installed else self._read_compucentric_offset()
         )
         self._build_stage()
+        self._build_stage_movement()
         # TODO: set default move settings, is this dependent on the stage type?
         if self.milling is not None:
             # AutoScript needs a valid application file before a pattern is made

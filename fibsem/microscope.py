@@ -96,6 +96,7 @@ if TYPE_CHECKING:
     from fibsem.microscopes._stage import SampleGridLoader
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.services.milling import Milling
+    from fibsem.services.stage_movement import StageMovement
 
 
 # The device the orientation transform is defined at. `_get_compucentric_rotation_position`
@@ -176,11 +177,12 @@ def _plain_argument(value: Any) -> Any:
     return value
 
 
-def _records_stage_move(method):
+def _records_stage_move(method, microscope_of: Callable[[Any], Any] = lambda m: m):
     """Record each call as one ``stage_moved`` event, unless it is a step of
     another stage move on the same thread, which records the whole.
 
-    For a backend's stage moves. See ``FibsemMicroscope._record_stage_move``.
+    For a backend's stage moves, and the stage movement service's, whose record is
+    its microscope's (``microscope_of``). See ``FibsemMicroscope._record_stage_move``.
     """
     signature = inspect.signature(method)
 
@@ -189,7 +191,8 @@ def _records_stage_move(method):
         if getattr(_recording_stage_move, "active", False):
             return method(self, *args, **kwargs)
         _recording_stage_move.active = True
-        start = self._stage_position
+        microscope = microscope_of(self)
+        start = microscope._stage_position
         began = time.monotonic()
         result: Any = None
         error: Optional[BaseException] = None
@@ -201,7 +204,7 @@ def _records_stage_move(method):
             raise
         finally:
             _recording_stage_move.active = False
-            self._record_stage_move(
+            microscope._record_stage_move(
                 method.__name__,
                 (signature, args, kwargs),
                 start,
@@ -339,6 +342,11 @@ class FibsemMicroscope(ABC):
     #: milling methods go to it. None when no ion beam was built: they raise then,
     #: a stop has nothing to stop, and the state reads idle.
     milling: Optional[Milling] = None
+    #: The stage movement service over the stage and beams
+    #: (`fibsem.services.stage_movement.StageMovement`); the view-corrected moves go
+    #: to it. None on a backend that doesn't build one yet, whose own move code below
+    #: is then in charge.
+    stage_movement: Optional[StageMovement] = None
     #: The file `system` was loaded from, when it was loaded from one. Set by
     #: `utils.setup_session`; what a calibration action writes back to.
     configuration_path: Optional[str] = None
@@ -819,6 +827,10 @@ class FibsemMicroscope(ABC):
             beam_type (BeamType): beam type to move in
             static_wd (bool, optional): whether to fix the working distance to the eucentric heights. Defaults to False.
         """
+        if self.stage_movement is not None:
+            return self.stage_movement.stable_move(
+                dx=dx, dy=dy, beam_type=beam_type, static_wd=static_wd
+            )
 
         wd = self.get_working_distance(beam_type=BeamType.ELECTRON)
 
@@ -887,6 +899,10 @@ class FibsemMicroscope(ABC):
             NotImplementedError: if this backend cannot correct from that view.
                 Ask supports_vertical_move first rather than catching this.
         """
+        if self.stage_movement is not None:
+            return self.stage_movement.vertical_move(
+                dy=dy, dx=dx, beam_type=beam_type, relaxation=relaxation
+            )
         self._check_vertical_move_supported(beam_type)
         if beam_type is BeamType.ELECTRON:
             return self._vertical_move_from_sem(dx=dx, dy=dy, relaxation=relaxation)
@@ -990,6 +1006,8 @@ class FibsemMicroscope(ABC):
 
     def supports_vertical_move(self, beam_type: BeamType = BeamType.ION) -> bool:
         """Whether coincidence can be restored from the given view on this system."""
+        if self.stage_movement is not None:
+            return self.stage_movement.supports_vertical_move(beam_type)
         return beam_type in self.vertical_move_views
 
     def _check_vertical_move_supported(self, beam_type: BeamType) -> None:
@@ -1012,6 +1030,10 @@ class FibsemMicroscope(ABC):
         Nothing moves. The projection is taken at the current stage pose, not at
         ``base_position``, as it always has been.
         """
+        if self.stage_movement is not None:
+            return self.stage_movement.project_stable_move(
+                dx=dx, dy=dy, beam_type=beam_type, base_position=base_position
+            )
         scan_rotation = self.get_scan_rotation(beam_type=beam_type)
         dx, dy = undo_scan_rotation(dx, dy, scan_rotation)
 
@@ -1239,6 +1261,8 @@ class FibsemMicroscope(ABC):
         Returns:
             FibsemStagePosition: The new stage position after moving to the orientation.
         """
+        if self.stage_movement is not None:
+            return self.stage_movement.move_to_orientation(orientation)
         stage_position = self._orientation_move_target(orientation)
         self.safe_absolute_stage_movement(stage_position)
         return self._stage.position
@@ -1299,6 +1323,9 @@ class FibsemMicroscope(ABC):
         """Move the stage to the desired position in a safe manner, using compucentric rotation.
         Supports movements in the stage_position coordinate system
         """
+        if self.stage_movement is not None:
+            self.stage_movement.safe_absolute_stage_movement(stage_position)
+            return
         # Before anything moves. The staged move below rotates the stage where it
         # stands, which is the correct order leaving the beams and the wrong one
         # coming back from the FM -- see FIB-841.
@@ -1410,6 +1437,13 @@ class FibsemMicroscope(ABC):
     def set_channel(self, channel: BeamType) -> None:
         """Make `channel` the active view and device, for the calls that act on it."""
         raise self._unsupported("set_channel")
+
+    def _build_stage_movement(self) -> None:
+        """Build the stage movement service over the stage and beams; the
+        view-corrected moves then go to it. Without a stage device there is none."""
+        from fibsem.services.stage_movement import StageMovement, bind_stage_movement
+
+        self.stage_movement = bind_stage_movement(StageMovement, self)
 
     def _milling_service(self) -> Milling:
         """The milling service, or the error for a microscope with none."""
@@ -3273,6 +3307,10 @@ class FibsemMicroscope(ABC):
         Returns:
             bool: True if the stage is close to the target milling angle after the move, False otherwise.
         """
+        if self.stage_movement is not None:
+            return self.stage_movement.move_to_milling_angle(
+                milling_angle, rotation=rotation
+            )
 
         if rotation is None:
             rotation = np.radians(self.system.stage.rotation_reference)
