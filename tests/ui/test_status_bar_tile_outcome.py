@@ -96,7 +96,9 @@ def test_a_failed_run_is_red_and_says_why(bar):
 def test_a_terminal_report_needs_no_counts(bar):
     """The fluorescence terminal carries none, and it still has to end the run.
     Getting the order wrong leaves the line mid-run for the whole session."""
-    bar._on_tiled_progress(_report(TiledStatus.CANCELLED, modality=MODALITY_FLUORESCENCE))
+    bar._on_tiled_progress(
+        _report(TiledStatus.CANCELLED, modality=MODALITY_FLUORESCENCE)
+    )
     assert bar.text == "Fluorescence overview cancelled"
 
 

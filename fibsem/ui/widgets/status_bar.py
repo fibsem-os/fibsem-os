@@ -412,5 +412,7 @@ class FibsemStatusBar(QStatusBar):
         remaining, total = report.total_remaining_time, report.total_estimated_time
         if remaining is not None and total:
             fraction = min(max(1.0 - remaining / total, 0.0), 1.0)
-            numbers = f"{int(fraction * 100)}% · {format_time_remaining(remaining)} left"
+            numbers = (
+                f"{int(fraction * 100)}% · {format_time_remaining(remaining)} left"
+            )
         self.set_progress(what, step, fraction, numbers)
