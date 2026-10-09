@@ -23,16 +23,30 @@ it itself, from the microscope a host hands it (`set_microscope`), so no window
 decodes a report. When one ends, the line says how -- done, cancelled, or failed in
 red -- for a moment, then gives the line back.
 
+A run that ends with failures leaves a **failure** on the line, in red, with Show and
+Dismiss, until it is dismissed or the next run starts: "**Run finished** 2 of 5
+failed · 02-civil-cub › Polishing: autofocus found no focus peak". A run held for
+someone says what releases it and how long it has waited: "**01-fancy-mite › Rough
+Milling** review the milling patterns · waiting 2:14 · 3 of 5".
+
 The right side is the host's: `add_action` places its buttons (AutoLamella's Run,
 Stop, Supervised). The bar knows nothing about what they do.
 """
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Optional, Tuple
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QStatusBar, QWidget
+from PyQt5.QtCore import QTimer, pyqtSignal
+from PyQt5.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QStatusBar,
+    QWidget,
+)
 from superqt import ensure_main_thread
 
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
@@ -46,7 +60,7 @@ from fibsem.milling.progress import (
     MillingProgress,
     MillingProgressStatus,
 )
-from fibsem.ui.stylesheets import STATUS_BAR_STYLESHEET
+from fibsem.ui.stylesheets import SECONDARY_BUTTON_STYLESHEET, STATUS_BAR_STYLESHEET
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     ERROR_COLOR,
@@ -96,14 +110,20 @@ _BAR_STYLE = (
 
 # (what, step, detail): the subject in bold, what it is doing, then where it is.
 _Line = Tuple[str, Optional[str], Optional[str]]
-# (label, step, fraction, numbers, failed): measurable progress. The label is the
-# subject on its own and the start of the step under a run.
-_Progress = Tuple[str, Optional[str], Optional[float], Optional[str], bool]
+# (label, step, fraction, numbers, failed, standalone): measurable progress. The
+# label is the subject on its own and the start of the step under a run -- unless
+# *standalone*, when it is the subject whatever is running: a task's failure names
+# its own task, which the run's line has already moved past.
+_Progress = Tuple[str, Optional[str], Optional[float], Optional[str], bool, bool]
 
 
 class FibsemStatusBar(QStatusBar):
     """One line of status on the left -- an operation, else the run, else the
     instruction -- and the host's actions on the right."""
+
+    # The failure line's Show: where the failures are is the host's to
+    # say (AutoLamella's run timeline marks them); the bar only asks.
+    failure_details_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -126,7 +146,21 @@ class FibsemStatusBar(QStatusBar):
         self._numbers.setStyleSheet(_STEP_STYLE)
         self._detail = QLabel()
         self._detail.setStyleSheet(_MUTED_STYLE)
-        for widget in (self._what, self._step, self._bar, self._numbers, self._detail):
+        self._details_btn = QPushButton("Show")
+        self._details_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self._details_btn.clicked.connect(self.failure_details_requested)
+        self._dismiss_btn = QPushButton("Dismiss")
+        self._dismiss_btn.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self._dismiss_btn.clicked.connect(self.dismiss_failure)
+        for widget in (
+            self._what,
+            self._step,
+            self._bar,
+            self._numbers,
+            self._detail,
+            self._details_btn,
+            self._dismiss_btn,
+        ):
             layout.addWidget(widget)
         layout.addStretch(1)
         self.addWidget(line, 1)
@@ -135,6 +169,12 @@ class FibsemStatusBar(QStatusBar):
         self._run: Optional[_Line] = None
         self._operation: Optional[_Line] = None
         self._progress: Optional[_Progress] = None
+        self._failure: Optional[Tuple[str, str]] = None
+        # What releases a held run, and since when (monotonic): the line counts it.
+        self._waiting: Optional[Tuple[str, float]] = None
+        self._waiting_clock = QTimer(self)
+        self._waiting_clock.setInterval(1000)
+        self._waiting_clock.timeout.connect(self._render)
         self._microscope: Optional["FibsemMicroscope"] = None
         # A delegating strategy names itself once and the backend's ticks carry no
         # words; this keeps the strategy's (FIB-797).
@@ -224,18 +264,58 @@ class FibsemStatusBar(QStatusBar):
         """Measurable progress: *label* with its *step*, and a bar at *fraction* (0-1)
         beside *numbers* when there is a figure to draw. None when it is over."""
         self._outcome_timer.stop()
-        self._progress = (label, step, fraction, numbers, False) if label else None
+        self._progress = (
+            (label, step, fraction, numbers, False, False) if label else None
+        )
         self._render()
 
     def _end_outcome(self) -> None:
         self.set_progress(None)
 
-    def show_outcome(self, label: str, step: str, failed: bool = False) -> None:
+    def show_outcome(
+        self, label: str, step: str, failed: bool = False, standalone: bool = False
+    ) -> None:
         """How an operation ended -- "done", "cancelled", a failure in red -- for
-        `OUTCOME_MS`, then the line goes back to the run or the instruction."""
-        self._progress = (label, step, None, None, failed)
+        `OUTCOME_MS`, then the line goes back to the run or the instruction.
+        *standalone* keeps *label* as the subject under a run: a failed task's
+        own name, not the task the run has moved on to."""
+        self._progress = (label, step, None, None, failed, standalone)
         self._render()
         self._outcome_timer.start(OUTCOME_MS)
+
+    # ── a run's failures, and a run that waits ───────────────────────────
+    def show_failure(self, what: str, message: str) -> None:
+        """A failure that stays, in red with Show and Dismiss, until
+        `dismiss_failure` -- the Dismiss button, or the next run starting."""
+        self._failure = (what, message)
+        if self._outcome_timer.isActive():
+            # A moment's outcome still up -- the failed task's own -- is what this
+            # sums up: it gives way rather than covering the summary for its 2 s.
+            self._outcome_timer.stop()
+            self._progress = None
+        self._render()
+
+    def dismiss_failure(self) -> None:
+        self._failure = None
+        self._render()
+
+    @property
+    def failure(self) -> Optional[str]:
+        """The lasting failure's message, or None."""
+        return self._failure[1] if self._failure else None
+
+    def set_waiting(self, releases: Optional[str]) -> None:
+        """The run is held until someone acts: say what releases it, and count how
+        long it has waited. None when it is released. The same hold set again keeps
+        its clock."""
+        if not releases:
+            self._waiting = None
+            self._waiting_clock.stop()
+        elif self._waiting is None or self._waiting[0] != releases:
+            since = self._waiting[1] if self._waiting else time.monotonic()
+            self._waiting = (releases, since)
+            self._waiting_clock.start()
+        self._render()
 
     def set_stage_activity(self, text: Optional[str]) -> None:
         """A stage move's words, as the view controller reports them
@@ -255,12 +335,14 @@ class FibsemStatusBar(QStatusBar):
 
     @property
     def showing(self) -> str:
-        """Which source is on the line: "operation", "progress", "run",
+        """Which source is on the line: "operation", "progress", "failure", "run",
         "instruction" or ""."""
         if self._operation is not None:
             return "operation"
         if self._progress is not None:
             return "progress"
+        if self._failure is not None:
+            return "failure"
         if self._run is not None:
             return "run"
         return "instruction" if self._instruction else ""
@@ -273,12 +355,20 @@ class FibsemStatusBar(QStatusBar):
         return self._bar.value() / self._bar.maximum()
 
     def _render(self) -> None:
-        line = self._operation or self._line_for_progress() or self._run
+        showing = self.showing
+        line = (
+            self._operation
+            or self._line_for_progress()
+            or self._line_for_failure()
+            or self._line_for_run()
+        )
         fraction = numbers = None
-        failed = False
-        if self._operation is None and self._progress is not None:
-            fraction, numbers, failed = self._progress[2:]
+        failed = showing == "failure"
+        if showing == "progress":
+            fraction, numbers, failed = self._progress[2:5]
         self._step.setStyleSheet(_FAILED_STYLE if failed else _STEP_STYLE)
+        self._details_btn.setVisible(showing == "failure")
+        self._dismiss_btn.setVisible(showing == "failure")
         if line is not None:
             what, step, detail = line
             self._set(self._what, what)
@@ -298,11 +388,32 @@ class FibsemStatusBar(QStatusBar):
         step, so the task keeps its place: "**task** label · step … · 3 of 5"."""
         if self._progress is None:
             return None
-        label, step = self._progress[0], self._progress[1]
-        if self._run is None:
+        label, step, standalone = (
+            self._progress[0],
+            self._progress[1],
+            self._progress[5],
+        )
+        if self._run is None or standalone:
             return (label, step, None)
         what, _run_step, detail = self._run
         return (what, " · ".join(p for p in (label, step) if p), detail)
+
+    def _line_for_failure(self) -> Optional[_Line]:
+        if self._failure is None:
+            return None
+        what, message = self._failure
+        return (what, message, None)
+
+    def _line_for_run(self) -> Optional[_Line]:
+        """The run's line; held, the step is what releases it and the detail how long
+        it has waited."""
+        if self._run is None or self._waiting is None:
+            return self._run
+        what, _step, detail = self._run
+        releases, since = self._waiting
+        minutes, seconds = divmod(int(time.monotonic() - since), 60)
+        waited = f"waiting {minutes}:{seconds:02d}"
+        return (what, releases, " · ".join(p for p in (waited, detail) if p))
 
     # ── milling ──────────────────────────────────────────────────────────
     @ensure_main_thread

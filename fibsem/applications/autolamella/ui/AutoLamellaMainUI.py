@@ -1578,6 +1578,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         right."""
         self.status_bar = FibsemStatusBar(self)
         self.setStatusBar(self.status_bar)
+        # This run's failures, for the line it leaves when it ends (FIB-1188). Here
+        # rather than on the Run click: an agent starts runs too, and the report
+        # handlers read these unconditionally (FIB-329).
+        self._run_active = False
+        self._run_failures: List[Tuple[str, str]] = []
+        self._run_total = 0
+        self.status_bar.failure_details_requested.connect(self._show_run_failures)
 
         # Add user attention button (shown when waiting for user interaction)
         self.user_attention_btn = QPushButton("Attention Required")
@@ -1981,7 +1988,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             )
 
     def set_workflow_running(self):
-        """Show the stop button, and lock what a run owns."""
+        """Show the stop button, and lock what a run owns.
+
+        Called on every report of a run, so the start is the first call after
+        `hide_workflow_running`: that is when the last run's failure line goes."""
+        if not self._run_active:
+            self._run_active = True
+            self._run_failures = []
+            self._run_total = 0
+            self.status_bar.dismiss_failure()
         self.run_workflow_btn.hide()
         self.stop_workflow_btn.show()
         self._set_overviews_allowed(False)
@@ -2003,6 +2018,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def hide_workflow_running(self):
         """Hide the stop button and show run button."""
+        self._run_active = False
+        self.status_bar.set_waiting(None)
         self.status_bar.set_run(None)
         self.stop_workflow_btn.hide()
         self.supervised_status_btn.hide()
@@ -3076,6 +3093,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             fibsem_icon("mdi:play-circle-outline", color=GRAY_ICON_COLOR),
             "Workflow",
         )
+        self._workflow_tab_container = container
 
         # disable the workflow tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
@@ -3600,6 +3618,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         self.status_bar.set_run(f"{lamella_name} › {task_name}", None, where)
         self.set_workflow_running()
+        if queue_total:
+            self._run_total = queue_total
+        if status is AutoLamellaTaskStatus.Failed:
+            # Said for a moment under its own name -- the run moves on to the next
+            # item -- and kept for the line the run leaves when it ends.
+            what = f"{lamella_name} › {task_name}"
+            reason = report.error_message or "failed"
+            self._run_failures.append((what, reason))
+            self.status_bar.show_outcome(
+                what, f"failed: {reason}", failed=True, standalone=True
+            )
 
         # update current task
         self._current_task_name = task_name
@@ -3806,6 +3835,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # turns it into the ordinary waiting state. A run parked on review
         # decisions is a wait for the operator too, just not at the beam: same
         # chrome, but the button leads to the Review tab.
+        # The line says what releases a hold the operator can release, and counts
+        # the wait; Attention Required stays the way there.
+        self.status_bar.set_waiting(
+            hold.releases
+            if hold is not None and hold.kind is not HoldKind.agent
+            else None
+        )
         if hold is not None and hold.kind is not HoldKind.agent:
             self.user_attention_btn.setText(_attention_label(hold))
             self.user_attention_btn.setToolTip(
@@ -3969,10 +4005,37 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             review_tab.set_running(False)
             review_tab.refresh()
         self.lamella_card_container.refresh_all()
-        # The run's line has gone (hide_workflow_running); say it ended once, as a
-        # toast, and the slot goes back to the instruction.
-        notification_service.show_toast("Workflow finished.")
+        self._say_how_the_run_ended()
         self._set_border_state("idle")
+
+    def _show_run_failures(self) -> None:
+        """The failure line's Show: the Workflow tab, with the run's
+        first failed row selected and in view. The timeline is where the run is
+        laid out, failures marked, and where they are queued again."""
+        container = getattr(self, "_workflow_tab_container", None)
+        if container is None:
+            return
+        self.tab_widget.setCurrentWidget(container)
+        self.workflow_timeline.show_first_failed()
+
+    def _say_how_the_run_ended(self) -> None:
+        """The run's line has gone (`hide_workflow_running`). A run with failures,
+        or one that stalled, leaves a line that stays until it is dismissed or the
+        next run starts; a clean one says so once, as a toast, and the line goes
+        back to the instruction."""
+        note = getattr(self.autolamella_ui, "_last_run_note", "") or ""
+        failures = self._run_failures
+        if failures:
+            what, reason = failures[-1]
+            n = len(failures)
+            count = f"{n} of {self._run_total}" if self._run_total >= n else f"{n}"
+            self.status_bar.show_failure(
+                "Run finished", f"{count} failed · {what}: {reason}"
+            )
+        elif note:
+            self.status_bar.show_failure("Run stalled", note)
+        else:
+            notification_service.show_toast("Workflow finished.")
 
     def add_overview_tab(self):
         """Reserve the Overview tab: both modalities, one tab.

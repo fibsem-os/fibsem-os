@@ -619,6 +619,16 @@ class WorkflowTimelineWidget(QWidget):
             self._steps[index].status = status
             self._rows[index].refresh(self._steps[index])
 
+    def show_first(self, status: StepStatus) -> Optional[int]:
+        """Select the first row in *status* and scroll it into view; its index, or
+        None when no row is in it."""
+        for index, step in enumerate(self._steps):
+            if step.status is status:
+                self._on_row_clicked(index)
+                self._scroll.ensureWidgetVisible(self._rows[index])
+                return index
+        return None
+
     def set_active_step(self, index: int) -> None:
         for i, step in enumerate(self._steps):
             if i < index:
@@ -780,6 +790,11 @@ class WorkflowProgressWidget(QWidget):
         root.addWidget(self._outer, 1)
 
     # ── Public API ────────────────────────────────────────────────────────
+    def show_first_failed(self) -> Optional[int]:
+        """Select the run's first failed row and scroll to it: where a failed run's
+        status line sends you (FIB-1188). Its index, or None when nothing failed."""
+        return self._outer.show_first(StepStatus.FAILED)
+
     def set_actions_enabled(self, enabled: bool) -> None:
         """Offer queue actions on the rows and the header, or not at all.
 
