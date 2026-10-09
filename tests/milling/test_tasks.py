@@ -253,6 +253,69 @@ def test_configured_path_is_preserved(tmp_path):
     assert task.config.acquisition.imaging.path == str(tmp_path / "Milling" / "t")
 
 
+# ── the run's folder is the caller's, and every stage is told it ─────────────
+#
+# Where a milling run writes used to be read off the imaging path -- an imaging
+# setting that also meant "where to save" -- and strategies worked out the
+# lamella from its shape. The folder is now an argument to the run and a
+# runtime field on each stage (FIB-1253).
+
+
+def test_a_folder_passed_to_the_run_wins_over_the_imaging_path(tmp_path):
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    cfg = FibsemMillingTaskConfig.from_stages(
+        stages=[FibsemMillingStage(name="s")], name="t"
+    )
+    cfg.acquisition.imaging.path = str(tmp_path / "imaging")
+
+    task = FibsemMillingTask(microscope, cfg, output_dir=str(tmp_path / "run"))
+    task._configure_path()
+
+    assert task.output_dir == str(tmp_path / "run" / "Milling" / "t")
+    # still set, for strategies written before stage.output_dir existed
+    assert task.config.acquisition.imaging.path == task.output_dir
+
+
+def test_every_stage_writes_under_the_run_folder(tmp_path, monkeypatch):
+    """A real run on Demo with drift correction and per-stage images on: the
+    reference image, each stage's drift alignment and its images all land under
+    <output_dir>/Milling/<name>, and the imaging path is never written to."""
+    monkeypatch.setenv("FIBSEM_SIM_NO_DELAY", "1")
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    cfg = FibsemMillingTaskConfig.from_stages(
+        stages=[FibsemMillingStage(name="one"), FibsemMillingStage(name="two")],
+        name="t",
+    )
+    cfg.alignment.enabled = True
+    cfg.acquisition.acquire_fib = True
+    cfg.acquisition.imaging.path = str(tmp_path / "imaging")
+
+    task = run_milling_task(microscope, cfg, output_dir=str(tmp_path / "run"))
+
+    assert task.outcome is MillingProgressStatus.TASK_FINISHED, task.error
+    run_folder = Path(task.output_dir)
+    assert [stage.output_dir for stage in task.stages] == [task.output_dir] * 2
+    written = [p for p in tmp_path.rglob("*") if p.is_file()]
+    assert written, "the run saved nothing, so this proves nothing"
+    assert all(p.is_relative_to(run_folder) for p in written), [
+        str(p.relative_to(tmp_path)) for p in written
+    ]
+    drift = [p for p in written if "Alignment" in p.relative_to(run_folder).parts]
+    assert drift, "each stage's drift alignment is saved in the run folder"
+    assert not (tmp_path / "imaging").exists()
+
+
+def test_the_run_folder_is_not_saved_with_the_stage():
+    """It belongs to one run, not to the protocol the stage is saved in."""
+    stage = FibsemMillingStage(name="s")
+    stage.output_dir = "/a/run/folder"
+
+    data = stage.to_dict()
+
+    assert "output_dir" not in data
+    assert FibsemMillingStage.from_dict(data).output_dir is None
+
+
 def test_imaging_conditions_falls_back_before_capture(tmp_path):
     """If the task failed before it could capture the live conditions, fall back to the
     system defaults rather than passing None to the column."""

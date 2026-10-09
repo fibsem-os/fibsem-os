@@ -224,7 +224,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                 "Coincidence Milling Strategy requires a Fluorescence Module (FM) to be available on the microscope."
             )
 
-        path = self.stage.imaging.path
+        path = self.stage.output_dir
+        if path is None:
+            path = self.stage.imaging.path
         if path is None:
             path = os.getcwd()
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")

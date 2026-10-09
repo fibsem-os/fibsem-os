@@ -168,6 +168,12 @@ class FibsemMillingStage:
         default_factory=ImageSettings
     )  # settings for post-milling acquisition
     reference_image: Optional[FibsemImage] = None
+    # Where this stage's run writes: its alignment reference, the drift
+    # correction, anything a strategy saves. Set by FibsemMillingTask before the
+    # strategy runs, like reference_image, and never saved with the stage -- it
+    # belongs to one run, not to the protocol. ``imaging.path`` is an imaging
+    # setting; read this to know where to save.
+    output_dir: Optional[str] = None
 
     def __post_init__(self):
 
