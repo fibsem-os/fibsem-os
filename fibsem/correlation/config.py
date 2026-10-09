@@ -73,13 +73,23 @@ class FitSettings:
 @dataclass
 class RISettings:
     """RI depth-correction ζ inputs + mode. Mirrors ``ZetaParams`` (tilt / depth /
-    NA / n2 / wavelength); defaults match ``DEFAULT_ZETA_PARAMS``. ``wavelength_um``
-    and ``na`` may be seeded from channel metadata on FM load (FIB-277)."""
+    NA / n2 / wavelength). ``wavelength_um`` and ``na`` may be seeded from channel
+    metadata on FM load (FIB-277).
+
+    The defaults are the one default set: the RI widget starts from them too.
+    They are the configuration Perez et al. use for depth correction throughout:
+    vitrified cytoplasm (n = 1.35) through the Arctis iFLM's NA 0.75 objective,
+    for which the paper reports a scaling factor of 1.5
+    (doi:10.64898/2026.05.11.724418, the source of the lookup table). Only NA and
+    n2 move ζ appreciably; it is near-flat in tilt, depth and wavelength. These
+    were NA 0.8 / n 1.4 here while the widget used 0.75 / 1.35, so a new protocol
+    showed one set and computed ζ from the other (FIB-1234).
+    """
 
     tilt_deg: float = 15.0
     depth_um: float = 4.0
-    na: float = 0.8
-    n2: float = 1.4
+    na: float = 0.75
+    n2: float = 1.35
     wavelength_um: float = 0.515
     mode: str = "pre"  # "pre" (correct POI z before correlation) | "post"
 

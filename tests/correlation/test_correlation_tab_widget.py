@@ -733,6 +733,7 @@ def test_tilt_lock_preserves_manual_factor(qapp):
 
     rw = RefractiveIndexWidget()
     rw._spin_factor.setValue(1.6)
+    rw._spin_factor.editingFinished.emit()  # as typing it does
     rw.set_tilt_locked(True)
     assert rw._spin_tilt.value() == pytest.approx(0.0)
     assert rw.get_factor() == pytest.approx(1.6)

@@ -240,6 +240,12 @@ class CorrelationInputData:
     # before the correlation transform is applied (see run_correlation_from_data).
     fm_surface_coordinate: Optional[Coordinate] = None
     ri_pre_correction_factor: Optional[float] = None
+    # The optical parameters on screen when the factor was armed (tilt_deg,
+    # depth_um, na, n2, wavelength_um), and whether the factor is ζ of them
+    # ("computed") or was typed, reset or restored instead.
+    # The factor alone could not be traced back to its settings, so a reopened
+    # run could not say why it used the depth correction it did (FIB-1234).
+    ri_pre_correction_params: Optional[dict] = None
     method: str = "multi-point"
     # Fallbacks restored from serialized files, so a result loaded from JSON
     # (images absent) can still convert corrected pixels to px / px_m
@@ -269,6 +275,7 @@ class CorrelationInputData:
             if self.fm_surface_coordinate
             else None,
             "ri_pre_correction_factor": self.ri_pre_correction_factor,
+            "ri_pre_correction_params": self.ri_pre_correction_params,
             "fm_image_shape": self.fm_image_shape,
             "fib_image_shape": self.fib_image_shape,
             "fib_image_pixel_size": self.fib_image_pixel_size,
@@ -404,6 +411,7 @@ class CorrelationInputData:
             surface_coordinate=surface_coordinate,
             fm_surface_coordinate=fm_surface_coordinate,
             ri_pre_correction_factor=data.get("ri_pre_correction_factor"),
+            ri_pre_correction_params=data.get("ri_pre_correction_params"),
             # Has a dataclass default and sits between two .get() calls; the hard
             # subscript was the second key that could throw out of this function.
             method=data.get("method", "multi-point"),
