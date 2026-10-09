@@ -1463,12 +1463,13 @@ class FibsemMicroscope(ABC):
         """Make `channel` the active view and device, for the calls that act on it."""
         raise self._unsupported("set_channel")
 
-    def _build_stage_movement(self) -> None:
-        """Build the stage movement service over the stage and beams; the
-        view-corrected moves then go to it. Without a stage device there is none."""
+    def _build_stage_movement(self, service: Optional[type] = None) -> None:
+        """Build the stage movement service over the stage and beams, of the driver's
+        class (`StageMovement` by default); the view-corrected moves then go to it.
+        Without a stage device there is none."""
         from fibsem.services.stage_movement import StageMovement, bind_stage_movement
 
-        self.stage_movement = bind_stage_movement(StageMovement, self)
+        self.stage_movement = bind_stage_movement(service or StageMovement, self)
 
     def _milling_service(self) -> Milling:
         """The milling service, or the error for a microscope with none."""

@@ -1,5 +1,8 @@
 """Tescan's services.
 
+`TescanStageMovement` is the shared stage movement with Tescan's own coincidence move
+from the SEM view, and no safe-rotation sequence before an absolute move.
+
 `TescanMilling` mills on DrawBeam: a layer made from the milling preset on the ion
 column, and a second connection to stop it from another thread.
 
@@ -13,6 +16,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
+import numpy as np
+
 import fibsem.constants as constants
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata
@@ -23,6 +28,7 @@ from fibsem.drivers.tescan.microscope import (
 )
 from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import Milling, bind_milling, progress_update
+from fibsem.services.stage_movement import StageMovement
 from fibsem.structures import (
     BeamType,
     CrossSectionPattern,
@@ -33,6 +39,7 @@ from fibsem.structures import (
     FibsemPatternSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
+    FibsemStagePosition,
     MillingState,
 )
 
@@ -259,3 +266,75 @@ class TescanMilling(Milling):
 def bind_tescan_milling(microscope: TescanMicroscope) -> Optional[TescanMilling]:
     """Build ``milling`` for a connected Tescan microscope whose beams are built."""
     return bind_milling(TescanMilling, microscope)
+
+
+class TescanStageMovement(StageMovement):
+    """The shared moves, with two of Tescan's own.
+
+    An absolute move goes straight to the position: Tescan has no tilt-flat and
+    compucentric-rotation sequence before it (it never had). The coincidence move from
+    the SEM view is Tescan's, verified on hardware, in place of the shared stable move
+    then FIB-view vertical move.
+    """
+
+    def _safe_rotation(self, stage_position: FibsemStagePosition) -> None:
+        """Nothing before the move itself."""
+
+    def _vertical_move_from_sem(
+        self, dx: float, dy: float, relaxation: float = 1.0
+    ) -> FibsemStagePosition:
+        """Correct the coincidence point from the SEM view.
+
+        Tescan's own move, kept in place of the shared stable move then FIB-vertical
+        move because it is the one verified on hardware. ``relaxation`` is not applied,
+        as it never was here.
+
+        The mirror of the FIB-view move: the stage slides along the FIB
+        line of sight, which is invisible in the FIB image, until the clicked
+        feature is centred in the SEM. A feature already positioned in the FIB
+        view (e.g. just milled, or just corrected with vertical_move) therefore
+        lands on both beam axes at once -- at the coincidence point. The math
+        is :func:`coincident_from_sem_stage_movement_tescan_from_geometry`; the sample
+        plane, and with it the shuttle pre-tilt, cancels out of this move, so only the
+        stage tilt and the column tilts appear. See
+        https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
+        for the derivation and figures.
+
+        Verified on hardware 2026-08-26 (acceptance test: Alt-double-click a
+        feature in the SEM view lands it centred in the SEM image with no
+        movement in the FIB image). Small focus shifts in both views are
+        inherent to the move.
+
+        Args:
+            dx (float): distance along the image x-axis (SEM view), in metres.
+            dy (float): distance along the image y-axis (SEM view), in metres.
+        """
+        # adjust for scan rotation (radians, codebase convention)
+        scan_rotation = self._beam_value(BeamType.ELECTRON, "scan_rotation")
+        if np.isclose(scan_rotation, np.pi):
+            dx *= -1.0
+            dy *= -1.0
+
+        y_move, z_move = tescan.coincident_from_sem_stage_movement_tescan_from_geometry(
+            geometry=self.parent.hardware_geometry(),
+            stage_position=self._position(),
+            dy=dy,
+        )
+
+        # The move in Tescan's frame: x and y run opposite the image, z as computed
+        # (+z is down). The stage device takes fibsem's frame, at the current tilt.
+        stage_position = FibsemStagePosition(x=-dx, y=-y_move, z=z_move, r=0, t=0)
+        stage_position = self.stage.native_delta(stage_position, self._position().t)
+        logging.info(f"coincident move from SEM: {stage_position}")
+        self._move_stage(stage_position, relative=True)
+
+        logging.debug(
+            {
+                "msg": "move_coincident_from_sem",
+                "dx": dx,
+                "dy": dy,
+                "scan_rotation": scan_rotation,
+                "position": stage_position.to_dict(),
+            }
+        )
+        return self._position()
