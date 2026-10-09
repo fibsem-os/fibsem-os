@@ -20,6 +20,7 @@ import pytest
 from fibsem.correlation.fit_diagnostics import FitDiagnostic, plot_fit_diagnostic
 from fibsem.correlation.util import (
     FitOutsideWindow,
+    fit_gauss_2d_mod,
     hole_fitting_FIB,
     hole_fitting_reflection,
     target_fitting_fluorescence,
@@ -78,6 +79,46 @@ def test_fluorescence_fit_returns_z_and_xy_diagnostic():
     assert d.has_z and not d.z_inverted
     assert 8 <= zr <= 12
     assert d.fitted_xy is None  # default has no XY fitting -> no fitted marker
+
+
+# --- FIB-1216: the FIB hole fit finds a burn anywhere in its window ----------
+
+
+def _fib_burn(cx: float, cy: float, size: int = 80) -> np.ndarray:
+    """A dark burn 3 px wide on a noisy background."""
+    rng = np.random.default_rng(1)
+    img = 200.0 - 120.0 * _blob_2d(size, cx, cy, sigma=3.0)
+    return (img + rng.normal(0, 4, img.shape)).astype(np.float32)
+
+
+@pytest.mark.parametrize("offset", [0, 4, 8, 12, 14])
+@pytest.mark.parametrize("direction", [(1, 0), (0, 1), (-1, 0), (0, -1), (0.7, -0.7)])
+def test_fib_hole_fit_finds_the_burn_from_anywhere_in_its_window(offset, direction):
+    """It started a 1 px Gaussian at the click and found the burn only from
+    within ~4 px; from further it stayed at the click and called that a fit."""
+    img = _fib_burn(40.0, 40.0)
+    x = 40.0 + offset * direction[0]
+    y = 40.0 + offset * direction[1]
+    xr, yr, d = hole_fitting_FIB(img, x, y)
+    assert np.hypot(xr - 40.0, yr - 40.0) < 1.0
+    assert d.fitted_xy is not None
+
+
+def test_fib_hole_fit_from_on_the_burn_is_the_fit_it_always_was():
+    """A start the old fit handled is not re-fitted: the click-start answer
+    stands whenever it is burn-shaped."""
+    img = _fib_burn(40.3, 39.6)
+    popt, _ = fit_gauss_2d_mod(img[38 - 15 : 38 + 15, 41 - 15 : 41 + 15])
+    xr, yr, _ = hole_fitting_FIB(img, 41.0, 38.0)
+    assert (xr, yr) == (popt[1] + 41 - 15, popt[2] + 38 - 15)
+
+
+def test_fib_hole_fit_with_no_burn_fails_instead_of_returning_the_click():
+    """A brightness ramp: the old fit modelled it with a Gaussian hundreds of px
+    wide, whose centre stayed near the click, and reported that as a fit."""
+    xx = np.mgrid[0:80, 0:80][1].astype(np.float32)
+    with pytest.raises(FitOutsideWindow, match="no burn-shaped dark spot"):
+        hole_fitting_FIB(200.0 - 1.5 * xx, 40.0, 40.0)
 
 
 # --- FIB-282: the input marker tracks the sub-pixel click ------------------

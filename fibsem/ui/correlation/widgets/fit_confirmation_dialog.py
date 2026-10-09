@@ -144,7 +144,8 @@ def humanize_fit_error(exc: Exception) -> str:
         )
     if isinstance(exc, IndexError) or "out of bounds" in msg or "too close" in msg:
         return "The point is too close to the image edge to fit a region around it."
-    if "fell outside the" in msg:  # the fit's answer left its window (FIB-1219)
+    # the fit's answer left its window (FIB-1219), or found no burn (FIB-1216)
+    if "fell outside the" in msg or "no burn-shaped" in msg:
         return (
             "No clear burn here: the fit's answer fell outside the region it "
             "searched, so the point stays where you placed it. Check the "
