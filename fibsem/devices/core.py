@@ -758,6 +758,14 @@ class _Controllable:
 class Device(_Controllable):
     """One piece of hardware: named, with parameters and commands, and a parent."""
 
+    def facts(self) -> Dict[str, Any]:
+        """What the device says about itself that is neither a parameter nor a
+        command, as JSON-ready data: what a remote copy of it needs to answer the
+        same questions (the stage's frame, the needle's named positions). The device
+        server sends it with the device's description. Nothing by default.
+        """
+        return {}
+
 
 def _describe(p: BoundParameter) -> Dict[str, Any]:
     described = {

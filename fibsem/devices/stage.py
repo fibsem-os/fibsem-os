@@ -45,6 +45,7 @@ from fibsem.devices.core import Device, Parameter, command
 from fibsem.devices.display import Display
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
+    KNOWN_ORIENTATIONS,
     STAGE_FRAME_FIBSEM,
     FibsemStagePosition,
     RangeLimit,
@@ -241,12 +242,28 @@ class Stage(Device):
     def connect(self) -> Stage:
         """Bind the parameters, then build an axis for each one the driver reports."""
         super().connect()
+        self._build_axes()
+        return self
+
+    def _build_axes(self) -> None:
+        """An axis for each one the driver gives ``position`` limits for."""
         limits = self.position.limits or {}
         axes = {name: Axis(self, name) for name in AXIS_UNITS if name in limits}
         for axis in axes.values():
             self.position.changed.connect(axis._position_changed)
         self.axes = Axes(axes)
-        return self
+
+    def facts(self) -> Dict[str, Any]:
+        """The frame, the shuttle, and the device each orientation puts the stage at:
+        the answers a remote stage gives without asking again."""
+        return {
+            "frame": self.frame,
+            "has_builtin_shuttle": self.has_builtin_shuttle(),
+            "device_at_pose": {
+                orientation: self.device_at_pose(orientation)
+                for orientation in KNOWN_ORIENTATIONS
+            },
+        }
 
     @property
     def is_homed(self) -> Optional[bool]:
@@ -282,6 +299,14 @@ class Stage(Device):
         with self.resources.claim(STAGE_RESOURCE):
             self._link()
             return self.linked.get_value()
+
+    @command
+    def pose_table(
+        self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+    ) -> Dict[str, FibsemStagePosition]:
+        """``poses()`` as a command, so a stage on another computer can be asked for
+        its poses. It moves nothing."""
+        return self.poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
 
     def move_through(
         self, position: FibsemStagePosition, relative: bool = False
