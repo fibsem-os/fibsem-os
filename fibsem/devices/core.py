@@ -41,7 +41,7 @@ from typing import (
 
 from psygnal import Signal
 
-from fibsem.display import DisplayHint
+from fibsem.devices.display import DisplayHint
 from fibsem.structures import RangeLimit
 
 IMAGING_CHANNEL = "imaging_channel"
@@ -117,7 +117,7 @@ class Parameter:
     the parameter is read back, so its cache and its ``changed`` signal carry what the
     hardware applied rather than what was asked for.
 
-    ``display`` says how to show it (a ``fibsem.display.Display``, or one per field for
+    ``display`` says how to show it (a ``fibsem.devices.display.Display``, or one per field for
     a composite value). Like the type and unit it means the same on every backend: a
     subclass that redeclares the parameter keeps it, and can't give another.
     """
@@ -757,6 +757,14 @@ class _Controllable:
 
 class Device(_Controllable):
     """One piece of hardware: named, with parameters and commands, and a parent."""
+
+    def facts(self) -> Dict[str, Any]:
+        """What the device says about itself that is neither a parameter nor a
+        command, as JSON-ready data: what a remote copy of it needs to answer the
+        same questions (the stage's frame, the needle's named positions). The device
+        server sends it with the device's description. Nothing by default.
+        """
+        return {}
 
 
 def _describe(p: BoundParameter) -> Dict[str, Any]:

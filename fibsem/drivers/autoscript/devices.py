@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import math
 import threading
 import time
 from contextlib import contextmanager
@@ -120,6 +121,7 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.drivers.autoscript.microscope import ThermoMicroscope
     from fibsem.drivers.registry import BuildContext
+    from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
 
 
 class AutoscriptStage(Stage):
@@ -130,16 +132,15 @@ class AutoscriptStage(Stage):
     - ``read_position``: the ``stage_position`` branch of ``_get``, including setting the
       default coordinate system before every read;
     - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked`` branches;
-    - ``metadata_position``: ``_get_axis_limits``, which also says which axes exist;
+    - ``metadata_position``: the SDK's axis limits, which also say which axes exist;
     - ``_move_absolute``: ``move_stage_absolute``, with its working-distance restore
       and its axis restrictions;
     - ``_move_relative``: ``move_stage_relative``;
     - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
 
     The old moves end by reading the position back; ``Stage.move_through`` does the
-    same read, so a move here is the same calls end to end. ``_get_axis_limits`` gives
-    r and t in degrees while positions are in radians; the metadata converts them, so
-    limits and values share one unit.
+    same read, so a move here is the same calls end to end. Limits and positions share
+    one unit: radians for r and t.
     """
 
     compustage = False
@@ -168,9 +169,20 @@ class AutoscriptStage(Stage):
         return stage_position_from_autoscript(self._stage.current_position)
 
     def metadata_position(self) -> ParameterMetadata:
-        return ParameterMetadata(
-            limits=axis_limits_from_degrees(self.parent._get_axis_limits())
-        )
+        # The SDK gives x, y, z in metres and t in radians, the axes' own units. It has
+        # no limit for r, which turns freely: one full turn either way.
+        if not hasattr(self._stage, "get_axis_limits"):
+            from fibsem.drivers.demo.simulator import STAGE_LIMITS_DEFAULT
+
+            return ParameterMetadata(
+                limits=axis_limits_from_degrees(STAGE_LIMITS_DEFAULT)
+            )
+        limits: Dict[str, RangeLimit] = {}
+        for axis in ("x", "y", "z", "t"):
+            axis_limit = self._stage.get_axis_limits(axis)
+            limits[axis] = RangeLimit(min=axis_limit.min, max=axis_limit.max)
+        limits["r"] = RangeLimit(min=-2 * math.pi, max=2 * math.pi)
+        return ParameterMetadata(limits=limits)
 
     # -- homing and linking -----------------------------------------------------------
 
@@ -229,10 +241,17 @@ class AutoscriptCompustage(AutoscriptStage):
     not restore the working distance (it still reads it first, as today), and there
     is no linking: the old ``set("stage_link")`` logs and does nothing, so ``linked``
     is absent here and ``link()`` is unavailable. Its limits are the fixed compustage
-    table ``_get_axis_limits`` returns, which has no r.
+    table, which has no r.
     """
 
     compustage = True
+
+    def metadata_position(self) -> ParameterMetadata:
+        from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
+
+        return ParameterMetadata(
+            limits=axis_limits_from_degrees(STAGE_LIMITS_COMPUSTAGE)
+        )
 
     def available_linked(self) -> bool:
         return False
@@ -1656,3 +1675,24 @@ def bind_autoscript_fm(
     parts["camera"].configure(config)
     group = AutoscriptFM(channel, **common).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}
+
+
+def build_autoscript_fm(
+    entry: DeviceEntry, context: BuildContext
+) -> "DeviceThermoFisherFluorescenceMicroscope":
+    """The FM API over the Thermo FM devices, sharing the microscope's connection and
+    its imaging channel lock with the beams.
+
+    Selecting the FM's channel is the only test AutoScript has for whether an FM is
+    fitted, so a microscope without one fails here and connects without an FM.
+    Live view is pulled by this process's own worker, which never stops asking while
+    it runs, so it has no watchdog: a slow frame handler must not end it. A served FM
+    keeps the default."""
+    from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
+
+    microscope = context.microscope
+    devices = bind_autoscript_fm(microscope, config=entry.as_block())
+    devices["fm"].live_timeout = None
+    fm = DeviceThermoFisherFluorescenceMicroscope(devices, parent=microscope)
+    fm.set_active_channel()
+    return fm

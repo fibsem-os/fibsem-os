@@ -20,6 +20,7 @@ from fibsem.devices.sample_loader import (
     MagazineSlotState,
     StageSample,
 )
+from fibsem.devices.stage import axis_limits_to_degrees
 from fibsem.session_state import SessionState, session_state_for
 from fibsem.structures import (
     GRID_RADIUS,
@@ -458,6 +459,16 @@ class DeviceSampleLoader(SampleGridLoader):
             working.loaded_grid = None
 
 
+def _stage_device_limits(microscope: "FibsemMicroscope") -> Dict[str, RangeLimit]:
+    """The stage device's per-axis limits, in this module's units: metres for x, y
+    and z, degrees for r and t. Empty when there is no stage device, which the
+    readers take as "unknown" rather than "anywhere"."""
+    stage = microscope.stage
+    if stage is None:
+        return {}
+    return axis_limits_to_degrees(stage.position.limits or {})
+
+
 def _slot_name(index: int) -> str:
     return f"Slot-{index + 1:02d}"
 
@@ -479,7 +490,7 @@ class Stage:
         self.parent = parent
         self.holder = holder
         self.loader = loader
-        self.limits = self.parent._get_axis_limits()
+        self.limits = _stage_device_limits(parent)
 
     def __repr__(self) -> str:
         return f"<Stage: position={self.position}, holder={self.holder}>"

@@ -457,9 +457,9 @@ def test_a_real_config_reaches_the_column_through_the_managers_own_payload(live)
 
 
 def _fmt(seconds: float) -> str:
-    from fibsem.ui.widgets.preflight import format_duration
+    from fibsem.util.durations import format_duration_rounded
 
-    return format_duration(seconds)
+    return format_duration_rounded(seconds, pad=True)
 
 
 def test_the_header_totals_every_item_the_real_queue_holds(live):

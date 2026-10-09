@@ -168,7 +168,6 @@ class DemoMicroscope(
         self._read_plasma_source()
         self._build_devices(initial_demo_parts(self.system))
         self._setup_fluorescence()
-        self.fm_devices = MappingProxyType(self._fm_devices())
         self._finish_session()
 
     def _build_devices(self, parts: DemoParts) -> None:
@@ -176,8 +175,8 @@ class DemoMicroscope(
         and route their keys to them.
 
         The Demo has every device in ``DEMO_DEVICES``; ``hardware.devices`` switches
-        one off, or adds one (``fibsem.devices.entries``). The FM is built with the
-        FM API, in ``_local_fluorescence``.
+        one off, or adds one (``fibsem.devices.entries``). The FM is built in
+        ``_setup_fluorescence``.
         """
         defaults = DEMO_DEVICES
         if sim_is_compustage(self.system):
@@ -222,16 +221,6 @@ class DemoMicroscope(
             logging.info("No sample loader: grids are exchanged by hand.")
             return None
         return DeviceSampleLoader(self, device, read_at_connect=True)
-
-    def _local_fluorescence(self) -> DemoFluorescenceMicroscope:
-        """The FM as the Demo FM devices, and the FM API over them."""
-        devices = bind_demo_fm(self, config=self.system.fm.to_dict())
-        return DemoFluorescenceMicroscope(devices, parent=self)
-
-    def _fm_devices(self) -> Dict[str, Device]:
-        """The FM's devices: the Demo FM's, or a remote FM's
-        (``fm.driver: remote``), which is the FM API over devices too."""
-        return dict(getattr(self.fm, "devices", None) or {})
 
     # The beam methods the shared demo code leaves to each demo, on the beam devices.
 

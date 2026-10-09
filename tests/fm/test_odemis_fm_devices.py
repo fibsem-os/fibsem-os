@@ -184,7 +184,7 @@ def _components(state: str):
     if "between" in state:
         focus.position._value = {"z": 3.0e-3}
     if "gain" in state:
-        components["ccd"].gain = stubs.FakeVA(1.0)
+        components["ccd"].gain = stubs.FakeVA(1.0, range=(0.0, GAIN_TOP))
     if "no-favourites" in state:
         focus._metadata = {}
     return components
@@ -480,8 +480,24 @@ CACHED_AT_CONNECT = {
 
 # Gain is a fraction of the gain VA's maximum on the devices, so they read its range
 # (or choices) to convert; the old class passes gain through in camera units. The
-# "gain" state's VA has neither, so the values match and only these reads differ.
+# "gain" state's VA ranges 0 to 1, so the values match and only these reads differ,
+# except the pinned writes above 1, which a fraction clips to the top.
 GAIN_RANGE_READS = {"ccd.gain.range", "ccd.gain.choices"}
+GAIN_TOP = 1.0
+
+
+def _gain_clipped(pinned):
+    """A pinned log or result with its gains clipped to the fraction's top."""
+    if isinstance(pinned, dict):
+        return {
+            k: min(v, GAIN_TOP) if k == "gain" and v is not None else _gain_clipped(v)
+            for k, v in pinned.items()
+        }
+    if isinstance(pinned, list):
+        if pinned[:2] == ["set", "ccd.gain.value"]:
+            return [*pinned[:2], min(pinned[2], GAIN_TOP), *pinned[3:]]
+        return [_gain_clipped(e) for e in pinned]
+    return pinned
 
 
 # Writes that read back what odemis took, so the change is cached and signalled.
@@ -520,7 +536,7 @@ def test_each_part_makes_the_old_calls(odemis, state, name, new, to_old):
     if not (isinstance(new_result, str) and new_result.startswith("EXC")):
         new_result = to_old(new_result)
     assert _same(pinned["result"], _pin(new_result))
-    expected = pinned["log"]
+    expected = _gain_clipped(pinned["log"])
     found = _pin(world.log)
     readback = READBACKS.get(next((k for k in READBACKS if k in name), None))
     if readback:
@@ -628,7 +644,7 @@ def _new_frame(frame):
 @pytest.mark.parametrize("channel", list(CHANNELS))
 def test_an_acquisition_makes_the_same_changes(odemis, state, channel):
     pinned = PINS["acquisitions"][f"{state}: {channel}"]
-    old_log = pinned["log"]
+    old_log = _gain_clipped(pinned["log"])
     world, devices = _devices(odemis, state)
     settings = CHANNELS[channel]
     as_dict = settings.to_dict() if settings is not None else None
@@ -775,13 +791,12 @@ def test_gain_with_set_values_takes_the_nearest(odemis):
     assert va.value == 4.0
 
 
-def test_gain_without_a_range_stays_in_camera_units(odemis):
+def test_gain_without_a_range_is_not_offered(odemis):
+    # with no range or choices there is no maximum to scale it to a fraction by
     _, drivers = odemis
-    va = stubs.FakeVA(3.0)
-    camera = _camera_with_gain(drivers, va)
+    camera = _camera_with_gain(drivers, stubs.FakeVA(3.0))
 
-    assert camera.gain.get_value() == 3.0
-    assert camera.gain.limits is None
+    assert "gain" not in camera.parameters
 
 
 # -- the FM API over the devices, against the old Odemis class's pins ------------------
@@ -903,14 +918,15 @@ API_STATES = ("retracted", "inserted", "reflection", "gain", "no-favourites")
 @pytest.mark.parametrize("name", list(API_CASES))
 def test_the_api_makes_the_old_changes(odemis, state, name):
     pinned = PINS["api"][f"{state}: {name}"]
-    old_log = pinned["log"]
+    old_log = _gain_clipped(pinned["log"])
     world, fm = _api_fm(odemis, state)
     action = API_CASES[name]
 
     new_result = _pin(_run(world, lambda: _summary(action(fm))))
     new_log = _pin(world.log)
 
-    assert _same(pinned["result"], new_result), (pinned["result"], new_result)
+    old_result = _gain_clipped(pinned["result"])
+    assert _same(old_result, new_result), (old_result, new_result)
     assert _changes(new_log) == _changes(old_log)
     readbacks = set(READBACKS.values())
     assert _reads(new_log) - readbacks - GAIN_RANGE_READS <= _reads(old_log)
@@ -951,7 +967,13 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
     from types import SimpleNamespace
 
     import fibsem.drivers.odemis.microscope as odemis_microscope
-    from fibsem.structures import CameraImageTransform, FluorescenceSystemSettings
+    from fibsem.drivers.odemis.devices import build_odemis_fm
+    from fibsem.drivers.registry import BuildContext
+    from fibsem.structures import (
+        CameraImageTransform,
+        DeviceEntry,
+        FluorescenceSystemSettings,
+    )
 
     microscope = odemis_microscope.OdemisThermoMicroscope.__new__(
         odemis_microscope.OdemisThermoMicroscope
@@ -962,12 +984,15 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
     world = _World(_components("inserted"))
     _CURRENT.append(world)
     try:
-        fm = microscope._connect_fluorescence_devices()
+        fm = build_odemis_fm(
+            DeviceEntry.from_dict(microscope.system.fm.to_dict(), name="fm"),
+            BuildContext(microscope=microscope),
+        )
     finally:
         _CURRENT.pop()
     assert type(fm).__name__ == "DeviceOdemisFluorescenceMicroscope"
     assert fm.parent is microscope
-    assert sorted(microscope.fm_devices) == [
+    assert sorted(fm.devices) == [
         "camera",
         "filter_set",
         "fm",

@@ -844,14 +844,23 @@ def _thermo_microscope_fm():
     from types import SimpleNamespace
 
     import fibsem.drivers.autoscript.microscope as A
-    from fibsem.structures import CameraImageTransform, FluorescenceSystemSettings
+    from fibsem.drivers.autoscript.devices import build_autoscript_fm
+    from fibsem.drivers.registry import BuildContext
+    from fibsem.structures import (
+        CameraImageTransform,
+        DeviceEntry,
+        FluorescenceSystemSettings,
+    )
 
     microscope = object.__new__(A.ThermoMicroscope)
     microscope.connection = make_connection("Retracted", CameraFilterType.FLUORESCENCE)
     microscope.system = SimpleNamespace(
         fm=FluorescenceSystemSettings(mount_transform=CameraImageTransform.FLIP_Y)
     )
-    fm = microscope._connect_fluorescence_devices()
+    fm = build_autoscript_fm(
+        DeviceEntry.from_dict(microscope.system.fm.to_dict(), name="fm"),
+        BuildContext(microscope=microscope),
+    )
     group = fm.devices["fm"]
     return {
         "fm": type(fm).__name__,

@@ -7,9 +7,9 @@ import pytest
 from fibsem import utils
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter
+from fibsem.devices.display import Display
 from fibsem.devices.fm import Camera
 from fibsem.devices.stage import Stage
-from fibsem.display import Display
 from fibsem.structures import BeamType
 
 

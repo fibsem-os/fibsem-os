@@ -38,6 +38,14 @@ A command that returns an array (a camera frame, an FM channel) comes back as
 ``RemoteObjective`` are the FM's parts from ``fibsem.devices.fm``; ``connect_remote_fm``
 builds them from what a server has.
 
+``RemoteStage``, ``RemoteChamber`` and ``RemoteManipulator`` move, pump and vent on the
+server, and wait for as long as that takes. What they say about themselves beyond
+their parameters (the stage's frame, shuttle and the device each orientation is at;
+the needle's axes and named positions) comes from the device's ``facts`` in its
+description, and a stage's poses from its ``pose_table`` command. A move
+is checked against the stage limits on the server too, so the old API's unchecked
+``move_through`` is checked there.
+
 Not yet: the one-commander lease, and a beam's ``acquire`` (a
 ``FibsemImage`` with its metadata).
 """
@@ -47,7 +55,9 @@ from __future__ import annotations
 import io
 import json
 import logging
+import math
 import threading
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -55,6 +65,7 @@ import requests
 from psygnal import Signal
 
 from fibsem.devices.beam import Beam
+from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import (
     Device,
     ParameterMetadata,
@@ -64,6 +75,8 @@ from fibsem.devices.core import (
 )
 from fibsem.devices.entries import REMOTE_DRIVER
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
+from fibsem.devices.manipulator import Manipulator
+from fibsem.devices.stage import Stage, StageLimitError
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
     FRAMES_MEDIA_TYPE,
@@ -74,15 +87,26 @@ from fibsem.devices.wire import (
     to_wire,
 )
 from fibsem.drivers.registry import DeviceBuilder
-from fibsem.structures import BeamType, FibsemRectangle, Point, RangeLimit
+from fibsem.structures import (
+    BeamType,
+    FibsemManipulatorPosition,
+    FibsemRectangle,
+    FibsemStagePosition,
+    Point,
+    RangeLimit,
+)
 
 if TYPE_CHECKING:
     from fibsem.drivers.registry import BuildContext
+    from fibsem.fm.remote import RemoteFluorescenceMicroscope
     from fibsem.structures import DeviceEntry
 
 READ_TIMEOUT = 5.0
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
+UNTIL_DONE = (READ_TIMEOUT, None)
+"""For a move, a pump or a vent: it takes as long as it takes, and ends by answering
+or by the connection dropping, so no read timeout."""
 
 
 class RemoteDeviceError(RuntimeError):
@@ -98,7 +122,17 @@ _ERRORS: Dict[str, Callable[[str], Exception]] = {
     "ParameterReadOnly": ParameterReadOnly,
     "TypeError": TypeError,
     "ValueError": ValueError,
+    "NotImplementedError": NotImplementedError,
+    "StageLimitError": StageLimitError,
 }
+
+
+def _range(payload: Dict[str, Any]) -> RangeLimit:
+    """An end sent as None is unbounded: JSON has no infinity."""
+    low, high = payload["min"], payload["max"]
+    return RangeLimit(
+        min=-math.inf if low is None else low, max=math.inf if high is None else high
+    )
 
 
 def _limits(payload: Any) -> Any:
@@ -106,8 +140,8 @@ def _limits(payload: Any) -> Any:
     if payload is None:
         return None
     if set(payload) == {"min", "max"}:
-        return RangeLimit.from_dict(payload)
-    return {name: RangeLimit.from_dict(limit) for name, limit in payload.items()}
+        return _range(payload)
+    return {name: _range(limit) for name, limit in payload.items()}
 
 
 def _metadata(payload: Dict[str, Any], type_: type) -> ParameterMetadata:
@@ -399,6 +433,10 @@ class RemoteDevice(Device):
             )
         self.server_commands = frozenset(description.get("commands", {}))
         self.online = True
+        self._apply_facts(description.get("facts", {}))
+
+    def _apply_facts(self, facts: Dict[str, Any]) -> None:
+        """Take on what the server's device says about itself (``Device.facts``)."""
 
     def _prime(self) -> None:
         # Fill the cache once, after the event stream is open so no change falls in
@@ -578,6 +616,112 @@ class RemoteFM(RemoteDevice, FM):
             self.call_command("cancel")
 
 
+class RemoteStage(RemoteDevice, Stage):
+    """A stage on another computer. The limit check runs here and again on the
+    server, which moves and answers when the stage has stopped."""
+
+    _shuttle = False
+    _devices_at_pose: Dict[str, Optional[str]] = {}
+
+    def _apply_facts(self, facts: Dict[str, Any]) -> None:
+        self.frame = facts.get("frame", self.frame)
+        self._shuttle = bool(facts.get("has_builtin_shuttle", False))
+        self._devices_at_pose = dict(facts.get("device_at_pose", {}))
+        self._poses: Dict[Tuple[float, float, float], Any] = {}
+        if "position" in self.parameters:
+            self._build_axes()
+
+    def has_builtin_shuttle(self) -> bool:
+        return self._shuttle
+
+    def device_at_pose(self, orientation: str) -> Optional[str]:
+        return self._devices_at_pose.get(orientation)
+
+    def poses(
+        self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+    ) -> Dict[str, FibsemStagePosition]:
+        """The server's stage's poses, asked once per geometry: they are a pure
+        function of it, and orientation checks ask often."""
+        key = (rotation_reference, shuttle_pre_tilt, fib_column_tilt)
+        if key not in self._poses:
+            answer = self.call_command(
+                "pose_table",
+                timeout=READ_TIMEOUT,
+                rotation_reference=rotation_reference,
+                shuttle_pre_tilt=shuttle_pre_tilt,
+                fib_column_tilt=fib_column_tilt,
+            )
+            self._poses[key] = {
+                name: FibsemStagePosition.from_dict(pose)
+                for name, pose in answer.items()
+            }
+        return {name: deepcopy(pose) for name, pose in self._poses[key].items()}
+
+    def _move_absolute(self, position: FibsemStagePosition) -> None:
+        self.call_command("move_absolute", timeout=UNTIL_DONE, position=position)
+
+    def _move_relative(self, delta: FibsemStagePosition) -> None:
+        self.call_command("move_relative", timeout=UNTIL_DONE, delta=delta)
+
+    def _home(self) -> None:
+        self.call_command("home", timeout=UNTIL_DONE)
+
+    def _link(self) -> None:
+        self.call_command("link")
+
+
+class RemoteChamber(RemoteDevice, Chamber):
+    """Pumping and venting run on the server, for as long as they take."""
+
+    def _pump(self) -> None:
+        self.call_command("pump", timeout=UNTIL_DONE)
+
+    def _vent(self) -> None:
+        self.call_command("vent", timeout=UNTIL_DONE)
+
+
+class RemoteManipulator(RemoteDevice, Manipulator):
+    """A needle on another computer. Its axes and named positions are read when it
+    binds; a saved position is read from the server each time, since where a named
+    position is can change (Thermo gives it in stage coordinates)."""
+
+    _axes: Tuple[str, ...] = ("x", "y", "z")
+    _named: Tuple[str, ...] = ()
+
+    def _apply_facts(self, facts: Dict[str, Any]) -> None:
+        self._axes = tuple(facts.get("axes", self._axes))
+        self._named = tuple(facts.get("named_positions", ()))
+
+    def axes(self) -> Tuple[str, ...]:
+        return self._axes
+
+    def named_positions(self) -> List[str]:
+        return list(self._named)
+
+    def saved_position(self, name: str) -> FibsemManipulatorPosition:
+        path = f"devices/{self.name}"
+        facts = self.client.request("GET", path, READ_TIMEOUT).get("facts", {})
+        saved = facts.get("saved_positions", {})
+        if name not in saved:
+            raise ValueError(f"{self.name} has no saved position '{name}'")
+        return FibsemManipulatorPosition.from_dict(saved[name])
+
+    def _insert(self, name: str) -> None:
+        self.call_command("insert", timeout=UNTIL_DONE, name=name)
+
+    def _retract(self) -> None:
+        self.call_command("retract", timeout=UNTIL_DONE)
+
+    def _move_absolute(self, position: FibsemManipulatorPosition) -> None:
+        self.call_command("move_absolute", timeout=UNTIL_DONE, position=position)
+
+    def _move_relative(self, delta: FibsemManipulatorPosition) -> None:
+        self.call_command("move_relative", timeout=UNTIL_DONE, delta=delta)
+
+    def _stop(self) -> None:
+        self.call_command("stop")
+
+
 REMOTE_FM_PARTS = {
     "fm": RemoteFM,
     "camera": RemoteCamera,
@@ -633,11 +777,17 @@ def _remote_fm_devices(
 
 
 # The remote device for each entry type a ``driver: remote`` entry can have. The FM's
-# group is not one: it comes from ``fm.driver: remote`` (``connect_remote_fm``).
+# group is not one: an ``fm`` entry is the whole FM (``build_remote_fm``).
 REMOTE_DEVICE_TYPES: Dict[str, type] = {
     "beam": RemoteBeam,
     **{name: part for name, part in REMOTE_FM_PARTS.items() if name != "fm"},
+    "stage": RemoteStage,
+    "chamber": RemoteChamber,
+    "manipulator": RemoteManipulator,
 }
+
+# The types whose device has one name, its type's, on every backend.
+_NAMED_AS_TYPE = ("stage", "chamber", "manipulator")
 
 
 def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device:
@@ -667,9 +817,54 @@ def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device
         if beam_type is None:
             raise ValueError("a beam is named 'electron' or 'ion'")
         device: RemoteDevice = RemoteBeam(beam_type, client=client)
+    elif entry.type in _NAMED_AS_TYPE:
+        if entry.name != entry.type:
+            raise ValueError(f"a {entry.type} is named '{entry.type}'")
+        device = device_class(client=client)
     else:
         device = device_class(name=entry.name, client=client)
     return device.connect(description)
+
+
+def build_remote_fm(
+    entry: "DeviceEntry", context: "BuildContext"
+) -> "RemoteFluorescenceMicroscope":
+    """The FM API over the FM on its own PC, which an ``fm`` entry with
+    ``driver: remote`` names at its ``address`` and ``port``.
+
+    A server that isn't answering yet gives an FM that is offline: its reads fail
+    closed, and it comes online by itself when the server starts (FIB-1086), so the
+    beams never wait for the FM's PC. With ``required: true`` an unreachable server
+    fails the build instead. The objective calibration is pushed again each time the
+    FM comes (back) online, since a restarted FM computer starts from its own
+    defaults.
+    """
+    from fibsem.fm.remote import RemoteFluorescenceMicroscope
+
+    if entry.options.get("mount_transform") not in (None, "none"):
+        logging.warning(
+            "The configuration states the FM's mount_transform, but this FM is "
+            "remote: its server states its own (--mount-transform), and that is "
+            "what is used."
+        )
+    address, port = entry.options.get("address"), entry.options.get("port")
+    if address is None or port is None:
+        raise ValueError(
+            "the FM is configured as remote but has no `address` and `port`"
+        )
+    microscope = context.microscope
+    try:
+        fm = RemoteFluorescenceMicroscope.connect(
+            str(address), int(port), parent=microscope, offline=not entry.required
+        )
+    except Exception as error:
+        raise ConnectionError(
+            f"could not connect to the FM at {address}:{port}: {error}"
+        ) from error
+    apply_calibration = getattr(microscope, "_apply_fluorescence_calibration", None)
+    if apply_calibration is not None:
+        fm.client.reconnected.connect(apply_calibration)
+    return fm
 
 
 def _server(
@@ -694,8 +889,11 @@ def _server(
 
 
 DEVICE_BUILDERS = {
-    device_type: DeviceBuilder("fibsem.drivers.remote.devices:build_remote_device")
-    for device_type in REMOTE_DEVICE_TYPES
+    **{
+        device_type: DeviceBuilder("fibsem.drivers.remote.devices:build_remote_device")
+        for device_type in REMOTE_DEVICE_TYPES
+    },
+    "fm": DeviceBuilder("fibsem.drivers.remote.devices:build_remote_fm"),
 }
 """How the remote driver builds each type, as the registry gives a driver's builders
 (``fibsem.drivers.registry.device_builder``)."""

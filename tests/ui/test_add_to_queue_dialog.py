@@ -252,9 +252,13 @@ def test_all_three_dialogs_quote_time_the_same_way(show):
     """This one, the pre-flight dialog and the timeline all describe the same workflow;
     they cannot use different formatters and stay believable."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as main_ui
+    from fibsem.applications.autolamella.ui import workflow_preflight_dialog as dialog
+    from fibsem.applications.autolamella.ui import workflow_timeline_widget as timeline
     from fibsem.ui.widgets import preflight
+    from fibsem.util import durations
 
-    assert main_ui.preflight.format_duration is preflight.format_duration
+    for module in (main_ui, dialog, timeline):
+        assert module.format_duration_rounded is durations.format_duration_rounded
     assert main_ui.preflight.format_clock is preflight.format_clock
 
 
@@ -278,7 +282,7 @@ def test_a_queue_with_nothing_scheduled_never_mentions_a_scheduled_wait(show):
 
 
 def test_a_difference_too_small_to_render_is_not_explained(show):
-    """Both figures go through `format_duration`, so a gap that rounds away leaves two
+    """Both figures go through `format_duration_rounded`, so a gap that rounds away leaves two
     identical numbers with a paragraph between them saying they differ."""
     at = NOW + timedelta(hours=6)
     est = estimate_addition(

@@ -104,7 +104,10 @@ from fibsem.structures import (
 from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
-    from fibsem.drivers.demo.microscope import DemoMicroscope
+    from fibsem.drivers.demo.microscope import (
+        DemoFluorescenceMicroscope,
+        DemoMicroscope,
+    )
     from fibsem.drivers.demo.simulator import DemoParts
     from fibsem.drivers.registry import BuildContext
     from fibsem.structures import DeviceEntry
@@ -1244,3 +1247,18 @@ def bind_demo_fm(
     parts["camera"].configure(config)
     group = DemoFM(microscope, resources).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}
+
+
+def build_demo_fm(
+    entry: "DeviceEntry", context: "BuildContext"
+) -> "DemoFluorescenceMicroscope":
+    """The FM API over the Demo FM devices. Bringing the FM up leaves the shared
+    channel on it, as the Thermo FM's does; taking it back is the next beam
+    operation's job."""
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
+
+    microscope = context.microscope
+    devices = bind_demo_fm(microscope, config=entry.as_block())
+    fm = DemoFluorescenceMicroscope(devices, parent=microscope)
+    fm.set_active_channel()
+    return fm

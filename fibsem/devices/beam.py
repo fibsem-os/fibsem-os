@@ -17,8 +17,8 @@ from psygnal import Signal
 
 from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.core import Device, Parameter, Role, command
+from fibsem.devices.display import Display
 from fibsem.devices.scanner import Scanner
-from fibsem.display import Display
 from fibsem.structures import (
     BeamType,
     FibsemImage,

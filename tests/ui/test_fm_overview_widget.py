@@ -39,7 +39,6 @@ from fibsem.imaging.tiling.progress import (
 from fibsem.structures import CameraImageTransform, TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
-    format_duration,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.fm.widgets.fm_overview_widget import (
@@ -50,6 +49,7 @@ from fibsem.ui.fm.widgets.fm_overview_widget import (
 from fibsem.ui.widgets.custom_widgets import ValueComboBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
+from fibsem.util.durations import format_duration_rounded
 
 
 @pytest.fixture(scope="module")
@@ -288,7 +288,7 @@ def test_the_dialog_estimate_reflects_the_mask(qapp):
     [(0, "0s"), (45, "45s"), (60, "1m 00s"), (134, "2m 14s"), (3660, "1h 01m")],
 )
 def test_duration_formatting(seconds, expected):
-    assert format_duration(seconds) == expected
+    assert format_duration_rounded(seconds, pad=True) == expected
 
 
 # ── shared widget fix ────────────────────────────────────────────────────

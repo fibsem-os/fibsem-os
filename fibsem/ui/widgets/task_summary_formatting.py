@@ -17,6 +17,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     WARN_COLOR,
 )
+from fibsem.util.durations import format_duration_as_clock
 
 # Default per-run summary columns (in display order)
 SUMMARY_COLUMNS: List[str] = [
@@ -75,19 +76,6 @@ STATUS_BADGE_COLORS = {
 STATUS_CHIP_ORDER = ["Completed", "Failed", "Skipped"]
 
 
-def format_duration_short(seconds) -> str:
-    """Format a duration in seconds as MMm:SSs (blank for missing values)."""
-    if seconds is None or seconds == "" or pd.isna(seconds):
-        return ""
-    try:
-        total_seconds = int(float(seconds))
-        minutes = total_seconds // 60
-        secs = total_seconds % 60
-        return f"{minutes:02d}m:{secs:02d}s"
-    except (ValueError, TypeError):
-        return str(seconds)
-
-
 def prepare_summary_dataframe(
     df: Optional[pd.DataFrame], columns: Optional[List[str]] = None
 ) -> Optional[pd.DataFrame]:
@@ -110,7 +98,7 @@ def prepare_summary_dataframe(
     df = df[available].copy()
 
     if "duration" in df.columns:
-        df["duration"] = df["duration"].apply(format_duration_short)
+        df["duration"] = df["duration"].apply(format_duration_as_clock)
 
     return df.rename(columns=COLUMN_NAME_MAPPING)
 

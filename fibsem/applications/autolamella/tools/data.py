@@ -12,6 +12,7 @@ from typing import Dict, List, Tuple
 import pandas as pd
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella
+from fibsem.util.durations import format_duration_as_clock
 
 
 class PythonLiteralJSONDecoder(json.JSONDecoder):
@@ -659,13 +660,9 @@ def format_pretty_dataframes(dfs: dict[str, pd.DataFrame]) -> dict[str, pd.DataF
         columns=["Milling Current (A)", "Depth (m)"]
     )
 
-    # format duration to be in minutes and seconds
-    df_milling_filtered["Duration"] = pd.to_timedelta(
-        df_milling_filtered["Duration"], unit="s"
-    )
-    # format as MMm:SSs
+    # as a clock, 4:05 (FIB-1191)
     df_milling_filtered["Duration"] = df_milling_filtered["Duration"].apply(
-        lambda x: f"{int(x.total_seconds() // 60)}m:{int(x.total_seconds() % 60)}s"
+        format_duration_as_clock
     )
 
     # DETECTION DATAFRAME

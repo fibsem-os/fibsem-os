@@ -761,7 +761,7 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
     from fibsem.applications.autolamella.workflows.workflow_estimate import (
         estimate_grid_run,
     )
-    from fibsem.ui.widgets.preflight import format_duration
+    from fibsem.util.durations import format_duration_rounded
 
     view.grid_header.select_all.setChecked(True)
     grids = view.get_selected_grids()
@@ -781,7 +781,7 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
     )
     labels = _labels(dialog)
     assert "Estimated duration" in labels and "Expected finish" in labels
-    assert format_duration(estimate.work_seconds) in labels
+    assert format_duration_rounded(estimate.work_seconds, pad=True) in labels
     rows = [t for t in labels if "×" in t]
     assert [r.split("<")[0].strip() for r in rows] == [
         LOAD_ENTRY_NAME,

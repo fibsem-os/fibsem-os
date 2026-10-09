@@ -87,6 +87,7 @@ ODEMIS_VOLTAGE_CHOICES = {
 if TYPE_CHECKING:
     from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
     from fibsem.drivers.registry import BuildContext
+    from fibsem.fm.odemis import DeviceOdemisFluorescenceMicroscope
     from fibsem.structures import DeviceEntry
 
 # The odemis client's name for each column (``beam_type_to_odemis``).
@@ -413,6 +414,17 @@ def bind_odemis_beams(
     }
 
 
+#: The stage limits, r and t in degrees. Not read from odemis: this is the fixed table
+#: the base microscope class gave every backend that didn't ask its hardware.
+STAGE_LIMITS = {
+    "x": RangeLimit(min=-100.0e-3, max=100.0e-3),
+    "y": RangeLimit(min=-100.0e-3, max=100.0e-3),
+    "z": RangeLimit(min=0.0e-3, max=50.0e-3),
+    "r": RangeLimit(min=-360.0, max=360.0),
+    "t": RangeLimit(min=-10.0, max=90.0),
+}
+
+
 class OdemisStage(Stage):
     """The stage of a Thermo microscope driven through odemis.
 
@@ -422,8 +434,8 @@ class OdemisStage(Stage):
       component's position;
     - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked``
       branches, which ask the client;
-    - ``metadata_position``: ``_get_axis_limits``, the base class's fixed table, in
-      degrees for r and t, converted so limits and positions share one unit;
+    - ``metadata_position``: ``STAGE_LIMITS``, the fixed table the base class used to
+      give, in degrees for r and t, converted so limits and positions share one unit;
     - ``_move_absolute`` / ``_move_relative``: ``move_stage_absolute`` /
       ``move_stage_relative``, each waiting on the move's future;
     - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
@@ -446,9 +458,7 @@ class OdemisStage(Stage):
         return FibsemStagePosition.from_odemis_dict(self._stage.position.value)
 
     def metadata_position(self) -> ParameterMetadata:
-        return ParameterMetadata(
-            limits=axis_limits_from_degrees(self.parent._get_axis_limits())
-        )
+        return ParameterMetadata(limits=axis_limits_from_degrees(STAGE_LIMITS))
 
     def read_homed(self) -> bool:
         return self.parent.connection.is_homed()
@@ -640,14 +650,14 @@ class OdemisFMCamera(Camera):
             b *= 2
         return tuple(binnings)
 
-    # A camera without a gain control has no gain parameter; the old class reads it as
-    # None and ignores a write.
+    # Gain is a fraction of the camera's maximum, as power is of the light's. A camera
+    # without a gain control, or whose gain gives no range or choices to scale by, has
+    # no gain parameter; the old class reads it as None and ignores a write.
     def available_gain(self) -> bool:
         from fibsem.fm.odemis import model
 
-        return model.hasVA(self._camera, "gain")
+        return model.hasVA(self._camera, "gain") and self._max_gain() is not None
 
-    # Gain is a fraction of the camera's maximum, as power is of the light's.
     def _max_gain(self) -> Optional[float]:
         """The top of the gain VA's range or choices; None when it gives neither."""
         va = self._camera.gain
@@ -657,31 +667,22 @@ class OdemisFMCamera(Camera):
         return float(top) if top is not None and top > 0 else None
 
     def read_gain(self) -> float:
-        max_gain = self._max_gain()
-        value = self._camera.gain.value
-        return value if max_gain is None else value / max_gain
+        return self._camera.gain.value / self._max_gain()
 
     def write_gain(self, value: float) -> None:
-        max_gain = self._max_gain()
-        if max_gain is None:
-            self._camera.gain.value = value
-            return
         if not 0.0 <= value <= 1.0:
             logging.warning(f"Gain fraction {value} outside [0, 1], clipping.")
             value = min(max(value, 0.0), 1.0)
-        raw = value * max_gain
+        raw = value * self._max_gain()
         choices = getattr(self._camera.gain, "choices", None)
         if choices:
             raw = min(choices, key=lambda c: abs(c - raw))
         self._camera.gain.value = raw
 
     def metadata_gain(self) -> ParameterMetadata:
-        max_gain = self._max_gain()
-        if max_gain is None:
-            return ParameterMetadata()
         return ParameterMetadata(
             limits=RangeLimit(min=0.0, max=1.0),
-            native_max=max_gain,
+            native_max=self._max_gain(),
             native_unit=getattr(self._camera.gain, "unit", None),
         )
 
@@ -1095,3 +1096,19 @@ def bind_odemis_fm(
     parts["camera"].configure(config)
     group = OdemisFM(stream, **common).fill_roles(**parts)
     return {device.name: device.connect() for device in [group, *parts.values()]}
+
+
+def build_odemis_fm(
+    entry: DeviceEntry, context: BuildContext
+) -> "DeviceOdemisFluorescenceMicroscope":
+    """The FM API over the Odemis FM devices, which make the odemis calls the old
+    ``OdemisFluorescenceMicroscope`` made, on the same components and stream.
+
+    The FM API's own live view pulls every frame, so nothing needs to stop it when no
+    frame is asked for."""
+    from fibsem.fm.odemis import DeviceOdemisFluorescenceMicroscope
+
+    microscope = context.microscope
+    devices = bind_odemis_fm(microscope, config=entry.as_block())
+    devices["fm"].live_timeout = None
+    return DeviceOdemisFluorescenceMicroscope(devices, parent=microscope)
