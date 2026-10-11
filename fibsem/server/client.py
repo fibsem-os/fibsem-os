@@ -12,10 +12,14 @@ Usage:
 
 import io
 import math
-from typing import List, Optional, Tuple
+import threading
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 import requests
 
+from fibsem.devices.wire import to_wire
+from fibsem.server.images import TIFF_MEDIA_TYPE
 from fibsem.structures import (
     BeamSettings,
     BeamSystemSettings,
@@ -32,11 +36,20 @@ from fibsem.structures import (
     SystemSettings,
 )
 
+if TYPE_CHECKING:
+    from fibsem.devices.core import Device
+    from fibsem.drivers.remote.devices import DeviceClient
+
+
+def _beam(beam_type: BeamType) -> str:
+    """A beam's device name: "electron" or "ion"."""
+    return beam_type.name.lower()
+
 
 class FibsemClient:
     """Network client for FibsemServer.
 
-    Fetches system settings and stage_is_compustage from the server at init
+    Fetches system settings from the server at init
     so they are available as direct attributes, matching the FibsemMicroscope interface.
     """
 
@@ -44,18 +57,36 @@ class FibsemClient:
         self, host: str = "localhost", port: int = 8001, token: Optional[str] = None
     ):
         self.base_url = f"http://{host}:{port}"
+        self._host, self._port, self._token = host, port, token
         self._session = requests.Session()
         if token is not None:
             self._session.headers["Authorization"] = f"Bearer {token}"
+        self._device_client: Optional["DeviceClient"] = None
+        self._devices: Optional[Dict[str, "Device"]] = None
+        self._devices_lock = threading.Lock()
         self._fetch_system()
+
+    def close(self) -> None:
+        """Close the connection, and the device proxies' if they were built."""
+        if self._device_client is not None:
+            self._device_client.close()
+        self._session.close()
+
+    def __enter__(self) -> "FibsemClient":
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.close()
 
     def _fetch_system(self) -> None:
         """Fetch and cache system settings from the server."""
         data = self._get("system")
         self.system: SystemSettings = SystemSettings.from_dict(data["system"])
-        for key, present in (data.get("fitted") or {}).items():
-            self.set_available(key, bool(present))
-        self.stage_is_compustage: bool = data["stage_is_compustage"]
+        # What is fitted travels beside the configuration; the server sends only
+        # the manipulator.
+        fitted = data.get("fitted") or {}
+        if "manipulator" in fitted:
+            self.system.manipulator.enabled = bool(fitted["manipulator"])
 
     def _get(self, endpoint: str, timeout: int = 10) -> dict:
         resp = self._session.get(f"{self.base_url}/{endpoint}", timeout=timeout)
@@ -65,6 +96,13 @@ class FibsemClient:
     def _post(self, endpoint: str, body: dict = None, timeout: int = 30) -> dict:
         resp = self._session.post(
             f"{self.base_url}/{endpoint}", json=body or {}, timeout=timeout
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def _put(self, endpoint: str, body: dict, timeout: int = 30) -> dict:
+        resp = self._session.put(
+            f"{self.base_url}/{endpoint}", json=body, timeout=timeout
         )
         resp.raise_for_status()
         return resp.json()
@@ -157,8 +195,92 @@ class FibsemClient:
     def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
         self._post("safe_absolute_stage_movement", {"position": position.to_dict()})
 
-    def move_flat_to_beam(self, beam_type: BeamType) -> None:
-        self._post("move_flat_to_beam", {"beam_type": beam_type.name})
+    def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
+        result = self._post("move_to_orientation", {"orientation": orientation})
+        return FibsemStagePosition.from_dict(result["position"])
+
+    # --- Devices ---
+    # Every device the microscope built (``microscope.devices``), by name: the beams
+    # are "electron" and "ion", then "stage", "chamber", "manipulator", FM parts...
+
+    @property
+    def devices(self) -> Mapping[str, "Device"]:
+        """The server's beams and FM parts as live devices, by name, like
+        ``FibsemMicroscope.devices``: ``client.devices["ion"].current.get_value()``.
+
+        They are the remote driver's devices (``fibsem.drivers.remote.devices``)
+        over this server's ``/devices`` routes, with this client's token, built on
+        first access. A read is live, a write is checked here and again on the
+        server, and a command runs on the server; writes and commands need the
+        hardware scope armed.
+
+        The agent server has no event stream, so no change made elsewhere (the
+        microscope's own UI, another client) is signalled: ``changed`` fires only
+        for this client's own reads and writes, ``cached`` is as current as the
+        last of them, and limits and choices as current as the last
+        ``refresh_metadata()``. The client's ``disconnected`` and ``reconnected``
+        never fire; a read of an unreachable server raises
+        ``RemoteDeviceUnreachable``.
+
+        Only the devices the remote driver has a type for: not the stage, chamber
+        or manipulator, which ``list_devices``, ``get_parameter``,
+        ``set_parameter`` and ``call_command`` reach. A beam's ``acquire`` is
+        unavailable here; use ``acquire_image``.
+        """
+        with self._devices_lock:
+            if self._devices is None:
+                self._devices = self._connect_devices()
+        return MappingProxyType(self._devices)
+
+    def _connect_devices(self) -> Dict[str, "Device"]:
+        from fibsem.drivers.remote.devices import (
+            DeviceClient,
+            connect_remote_beams,
+            connect_remote_fm,
+        )
+
+        client = DeviceClient(self._host, self._port, token=self._token, events=False)
+        try:
+            beams = connect_remote_beams(self._host, self._port, client=client)
+            devices: Dict[str, "Device"] = {b.name: b for b in beams.values()}
+            devices.update(connect_remote_fm(self._host, self._port, client=client))
+        except Exception:
+            client.close()
+            raise
+        self._device_client = client
+        return devices
+
+    def list_devices(self) -> Dict[str, Any]:
+        """Every device: its parameters (type, unit, limits, choices, settable) and
+        commands."""
+        return self._get("devices")
+
+    def get_parameter(self, device: str, parameter: str) -> Any:
+        """A live read, as JSON: an enum as its value, a ``Point`` as its dict."""
+        return self._get(f"devices/{device}/{parameter}")["value"]
+
+    def set_parameter(self, device: str, parameter: str, value: Any) -> Any:
+        """Write a parameter; the server checks it and answers the value written."""
+        return self._put(f"devices/{device}/{parameter}", {"value": to_wire(value)})[
+            "value"
+        ]
+
+    def parameter_metadata(self, device: str, parameter: str) -> Dict[str, Any]:
+        """A parameter's limits, choices and whether it is settable."""
+        return self._get(f"devices/{device}/{parameter}/metadata")
+
+    def call_command(self, device: str, command: str, **kwargs: Any) -> Any:
+        """Run a device command: its JSON result, or the image a beam acquired."""
+        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        resp = self._session.post(
+            f"{self.base_url}/devices/{device}/commands/{command}",
+            json=body,
+            timeout=60,
+        )
+        resp.raise_for_status()
+        if resp.headers.get("content-type", "").startswith(TIFF_MEDIA_TYPE):
+            return FibsemImage.load(io.BytesIO(resp.content))  # a beam's acquire
+        return resp.json()["result"]
 
     # --- Microscope state ---
 
@@ -168,192 +290,137 @@ class FibsemClient:
         )
 
     def set_microscope_state(self, microscope_state: MicroscopeState) -> None:
-        self._post("microscope_state", {"microscope_state": microscope_state.to_dict()})
+        self._put("microscope_state", {"microscope_state": microscope_state.to_dict()})
 
-    # --- Imaging settings ---
+    # --- A beam's settings, as one group ---
 
     def get_imaging_settings(self, beam_type: BeamType) -> ImageSettings:
-        result = self._post("imaging_settings/get", {"beam_type": beam_type.name})
+        result = self._get(f"beams/{_beam(beam_type)}/imaging_settings")
         return ImageSettings.from_dict(result["image_settings"])
 
     def set_imaging_settings(self, image_settings: ImageSettings) -> None:
-        self._post("imaging_settings/set", {"image_settings": image_settings.to_dict()})
-
-    # --- Beam settings ---
+        self._put(
+            f"beams/{_beam(image_settings.beam_type)}/imaging_settings",
+            {"image_settings": image_settings.to_dict()},
+        )
 
     def get_beam_settings(self, beam_type: BeamType) -> BeamSettings:
-        result = self._post("beam_settings/get", {"beam_type": beam_type.name})
+        result = self._get(f"beams/{_beam(beam_type)}/beam_settings")
         return BeamSettings.from_dict(result["beam_settings"])
 
     def set_beam_settings(self, beam_settings: BeamSettings) -> None:
-        self._post("beam_settings/set", {"beam_settings": beam_settings.to_dict()})
+        self._put(
+            f"beams/{_beam(beam_settings.beam_type)}/beam_settings",
+            {"beam_settings": beam_settings.to_dict()},
+        )
 
     def get_beam_system_settings(self, beam_type: BeamType) -> BeamSystemSettings:
-        result = self._post("beam_system_settings/get", {"beam_type": beam_type.name})
+        result = self._get(f"beams/{_beam(beam_type)}/beam_system_settings")
         return BeamSystemSettings.from_dict(result["beam_system_settings"])
 
     def set_beam_system_settings(self, settings: BeamSystemSettings) -> None:
-        self._post(
-            "beam_system_settings/set", {"beam_system_settings": settings.to_dict()}
+        self._put(
+            f"beams/{_beam(settings.beam_type)}/beam_system_settings",
+            {"beam_system_settings": settings.to_dict()},
         )
 
-    # --- Detector settings ---
-
     def get_detector_settings(self, beam_type: BeamType) -> FibsemDetectorSettings:
-        result = self._post("detector_settings/get", {"beam_type": beam_type.name})
+        result = self._get(f"beams/{_beam(beam_type)}/detector_settings")
         return FibsemDetectorSettings.from_dict(result["detector_settings"])
 
     def set_detector_settings(
         self, detector_settings: FibsemDetectorSettings, beam_type: BeamType
     ) -> None:
-        self._post(
-            "detector_settings/set",
-            {
-                "detector_settings": detector_settings.to_dict(),
-                "beam_type": beam_type.name,
-            },
+        self._put(
+            f"beams/{_beam(beam_type)}/detector_settings",
+            {"detector_settings": detector_settings.to_dict()},
         )
 
-    # --- Individual beam getters / setters ---
+    # --- A beam's parameters, one at a time (FibsemMicroscope's wrappers) ---
 
     def get_beam_current(self, beam_type: BeamType) -> float:
-        return self._post("beam_current/get", {"beam_type": beam_type.name})["value"]
+        return self.get_parameter(_beam(beam_type), "current")
 
     def set_beam_current(self, current: float, beam_type: BeamType) -> float:
-        return self._post(
-            "beam_current/set", {"value": current, "beam_type": beam_type.name}
-        )["value"]
+        return self.set_parameter(_beam(beam_type), "current", current)
 
     def get_beam_voltage(self, beam_type: BeamType) -> float:
-        return self._post("beam_voltage/get", {"beam_type": beam_type.name})["value"]
+        return self.get_parameter(_beam(beam_type), "voltage")
 
     def set_beam_voltage(self, voltage: float, beam_type: BeamType) -> float:
-        return self._post(
-            "beam_voltage/set", {"value": voltage, "beam_type": beam_type.name}
-        )["value"]
+        return self.set_parameter(_beam(beam_type), "voltage", voltage)
 
     def get_field_of_view(self, beam_type: BeamType) -> float:
-        return self._post("field_of_view/get", {"beam_type": beam_type.name})["value"]
+        return self.get_parameter(_beam(beam_type), "hfw")
 
     def set_field_of_view(self, hfw: float, beam_type: BeamType) -> float:
-        return self._post(
-            "field_of_view/set", {"value": hfw, "beam_type": beam_type.name}
-        )["value"]
+        return self.set_parameter(_beam(beam_type), "hfw", hfw)
 
     def get_working_distance(self, beam_type: BeamType) -> float:
-        return self._post("working_distance/get", {"beam_type": beam_type.name})[
-            "value"
-        ]
+        return self.get_parameter(_beam(beam_type), "working_distance")
 
     def set_working_distance(self, wd: float, beam_type: BeamType) -> float:
-        return self._post(
-            "working_distance/set", {"value": wd, "beam_type": beam_type.name}
-        )["value"]
+        return self.set_parameter(_beam(beam_type), "working_distance", wd)
 
     def get_dwell_time(self, beam_type: BeamType) -> float:
-        return self._post("dwell_time/get", {"beam_type": beam_type.name})["value"]
+        return self.get_parameter(_beam(beam_type), "dwell_time")
 
     def set_dwell_time(self, dwell_time: float, beam_type: BeamType) -> float:
-        return self._post(
-            "dwell_time/set", {"value": dwell_time, "beam_type": beam_type.name}
-        )["value"]
+        return self.set_parameter(_beam(beam_type), "dwell_time", dwell_time)
+
+    def get_scan_rotation(self, beam_type: BeamType) -> float:
+        return self.get_parameter(_beam(beam_type), "scan_rotation")
+
+    def set_scan_rotation(self, rotation: float, beam_type: BeamType) -> float:
+        return self.set_parameter(_beam(beam_type), "scan_rotation", rotation)
+
+    def get_detector_type(self, beam_type: BeamType) -> str:
+        return self.get_parameter(_beam(beam_type), "detector_type")
+
+    def set_detector_type(self, detector_type: str, beam_type: BeamType) -> str:
+        return self.set_parameter(_beam(beam_type), "detector_type", detector_type)
+
+    def get_detector_mode(self, beam_type: BeamType) -> str:
+        return self.get_parameter(_beam(beam_type), "detector_mode")
+
+    def set_detector_mode(self, mode: str, beam_type: BeamType) -> str:
+        return self.set_parameter(_beam(beam_type), "detector_mode", mode)
+
+    def get_detector_contrast(self, beam_type: BeamType) -> float:
+        return self.get_parameter(_beam(beam_type), "detector_contrast")
+
+    def set_detector_contrast(self, contrast: float, beam_type: BeamType) -> float:
+        return self.set_parameter(_beam(beam_type), "detector_contrast", contrast)
+
+    def get_detector_brightness(self, beam_type: BeamType) -> float:
+        return self.get_parameter(_beam(beam_type), "detector_brightness")
+
+    def set_detector_brightness(self, brightness: float, beam_type: BeamType) -> float:
+        return self.set_parameter(_beam(beam_type), "detector_brightness", brightness)
 
     def get_resolution(self, beam_type: BeamType) -> Tuple[int, int]:
-        return tuple(
-            self._post("resolution/get", {"beam_type": beam_type.name})["value"]
-        )
+        return tuple(self.get_parameter(_beam(beam_type), "resolution"))
 
     def set_resolution(
         self, resolution: Tuple[int, int], beam_type: BeamType
     ) -> Tuple[int, int]:
         return tuple(
-            self._post(
-                "resolution/set",
-                {"value": list(resolution), "beam_type": beam_type.name},
-            )["value"]
+            self.set_parameter(_beam(beam_type), "resolution", tuple(resolution))
         )
-
-    def get_scan_rotation(self, beam_type: BeamType) -> float:
-        return self._post("scan_rotation/get", {"beam_type": beam_type.name})["value"]
-
-    def set_scan_rotation(self, rotation: float, beam_type: BeamType) -> float:
-        return self._post(
-            "scan_rotation/set", {"value": rotation, "beam_type": beam_type.name}
-        )["value"]
 
     def get_stigmation(self, beam_type: BeamType) -> Point:
-        return Point.from_dict(
-            self._post("stigmation/get", {"beam_type": beam_type.name})["value"]
-        )
+        return Point.from_dict(self.get_parameter(_beam(beam_type), "stigmation"))
 
     def set_stigmation(self, stigmation: Point, beam_type: BeamType) -> Point:
         return Point.from_dict(
-            self._post(
-                "stigmation/set",
-                {"value": stigmation.to_dict(), "beam_type": beam_type.name},
-            )["value"]
+            self.set_parameter(_beam(beam_type), "stigmation", stigmation)
         )
 
     def get_beam_shift(self, beam_type: BeamType) -> Point:
-        return Point.from_dict(
-            self._post("beam_shift/get", {"beam_type": beam_type.name})["value"]
-        )
+        return Point.from_dict(self.get_parameter(_beam(beam_type), "shift"))
 
     def set_beam_shift(self, shift: Point, beam_type: BeamType) -> Point:
-        return Point.from_dict(
-            self._post(
-                "beam_shift/set",
-                {"value": shift.to_dict(), "beam_type": beam_type.name},
-            )["value"]
-        )
-
-    # --- Detector individual getters / setters ---
-
-    def get_detector_type(self, beam_type: BeamType) -> str:
-        return self._post("detector_type/get", {"beam_type": beam_type.name})["value"]
-
-    def set_detector_type(self, detector_type: str, beam_type: BeamType) -> str:
-        return self._post(
-            "detector_type/set", {"value": detector_type, "beam_type": beam_type.name}
-        )["value"]
-
-    def get_detector_mode(self, beam_type: BeamType) -> str:
-        return self._post("detector_mode/get", {"beam_type": beam_type.name})["value"]
-
-    def set_detector_mode(self, mode: str, beam_type: BeamType) -> str:
-        return self._post(
-            "detector_mode/set", {"value": mode, "beam_type": beam_type.name}
-        )["value"]
-
-    def get_detector_contrast(self, beam_type: BeamType) -> float:
-        return self._post("detector_contrast/get", {"beam_type": beam_type.name})[
-            "value"
-        ]
-
-    def set_detector_contrast(self, contrast: float, beam_type: BeamType) -> float:
-        return self._post(
-            "detector_contrast/set", {"value": contrast, "beam_type": beam_type.name}
-        )["value"]
-
-    def get_detector_brightness(self, beam_type: BeamType) -> float:
-        return self._post("detector_brightness/get", {"beam_type": beam_type.name})[
-            "value"
-        ]
-
-    def set_detector_brightness(self, brightness: float, beam_type: BeamType) -> float:
-        return self._post(
-            "detector_brightness/set",
-            {"value": brightness, "beam_type": beam_type.name},
-        )["value"]
-
-    # --- Available values ---
-
-    def get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> list:
-        """Get the list of available values for a given key (e.g. 'detector_type', 'application_file')."""
-        body = {"key": key, "beam_type": beam_type.name if beam_type else None}
-        return self._post("available_values", body)["values"]
+        return Point.from_dict(self.set_parameter(_beam(beam_type), "shift", shift))
 
     # --- Milling angle ---
 
@@ -402,18 +469,8 @@ class FibsemClient:
             payload.append(d)
         self._post("draw_patterns", {"patterns": payload})
 
-    def run_milling(
-        self, milling_current: float, milling_voltage: float, asynch: bool = False
-    ) -> None:
-        self._post(
-            "run_milling",
-            {
-                "milling_current": milling_current,
-                "milling_voltage": milling_voltage,
-                "asynch": asynch,
-            },
-            timeout=3600,
-        )
+    def run_milling(self) -> None:
+        self._post("run_milling", timeout=3600)
 
     def start_milling(self) -> None:
         self._post("start_milling")

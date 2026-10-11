@@ -28,13 +28,13 @@ from fibsem.applications.autolamella.ui.screen_grids_dialog import (
     ScreenGridsDialog,
 )
 from fibsem.microscopes._stage import (
-    DemoSampleLoader,
     GridExchangeError,
     SampleGrid,
     SlotCalibration,
     _create_sample_stage,
 )
 from fibsem.structures import FibsemStagePosition
+from tests.fixtures.demo_stage import demo_grid_loader
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ def unscanned(arctis):
     """The magazine as an Arctis reads it after it has been opened: slots 1, 2
     and 5 hold grids, slot 2's description is set in xT, and nothing is known
     until a scan."""
-    arctis._stage.loader = DemoSampleLoader(
+    arctis._stage.loader = demo_grid_loader(
         arctis,
         capacity=12,
         occupied=(1, 2, 5),
@@ -231,7 +231,7 @@ def test_a_name_that_does_not_stick_is_said_at_screen(
 
 def test_a_fixed_holder_opens_at_the_review_without_a_scan(qapp, experiment):
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     for i, name in enumerate(["grid-aspen", "Grid-02"]):
         slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
@@ -314,7 +314,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     try:
         ui.system_widget.connect_to_microscope()
         microscope = ui.microscope
-        microscope._stage.loader = DemoSampleLoader(
+        microscope._stage.loader = demo_grid_loader(
             microscope,
             capacity=12,
             occupied=(1, 2, 5),
@@ -353,3 +353,48 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
             window.close()
         finally:
             qapp.quit = original_quit
+
+
+def test_the_quote_is_for_the_grids_the_scan_found(qapp, unscanned, experiment):
+    """FIB-1134's estimate is asked at the review, with the grids the scan found
+    and the exchanges they need, not the grids known before it."""
+    from datetime import datetime
+
+    from fibsem.applications.autolamella.workflows.tasks.grid import (
+        BeamOverviewGridTaskConfig,
+    )
+    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+        estimate_grid_run,
+    )
+
+    experiment.grid_protocol.add(BeamOverviewGridTaskConfig(task_name="overview_sem"))
+    asked = []
+
+    def estimate(names, exchanges):
+        asked.append((list(names), exchanges))
+        return estimate_grid_run(
+            experiment,
+            ["overview_sem"],
+            names,
+            exchanges,
+            60.0,
+            now=datetime(2026, 10, 11, 14, 0),
+        )
+
+    dialog = ScreenGridsDialog(
+        unscanned._stage,
+        experiment,
+        ["overview_sem"],
+        str(experiment.path),
+        estimate=estimate,
+        synchronous=True,
+    )
+    assert asked == []  # nothing to price before the scan
+    dialog.btn_scan.click()
+    assert asked == [(["Grid-01", "grid-elm", "Grid-05"], 3)]
+    labels = [w.text() for w in dialog.summary_box.findChildren(type(dialog.banner))]
+    assert "Estimated duration" in labels and "Estimates round up." in labels
+    # a name typed into a field changes nothing the run costs: not priced again
+    dialog._rows["Slot-01"].field.setText("grid-birch")
+    dialog._apply()
+    assert len(asked) == 1

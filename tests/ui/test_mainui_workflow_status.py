@@ -83,11 +83,10 @@ def test_a_status_event_report_shows_the_run_on_the_status_bar(main_ui):
         WorkflowStatusEvent(report=report)
     )
 
-    assert (
-        main_ui.status_bar.currentMessage() == "Workflow: Polishing | lamella-02 | 3/4"
-    )
-    assert main_ui.stop_workflow_btn.isVisibleTo(main_ui)
-    assert not main_ui.run_workflow_btn.isVisibleTo(main_ui)
+    assert main_ui.status_bar.text == "lamella-02 › Polishing · 3 of 4"
+    assert main_ui.status_bar.showing == "run"
+    assert main_ui.workflow_controls.stop_btn.isVisibleTo(main_ui)
+    assert not main_ui.workflow_controls.run_btn.isVisibleTo(main_ui)
 
 
 def test_a_status_event_carries_transient_status_bar_text(main_ui):
@@ -99,7 +98,7 @@ def test_a_status_event_carries_transient_status_bar_text(main_ui):
         WorkflowStatusEvent(status_bar="Scheduled start in 4 s")
     )
 
-    assert main_ui.status_bar.currentMessage() == "Scheduled start in 4 s"
+    assert "Scheduled start in 4 s" in main_ui.status_bar.text
 
 
 def test_a_status_event_snapshot_reaches_the_windows_own_timeline(main_ui):
@@ -157,11 +156,11 @@ def test_a_status_event_refreshes_the_waiting_indicators(main_ui):
         HoldKind.question, "answer the question on the Microscope tab"
     )
     main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
-    assert main_ui.user_attention_btn.isVisibleTo(main_ui)
+    assert main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)
 
     main_ui.autolamella_ui.hold = None
     main_ui.autolamella_ui.workflow_status_signal.emit(WorkflowStatusEvent())
-    assert not main_ui.user_attention_btn.isVisibleTo(main_ui)
+    assert not main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)
 
 
 def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
@@ -178,22 +177,22 @@ def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
         ("01-a/Setup", "02-b/Setup"),
     )
     ui.workflow_status_signal.emit(WorkflowStatusEvent())
-    assert main_ui.user_attention_btn.isVisibleTo(main_ui)
-    assert main_ui.user_attention_btn.text() == "Review Required (2)"
-    assert "decide 01-a and 02-b" in main_ui.user_attention_btn.toolTip()
+    assert main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)
+    assert main_ui.workflow_controls.attention_btn.text() == "Review Required (2)"
+    assert "decide 01-a and 02-b" in main_ui.workflow_controls.attention_btn.toolTip()
     assert main_ui._border_state == "waiting"
-    main_ui.user_attention_btn.click()
+    main_ui.workflow_controls.attention_btn.click()
     assert main_ui.tab_widget.currentWidget() is main_ui.review_tab
 
     ui.hold = None
     ui.workflow_status_signal.emit(WorkflowStatusEvent())
-    assert not main_ui.user_attention_btn.isVisibleTo(main_ui)
+    assert not main_ui.workflow_controls.attention_btn.isVisibleTo(main_ui)
 
     # a question at the beam has its own destination
     ui.hold = Hold(HoldKind.question, "answer the question on the Microscope tab")
     ui.workflow_status_signal.emit(WorkflowStatusEvent())
-    assert main_ui.user_attention_btn.text() == "Attention Required"
-    main_ui.user_attention_btn.click()
+    assert main_ui.workflow_controls.attention_btn.text() == "Attention Required"
+    main_ui.workflow_controls.attention_btn.click()
     assert main_ui.tab_widget.currentIndex() == 0
     ui.hold = None
 
@@ -208,7 +207,8 @@ def test_a_run_parked_on_reviews_shows_the_waiting_chrome_and_leads_to_the_tab(
 # moment burning started, on v0.5.2rc1.
 #
 # Both tests below fail on that line, and neither needs hardware: the handler is called
-# directly, exactly as the queued connection would call it.
+# directly, exactly as the queued connection would call it. It is the status bar's
+# since FIB-1188, which decodes the microscope's reports itself.
 
 
 def test_a_burning_report_renders_without_taking_the_app_down(main_ui):
@@ -221,9 +221,12 @@ def test_a_burning_report_renders_without_taking_the_app_down(main_ui):
         total_estimated_time=50.0,
     )
 
-    main_ui._on_spot_burn_progress(report)
+    main_ui.status_bar._on_spot_burn_progress(report)
 
-    assert main_ui.progress_widget.isVisibleTo(main_ui)
+    assert main_ui.status_bar.fraction == pytest.approx(0.4)
+    # Under the run's task if this module's window has one going, on its own if not.
+    assert "Spot burn" in main_ui.status_bar.text
+    assert main_ui.status_bar.text.endswith("spot 2 of 5 40% · 30s left")
 
 
 def test_a_terminal_report_is_recognised_as_terminal(main_ui):
@@ -231,11 +234,14 @@ def test_a_terminal_report_is_recognised_as_terminal(main_ui):
     bar's reset, so a fix that stopped the crash but misread the outcome would leave the
     bar full forever. Read through `status.is_terminal`, which is what both consumers of
     this signal use."""
-    main_ui._on_spot_burn_progress(
+    main_ui.status_bar._on_spot_burn_progress(
         SpotBurnProgress(
             status=SpotBurnStatus.FINISHED, current_point=5, total_points=5
         )
     )
+
+    assert "Spot burn" in main_ui.status_bar.text
+    assert main_ui.status_bar.text.endswith("done")
 
     assert SpotBurnStatus.FINISHED.is_terminal
     assert not SpotBurnStatus.BURNING.is_terminal
@@ -246,13 +252,14 @@ def test_an_event_without_status_bar_text_leaves_the_bar_alone(main_ui):
         WorkflowStatusEvent,
     )
 
-    main_ui.status_bar.showMessage("previous message")
+    main_ui.status_bar.set_run_step("previous message")
+    before = main_ui.status_bar.text
 
     main_ui.autolamella_ui.workflow_status_signal.emit(
         WorkflowStatusEvent(message="not for the status bar")
     )
 
-    assert main_ui.status_bar.currentMessage() == "previous message"
+    assert main_ui.status_bar.text == before
 
 
 def test_the_review_badge_counts_to_check_apart_from_waiting(main_ui):

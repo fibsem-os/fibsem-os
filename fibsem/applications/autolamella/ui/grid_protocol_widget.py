@@ -168,6 +168,9 @@ class _BeamOverviewEditor(QWidget):
         self.filename.editingFinished.connect(self.changed)
         self.settings.settings_changed.connect(self.changed)
 
+    def set_microscope(self, microscope) -> None:
+        self.settings.set_microscope(microscope)
+
     def load(self, config: BeamOverviewGridTaskConfig) -> None:
         self.orientation.setCurrentText(config.orientation)
         self.filename.setText(config.filename)
@@ -305,6 +308,9 @@ class GridTaskEditorPanel(QWidget):
         editor = self._editors.get(FluorescenceOverviewGridTaskConfig.task_type)
         if editor is not None:
             editor.set_fm(fm)
+        for editor in self._editors.values():
+            if hasattr(editor, "set_microscope"):
+                editor.set_microscope(microscope)
 
     def set_reach(self, text: str) -> None:
         """The warning that the overview reaches past the stage, or "" for none."""
@@ -321,6 +327,8 @@ class GridTaskEditorPanel(QWidget):
             editor.changed.connect(self.changed)
             if hasattr(editor, "set_fm"):
                 editor.set_fm(getattr(self._microscope, "fm", None))
+            if hasattr(editor, "set_microscope") and self._microscope is not None:
+                editor.set_microscope(self._microscope)
             self._editors[task_type] = editor
             self.stack.addWidget(editor)
         return editor

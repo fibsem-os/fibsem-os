@@ -118,7 +118,7 @@ def test_estimates_arriving_after_the_rows_still_reach_them(app, queue):
 def test_an_item_added_mid_workflow_gets_its_estimate(widget, queue):
     added = queue.add("L9", "Polish")
     estimates = {(i.lamella_name, i.task_name): 100.0 for i in queue.items}
-    estimates[("L9", "Polish")] = 250.0  # dict | dict is 3.9+; CI still runs 3.8
+    estimates[("L9", "Polish")] = 250.0
     widget.set_estimates(estimates)
     widget.refresh_queue(queue.items)
     assert added is not None
@@ -457,9 +457,9 @@ def test_a_real_config_reaches_the_column_through_the_managers_own_payload(live)
 
 
 def _fmt(seconds: float) -> str:
-    from fibsem.ui.widgets.preflight import format_duration
+    from fibsem.util.durations import format_duration_rounded
 
-    return format_duration(seconds)
+    return format_duration_rounded(seconds, pad=True)
 
 
 def test_the_header_totals_every_item_the_real_queue_holds(live):

@@ -8,7 +8,7 @@ asked `fm.has_valid_orientation()`, which the `ALLOW_UNKNOWN_ORIENTATIONS` escap
 answers yes to unconditionally.
 
 Two different questions are asked, and which one goes where is most of what is tested
-here: `acquisition_orientations` (where the objective can image the sample) gates
+here: `available_orientations` (where the objective can image the sample) gates
 acquiring and driving the stage; `default_orientation` (the single pose a fluorescence
 position is written down as) gates marking. Neither is `valid_orientations`, which is
 the looser "FM control is allowed here" and still includes the beam poses.
@@ -163,9 +163,9 @@ class TestTheGate:
 
     def test_the_list_is_what_decides_not_a_hard_coded_pose(self, widget, qapp):
         """A system whose objective sees the sample from more than one pose widens the
-        device's `acquisition_orientations`; nothing here compares against
+        device's `available_orientations`; nothing here compares against
         `default_orientation`."""
-        widget.microscope.system.stage.devices["FM"].acquisition_orientations = [
+        widget.microscope.system.stage.devices["FM"].available_orientations = [
             "FM",
             "SEM",
         ]
@@ -186,7 +186,7 @@ class TestTheGate:
         _pose(widget, "SEM")
         assert widget._position_menu(0.0, 0.0) is None, "SEM is not in the list yet"
 
-        widget.microscope.system.stage.devices["FM"].acquisition_orientations = [
+        widget.microscope.system.stage.devices["FM"].available_orientations = [
             "FM",
             "SEM",
         ]
@@ -307,13 +307,13 @@ class TestTheBanner:
     def test_it_names_every_orientation_that_would_do(self, widget, allowed, expected):
         """Not only the one the button goes to: on a system configured for more than one
         the stage may already be a shorter move from a different one."""
-        widget.microscope.system.stage.devices["FM"].acquisition_orientations = allowed
+        widget.microscope.system.stage.devices["FM"].available_orientations = allowed
         _pose(widget, "NONE")
 
         assert widget.orientation_notice.text().endswith(f"needs to be at {expected}.")
 
     def test_it_stays_hidden_at_a_widened_pose(self, widget):
-        widget.microscope.system.stage.devices["FM"].acquisition_orientations = [
+        widget.microscope.system.stage.devices["FM"].available_orientations = [
             "FM",
             "SEM",
         ]

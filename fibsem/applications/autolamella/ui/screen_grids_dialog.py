@@ -35,8 +35,10 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.ui.grid_workflow_widget import (
+    GridRunPreflightDialog,
     beam_name,
     is_default_grid_name,
+    task_block,
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
@@ -48,6 +50,9 @@ from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
     name_and_record_grids,
     naming_problems,
     screen_names,
+)
+from fibsem.applications.autolamella.workflows.workflow_estimate import (
+    WorkflowEstimate,
 )
 from fibsem.microscopes._stage import GridInventoryEntry, GridSlotState
 from fibsem.structures import BeamType
@@ -127,6 +132,9 @@ class ScreenGridsDialog(QDialog):
         task_names: List[str],
         output_root: str,
         beams_off: Sequence[BeamType] = (),
+        estimate: Optional[
+            Callable[[List[str], int], Optional[WorkflowEstimate]]
+        ] = None,
         synchronous: bool = False,
         clock: Callable[[], float] = time.monotonic,
         parent: Optional[QWidget] = None,
@@ -137,6 +145,10 @@ class ScreenGridsDialog(QDialog):
         self.task_names = list(task_names)
         self.grid_names: List[str] = []
         self._beams_off = list(beams_off)
+        # Prices a run of these tasks over (grid names, exchanges); asked at the
+        # review, so the quote is for the grids the scan found (FIB-1134).
+        self._estimate = estimate
+        self._priced: Optional[tuple] = None
         self._synchronous = synchronous
         self._clock = clock
         self._stage_name = READING
@@ -512,6 +524,7 @@ class ScreenGridsDialog(QDialog):
         box = QWidget()
         box.setLayout(metrics)
         self.summary_layout.addWidget(box)
+        self._add_estimate(names, exchanges)
 
         plan = plan_grid_run(self.task_names, names)
         lines = [
@@ -562,6 +575,38 @@ class ScreenGridsDialog(QDialog):
             label.setStyleSheet(f"color: {ERROR_COLOR}; font-size: 11px;")
             label.setWordWrap(True)
             self.summary_layout.addWidget(label)
+
+    def _price(self, names: List[str], exchanges: int) -> Optional[WorkflowEstimate]:
+        """The run's estimate, asked again only when the grids or the exchanges
+        change: a name typed into a field does not change what the run costs."""
+        if self._estimate is None or not names:
+            return None
+        key = (len(names), exchanges)
+        if self._priced is None or self._priced[0] != key:
+            self._priced = (key, self._estimate(list(names), exchanges))
+        return self._priced[1]
+
+    def _add_estimate(self, names: List[str], exchanges: int) -> None:
+        """The duration, the finish and the per-task block, laid out as the run
+        confirmation lays them out."""
+        estimate = self._price(names, exchanges)
+        if estimate is None:
+            return
+        for widget in GridRunPreflightDialog._time_figures(estimate, None):
+            self.summary_layout.addWidget(widget)
+        if estimate.tasks:
+            self.summary_layout.addWidget(
+                task_block(estimate.tasks, estimate.started_at)
+            )
+        note = "Estimates round up."
+        if estimate.waits_for_a_human:
+            note += " Time spent waiting for you is not included."
+        footnote = QLabel(note)
+        footnote.setStyleSheet(
+            f"color: {TEXT_MUTED_COLOR}; font-size: 10px; {ON_PANEL}"
+        )
+        footnote.setWordWrap(True)
+        self.summary_layout.addWidget(footnote)
 
     def _apply_buttons(self) -> None:
         stage = self._stage_name

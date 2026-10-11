@@ -39,7 +39,6 @@ from fibsem.imaging.tiling.progress import (
 from fibsem.structures import CameraImageTransform, TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
-    format_duration,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 from fibsem.ui.fm.widgets.fm_overview_widget import (
@@ -50,6 +49,7 @@ from fibsem.ui.fm.widgets.fm_overview_widget import (
 from fibsem.ui.widgets.custom_widgets import ValueComboBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
+from fibsem.util.durations import format_duration_rounded
 
 
 @pytest.fixture(scope="module")
@@ -288,7 +288,7 @@ def test_the_dialog_estimate_reflects_the_mask(qapp):
     [(0, "0s"), (45, "45s"), (60, "1m 00s"), (134, "2m 14s"), (3660, "1h 01m")],
 )
 def test_duration_formatting(seconds, expected):
-    assert format_duration(seconds) == expected
+    assert format_duration_rounded(seconds, pad=True) == expected
 
 
 # ── shared widget fix ────────────────────────────────────────────────────
@@ -621,10 +621,10 @@ def test_channel_detail_fields_fill_the_panel(qapp):
     of these controls carry an Expanding policy."""
     from PyQt5.QtCore import Qt
 
-    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
     from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
 
-    widget = ChannelSettingsWidget(fm=FluorescenceMicroscope())
+    widget = ChannelSettingsWidget(fm=DemoFluorescenceMicroscope())
     widget.set_channel(ChannelSettings(name="Channel-01"))
     widget.resize(440, widget.sizeHint().height())
     widget.show()
@@ -653,13 +653,13 @@ def test_channel_rows_do_not_overflow_a_narrow_panel(qapp):
     the host. In the overview's controls column that pushed the excitation and emission
     combos past the right edge -- and the column keeps its horizontal scrollbar off, so
     they were unreachable rather than merely cramped."""
-    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
     from fibsem.ui.fm.widgets.fm_multi_channel_widget import (
         FluorescenceMultiChannelWidget,
     )
 
     widget = FluorescenceMultiChannelWidget(
-        fm=FluorescenceMicroscope(),
+        fm=DemoFluorescenceMicroscope(),
         channel_settings=[ChannelSettings(name="Channel-01")],
     )
     widget.show()
@@ -2113,6 +2113,7 @@ from fibsem.applications.autolamella.ui.overview_container_tab import (
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     MODALITY_FLUORESCENCE as TAB_MODALITY_FLUORESCENCE,
 )
+from tests.fixtures.demo_stage import demo_session
 
 
 class _StubHost:
@@ -2148,6 +2149,8 @@ class _StubHost:
     _on_beam_overview_lamella_selected = _Real._on_beam_overview_lamella_selected
     _set_overviews_allowed = _Real._set_overviews_allowed
     _apply_overview_locks = _Real._apply_overview_locks
+    # A finished run tells the quad view's overview page; the stub has none.
+    _refresh_quad_overviews = _Real._refresh_quad_overviews
     _overview_may_work = _Real._overview_may_work
     _overviews_allowed = _Real._overviews_allowed
     _rebuild_lamella_list = _Real._rebuild_lamella_list
@@ -2771,15 +2774,14 @@ def _microscope_at(tilt_deg: float):
     import numpy as np
 
     from fibsem import utils
-    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
     from fibsem.structures import FibsemStagePosition
 
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     if microscope.fm is None:
-        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
     microscope.move_stage_absolute(
         FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
     )
@@ -4294,6 +4296,83 @@ def test_translating_the_stage_leaves_the_markers_alone(qapp):
 
     assert redraws == [], "redrew the markers for a move that cannot have moved them"
     assert list(widget.position_overlay._points) == before
+
+    widget.close()
+
+
+def test_translating_the_stage_leaves_the_stage_context_alone(qapp):
+    """The limits, grid boundaries and holder slots are fixed to the stage, so a
+    translation moves none of them either. The free grid follows the stage on every
+    update, and used to redraw them on its way past: a full repaint and a device
+    conversion per slot, per poll, each logging a line. A re-pose still redraws them."""
+    from fibsem.structures import FibsemStagePosition
+
+    microscope = _microscope_at(-180.0)
+    widget = FMOverviewWidget(microscope)
+    widget._refresh_tile_grid()
+    qapp.processEvents()
+    assert widget._target is None, "a pinned grid would skip the path under test"
+
+    redraws = []
+    original = widget.stage_overlay.set_shapes
+    widget.stage_overlay.set_shapes = lambda shapes: (
+        redraws.append(1) or original(shapes)
+    )
+
+    here = microscope.get_stage_position()
+    microscope.move_stage_absolute(
+        FibsemStagePosition(
+            x=here.x + 200e-6, y=here.y - 90e-6, z=here.z, r=here.r, t=here.t
+        )
+    )
+    widget._on_stage_moved(microscope.get_stage_position())
+    qapp.processEvents()
+
+    assert redraws == [], "redrew the stage context for a move that cannot move it"
+
+    milling = microscope.get_orientation("MILLING")
+    microscope.move_stage_absolute(
+        FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=milling.r, t=milling.t)
+    )
+    widget._on_stage_moved(microscope.get_stage_position())
+    qapp.processEvents()
+
+    assert redraws, "a re-pose did not redraw the stage context"
+
+    widget.close()
+
+
+def test_recalibrating_a_slot_moves_its_marker_without_a_stage_move(qapp):
+    """A translation no longer redraws the stage context, and until the holder said
+    it had changed, the next stage move was the only thing that picked a recalibrated
+    slot up. With the holder already calibrated the overlay defaults do not flip, so
+    nothing else redrew it either."""
+    from dataclasses import replace
+
+    microscope = _microscope_at(-180.0)
+    widget = FMOverviewWidget(microscope)
+    widget._refresh_tile_grid()
+    _show_holder_overlays(widget)
+    qapp.processEvents()
+
+    holder = microscope._stage.holder
+    slot = next(s for s in holder.slots.values() if s.position is not None)
+
+    def marker():
+        return [
+            (spec.cx, spec.cy)
+            for spec in widget.stage_overlay._specs
+            if spec.kind == "crosshair" and spec.label == slot.position.name
+        ]
+
+    before = marker()
+    assert before, "no slot marker drawn to move"
+
+    slot.position = replace(slot.position, x=slot.position.x + 300e-6)
+    microscope.holder_changed.emit(holder)
+    qapp.processEvents()
+
+    assert marker() and marker() != before, "the recalibrated slot did not move"
 
     widget.close()
 

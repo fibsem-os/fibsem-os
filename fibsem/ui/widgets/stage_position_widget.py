@@ -10,14 +10,15 @@ movement actions, their workers, the canvas double-click registration and the pr
 reporting. Nothing in this file needs a parent contract, a view controller or an image
 widget; all of that belongs to the half that moves.
 
-**Units.** The stage speaks metres and radians. The form shows millimetres and degrees,
-except the tilt *limits*, which the stage already reports in degrees -- so x, y and z
-are converted on the way through and t is not. That asymmetry is the one thing here
-worth reading twice.
+**Units.** The stage speaks metres and radians, limits included. The form shows
+millimetres and degrees, so every axis is converted on the way through, by the unit
+the stage device gives it. (Without a stage device the limits come from the stage
+model, whose tilt limits are already in degrees, so t is not converted there.)
 
-**Device reads.** Exactly one, at construction, for the ranges and the stage kind. Both
-are configuration rather than state: they change when someone reconfigures the
-microscope, not while it is running. Nothing on a UI event path touches the device.
+**Device reads.** Exactly one, at construction, for the axes and their ranges, from
+the stage device's metadata. Both are configuration rather than state: they change
+when someone reconfigures the microscope, not while it is running. Nothing on a UI
+event path touches the device.
 """
 
 from __future__ import annotations
@@ -39,10 +40,9 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton
 # rounds to nothing in the box, and stable_move routinely asks for less.
 _TRANSLATION_DECIMALS = 5
 
-# The default arrow step, in millimetres. A compustage overrides it: see
-# _apply_stage_configuration.
+# The arrow step, in millimetres: one micrometre. A compustage is driven in
+# micrometres, so this is its step too.
 _TRANSLATION_STEP_MM = 0.001
-_COMPUSTAGE_STEP_MM = 1e-6 * constants.SI_TO_MILLI
 
 
 class StagePositionWidget(QWidget):
@@ -51,8 +51,8 @@ class StagePositionWidget(QWidget):
     Parameters
     ----------
     microscope:
-        Read once, during construction, for the axis ranges and whether this is a
-        compustage. Never read again.
+        Read once, during construction, for the stage's axes and their ranges.
+        Never read again.
     """
 
     #: The refresh button was pressed. The host owns what happens next -- reading the
@@ -121,32 +121,39 @@ class StagePositionWidget(QWidget):
         self.btn_refresh.clicked.connect(self.refresh_requested)
 
     def _apply_stage_configuration(self) -> None:
-        """The one device read: axis ranges, and whether this stage rotates."""
-        limits = self.microscope._stage.limits
+        """The one device read: which axes the stage has, and their ranges.
 
-        for axis, spinbox in (
-            ("x", self.spinbox_x),
-            ("y", self.spinbox_y),
-            ("z", self.spinbox_z),
-        ):
-            spinbox.setMinimum(limits[axis].min * constants.SI_TO_MILLI)
-            spinbox.setMaximum(limits[axis].max * constants.SI_TO_MILLI)
+        From the stage device's axes, whose limits it read at connect: an axis it does
+        not have is hidden with its label, and with no stage every axis is."""
+        stage = self.microscope.stage
+        axes = {} if stage is None else stage.axes
 
-        # Not converted: the stage reports x/y/z in metres but t in degrees, which is
-        # already the unit on the box.
-        self.spinbox_tilt.setMinimum(limits["t"].min)
-        self.spinbox_tilt.setMaximum(limits["t"].max)
+        for name, spinbox in self._spinboxes().items():
+            label = self._labels()[name]
+            has_axis = name in axes
+            label.setVisible(has_axis)
+            spinbox.setVisible(has_axis)
+            if not has_axis:
+                continue
+            axis = axes[name]
+            low, high = axis.limits.min, axis.limits.max
+            if axis.unit == "rad":
+                # Rounded: the stage keeps degrees-from-config in radians, and the
+                # round trip would otherwise put 194.99999999 on the box.
+                low, high = round(np.degrees(low), 9), round(np.degrees(high), 9)
+            else:
+                low, high = low * constants.SI_TO_MILLI, high * constants.SI_TO_MILLI
+            spinbox.setMinimum(low)
+            spinbox.setMaximum(high)
 
-        if self.microscope.stage_is_compustage:
-            # A compustage is driven in micrometres, so a whole-millimetre arrow step
-            # is a thousand times too coarse to be useful.
-            for spinbox in (self.spinbox_x, self.spinbox_y, self.spinbox_z):
-                spinbox.setSingleStep(_COMPUSTAGE_STEP_MM)
-
-            # It does not rotate. The label goes with the box -- hiding only the box
-            # leaves a caption over the tilt row.
-            self.label_rotation.setVisible(False)
-            self.spinbox_rotation.setVisible(False)
+    def _labels(self) -> Dict[str, QLabel]:
+        return {
+            "x": self.label_x,
+            "y": self.label_y,
+            "z": self.label_z,
+            "r": self.label_rotation,
+            "t": self.label_tilt,
+        }
 
     def _spinboxes(self) -> Dict[str, QDoubleSpinBox]:
         return {

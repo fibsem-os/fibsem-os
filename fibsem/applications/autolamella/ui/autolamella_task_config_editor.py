@@ -271,7 +271,8 @@ class _DirtyBanner(QWidget):
             )
             self.apply_button.setVisible(True)
             self.setStyleSheet(
-                "#dirtyBanner { background: rgba(%d, %d, %d, 0.12);"
+                # Not an f-string: every literal brace would need doubling.
+                "#dirtyBanner { background: rgba(%d, %d, %d, 0.12);"  # noqa: UP031
                 " border-top: 1px solid rgba(%d, %d, %d, 0.5); }"
                 % (
                     rgb.red(),

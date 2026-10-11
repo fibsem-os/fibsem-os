@@ -98,7 +98,8 @@ def test_the_id_is_on_the_record(experiment):
 def test_a_record_saved_before_ids_gets_the_same_one_every_time():
     """Derived, not minted: the app and a monitor, this session and the next,
     have to agree on what an old proposal is called without either saving."""
-    stored = _question().to_dict()
+    # as such a record was written: before ids, and before FIB-1197, a float
+    stored = dict(_question().to_dict(), created_at=1789355531.0)
     del stored["id"]
 
     first, second = Proposal.from_dict(stored), Proposal.from_dict(stored)

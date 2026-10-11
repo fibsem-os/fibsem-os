@@ -71,7 +71,9 @@ def test_a_saved_configuration_does_not_record_alignment_or_session_state():
 
     for beam in ("electron", "ion"):
         assert not set(NOT_BEAM_DEFAULTS) & set(written["defaults"][beam])
-        assert not set(NOT_BEAM_DEFAULTS) & set(written["hardware"][beam])
+        assert not set(NOT_BEAM_DEFAULTS) & set(
+            utils.configuration_device(written, beam)
+        )
     assert not set(NOT_IMAGING_DEFAULTS) & set(written["defaults"]["imaging"])
 
 

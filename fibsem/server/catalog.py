@@ -19,7 +19,7 @@ from typing import Dict, Tuple
 class ToolSpec:
     name: str
     description: str
-    method: str  # "GET" | "POST"
+    method: str  # "GET" | "POST" | "PUT"
     path: str
     scope: str  # "read" | "hardware"
     params: Dict[str, str] = field(default_factory=dict)  # name -> description
@@ -64,6 +64,28 @@ CATALOG: Tuple[ToolSpec, ...] = (
         method="GET",
         path="/microscope_state",
         scope="read",
+    ),
+    ToolSpec(
+        name="list_devices",
+        description=(
+            "Every device on the microscope (electron, ion, stage, chamber, ...): "
+            "its parameters with type, unit, limits, choices and whether settable, "
+            "and its commands."
+        ),
+        method="GET",
+        path="/devices",
+        scope="read",
+    ),
+    ToolSpec(
+        name="get_parameter",
+        description="Read one device parameter live, e.g. device=ion parameter=current.",
+        method="GET",
+        path="/devices/{device}/{parameter}",
+        scope="read",
+        params={
+            "device": "device name from list_devices",
+            "parameter": "parameter name",
+        },
     ),
     ToolSpec(
         name="get_milling_angle",
@@ -143,6 +165,33 @@ CATALOG: Tuple[ToolSpec, ...] = (
         path="/milling_angle/move",
         scope="hardware",
         params={"milling_angle_deg": "target milling angle in degrees"},
+    ),
+    ToolSpec(
+        name="set_parameter",
+        description=(
+            "Set one device parameter (SI units); the server checks it against the "
+            "parameter's limits and choices and answers the value written."
+        ),
+        method="PUT",
+        path="/devices/{device}/{parameter}",
+        scope="hardware",
+        params={
+            "device": "device name from list_devices",
+            "parameter": "parameter name",
+            "value": "the new value",
+        },
+    ),
+    ToolSpec(
+        name="call_command",
+        description="Run a device command listed by list_devices, e.g. device=ion command=blank.",
+        method="POST",
+        path="/devices/{device}/commands/{command}",
+        scope="hardware",
+        params={
+            "device": "device name from list_devices",
+            "command": "command name",
+            "kwargs": "the command's arguments, by name",
+        },
     ),
     ToolSpec(
         name="autocontrast",

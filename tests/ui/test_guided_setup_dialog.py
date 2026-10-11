@@ -28,6 +28,7 @@ from fibsem.ui.widgets.guided_setup_dialog import (
     ChoiceCard,
     GuidedSetupDialog,
 )
+from fibsem.utils import configuration_device
 
 
 @pytest.fixture
@@ -172,9 +173,9 @@ def test_the_compustage_writes_its_shipped_values_untouched(dialog):
     assert dialog.choices.shuttle_pre_tilt is None
 
     config = wizard.build_configuration(dialog.choices)
-    assert config["hardware"]["stage"]["rotation_reference"] == 0
+    assert configuration_device(config, "stage")["rotation_reference"] == 0
     assert config["calibration"]["shuttle_pre_tilt"] == 0
-    assert "rotation" not in config["hardware"]["stage"]
+    assert "rotation" not in configuration_device(config, "stage")
     # The wizard's own record of the mounting, which is what a simulated run reads to
     # report a stage with no rotation axis.
     assert wizard.get_model("tfs-arctis").is_compustage
@@ -677,8 +678,8 @@ def test_stage_answers_do_not_survive_a_change_of_model(dialog):
     assert dialog.choices.shuttle_pre_tilt is None
 
     config = wizard.build_configuration(dialog.choices)
-    assert config["hardware"]["stage"]["rotation_reference"] == 0
-    assert "rotation" not in config["hardware"]["stage"]
+    assert configuration_device(config, "stage")["rotation_reference"] == 0
+    assert "rotation" not in configuration_device(config, "stage")
 
 
 # ---------------------------------------------------------------------------

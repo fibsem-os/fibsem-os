@@ -26,6 +26,7 @@ from typing import (
 
 import numpy as np
 
+from fibsem import timing
 from fibsem.applications.autolamella.proposals import (
     OVERVIEW_POSITIONS,
     Proposal,
@@ -181,6 +182,11 @@ class BeamOverviewGridTaskConfig(GridTaskConfig):
     @property
     def role(self) -> str:
         return ROLE_BY_BEAM.get(self.beam_type, "overview")
+
+    @property
+    def estimated_duration(self) -> float:
+        """The move to the grid at the task's orientation, then the overview."""
+        return timing.stage_move_cost(1) + timing.beam_overview_cost(self.settings)
 
 
 class OverviewPositionsProposer:

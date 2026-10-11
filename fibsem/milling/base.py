@@ -137,8 +137,6 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
         self,
         microscope: FibsemMicroscope,
         stage: "FibsemMillingStage",
-        asynch: bool = False,
-        parent_ui=None,
         stop_event: Optional[threading.Event] = None,
     ) -> None:
         pass
@@ -170,6 +168,12 @@ class FibsemMillingStage:
         default_factory=ImageSettings
     )  # settings for post-milling acquisition
     reference_image: Optional[FibsemImage] = None
+    # Where this stage's run writes: its alignment reference, the drift
+    # correction, anything a strategy saves. Set by FibsemMillingTask before the
+    # strategy runs, like reference_image, and never saved with the stage -- it
+    # belongs to one run, not to the protocol. ``imaging.path`` is an imaging
+    # setting; read this to know where to save.
+    output_dir: Optional[str] = None
 
     def __post_init__(self):
 
@@ -227,12 +231,12 @@ class FibsemMillingStage:
         return estimate_stage_milling_time(self)
 
     def run(
-        self, microscope: FibsemMicroscope, asynch: bool = False, parent_ui=None
+        self,
+        microscope: FibsemMicroscope,
+        stop_event: Optional[threading.Event] = None,
     ) -> None:
         """Run the milling stage strategy on the given microscope."""
-        self.strategy.run(
-            microscope=microscope, stage=self, asynch=asynch, parent_ui=parent_ui
-        )
+        self.strategy.run(microscope=microscope, stage=self, stop_event=stop_event)
 
     @property
     def summary(self) -> str:

@@ -1,19 +1,23 @@
 # Please don't edit or delete this file, it is the default configuration for the microscope
 # configuration 
-version: 1                                                  # configuration schema version
+version: 2                                                  # configuration schema version
 info:
     name: tescan-microscope-configuration               # a descriptive name for your configuration                     [SPECIFIED]
     ip_address: localhost                                 # the ip address of the microscope PC                           [SPECIFIED]
     manufacturer: Tescan                                      # the microscope manufacturer                                    [SPECIFIED]        
 hardware:                                                   # what the instrument is; cannot be asked
-    stage:
+    devices:
+      - name: stage
+        type: stage
         enabled:                    true                        # the stage is enabled                                          [USER]
         rotation_reference:         180                         # the reference rotation value                                  [SPECIFIED] 
-    electron:                                              
+      - name: electron
+        type: beam
         enabled:                    true                        # the electron beam is enabled                                  [USER]
         column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufacturer]
         eucentric_height:           7.0e-3                      # the eucentric height of the electron beam                     [SPECIFIED]
-    ion:
+      - name: ion
+        type: beam
         enabled:                    true                        # the ion beam is enabled                                       [USER]
         column_tilt:                55                          # the column tilt of the electron beam                          [SPECIFIED]
         eucentric_height:           16.5e-3                     # the eucentric height of the ion beam                          [SPECIFIED]

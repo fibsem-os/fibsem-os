@@ -12,7 +12,7 @@ even while it is dormant.
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -32,6 +32,7 @@ from fibsem.applications.autolamella.tools.artifacts import (
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
+from fibsem.util.timestamps import iso_from_posix
 
 REQUIRED_TASKS = ["MillTrench", "MillUndercut"]
 
@@ -148,15 +149,13 @@ def test_it_records_the_files_each_task_left_behind(experiment):
 def test_it_records_how_long_each_task_took(experiment):
     lamella = _complete_lamella(experiment, "lam-1")
     task = lamella.task_history[0]
-    task.end_timestamp = task.start_timestamp + 412.34
+    task.end_timestamp = task.start_timestamp + timedelta(seconds=412.34)
 
     write_completion_summary(experiment, _context(lamella, experiment))
 
     record = _summary(lamella)["tasks_completed"][0]
     assert record["duration_s"] == 412.3
-    assert datetime.fromisoformat(record["completed_at"]).timestamp() == pytest.approx(
-        task.end_timestamp, abs=1
-    )
+    assert datetime.fromisoformat(record["completed_at"]) == task.end_timestamp
 
 
 def test_a_task_still_running_has_no_completion_time(experiment):
@@ -232,8 +231,8 @@ def test_it_records_when_the_work_finished_not_when_the_file_was_written(experim
         experiment, _context(lamella, experiment, timestamp=fired_at)
     )
 
-    expected = datetime.fromtimestamp(fired_at).isoformat(timespec="seconds")
-    assert _summary(lamella)["completed_at"] == expected
+    # With its offset, so a reader in another zone gets the same instant (FIB-1190).
+    assert _summary(lamella)["completed_at"] == iso_from_posix(fired_at)
 
 
 def test_it_falls_back_to_the_experiment_when_the_context_is_bare(experiment):

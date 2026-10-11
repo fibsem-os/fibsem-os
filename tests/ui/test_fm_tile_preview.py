@@ -6,6 +6,7 @@ the wrong pose still looks like a grid — the arithmetic behind that is pinned 
 because it is a preview inside a dialog and the stage must not move while someone is
 deciding where to look.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -106,9 +107,9 @@ def test_the_frame_is_posed_for_fluorescence_wherever_the_stage_is(microscope):
     )
     widget = FMTilePreviewWidget(microscope)
 
-    assert surface_foreshortening(
-        widget._projection, widget._origin
-    ) == pytest.approx(1.0, abs=1e-9)
+    assert surface_foreshortening(widget._projection, widget._origin) == pytest.approx(
+        1.0, abs=1e-9
+    )
 
 
 def test_the_drawn_grid_is_the_planned_grid(pane, microscope):
@@ -119,7 +120,9 @@ def test_the_drawn_grid_is_the_planned_grid(pane, microscope):
     assert plan is not None
     assert max(t.row for t in drawn) + 1 == plan.rows
     assert max(t.col for t in drawn) + 1 == plan.cols
-    assert [[t.enabled for t in drawn if t.row == r] for r in range(plan.rows)] == plan.mask
+    assert [
+        [t.enabled for t in drawn if t.row == r] for r in range(plan.rows)
+    ] == plan.mask
 
 
 def test_a_bigger_selection_needs_a_bigger_grid(pane, microscope):
@@ -276,7 +279,17 @@ def test_the_pane_draws_both_the_travel_limits_and_the_grid_boundary(pane):
     """
     labels = {spec.label for spec in pane.stage_overlay._specs}
 
-    assert labels == {"Stage limits", "Grid boundary"}
+    assert labels == {"Stage Limits", "Grid boundary"}
+
+
+def test_the_travel_limits_are_not_gated_on_the_stage_type(pane, monkeypatch):
+    """A stage whose travel is far wider than the grid draws its box off the edge of
+    the view, which is fixed to the grid, so there is nothing to gate. (The preview
+    is only built on a compustage today; the stage type is flipped after it is built.)"""
+    monkeypatch.setattr(pane.microscope, "_fm_is_a_pose", lambda: False)
+    pane._draw_stage_context()
+
+    assert "Stage Limits" in {spec.label for spec in pane.stage_overlay._specs}
 
 
 def test_reachability_is_worked_out_without_asking_the_instrument(pane, microscope):
@@ -324,6 +337,42 @@ def test_the_limits_box_is_shorter_than_the_grid_is_wide(pane):
     [circle] = [s for s in pane.stage_overlay._specs if s.kind == "circle"]
 
     assert box.height < 2 * circle.radius
+
+
+def test_an_fm_origin_carries_the_plan_and_the_grid_but_not_the_limits(microscope):
+    """A compustage FM with an origin reaches the beams' ground by the flip and then
+    that travel. The planned centre the stage is driven to and the grid boundary carry
+    it; the travel limits are the stage's own and do not."""
+    plain = FMTilePreviewWidget(microscope)
+    plain.setFixedSize(316, 386)
+    plan = select(plain, microscope, *TWO_REGIONS)
+
+    microscope.system.stage.devices["FM"].origin = FibsemStagePosition(
+        x=50e-6, y=-30e-6
+    )
+    moved = FMTilePreviewWidget(microscope)
+    moved.setFixedSize(316, 386)
+    offset_plan = select(moved, microscope, *TWO_REGIONS)
+
+    assert offset_plan.centre_position.x == pytest.approx(
+        plan.centre_position.x + 50e-6
+    )
+    assert offset_plan.centre_position.y == pytest.approx(
+        plan.centre_position.y - 30e-6
+    )
+    assert offset_plan.mask == plan.mask
+
+    def shapes(pane):
+        return {spec.kind: spec for spec in pane.stage_overlay._specs}
+
+    before, after = shapes(plain), shapes(moved)
+    assert (moved._grid_centre.x, moved._grid_centre.y) == (50e-6, -30e-6)
+    centre = moved._frame().to_canvas(moved._grid_centre)
+    assert (after["circle"].cx, after["circle"].cy) == pytest.approx(centre)
+    assert (after["circle"].cx, after["circle"].cy) != pytest.approx(
+        (before["circle"].cx, before["circle"].cy)
+    )
+    assert after["rect"] == before["rect"]
 
 
 # ── what the host reads ──────────────────────────────────────────────────

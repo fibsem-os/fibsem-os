@@ -63,6 +63,7 @@ from fibsem.ui.tokens import (
 from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.overview_widget import VIEW_CHIP_SPACING, VIEW_CHIP_STYLE
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM, StoredOverviewCanvas
+from fibsem.util.timestamps import format_time
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +266,7 @@ class GridPositionsWidget(QWidget):
                 logger.warning(f"Could not read {path}: {e}")
                 continue
             stamp = state.end_timestamp or state.start_timestamp
-            when = datetime.fromtimestamp(stamp).strftime(TIME_DISPLAY_AMPM_SHORT)
+            when = format_time(stamp, TIME_DISPLAY_AMPM_SHORT) or ""
             record_id = self.canvas.set_image(image, label=f"{state.name} · {when}")
             if record_id is None:
                 logger.warning(

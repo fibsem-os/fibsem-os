@@ -64,7 +64,7 @@ def arctis():
 def fixed_holder():
     """A plain Demo with a two-slot holder, both calibrated and occupied."""
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     holder = microscope._stage.holder
     for i, (name, x) in enumerate([("grid-aspen", -4e-3), ("grid-birch", 4e-3)]):
@@ -148,7 +148,7 @@ class TestOnTheAutoloader:
     def test_a_grid_that_will_not_load_does_not_stop_the_others(
         self, arctis, experiment, stub_tasks
     ):
-        arctis._stage.loader.fail_next_exchange = True
+        arctis._stage.loader.device.fail_next_exchange = True
         manager = screen_grids(arctis, experiment, task_names=["overview_sem"])
         assert stub_tasks == [("Grid-02", "overview_sem"), ("Grid-03", "overview_sem")]
         assert [i.status for i in manager.queue.items if i.item_name == "Grid-01"] == [
@@ -214,7 +214,7 @@ class TestOnAFixedHolder:
 
     def test_nothing_to_screen_is_an_empty_run(self, experiment, stub_tasks):
         microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
+        microscope.stage_device.compustage = False
         microscope._stage = _create_sample_stage(microscope)
         for slot in microscope._stage.holder.slots.values():
             slot.loaded_grid = None

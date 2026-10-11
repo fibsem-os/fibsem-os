@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.plugins.report import (
+    GROUP_NAMES,
     Extension,
     ExtensionGroup,
     ExtensionSource,
@@ -340,7 +341,9 @@ class PluginsDialog(QDialog):
 
         if self.rows:
             keys = [_key(e) for e in self.rows]
-            row = keys.index(_key(previous)) if previous and _key(previous) in keys else 0
+            row = (
+                keys.index(_key(previous)) if previous and _key(previous) in keys else 0
+            )
             self.table.selectRow(row)
         self._on_selection_changed()
 
@@ -466,15 +469,12 @@ def _reason_colour(extension: Extension) -> str:
 def _group_column_width() -> int:
     """Wide enough for the longest group string, and no wider.
 
-    There are exactly three of them and they never change at runtime, so this is
+    They are fixed (``report.GROUP_NAMES``) and never change at runtime, so this is
     a measurement rather than a guess -- a fixed width elides `fibsem.strategies`
     on some platforms and wastes a column on others.
     """
     metrics = QFontMetrics(_group_font())
-    longest = max(
-        metrics.horizontalAdvance(g)
-        for g in ("fibsem.patterns", "fibsem.strategies", "fibsem.tasks")
-    )
+    longest = max(metrics.horizontalAdvance(group) for group in GROUP_NAMES)
     return longest + 24
 
 

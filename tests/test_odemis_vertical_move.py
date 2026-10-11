@@ -23,8 +23,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.autoscript import ThermoMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition
 from tests.fm import _odemis_stubs as stubs
 
@@ -40,7 +40,7 @@ def odemis_microscope_cls():
             saved[name] = sys.modules.pop(name)
 
     stubs.install_odemis_stubs()
-    from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
     yield OdemisThermoMicroscope
 
@@ -52,7 +52,6 @@ def make_microscope(cls, tilt_deg: float = 18.0):
     """Create a microscope without __init__, with a stubbed, recording stage."""
     microscope = object.__new__(cls)  # skip __init__ (requires hardware)
     microscope.system = utils.load_microscope_configuration(ODEMIS_CONFIG_PATH).system
-    microscope.stage_is_compustage = False
 
     microscope._position = FibsemStagePosition(
         x=0, y=0, z=0, r=0, t=np.deg2rad(tilt_deg), coordinate_system="RAW"

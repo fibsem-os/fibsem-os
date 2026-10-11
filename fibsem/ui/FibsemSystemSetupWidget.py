@@ -1,6 +1,5 @@
 import logging
 import os
-from pprint import pprint
 from typing import Callable, Optional
 
 from PyQt5 import QtCore, QtWidgets
@@ -379,7 +378,13 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             )
             return None
 
-        pprint(self.settings.to_dict()["info"])
+        # print, not log: logging is configured when the microscope connects
+        info = self.settings.to_dict()["info"]
+        print(
+            f"Configuration {info.get('name')}: {info.get('manufacturer')} "
+            f"{info.get('model')} at {info.get('ip_address')}, fibsem "
+            f"{info.get('fibsem_version')} ({info.get('fibsem_revision')})"
+        )
 
         return configuration_path
 
