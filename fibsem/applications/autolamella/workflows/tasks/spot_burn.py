@@ -129,7 +129,6 @@ class SpotBurnFiducialTask(AutoLamellaTask):
         """Run the task to mill spot fiducial markers for correlation."""
         # bookkeeping
         image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         # restore the full milling-pose state, then align to the stored reference so
         # the burn coordinates land on target (mirrors rough/polishing)

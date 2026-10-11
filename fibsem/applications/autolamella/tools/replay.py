@@ -57,6 +57,9 @@ _SPOT = re.compile(
     r"burning spot (\d+): Point\(x=([-+\d.e]+), y=([-+\d.e]+).*?"
     r"exposure time: ([-+\d.e]+), milling current: ([-+\d.e]+)"
 )
+# The functions that log that line: the spot burn service's point-by-point burn
+# (`SpotBurn._burn`), and the microscope's own spot burn in logs from before it.
+_SPOT_LOGGERS = ("run_spot_burn", "_burn")
 # `prompt answered: PickPOI response=True by=operator adjusted=False`
 _PROMPT = re.compile(
     r"^prompt answered: (\w+) response=(\w+) by=(\w+)(?: adjusted=(\w+))?"
@@ -874,7 +877,7 @@ def _load_from_log(root: Path) -> ExperimentReplay:
         if m is not None:
             events.append(_prompt_event(record, m, item, task, step))
             continue
-        if record.function == "run_spot_burn":
+        if record.function in _SPOT_LOGGERS:
             event = _spot_event(record)
             if event is not None:
                 event.item, event.task, event.step = item, task, step
@@ -1090,7 +1093,26 @@ def _move_summary(payload: Dict[str, Any]) -> str:
     return text + _failed(payload)
 
 
+def _not_run(payload: Dict[str, Any], what: str) -> Optional[str]:
+    """The line for an operation that did not run to an end: skipped (with
+    why), cancelled, or failed (with the error). None for one that did, or a
+    record written before operations said how they ended."""
+    status = payload.get("status")
+    if status == "skipped":
+        reason = payload.get("reason")
+        return f"{what} skipped" + (f": {reason}" if reason else "")
+    if status == "cancelled" and not payload.get("results"):
+        return f"{what} cancelled"
+    if status == "failed":
+        return f"{what}{_failed(payload)}"
+    return None
+
+
 def _alignment_summary(payload: Dict[str, Any]) -> str:
+    beam = payload.get("beam_type")  # a task's skip has no image to say which
+    not_run = _not_run(payload, f"{_beam(beam)} alignment" if beam else "Alignment")
+    if not_run is not None:
+        return not_run
     steps = payload.get("results") or []
     subsystem = str(payload.get("subsystem") or "?").replace("-", " ")
     text = (
@@ -1533,7 +1555,9 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             summary = _alignment_summary(payload)
             event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)
         elif kind == "autofocus":
-            summary = (
+            summary = _not_run(
+                payload, f"{_beam(payload.get('beam_type'))} autofocus"
+            ) or (
                 f"{_beam(payload.get('beam_type'))} autofocus: working distance "
                 f"{_mm(payload.get('initial_working_distance'))} → "
                 f"{_mm(payload.get('working_distance'))} mm"

@@ -220,6 +220,10 @@ class AutoLamellaTaskConfig(ABC):
     task_type: ClassVar[str]
     display_name: ClassVar[str]
     related_tasks: ClassVar[list[type["AutoLamellaTaskConfig"]]] = []
+    # Parameters this task type used to have. Saved protocols and experiments
+    # still carry them; they are dropped on load without the "Unknown parameter"
+    # warning, which is for keys nobody recognises.
+    retired_parameters: ClassVar[frozenset] = frozenset()
     task_name: str = ""  # unique name for identifying in multi-task workflows
     milling: Dict[str, FibsemMillingTaskConfig] = field(default_factory=dict)
     reference_imaging: ReferenceImageParameters = field(
@@ -297,7 +301,7 @@ class AutoLamellaTaskConfig(ABC):
     @classmethod
     def _warn_unknown_parameters(cls, params: Dict[str, Any]) -> None:
         """Warn for each key in ``params`` that is not a field of this task config."""
-        known = {f.name for f in fields(cls)}
+        known = {f.name for f in fields(cls)} | cls.retired_parameters
         for key in params:
             if key not in known:
                 logging.warning(
@@ -2467,7 +2471,7 @@ class Experiment:
             proposal.asking = False
             if apply_values is not None:
                 result.delta = proposal.delta(decision)
-            logging.info(
+            logging.debug(
                 {
                     "msg": "proposal_decided",
                     "item": item.name,
@@ -2582,7 +2586,7 @@ class Experiment:
                 return DecisionResult(
                     applied=False, reason=f"Could not apply the values: {e}"
                 )
-            logging.info(
+            logging.debug(
                 {
                     "msg": "proposal_applied_as_proposed",
                     "item": item.name,
@@ -2628,7 +2632,7 @@ class Experiment:
                     )
                 )
                 expired += 1
-                logging.info(
+                logging.debug(
                     {
                         "msg": "proposal_unreviewed",
                         "item": item.name,
@@ -2686,7 +2690,7 @@ class Experiment:
                     proposal_id=proposal.id,
                 )
             )
-        logging.info(
+        logging.debug(
             {
                 "msg": "proposal_unreviewed",
                 "lamella": item.name,
@@ -2760,7 +2764,7 @@ class Experiment:
                             )
                         )
                         withdrawn += 1
-                        logging.info(
+                        logging.debug(
                             {
                                 "msg": "proposal_withdrawn",
                                 "item": item.name,
@@ -2824,7 +2828,7 @@ class Experiment:
                     proposal_id=proposal.id,
                 )
             )
-            logging.info(
+            logging.debug(
                 {
                     "msg": "proposal_withdrawn",
                     "item": item.name,

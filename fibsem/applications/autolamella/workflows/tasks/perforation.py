@@ -49,7 +49,6 @@ class MillPerforationTask(AutoLamellaTask):
 
         # bookkeeping
         image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         self.log_status_message("MOVE_TO_LAMELLA", "Moving to Lamella Position...")
         target_position = self._get_stage_position_for_orientation(
@@ -62,7 +61,6 @@ class MillPerforationTask(AutoLamellaTask):
         key = next(iter(self.config.milling))
         milling_task_config = self.config.milling[key]
         milling_task_config.alignment.rect = self.lamella.alignment_area
-        milling_task_config.acquisition.imaging.path = self.lamella.path
         self._acquire_reference_image(
             image_settings, field_of_view=milling_task_config.field_of_view
         )

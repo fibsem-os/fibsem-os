@@ -167,3 +167,76 @@ def test_lamella_editor_view_has_no_chamber(qapp, microscope):
 )
 def test_is_half_turn_wraps(r_degrees, reference, expected):
     assert is_half_turn(math.radians(r_degrees), reference) is expected
+
+
+_ARCTIS = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "..",
+    "fibsem",
+    "config",
+    "sim-arctis-configuration.yaml",
+)
+
+
+@pytest.fixture
+def arctis():
+    microscope, _ = utils.setup_session(config_path=_ARCTIS, manufacturer="Demo")
+    assert microscope.fm is not None and microscope._fm_is_a_pose()
+    return microscope
+
+
+def test_an_objective_under_the_stage_is_drawn_from_below(controller, arctis):
+    """The Arctis FM looks up at the grid the stage has turned over, so the side view
+    has it underneath, retracted until it is inserted."""
+    arctis.fm.objective.retract()
+    diagram = _show(controller, arctis, "FM").diagram
+    assert diagram._show_fm
+    assert diagram._objective_inserted is False
+
+
+def test_the_objective_is_drawn_in_once_it_is_inserted(controller, arctis):
+    """Told by whoever moved it, as the FM bar's position is: no read per update."""
+    _show(controller, arctis, "FM")
+    position = arctis.get_stage_position()
+
+    controller.update_info(arctis, stage_position=position, objective_state="Inserted")
+    assert controller.widget.chamber_view.diagram._objective_inserted is True
+
+    # A stage update carries no objective state, and keeps the last one.
+    controller.update_info(arctis, stage_position=position)
+    assert controller.widget.chamber_view.diagram._objective_inserted is True
+
+    controller.update_info(arctis, stage_position=position, objective_state="Retracted")
+    assert controller.widget.chamber_view.diagram._objective_inserted is False
+
+
+def test_inserting_through_the_objective_widget_reaches_the_drawing(controller, arctis):
+    """The path in the app: the objective announces the move, the objective control
+    passes its state on, and the chamber redraws."""
+    from PyQt5.QtWidgets import QWidget
+
+    from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
+
+    class _Host(QWidget):
+        microscope = arctis
+
+        def _view_controller(self):
+            return controller
+
+    arctis.fm.objective.retract()
+    _show(controller, arctis, "FM")
+    host = _Host()
+    widget = ObjectiveControlWidget(arctis.fm, parent=host)
+    try:
+        arctis.fm.objective.insert()
+        assert controller.widget.chamber_view.diagram._objective_inserted is True
+        arctis.fm.objective.retract()
+        assert controller.widget.chamber_view.diagram._objective_inserted is False
+    finally:
+        widget.close()
+
+
+def test_a_system_without_that_objective_draws_none(controller, microscope):
+    diagram = _show(controller, microscope, "SEM").diagram
+    assert not diagram._show_fm

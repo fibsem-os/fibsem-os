@@ -6,6 +6,7 @@ real ``events.jsonl``, and reads back what it wrote.
 
 import os
 import threading
+from datetime import datetime
 
 import pytest
 
@@ -78,6 +79,48 @@ def test_an_alignment_is_one_event_with_every_step(microscope, recorded, tmp_pat
     assert alignment["validation"] is None
     assert alignment["path"] == str(tmp_path / "alignment" / run.name)
     assert os.path.exists(os.path.join(alignment["path"], "data.json"))
+    assert alignment["status"] == "completed"
+    assert datetime.fromisoformat(alignment["started_at"]).tzinfo is not None
+
+
+def _reference(microscope):
+    settings = ImageSettings(
+        resolution=(256, 256), hfw=80e-6, beam_type=BeamType.ION, save=False
+    )
+    return acquire.acquire_image(microscope, settings)
+
+
+def test_an_alignment_stopped_before_its_first_step_is_recorded_cancelled(
+    microscope, recorded
+):
+    """It used to return without a record, so the stop left no trace."""
+    stop = threading.Event()
+    stop.set()
+
+    run = multi_step_alignment_v2(microscope, _reference(microscope), stop_event=stop)
+
+    (alignment,) = recorded("alignment")
+    assert run.results == []
+    assert alignment["status"] == "cancelled"
+    assert alignment["results"] == [] and alignment["path"] is None
+
+
+def test_an_alignment_that_raises_is_recorded_failed_and_still_raises(
+    microscope, recorded, monkeypatch
+):
+    import fibsem.alignment as alignment_module
+
+    def fail(**kwargs):
+        raise RuntimeError("no signal")
+
+    monkeypatch.setattr(alignment_module, "beam_shift_alignment_v2", fail)
+    with pytest.raises(RuntimeError, match="no signal"):
+        multi_step_alignment_v2(microscope, _reference(microscope))
+
+    (alignment,) = recorded("alignment")
+    assert alignment["status"] == "failed"
+    assert alignment["error"] == "RuntimeError: no signal"
+    assert alignment["beam_type"] == "ION"
 
 
 def test_a_coincidence_check_records_what_it_measured(microscope, recorded):
@@ -118,9 +161,29 @@ def test_an_autofocus_records_the_working_distance_it_left(microscope, recorded)
     assert focus["focus_score"] == pytest.approx(result.focus_score)
     assert focus["steps"] == len(result.iterations)
     assert focus["hfw"] == pytest.approx(100e-6)
+    assert focus["status"] == "completed"
+    assert focus["path"] is None, "nothing saved without a path"
 
 
-def test_a_cancelled_autofocus_records_no_focus(microscope, recorded):
+def test_an_autofocus_given_a_path_saves_its_run_and_says_where(
+    microscope, recorded, tmp_path
+):
+    run_auto_focus(
+        microscope,
+        BeamType.ELECTRON,
+        settings=_focus_settings(),
+        path=str(tmp_path / "autofunctions"),
+        name="focus",
+    )
+
+    (focus,) = recorded("autofocus")
+    assert focus["path"] == str(tmp_path / "autofunctions" / "focus")
+    assert os.path.exists(os.path.join(focus["path"], "data.json"))
+
+
+def test_a_cancelled_autofocus_records_the_stop_but_no_focus(microscope, recorded):
+    """Recorded cancelled, and still no working distance: the sweep put the
+    starting one back, so there is no focus to record (FIB-1042)."""
     stop = threading.Event()
     stop.set()
     with pytest.raises(OperationCancelledError):
@@ -128,4 +191,33 @@ def test_a_cancelled_autofocus_records_no_focus(microscope, recorded):
             microscope, BeamType.ELECTRON, settings=_focus_settings(), stop_event=stop
         )
 
-    assert recorded("autofocus") == []
+    (focus,) = recorded("autofocus")
+    assert focus["status"] == "cancelled"
+    assert "working_distance" not in focus and "error" not in focus
+
+
+def test_an_autofocus_that_cannot_set_the_working_distance_is_recorded_skipped(
+    microscope, recorded, monkeypatch
+):
+    monkeypatch.setattr(microscope, "is_working_distance_settable", lambda beam: False)
+
+    assert run_auto_focus(microscope, BeamType.ION, settings=_focus_settings()) is None
+
+    (focus,) = recorded("autofocus")
+    assert focus["status"] == "skipped"
+    assert "ION" in focus["reason"]
+
+
+def test_an_autofocus_that_raises_is_recorded_failed(microscope, recorded, monkeypatch):
+    import fibsem.autofunctions.autofocus as autofocus_module
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("stage lost")
+
+    monkeypatch.setattr(autofocus_module, "_run_sweep", fail)
+    with pytest.raises(RuntimeError, match="stage lost"):
+        run_auto_focus(microscope, BeamType.ELECTRON, settings=_focus_settings())
+
+    (focus,) = recorded("autofocus")
+    assert focus["status"] == "failed"
+    assert focus["error"] == "RuntimeError: stage lost"

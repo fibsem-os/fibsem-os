@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.correlation.config import RISettings
 from fibsem.correlation.refractive_index import (
     _LUT_PATH,
     ZetaParams,
@@ -39,17 +40,15 @@ _LUT_MISSING_MSG = (
     "The correction factor can still be edited manually."
 )
 
-# The configuration Perez et al. use for depth correction throughout: vitrified
-# cytoplasm (n = 1.35) through the Arctis iFLM's NA 0.75 objective, for which the
-# paper reports a scaling factor of 1.5 (doi:10.64898/2026.05.11.724418 — the
-# source of the lookup table below). Only NA and n2 move zeta appreciably; it is
-# near-flat in tilt, depth and wavelength, so those stay at typical values.
+# The one default set lives on RISettings, where the protocol reads it too; see
+# its docstring for where the values come from (FIB-1234).
+_RI_DEFAULTS = RISettings()
 _DEFAULTS = ZetaParams(
-    tilt_deg=15.0,
-    depth_um=4.0,
-    NA=0.75,
-    n2=1.35,
-    wavelength_um=0.515,
+    tilt_deg=_RI_DEFAULTS.tilt_deg,
+    depth_um=_RI_DEFAULTS.depth_um,
+    NA=_RI_DEFAULTS.na,
+    n2=_RI_DEFAULTS.n2,
+    wavelength_um=_RI_DEFAULTS.wavelength_um,
 )
 
 # Only used when the lookup table cannot be read. Must equal the LUT's value at
@@ -131,6 +130,11 @@ class RefractiveIndexWidget(QWidget):
         self._zeta: Optional[float] = None
         self._tilt_locked = False
         self._tilt_before_lock: Optional[float] = None
+        # Whether the factor on screen is ζ of the parameters shown, rather than
+        # typed, reset, or restored from a stored run (set_factor). A programmatic
+        # recompute -- the tilt lock -- must not write over an entered factor; a
+        # parameter edit does.
+        self._factor_computed = False
         # Params the user has typed by hand; metadata seeding leaves these alone.
         self._user_edited: set = set()
         try:
@@ -225,9 +229,7 @@ class RefractiveIndexWidget(QWidget):
             "mdi:refresh",
             tooltip=f"Reset correction factor to default ({self._default_factor:.3f})",
         )
-        self._btn_reset_factor.clicked.connect(
-            lambda: self._spin_factor.setValue(self._default_factor)
-        )
+        self._btn_reset_factor.clicked.connect(self._reset_factor)
 
         lut_available = _LUT_PATH.exists()
         self._lut_available = lut_available
@@ -289,6 +291,8 @@ class RefractiveIndexWidget(QWidget):
         )
 
         self.zeta_computed.connect(self._spin_factor.setValue)
+        # editingFinished fires for typing only, not for setValue.
+        self._spin_factor.editingFinished.connect(self._on_factor_typed)
 
         # Relayed rather than exposed: set_factor blocks this spinbox's signals,
         # so mirroring a stored factor stays silent while every user-facing route
@@ -312,16 +316,17 @@ class RefractiveIndexWidget(QWidget):
         self._spin_factor.blockSignals(True)
         self._spin_factor.setValue(v)
         self._spin_factor.blockSignals(False)
+        self._factor_computed = False
 
     def set_tilt_locked(self, locked: bool) -> None:
         """Lock the tilt spinbox to 0° (FM-space correction acts along the optical axis).
 
         The previous tilt value is restored on unlock. Idempotent.
 
-        The programmatic tilt change recomputes zeta quietly (the correction
-        factor spinbox is NOT overwritten): a mode switch must not clobber a
-        manually entered factor. User edits to the optical parameters still
-        update the factor as usual.
+        The factor follows the tilt now shown, unless it was typed by hand: a mode
+        switch must not clobber a manually entered factor. It used to recompute
+        quietly in every case, so the factor kept the 15° value while the box read
+        0° (FIB-1234).
         """
         if locked == self._tilt_locked:
             return
@@ -340,10 +345,16 @@ class RefractiveIndexWidget(QWidget):
             if self._tilt_before_lock is not None:
                 self._spin_tilt.setValue(self._tilt_before_lock)
         self._spin_tilt.blockSignals(False)
-        self._recompute(update_factor=False)
+        self._recompute(update_factor=self._factor_computed)
 
     def set_params(self, params: ZetaParams) -> None:
-        """Populate all spinboxes from *params* without triggering recompute."""
+        """Populate all spinboxes from *params*, then recompute ζ from them.
+
+        The values are set with signals blocked so ζ is computed once, from the
+        final set, and not once per box. It used not to be computed at all, so a
+        protocol's parameters were shown while the factor stayed at the widget's
+        own defaults: 1.502 under boxes describing 1.567 on a real run (FIB-1234).
+        """
         for spin in (
             self._spin_tilt,
             self._spin_depth,
@@ -367,6 +378,7 @@ class RefractiveIndexWidget(QWidget):
             self._spin_wl,
         ):
             spin.blockSignals(False)
+        self._recompute()
 
     def get_params(self) -> ZetaParams:
         """Return the current spinbox values as a :class:`ZetaParams`."""
@@ -394,6 +406,17 @@ class RefractiveIndexWidget(QWidget):
     # Internal
     # ------------------------------------------------------------------
 
+    def factor_is_computed(self) -> bool:
+        """Whether the factor on screen is ζ of the parameters shown."""
+        return self._factor_computed
+
+    def _on_factor_typed(self) -> None:
+        self._factor_computed = False
+
+    def _reset_factor(self) -> None:
+        self._spin_factor.setValue(self._default_factor)
+        self._factor_computed = False
+
     def _recompute(self, _value: object = None, *, update_factor: bool = True) -> None:
         # _value swallows the float from QDoubleSpinBox.valueChanged connections.
         if not _LUT_PATH.exists():
@@ -410,5 +433,6 @@ class RefractiveIndexWidget(QWidget):
             self._zeta = zeta
             if update_factor:
                 self.zeta_computed.emit(zeta)
+                self._factor_computed = True
         except Exception:
             self._zeta = None
