@@ -56,7 +56,11 @@ def transform_from_result(
     """The fitted transform of a saved result, in the current images' units.
 
     A result fitted before FIB-881 (``fm_z_scale`` 1.0 on an anisotropic stack)
-    has its depth column in raw slices; it is brought to isotropic units.
+    has its depth column in raw slices; it is brought to isotropic units with
+    the anisotropy of the stack it was fitted on -- its own recorded z step,
+    not the current stack's, which differs whenever the prior came from an
+    interpolated or re-acquired stack (FIB-1240). The xy pixel size is the
+    current one: the same camera and objective, and a run does not record it.
     Returns None when the result holds no usable rotation.
     """
     R = np.asarray(result.rotation_quaternion, dtype=float)
@@ -69,7 +73,11 @@ def transform_from_result(
     if prior_fib_px and fib_pixel_size:
         scale *= float(prior_fib_px) / float(fib_pixel_size)
     P = scale * R[:2, :]
-    zan = fm_pixel_size_z / fm_pixel_size if fm_pixel_size and fm_pixel_size_z else 1.0
+    fitted_z = None
+    if result.input_data is not None:
+        fitted_z = result.input_data.fm_pixel_size_z
+    fitted_z = fitted_z or fm_pixel_size_z
+    zan = fitted_z / fm_pixel_size if fm_pixel_size and fitted_z else 1.0
     if result.fm_z_scale == 1.0 and abs(zan - 1.0) > 1e-6:
         # Fitted on raw slices: the depth column is per slice, not per xy
         # pixel. Rescaling it reproduces that fit's predictions exactly; the

@@ -27,7 +27,6 @@ from fibsem.structures import (
     FibsemStagePosition,
     MicroscopeSettings,
 )
-from fibsem.util import durations
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -59,19 +58,6 @@ def current_timestamp_v3(timeonly: bool = True) -> str:
     if timeonly:
         return now.strftime(TIME_FILE)
     return now.strftime(DATETIME_LOG)
-
-
-def format_duration(seconds: float) -> str:
-    """``1h 3m 5.00s``: :func:`fibsem.util.durations.format_duration_precise`,
-    under the name its callers use until they move (FIB-1191)."""
-    return durations.format_duration_precise(seconds)
-
-
-def format_time_remaining(seconds: float, pad: bool = False) -> str:
-    """``4m 12s``, padded ``1h 01m``:
-    :func:`fibsem.util.durations.format_duration_rounded`, under the name its
-    callers use until they move (FIB-1191)."""
-    return durations.format_duration_rounded(seconds, pad=pad)
 
 
 # `MU_SYMBOL` rather than a literal, and specifically U+00B5 MICRO SIGN rather than

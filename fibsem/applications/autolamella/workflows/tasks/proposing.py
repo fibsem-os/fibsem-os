@@ -119,7 +119,7 @@ def propose(
             item.id, task.task_name, f"{task.task_name} re-ran before anyone looked"
         )
     item.record_proposal(task.task_name, proposal)
-    logging.info(
+    logging.debug(
         {
             "msg": "proposal_recorded",
             "lamella": item.name,
