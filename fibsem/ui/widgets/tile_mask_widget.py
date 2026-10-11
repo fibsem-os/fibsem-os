@@ -36,9 +36,9 @@ BORDER = QColor(BORDER_COLOR)
 ENABLED_FILL = QColor(ACCENT_COLOR)
 TEXT_MUTED = QColor(TEXT_MUTED_COLOR)
 
-# No token: the enabled/disabled tile edges are this widget's own, and the two
-# other widgets that draw tile state disagree with them (see tiled_overview_widget
-# and tile_grid_overlay). Needs one shared decision, not three local ones.
+# No token: the enabled/disabled tile edges are this widget's own, and the
+# other widget that draws tile state disagrees with them (see
+# tile_grid_overlay). Needs one shared decision, not two local ones.
 ENABLED_EDGE = QColor("#7cc0ff")
 DISABLED_EDGE = QColor("#4a4f5c")
 
