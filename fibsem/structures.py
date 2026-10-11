@@ -1532,7 +1532,7 @@ class MicroscopeState:
 
     Attributes:
 
-        timestamp (float): A float representing the timestamp at which the state of the microscope was recorded. Defaults to the timestamp of the current datetime.
+        timestamp (float): When the state was read, as a POSIX time. Defaults to the moment it is constructed.
         stage_position (FibsemStagePosition): An instance of FibsemStagePosition representing the current absolute position of the stage. Defaults to an empty instance of FibsemStagePosition.
         electron_beam (BeamSettings): An instance of BeamSettings representing the electron beam settings. Defaults to an instance of BeamSettings with beam_type set to BeamType.ELECTRON.
         ion_beam (BeamSettings): An instance of BeamSettings representing the ion beam settings. Defaults to an instance of BeamSettings with beam_type set to BeamType.ION.
@@ -1543,7 +1543,10 @@ class MicroscopeState:
         from_dict(state_dict: dict) -> "MicroscopeState": Returns a new instance of MicroscopeState with attributes created from the passed dictionary.
     """
 
-    timestamp: float = datetime.timestamp(datetime.now())
+    # When the state was read, as POSIX: not when a frame was taken, which is the
+    # image's acquisition_datetime. default_factory, not a plain default, which is
+    # evaluated once when this module is imported (FIB-487).
+    timestamp: float = field(default_factory=lambda: datetime.now().timestamp())
     stage_position: Optional[FibsemStagePosition] = field(
         default_factory=FibsemStagePosition
     )

@@ -548,6 +548,11 @@ class MicroscopeViewController(QObject):
     # the fourth cell can follow the stage on the same updates, reading nothing itself.
     stage_updated = pyqtSignal(object)
 
+    # What the instrument is doing, in words ("Moving to the SEM orientation…"), or
+    # None once it is over. For the host's status-bar slot (FIB-1188): the views say
+    # what a move did to them with their chips; the words go where there is room.
+    activity_changed = pyqtSignal(object)
+
     # Forwarded from the view when the selected view changes (BeamType or "fm"). Only the
     # quad view emits this; the lamella editor view has no selection concept.
     view_selected = pyqtSignal(object)
@@ -592,11 +597,15 @@ class MicroscopeViewController(QObject):
         # Views whose image is from before the last stage move (FIB-1188): a frame
         # that never comes leaves these stale, and the others as they were.
         self._moved: Set[FibsemImageCanvas] = set()
+        self._activity: Optional[str] = None
         self._render_scheduled = False
         self._render_requested.connect(self._do_render, Qt.QueuedConnection)
         # Last objective position anyone told us about, in metres. Remembered so
         # `update_info` can label the FM canvas without asking the device -- see there.
         self._objective_position: Optional[float] = None
+        # And its state ('Inserted', 'Retracted', ...), for the chamber drawing. Told
+        # alongside the position, never read on its own.
+        self._objective_state: Optional[str] = None
         # Whether the one starting read has been attempted. Separate from the position
         # itself so a read that *fails* is not retried on every stage update, which is
         # the poll this replaced.
@@ -975,6 +984,19 @@ class MicroscopeViewController(QObject):
             else:
                 canvas.set_status_chip(self.STAGE_MOVED, stale=True)
 
+    @property
+    def activity(self) -> Optional[str]:
+        """What the instrument is doing, in words, or None."""
+        return self._activity
+
+    def report_activity(self, text: Optional[str]) -> None:
+        """Say what the instrument is doing (`activity_changed`); None when it is over."""
+        text = text or None
+        if text == self._activity:
+            return
+        self._activity = text
+        self.activity_changed.emit(text)
+
     def acquisition_done(self, beams) -> None:
         """The acquisition for *beams* is over. A view whose frame never came -- it
         failed or was stopped -- is what it was before: stale if the stage has moved
@@ -1016,10 +1038,15 @@ class MicroscopeViewController(QObject):
             self._mark_dirty(canvas)
 
     def update_info(
-        self, microscope, stage_position=None, objective_position=None
+        self,
+        microscope,
+        stage_position=None,
+        objective_position=None,
+        objective_state=None,
     ) -> None:
         """Refresh the live readouts from microscope state: the stage and milling
-        angle on the stage bar, and the objective position on the FM bar. A view
+        angle on the stage bar, the objective position on the FM bar, and the chamber
+        drawing, which shows the objective in or out by *objective_state*. A view
         without a stage bar keeps them in the canvas info text, STAGE on every canvas
         and MILLING ANGLE on FIB. It goes through the model + debounced render, so it
         is safe to call from an ``@ensure_main_thread`` ``update_ui`` — there is no
@@ -1032,6 +1059,8 @@ class MicroscopeViewController(QObject):
             orientation = microscope.get_stage_orientation(
                 stage_position=stage_position
             )
+            if objective_state is not None:
+                self._objective_state = objective_state
             self._update_chamber_view(microscope, stage_position, orientation)
             self.stage_updated.emit(stage_position)
             grid = microscope.current_grid
@@ -1073,7 +1102,12 @@ class MicroscopeViewController(QObject):
                     # update -- a working readout removed in the name of not polling.
                     # Once per controller is not a poll.
                     self._objective_seeded = True
-                    self._objective_position = microscope.fm.objective.position
+                    objective = microscope.fm.objective
+                    with microscope.fm.active_channel():
+                        self._objective_position = objective.position
+                        self._objective_state = objective.state
+                    # Drawn before the seed, so drawn again with the state it found.
+                    self._update_chamber_view(microscope, stage_position, orientation)
                 if self._objective_position is not None:
                     self._show_objective(self._objective_position)
         except Exception:
@@ -1142,12 +1176,17 @@ class MicroscopeViewController(QObject):
         try:
             chamber.set_microscope(microscope)
             stage = microscope.system.stage
+            # Only an objective under the stage: an offset FM is a station the stage
+            # drives to, not something in this view.
+            objective_below = microscope.fm is not None and microscope._fm_is_a_pose()
             chamber.set_stage(
                 stage_position,
                 orientation=orientation,
                 pre_tilt=stage.shuttle_pre_tilt,
                 column_tilt=microscope.system.ion.column_tilt,
                 rotation_reference=stage.rotation_reference,
+                objective_below=objective_below,
+                objective_inserted=self._objective_state == "Inserted",
             )
         except Exception:
             _logger.debug("The chamber view could not be drawn", exc_info=True)
