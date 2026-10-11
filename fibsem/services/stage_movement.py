@@ -477,8 +477,9 @@ class StageMovement(Service):
         flat for a large rotation, then rotate compucentrically. A driver whose
         instrument does this itself replaces it."""
         # The safe sequence is about rotating, so a stage with no rotation axis (a
-        # compustage) skips it. `rotation` is `"r" in` the stage's axes.
-        if not self.parent.system.stage.rotation:
+        # compustage) skips it, and so does a target with no rotation (an x/y-only
+        # move), which leaves r where it is. `rotation` is `"r" in` the stage's axes.
+        if not self.parent.system.stage.rotation or stage_position.r is None:
             return
 
         from fibsem import movement
