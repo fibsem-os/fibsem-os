@@ -793,6 +793,56 @@ def test_beam_shifts_alignment_focus_and_coincidence_are_alignment_rows(tmp_path
     ]
 
 
+def test_an_operation_that_did_not_run_to_an_end_says_so(tmp_path):
+    """Skipped with why, cancelled, failed with the error (FIB-1255). A skip
+    the task recorded has no image, so no beam to name."""
+    _write_events(
+        tmp_path,
+        _record(
+            _at(0),
+            "alignment",
+            {
+                "status": "skipped",
+                "reason": "reference image ref_alignment_ib.tif does not exist",
+            },
+        ),
+        _record(
+            _at(1),
+            "alignment",
+            {"beam_type": "ION", "results": [], "status": "cancelled"},
+        ),
+        _record(
+            _at(2),
+            "alignment",
+            {
+                "beam_type": "ION",
+                "results": [],
+                "status": "failed",
+                "error": "RuntimeError: no signal",
+            },
+        ),
+        _record(
+            _at(3),
+            "autofocus",
+            {
+                "beam_type": "ION",
+                "status": "skipped",
+                "reason": "the working distance is not settable for the ION beam on this system",
+            },
+        ),
+        _record(_at(4), "autofocus", {"beam_type": "ELECTRON", "status": "cancelled"}),
+    )
+    replay = load_replay(tmp_path)
+    assert [e.summary for e in replay.events] == [
+        "Alignment skipped: reference image ref_alignment_ib.tif does not exist",
+        "FIB alignment cancelled",
+        "FIB alignment — failed: RuntimeError: no signal",
+        "FIB autofocus skipped: the working distance is not settable for the ION beam"
+        " on this system",
+        "SEM autofocus cancelled",
+    ]
+
+
 def _fm_file(path):
     from fibsem.fm.structures import FluorescenceImage
 

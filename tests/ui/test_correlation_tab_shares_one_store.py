@@ -49,6 +49,9 @@ def tab():
     widget = CorrelationTabWidget()
     widget.resize(1200, 800)
     widget.show()
+    # These check that a removal reaches every view, one point at a time; what a
+    # fiducial's partner does is test_correlation_delete_fiducial_pair (FIB-1243).
+    widget._coords_tab._delete_fiducial_combo.set_value("one")
     widget.set_fib_image(FibsemImage(data=np.zeros((200, 300), np.uint8)))
     fib = [_coord(40 + 40 * i, PointType.FIB) for i in range(4)]
     fm = [_coord(40 + 40 * i, PointType.FM) for i in range(4)]
@@ -320,11 +323,10 @@ def test_any_change_to_the_store_arms_the_save_and_updates_the_counts(tab):
     assert "5" in tab._coords_tab._fib_count_label.text()
 
 
-def test_a_z_rescale_reaches_the_rows(tab):
+def test_a_z_changed_in_place_reaches_the_rows(tab):
     fm = _list(tab, PointType.FM).coordinates
-    fm[1].point.z = 4.0
-    tab._rescale_fm_z(2.0)
-    assert fm[1].point.z == 8.0
+    fm[1].point.z = 8.0
+    tab._point_store.notify_changed([fm[1]])
     assert _row(tab, PointType.FM, 1).z_spin.value() == 8.0
 
 
