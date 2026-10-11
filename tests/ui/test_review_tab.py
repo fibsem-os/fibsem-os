@@ -595,7 +595,6 @@ def test_author_labels_and_row_details():
 def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
     from fibsem.applications.autolamella.ui import workflow_config_widget as W
 
-    monkeypatch.setattr(W, "_agent_supervision_available", lambda: False)
     monkeypatch.setattr(W, "_review_available", lambda: True)
     task = AutoLamellaTaskDescription(
         name=SETUP, attention=Attention.supervised, required=True

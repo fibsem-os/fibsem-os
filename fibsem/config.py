@@ -478,24 +478,12 @@ class AppServerPreferences:
 
 
 @dataclass
-class AgentPreferences:
-    """Durable agent-supervision policy (the session-scoped half — scope
-    arming — deliberately does NOT live here: arming is consent, dies with
-    the session, and is granted in the Tools → App Server dialog)."""
-
-    # How long a question addressed to the agent may stand unanswered before
-    # the watchdog hands it to the operator.
-    watchdog_minutes: int = 5
-
-
-@dataclass
 class UserPreferences:
     display: DisplayPreferences = field(default_factory=DisplayPreferences)
     features: FeatureFlags = field(default_factory=FeatureFlags)
     movement: MovementPreferences = field(default_factory=MovementPreferences)
     experiment: ExperimentPreferences = field(default_factory=ExperimentPreferences)
     reporting: ReportingPreferences = field(default_factory=ReportingPreferences)
-    agent: AgentPreferences = field(default_factory=AgentPreferences)
     app_server: AppServerPreferences = field(default_factory=AppServerPreferences)
     # Serialized hooks, as HookManager.to_dict()["hooks"] produces them. Held as plain
     # dicts rather than Hook objects on purpose: to_dict() below is dataclasses.asdict,
@@ -523,7 +511,7 @@ class UserPreferences:
                 "movement",
                 "experiment",
                 "reporting",
-                "agent",
+                "agent",  # retired (FIB-1035): read so old files stay nested
                 "app_server",
                 "hooks",
             )
@@ -536,7 +524,6 @@ class UserPreferences:
                     ExperimentPreferences, d.get("experiment", {})
                 ),
                 reporting=_sub_from_dict(ReportingPreferences, d.get("reporting", {})),
-                agent=_sub_from_dict(AgentPreferences, d.get("agent", {})),
                 app_server=_sub_from_dict(
                     AppServerPreferences, d.get("app_server", {})
                 ),

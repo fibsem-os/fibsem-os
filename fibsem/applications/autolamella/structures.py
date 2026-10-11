@@ -414,11 +414,9 @@ class AutoLamellaTaskDescription:
     attention: Attention = Attention.automated
     requires: List[str] = field(default_factory=list)
     scheduled_at: Optional[datetime] = None
-    # Who a supervised task's questions are addressed to: "human" (the
-    # operator, today's behaviour and the default) or "agent" (a connected
-    # agent answers; the operator can still answer first). Display-and-watchdog
-    # semantics only — prompts are raised identically either way.
-    supervisor: str = "human"
+    # `supervisor` (human / agent) retired 2026-10-11 (FIB-1035): a supervised
+    # question goes to the operator and any connected agent, first answer wins.
+    # A file that still carries it loads; from_dict drops unknown keys.
 
     def __post_init__(self) -> None:
         self.attention = Attention(self.attention)
@@ -537,13 +535,6 @@ class AutoLamellaWorkflowConfig:
             if task.name == task_name:
                 return task.attention
         return Attention.automated
-
-    def get_supervisor(self, task_name: str) -> str:
-        """Who a supervised task's questions are addressed to: human or agent."""
-        for task in self.tasks:
-            if task.name == task_name:
-                return getattr(task, "supervisor", "human") or "human"
-        return "human"
 
     def get_scheduled_at(self, task_name: str) -> Optional[datetime]:
         """Get the scheduled start time for a task, or None if not scheduled."""
@@ -788,10 +779,6 @@ class AutoLamellaTaskProtocol:
 
     def get_attention(self, task_name: str) -> Attention:
         return self.workflow_config.get_attention(task_name)
-
-    def get_supervisor(self, task_name: str) -> str:
-        """Who a supervised task's questions are addressed to: human or agent."""
-        return self.workflow_config.get_supervisor(task_name)
 
     @classmethod
     def load_from_old_protocol(cls, path: Path) -> "AutoLamellaTaskProtocol":

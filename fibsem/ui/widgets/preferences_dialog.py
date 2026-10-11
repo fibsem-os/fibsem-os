@@ -14,7 +14,6 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -75,17 +74,11 @@ _TIP_APP_SERVER_DEVICES = (
     "clients see the session but cannot query the microscope. Moving it still "
     "needs hardware permission. Changing this restarts the App Server."
 )
-_LBL_WATCHDOG = "Hand questions to me after"
-_TIP_WATCHDOG = (
-    "If the agent leaves a question unanswered this long, it becomes yours — "
-    "orange border, attention button, sound. Applies only to tasks the agent "
-    "supervises."
-)
 _TIP_APP_SERVER = (
     "Run the App Server when a microscope connects: a local, token-protected "
     "API over this session that an AI agent (through the fibsem-mcp sidecar) "
-    "and the dashboard can reach. Read-only until you grant permissions for "
-    "the session in Tools → App Server, which also shows the session token."
+    "and the dashboard can reach. What the agent may do is its level, set "
+    "from the Agent chip in the status bar; every launch starts at Watch."
 )
 
 # Experiment defaults
@@ -217,9 +210,9 @@ class PreferencesDialog(QDialog):
         self._stack.addWidget(movement_page)
 
         # --- App Server ---
-        # Durable policy only. Scope ARMING is deliberately absent: arming is
-        # consent, granted per session in Tools -> App Server, and must not
-        # survive a restart via this file.
+        # Durable policy only. The agent's level is deliberately absent: it is
+        # consent, set per session from the Agent chip, and must not survive a
+        # restart via this file.
         agent_page = QWidget()
         agent_form = QFormLayout(agent_page)
         self._chk_app_server = QCheckBox()
@@ -228,21 +221,16 @@ class PreferencesDialog(QDialog):
         self._chk_app_server_devices.setToolTip(_TIP_APP_SERVER_DEVICES)
         # A service of the App Server: nothing to serve while it is off.
         self._chk_app_server.toggled.connect(self._chk_app_server_devices.setEnabled)
-        self._spin_watchdog = QSpinBox()
-        self._spin_watchdog.setRange(1, 120)
-        self._spin_watchdog.setSuffix(" min")
-        self._spin_watchdog.setToolTip(_TIP_WATCHDOG)
         agent_intro = QLabel(
-            "Let an AI agent watch this session — and, with permission you "
-            "grant per session in Tools → App Server, act on it — over a "
-            "local, token-protected connection."
+            "Let an AI agent and the dashboard reach this session over a "
+            "local, token-protected connection. The agent watches until you "
+            "raise its level from the Agent chip in the status bar."
         )
         agent_intro.setWordWrap(True)
         agent_intro.setStyleSheet("color: #868e93; font-size: 11px;")
         agent_form.addRow(agent_intro)
         agent_form.addRow(_LBL_APP_SERVER, self._chk_app_server)
         agent_form.addRow(_LBL_APP_SERVER_DEVICES, self._chk_app_server_devices)
-        agent_form.addRow(_LBL_WATCHDOG, self._spin_watchdog)
         self._stack.addWidget(agent_page)
 
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
@@ -285,7 +273,6 @@ class PreferencesDialog(QDialog):
         self._chk_app_server.setChecked(prefs.app_server.enabled)
         self._chk_app_server_devices.setChecked(prefs.app_server.devices)
         self._chk_app_server_devices.setEnabled(prefs.app_server.enabled)
-        self._spin_watchdog.setValue(prefs.agent.watchdog_minutes)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -353,7 +340,6 @@ class PreferencesDialog(QDialog):
 
         prefs.app_server.enabled = self._chk_app_server.isChecked()
         prefs.app_server.devices = self._chk_app_server_devices.isChecked()
-        prefs.agent.watchdog_minutes = self._spin_watchdog.value()
 
         e = prefs.experiment
         e.default_experiment_directory = self._dir_experiment.text()

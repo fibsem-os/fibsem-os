@@ -88,22 +88,15 @@ def test_the_exemption_list_only_names_flags_that_exist(qapp):
     assert NOT_IN_DIALOG <= known, f"stale exemptions: {NOT_IN_DIALOG - known}"
 
 
-def test_agent_section_round_trips(qapp):
+def test_a_retired_agent_section_loads_and_is_dropped():
+    """The watchdog preference is gone (FIB-1035); a file that still has it loads."""
     from fibsem.config import UserPreferences
-    from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
 
-    prefs = UserPreferences()
-    prefs.agent.watchdog_minutes = 12
-    dialog = PreferencesDialog(prefs)
-    assert dialog._spin_watchdog.value() == 12
-    dialog._spin_watchdog.setValue(7)
-    rebuilt = dialog.get_preferences()
-    assert rebuilt.agent.watchdog_minutes == 7
-    # And the section survives serialization (absent key -> defaults).
-    again = UserPreferences.from_dict(rebuilt.to_dict())
-    assert again.agent.watchdog_minutes == 7
-    assert UserPreferences.from_dict({"features": {}}).agent.watchdog_minutes == 5
-    dialog.deleteLater()
+    prefs = UserPreferences.from_dict(
+        {"agent": {"watchdog_minutes": 12}, "app_server": {"enabled": True}}
+    )
+    assert prefs.app_server.enabled is True
+    assert "agent" not in prefs.to_dict()
 
 
 def test_app_server_section_round_trips(qapp):
@@ -177,8 +170,6 @@ def _every_field_changed() -> UserPreferences:
     prefs.reporting.crash_reporting_enabled = True
     prefs.reporting.sentry_dsn = "https://dsn.example.com/1"
     prefs.reporting.update_check_enabled = True
-
-    prefs.agent.watchdog_minutes = 12
 
     prefs.app_server.enabled = True
     prefs.app_server.devices = True

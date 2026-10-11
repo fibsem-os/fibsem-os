@@ -22,26 +22,17 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     DANGER_BUTTON_STYLESHEET,
     PRIMARY_BUTTON_STYLESHEET,
-    SUPERVISION_STATUS_AGENT_STYLESHEET,
     SUPERVISION_STATUS_AUTOMATED_STYLESHEET,
     SUPERVISION_STATUS_SUPERVISED_STYLESHEET,
     USER_ATTENTION_BUTTON_STYLESHEET,
 )
 from fibsem.ui.tokens import GRAY_ICON_COLOR
 
-# The chip's three modes: its icon, its word, its colours, and what it says over the
+# The chip's two modes: its icon, its word, its colours, and what it says over the
 # current task.
 SUPERVISED = "supervised"
 AUTOMATED = "automated"
-AGENT = "agent"
 _SUPERVISION = {
-    AGENT: (
-        "mdi:star-four-points",
-        "Agent",
-        SUPERVISION_STATUS_AGENT_STYLESHEET,
-        "{task} is supervised by the connected agent. You can still answer any "
-        "question first. Click to toggle supervision.",
-    ),
     SUPERVISED: (
         "mdi:account-hard-hat",
         "Supervised",
@@ -129,8 +120,8 @@ class WorkflowControls(QWidget):
         self.run_btn.setToolTip(tooltip)
 
     def set_supervision(self, mode: str, task_name: str) -> None:
-        """Show the chip for *task_name* in *mode*: `SUPERVISED`, `AUTOMATED` or
-        `AGENT`."""
+        """Show the chip for *task_name* in *mode*: `SUPERVISED` or
+        `AUTOMATED`."""
         icon, text, style, tooltip = _SUPERVISION[mode]
         self.supervision_btn.setIcon(fibsem_icon(icon, color="white"))
         self.supervision_btn.setText(text)

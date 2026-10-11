@@ -58,7 +58,6 @@ _CHIP_WIDTH = 104
 _CHIP_ICONS = {
     "automated": "mdi:lightning-bolt-circle",
     "supervised": "mdi:account-hard-hat",
-    "agent": "mdi:star-four-points",
 }
 _BTN_SPACER_WIDTH = _BTN_SIZE.width() + _CHIP_WIDTH + 8  # attention chip + edit + 1 gap
 # Long labels on purpose: the short set (Auto / Superv.) reads badly and the
@@ -67,7 +66,6 @@ _BTN_SPACER_WIDTH = _BTN_SIZE.width() + _CHIP_WIDTH + 8  # attention chip + edit
 # not a third state.
 ATTENTION_LABELS = {
     "supervised": "Supervised",
-    "agent": "Agent",
     "automated": "Automated",
 }
 
@@ -91,26 +89,9 @@ class _DraggableTaskList(QListWidget):
         self.reordered.emit(tasks)
 
 
-def _agent_supervision_available() -> bool:
-    """Whether the Agent option exists at all: the App Server preference is on.
-
-    The preference rather than server-running — protocols are configured before
-    a microscope connects. Without it, the selector is exactly the old
-    two-state toggle and a stored ``supervisor: agent`` displays as plain
-    Supervised (the same hard-gate rule as the window chrome).
-    """
-    import fibsem.config as fibsem_cfg
-
-    try:
-        return bool(fibsem_cfg.load_user_preferences().app_server.enabled)
-    except Exception:
-        return False
-
-
 def _review_available() -> bool:
     """Whether the Review toggle exists at all: the propose-and-review flag.
-    Same hard-gate rule as the Agent option -- off, a stored ``review: true``
-    is not shown and not honoured."""
+    Off, a stored ``review: true`` is not shown and not honoured."""
     import fibsem.config as fibsem_cfg
 
     try:
@@ -123,22 +104,17 @@ def _review_available() -> bool:
 
 def attention_state(
     task: AutoLamellaTaskDescription,
-    agent_available: Optional[bool] = None,
     review_available: Optional[bool] = None,
 ) -> str:
     """Which of the chip's states the task is in: the one question the user
     has about a task, *when am I involved?*, read from the task's attention.
 
-    A stored ``supervisor: agent`` shows as plain Supervised while the
-    App Server preference is off -- the state it will actually run in, not
-    the one in the file. ``review_available`` is accepted and unused: the
-    preference no longer changes what a task's attention reads as.
+    There is no Agent state (FIB-1035): a supervised question goes to the
+    operator and any connected agent alike. ``review_available`` is accepted
+    and unused: the preference no longer changes what a task's attention reads
+    as.
     """
-    if agent_available is None:
-        agent_available = _agent_supervision_available()
     if task.attention is Attention.supervised:
-        if getattr(task, "supervisor", "human") == "agent" and agent_available:
-            return "agent"
         return "supervised"
     return "automated"
 
@@ -163,13 +139,6 @@ def _attention_chip_words(
 ) -> tuple[str, str, str]:
     state = attention_state(task)
     label = ATTENTION_LABELS[state]
-    if state == "agent":
-        return (
-            label,
-            stylesheets.BORDER_STATE_COLOURS["agent"],
-            "Agent — the connected agent answers this task's questions in the "
-            "workflow (you can always answer first). Click to change.",
-        )
     if state == "supervised":
         tip = (
             "Supervised — you decide. A question the task needs answered is "
@@ -249,8 +218,7 @@ class WorkflowTaskRowWidget(QWidget):
     """One task: its name, what it waits for, and one chip for when a person
     is involved (Automated / Supervised / Review), plus schedule, edit, remove.
 
-    The chip writes the task's ``attention`` (and ``supervisor`` for the Agent
-    step) and emits ``attention_changed``.
+    The chip writes the task's ``attention`` and emits ``attention_changed``.
     """
 
     attention_changed = pyqtSignal(object)  # AutoLamellaTaskDescription
@@ -367,28 +335,16 @@ class WorkflowTaskRowWidget(QWidget):
             self.refresh()
 
     def _on_attention_clicked(self) -> None:
-        """Cycle Supervised → Agent → Review later → Automated → Supervised:
-        down the ladder of trust a step at a time, and back to the top.
-
-        The Agent step exists only while the App Server preference is on,
-        the Review later step only while interactive review is on; with
-        neither this is the old two-state toggle. Leaving Agent resets ``supervisor`` to
-        human, so nothing hidden survives a click.
-        """
+        """Toggle Supervised ↔ Automated."""
         task = self.task
-        order = ["supervised"]
-        if _agent_supervision_available():
-            order.append("agent")
-        order.append("automated")
-        current = attention_state(task)
-        following = order[(order.index(current) + 1) % len(order)]
-        before = (task.attention, getattr(task, "supervisor", "human"))
+        before = task.attention
         task.attention = (
-            Attention.supervised if following == "agent" else Attention(following)
+            Attention.automated
+            if attention_state(task) == "supervised"
+            else Attention.supervised
         )
-        task.supervisor = "agent" if following == "agent" else "human"
         self.refresh()
-        if before != (task.attention, task.supervisor):
+        if before != task.attention:
             self.attention_changed.emit(task)
 
     def refresh(self) -> None:
