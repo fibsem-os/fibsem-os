@@ -28,7 +28,7 @@ python -m fibsem.server.server --manufacturer Demo --arm-hardware
   work, anything that commands the hardware is refused with a structured 403.
 - Binds `127.0.0.1` by default. `--host 0.0.0.0` exposes it on the LAN —
   an explicit choice; the token then travels as cleartext HTTP.
-- While running, the server writes `~/.fibsem/agent-server.json`
+- While running, the server writes `~/.fibsem/app-server.json`
   (url + token) so local clients connect without copying anything, and
   refuses to start if another live server owns that file.
 - `--ip-address` / `--config` select a real microscope instead of Demo.
@@ -84,7 +84,7 @@ tools) and ask:
   your installed copy. Run from the repo you installed, or any directory
   without a `fibsem/` folder.
 - **Stale discovery file**: a hard-killed server can leave
-  `~/.fibsem/agent-server.json` behind. Readers reject it (dead pid), and the
+  `~/.fibsem/app-server.json` behind. Readers reject it (dead pid), and the
   startup guard tells you the path — delete it if asked.
 
 ## Safety model, in one paragraph

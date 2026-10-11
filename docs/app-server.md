@@ -148,7 +148,7 @@ never sent over the network or written to server logs).
 ## Connecting an agent
 
 **On the same machine** — nothing to copy. The running server writes a
-discovery file (`~/.fibsem/agent-server.json`) that the `fibsem-mcp` sidecar
+discovery file (`~/.fibsem/app-server.json`; `agent-server.json` before v0.6.0, still read) that the `fibsem-mcp` sidecar
 finds by itself:
 
 ```bash

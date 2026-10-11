@@ -97,3 +97,28 @@ def test_discovery_rejects_stale_or_malformed(tmp_path):
     path.write_text(json.dumps({"url": "http://x", "token": "t"}))  # no pid
     assert read_discovery_file(path) is None
     assert read_discovery_file(tmp_path / "absent.json") is None
+
+
+def test_discovery_finds_the_current_name_then_the_legacy_one(tmp_path, monkeypatch):
+    # The App Server rename (FIB-1035): the server writes app-server.json, and a
+    # client still finds a server that wrote agent-server.json, for one release.
+    from fibsem.server import discovery
+
+    current = tmp_path / "app-server.json"
+    legacy = tmp_path / "agent-server.json"
+    monkeypatch.setattr(discovery, "DISCOVERY_FILE", current)
+    monkeypatch.setattr(discovery, "LEGACY_DISCOVERY_FILE", legacy)
+    assert discovery.read_discovery_file() is None
+
+    write_discovery_file("127.0.0.1", 8001, AuthConfig(token="old"), path=legacy)
+    assert discovery.read_discovery_file()["token"] == "old"
+
+    write_discovery_file("127.0.0.1", 8002, AuthConfig(token="new"), path=current)
+    assert discovery.read_discovery_file()["token"] == "new"
+
+    # Writing and removing with no path touch only the current name.
+    remove_discovery_file()
+    assert not current.exists() and legacy.exists()
+    write_discovery_file("127.0.0.1", 8003, AuthConfig(token="again"))
+    assert current.exists()
+    assert discovery.read_discovery_file()["token"] == "again"
