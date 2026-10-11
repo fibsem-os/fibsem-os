@@ -20,7 +20,7 @@ notes and the fit code key on ``id(coord)`` and mutate the objects in place.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
@@ -104,6 +104,19 @@ class CorrelationPointStore(QObject):
         super().__init__(parent)
         self._points: Dict[PointType, List[Coordinate]] = {pt: [] for pt in POINT_RULES}
         self._selection: Tuple[Coordinate, ...] = ()
+        self._removal_policy: Optional[
+            Callable[[List[Coordinate]], Optional[List[Coordinate]]]
+        ] = None
+
+    def set_removal_policy(
+        self,
+        policy: Optional[Callable[[List[Coordinate]], Optional[List[Coordinate]]]],
+    ) -> None:
+        """Decide, before a removal, what it removes: given the points asked
+        for, return the points to remove (more, for a fiducial's partner), or
+        None to remove nothing. Every view removes through :meth:`remove`, so a
+        canvas, a list row and the Delete key all go through it (FIB-1243)."""
+        self._removal_policy = policy
 
     # ------------------------------------------------------------------
     # Queries
@@ -205,7 +218,9 @@ class CorrelationPointStore(QObject):
         self.structure_changed.emit()
 
     def remove(self, coord: Coordinate) -> bool:
-        return self.remove_many([coord]) == 1
+        """Whether ``coord`` was removed -- possibly with its partner, which the
+        removal policy may add."""
+        return coord in self and self.remove_many([coord]) >= 1 and coord not in self
 
     def remove_many(self, coords: Sequence[Coordinate]) -> int:
         """Remove the points that are here and select the neighbour.
@@ -223,6 +238,11 @@ class CorrelationPointStore(QObject):
         present = [c for c in _unique(coords) if c in self]
         if not present:
             return 0
+        if self._removal_policy is not None:
+            decided = self._removal_policy(present)
+            if not decided:
+                return 0
+            present = [c for c in _unique(decided) if c in self]
         anchor = present[0]
         if self.current is not None and _position(present, self.current) is not None:
             anchor = self.current

@@ -683,7 +683,9 @@ class QtResponder(QObject):
         # edits are what actually runs — as the old start_milling_signal path did.
         # The task's mill, run on its behalf: the widget's worker carries the mark.
         with acting(TASK):
-            self._milling_widget().milling_widget.run_milling(None)
+            self._milling_widget().milling_widget.run_milling(
+                None, output_dir=request.output_dir
+            )
 
     def _on_milling_finished(self) -> None:
         """GUI thread, from finished_milling_signal — success and failure alike."""

@@ -2,10 +2,11 @@
 
 One click-to-move emits four progress messages inside ~45 ms. As toasts they stack
 into a wall of popups saying nothing the moving stage does not already show. They go
-to the quad-view info bar instead -- *not* to the instructions label on the Movement
-tab, because five of the six paths that start a stage move start it from somewhere
-else, and a message on a hidden tab is one nobody reads. The info bar sits beside the
-canvas that was clicked and is visible from every tab.
+to the status bar's activity slot instead (FIB-1188), through the view controller's
+`activity` -- *not* to the instructions label on the Movement tab, because five of
+the six paths that start a stage move start it from somewhere else, and a message on
+a hidden tab is one nobody reads. Nor to the canvases' info text, where they were
+until the views got their chips: it covered the image being watched.
 
 Toasts show unconditionally (FIB-781), so this is what keeps a single click from
 producing four popups.
@@ -76,8 +77,9 @@ def _info(widget, beam: BeamType = BeamType.ELECTRON) -> dict:
     return dict(controller._states[canvas].info)
 
 
-def _status(widget, beam: BeamType = BeamType.ELECTRON):
-    return _info(widget, beam).get("move")
+def _status(widget):
+    """What the controller says the instrument is doing: the slot's text."""
+    return widget._view_controller().activity
 
 
 def _record(widget) -> list:
@@ -99,23 +101,42 @@ def _record(widget) -> list:
     return seen
 
 
-# --- it reaches the info bar, on every canvas ---------------------------------
+# --- it reaches the status bar, not the canvases ------------------------------
 
 
-def test_progress_reaches_the_info_bar(movement):
+def test_progress_reaches_the_activity(movement):
     seen = _record(movement)
     movement._move_to_absolute_position(TARGET)
     _run(lambda: seen and seen[-1] is None)
     assert any(s and s.startswith("Moving to") for s in seen), seen
 
 
-def test_every_canvas_carries_it(movement):
-    """A stage move moves what all three canvases are looking at, so the status is not
-    the electron canvas's business alone -- the operator may be watching any of them."""
+def test_the_slot_says_it_while_the_move_runs(movement):
+    """The status line shows the move for as long as it runs, then gives the
+    instruction back."""
+    from fibsem.ui.widgets.status_bar import FibsemStatusBar
+
+    slot = FibsemStatusBar()
+    slot.set_instruction("Create or load an experiment to begin.")
+    slot.follow(movement._view_controller())
+    seen = []
+    original = movement._set_move_status
+    movement._set_move_status = lambda msg: (original(msg), seen.append(slot.text))[0]
+    movement._move_to_absolute_position(TARGET)
+    _run(lambda: seen and slot.showing == "instruction")
+    assert any(s.startswith("Stage move moving to") for s in seen), seen
+    assert "Stage move acquiring images…" in seen, seen
+    assert slot.text == "Create or load an experiment to begin."
+
+
+def test_no_canvas_carries_it(movement):
+    """The views say what the move did to them with their chips; the words would cover
+    the image the user is watching."""
     movement._set_move_status("Moving the stage…")
     controller = movement._view_controller()
     for canvas in (controller.sem_canvas, controller.fib_canvas, controller.fm_canvas):
-        assert dict(controller._states[canvas].info).get("move") == "Moving the stage…"
+        assert "move" not in dict(controller._states[canvas].info)
+        assert not canvas._info_text
 
 
 def _stage_readout(widget) -> list:

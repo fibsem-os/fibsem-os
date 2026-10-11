@@ -68,7 +68,6 @@ class AcquireReferenceImageTask(AutoLamellaTask):
 
         # bookkeeping
         image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         self.log_status_message(
             "ACQUIRE_REFERENCE_IMAGE", "Acquiring Reference Image..."

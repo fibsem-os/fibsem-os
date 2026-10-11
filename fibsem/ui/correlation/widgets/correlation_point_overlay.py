@@ -322,8 +322,9 @@ class CorrelationPointOverlay(PointOverlay):
         # answers by rebuilding us from its model, which must not race a
         # half-finished removal (FIB-958).
         coord = self._coords[index]
-        self._store.remove(coord)
-        self.coordinate_removed.emit(coord)
+        # The store may decline: a cancelled pair removal leaves both (FIB-1243).
+        if self._store.remove(coord):
+            self.coordinate_removed.emit(coord)
 
     def clear_points(self) -> None:
         self.set_coordinates([])

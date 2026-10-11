@@ -284,7 +284,7 @@ class StageControlWidget(QWidget):
     # --- saying what the stage is doing --------------------------------------
 
     def _report_move(self, msg: str) -> None:
-        """Say what the stage is doing, on the canvas info bar.
+        """Say what the stage is doing, in the status bar's activity slot.
 
         Written there rather than shown as toasts. These messages bracket a blocking
         move -- one click-to-move produces four of them inside ~45 ms -- so as popups
@@ -294,6 +294,10 @@ class StageControlWidget(QWidget):
 
         Toasts show unconditionally (FIB-781), so that wall of popups is what these
         messages would actually produce rather than a thing to worry about later.
+
+        Not the canvases' info text either, where it was until FIB-1188: it covered
+        the image the user was watching. The views say what the move did to them
+        with their chips; the words are the host's (`activity_changed`).
         """
         logging.debug(msg)
         self._set_move_status(msg)
@@ -304,22 +308,18 @@ class StageControlWidget(QWidget):
             controller.stage_move_started()
 
     def _set_move_status(self, msg: Optional[str]) -> None:
-        """Put *msg* on the info bar of every canvas, or clear it when None.
+        """Say *msg* as the instrument's activity, or end it when None.
 
         Not the instructions label on this tab. Five of the six paths that start a
         stage move start it from somewhere else -- the canvas beside the tabs (which
         takes a double-click whatever tab is showing), either minimap, or the lamella
         list -- so a message on the Movement tab is one the operator is usually not
-        looking at, where a toast could be read from anywhere. The info bar is beside
-        the canvas that was clicked, is visible from every tab, and is already where
-        the stage position this move is changing gets written.
+        looking at. The status bar is visible from every tab and over a full-screen
+        view.
         """
         controller = self._view_controller()
-        if controller is None:
-            return
-        controller.set_info(BeamType.ELECTRON, "move", msg)
-        controller.set_info(BeamType.ION, "move", msg)
-        controller.set_fm_info("move", msg)
+        if controller is not None:
+            controller.report_activity(msg)
 
     def _update_position_readout(
         self, stage_position: Optional[FibsemStagePosition] = None

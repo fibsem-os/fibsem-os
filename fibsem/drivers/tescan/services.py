@@ -3,6 +3,10 @@
 `TescanMilling` mills on DrawBeam: a layer made from the milling preset on the ion
 column, and a second connection to stop it from another thread.
 
+`TescanSpotBurn` burns spots through the milling service: the FIB has no blanker and
+can't park the beam, so the points are timed dots on a DrawBeam layer at the spot
+burn preset, run and put back by ``microscope.milling``.
+
 A ``run`` loads the layer (DrawBeam estimates only a loaded one), shows a progress bar
 in Essence for its length, and reads the state, the elapsed time and the total from
 ``DrawBeam.GetStatus`` in one call each look.
@@ -10,19 +14,25 @@ in Essence for its length, and reads the state, the elapsed time and the total f
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Sequence, Union
 
 import fibsem.constants as constants
+from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import ParameterMetadata
+from fibsem.devices.core import ParameterMetadata, command
 from fibsem.drivers.tescan import microscope as tescan
 from fibsem.drivers.tescan.microscope import (
     DEFAULT_IMAGING_PRESET,
+    SPOT_BURN_PRESET,
     TESCAN_SCAN_DIRECTIONS,
 )
+from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import Milling, bind_milling, progress_update
+from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.structures import (
     BeamType,
     CrossSectionPattern,
@@ -34,9 +44,12 @@ from fibsem.structures import (
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
+    Point,
 )
 
 if TYPE_CHECKING:
+    import threading
+
     from fibsem.drivers.tescan.microscope import TescanMicroscope
 
 
@@ -149,6 +162,16 @@ class TescanMilling(Milling):
             DepthUnit="m",
         )
 
+    def _draw_dot(self, centre: Point, exposure_time: float) -> None:
+        """A timed dot: DepthUnit.Second makes the depth an exposure time, which is
+        a spot burn. Only `TescanSpotBurn` draws one."""
+        self.parent.layer.addDot(
+            CenterX=centre.x,
+            CenterY=centre.y,
+            Depth=exposure_time,
+            DepthUnit=tescan.DepthUnit.Second,
+        )
+
     def read_state(self) -> MillingState:
         microscope = self.parent
         with microscope._connection_lock:
@@ -259,3 +282,141 @@ class TescanMilling(Milling):
 def bind_tescan_milling(microscope: TescanMicroscope) -> Optional[TescanMilling]:
     """Build ``milling`` for a connected Tescan microscope whose beams are built."""
     return bind_milling(TescanMilling, microscope)
+
+
+class TescanSpotBurn(SpotBurn):
+    """Tescan spot burns, through the milling service.
+
+    The FIB has no blanker and can't park the beam (FIB.Scan lacks SetBlanker,
+    GetBlanker and SetBeamPosition), so the point-by-point burn is impossible. The
+    points go onto one DrawBeam layer instead, a timed dot each, set up at the spot
+    burn preset and run by ``microscope.milling``, which also puts the preset and the
+    field of view back afterwards. The requested burn current is not used: the preset
+    sets it.
+    """
+
+    parent: TescanMicroscope
+
+    # Milling saves and restores the beam (the preset and the field of view).
+    saved_conditions = ()
+    setting_names = ("coordinates", "exposure_time")
+
+    @classmethod
+    def _can_burn(cls, ion: Optional[Beam]) -> bool:
+        return ion is not None
+
+    @command
+    def run(
+        self,
+        settings: SpotBurnSettings,
+        stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
+    ) -> SpotBurnStatus:
+        """Burn the points of ``settings`` and return how the run ended.
+
+        As `SpotBurn.run`, but an exposure time that isn't positive is refused before
+        anything is touched (DrawBeam would draw dots that burn nothing), and the burn
+        current may be None: the preset sets it.
+        """
+        exposure_time = float(settings.exposure_time)
+        if exposure_time <= 0:
+            raise ValueError(f"exposure_time must be positive, got {exposure_time}.")
+        if settings.milling_current is None:
+            settings = dataclasses.replace(settings, milling_current=0.0)
+        else:
+            logging.info(
+                f"Spot burn milling_current is ignored on TESCAN; using preset "
+                f"{SPOT_BURN_PRESET!r}. (requested: {settings.milling_current})"
+            )
+        return super().run(settings, stop_event=stop_event)
+
+    def _setup(self, ion: Beam, current: float) -> None:
+        """A layer at the spot burn preset, as wide as the field of view; the
+        remaining DrawBeam fields come from the milling defaults."""
+        recipe = FibsemMillingSettings(
+            milling_channel=BeamType.ION,
+            hfw=ion.hfw.get_value(),
+            preset=SPOT_BURN_PRESET,
+            patterning_mode="Serial",
+        )
+        self.parent.milling.setup(recipe, name="SpotBurn")
+
+    def _burn(
+        self,
+        ion: Beam,
+        points: Sequence[Point],
+        exposure_time: float,
+        current: float,
+        stop_event: Optional[Union[threading.Event, AnyStopEvent]],
+    ) -> SpotBurnStatus:
+        """Draw a dot per point, then run the layer, reporting the point DrawBeam is
+        on from its elapsed time (it reports no per-dot progress, and burns the dots
+        in order at the exposure time each)."""
+        microscope = self.parent
+        milling = microscope.milling
+        hfw = ion.hfw.get_value()
+        resolution = ion.resolution.get_value()
+        for point in points:
+            centre = microscope._spot_burn_point_to_metres(
+                point, hfw=hfw, resolution=resolution
+            )
+            logging.info(
+                f"spot burn point: {point} -> ({centre.x:.3e}, {centre.y:.3e}) m, "
+                f"exposure time: {exposure_time}s"
+            )
+            milling._draw_dot(centre, exposure_time)
+
+        n = len(points)
+        total = n * exposure_time
+
+        def report(progress: MillingProgress) -> None:
+            if progress.remaining_time is None or progress.estimated_time is None:
+                return
+            elapsed = max(0.0, progress.estimated_time - progress.remaining_time)
+            point = min(n, int(elapsed // exposure_time) + 1)
+            self._report(
+                SpotBurnProgress(
+                    status=SpotBurnStatus.BURNING,
+                    current_point=point,
+                    total_points=n,
+                    remaining_time=max(0.0, point * exposure_time - elapsed),
+                    total_remaining_time=max(0.0, total - elapsed),
+                    total_estimated_time=total,
+                )
+            )
+
+        # The run reports a spot burn, not a mill: the milling progress signal is
+        # blocked while it runs. (Blocked, not disconnected: reconnecting a psygnal
+        # signal's ``emit`` calls it once, with nonsense, to read its signature.)
+        signal = getattr(microscope, "milling_progress_signal", None)
+        quiet = signal.blocked() if signal is not None else contextlib.nullcontext()
+        milling.progress.changed.connect(report)
+        try:
+            with quiet:
+                milling.run(
+                    stop_event=AnyStopEvent(self._stop_requested, *_events(stop_event))
+                )
+        except OperationCancelledError:
+            logging.info("Spot burn cancelled.")
+            return SpotBurnStatus.CANCELLED
+        finally:
+            milling.progress.changed.disconnect(report)
+        return SpotBurnStatus.FINISHED
+
+    def _finish(self, ion: Beam) -> None:
+        """Put the preset and the field of view back, as milling found them."""
+        try:
+            self.parent.milling.restore()
+        except Exception:
+            logging.exception("Failed to restore the ion beam after the spot burn")
+
+
+def _events(stop_event: Any) -> tuple:
+    return () if stop_event is None else (stop_event,)
+
+
+def bind_tescan_spot_burn(microscope: TescanMicroscope) -> Optional[TescanSpotBurn]:
+    """Build ``spot_burn`` for a Tescan microscope whose milling is built; without
+    milling (no ion beam) there is none."""
+    if microscope.milling is None:
+        return None
+    return bind_spot_burn(TescanSpotBurn, microscope)

@@ -54,7 +54,7 @@ from fibsem.cancellation import raise_if_cancelled
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
-from fibsem.services.core import Service
+from fibsem.services.core import Service, forward_to, save_beam_conditions
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamType,
@@ -348,20 +348,9 @@ class Milling(Service):
         self._restore()
 
     def _save(self, beam: Beam) -> None:
-        """Keep the beam's conditions that it has, can set, and reports.
-
-        A condition the beam can't set (a Tescan ion column's current and voltage come
-        with its preset) is left out, and so is one it reads as None.
-        """
+        """Keep the beam's conditions that it has, can set, and reports."""
         self._saved_beam = beam
-        saved = {}
-        for name in SAVED_BEAM_CONDITIONS:
-            if name in beam.parameters and getattr(beam, name).settable:
-                value = getattr(beam, name).get_value()
-                if value is not None:
-                    saved[name] = value
-        self._saved = saved
-        logging.debug({"msg": "milling saved the beam", "saved": self._saved})
+        self._saved = save_beam_conditions(beam, SAVED_BEAM_CONDITIONS)
 
     def _write_back(self, beam: Beam, name: str, value: Any) -> None:
         """Write one saved condition back to the beam, as the old API would."""
@@ -434,7 +423,7 @@ def bind_milling(service: Type[_M], microscope: Any) -> Optional[_M]:
     milling.connect()
     signal = getattr(microscope, "milling_progress_signal", None)
     if signal is not None:
-        milling.progress.changed.connect(signal.emit)
+        milling.progress.changed.connect(forward_to(signal))
     return milling
 
 

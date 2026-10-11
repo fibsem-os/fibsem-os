@@ -786,7 +786,7 @@ def ensure_coincident(
         coarse_used=coarse_used,
         moves_applied=moves,
     )
-    logging.info(
+    logging.debug(
         {
             "msg": "ensure_coincident",
             "converged": result.converged,
@@ -979,7 +979,7 @@ def tilt_coincident(
         if undo_walk and abs(walk) > MIN_WALK_TO_UNDO:
             _undo_surface_walk(microscope, start_pose, tilt_axis_offset)
             walk_undone = True
-    logging.info(
+    logging.debug(
         {
             "msg": "tilt_coincident",
             "target_tilt": target_tilt,
