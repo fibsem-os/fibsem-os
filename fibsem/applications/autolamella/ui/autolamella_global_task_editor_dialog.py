@@ -23,8 +23,9 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
-from fibsem.structures import ReferenceImageParameters
+from fibsem.structures import BeamType, ReferenceImageParameters
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
+from fibsem.ui.utils import beam_limits, set_range_from_limits
 from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueSpinBox,
@@ -66,8 +67,12 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         )
 
         self.spinbox_milling_fov = ValueSpinBox()
-        self.spinbox_milling_fov.setRange(0.001, 10000)
         self.spinbox_milling_fov.setDecimals(1)
+        set_range_from_limits(
+            self.spinbox_milling_fov,
+            beam_limits(None, "hfw", BeamType.ION),
+            SI_TO_MICRO,
+        )
         self.spinbox_milling_fov.setSingleStep(5.0)
         self.spinbox_milling_fov.setValue(150.0)
         self.spinbox_milling_fov.setSuffix(" μm")

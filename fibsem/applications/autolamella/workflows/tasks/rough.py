@@ -78,7 +78,6 @@ class MillRoughTask(AutoLamellaTask):
 
         # bookkeeping
         self.image_settings = self.config.imaging
-        self.image_settings.path = self.lamella.path
 
         # move to lamella milling position
         self._move_to_milling_pose()
@@ -96,9 +95,6 @@ class MillRoughTask(AutoLamellaTask):
         self.log_status_message("MILL_LAMELLA", "Milling Rough Lamella...")
         milling_task_config = self.config.milling[MILL_ROUGH_KEY]
         milling_task_config.alignment.rect = self.lamella.alignment_area
-        milling_task_config.acquisition.imaging.path = (
-            self.lamella.path
-        )  # TODO: move into update_milling_config_ui
 
         msg = f"Press Run Milling to mill the lamella for {self.lamella.name}. Press Continue when done."
         milling_task_config = self.update_milling_config_ui(

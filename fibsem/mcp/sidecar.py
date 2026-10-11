@@ -24,7 +24,7 @@ import base64
 import json
 import os
 import sys
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from fibsem.server.catalog import CATALOG, tools_for_capabilities
 
@@ -109,7 +109,15 @@ def _call(client, method, path, payload=None):
         except ValueError:
             detail = resp.text
         return None, f"refused ({resp.status_code}): {json.dumps(detail)}"
-    return resp.json(), None
+    try:
+        return resp.json(), None
+    except ValueError:
+        # An image or array from a device command: nothing an agent can read as
+        # text. The preview tools are how an agent looks at an image.
+        return None, (
+            f"answered {len(resp.content)} bytes that are not JSON; "
+            "use acquire_image_preview to see images"
+        )
 
 
 def build_sidecar(client, capabilities):
@@ -217,6 +225,28 @@ def build_sidecar(client, capabilities):
             "POST",
             "/milling_angle/move",
             {"milling_angle_deg": milling_angle_deg},
+        )
+        return err if err else data
+
+    def list_devices():
+        return _json_tool("list_devices")[1]()
+
+    def get_parameter(device: str, parameter: str):
+        data, err = _call(client, "GET", f"/devices/{device}/{parameter}")
+        return err if err else data
+
+    def set_parameter(device: str, parameter: str, value: Any):
+        data, err = _call(
+            client, "PUT", f"/devices/{device}/{parameter}", {"value": value}
+        )
+        return err if err else data
+
+    def call_command(device: str, command: str, kwargs: Optional[dict] = None):
+        data, err = _call(
+            client,
+            "POST",
+            f"/devices/{device}/commands/{command}",
+            {"kwargs": dict(kwargs or {})},
         )
         return err if err else data
 
@@ -470,6 +500,10 @@ def build_sidecar(client, capabilities):
             move_stage_relative,
             move_stage_absolute,
             move_to_milling_angle,
+            list_devices,
+            get_parameter,
+            set_parameter,
+            call_command,
             autocontrast,
             get_app_status,
             get_app_queue,

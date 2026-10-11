@@ -28,14 +28,15 @@ def test_defaults_match_the_current_hardcoded_behaviour():
     assert cfg.fit.fm_fiducial_method == "None"
     assert cfg.fit.fm_poi_method == "Gaussian"
     assert (cfg.fit.reflection_cutout, cfg.fit.fluorescence_cutout) == (2, 5)
-    # RI defaults mirror DEFAULT_ZETA_PARAMS in the RI widget
+    # The one RI default set, which the RI widget starts from too (FIB-1234):
+    # Perez et al.'s Arctis configuration, NA 0.75 into n 1.35.
     assert (
         cfg.ri.tilt_deg,
         cfg.ri.depth_um,
         cfg.ri.na,
         cfg.ri.n2,
         cfg.ri.wavelength_um,
-    ) == (15.0, 4.0, 0.8, 1.4, 0.515)
+    ) == (15.0, 4.0, 0.75, 1.35, 0.515)
     assert cfg.ri.mode == "pre"
     assert cfg.load_spot_burns is True
 

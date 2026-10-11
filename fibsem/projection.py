@@ -31,13 +31,12 @@ from typing import TYPE_CHECKING, Optional, Protocol, Tuple
 
 import numpy as np
 
-from fibsem import manufacturers
 from fibsem.fm.reprojection import project_image_point, project_stage_position
-from fibsem.imaging.tiling.reprojection import (
-    inverse_y_corrected_stage_movement_tescan_from_geometry,
-    y_corrected_stage_movement_tescan_from_geometry,
+from fibsem.structures import (
+    BeamType,
+    FibsemStagePosition,
+    Point,
 )
-from fibsem.structures import BeamType, FibsemStagePosition, Point
 from fibsem.transformations import (
     inverse_view_corrected_dy,
     view_corrected_stage_movement,
@@ -237,12 +236,6 @@ class BeamStageProjection:
     geometry: "FibsemHardwareGeometry"
     beam_type: BeamType
     scan_rotation: float  # radians
-    # Tescan's stage geometry is different enough that it overrides the projection
-    # rather than passing a different view tilt -- its z-axis sits below the tilt axis,
-    # so the decomposition uses the full chamber-frame sample inclination. It also
-    # inverts stage x against image x. Carried as a flag rather than re-derived from a
-    # manufacturer string at each use (FIB-300 is the string check itself).
-    is_tescan: bool = False
 
     @classmethod
     def from_microscope(
@@ -260,7 +253,6 @@ class BeamStageProjection:
                 geometry=microscope.hardware_geometry(),
                 beam_type=beam_type,
                 scan_rotation=microscope.get_scan_rotation(beam_type=beam_type),
-                is_tescan=manufacturers.is_tescan(microscope.system.info.manufacturer),
             )
         except Exception as e:
             logging.debug(f"Could not read the live beam geometry: {e}")
@@ -293,9 +285,6 @@ class BeamStageProjection:
                 geometry=geometry,
                 beam_type=beam_type,
                 scan_rotation=beam.scan_rotation,
-                is_tescan=(
-                    info is not None and manufacturers.is_tescan(info.manufacturer)
-                ),
             )
         except Exception as e:
             logging.debug(f"Could not read the beam geometry from the image: {e}")
@@ -310,7 +299,7 @@ class BeamStageProjection:
             position, base, self.geometry.rotation_centre
         )
         delta = position - base
-        dx = -delta.x if self.is_tescan else delta.x
+        dx = delta.x
         expected_y = self._expected_y(delta.y or 0.0, delta.z or 0.0, base)
         # The plane's y runs *down*, image-fashion, while `expected_y` is the
         # microscope's image-space y, which runs up. `FMStageProjection` inherits the
@@ -325,28 +314,15 @@ class BeamStageProjection:
         # easier to keep correct than one that relies on the commuting.
         dx, dy = self._scan_rotated(dx, dy)
         expected_y = -dy
-        if self.is_tescan:
-            dx = -dx
 
         position = deepcopy(base)
-        if self.is_tescan:
-            y_chamber, z_chamber = y_corrected_stage_movement_tescan_from_geometry(
-                geometry=self.geometry,
-                stage_position=base,
-                expected_y=expected_y,
-                beam_type=self.beam_type,
-            )
-            # `stable_move` inverts stage y against the chamber frame and leaves z; the
-            # Tescan inverse undoes that same inversion on its way in.
-            y_move, z_move = -y_chamber, z_chamber
-        else:
-            y_move, z_move = view_corrected_stage_movement(
-                expected_y=expected_y,
-                view_tilt=self._view_tilt(),
-                geometry=self.geometry,
-                stage_rotation=base.r or 0.0,
-                stage_tilt=base.t or 0.0,
-            )
+        y_move, z_move = view_corrected_stage_movement(
+            expected_y=expected_y,
+            view_tilt=self._view_tilt(),
+            geometry=self.geometry,
+            stage_rotation=base.r or 0.0,
+            stage_tilt=base.t or 0.0,
+        )
 
         position.x = (position.x or 0.0) + dx
         position.y = (position.y or 0.0) + y_move
@@ -408,14 +384,6 @@ class BeamStageProjection:
 
     def _expected_y(self, dy: float, dz: float, base: FibsemStagePosition) -> float:
         """The image-space y-displacement a y/z stage movement corresponds to."""
-        if self.is_tescan:
-            return inverse_y_corrected_stage_movement_tescan_from_geometry(
-                geometry=self.geometry,
-                stage_position=base,
-                dy=dy,
-                dz=dz,
-                beam_type=self.beam_type,
-            )
         return inverse_view_corrected_dy(
             dy=dy,
             dz=dz,

@@ -171,10 +171,6 @@ def _connect_chains(source: str):
     list and card widgets are commented out rather than deleted (FIB-604) -- and a
     `"task_state.events" in src` check passes happily on a comment. That is the shape
     of test that passes for the wrong reason; the parser does not read comments at all.
-
-    Hand-walked rather than `ast.unparse`, which is 3.9+. CI never catches that here
-    (these tests need PyQt5, which the CI env does not install, so they are skipped
-    there) but the package supports 3.8 and someone runs them locally on it.
     """
     chains = []
     for node in ast.walk(ast.parse(source)):

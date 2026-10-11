@@ -161,7 +161,7 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
     fm_microscope.milling_progress_signal.connect(_stop_on_first_tick)
     try:
         started = time.time()
-        task = run_milling_task(fm_microscope, config, None, stop_event=stop_event)
+        task = run_milling_task(fm_microscope, config, stop_event=stop_event)
         elapsed = time.time() - started
     finally:
         fm_microscope.milling_progress_signal.disconnect(_stop_on_first_tick)
@@ -186,26 +186,19 @@ def test_headless_run_never_starts_on_a_preset_stop_event(fm_microscope, tmp_pat
     stop_event = threading.Event()
     stop_event.set()
 
-    task = run_milling_task(fm_microscope, config, None, stop_event=stop_event)
+    task = run_milling_task(fm_microscope, config, stop_event=stop_event)
 
     strategy = task.config.stages[0].strategy
     assert not hasattr(strategy, "microscope")  # never set up
 
 
-def test_milling_task_prefers_explicit_stop_event_over_widget(fm_microscope):
-    """An explicit event wins; without one the widget's event is borrowed as before."""
+def test_milling_task_cancels_by_the_stop_event_it_is_given(fm_microscope):
+    """The milling widget hands its own event in, like any other caller."""
     from fibsem.milling.tasks import FibsemMillingTask
-
-    class _Widget:
-        _milling_stop_event = threading.Event()
 
     explicit = threading.Event()
     config = FibsemMillingTaskConfig(name="x", stages=[])
-    task = FibsemMillingTask(
-        fm_microscope, config, parent_ui=_Widget(), stop_event=explicit
-    )
+    task = FibsemMillingTask(fm_microscope, config, stop_event=explicit)
     assert task._stop_event is explicit
-    task = FibsemMillingTask(fm_microscope, config, parent_ui=_Widget())
-    assert task._stop_event is _Widget._milling_stop_event
-    task = FibsemMillingTask(fm_microscope, config, parent_ui=None)
+    task = FibsemMillingTask(fm_microscope, config)
     assert task._stop_event is None

@@ -11,7 +11,7 @@ Running that on every system would mean an Aquilos or Helios with an iFLM fitted
 half-built offset support in its UI on upgrade. So an explicit flag decides, and the
 probe only confirms afterwards.
 
-The flag *widens* the old check rather than replacing it. `stage_is_compustage` is
+The flag *widens* the old check rather than replacing it. The stage type is
 read from the hardware, not configuration, and no shipped Arctis configuration carries
 the flag -- so replacing it would take the FM away from every Arctis site.
 """
@@ -22,7 +22,7 @@ import os
 import pytest
 
 import fibsem.config as cfg
-from fibsem import utils
+from fibsem import manufacturers, utils
 from fibsem.structures import FluorescenceSystemSettings
 
 IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -32,6 +32,14 @@ ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
 def _microscope(config_path: str):
     microscope, _ = utils.setup_session(config_path=config_path)
     return microscope
+
+
+def _has_requests() -> bool:
+    try:
+        import requests  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def _from(settings: dict, tmp_path) -> "object":
@@ -70,7 +78,7 @@ def test_a_configured_offset_system_gets_one():
     """What the whole project was for: an FM on a stage that does not flip."""
     microscope = _microscope(IFLM_CONFIG)
 
-    assert microscope.stage_is_compustage is False
+    assert microscope._fm_is_a_pose() is False
     assert microscope.system.fm.enabled is True
     assert microscope.fm is not None
 
@@ -81,7 +89,7 @@ def test_a_configured_offset_system_gets_one():
 def test_a_compustage_needs_no_flag():
     """`tfs-arctis-configuration.yaml` has no `fm:` block, and its FM works today.
 
-    `stage_is_compustage` comes from the hardware (`compustage.is_installed`), not
+    The stage type comes from the hardware (`compustage.is_installed`), not
     from configuration, so no Arctis site has ever needed to say anything. Replacing
     the old check with the flag rather than widening it would take the FM away from
     all of them on upgrade -- which is why this is an `or`.
@@ -89,18 +97,18 @@ def test_a_compustage_needs_no_flag():
     microscope = _microscope(ARCTIS_CONFIG)
     microscope.system.fm.enabled = None  # as a real Arctis configuration has it
 
-    assert microscope.stage_is_compustage is True
+    assert microscope._fm_is_a_pose() is True
     assert microscope._fluorescence_is_configured() is True
 
 
 def test_an_explicit_false_turns_a_compustage_fm_off(tmp_path):
     """Absent keeps the compustage default; `false` is a device switched off."""
     settings = utils.load_yaml(ARCTIS_CONFIG)
-    settings["hardware"]["fm"]["enabled"] = False
+    utils.configuration_device(settings, "fm")["enabled"] = False
 
     microscope = _from(settings, tmp_path)
 
-    assert microscope.stage_is_compustage is True
+    assert microscope._fm_is_a_pose() is True
     assert microscope.fm is None
 
 
@@ -115,7 +123,7 @@ def test_an_offset_system_does_need_one():
     microscope = _microscope(IFLM_CONFIG)
     microscope.system.fm.enabled = False
 
-    assert microscope.stage_is_compustage is False
+    assert microscope._fm_is_a_pose() is False
     assert microscope._fluorescence_is_configured() is False
 
 
@@ -132,7 +140,9 @@ def test_detected_but_not_configured_gets_nothing(tmp_path):
     """
     settings = utils.load_yaml(IFLM_CONFIG)
     assert settings["sim"]["has_fm"] is True  # the hardware is "there"
-    settings["hardware"]["fm"]["enabled"] = False  # the site has not said so
+    utils.configuration_device(settings, "fm")["enabled"] = (
+        False  # the site has not said so
+    )
 
     assert _from(settings, tmp_path).fm is None
 
@@ -144,11 +154,11 @@ def test_detected_with_no_fm_block_gets_nothing(tmp_path):
     """
     settings = utils.load_yaml(IFLM_CONFIG)
     assert settings["sim"]["has_fm"] is True
-    del settings["hardware"]["fm"]
+    settings["hardware"]["devices"].remove(utils.configuration_device(settings, "fm"))
 
     microscope = _from(settings, tmp_path)
 
-    assert microscope.stage_is_compustage is False
+    assert microscope._fm_is_a_pose() is False
     assert microscope.system.fm.enabled is None
     assert microscope.fm is None
 
@@ -179,7 +189,7 @@ def test_the_config_path_is_still_read_from_the_same_block():
     other is a path to imaging parameters. Neither should have eaten the other."""
     settings = utils.load_yaml(ARCTIS_CONFIG)
 
-    assert "enabled" in settings["hardware"]["fm"]
+    assert "enabled" in utils.configuration_device(settings, "fm")
     assert _microscope(ARCTIS_CONFIG).system.fm.enabled is True
 
 
@@ -227,16 +237,18 @@ def test_a_remote_fm_is_not_looked_for_on_the_beams_connection(tmp_path):
     remote FM offline, waiting for its server; without it, none. Either way, never
     the simulated iFLM. The remote FM itself is `tests/server/test_remote_fm_api.py`.
     """
-    from fibsem.microscopes.simulator import SimulatedFluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 
     settings = utils.load_yaml(IFLM_CONFIG)
-    settings["hardware"]["fm"].update(driver="remote", address="127.0.0.1", port=1)
+    utils.configuration_device(settings, "fm").update(
+        driver="remote", address="127.0.0.1", port=1
+    )
 
     microscope = _from(settings, tmp_path)
 
     assert microscope.system.fm.driver == "remote"
     assert microscope._fluorescence_uses_own_driver() is False
-    assert not isinstance(microscope.fm, SimulatedFluorescenceMicroscope)
+    assert not isinstance(microscope.fm, DemoFluorescenceMicroscope)
     if microscope.fm is not None:
         assert not microscope.fm.online
         microscope.fm.client.close()
@@ -246,30 +258,33 @@ def test_a_required_remote_fm_that_is_not_served_fails_the_connect(tmp_path):
     from fibsem.microscope import RequiredDeviceUnavailable
 
     settings = utils.load_yaml(IFLM_CONFIG)
-    settings["hardware"]["fm"].update(
+    utils.configuration_device(settings, "fm").update(
         driver="remote", address="127.0.0.1", port=1, required=True
     )
 
-    with pytest.raises(RequiredDeviceUnavailable, match="127.0.0.1:1"):
+    # Without the server extra the remote driver can't be loaded at all.
+    reason = "127.0.0.1:1" if _has_requests() else "requests"
+    with pytest.raises(RequiredDeviceUnavailable, match=reason):
         _from(settings, tmp_path)
 
 
 def test_a_remote_fm_without_an_address_gets_no_fm(tmp_path, caplog):
+    pytest.importorskip("requests")
     settings = utils.load_yaml(IFLM_CONFIG)
-    settings["hardware"]["fm"]["driver"] = "remote"
+    utils.configuration_device(settings, "fm")["driver"] = "remote"
 
     microscope = _from(settings, tmp_path)
 
     assert microscope.fm is None
     logging.getLogger().addHandler(caplog.handler)
     caplog.clear()
-    assert microscope._connect_remote_fluorescence() is None
+    assert microscope._build_fluorescence(manufacturers.DEMO) is None
     assert "no `address` and `port`" in caplog.text
 
 
 def test_an_unknown_driver_gets_no_fm(tmp_path, caplog):
     settings = utils.load_yaml(ARCTIS_CONFIG)
-    settings["hardware"]["fm"]["driver"] = "meteor"
+    utils.configuration_device(settings, "fm")["driver"] = "meteor"
 
     microscope = _from(settings, tmp_path)
 
@@ -278,4 +293,29 @@ def test_an_unknown_driver_gets_no_fm(tmp_path, caplog):
     logging.getLogger().addHandler(caplog.handler)
     caplog.clear()
     assert microscope._fluorescence_uses_own_driver() is False
-    assert "Unknown fluorescence microscope driver 'meteor'" in caplog.text
+    assert microscope._build_fluorescence(manufacturers.DEMO) is None
+    assert "driver 'meteor' has no builder for a 'fm' device" in caplog.text
+
+
+# ── built from its entry, like any other device ──────────────────────
+
+
+def test_the_fm_is_built_by_its_drivers_fm_builder():
+    """Each driver that has an FM registers a builder for the `fm` entry; Tescan's
+    own driver has none, so a Tescan FM can only be one on its own PC."""
+    from fibsem.drivers.registry import device_builder
+
+    drivers = [manufacturers.THERMOFISHER, manufacturers.ODEMIS, manufacturers.DEMO]
+    if _has_requests():  # the remote driver needs the server extra
+        drivers.append("remote")
+    for driver in drivers:
+        assert device_builder(driver, "fm") is not None, driver
+    assert device_builder(manufacturers.TESCAN, "fm") is None
+
+
+def test_a_built_fm_puts_its_devices_in_the_microscopes_devices():
+    microscope = _microscope(ARCTIS_CONFIG)
+
+    assert microscope.fm is not None
+    for name in ("fm", "camera", "light_source", "filter_set", "objective"):
+        assert microscope.devices[name] is microscope.fm.devices[name]

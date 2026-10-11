@@ -10,7 +10,7 @@ flattening/reconstructing CorrelationInputData.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFontMetrics, QIcon, QPixmap
@@ -352,6 +352,7 @@ class CoordinateRowWidget(QWidget):
     ) -> None:
         """Constrain spinbox ranges to image shape. Pass None to leave unconstrained."""
         self._axis_max = (x_max, y_max)
+        self._z_max = z_max
         if x_max is not None:
             self.x_spin.setMinimum(0.0)
             self.x_spin.setMaximum(float(x_max))
@@ -404,9 +405,29 @@ class CoordinateRowWidget(QWidget):
             0 if float(z).is_integer() and state_text(self.coord) != "fitted" else 1
         )
         self.z_spin.setValue(z)
+        self.z_spin.setToolTip(self._z_tooltip(z))
         for w in (self.x_spin, self.y_spin, self.z_spin):
             w.blockSignals(False)
         self._update_state()
+
+    def set_z_view(self, view: Optional[Tuple[float, int]]) -> None:
+        """An interpolated FM view being shown: (planes per stack slice, plane
+        count), or None for the stack itself."""
+        self._z_view = view
+        self.z_spin.setToolTip(self._z_tooltip(self.coord.point.z))
+
+    def _z_tooltip(self, z: float) -> str:
+        """z is a slice of the acquired stack; with an interpolated view shown,
+        also the view plane it sits on, numbered as the z slider numbers it
+        (from 1), so the point can be found on the slider (FIB-1248)."""
+        view = getattr(self, "_z_view", None)
+        if view is None:
+            return "Z (slice)"
+        scale, planes = view
+        z_max = getattr(self, "_z_max", None)
+        of = f" (of 0–{z_max:g})" if z_max is not None else ""
+        plane = min(max(int(round(z * scale)), 0), planes - 1) + 1
+        return f"Stack slice {z:.2f}{of} · view plane {plane}/{planes}"
 
     def _update_state(self) -> None:
         colour = _POINT_TYPE_COLORS.get(self.coord.point_type, "gray")
@@ -518,6 +539,7 @@ class CoordinateListWidget(QWidget):
         self._x_max: Optional[float] = None
         self._y_max: Optional[float] = None
         self._z_max: Optional[float] = None
+        self._z_view: Optional[Tuple[float, int]] = None
         self._name_width = _name_col_width(point_type)
 
         self._setup_ui()
@@ -580,6 +602,17 @@ class CoordinateListWidget(QWidget):
                 w = self._list.itemWidget(item)
                 if isinstance(w, CoordinateRowWidget):
                     w.set_axis_maxima(x_max, y_max, z_max)
+
+    def set_z_view(self, view: Optional[Tuple[float, int]]) -> None:
+        """Show, in each row's z tooltip, the plane of an interpolated FM view:
+        (planes per stack slice, plane count), or None when none is shown."""
+        self._z_view = view
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            if item is not None:
+                w = self._list.itemWidget(item)
+                if isinstance(w, CoordinateRowWidget):
+                    w.set_z_view(view)
 
     @property
     def store(self) -> CorrelationPointStore:
@@ -674,6 +707,8 @@ class CoordinateListWidget(QWidget):
         )
         if any(v is not None for v in (self._x_max, self._y_max, self._z_max)):
             row_widget.set_axis_maxima(self._x_max, self._y_max, self._z_max)
+        if self._z_view is not None:
+            row_widget.set_z_view(self._z_view)
         self._connect_row(row_widget)
         row_widget.set_note(getattr(self, "_notes", {}).get(id(coord)))
 

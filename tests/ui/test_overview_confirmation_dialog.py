@@ -224,9 +224,10 @@ def test_the_three_preflight_dialogs_share_one_style():
     from fibsem.ui.widgets import coincidence_milling_confirmation_dialog as milling
     from fibsem.ui.widgets import overview_confirmation_dialog as beam
     from fibsem.ui.widgets import preflight
+    from fibsem.util import durations
 
     for module in (fm, milling, beam):
-        assert module.format_duration is preflight.format_duration
+        assert module.format_duration_rounded is durations.format_duration_rounded
 
     assert milling.chip is preflight.chip
     assert milling.detail_block is preflight.detail_block
@@ -369,25 +370,18 @@ class TestAGridTheStageCannotReach:
 
 
 class TestTheDurationFormatters:
-    """One shape, one implementation (FIB-701)."""
-
-    def test_the_preflight_format_is_the_padded_shared_one(self):
-        from fibsem.ui.widgets.preflight import format_duration
-        from fibsem.utils import format_time_remaining
-
-        for seconds in (0, 5, 45, 59.6, 60, 65, 125, 3599, 3600, 7000, 86_399):
-            assert format_duration(seconds) == format_time_remaining(seconds, pad=True)
+    """One shape, one implementation (FIB-701, FIB-1191)."""
 
     def test_padding_is_what_stops_a_column_jittering(self):
-        from fibsem.utils import format_time_remaining
+        from fibsem.util.durations import format_duration_rounded
 
-        assert format_time_remaining(65, pad=True) == "1m 05s"
-        assert format_time_remaining(65) == "1m 5s"
+        assert format_duration_rounded(65, pad=True) == "1m 05s"
+        assert format_duration_rounded(65) == "1m 5s"
 
     def test_a_value_just_under_a_boundary_rounds_up_into_it(self):
         """Rounded before the branch, not after: 60 is no longer under a minute, so it
         takes the minutes arm rather than reading as `60s`."""
-        from fibsem.utils import format_time_remaining
+        from fibsem.util.durations import format_duration_rounded
 
-        assert format_time_remaining(59.6, pad=True) == "1m 00s"
-        assert format_time_remaining(59.4, pad=True) == "59s"
+        assert format_duration_rounded(59.6, pad=True) == "1m 00s"
+        assert format_duration_rounded(59.4, pad=True) == "59s"

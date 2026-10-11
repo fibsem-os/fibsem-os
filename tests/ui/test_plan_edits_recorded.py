@@ -6,6 +6,7 @@ the handler its widget calls, and read back from the recorder's buffer.
 """
 
 import os
+import time
 from concurrent.futures import Future
 from copy import deepcopy
 from types import SimpleNamespace
@@ -118,6 +119,23 @@ def _depth(milling_dict):
     return milling_dict["stages"][0]["pattern"]["depth"]
 
 
+def _settle(window) -> None:
+    """Let the edits settle on their own timers, as they do in the app.
+
+    `SETTLE_MS` is a debounce, not a deadline: under `pytest -n` the timer can fire
+    well after it is due, and a fixed wait then reads the buffer before the edit is
+    recorded -- or leaves it to land in the next test's. So wait on the timers
+    themselves, past the debounce, until nothing is pending.
+    """
+    pending = (window.task_widget._edits, window.lamella_widget._edits)
+    QTest.qWait(SETTLE_MS + 250)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline and any(
+        p._pending or p._timer.isActive() for p in pending
+    ):
+        QTest.qWait(20)
+
+
 # ── the lamella editor ───────────────────────────────────────────────────────
 
 
@@ -143,11 +161,11 @@ def test_a_burst_of_pattern_edits_is_one_event_from_its_start_to_its_end(
     assert _depth(payload["after"]) == 4e-6
 
 
-def test_an_edit_settles_on_its_own(editor, edits):
+def test_an_edit_settles_on_its_own(window, editor, edits):
     editor._on_task_parameters_config_changed("reacquire_alignment_reference", True)
     assert edits() == []
 
-    QTest.qWait(SETTLE_MS + 250)
+    _settle(window)
 
     ((event),) = edits()
     payload = event["payload"]
@@ -288,7 +306,7 @@ def test_a_protocol_edit_and_a_sync_to_the_lamellae(
     assert protocol_editor.task_list_widget.selected_task == TASK
 
     protocol_editor._on_task_parameters_config_changed("sync_to_poi", False)
-    QTest.qWait(SETTLE_MS + 250)
+    _settle(window)
 
     monkeypatch.setattr(
         protocol_editor_module.QMessageBox,
@@ -299,7 +317,7 @@ def test_a_protocol_edit_and_a_sync_to_the_lamellae(
         protocol_editor_module.QMessageBox, "information", lambda *a, **k: None
     )
     protocol_editor._on_sync_to_lamella_clicked()
-    QTest.qWait(SETTLE_MS + 250)
+    _settle(window)
 
     edit, *synced = (e["payload"] for e in edits())
     assert (edit["item"], edit["task"]) == (None, TASK)
@@ -323,7 +341,7 @@ def test_a_protocol_edit_and_a_sync_to_the_lamellae(
 
 
 def test_a_protocol_pattern_edit_is_recorded_from_what_it_was(
-    protocol_editor, experiment, edits
+    window, protocol_editor, experiment, edits
 ):
     stage = experiment.task_protocol.task_config[TASK].milling[KEY].stages[0]
     start = stage.pattern.depth
@@ -334,7 +352,7 @@ def test_a_protocol_pattern_edit_is_recorded_from_what_it_was(
     # the pattern on the stage it was given before the editor hears of it.
     stages = protocol_editor.milling_task_editor.config_widget.milling_stages_widget
     stages._pattern_widget.pattern_changed.emit(deeper)
-    QTest.qWait(SETTLE_MS + 250)
+    _settle(window)
 
     ((event),) = edits()
     payload = event["payload"]
@@ -352,7 +370,7 @@ def test_a_protocol_pattern_edit_is_recorded_from_what_it_was(
 
 
 def test_a_global_edit_records_the_protocol_and_each_lamella(
-    protocol_editor, experiment, edits, monkeypatch
+    window, protocol_editor, experiment, edits, monkeypatch
 ):
     def accept(dialog):  # every task, a wider milling field of view, lamellae too
         dialog._select_all_tasks()
@@ -369,7 +387,7 @@ def test_a_global_edit_records_the_protocol_and_each_lamella(
     fov = experiment.task_protocol.task_config[TASK].milling[KEY].field_of_view
 
     protocol_editor._on_global_edit_clicked()
-    QTest.qWait(SETTLE_MS + 250)
+    _settle(window)
 
     protocol, *lamellae = (e["payload"] for e in edits())
     assert (protocol["item"], protocol["task"], protocol["target"]) == (
@@ -387,7 +405,7 @@ def test_a_global_edit_records_the_protocol_and_each_lamella(
 
 
 def test_adding_a_task_records_it_on_the_protocol_and_each_lamella(
-    protocol_editor, experiment, edits, monkeypatch
+    window, protocol_editor, experiment, edits, monkeypatch
 ):
     def accept(dialog):
         dialog.comboBox_task_type.setCurrentIndex(
@@ -399,7 +417,7 @@ def test_adding_a_task_records_it_on_the_protocol_and_each_lamella(
     monkeypatch.setattr(protocol_editor_module.AddTaskDialog, "exec_", accept)
 
     protocol_editor._on_add_task_clicked()
-    QTest.qWait(SETTLE_MS + 250)
+    _settle(window)
 
     protocol, *lamellae = (e["payload"] for e in edits())
     assert (protocol["item"], protocol["target"]) == (None, "protocol.task_config")
@@ -429,7 +447,7 @@ def test_removing_a_task_records_the_protocol_the_workflow_and_each_lamella(
     lamellae_had = {p.name: p.task_config[TASK].to_dict() for p in experiment.positions}
 
     protocol_editor._on_remove_task_clicked()
-    QTest.qWait(SETTLE_MS + 250)
+    _settle(window)
 
     protocol, workflow_edit, *lamellae = (e["payload"] for e in edits())
     assert (protocol["item"], protocol["target"], protocol["before"]) == (
@@ -464,7 +482,7 @@ def test_removing_a_task_takes_it_off_the_lamella_editor(
     assert tasks.selected_task == TASK
 
     protocol_editor._on_remove_task_clicked()
-    QTest.qWait(SETTLE_MS + 250)  # its edits settle here, not in the next test
+    _settle(window)  # its edits settle here, not in the next test
 
     assert tasks._list.count() == 0
     assert tasks.selected_task == ""
@@ -492,7 +510,7 @@ def test_the_protocol_s_spot_burn_points_are_recorded(
     monkeypatch.setattr(protocol_editor_module.QDialog, "exec_", accept)
 
     editor._on_spot_burn_coordinates_clicked()
-    QTest.qWait(SETTLE_MS + 250)
+    _settle(window)
 
     ((event),) = edits()
     payload = event["payload"]

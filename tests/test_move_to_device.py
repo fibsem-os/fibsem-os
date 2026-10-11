@@ -178,7 +178,7 @@ def test_to_device_refuses_an_unsupported_pose():
 def _beam_side_arctis():
     """A compustage whose objective also images from the beam side."""
     microscope = _microscope(ARCTIS_CONFIG)
-    microscope.system.stage.devices["FM"].acquisition_orientations = [
+    microscope.system.stage.devices["FM"].available_orientations = [
         "FM",
         "SEM",
         "MILLING",
@@ -217,7 +217,7 @@ def test_a_compustage_still_flips_from_a_pose_its_objective_cannot_use():
 
 def test_a_compustage_that_declares_only_the_flip_is_unchanged():
     microscope = _microscope(ARCTIS_CONFIG)
-    microscope.system.stage.devices["FM"].acquisition_orientations = ["FM"]
+    microscope.system.stage.devices["FM"].available_orientations = ["FM"]
     microscope.move_stage_absolute(_off_centre(microscope, "SEM"))
 
     microscope.move_to_device("FM")
@@ -268,13 +268,14 @@ def test_asking_for_the_device_it_is_at_does_not_move():
     assert microscope.fm.objective.state == "Inserted"
 
 
-def test_travelling_from_neither_device_is_still_refused():
-    """Mid-traverse is a real state, and not one to guess a starting device for."""
+def test_arriving_outside_the_target_is_still_refused():
+    """The beams have no range, so 24 mm along is at the beams; the traverse would
+    arrive 24 mm from the FM's origin, outside its 20 mm."""
     microscope = _microscope()
     microscope.move_to_orientation("FIB")
     microscope.move_stage_relative(FibsemStagePosition(x=24.0e-3, y=0.0, z=0.0))
 
-    with pytest.raises(ValueError, match="not at any configured device"):
+    with pytest.raises(ValueError, match="outside its range"):
         microscope.move_to_device("FM")
 
 
@@ -336,3 +337,47 @@ def test_an_offset_mount_has_no_fm_orientation_to_ask_for():
         offset.get_orientation("FM")
 
     assert compustage.get_orientation("FM") is not None
+
+
+# ── which device the stage is at: the stage device says ───────────────
+
+
+def test_a_compustage_is_at_the_fm_in_the_fm_pose_wherever_it_is():
+    """The pose decides on a compustage: its objective is under the grid, so the FM
+    is reached by turning over, not by travelling."""
+    microscope = _microscope(ARCTIS_CONFIG)
+    at_fm = _off_centre(microscope, "FM")
+    at_fm.x = 5.0e-3
+
+    assert microscope.get_current_device(at_fm) == "FM"
+    for orientation in ("SEM", "FIB", "MILLING"):
+        position = _off_centre(microscope, orientation)
+        assert microscope.get_current_device(position) == "FIBSEM"
+
+
+def test_an_offset_mount_is_still_decided_by_where_the_stage_is():
+    microscope = _microscope()
+    assert microscope.stage_device.device_at_pose("FIB") is None
+
+    at_fm = _off_centre(microscope, "FIB")
+    at_fm.x += 48.8e-3
+    assert microscope.get_current_device(at_fm) == "FM"
+    assert microscope.get_current_device(_off_centre(microscope, "FIB")) == "FIBSEM"
+
+
+def test_the_thermo_compustage_says_the_same_as_the_demo_one():
+    from fibsem.drivers.autoscript.devices import AutoscriptCompustage, AutoscriptStage
+
+    compustage = object.__new__(AutoscriptCompustage)
+    assert compustage.device_at_pose("FM") == "FM"
+    assert compustage.device_at_pose("SEM") == "FIBSEM"
+    assert object.__new__(AutoscriptStage).device_at_pose("FIB") is None
+
+
+def test_a_device_with_no_stage_position_is_refused_not_false():
+    """`False` would read as "not there yet", for a place that does not exist."""
+    microscope = _microscope()
+    microscope.system.stage.devices["FM"].origin = FibsemStagePosition()
+
+    with pytest.raises(ValueError, match="no stage position"):
+        microscope.is_at_device("FM")

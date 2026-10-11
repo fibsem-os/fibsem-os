@@ -45,7 +45,7 @@ def _import_working() -> Optional[dict]:
     path = cfg.FM_CONFIGURATION_PATH
     if not os.path.exists(path):
         return None
-    with open(path, "r") as f:
+    with open(path) as f:
         data = yaml.safe_load(f)
     # Parsed once here so a file that cannot become a configuration is not
     # imported as one.
@@ -89,7 +89,7 @@ def _import_recent_channels() -> Optional[list]:
     path = cfg.FM_RECENT_CHANNELS_PATH
     if not os.path.exists(path):
         return None
-    with open(path, "r") as f:
+    with open(path) as f:
         data = yaml.safe_load(f)
     return data if isinstance(data, list) else None
 

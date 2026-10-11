@@ -1,0 +1,223 @@
+"""fibsem.util.timestamps: one way to write a time, one parser for every recorded form.
+
+The recorded values are copied from real files: the FIB and FM overviews of a
+2026-09-13 grid run, and AutoScript's string from a ThermoFisher image.
+"""
+
+import time
+from datetime import datetime, timedelta, timezone
+
+import numpy as np
+import pytest
+
+from fibsem.util.timestamps import (
+    format_time,
+    from_posix,
+    iso_from_posix,
+    now,
+    now_iso,
+    to_aware,
+    to_datetime,
+    utc_offset_of,
+    wall_time_of,
+    zone_from_offset,
+    zone_known,
+    zone_label,
+)
+
+# FIB overview, microscope_state.timestamp: 2026-09-14 03:12:11.874894 UTC.
+FIB_POSIX = 1789355531.874894
+# FM overview of the same run, acquisition_date: the acquiring machine's clock, no zone.
+FM_NAIVE = "2026-09-13T21:19:40.974286"
+# ThermoFisher image, microscope_state.timestamp as the driver wrote it.
+THERMOFISHER = "07/16/2026 11:07:27"
+
+
+@pytest.fixture
+def viewer_zone(monkeypatch):
+    """Read times as a viewer in *zone* would."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is POSIX-only")
+
+    def set_zone(zone: str) -> None:
+        monkeypatch.setenv("TZ", zone)
+        time.tzset()
+
+    yield set_zone
+    monkeypatch.undo()
+    time.tzset()
+
+
+def _in_local_zone(value: datetime) -> bool:
+    return value.utcoffset() == value.astimezone().utcoffset()
+
+
+def test_now_iso_carries_this_machines_offset():
+    written = now_iso()
+    parsed = datetime.fromisoformat(written)
+    assert parsed.tzinfo is not None
+    assert abs(parsed - datetime.now(timezone.utc)) < timedelta(seconds=5)
+
+
+def test_iso_from_posix_names_the_same_instant():
+    written = iso_from_posix(FIB_POSIX)
+    assert datetime.fromisoformat(written).timestamp() == pytest.approx(FIB_POSIX)
+    assert to_datetime(written) == to_datetime(FIB_POSIX)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [FIB_POSIX, int(FIB_POSIX), str(FIB_POSIX), np.float64(FIB_POSIX)],
+)
+def test_a_posix_time_is_an_instant_in_the_viewers_zone(value):
+    parsed = to_datetime(value)
+    assert parsed.timestamp() == pytest.approx(float(value))
+    assert _in_local_zone(parsed)
+    assert zone_known(value)
+
+
+def test_an_iso_time_with_an_offset_keeps_it():
+    """Parsed, not converted: the site's clock time survives a load and a save."""
+    parsed = to_datetime("2026-09-13T21:19:40.974-06:00")
+    assert parsed == datetime(2026, 9, 14, 3, 19, 40, 974000, tzinfo=timezone.utc)
+    assert parsed.utcoffset() == timedelta(hours=-6)
+    assert parsed.isoformat() == "2026-09-13T21:19:40.974000-06:00"
+    assert zone_known("2026-09-13T21:19:40.974-06:00")
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (FM_NAIVE, datetime(2026, 9, 13, 21, 19, 40, 974286)),
+        ("2026-08-19 15:44:41", datetime(2026, 8, 19, 15, 44, 41)),
+        (THERMOFISHER, datetime(2026, 7, 16, 11, 7, 27)),
+    ],
+)
+def test_a_time_with_no_zone_is_returned_as_recorded(value, expected):
+    parsed = to_datetime(value)
+    assert parsed == expected
+    assert parsed.tzinfo is None
+    assert not zone_known(value)
+
+
+def test_a_datetime_passes_through():
+    naive = datetime(2026, 9, 13, 21, 19)
+    assert to_datetime(naive) is naive
+    aware = datetime(2026, 9, 14, 3, 19, tzinfo=timezone.utc)
+    assert to_datetime(aware) is aware
+
+
+def test_now_and_from_posix_are_aware_in_this_machines_zone():
+    assert _in_local_zone(now())
+    assert _in_local_zone(from_posix(FIB_POSIX))
+    assert from_posix(FIB_POSIX).timestamp() == pytest.approx(FIB_POSIX)
+
+
+def test_to_aware_reads_only_instants():
+    assert to_aware("2026-09-13T21:19:40-06:00") is not None
+    assert to_aware(FIB_POSIX) is not None
+    assert to_aware(FM_NAIVE) is None
+    assert to_aware(THERMOFISHER) is None
+
+
+@pytest.mark.parametrize(
+    "value", [None, "", "not a date", True, float("nan"), float("inf"), "nan", [1.0]]
+)
+def test_an_unreadable_value_is_none(value):
+    assert to_datetime(value) is None
+    assert format_time(value) is None
+    assert wall_time_of(value) is None
+    assert not zone_known(value)
+
+
+def test_a_posix_time_moves_to_the_viewers_zone_and_a_naive_one_does_not(viewer_zone):
+    viewer_zone("Asia/Tokyo")
+    assert format_time(FIB_POSIX) == "2026-09-14 12:12"
+    # The FM overview's naive string cannot be moved into the viewer's zone.
+    assert format_time(FM_NAIVE) == "2026-09-13 21:19"
+
+
+def test_a_time_with_an_offset_displays_in_the_viewers_zone(viewer_zone):
+    viewer_zone("Asia/Tokyo")
+    assert format_time("2026-09-13T21:12:11-06:00") == "2026-09-14 12:12"
+
+
+def test_the_same_instant_formats_the_same_from_every_aware_form(viewer_zone):
+    viewer_zone("UTC")
+    forms = [
+        FIB_POSIX,
+        iso_from_posix(FIB_POSIX),
+        "2026-09-13T21:12:11.874894-06:00",
+        "2026-09-14T13:12:11.874894+10:00",
+    ]
+    assert {format_time(form, "%Y-%m-%d %H:%M:%S") for form in forms} == {
+        "2026-09-14 03:12:11"
+    }
+
+
+def test_format_time_takes_a_format():
+    assert format_time(THERMOFISHER, "%H:%M:%S") == "11:07:27"
+
+
+@pytest.mark.parametrize("zone", ["UTC", "Australia/Sydney", "America/Denver"])
+def test_a_time_with_an_offset_keeps_its_own_wall_time_in_every_viewer_zone(
+    viewer_zone, zone
+):
+    viewer_zone(zone)
+    assert wall_time_of("2026-09-13T21:12:11.874894-06:00") == datetime(
+        2026, 9, 13, 21, 12, 11, 874894
+    )
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (FM_NAIVE, datetime(2026, 9, 13, 21, 19, 40, 974286)),
+        (THERMOFISHER, datetime(2026, 7, 16, 11, 7, 27)),
+    ],
+)
+def test_a_time_with_no_zone_is_its_own_wall_time(viewer_zone, value, expected):
+    viewer_zone("Asia/Tokyo")
+    assert wall_time_of(value) == expected
+
+
+def test_a_posix_time_has_this_machines_wall_time(viewer_zone):
+    viewer_zone("Asia/Tokyo")
+    when = wall_time_of(FIB_POSIX)
+    assert when.tzinfo is None
+    assert when == datetime(2026, 9, 14, 12, 12, 11, 874894)
+
+
+# The instrument's zone when the FIB overview above was taken: FIB_POSIX on its clock.
+INSTRUMENT = timezone(timedelta(hours=-6), "MDT")
+ON_ITS_CLOCK = datetime(2026, 9, 13, 21, 12, 11, 874894)
+
+
+@pytest.mark.parametrize("zone", ["UTC", "Australia/Sydney", "America/Los_Angeles"])
+def test_a_posix_time_reads_on_the_instruments_clock_given_its_zone(viewer_zone, zone):
+    viewer_zone(zone)
+    assert wall_time_of(FIB_POSIX, INSTRUMENT) == ON_ITS_CLOCK
+    assert wall_time_of(str(FIB_POSIX), INSTRUMENT) == ON_ITS_CLOCK
+
+
+def test_the_zone_is_only_for_a_value_with_no_wall_time_of_its_own(viewer_zone):
+    viewer_zone("Asia/Tokyo")
+    elsewhere = timezone(timedelta(hours=3))
+    assert wall_time_of(FM_NAIVE, elsewhere) == datetime.fromisoformat(FM_NAIVE)
+    assert wall_time_of("2026-09-13T21:12:11.874894-06:00", elsewhere) == ON_ITS_CLOCK
+    assert wall_time_of(float("nan"), elsewhere) is None
+    assert wall_time_of(None, elsewhere) is None
+
+
+def test_an_offset_reads_back_as_the_zone_it_names():
+    assert utc_offset_of(datetime(2026, 9, 13, tzinfo=INSTRUMENT)) == "-06:00"
+    zone = zone_from_offset("-06:00", "MDT")
+    assert zone.utcoffset(None) == timedelta(hours=-6)
+    assert zone_label(zone) == "MDT (UTC-06:00)"
+    assert zone_label(zone_from_offset("+10:00")) == "UTC+10:00"
+    assert zone_label(zone_from_offset("+00:00")) == "UTC"
+
+
+@pytest.mark.parametrize("offset", [None, "", "AEST", "+25:00", "10"])
+def test_an_offset_that_cannot_be_read_names_no_zone(offset):
+    assert zone_from_offset(offset) is None

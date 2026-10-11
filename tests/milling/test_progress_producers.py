@@ -101,7 +101,6 @@ class TestTheCoincidenceStrategy:
         strategy = CoincidenceMillingStrategy()
         strategy.microscope = microscope
         strategy.stage = FibsemMillingStage(name="Coincidence Mill")
-        strategy.parent_ui = None
         strategy.config = CoincidenceMillingStrategyConfig()
         strategy._drop_detected = False
         emitted = _collect(microscope)
@@ -156,8 +155,8 @@ class TestTheCoincidenceStrategy:
 # has somewhere honest to sit.
 EMITTERS = {
     "microscope.py": True,
-    "microscopes/simulator.py": True,
-    "microscopes/tescan.py": True,
+    "drivers/demo/simulator.py": True,
+    "drivers/tescan/microscope.py": True,
     "milling/strategy/standard.py": True,
     "milling/strategy/coincidence.py": True,
     "milling/tasks.py": True,

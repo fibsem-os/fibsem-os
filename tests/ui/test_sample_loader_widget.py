@@ -89,7 +89,7 @@ def test_refresh_reads_without_asking_and_the_scan_asks_first(widget, monkeypatc
 
 
 def test_a_refused_exchange_is_reported_and_the_controls_come_back(widget, arctis):
-    arctis._stage.loader.fail_next_exchange = True
+    arctis._stage.loader.device.fail_next_exchange = True
     widget._row_widget(0).btn_action.click()
     assert arctis._stage.loaded_grids == []
     assert "Simulated autoloader exchange failure" in widget.status_label.text()

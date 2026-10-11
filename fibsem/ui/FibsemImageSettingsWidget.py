@@ -194,9 +194,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         )
         self.dual_beam_widget.populate_combos()
         self.dual_beam_widget.sync_from_microscope()
+        self._use_selected_beam()
 
         self.gridLayout_2.addWidget(self.dual_beam_widget, 2, 0, 1, 3)
         self.gridLayout_2.addWidget(self.image_group, 3, 0, 1, 3)
+
+    def _use_selected_beam(self, *_) -> None:
+        self.image_settings_widget.use_beam(
+            self.microscope, self.dual_beam_widget.beam_type
+        )
 
     def setup_connections(self) -> None:
         """Set up the connections for the UI components, signals and initialise the UI"""
@@ -224,6 +230,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             )
         except Exception as e:
             logging.debug(f"Error connecting to lamella selection changes: {e}")
+
+        # the image settings offer what the selected beam can acquire
+        self.dual_beam_widget.sem_radio.toggled.connect(self._use_selected_beam)
 
         # image advanced toggle
         self._btn_advanced_image.toggled.connect(
@@ -640,12 +649,15 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         # TODO: implement progress bar for acquisition
 
-    def acquisition_finished(self) -> None:
+    def acquisition_finished(self, beams=()) -> None:
         """Imaging has finished, update the viewer and re-enable interactions"""
         if self.ib_image is not None:
             self._on_acquire(self.ib_image)
         if self.eb_image is not None:
             self._on_acquire(self.eb_image)
+        controller = self._view_controller()
+        if controller is not None:
+            controller.acquisition_done(beams)
         self._toggle_interactions(True)
         self.is_acquiring = False
 
@@ -685,9 +697,19 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         ts = utils.current_timestamp_v3()
         self.image_settings.filename = f"{self.image_settings.filename}-{ts}"
 
+        # The views' chips (FIB-1188): a frame is on its way to each of these.
+        beams = (
+            [BeamType.ELECTRON, BeamType.ION]
+            if both
+            else [self.image_settings.beam_type]
+        )
+        controller = self._view_controller()
+        if controller is not None:
+            controller.views_acquiring(beams)
+
         # start the acquisition worker
         worker = self.acquisition_worker(self.image_settings, both=both)
-        worker.finished.connect(self.acquisition_finished)
+        worker.finished.connect(lambda: self.acquisition_finished(beams))
         worker.start()
 
     @thread_worker

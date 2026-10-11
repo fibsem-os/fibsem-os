@@ -4,6 +4,7 @@ Qt-free, like the module, so this runs on every CI job rather than only ui-tests
 """
 
 import os
+import time
 from datetime import datetime
 
 import numpy as np
@@ -25,6 +26,9 @@ from fibsem.imaging.export import (
     format_si,
     from_fibsem_image,
     from_fluorescence_image,
+    image_caption,
+    image_fields,
+    image_summary,
     load_export_image,
     render_export,
     save_export,
@@ -90,6 +94,18 @@ def _values(fields):
     return {f.key: f.value for f in fields}
 
 
+@pytest.fixture
+def viewer_utc(monkeypatch):
+    """Read times as a viewer in UTC would."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is POSIX-only")
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
 @pytest.mark.parametrize(
     "value, unit, expected",
     [
@@ -115,9 +131,43 @@ def test_beam_image_fields():
         "pixel_size": "97.7 nm",
         "voltage": "2 kV",
         "current": "50 pA",
-        "working_distance": "4 mm",
+        "working_distance": "4.00 mm",
         "dwell_time": "1 µs",
     }
+
+
+@pytest.mark.parametrize(
+    "make, export",
+    [(_sem_image, from_fibsem_image), (_fm_image, from_fluorescence_image)],
+)
+def test_image_fields_are_the_export_bar(make, export):
+    """The canvas reads the same fields the export draws, from one place."""
+    image = make()
+    info = image_fields(image)
+    exported = export(image)
+    assert info.kind == exported.kind
+    assert info.fields == exported.fields
+    assert info.provenance == exported.provenance
+
+
+def test_image_fields_never_read_the_pixels(monkeypatch):
+    """Cheap enough for every image the canvas is handed: no conversion, no projection."""
+    import fibsem.imaging.export as export_module
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("image_fields touched the pixels")
+
+    for name in ("_to_uint8", "_normalize", "projection_layers", "composite_fm_layers"):
+        monkeypatch.setattr(export_module, name, refuse)
+    assert _values(image_fields(_sem_image()).fields)["hfw"] == "150 µm"
+    assert image_fields(_fm_image()).kind == "FM"
+
+
+def test_image_fields_without_metadata():
+    image = _sem_image()
+    image.metadata = None
+    info = image_fields(image)
+    assert (info.kind, info.fields, info.provenance) == ("Image", [], [])
 
 
 def test_hfw_comes_from_the_pixel_size_not_the_request():
@@ -170,6 +220,35 @@ def test_the_date_reads_from_any_recorded_timestamp(timestamp):
     image = _sem_image()
     image.metadata.microscope_state.timestamp = timestamp
     assert _values(from_fibsem_image(image).provenance)["date"] == "2026-08-19 15:44"
+
+
+def test_the_recorded_acquisition_time_wins_over_the_states(viewer_utc):
+    """`acquisition_datetime` is when the image was acquired; the state's timestamp
+    is when the state was read (FIB-1190)."""
+    image = _sem_image()
+    image.metadata.microscope_state.timestamp = 0.0
+    image.metadata.acquisition_datetime = datetime.fromisoformat(
+        "2026-10-02T14:31:00-06:00"
+    )
+    assert _values(from_fibsem_image(image).provenance)["date"] == "2026-10-02 20:31"
+
+
+def test_a_fluorescence_image_reads_its_acquisition_time(viewer_utc):
+    image = _fm_image()
+    image.metadata.acquisition_datetime = datetime.fromisoformat(
+        "2026-10-02T14:48:00-06:00"
+    )
+    image.metadata.acquisition_date = image.metadata.acquisition_datetime.isoformat()
+    assert _values(from_fluorescence_image(image).provenance)["date"] == (
+        "2026-10-02 20:48"
+    )
+
+
+def test_an_older_fluorescence_image_shows_its_clock_time_unmoved():
+    """A naive acquisition_date: the acquiring machine's clock, zone unknown."""
+    assert _values(from_fluorescence_image(_fm_image()).provenance)["date"] == (
+        "2026-10-02 14:48"
+    )
 
 
 def test_an_unreadable_timestamp_is_left_out():
@@ -413,3 +492,28 @@ def test_every_channel_hidden_is_a_black_image():
     export = from_fluorescence_image(_fm_image())
     out = render_export(export, ExportOptions(scalebar=False, hidden_channels=[0, 1]))
     assert out.shape == (256, 256, 3) and not out.any()
+
+
+# --- the one-line caption and the tooltip, for a History tile (FIB-1189) -----------
+
+
+def test_a_caption_is_one_line_for_a_narrow_tile():
+    # 256 px at 65 nm; the date is naive, so its wall time reads the same anywhere.
+    assert image_caption(image_fields(_fm_image())) == "FM · HFW 16.6 µm · 14:48"
+    sem = image_caption(image_fields(_sem_image()))
+    assert sem.startswith("SEM · HFW 150 µm")
+
+
+def test_a_caption_drops_what_the_file_does_not_say():
+    image = _sem_image()
+    image.metadata = None
+    assert image_caption(image_fields(image)) == ""
+
+
+def test_the_summary_is_everything_the_bar_can_say():
+    lines = image_summary(image_fields(_sem_image())).splitlines()
+    assert lines[0] == "SEM · ETD · SE"
+    assert "Horizontal field width: 150 µm" in lines
+    assert "Accelerating voltage: 2 kV" in lines
+    assert "Working distance: 4.00 mm" in lines
+    assert lines[-1].startswith("Acquired at: ")

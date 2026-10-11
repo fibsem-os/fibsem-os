@@ -133,6 +133,13 @@ class TileGridOptionsPanel(QFrame):
         """
         self.label_summary.setText(text)
         label = self.label_summary
+        # Two things make the measure stick at an old height. `heightForWidth` never
+        # answers less than the label's minimum height -- the one set here last time --
+        # so it is cleared first, or the panel could only ever grow. And before the
+        # panel is first shown the label is unpolished and measures in the default
+        # font, larger than the stylesheet's, so it is polished first.
+        label.ensurePolished()
+        label.setMinimumHeight(0)
         width = label.width() or (self.width() - 24)  # 24 = the layout's l/r margins
         label.setMinimumHeight(label.heightForWidth(width))
 

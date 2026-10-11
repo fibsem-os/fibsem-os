@@ -32,7 +32,7 @@ from fibsem.milling.patterning.patterns2 import (
     UndercutPattern,
     WaffleNotchPattern,
 )
-from fibsem.plugins.loader import PluginRecord, load_entry_point_group, plugin_classes
+from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
 
 # Built-in patterns registry
 BUILTIN_PATTERNS: Dict[str, Type[BasePattern]] = {
@@ -57,12 +57,28 @@ BUILTIN_PATTERNS: Dict[str, Type[BasePattern]] = {
     CircularSuspensionPattern.name: CircularSuspensionPattern,
 }
 
-# Runtime registered patterns
-REGISTERED_PATTERNS: Dict[str, Type[BasePattern]] = {}
 
 # Default pattern
 DEFAULT_PATTERN = RectanglePattern
 DEFAULT_PATTERN_NAME = DEFAULT_PATTERN.name
+
+
+PATTERN_ENTRY_POINT_GROUP = "fibsem.patterns"
+
+# Built-ins, runtime registrations and the fibsem.patterns entry points. To add a
+# plugin pattern, add to your package's pyproject.toml:
+#
+#     [project.entry-points.'fibsem.patterns']
+#     my_pattern = "my_package.patterns:MyCustomPattern"
+PATTERN_PLUGINS: PluginRegistry[Type[BasePattern]] = PluginRegistry(
+    group=PATTERN_ENTRY_POINT_GROUP,
+    kind="pattern",
+    resolve=subclass_of(BasePattern, lambda cls: cls.name),
+    builtins=BUILTIN_PATTERNS,
+)
+
+# Runtime registered patterns
+REGISTERED_PATTERNS: Dict[str, Type[BasePattern]] = PATTERN_PLUGINS.registered
 
 
 def register_pattern(pattern_cls: Type[BasePattern]) -> None:
@@ -75,37 +91,12 @@ def register_pattern(pattern_cls: Type[BasePattern]) -> None:
         >>> from fibsem.milling.patterning import register_pattern
         >>> register_pattern(CustomPattern)
     """
-    global REGISTERED_PATTERNS
-    REGISTERED_PATTERNS[pattern_cls.name] = pattern_cls
-    logging.info("Registered pattern '%s'", pattern_cls.name)
-
-
-PATTERN_ENTRY_POINT_GROUP = "fibsem.patterns"
+    PATTERN_PLUGINS.register(pattern_cls.name, pattern_cls)
 
 
 def get_pattern_plugin_records() -> Tuple[PluginRecord, ...]:
-    """Every ``fibsem.patterns`` entry point and what became of it.
-
-    Loading happens once per process, on the first call. Includes the plugins
-    that failed and the ones a built-in later shadows, neither of which
-    survives into :func:`get_patterns` -- see ``fibsem.plugins.report``.
-
-    To add a plugin pattern, add to your package's pyproject.toml:
-
-    [project.entry-points.'fibsem.patterns']
-    my_pattern = "my_package.patterns:MyCustomPattern"
-    """
-    return load_entry_point_group(
-        group=PATTERN_ENTRY_POINT_GROUP,
-        base_cls=BasePattern,
-        name_of=lambda cls: cls.name,
-        kind="pattern",
-    )
-
-
-def _get_plugin_patterns() -> Dict[str, Type[BasePattern]]:
-    """Plugin patterns that loaded, as ``{name: class}``."""
-    return plugin_classes(get_pattern_plugin_records())
+    """Every ``fibsem.patterns`` entry point and what became of it."""
+    return PATTERN_PLUGINS.plugin_records()
 
 
 def get_patterns() -> Dict[str, Type[BasePattern]]:
@@ -119,8 +110,7 @@ def get_patterns() -> Dict[str, Type[BasePattern]]:
     Returns:
         Dictionary mapping pattern names to pattern classes
     """
-    # This order means that builtins > registered > plugins if there are any name clashes
-    return {**_get_plugin_patterns(), **REGISTERED_PATTERNS, **BUILTIN_PATTERNS}
+    return PATTERN_PLUGINS.all()
 
 
 def get_pattern_names() -> typing.List[str]:

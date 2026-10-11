@@ -243,6 +243,10 @@ class FMCanvasWidget(QWidget):
     see :class:`FMRealSpaceCanvasWidget`.
     """
 
+    # The plane on screen changed: a z step, or max projection toggled. The bar under
+    # the view follows it (`current_z`, `max_projection`), as its Z reads the plane.
+    z_display_changed = pyqtSignal()
+
     def _make_canvas(self) -> FibsemCanvasBase:
         """The canvas this widget composites onto."""
         return FibsemImageCanvas()
@@ -319,7 +323,7 @@ class FMCanvasWidget(QWidget):
         self.canvas._reposition_overlay_buttons()
 
         self._panel = FMLayersPanel(self)
-        self._panel.changed.connect(self._restyle)
+        self._panel.changed.connect(self._on_layers_edited)
         self._panel.moved.connect(self._on_panel_moved)
         self._panel.close_requested.connect(self._close_layers_panel)
         self._panel.hide()
@@ -579,26 +583,40 @@ class FMCanvasWidget(QWidget):
             stack = self._stacks.get(layer.name)
             if stack is None:
                 continue
-            if self._max_projection or stack.shape[0] <= 1:
-                # single plane (incl. every live frame) or an explicit MIP: default to
-                # auto-contrast UNLESS the user chose manual. Keying off layer.manual (an
-                # explicit user choice) rather than layer.autocontrast (which the z-scrub
-                # branch below also toggles) is what lets a MIP toggle restore auto while a
-                # live feed — every frame lands here — keeps the user's manual contrast.
-                if not layer.manual:
-                    layer.autocontrast = True
-                    layer.clim = None
-            elif not layer.manual:
-                # Same guard as above: a z-scrub holds one MIP-derived clim across
-                # planes, but never over a contrast range the user set by hand.
-                clim = self._mip_clim.get(layer.name)
-                if clim is None:
-                    clim = auto_clim(stack.max(axis=0))
-                    self._mip_clim[layer.name] = clim
-                layer.autocontrast = False
-                layer.clim = clim
+            self._apply_contrast_mode(layer, stack)
             layer.data = self._plane_for(stack)
         self._recomposite()
+
+    def _apply_contrast_mode(self, layer: FMLayer, stack: np.ndarray) -> None:
+        """Set a stacked channel's contrast for the current mode; its plane is untouched."""
+        if self._max_projection or stack.shape[0] <= 1:
+            # single plane (incl. every live frame) or an explicit MIP: default to
+            # auto-contrast UNLESS the user chose manual. Keying off layer.manual (an
+            # explicit user choice) rather than layer.autocontrast (which the z-scrub
+            # branch below also toggles) is what lets a MIP toggle restore auto while a
+            # live feed — every frame lands here — keeps the user's manual contrast.
+            if not layer.manual:
+                layer.autocontrast = True
+                layer.clim = None
+        elif not layer.manual:
+            # Same guard as above: a z-scrub holds one MIP-derived clim across
+            # planes, but never over a contrast range the user set by hand.
+            clim = self._mip_clim.get(layer.name)
+            if clim is None:
+                clim = auto_clim(stack.max(axis=0))
+                self._mip_clim[layer.name] = clim
+            layer.autocontrast = False
+            layer.clim = clim
+
+    def _on_layers_edited(self) -> None:
+        """A layers-panel edit. A channel handed back to Auto (the pill, or Reset) takes
+        the held clim at once, rather than auto-contrasting the one plane on screen
+        until the next z move."""
+        for layer in self._layers:
+            stack = self._stacks.get(layer.name)
+            if stack is not None:
+                self._apply_contrast_mode(layer, stack)
+        self._restyle()
 
     def _z_step_button(self, glyph: str, tooltip: str, delta: int) -> QToolButton:
         button = QToolButton()
@@ -627,15 +645,22 @@ class FMCanvasWidget(QWidget):
             max(0, min(self._z_max, self._z_slider.value() + int(delta)))
         )
 
+    @property
+    def max_projection(self) -> bool:
+        """Whether the max projection is shown, rather than one plane."""
+        return self._max_projection
+
     def _on_z_changed(self, value: int) -> None:
         self._z_index = value
         self._z_label.setText(f"{value + 1}/{self._z_max + 1}")
         self._apply_z_mode()
+        self.z_display_changed.emit()
 
     def _on_max_projection_toggled(self, on: bool) -> None:
         self._max_projection = bool(on)
         self._update_z_visibility()
         self._apply_z_mode()
+        self.z_display_changed.emit()
 
     def set_max_projection(self, on: bool) -> None:
         """Show the max projection, or a single z-plane.
@@ -1332,13 +1357,13 @@ class FMLayersPanel(QFrame):
             self.sel_name.setText(layer.name)
             self.colormap.setCurrentText(layer.color)
             self.opacity.setValue(int(layer.opacity * 100))
-            self.opacity_val.setText("%d%%" % int(layer.opacity * 100))
+            self.opacity_val.setText(f"{int(layer.opacity * 100)}%")
             self.gamma.setValue(int(layer.gamma * 100))
-            self.gamma_val.setText("%.2f" % layer.gamma)
-            self.autocontrast_cb.setChecked(layer.autocontrast)
-            self.contrast.setEnabled(
-                not layer.autocontrast
-            )  # manual edits only when off
+            self.gamma_val.setText(f"{layer.gamma:.2f}")
+            # `manual`, not `autocontrast`: a z-scrub turns `autocontrast` off to hold
+            # one clim across planes, and that is still Auto (FIB-1173).
+            self.autocontrast_cb.setChecked(not layer.manual)
+            self.contrast.setEnabled(layer.manual)  # manual edits only when off
             if layer.data is not None:
                 d = np.asarray(layer.data, dtype=np.float32)
                 lo_d, hi_d = float(d.min()), float(d.max())
@@ -1354,8 +1379,8 @@ class FMLayersPanel(QFrame):
                         int((chi - lo_d) / span * 1000),
                     )
                 )
-                self.cmin_val.setText("%d" % round(clo))
-                self.cmax_val.setText("%d" % round(chi))
+                self.cmin_val.setText(f"{int(round(clo))}")
+                self.cmax_val.setText(f"{int(round(chi))}")
         self._updating = prev_updating
 
     # ── edits ─────────────────────────────────────────────────────────────
@@ -1377,7 +1402,7 @@ class FMLayersPanel(QFrame):
         self.changed.emit()
 
     def _on_opacity(self, value: int) -> None:
-        self.opacity_val.setText("%d%%" % value)
+        self.opacity_val.setText(f"{value}%")
         layer = self._current()
         if self._updating or layer is None:
             return
@@ -1401,6 +1426,7 @@ class FMLayersPanel(QFrame):
         layer.opacity = 1.0
         layer.gamma = 1.0
         layer.autocontrast = True
+        layer.manual = False
         layer.clim = None
         self._sync_detail()
         self.changed.emit()
@@ -1424,10 +1450,13 @@ class FMLayersPanel(QFrame):
         lo_n, hi_n = self.contrast.value()
         lo = self._data_lo + lo_n / 1000.0 * self._data_span
         hi = self._data_lo + hi_n / 1000.0 * self._data_span
-        self.cmin_val.setText("%d" % round(lo))
-        self.cmax_val.setText("%d" % round(hi))
+        self.cmin_val.setText(f"{int(round(lo))}")
+        self.cmax_val.setText(f"{int(round(hi))}")
         if self._updating or layer is None:
             return
         if hi > lo:
+            # a range the user set is a manual choice, so a z change keeps it
+            layer.autocontrast = False
+            layer.manual = True
             layer.clim = (lo, hi)
             self.changed.emit()

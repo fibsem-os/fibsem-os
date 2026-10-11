@@ -10,13 +10,19 @@ from __future__ import annotations
 import logging
 import typing
 from enum import Enum
-from typing import Any, Callable, Dict, NamedTuple, Union
+from typing import Any, Callable, Dict, List, NamedTuple, Union
 
 # How the server sends an array (a camera frame) and the remote driver recognises one.
 NPY_MEDIA_TYPE = "application/x-npy"
 
 # The JSON header a `Frame`'s metadata travels in, beside its array.
 FRAME_METADATA_HEADER = "X-Frame-Metadata"
+
+
+# How the server sends several frames (a z-stack) in one answer: an ``np.savez``
+# archive of the arrays, with their metadata as one JSON entry inside it rather than
+# a header, which a long stack would outgrow.
+FRAMES_MEDIA_TYPE = "application/x-npz-frames"
 
 
 class Frame(NamedTuple):
@@ -29,6 +35,33 @@ class Frame(NamedTuple):
 
     data: Any  # np.ndarray; Any so this module doesn't import numpy
     metadata: Dict[str, Any]
+
+
+def frames_to_bytes(frames: List[Frame]) -> bytes:
+    """Frames as one ``np.savez`` archive: ``frame_<i>`` each array, ``metadata`` the
+    JSON list of their metadata, in order."""
+    import io
+    import json
+
+    import numpy as np
+
+    buffer = io.BytesIO()
+    arrays = {f"frame_{i}": np.asarray(frame.data) for i, frame in enumerate(frames)}
+    metadata = json.dumps([frame.metadata for frame in frames])
+    np.savez(buffer, metadata=np.array(metadata), **arrays)
+    return buffer.getvalue()
+
+
+def frames_from_bytes(content: bytes) -> List[Frame]:
+    """The inverse of ``frames_to_bytes``."""
+    import io
+    import json
+
+    import numpy as np
+
+    with np.load(io.BytesIO(content), allow_pickle=False) as archive:
+        metadata = json.loads(str(archive["metadata"]))
+        return [Frame(archive[f"frame_{i}"], md) for i, md in enumerate(metadata)]
 
 
 def to_wire(value: Any) -> Any:

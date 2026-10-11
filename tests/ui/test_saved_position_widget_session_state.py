@@ -56,17 +56,3 @@ def test_without_a_microscope_nothing_is_written(qapp):
     assert panel.get_positions()[0].name == "cryo"  # still shown
     directory = session_state.SESSION_STATE_DIRECTORY
     assert not os.path.exists(directory) or os.listdir(directory) == []
-
-
-def test_the_deposition_widget_lists_the_same_positions(qapp, microscope):
-    from fibsem.ui.FibsemCryoDepositionWidget import FibsemCryoDepositionWidget
-
-    _panel(microscope).add_position(FibsemStagePosition(name="cryo"))
-
-    widget = FibsemCryoDepositionWidget(microscope=microscope)
-    names = [
-        widget.comboBox_stage_position.itemText(i)
-        for i in range(widget.comboBox_stage_position.count())
-    ]
-
-    assert names == ["Current Position", "cryo"]

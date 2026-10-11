@@ -805,7 +805,22 @@ def test_a_run_says_when_the_stack_records_no_slice_thickness(loaded):
     assert "depth correction cannot be trusted" in text
 
 
-def test_a_poor_verdict_disables_continue(loaded):
+def test_a_poor_verdict_warns_but_allows_continue(loaded, monkeypatch):
+    """FIB-1172: the user may take a poor fit, with the warning in front of them."""
+    from PyQt5.QtWidgets import QMessageBox
+
+    from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
+
+    asked = []
+
+    def _question(parent, title, text, *args, **kwargs):
+        asked.append(text)
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(ctw.QMessageBox, "question", staticmethod(_question))
+    continued = []
+    loaded.continue_pressed_signal.connect(continued.append)
+
     loaded.seed_fib_fiducials_from_spot_burns(_burns(ARCTIS))
     loaded.project_fm_from_fib()
     for c in _fm(loaded):
@@ -821,18 +836,27 @@ def test_a_poor_verdict_disables_continue(loaded):
         )
     )
     status = loaded._lbl_status.text()
-    assert "Poor fit. Do not continue." in status
+    # every warning stays
+    assert "Poor fit (not recommended to continue)." in status
     assert "cannot say which way is deeper" in status
     assert "Remove it and run again" in status
-    assert not loaded._btn_continue.isEnabled()
-    assert "poor" in loaded._btn_continue.toolTip()
     assert "ambiguous" in loaded._results_tab._lbl_depth.text()
-    # a good run after it: Continue is back, without the old warning
+    # but Continue is available, and its confirmation says the fit is poor
+    assert loaded._btn_continue.isEnabled()
+    assert loaded._btn_continue.toolTip() == ""
+    loaded._on_continue_pressed()
+    assert asked[-1] == (
+        "The fit is poor (RMS 0.30 µm, worst fiducial FM 6 15.00 µm off)."
+        "\n\nContinue anyway?"
+    )
+    assert continued == []  # answered No
+    # a good run after it: the plain confirmation
     loaded._on_run_finished(
         _fake_seeded_result(loaded, _diag([0.2, 0.3, 0.25, 0.2, 0.3, 0.2, 0.3]))
     )
     assert loaded._btn_continue.isEnabled()
-    assert loaded._btn_continue.toolTip() == ""
+    loaded._on_continue_pressed()
+    assert asked[-1] == "Continue with correlation result and close?"
 
 
 def test_the_image_panes_split_by_aspect_ratio_until_the_user_drags(widget, tmp_path):

@@ -1,0 +1,455 @@
+{
+ "_setup": {
+  "result": null,
+  "calls": [
+   [
+    "set_active_view",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "set_active_device",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "set_default_patterning_beam_type",
+    [
+     "ion"
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si-new"
+    ],
+    {}
+   ],
+   [
+    "set_patterning_mode",
+    [
+     "Parallel"
+    ],
+    {}
+   ],
+   [
+    "set_field_of_view",
+    [
+     8e-05,
+     "ion"
+    ],
+    {}
+   ],
+   [
+    "set_beam_current",
+    [
+     1e-09,
+     "ion"
+    ],
+    {}
+   ],
+   [
+    "set_high_voltage",
+    [
+     30000.0,
+     "ion"
+    ],
+    {}
+   ],
+   [
+    "clear_patterns",
+    [],
+    {}
+   ]
+  ]
+ },
+ "_draw": {
+  "result": null,
+  "calls": [
+   [
+    "set_default_application_file",
+    [
+     "Si"
+    ],
+    {}
+   ],
+   [
+    "create_rectangle",
+    [
+     {
+      "width": 1e-05,
+      "height": 5e-06,
+      "depth": 1e-06,
+      "rotation": 0,
+      "cleaning_cross_section": false,
+      "scan_direction": "TopToBottom",
+      "cross_section": "Rectangle",
+      "passes": 0,
+      "time": 0.0,
+      "is_exclusion": false,
+      "center_x": 0,
+      "center_y": 0
+     }
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si"
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si"
+    ],
+    {}
+   ],
+   [
+    "create_line",
+    [
+     {
+      "start_x": 0,
+      "end_x": 1e-06,
+      "start_y": 0,
+      "end_y": 0,
+      "depth": 1e-06
+     }
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si"
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si"
+    ],
+    {}
+   ],
+   [
+    "create_circle",
+    [
+     {
+      "radius": 2e-06,
+      "depth": 1e-06,
+      "centre_x": 0,
+      "centre_y": 0,
+      "thickness": 0,
+      "start_angle": 0.0,
+      "end_angle": 360.0,
+      "rotation": 0.0,
+      "is_exclusion": false,
+      "outer_diameter": 4e-06,
+      "inner_diameter": 0,
+      "center_x": 0,
+      "center_y": 0
+     }
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si"
+    ],
+    {}
+   ]
+  ]
+ },
+ "_run": {
+  "result": [
+   12.0,
+   "<MillingState.IDLE: 0>",
+   null,
+   null,
+   null,
+   null,
+   null
+  ],
+  "calls": [
+   [
+    "set_active_view",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "set_active_device",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "set_default_patterning_beam_type",
+    [
+     "ion"
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si-new"
+    ],
+    {}
+   ],
+   [
+    "set_patterning_mode",
+    [
+     "Parallel"
+    ],
+    {}
+   ],
+   [
+    "set_field_of_view",
+    [
+     8e-05,
+     "ion"
+    ],
+    {}
+   ],
+   [
+    "set_beam_current",
+    [
+     1e-09,
+     "ion"
+    ],
+    {}
+   ],
+   [
+    "set_high_voltage",
+    [
+     30000.0,
+     "ion"
+    ],
+    {}
+   ],
+   [
+    "clear_patterns",
+    [],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si"
+    ],
+    {}
+   ],
+   [
+    "create_rectangle",
+    [
+     {
+      "width": 1e-05,
+      "height": 5e-06,
+      "depth": 1e-06,
+      "rotation": 0,
+      "cleaning_cross_section": false,
+      "scan_direction": "TopToBottom",
+      "cross_section": "Rectangle",
+      "passes": 0,
+      "time": 0.0,
+      "is_exclusion": false,
+      "center_x": 0,
+      "center_y": 0
+     }
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si-new"
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si"
+    ],
+    {}
+   ],
+   [
+    "create_line",
+    [
+     {
+      "start_x": 0,
+      "end_x": 1e-06,
+      "start_y": 0,
+      "end_y": 0,
+      "depth": 1e-06
+     }
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si-new"
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si"
+    ],
+    {}
+   ],
+   [
+    "create_circle",
+    [
+     {
+      "radius": 2e-06,
+      "depth": 1e-06,
+      "centre_x": 0,
+      "centre_y": 0,
+      "thickness": 0,
+      "start_angle": 0.0,
+      "end_angle": 360.0,
+      "rotation": 0.0,
+      "is_exclusion": false,
+      "outer_diameter": 4e-06,
+      "inner_diameter": 0,
+      "center_x": 0,
+      "center_y": 0
+     }
+    ],
+    {}
+   ],
+   [
+    "set_default_application_file",
+    [
+     "Si-new"
+    ],
+    {}
+   ],
+   [
+    "estimate_milling_time",
+    [],
+    {}
+   ],
+   [
+    "set_active_view",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "set_active_device",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "get_patterning_state",
+    [],
+    {}
+   ],
+   [
+    "set_active_view",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "set_active_device",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "get_patterning_state",
+    [],
+    {}
+   ],
+   [
+    "start_milling",
+    [],
+    {}
+   ],
+   [
+    "set_active_view",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "set_active_device",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "get_patterning_state",
+    [],
+    {}
+   ],
+   [
+    "set_active_view",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "set_active_device",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "get_patterning_state",
+    [],
+    {}
+   ],
+   [
+    "set_active_view",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "set_active_device",
+    [
+     2
+    ],
+    {}
+   ],
+   [
+    "get_patterning_state",
+    [],
+    {}
+   ],
+   [
+    "clear_patterns",
+    [],
+    {}
+   ]
+  ]
+ }
+}

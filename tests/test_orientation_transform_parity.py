@@ -42,6 +42,7 @@ import pytest
 
 from fibsem import utils
 from fibsem.structures import FibsemStagePosition
+from tests.fixtures.demo_stage import demo_session
 
 ORIENTATIONS = ["SEM", "FIB", "MILLING", "FM"]
 
@@ -124,8 +125,7 @@ def _microscope(compustage: bool):
     is no second number to keep in step, and no way to write the pair that the stage
     could not physically be.
     """
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = compustage
+    microscope, _ = demo_session(compustage=compustage)
 
     stage = microscope.system.stage
     stage.rotation_reference = 0

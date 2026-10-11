@@ -101,7 +101,7 @@ def microscope():
         "sim-arctis-configuration.yaml",
     )
     scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    assert scope.stage_is_compustage, "the config stopped being a compustage"
+    assert scope._fm_is_a_pose(), "the config stopped being a compustage"
     return scope
 
 
@@ -1515,7 +1515,7 @@ class TestOverlaysAreDrawnInTheView:
         """The strongest statement of the property: put the travel envelope's corner on
         the canvas as a *marked position*, and the corner of the drawn box has to be
         under it. Checked in the foreshortened view, where the two used to differ."""
-        assert microscope.stage_is_compustage, "the limits only draw on a compustage"
+        assert microscope._fm_is_a_pose(), "the limits only draw on a compustage"
         frame = self._show(widget, self.FORESHORTENED)
         limits = microscope._stage.limits
 
@@ -1603,7 +1603,7 @@ class TestOverlaysAreDrawnInTheView:
             "tfs-aquilos2-configuration.yaml",
         )
         scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-        assert not scope.stage_is_compustage, "this is the standard-stage case"
+        assert not scope._fm_is_a_pose(), "this is the standard-stage case"
 
         widget = FibsemOverviewWidget(scope)
         try:
@@ -1676,9 +1676,7 @@ class TestTheHolderIsDrawnOnEveryStage:
     ):
         """The half that was collateral damage. Travel limits are a property of the
         stage, and every stage that declares them has them."""
-        monkeypatch.setattr(
-            type(microscope), "stage_is_compustage", property(lambda self: False)
-        )
+        monkeypatch.setattr(microscope, "_fm_is_a_pose", lambda: False)
         widget._refresh_context_overlays()
 
         assert self._specs(widget, "rect", "Stage Limits"), (
@@ -1716,6 +1714,44 @@ class TestTheHolderIsDrawnOnEveryStage:
         markers = sorted((round(s.cx, 6), round(s.cy, 6)) for s in crosshairs)
         assert centres == markers, "a boundary is not concentric with its slot marker"
         assert len({c[0] for c in centres}) == 2, "both circles landed in one place"
+
+    def _view_origin_at(self, widget, x, y=0.0):
+        """Re-anchor the displayed view, as if its first image were taken at (x, y)."""
+        frame = widget._frame()
+        assert frame is not None, "the fixture's view has no frame to anchor"
+        origin = deepcopy(frame.origin)
+        origin.x, origin.y = x, y
+        widget._origins[widget._current_view] = origin
+
+    def test_the_grid_bars_sit_on_the_grid_being_viewed(self, widget, monkeypatch):
+        """On the slot nearest the view, as its boundary is. They were centred on the
+        stage origin and clipped to a grid's disc there, which on a shuttle is 5 mm from
+        either grid: turned on, they drew nothing on the overview."""
+        self._two_slots(widget, monkeypatch)
+        self._view_origin_at(widget, 4.5e-3)
+        widget.overlay_controls.set_visible("gridbars", True)
+        widget._refresh_gridbars()
+
+        frame = widget._frame()
+        slot = widget._slot_landmark(widget.microscope._stage.holder.slots["Slot-02"])
+        assert widget.gridbar_overlay._centre == pytest.approx(
+            frame.to_canvas(slot), abs=1e-6
+        )
+
+    def test_with_no_slot_position_the_grid_bars_sit_on_the_view(
+        self, widget, monkeypatch
+    ):
+        """A holder not yet calibrated says nowhere: the bars go where the overview is."""
+        holder = widget.microscope._stage.holder
+        monkeypatch.setattr(holder, "slots", {})
+        self._view_origin_at(widget, 3.0e-3, 4.0e-3)
+        widget.overlay_controls.set_visible("gridbars", True)
+        widget._refresh_gridbars()
+
+        frame = widget._frame()
+        assert widget.gridbar_overlay._centre == pytest.approx(
+            frame.to_canvas(frame.origin), abs=1e-6
+        )
 
     def test_a_slot_carries_the_orientation_it_was_defined_in(
         self, widget, monkeypatch
@@ -1755,6 +1791,34 @@ class TestTheHolderIsDrawnOnEveryStage:
             (crosshairs[0].cx, crosshairs[0].cy)
         )
 
+    def test_a_recalibrated_slot_moves_without_a_stage_move(self, widget, monkeypatch):
+        """Calibrating a slot on a holder that already had one flips no overlay
+        default, so `reset_context_overlay_defaults` redraws nothing. The holder
+        saying it changed is what moves the marker, not the next stage move.
+
+        Calibrated slots, as the wizard leaves them: uncalibrated ones would flip the
+        defaults to off, and the redraw would correctly hide them."""
+        from fibsem.structures import SlotCalibration
+
+        def calibrated(name, x):
+            slot = self._slot(name, x)
+            slot.calibration = SlotCalibration.builtin(0.0, 0.0)
+            return slot
+
+        slots = self._two_slots(widget, monkeypatch)
+        for name, slot in list(slots.items()):
+            slots[name] = calibrated(name, slot.position.x)
+        widget._refresh_context_overlays()
+        before = [(s.cx, s.cy) for s in self._specs(widget, "crosshair", "Slot-02")]
+        assert before, "no slot marker drawn to move"
+
+        slots["Slot-02"] = calibrated("Slot-02", 3.0e-3)
+        widget.microscope.holder_changed.emit(widget.microscope._stage.holder)
+        _app.processEvents()
+
+        after = [(s.cx, s.cy) for s in self._specs(widget, "crosshair", "Slot-02")]
+        assert after and after != before, "the recalibrated slot did not move"
+
 
 class TestLifecycle:
     def test_closing_releases_every_microscope_subscription(self, microscope):
@@ -1765,6 +1829,7 @@ class TestLifecycle:
         signals = (
             microscope.tiled_acquisition_signal,
             microscope.stage_position_changed,
+            microscope.holder_changed,
         )
         before = [len(s) for s in signals]
         widget.close()
@@ -2060,7 +2125,7 @@ def pretilted():
     (FIB-1007).
     """
     scope, _ = utils.setup_session(manufacturer="Demo")
-    assert not scope.stage_is_compustage, "the default config became a compustage"
+    assert not scope._fm_is_a_pose(), "the default config became a compustage"
     assert scope.hardware_geometry().shuttle_pre_tilt, "the pre-tilt went away"
     return scope
 
@@ -3179,6 +3244,63 @@ class TestTheCanvasFollowsTheBeamYouPlanWith:
         assert widget.acquisition_view in widget._view_chip_buttons, (
             "the view the next run lands in cannot be selected"
         )
+
+
+class TestATranslationRedrawsOnlyWhatFollowsTheStage:
+    """The stage is polled constantly, and a translation inside a view moves only what
+    is placed from the stage position: the planned grid, the working area and the
+    marker. The limits, holder slots, grid bars, aligned images and view chips are
+    drawn in the view's frame, which it leaves where it was -- and rebuilding them was
+    a third of the time each update took."""
+
+    @staticmethod
+    def _count(monkeypatch, owner, name):
+        calls = []
+        original = getattr(owner, name)
+        monkeypatch.setattr(
+            owner, name, lambda *a, **k: calls.append(1) or original(*a, **k)
+        )
+        return calls
+
+    def test_a_translation_leaves_the_frame_drawn_overlays_alone(
+        self, widget, microscope, monkeypatch
+    ):
+        _show_holder_overlays(widget)
+        here = microscope.get_stage_position()
+        widget._on_stage_moved(here)
+        chips = dict(widget._view_chip_buttons)
+        marker = list(widget.current_position_overlay._points)
+
+        shapes = self._count(monkeypatch, widget.context_overlay, "set_shapes")
+        aligned = self._count(monkeypatch, widget.aligned_images, "refresh")
+        gridbars = self._count(monkeypatch, widget, "_refresh_gridbars")
+        grid = self._count(monkeypatch, widget, "_refresh_tile_grid")
+
+        widget._on_stage_moved(_at(here, dx=300e-6, dy=-120e-6))
+
+        assert shapes == [], "redrew the stage context for a translation"
+        assert aligned == [] and gridbars == []
+        assert all(
+            widget._view_chip_buttons.get(view) is chip for view, chip in chips.items()
+        ), "rebuilt the view chips for a translation"
+        # ...and what does follow the stage still does.
+        assert grid, "the planned grid stopped following the stage"
+        assert list(widget.current_position_overlay._points) != marker
+
+    def test_a_re_pose_redraws_them(self, widget, microscope, monkeypatch):
+        """A change of orientation changes the view the next run lands in, and with
+        it the frame -- so everything is drawn again."""
+        _show_holder_overlays(widget)
+        widget._on_stage_moved(microscope.get_stage_position())
+        shapes = self._count(monkeypatch, widget.context_overlay, "set_shapes")
+
+        pose = microscope.get_orientation("MILLING")
+        widget._on_stage_moved(
+            FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=pose.r, t=pose.t)
+        )
+
+        assert shapes, "a re-pose did not redraw the stage context"
+        assert widget.acquisition_view in widget._view_chip_buttons
 
 
 class TestTheViewChips:
@@ -5008,7 +5130,7 @@ def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
     from fibsem.ui.widgets.canvas.overlays import stage_context
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     assert not stage_context.holder_is_calibrated(microscope)
     widget = FibsemOverviewWidget(microscope)

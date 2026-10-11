@@ -28,7 +28,7 @@ from PyQt5.QtGui import QWheelEvent
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from fibsem.constants import METRE_TO_MICRON
-from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
@@ -46,7 +46,7 @@ class _Host(QWidget):
 
 @pytest.fixture
 def fm():
-    return FluorescenceMicroscope()
+    return DemoFluorescenceMicroscope()
 
 
 @pytest.fixture
@@ -72,8 +72,14 @@ def _wheel(dx: int, dy: int, modifiers=Qt.ShiftModifier) -> QWheelEvent:
     """
     pos = QPoint(200, 200)
     return QWheelEvent(
-        pos, pos, QPoint(0, 0), QPoint(dx, dy), Qt.NoButton, modifiers,
-        Qt.NoScrollPhase, False,
+        pos,
+        pos,
+        QPoint(0, 0),
+        QPoint(dx, dy),
+        Qt.NoButton,
+        modifiers,
+        Qt.NoScrollPhase,
+        False,
     )
 
 
@@ -141,14 +147,14 @@ class TestTheFlashSaysWhereItIsGoing:
 
         self._scroll(widget, canvas)
 
-        assert canvas._flash_text == f"OBJ {base + 1.0:.1f} um  (+1.0 um)"
+        assert canvas._flash_text == f"OBJ {base + 1.0:.1f} µm  +1.0 µm"
 
     def test_the_step_is_signed_so_it_shows_direction(self, fm, widget, canvas):
         widget.doubleSpinBox_objective_step_size.setValue(2.5)
 
         self._scroll(widget, canvas, direction=-1)
 
-        assert "(-2.5 um)" in canvas._flash_text
+        assert "-2.5 µm" in canvas._flash_text
 
     def test_it_shows_the_step_currently_set_not_the_distance_travelled(
         self, fm, widget, canvas
@@ -161,7 +167,7 @@ class TestTheFlashSaysWhereItIsGoing:
         for _ in range(3):
             self._scroll(widget, canvas)
 
-        assert canvas._flash_text == f"OBJ {base + 3.0:.1f} um  (+1.0 um)"
+        assert canvas._flash_text == f"OBJ {base + 3.0:.1f} µm  +1.0 µm"
 
     def test_a_refused_scroll_flashes_nothing(self, fm, widget, canvas):
         """Nothing is going anywhere, so there is no target to show."""

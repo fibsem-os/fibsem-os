@@ -25,17 +25,31 @@ A backend implements the parameters with ``read_<name>``/``metadata_<name>`` met
 as for a beam, and the commands with four hooks: ``_move_absolute``,
 ``_move_relative``, ``_home`` and ``_link``. The base class does the rest once: the
 limit check, the ``stage`` resource, the read-back, and the change signals.
+
+The stage also declares its poses (FIB-1101): the rotation and tilt that each
+orientation name (SEM, FIB, and FM where the stage reaches it by re-posing) means on
+this stage. ``poses`` is a pure function of the geometry the microscope passes in,
+so the stage never asks its parent. MILLING is not a stage pose: it depends on the
+milling angle setting, so the microscope builds it from the SEM rotation.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Iterator, Mapping
+from typing import Any, Dict, Iterator, Mapping, Optional
 
 from psygnal import Signal
 
+from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.core import Device, Parameter, command
-from fibsem.structures import FibsemStagePosition, RangeLimit
+from fibsem.devices.display import Display
+from fibsem.structures import (
+    BEAMS_STAGE_DEVICE,
+    KNOWN_ORIENTATIONS,
+    STAGE_FRAME_FIBSEM,
+    FibsemStagePosition,
+    RangeLimit,
+)
 
 STAGE_RESOURCE = "stage"
 AXIS_UNITS: Dict[str, str] = {"x": "m", "y": "m", "z": "m", "r": "rad", "t": "rad"}
@@ -45,14 +59,91 @@ UNLIMITED = RangeLimit(min=-math.inf, max=math.inf)
 """The limits a driver gives an axis it has but cannot bound."""
 
 
+def rotating_stage_poses(
+    rotation_reference: float,
+    shuttle_pre_tilt: float,
+    fib_column_tilt: float,
+    rotates: bool = True,
+) -> Dict[str, FibsemStagePosition]:
+    """SEM and FIB for a stage that turns round to face the ion beam.
+
+    Angles in degrees in, radians out. SEM is the reference rotation, with the
+    pre-tilt cancelled so the sample faces the electron beam. FIB is half a turn from
+    it, tilted to the ion column less the pre-tilt. A stage without a rotation axis
+    (``rotates`` False) stays at the reference for FIB, as ``rotation_180`` does.
+    """
+    fib_rotation = (rotation_reference + 180) % 360 if rotates else rotation_reference
+    return {
+        "SEM": FibsemStagePosition(
+            r=math.radians(rotation_reference), t=math.radians(shuttle_pre_tilt)
+        ),
+        "FIB": FibsemStagePosition(
+            r=math.radians(fib_rotation),
+            t=math.radians(fib_column_tilt - shuttle_pre_tilt),
+        ),
+    }
+
+
+def compustage_poses(
+    rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+) -> Dict[str, FibsemStagePosition]:
+    """SEM, FIB and FM for a compustage, which tilts over instead of turning round.
+
+    It has no rotation axis, so every pose is at the reference rotation. FIB is the
+    rotating stage's tilt turned over by 180 degrees, because the grid is imaged from
+    its back. FM is the grid turned fully over to face the objective underneath.
+
+    FM is a pose only here. On an offset mount the FM is a place, not a pose: the
+    stage travels there holding whatever orientation it was in, so no FM pose exists.
+    """
+    poses = rotating_stage_poses(
+        rotation_reference, shuttle_pre_tilt, fib_column_tilt, rotates=False
+    )
+    poses["FIB"].t -= math.radians(180)
+    poses["FM"] = FibsemStagePosition(
+        r=math.radians(rotation_reference), t=math.radians(-180)
+    )
+    return poses
+
+
+def compustage_device_at_pose(orientation: str) -> str:
+    """Which device a compustage is at in a pose: the FM in the FM pose, else the beams.
+
+    The objective is under the grid, so the stage reaches it by turning the grid over,
+    not by travelling. The pose says where it is, wherever x and y are.
+    """
+    return "FM" if orientation == "FM" else BEAMS_STAGE_DEVICE
+
+
+def tilted_past_vertical(tilt: float) -> bool:
+    """Whether a stage tilt in radians has the sample turned over: past -90 degrees.
+
+    The default for `Stage.turned_over`, and for a backend without a stage device.
+    """
+    return tilt < math.radians(-90)
+
+
 def axis_limits_from_degrees(limits: Mapping[str, RangeLimit]) -> Dict[str, RangeLimit]:
     """Per-axis limits in the axes' units, from limits that give rotations in degrees
-    (as today's ``_get_axis_limits`` does)."""
+    (as the fixed stage tables do)."""
     converted: Dict[str, RangeLimit] = {}
     for axis, limit in limits.items():
         low, high = limit.min, limit.max
         if AXIS_UNITS.get(axis) == "rad":
             low, high = math.radians(low), math.radians(high)
+        converted[axis] = RangeLimit(min=low, max=high)
+    return converted
+
+
+def axis_limits_to_degrees(limits: Mapping[str, RangeLimit]) -> Dict[str, RangeLimit]:
+    """The inverse of ``axis_limits_from_degrees``: rotations back in degrees, for
+    readers that take limits in the sample stage's units (metres, and degrees for r
+    and t)."""
+    converted: Dict[str, RangeLimit] = {}
+    for axis, limit in limits.items():
+        low, high = limit.min, limit.max
+        if AXIS_UNITS.get(axis) == "rad":
+            low, high = math.degrees(low), math.degrees(high)
         converted[axis] = RangeLimit(min=low, max=high)
     return converted
 
@@ -129,9 +220,20 @@ class Stage(Device):
     position = Parameter(
         FibsemStagePosition,
         doc="Raw stage coordinates, in the fibsem-os frame. Its limits are per axis.",
+        display={
+            **{
+                axis: Display(axis.upper(), scale=1e3, step=0.001, decimals=5)
+                for axis in ("x", "y", "z")
+            },
+            "r": Display("Rotation", scale=180 / math.pi, unit=DEGREE_SYMBOL),
+            "t": Display("Tilt", scale=180 / math.pi, unit=DEGREE_SYMBOL),
+        },
     )
     homed = Parameter(bool)
     linked = Parameter(bool, doc="z linked to the working distance.")
+
+    frame: str = STAGE_FRAME_FIBSEM
+    """The frame ``position`` is in, stamped on every image (FIB-1114)."""
 
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="stage", parent=parent, **kwargs)
@@ -140,12 +242,34 @@ class Stage(Device):
     def connect(self) -> Stage:
         """Bind the parameters, then build an axis for each one the driver reports."""
         super().connect()
+        self._build_axes()
+        return self
+
+    def _build_axes(self) -> None:
+        """An axis for each one the driver gives ``position`` limits for."""
         limits = self.position.limits or {}
         axes = {name: Axis(self, name) for name in AXIS_UNITS if name in limits}
         for axis in axes.values():
             self.position.changed.connect(axis._position_changed)
         self.axes = Axes(axes)
-        return self
+
+    def facts(self) -> Dict[str, Any]:
+        """The frame, the shuttle, and the device each orientation puts the stage at:
+        the answers a remote stage gives without asking again."""
+        return {
+            "frame": self.frame,
+            "has_builtin_shuttle": self.has_builtin_shuttle(),
+            "device_at_pose": {
+                orientation: self.device_at_pose(orientation)
+                for orientation in KNOWN_ORIENTATIONS
+            },
+        }
+
+    @property
+    def is_homed(self) -> Optional[bool]:
+        """Whether the stage is homed; None where its driver can't say."""
+        param = self.parameters.get("homed")
+        return None if param is None else param.get_value()
 
     # -- commands -----------------------------------------------------------------
 
@@ -175,6 +299,14 @@ class Stage(Device):
         with self.resources.claim(STAGE_RESOURCE):
             self._link()
             return self.linked.get_value()
+
+    @command
+    def pose_table(
+        self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+    ) -> Dict[str, FibsemStagePosition]:
+        """``poses()`` as a command, so a stage on another computer can be asked for
+        its poses. It moves nothing."""
+        return self.poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
 
     def move_through(
         self, position: FibsemStagePosition, relative: bool = False
@@ -206,6 +338,50 @@ class Stage(Device):
             raise StageLimitError(
                 f"{self.name}: target outside the stage limits: {', '.join(outside)}"
             )
+
+    # -- poses ------------------------------------------------------------------------
+
+    def poses(
+        self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
+    ) -> Dict[str, FibsemStagePosition]:
+        """The pose for each orientation name on this stage, from the geometry in degrees.
+
+        A stage that turns round to face the ion beam by default, or stays at the
+        reference if it has no ``r`` axis. A stage that reaches the beams some other
+        way (a compustage) overrides this.
+        """
+        return rotating_stage_poses(
+            rotation_reference,
+            shuttle_pre_tilt,
+            fib_column_tilt,
+            rotates="r" in self.axes,
+        )
+
+    def device_at_pose(self, orientation: str) -> Optional[str]:
+        """The device this stage is at whenever it holds a pose, or None.
+
+        None by default: the stage travels between devices, so where it is decides
+        which one it is at (the nearest origin, `FibsemMicroscope.get_current_device`).
+        A stage that reaches a device by re-posing instead of travelling (a compustage
+        and its FM) overrides this, so the pose decides wherever x and y are.
+        """
+        return None
+
+    def has_builtin_shuttle(self) -> bool:
+        """Whether the stage carries its own one-grid shuttle, so the sample holder is
+        built in rather than read from the configuration.
+
+        False by default. A compustage, which is the autoloader's stage, overrides it.
+        """
+        return False
+
+    def turned_over(self, tilt: float) -> bool:
+        """Whether the sample is turned over at this stage tilt, in radians.
+
+        Past -90 degrees by default, which only a compustage reaches. A stage that
+        turns the sample over somewhere else overrides this.
+        """
+        return tilted_past_vertical(tilt)
 
     # -- what a backend implements -------------------------------------------------
 

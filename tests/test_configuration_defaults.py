@@ -21,6 +21,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.structures import (
+    CONFIGURED_DEVICES,
     BeamSettings,
     BeamType,
     FibsemStagePosition,
@@ -60,7 +61,18 @@ def test_the_split_changed_no_configuration_s_meaning(filename: str):
     """
     split = _load(filename)
     flat = copy.deepcopy(split)
-    flat.update(flat.pop("hardware"))
+    # The device list back to one block per device, as files were before the split.
+    # A device no block was ever for (a sample loader) stays in the list.
+    others = []
+    for entry in flat.pop("hardware")["devices"]:
+        if entry["name"] not in CONFIGURED_DEVICES:
+            others.append(entry)
+            continue
+        flat[entry["name"]] = {
+            k: v for k, v in entry.items() if k not in ("name", "type")
+        }
+    if others:
+        flat["hardware"] = {"devices": others}
     calibration = flat.pop("calibration")
     flat["stage"].update(calibration)
     defaults = flat.pop("defaults")
@@ -81,7 +93,7 @@ def test_the_column_blocks_hold_only_hardware(filename: str):
     thing an operator picks for a session."""
     config = _load(filename)
     for block in ("electron", "ion"):
-        keys = set(config["hardware"][block])
+        keys = set(utils.configuration_device(config, block)) - {"name", "type"}
         assert not (keys & DEFAULT_KEYS), f"{block} still states session state"
         assert keys <= HARDWARE_KEYS, (
             f"{block} has an unexpected key: {keys - HARDWARE_KEYS}"
@@ -175,7 +187,8 @@ def test_writing_a_configuration_produces_the_split_shape():
         "imaging",
     }
     assert "imaging" not in written
-    assert set(written["hardware"]["electron"]) <= HARDWARE_KEYS
+    electron = utils.configuration_device(written, "electron")
+    assert set(electron) - {"name", "type"} <= HARDWARE_KEYS
     assert written["defaults"]["electron"]["voltage"] == 2000
 
 
@@ -291,13 +304,18 @@ def test_applying_at_connect_sets_only_the_defaults(tmp_path, monkeypatch):
     from fibsem.microscope import FibsemMicroscope
 
     keys = []
-    original = FibsemMicroscope.set
+    original = FibsemMicroscope._write_beam
 
     def spy(self, key, *args, **kwargs):
         keys.append(key)
         return original(self, key, *args, **kwargs)
 
-    monkeypatch.setattr(FibsemMicroscope, "set", spy)
+    monkeypatch.setattr(FibsemMicroscope, "_write_beam", spy)
+    # the column's enabled flag, geometry and gas are set only with the system settings
+    system = []
+    monkeypatch.setattr(
+        FibsemMicroscope, "set_beam_system_settings", lambda *a: system.append(a)
+    )
     moved = []
     monkeypatch.setattr(
         FibsemMicroscope, "move_stage_absolute", lambda *a, **k: moved.append(a)
@@ -306,8 +324,8 @@ def test_applying_at_connect_sets_only_the_defaults(tmp_path, monkeypatch):
     try:
         assert microscope.connect_actions["defaults"] is True
         assert "hfw" in keys
-        for key in ("beam_enabled", "plasma_gas", "eucentric_height", "column_tilt"):
-            assert key not in keys, key
+        assert "plasma_gas" not in keys
+        assert system == []
         assert moved == []
     finally:
         microscope.disconnect()
@@ -315,7 +333,7 @@ def test_applying_at_connect_sets_only_the_defaults(tmp_path, monkeypatch):
 
 def _beams_off(monkeypatch):
     """Connect to a simulator whose columns start off, and count what turns on."""
-    from fibsem.microscopes.simulator import DemoMicroscope
+    from fibsem.drivers.demo.simulator import DemoMicroscope
 
     turned_on = []
     original = DemoMicroscope.connect_to_microscope
@@ -360,7 +378,7 @@ def test_connecting_turns_the_beams_on_when_the_file_says(tmp_path, monkeypatch)
 
 def test_a_beam_that_is_on_is_left_alone(tmp_path, monkeypatch):
     """Only ever on: a column already running is not turned on again."""
-    from fibsem.microscopes.simulator import DemoMicroscope
+    from fibsem.drivers.demo.simulator import DemoMicroscope
 
     calls = []
     monkeypatch.setattr(
