@@ -8,7 +8,8 @@ import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtGui import QFontMetrics
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFontMetrics, QIcon
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QDialog, QLabel
 
@@ -102,34 +103,34 @@ class TestSelection:
     def test_rows_and_defaults(self, view):
         assert view.grid_empty.isHidden() and view.task_empty.isHidden()
         assert list(view._grid_rows) == ["Grid-01", "Grid-02", "Grid-03", "grid-oak"]
-        assert view.grid_header.trailing.text() == "3 of 4 present"
+        assert view.grid_header.count_label.text() == "4 · 3 present"
         assert not view._grid_rows["grid-oak"].checkbox.isEnabled()
         # every task ticked by default, in the protocol's order
         assert view.get_selected_task_names() == ["overview_sem", "overview_fm"]
         assert view.get_selected_grids() == []
-        assert view.summary_label.text() == "0 grids, 2 tasks selected"
+        assert view.selection_summary() == "0 grids, 2 tasks"
 
     def test_select_all_ticks_only_present_grids(self, view):
-        view.grid_header.select_all.setChecked(True)
+        view.grid_header.checkbox_all.setChecked(True)
         assert [g.name for g in view.get_selected_grids()] == [
             "Grid-01",
             "Grid-02",
             "Grid-03",
         ]
-        assert view.summary_label.text() == "3 grids, 2 tasks selected · 3 exchanges"
+        assert view.selection_summary() == "3 grids, 2 tasks · 3 exchanges"
 
     def test_clearing_from_the_window_unticks_the_header_too(self, view):
-        view.grid_header.select_all.setChecked(True)
+        view.grid_header.checkbox_all.setChecked(True)
         view.set_all_grids_selected(False)  # as a run starting does
         assert view.get_selected_grids() == []
-        assert not view.grid_header.select_all.isChecked()
-        view.grid_header.select_all.setChecked(True)  # one click selects all again
+        assert not view.grid_header.checkbox_all.isChecked()
+        view.grid_header.checkbox_all.setChecked(True)  # one click selects all again
         assert len(view.get_selected_grids()) == 3
 
     def test_a_grid_in_the_beam_costs_no_exchange(self, view, arctis):
         arctis._stage.ensure_loaded("Grid-02")
         view.refresh()
-        view.grid_header.select_all.setChecked(True)
+        view.grid_header.checkbox_all.setChecked(True)
         assert view.exchanges_for(view.get_selected_grids()) == 2
         row = view._grid_rows["Grid-02"]
         assert [c.text() for c in row._chip_widgets] == ["Loaded"]
@@ -201,8 +202,8 @@ class TestSelection:
 
     def test_screen_all_needs_a_task_and_a_stage(self, view):
         assert view.btn_screen_all.isEnabled()
-        assert view.task_header.select_all.isChecked()  # reads the rows
-        view.task_header.select_all.setChecked(False)
+        assert view.task_header.checkbox_all.isChecked()  # reads the rows
+        view.task_header.checkbox_all.setChecked(False)
         assert view.get_selected_task_names() == []
         assert not view.btn_screen_all.isEnabled()
         view.set_all_tasks_selected(True)
@@ -454,6 +455,43 @@ def _wait_for_run(ui, timeout_s: float = 90.0) -> None:
     assert not ui.is_workflow_running, "the grid run did not finish in time"
 
 
+class TestPanelChrome:
+    """The Lamella page's list chrome: one header style, Screen all on the grid
+    list's, settings and hints on the task list's, and no footer."""
+
+    def test_headers_count_and_carry_screen_all(self, view):
+        assert view.grid_header.count_label.text() == "4 \u00b7 3 present"
+        assert view.task_header.count_label.text() == "2"
+        assert view.btn_screen_all.parent() is view.grid_header
+        for gone in ("summary_label", "task_hint"):
+            assert not hasattr(view, gone)
+
+    def test_the_task_header_reads_partly_ticked(self, view):
+        view._task_rows["overview_fm"].checkbox.setChecked(False)
+        box = view.task_header.checkbox_all
+        assert box.checkState() == Qt.CheckState.PartiallyChecked
+        box.click()  # partly ticked: one click ticks them all
+        assert view.get_selected_task_names() == ["overview_sem", "overview_fm"]
+        assert box.checkState() == Qt.CheckState.Checked
+
+    def test_the_gear_is_disabled_until_grid_runs_have_options(self, view):
+        # on the Lamella page ⚙ opens the workflow's options; a grid run has
+        # none yet, and ⚙ is not a way to the Protocol tab
+        assert not view.btn_settings.isEnabled()
+        # and looks it: Qt's own disabled icon read as enabled on this palette
+        image = view.btn_settings.icon().pixmap(16, 16, QIcon.Disabled).toImage()
+        drawn = [
+            image.pixelColor(x, y)
+            for x in range(image.width())
+            for y in range(image.height())
+            if image.pixelColor(x, y).alpha() > 128
+        ]
+        assert drawn and max(c.lightness() for c in drawn) < 0x80
+        assert "No grid workflow options" in view.btn_settings.toolTip()
+        hints = view.btn_help.toolTip()
+        assert "order they run" in hints and "Protocol tab's Grid page" in hints
+
+
 def test_the_grids_view_sits_beside_lamella(main_ui):
     left = main_ui.workflow_left_tabs
     index = left.indexOf(main_ui.grid_workflow_widget)
@@ -583,7 +621,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
 
     view = main_ui.grid_workflow_widget
     main_ui.workflow_left_tabs.setCurrentWidget(view)
-    view.grid_header.select_all.setChecked(True)
+    view.grid_header.checkbox_all.setChecked(True)
     assert main_ui.workflow_controls.run_btn.isEnabled()
     assert "1 grid, 1 task" in main_ui.workflow_controls.run_btn.toolTip()
 
@@ -601,7 +639,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     # could not queue grid-aspen again; the task ticks stay for the next add.
     # Checked after the run: a failure mid-run would leave its worker going.
     assert view.get_selected_grids() == []
-    assert not view.grid_header.select_all.isChecked()
+    assert not view.grid_header.checkbox_all.isChecked()
     assert view.get_selected_task_names() == ["overview_sem"]
 
     grid = exp.get_grid_by_name("grid-aspen")
@@ -740,7 +778,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
 
     monkeypatch.setattr(module, "GridRunPreflightDialog", _Capture)
     view = main_ui.grid_workflow_widget
-    view.grid_header.select_all.setChecked(True)
+    view.grid_header.checkbox_all.setChecked(True)
     main_ui._run_grid_workflow()
     assert shown == [["grid-birch"]]
     assert main_ui._present_grids_not_run() == ["grid-birch"]
@@ -763,7 +801,7 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
     )
     from fibsem.util.durations import format_duration_rounded
 
-    view.grid_header.select_all.setChecked(True)
+    view.grid_header.checkbox_all.setChecked(True)
     grids = view.get_selected_grids()
     names = [g.name for g in grids]
     exchanges = view.exchanges_for(grids)
@@ -867,7 +905,7 @@ def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
             return QDialog.Rejected  # look, do not run
 
     monkeypatch.setattr(module, "GridRunPreflightDialog", _Capture)
-    main_ui.grid_workflow_widget.grid_header.select_all.setChecked(True)
+    main_ui.grid_workflow_widget.grid_header.checkbox_all.setChecked(True)
     main_ui._run_grid_workflow()
     (estimate,) = shown
     assert [(t.name, t.lamella_count) for t in estimate.tasks] == [("overview_sem", 2)]

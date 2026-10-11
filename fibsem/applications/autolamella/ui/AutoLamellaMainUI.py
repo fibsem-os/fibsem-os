@@ -1926,8 +1926,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                     ),
                 )
             self._say_selection(
-                f"Ready to run: {n_grid} grid{'s' if n_grid != 1 else ''}, "
-                f"{n_task} task{'s' if n_task != 1 else ''}."
+                f"Ready to run: {self.grid_workflow_widget.selection_summary()}."
                 if valid
                 else "Select a present grid and a task to run the grid workflow."
             )
