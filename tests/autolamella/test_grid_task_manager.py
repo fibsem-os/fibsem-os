@@ -507,7 +507,7 @@ class TestTasksThatNeedNoBeam:
     def test_it_runs_on_a_grid_that_would_not_load(
         self, manager, experiment, microscope
     ):
-        microscope._stage.loader.fail_next_exchange = True
+        microscope._stage.loader.device.fail_next_exchange = True
         executed = run_with_stub(manager, ["overview_sem", "score_tiles"], ["Grid-01"])
         assert executed == [("Grid-01", "score_tiles")]
         assert [(i.task_name, i.status) for i in manager.queue.items] == [
