@@ -1925,6 +1925,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                         else "Select a present grid and a task to add to the queue"
                     ),
                 )
+            self._say_selection(
+                f"Ready to run: {n_grid} grid{'s' if n_grid != 1 else ''}, "
+                f"{n_task} task{'s' if n_task != 1 else ''}."
+                if valid
+                else "Select a present grid and a task to run the grid workflow."
+            )
             return
         n_lam = len(self.lamella_workflow_widget.get_selected_lamella())
         n_task = len(self.lamella_workflow_widget.get_selected_tasks())
@@ -1953,6 +1959,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.workflow_timeline.set_add_enabled(
                 valid and not refused, refused or tip
             )
+        self._say_selection(
+            f"Ready to run: {n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''}."
+            if valid
+            else f"{tooltip}."
+        )
+
+    def _say_selection(self, text: str) -> None:
+        """What the Workflow tab's selection means, as the status line's last
+        instruction: the panel's footer said it, under the lists, before the
+        status line could."""
+        self._selection_instruction = text
+        self._update_instructions()
 
     def set_workflow_running(self):
         """Show the stop button, and lock what a run owns.
@@ -2163,7 +2181,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         elif not has_positions:
             msg = INSTRUCTIONS["NO_LAMELLA"]
         else:
-            msg = INSTRUCTIONS["AUTOLAMELLA_READY"]
+            # What the selection allows, once the Workflow tab has one to say.
+            msg = (
+                getattr(self, "_selection_instruction", None)
+                or INSTRUCTIONS["AUTOLAMELLA_READY"]
+            )
 
         self.status_bar.set_instruction(msg)
 
@@ -2372,7 +2394,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Rebuild lamella list and wire position events for the new experiment
         self._rebuild_lamella_list()
         self._on_workflow_selection_changed()  # evaluate after lamella are populated
-        self.lamella_workflow_widget._update_summary()
         self._wire_position_events()
 
     def _wire_position_events(self):
