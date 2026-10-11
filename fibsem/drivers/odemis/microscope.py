@@ -289,6 +289,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
         self._build_devices()
         self._build_milling()
+        self._build_stage_movement()
         self._build_spot_burn()
 
         self.fm = self._build_fluorescence(manufacturers.ODEMIS)
