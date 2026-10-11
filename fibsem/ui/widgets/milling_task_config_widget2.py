@@ -15,9 +15,9 @@ from PyQt5.QtWidgets import (
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, FibsemMillingSettings, get_fields_with_metadata
 from fibsem.ui import stylesheets
-from fibsem.ui.utils import beam_limits, set_range_from_limits
+from fibsem.ui.utils import beam_field_metadata
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
@@ -26,21 +26,19 @@ from fibsem.ui.widgets.custom_widgets import (
     header_chip,
     set_header_chip,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.milling_alignment_widget import FibsemMillingAlignmentWidget
 from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget
 from fibsem.ui.widgets.milling_task_acquisition_settings_widget import (
     FibsemMillingTaskAcquisitionSettingsWidget,
 )
 
+# The task's field of view is its stages' milling field of view.
+_MILLING_HFW = get_fields_with_metadata(FibsemMillingSettings)["hfw"]
+
 _WIDGET_CONFIG = {
     "name": {"default": "Milling Task", "placeholder": "Enter task name..."},
-    "field_of_view": {
-        "decimals": 1,
-        "step": 5.0,
-        "default": 150.0,
-        "suffix": " μm",
-        "tooltip": "Field of view in micrometers (μm)",
-    },
+    "field_of_view": {"default": 150.0},
 }
 
 _INSTRUCTIONS_TEXT = "Instructions: Right Click to Move Current Pattern"
@@ -112,18 +110,13 @@ class MillingTaskConfigWidget2(QWidget):
         self.name_edit.setPlaceholderText(_WIDGET_CONFIG["name"]["placeholder"])
 
         fov = _WIDGET_CONFIG["field_of_view"]
-        self.field_of_view_spinbox = ValueSpinBox(
-            suffix=fov["suffix"],
-            step=fov["step"],
-            decimals=fov["decimals"],
-        )
-        set_range_from_limits(
+        # shown as the milling field of view is, in the ion beam's range
+        self.field_of_view_spinbox = ValueSpinBox()
+        configure_spinbox(
             self.field_of_view_spinbox,
-            beam_limits(self.microscope, "hfw", BeamType.ION),
-            constants.SI_TO_MICRO,
+            beam_field_metadata(_MILLING_HFW, self.microscope, BeamType.ION),
         )
         self.field_of_view_spinbox.setValue(fov["default"])
-        self.field_of_view_spinbox.setToolTip(fov["tooltip"])
 
         self.label_instructions = QLabel(_INSTRUCTIONS_TEXT)
         self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
