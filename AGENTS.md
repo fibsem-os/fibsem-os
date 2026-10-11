@@ -2,7 +2,7 @@
 
 **Read [CONTRIBUTING.md](CONTRIBUTING.md) first.** Everything in it applies to you: the
 five-file target for pull requests, the `Release-Note:` commit trailer and where it must sit,
-the Python 3.8 floor in signatures, format-on-touch, `QT_QPA_PLATFORM=offscreen`, the
+the Python 3.10 floor, format-on-touch, `QT_QPA_PLATFORM=offscreen`, the
 palette tokens, and the rule that nothing reaches the network unless a user asked it to.
 
 This file covers only what is specific to working here as an agent.

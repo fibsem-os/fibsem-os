@@ -29,6 +29,7 @@ import numpy as np
 from fibsem.correlation.geometry import NominalTransform
 from fibsem.correlation.history import CorrelationRun, LamellaCorrelation
 from fibsem.correlation.structures import CorrelationResult
+from fibsem.util.timestamps import to_datetime
 
 __all__ = [
     "PriorTransform",
@@ -55,7 +56,11 @@ def transform_from_result(
     """The fitted transform of a saved result, in the current images' units.
 
     A result fitted before FIB-881 (``fm_z_scale`` 1.0 on an anisotropic stack)
-    has its depth column in raw slices; it is brought to isotropic units.
+    has its depth column in raw slices; it is brought to isotropic units with
+    the anisotropy of the stack it was fitted on -- its own recorded z step,
+    not the current stack's, which differs whenever the prior came from an
+    interpolated or re-acquired stack (FIB-1240). The xy pixel size is the
+    current one: the same camera and objective, and a run does not record it.
     Returns None when the result holds no usable rotation.
     """
     R = np.asarray(result.rotation_quaternion, dtype=float)
@@ -68,7 +73,11 @@ def transform_from_result(
     if prior_fib_px and fib_pixel_size:
         scale *= float(prior_fib_px) / float(fib_pixel_size)
     P = scale * R[:2, :]
-    zan = fm_pixel_size_z / fm_pixel_size if fm_pixel_size and fm_pixel_size_z else 1.0
+    fitted_z = None
+    if result.input_data is not None:
+        fitted_z = result.input_data.fm_pixel_size_z
+    fitted_z = fitted_z or fm_pixel_size_z
+    zan = fitted_z / fm_pixel_size if fm_pixel_size and fitted_z else 1.0
     if result.fm_z_scale == 1.0 and abs(zan - 1.0) > 1e-6:
         # Fitted on raw slices: the depth column is per slice, not per xy
         # pixel. Rescaling it reproduces that fit's predictions exactly; the
@@ -139,7 +148,7 @@ MAX_RMS_UM_FOR_OFFSET = 2.0
 def placement_offset_from_runs(
     runs: Sequence[Tuple[str, CorrelationRun]],
     *,
-    now: Optional[float] = None,
+    now=None,
     max_rms_um: float = MAX_RMS_UM_FOR_OFFSET,
 ) -> Optional[PlacementOffset]:
     """The first run, in the given order, that recorded a usable placement offset.
@@ -159,7 +168,10 @@ def placement_offset_from_runs(
         if rms_um is None or rms_um > max_rms_um:
             logging.debug(f"placement offset from {label} skipped: rms {rms_um} um")
             continue
-        age = max(0.0, ((now if now is not None else time.time()) - result.updated_at))
+        # `now` and the result's time: aware datetimes, or POSIX (FIB-1197)
+        current = to_datetime(now if now is not None else time.time())
+        updated = to_datetime(result.updated_at)
+        age = max(0.0, (current - updated).total_seconds()) if updated else 0.0
         return PlacementOffset(
             offset_um=np.asarray(offset, dtype=float),
             source=label,

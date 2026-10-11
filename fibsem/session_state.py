@@ -135,7 +135,7 @@ class SessionState:
         if self.path is None or not self.path.exists():
             return {}
         try:
-            with open(self.path, "r") as f:
+            with open(self.path) as f:
                 data = yaml.safe_load(f)
         except Exception as e:
             logging.warning(f"Session state {self.path} could not be read: {e}")

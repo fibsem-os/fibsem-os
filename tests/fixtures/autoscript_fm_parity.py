@@ -1,10 +1,12 @@
-"""Record the AutoScript calls of Thermo's old FM class and of the FM device drivers.
+"""Record the AutoScript calls of the Thermo FM device drivers and the FM API over them.
 
 Run as a script, in its own interpreter: it installs a fake
 ``autoscript_sdb_microscope_client`` in ``sys.modules`` before importing
 ``fibsem.fm.autoscript``, which must see the SDK at import. It writes JSON to the path
-it is given: ``cases``, each holding the old call's result and SDK log and the
-driver's, for the test to compare.
+it is given: ``cases`` and ``api``, each holding a call's result and SDK log, for the
+test to compare with what Thermo's old FM class did in the same case
+(``autoscript_fm_old_pins.json``, recorded from it over this fake before it was
+removed).
 
 Each log entry is ``[kind, path, args, view]``: ``view`` is the connection's active
 view when the call was made, so the test can check that every FM call was made with
@@ -74,7 +76,7 @@ def _install_fake_sdk():
     package = types.ModuleType("autoscript_sdb_microscope_client")
     package.SdbMicroscopeClient = type("SdbMicroscopeClient", (), {})
     build = types.ModuleType("autoscript_sdb_microscope_client.build_information")
-    build.INFO_VERSIONSHORT = "4.8.1"
+    build.INFO_VERSIONSHORT = "4.9.0"
     package.build_information = build
     proxies = types.ModuleType(
         "autoscript_sdb_microscope_client._dynamic_object_proxies"
@@ -90,7 +92,7 @@ def _install_fake_sdk():
         setattr(enums, name, value)
     structs.GrabFrameSettings = GrabFrameSettings
     structs.Limits = Limits
-    # Anything else fibsem.microscopes.autoscript imports, by name.
+    # Anything else fibsem.drivers.autoscript.microscope imports, by name.
     for module in (proxies, enums, structs):
         module.__getattr__ = lambda name: type(name, (), {})
     for module in (package, build, proxies, enums, structs):
@@ -231,7 +233,7 @@ class FakeDetector:
     def __init__(self, objective, filter_mode):
         self._settings = FakeCameraSettings(filter_mode)
         self._state = objective
-        self.contrast = Setting("detector.contrast", 0.3)
+        self.contrast = Setting("detector.contrast", 0.3, limits=(0.0, 1.0))
         self.brightness = Setting("detector.brightness", 0.2, limits=(0.0, 1.0))
 
     @property
@@ -258,14 +260,13 @@ def make_connection(objective, filter_mode):
     )
 
 
-# -- the old class and the drivers, each over its own fake connection ----------------
+# -- the drivers, over a fake connection ------------------------------------------------
 
 from fibsem.devices.core import IMAGING_CHANNEL, Resources  # noqa: E402
-from fibsem.devices.drivers.autoscript_fm import (  # noqa: E402
+from fibsem.drivers.autoscript.devices import (  # noqa: E402
     MULTI_BAND,
     bind_autoscript_fm,
 )
-from fibsem.fm.autoscript import ThermoFisherFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import REFLECTION, ChannelSettings  # noqa: E402
 
 
@@ -287,12 +288,6 @@ class Parent:
 
     def fm_image_geometry(self):
         return None
-
-
-def old_fm(view, objective, filter_mode):
-    connection = make_connection(objective, filter_mode)
-    fm = ThermoFisherFluorescenceMicroscope(Parent(connection), connection)
-    return fm, connection
 
 
 def new_fm(view, objective, filter_mode):
@@ -320,41 +315,23 @@ def _value(value):
     return _plain(value)
 
 
-def _metadata(image):
-    """What the frame was taken with, from an old image or a device frame."""
-    md = image.metadata
-    if isinstance(md, dict):  # a device Frame
-        emission = md.get("emission_filter")
-        return {
-            "exposure_time": md["exposure_time"],
-            "gain": md["gain"],
-            "offset": md["offset"],
-            "binning": md["binning"],
-            "pixel_size": list(md["pixel_size"]),
-            "resolution": list(md["resolution"]),
-            "power": md["power"],
-            "excitation_wavelength": md["excitation_wavelength"],
-            "emission": "REFLECTION"
-            if emission == REFLECTION.to_dict()
-            else "MULTI_BAND",
-            "objective_position": md["objective_position"],
-            "objective_magnification": md["objective_magnification"],
-            "objective_numerical_aperture": md["objective_numerical_aperture"],
-        }
-    ch = md.channels[0]
+def _metadata(frame):
+    """What a device frame was taken with, named as the pins name it."""
+    md = frame.metadata
+    emission = md.get("emission_filter")
     return {
-        "exposure_time": ch.exposure_time,
-        "gain": ch.gain,
-        "offset": ch.offset,
-        "binning": ch.binning,
-        "pixel_size": [md.pixel_size_x, md.pixel_size_y],
-        "resolution": list(md.resolution),
-        "power": ch.power,
-        "excitation_wavelength": ch.excitation_wavelength,
-        "emission": "REFLECTION" if ch.emission_wavelength is None else "MULTI_BAND",
-        "objective_position": ch.objective_position,
-        "objective_magnification": ch.objective_magnification,
-        "objective_numerical_aperture": ch.objective_numerical_aperture,
+        "exposure_time": md["exposure_time"],
+        "gain": md["gain"],
+        "offset": md["offset"],
+        "binning": md["binning"],
+        "pixel_size": list(md["pixel_size"]),
+        "resolution": list(md["resolution"]),
+        "power": md["power"],
+        "excitation_wavelength": md["excitation_wavelength"],
+        "emission": "REFLECTION" if emission == REFLECTION.to_dict() else "MULTI_BAND",
+        "objective_position": md["objective_position"],
+        "objective_magnification": md["objective_magnification"],
+        "objective_numerical_aperture": md["objective_numerical_aperture"],
     }
 
 
@@ -370,12 +347,10 @@ def run(fn, view):
 
 
 def pair(view, objective, filter_mode, old, new):
-    """Run *old* on the old class and *new* on the drivers, each over a fresh fake."""
-    fm, _ = old_fm(view, objective, filter_mode)
-    out = {"old": run(lambda: old(fm), view)}
+    """Run *new* on the drivers over a fresh fake. *old* is the old class's call the
+    pin for the case recorded, kept as the record of what each pin is."""
     devices, _ = new_fm(view, objective, filter_mode)  # binding is not part of a case
-    out["new"] = run(lambda: new(devices), view)
-    return out
+    return {"new": run(lambda: new(devices), view)}
 
 
 CHANNEL = ChannelSettings(
@@ -422,6 +397,14 @@ def _new_live(devices, channel, frames):
     out = [group.acquire_frame() for _ in range(frames)]
     group.stop_live()
     return out[-1].data
+
+
+def _old_contrast_limits(fm):
+    """The old class has no gain limits: its gain is the detector's contrast, read as
+    every old FM read is, on the FM view."""
+    with fm.active_channel():
+        limits = fm.connection.detector.contrast.limits
+        return [limits.min, limits.max]
 
 
 def cases():
@@ -503,6 +486,11 @@ def _cases(add):
     )
     add("camera get gain", lambda fm: fm.camera.gain, lambda d: cam(d).gain.get_value())
     add(
+        "camera gain limits",
+        _old_contrast_limits,
+        lambda d: cam(d).metadata_gain().limits,
+    )
+    add(
         "camera set gain",
         lambda fm: setattr(fm.camera, "gain", 0.7),
         lambda d: cam(d).gain.write_through(0.7),
@@ -575,8 +563,8 @@ def _cases(add):
         lambda fm: list(fm.filter_set.available_excitation_wavelengths),
         lambda d: filters(d).metadata_excitation_wavelength().choices,
     )
-    # The old filter set says fluorescence with the excitation wavelength, as the FM
-    # adapter (FMFilterSet) reads it: the multi-band filter.
+    # The old filter set says fluorescence with the excitation wavelength, which reads
+    # as the multi-band filter.
     add(
         "filter get emission",
         lambda fm: (
@@ -674,16 +662,15 @@ def _cases(add):
         )
 
 
-# -- the FM API: today's class, and the FM API over the devices --------------------
+# -- the FM API over the devices ---------------------------------------------------------
 
 
 def api_pair(view, objective, filter_mode, fn):
-    """Run *fn* on today's Thermo FM class and on the FM API over the devices, each
-    over a fresh fake: the same call on both, since the API is the same."""
+    """Run *fn* on the FM API over the devices, over a fresh fake: the call the old
+    class's pin recorded, since the API is the same."""
     from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
 
-    fm, _ = old_fm(view, objective, filter_mode)
-    out = {"old": run(lambda: _api_value(fn(fm)), view)}
+    out = {}
     connection = make_connection(objective, filter_mode)
     parent = Parent(connection)
     devices = bind_autoscript_fm(parent)
@@ -698,6 +685,7 @@ def _api_value(value):
     if hasattr(value, "data") and hasattr(value, "metadata"):
         md = value.metadata.to_dict()
         md.pop("acquisition_date", None)
+        md.pop("acquisition_datetime", None)  # the same time, with its offset
         for channel in md.get("channels") or []:
             channel.pop("acquisition_date", None)
         return {"data": _value(value.data), "metadata": _plain(md)}
@@ -853,11 +841,26 @@ def _completes_while_held(view, read):
 
 def _thermo_microscope_fm():
     """What a Thermo microscope builds its FM from."""
-    import fibsem.microscopes.autoscript as A
+    from types import SimpleNamespace
+
+    import fibsem.drivers.autoscript.microscope as A
+    from fibsem.drivers.autoscript.devices import build_autoscript_fm
+    from fibsem.drivers.registry import BuildContext
+    from fibsem.structures import (
+        CameraImageTransform,
+        DeviceEntry,
+        FluorescenceSystemSettings,
+    )
 
     microscope = object.__new__(A.ThermoMicroscope)
     microscope.connection = make_connection("Retracted", CameraFilterType.FLUORESCENCE)
-    fm = microscope._connect_fluorescence_devices()
+    microscope.system = SimpleNamespace(
+        fm=FluorescenceSystemSettings(mount_transform=CameraImageTransform.FLIP_Y)
+    )
+    fm = build_autoscript_fm(
+        DeviceEntry.from_dict(microscope.system.fm.to_dict(), name="fm"),
+        BuildContext(microscope=microscope),
+    )
     group = fm.devices["fm"]
     return {
         "fm": type(fm).__name__,
@@ -865,6 +868,7 @@ def _thermo_microscope_fm():
         "live_timeout": group.live_timeout,
         "shares_the_microscope_lock": group._channel.lock is microscope._threading_lock,
         "parent": fm.parent is microscope,
+        "mount_transform": fm.mount_transform.value,
     }
 
 

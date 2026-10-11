@@ -38,6 +38,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
+from fibsem.util.timestamps import now, to_datetime, to_iso
 
 __all__ = [
     "Alternative",
@@ -716,7 +717,9 @@ class Decision:
     author: Author
     values: Dict[str, Any] = field(default_factory=dict)  # confirmed values
     reason: str = ""  # required on Rejected
-    timestamp: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older records hold a
+    # POSIX float, which reads as this machine's zone. None when the record has none.
+    timestamp: Optional[datetime] = field(default_factory=now)
     # Where it was decided: "workflow" (inline, in the task's own question, or
     # the producer confirming its own proposal), "review" (the Review tab) or
     # "server" (an agent over the API). The author says who; this says where,
@@ -744,7 +747,7 @@ class Decision:
             "author": str(self.author),
             "values": _encode_values(self.values),
             "reason": self.reason,
-            "timestamp": self.timestamp,
+            "timestamp": to_iso(self.timestamp),
             "via": self.via,
             "task_id": self.task_id,
             "proposal_id": self.proposal_id,
@@ -757,7 +760,7 @@ class Decision:
             author=Author.parse(data.get("author", "")),
             values=_decode_values(data.get("values", {})),
             reason=data.get("reason", ""),
-            timestamp=data.get("timestamp", 0.0),
+            timestamp=to_datetime(data.get("timestamp")),
             via=data.get("via", ""),
             task_id=data.get("task_id", ""),
             proposal_id=data.get("proposal_id", ""),
@@ -780,9 +783,9 @@ class Proposal:
     alternatives: List[Alternative] = field(default_factory=list)
     provenance: Dict[str, Any] = field(default_factory=dict)
     decisions: List[Decision] = field(default_factory=list)
-    created_at: float = field(
-        default_factory=lambda: datetime.timestamp(datetime.now())
-    )
+    # As Decision.timestamp (FIB-1197). The id of a proposal saved before proposals
+    # had one is derived from the value as stored, before this reads it.
+    created_at: Optional[datetime] = field(default_factory=now)
     # Whether the task that made this is parked on it right now, waiting to be
     # told the answer -- an in-run question rather than a result left for
     # later (FIB-1025). It is the one thing that lets a decision land on a
@@ -876,7 +879,7 @@ class Proposal:
             "alternatives": [a.to_dict() for a in self.alternatives],
             "provenance": dict(self.provenance),
             "decisions": [d.to_dict() for d in self.decisions],
-            "created_at": self.created_at,
+            "created_at": to_iso(self.created_at),
             "id": self.id,
         }
 
@@ -891,7 +894,7 @@ class Proposal:
             ],
             provenance=dict(data.get("provenance", {})),
             decisions=[Decision.from_dict(d) for d in data.get("decisions", [])],
-            created_at=data.get("created_at", 0.0),
+            created_at=to_datetime(data.get("created_at")),
             id=data.get("id") or _id_for_a_record_without_one(data),
         )
 

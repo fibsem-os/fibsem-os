@@ -1461,7 +1461,7 @@ def render_fluorescence(h: Harness) -> None:
         target=viewer,
         callouts=[
             Box(vcanvas),
-            Box(viewer.listWidget_images),
+            Box(viewer.image_viewer.fm_bar),
             viewer.pushButton_load_image,
         ],
         numbered=True,
@@ -2052,9 +2052,6 @@ def render_grid_workflow(h: Harness) -> None:
         add_verdict_actions,
         mark_current_verdict,
     )
-    from fibsem.applications.autolamella.ui.lamella_task_image_widget import (
-        ExpandedImageDialog,
-    )
     from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
         StepStatus,
     )
@@ -2332,10 +2329,18 @@ def render_grid_workflow(h: Harness) -> None:
         numbered=True,
     )
     rows[0].tile.clicked.emit(rows[0].tile._filepath)
-    h.pump(800)
-    dialog = rows[0].findChild(ExpandedImageDialog)
+    # The image viewer reads the stitched overview off the GUI thread.
+    from fibsem.ui.widgets import image_viewer_dialog
+
+    dialog = getattr(rows[0].window(), image_viewer_dialog._DIALOG_ATTRIBUTE, None)
     if dialog is None:
-        raise RuntimeError("the overview dialog did not open")
+        raise RuntimeError("the image viewer did not open")
+    for _ in range(50):
+        h.pump(100)
+        if dialog.viewer.image is not None:
+            break
+    else:
+        raise RuntimeError("the overview never loaded in the image viewer")
     h.shot("overview-dialog", target=dialog)
     dialog.close()
     h.pump(300)
@@ -2772,9 +2777,9 @@ def render_correlation(h: Harness) -> None:
                     "reference_hfw": float(reference.metadata.image_settings.hfw),
                     "reference_px": float(reference.metadata.pixel_size.x),
                     "reference_shape": tuple(reference.data.shape),
-                    "beam_hfw": float(microscope.get("hfw", BeamType.ION)),
+                    "beam_hfw": float(microscope.get_field_of_view(BeamType.ION)),
                     "scan_rotation": float(
-                        microscope.get("scan_rotation", BeamType.ION) or 0.0
+                        microscope.get_scan_rotation(BeamType.ION) or 0.0
                     ),
                     "stage": str(microscope.get_stage_position()),
                 }

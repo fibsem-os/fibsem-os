@@ -10,8 +10,8 @@ from typing import List
 
 import pytest
 
-from fibsem.microscopes import tescan
-from fibsem.microscopes.tescan import TescanMicroscope
+from fibsem.drivers.tescan import microscope as tescan
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import BeamType
 
 

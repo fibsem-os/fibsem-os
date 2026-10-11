@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-from fibsem.microscopes import autoscript
+from fibsem.drivers.autoscript import microscope as autoscript
 
 
 def _fake_site_packages(root, name):

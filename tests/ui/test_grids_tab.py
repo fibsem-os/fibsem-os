@@ -1,6 +1,7 @@
 """The Grids tab: cards for the experiment's records, chips from the hardware."""
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -51,7 +52,7 @@ def tab(qapp, arctis, experiment):
 
 def entry(status, name="overview_sem"):
     state = AutoLamellaTaskState(name=name, status=status)
-    state.end_timestamp = state.start_timestamp + 1
+    state.end_timestamp = state.start_timestamp + timedelta(seconds=1)
     return state
 
 
@@ -180,7 +181,7 @@ class TestCards:
 
     def test_a_refused_exchange_is_reported(self, tab, arctis):
         tab.btn_inventory.click()
-        arctis._stage.loader.fail_next_exchange = True
+        arctis._stage.loader.device.fail_next_exchange = True
         tab.cards.cards[0]._action_load.trigger()
         assert "Simulated autoloader exchange failure" in tab.status_label.text()
         assert tab.cards.cards[0]._action_load.isEnabled()
@@ -322,7 +323,7 @@ class TestCards:
 
 def test_on_a_fixed_holder_there_is_nothing_to_load(qapp, experiment):
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope.stage_device.compustage = False
     microscope._stage = _create_sample_stage(microscope)
     microscope._stage.holder.slots["Slot-01"].loaded_grid = SampleGrid(
         name="grid-aspen"
@@ -445,15 +446,15 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     """Seen on the bench: unloading from the Grids tab left the Sample view
     showing the grid still on the stage. The Sample view draws from the stage
     and never polls it, so the Grids tab's exchanges have to tell it."""
-    from fibsem.microscopes._stage import DemoSampleLoader
     from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
+    from tests.fixtures.demo_stage import demo_grid_loader
 
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope._stage = _create_sample_stage(microscope)
-    microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1, 2))
+    microscope._stage.loader = demo_grid_loader(microscope, occupied=(1, 2))
     # The Sample view is built at connect, against the stage of that moment;
     # rebuild it for the swapped stage the way a connect would.
     ui.sample_widget = FibsemSampleWidget(microscope=microscope)
@@ -483,15 +484,15 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
 def _window_with_magazine(main_ui, tmp_path):
     """The window on a simulated autoloader with grids in slots 1-3, an
     experiment open, and the Grids tab's inventory read."""
-    from fibsem.microscopes._stage import DemoSampleLoader
     from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
+    from tests.fixtures.demo_stage import demo_grid_loader
 
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope._stage = _create_sample_stage(microscope)
-    microscope._stage.loader = DemoSampleLoader(microscope, occupied=(1, 2, 3))
+    microscope._stage.loader = demo_grid_loader(microscope, occupied=(1, 2, 3))
     ui.sample_widget = FibsemSampleWidget(microscope=microscope)
     main_ui._refresh_grids_tab_microscope()
     exp = Experiment(path=tmp_path, name="exp")

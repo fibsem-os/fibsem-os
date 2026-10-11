@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -48,8 +48,8 @@ class VerticalMoveRequest(BaseModel):
     dx: float = 0.0
 
 
-class FlatToBeamRequest(BaseModel):
-    beam_type: str
+class OrientationRequest(BaseModel):
+    orientation: str
 
 
 # --- Beam / Detector / State ---
@@ -65,7 +65,6 @@ class BeamSystemSettingsRequest(BaseModel):
 
 class DetectorSettingsRequest(BaseModel):
     detector_settings: Dict[str, Any]
-    beam_type: str
 
 
 class MicroscopeStateRequest(BaseModel):
@@ -76,26 +75,6 @@ class ImageSettingsRequest(BaseModel):
     image_settings: Dict[str, Any]
 
 
-class FloatBeamRequest(BaseModel):
-    value: float
-    beam_type: str
-
-
-class StringBeamRequest(BaseModel):
-    value: str
-    beam_type: str
-
-
-class PointBeamRequest(BaseModel):
-    value: Dict[str, Any]  # Point.to_dict()
-    beam_type: str
-
-
-class ResolutionBeamRequest(BaseModel):
-    value: List[int]  # [width, height]
-    beam_type: str
-
-
 # --- Milling ---
 
 
@@ -103,20 +82,9 @@ class MillingSettingsRequest(BaseModel):
     mill_settings: Dict[str, Any]
 
 
-class RunMillingRequest(BaseModel):
-    milling_current: float
-    milling_voltage: float
-    asynch: bool = False
-
-
 class FinishMillingRequest(BaseModel):
     imaging_current: float
     imaging_voltage: float
-
-
-class AvailableValuesRequest(BaseModel):
-    key: str
-    beam_type: Optional[str] = None  # "ELECTRON", "ION", or None
 
 
 class DrawPatternsRequest(BaseModel):

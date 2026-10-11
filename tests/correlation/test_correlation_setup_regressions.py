@@ -167,8 +167,9 @@ def test_interpolating_does_not_look_like_an_edit(qapp, monkeypatch):
     assert not w._has_manual_edits()
 
     w._adopt_interpolated_volume(_fm_image(nz=22, pixel_size_z=100e-9), old_nz=11)
-    assert w.data.fm_coordinates[0].point.z == pytest.approx(8.0)  # z did move
-    assert not w._has_manual_edits()  # ...but the user didn't move it
+    # the view is resampled, the points are not (FIB-1248)
+    assert w.data.fm_coordinates[0].point.z == pytest.approx(4.0)
+    assert not w._has_manual_edits()
 
     asked = _asked(monkeypatch, QMessageBox.Ok)
     section.rb_burns.setChecked(True)
@@ -306,6 +307,7 @@ def _editor_stub(lamella_path, fib_filename, image):
     stub._image_path = Editor._image_path
     stub._image_paths = Editor._image_paths
     stub._spot_burn_coordinates = Editor._spot_burn_coordinates
+    stub._spot_burn_field_width = Editor._spot_burn_field_width
     return stub
 
 

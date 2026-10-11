@@ -38,9 +38,10 @@ import logging
 import threading
 import time
 from collections import deque
-from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
+
+from fibsem.util.timestamps import iso_from_posix
 
 __all__ = [
     "EventBuffer",
@@ -88,11 +89,7 @@ def iso_time(timestamp: float) -> str:
     The offset is the point: the log and the image files record naive local
     time, which a reader on another machine has to guess the zone of.
     """
-    return (
-        datetime.fromtimestamp(timestamp)
-        .astimezone()
-        .isoformat(timespec="milliseconds")
-    )
+    return iso_from_posix(timestamp)
 
 
 class EventBuffer:

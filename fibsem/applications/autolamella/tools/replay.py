@@ -40,6 +40,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
 from fibsem.applications.autolamella.proposals import kind_label
+from fibsem.util.timestamps import wall_time_of
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,9 @@ _SPOT = re.compile(
     r"burning spot (\d+): Point\(x=([-+\d.e]+), y=([-+\d.e]+).*?"
     r"exposure time: ([-+\d.e]+), milling current: ([-+\d.e]+)"
 )
+# The functions that log that line: the spot burn service's point-by-point burn
+# (`SpotBurn._burn`), and the microscope's own spot burn in logs from before it.
+_SPOT_LOGGERS = ("run_spot_burn", "_burn")
 # `prompt answered: PickPOI response=True by=operator adjusted=False`
 _PROMPT = re.compile(
     r"^prompt answered: (\w+) response=(\w+) by=(\w+)(?: adjusted=(\w+))?"
@@ -762,9 +766,9 @@ def _fluorescence_event(path: Path) -> Optional[ReplayEvent]:
                 metadata = json.loads(value)
             except ValueError:
                 pass
-    started = _acquisition_time(metadata.get("acquisition_date"))
+    started = wall_time_of(metadata.get("acquisition_date"))
     if started is None and ome.images and ome.images[0].acquisition_date is not None:
-        started = _acquisition_time(ome.images[0].acquisition_date.isoformat())
+        started = wall_time_of(ome.images[0].acquisition_date)
     if started is None:
         return None
 
@@ -780,17 +784,6 @@ def _fluorescence_event(path: Path) -> Optional[ReplayEvent]:
         saved=True,
         position=metadata.get("stage_position"),
     )
-
-
-def _acquisition_time(value: Any) -> Optional[datetime]:
-    """When an FM acquisition started, as its metadata records it."""
-    try:
-        started = datetime.fromisoformat(str(value))
-    except (TypeError, ValueError):
-        return None
-    if started.tzinfo is not None:
-        started = started.astimezone().replace(tzinfo=None)
-    return started
 
 
 def _fluorescence_what(channels: List[str], planes: int, overview: bool = False) -> str:
@@ -884,7 +877,7 @@ def _load_from_log(root: Path) -> ExperimentReplay:
         if m is not None:
             events.append(_prompt_event(record, m, item, task, step))
             continue
-        if record.function == "run_spot_burn":
+        if record.function in _SPOT_LOGGERS:
             event = _spot_event(record)
             if event is not None:
                 event.item, event.task, event.step = item, task, step
@@ -1047,19 +1040,6 @@ _TASK_END_STEPS = {
 _SPOT_BURN_ENDS = ("finished", "cancelled", "failed")
 
 
-def _record_time(record: Dict[str, Any]) -> Optional[datetime]:
-    """When an event happened, on the instrument's wall clock.
-
-    ``t`` carries its UTC offset. The offset is dropped rather than converted
-    to this machine's zone, so the time reads as the log and the FM files
-    record theirs: naive, on the instrument's clock.
-    """
-    try:
-        return datetime.fromisoformat(record["t"]).replace(tzinfo=None)
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
 def _recorded_image(time: datetime, payload: Dict[str, Any]) -> ReplayEvent:
     beam = payload.get("beam_type")
     shape = payload.get("shape") or []
@@ -1113,7 +1093,26 @@ def _move_summary(payload: Dict[str, Any]) -> str:
     return text + _failed(payload)
 
 
+def _not_run(payload: Dict[str, Any], what: str) -> Optional[str]:
+    """The line for an operation that did not run to an end: skipped (with
+    why), cancelled, or failed (with the error). None for one that did, or a
+    record written before operations said how they ended."""
+    status = payload.get("status")
+    if status == "skipped":
+        reason = payload.get("reason")
+        return f"{what} skipped" + (f": {reason}" if reason else "")
+    if status == "cancelled" and not payload.get("results"):
+        return f"{what} cancelled"
+    if status == "failed":
+        return f"{what}{_failed(payload)}"
+    return None
+
+
 def _alignment_summary(payload: Dict[str, Any]) -> str:
+    beam = payload.get("beam_type")  # a task's skip has no image to say which
+    not_run = _not_run(payload, f"{_beam(beam)} alignment" if beam else "Alignment")
+    if not_run is not None:
+        return not_run
     steps = payload.get("results") or []
     subsystem = str(payload.get("subsystem") or "?").replace("-", " ")
     text = (
@@ -1419,7 +1418,7 @@ def _recorded_fluorescence(
     if recorded:
         what += f" — {_pure_path(recorded).name}"
     return ReplayEvent(
-        time=_acquisition_time(payload.get("acquired_at")) or time,
+        time=wall_time_of(payload.get("acquired_at")) or time,
         kind=EventKind.FLUORESCENCE,
         summary=what,
         data={
@@ -1503,7 +1502,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
     decisions: Dict[Tuple[Any, Any], ReplayEvent] = {}
 
     for record in records:
-        time = _record_time(record)
+        time = wall_time_of(record.get("t"))
         if time is None:
             continue
         kind = record.get("kind")
@@ -1556,7 +1555,9 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             summary = _alignment_summary(payload)
             event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)
         elif kind == "autofocus":
-            summary = (
+            summary = _not_run(
+                payload, f"{_beam(payload.get('beam_type'))} autofocus"
+            ) or (
                 f"{_beam(payload.get('beam_type'))} autofocus: working distance "
                 f"{_mm(payload.get('initial_working_distance'))} → "
                 f"{_mm(payload.get('working_distance'))} mm"

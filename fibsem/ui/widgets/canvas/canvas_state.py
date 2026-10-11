@@ -12,6 +12,7 @@ so they stay trivially testable and thread-safe to construct.
 Each spec is keyed on a canvas by its ``id``, so re-setting a spec with the same id
 updates that overlay in place rather than stacking a second one.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -83,7 +84,14 @@ class PointsSpec(OverlaySpec):
     numbered: bool = False
     colors: Optional[Sequence] = None
     labels: Optional[Sequence] = None
-    selected: Optional[int] = None  # selected point index (table-driven), preserved across re-renders
+    # Deprecated: a single selected index. Still honoured when ``selection`` is empty.
+    selected: Optional[int] = None
+    # Several points selectable, moved and removed together (PointOverlay multi_select).
+    multi_select: bool = False
+    # Selected point indices (the last is the current one), preserved across re-renders.
+    # For a multi_select spec the controller keeps this in step with the canvas, so a
+    # producer re-setting the spec should pass the selection it last heard.
+    selection: Tuple[int, ...] = ()
 
 
 @dataclass
@@ -104,8 +112,8 @@ class CanvasState:
     overlays: Dict[str, OverlaySpec] = field(default_factory=dict)
     info: List[Tuple[str, str]] = field(default_factory=list)
     armed_overlay: Optional[str] = None  # id that owns edit input (None = view/move)
-    armed_label: str = ""                # toolbar-mode label for the armed overlay
-    armed_icon: str = ""                 # toolbar-mode icon for the armed overlay
+    armed_label: str = ""  # toolbar-mode label for the armed overlay
+    armed_icon: str = ""  # toolbar-mode icon for the armed overlay
 
 
 @dataclass

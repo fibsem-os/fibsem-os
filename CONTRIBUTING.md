@@ -81,18 +81,16 @@ unrecorded.
 
 ## Python version
 
-`requires-python = ">=3.8"`, and CI builds 3.8 through 3.13. A green local run on a modern
-interpreter proves nothing about the two oldest jobs.
+`requires-python = ">=3.10"`, and CI builds 3.10 through 3.13. A green local run on a newer
+interpreter proves nothing about the 3.10 job.
 
-**Use `Optional[X]` and `Union[X, Y]` from `typing` in function signatures, not `X | Y`.**
-PEP 604 unions in a signature are evaluated at runtime, so on 3.8 and 3.9 the module fails
-at *collection*, not at the call. Same for `list[str]` and `dict[str, int]` as builtin
-generics. A file with `from __future__ import annotations` defers evaluation and may use
-the newer syntax.
+`X | Y` unions and builtin generics such as `list[str]` are safe in signatures. What still
+bites is the standard library: `tomllib`, `typing.Self`, `enum.StrEnum`, `ExceptionGroup`
+and `datetime.UTC` are 3.11+, and `typing.override` is 3.12+. Each passes locally and fails
+only on the 3.10 job.
 
-It is not only syntax: standard-library APIs have version floors too — `ast.unparse` is
-3.9+, `str.removeprefix` and `str.removesuffix` are 3.9+. Both have turned CI red here on
-the 3.8 job alone.
+0.5.3 is the last release that supports Python 3.8 and 3.9. A fix for those installs is
+cut from `release/v0.5.x`.
 
 ## Formatting and lint
 
@@ -147,6 +145,49 @@ the prebuilt stylesheets in `fibsem/ui/stylesheets.py` for buttons and progress 
 
 Render an offscreen screenshot (`widget.grab().save(...)`) to check layout before calling
 a widget done.
+
+## Times
+
+A recorded time is read on other machines, in other zones, years later. Every time
+fibsemOS stores goes through `fibsem/util/timestamps.py` and follows these rules
+(FIB-1190):
+
+1. **In memory, an aware `datetime`.** Take one with `timestamps.now()`, never
+   `datetime.now()`. A naive datetime does not say which instant it is, and comparing
+   one with an aware one raises `TypeError`.
+2. **On disk, ISO 8601 with the UTC offset:** `2026-09-13T21:19:40.974286-06:00`. Write
+   it with `.isoformat()` on an aware datetime (or `now_iso()`); read it with
+   `to_datetime`, or `to_aware` for a field that only holds instants. Parsing keeps the
+   offset the value was written with, so the site's clock time survives a load and a
+   save.
+3. **Convert to the viewer's zone only to display,** with `format_time`. Comparing,
+   subtracting and sorting aware datetimes goes by the instant, whatever their offsets.
+   Displays show no offset. The exception is what keeps a run on the instrument's
+   clock (FIB-1196). The replay reads with `wall_time_of`, which drops an offset rather
+   than converting it. A report converts into the instrument's zone as the experiment
+   recorded it, `experiment.session.zone`, and says so once in its header.
+4. **Name the moment `*_at`** (`started_at`, `captured_at`), one field per moment, and
+   derive durations from two of them rather than storing one.
+5. **Default with `field(default_factory=now)`,** never `= now()` in a class body,
+   which runs once when the module is imported (FIB-487).
+6. **POSIX only at the edges.** A vendor's time or a file's mtime becomes an aware
+   datetime as soon as it is read (`from_posix`). Do not add a POSIX field. The ones
+   that existed keep their keys and are written as ISO 8601 with offset (FIB-1197):
+   task `start_timestamp`/`end_timestamp`, the experiment's, grid's, overlay's and
+   proposal's `created_at`, a decision's `timestamp`, the experiment reference's
+   `date`, the session's `recorded_at`, a verdict's and a correlation result's
+   `updated_at`. A slot calibration's `captured_at` was ISO already and is now a
+   datetime in memory. `microscope_state.timestamp` stays a float.
+7. **Old files keep reading as they did.** `to_datetime` reads every older form: a POSIX
+   float, AutoScript's `%m/%d/%Y %H:%M:%S` string, a naive ISO string, and it reads
+   them where the key is now ISO, so an older file loads and shows the same times. A
+   POSIX float is an instant, so it is written back as ISO with this machine's offset
+   when the file is next saved. A naive value stays naive, because its zone is
+   unknown: never give it one by guessing. Backward compatibility is the goal; an
+   older fibsem need not open a newer file.
+
+Filenames and folder names (`overview-21-18-22`, `DATETIME_FILE`) are names, on the
+local clock, and nothing parses them as times.
 
 ## Network access
 

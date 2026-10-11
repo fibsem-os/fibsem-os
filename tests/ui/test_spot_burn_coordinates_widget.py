@@ -28,10 +28,13 @@ from fibsem.applications.autolamella.workflows.tasks.spot_burn import (
 )
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, FibsemImage, Point
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import (
     LamellaEditorView,
     MicroscopeViewController,
 )
+from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -189,6 +192,185 @@ def test_deactivate_removes_the_overlay():
     w.set_active(False)
     _app.processEvents()
     assert SpotBurnCoordinatesWidget.OVERLAY_ID not in controller._scene.fib.overlays
+
+
+# ── multi-selection (FIB-1171) ──────────────────────────────────────────────
+
+_FIVE = [
+    Point(0.1, 0.1),
+    Point(0.2, 0.1),
+    Point(0.5, 0.5),
+    Point(0.8, 0.8),
+    Point(0.9, 0.9),
+]
+
+
+def _active_host(coords=_FIVE):
+    w, controller, view, image = _host(settings=SpotBurnSettings(coordinates=coords))
+    w.set_active(True)
+    for _ in range(3):
+        _app.processEvents()  # the controller renders on a queued signal
+    ov = controller._overlay_objs[controller.fib_canvas][
+        SpotBurnCoordinatesWidget.OVERLAY_ID
+    ]
+    return w, controller, view, image, ov
+
+
+def _select_rows(w, rows):
+    w._list.clearSelection()
+    for r in rows:
+        w._list.item(r).setSelected(True)
+
+
+def _list_rows(w):
+    return sorted(w._list.row(it) for it in w._list.selectedItems())
+
+
+def test_list_multi_selection_reaches_the_canvas():
+    w, controller, _, _, ov = _active_host()
+    _select_rows(w, [0, 2, 3])
+    assert ov.selected_indices() == [0, 2, 3]
+    assert controller.overlay_selection(BeamType.ION, w.OVERLAY_ID) == [0, 2, 3]
+    assert "3 selected" in w.label_summary.text()
+
+
+def test_canvas_box_select_selects_the_rows():
+    """End to end: a Shift-drag on the real canvas, through the controller, to the list."""
+    from matplotlib.backend_bases import MouseEvent
+    from PyQt5.QtCore import QEvent, QPointF, Qt
+    from PyQt5.QtGui import QMouseEvent
+
+    w, controller, view, image, ov = _active_host()
+    canvas = controller.fib_canvas
+    view.resize(800, 600)
+    view.show()
+    canvas.draw()
+    _app.processEvents()
+    h, width = image.data.shape
+
+    def send(name, fx, fy):
+        sx, sy = ov._ax.transData.transform((fx * width, fy * h))
+        qtype = {
+            "button_press_event": QEvent.MouseButtonPress,
+            "motion_notify_event": QEvent.MouseMove,
+            "button_release_event": QEvent.MouseButtonRelease,
+        }[name]
+        gui = QMouseEvent(
+            qtype, QPointF(0, 0), Qt.LeftButton, Qt.LeftButton, Qt.ShiftModifier
+        )
+        button = None if name == "motion_notify_event" else 1
+        canvas.callbacks.process(
+            name, MouseEvent(name, canvas, sx, sy, button=button, guiEvent=gui)
+        )
+
+    send("button_press_event", 0.05, 0.05)  # empty area, top-left
+    send("motion_notify_event", 0.6, 0.6)
+    send("button_release_event", 0.6, 0.6)  # covers points 0, 1, 2
+
+    assert _list_rows(w) == [0, 1, 2]
+    view.close()
+
+
+def test_canvas_selection_selects_the_rows_without_echo():
+    w, controller, _, _, ov = _active_host()
+    pushed = []
+    controller.set_selected_points = lambda *a: pushed.append(a)  # would be an echo
+    ov.set_selection([1, 4])
+    ov.selection_changed.emit([1, 4])  # what the overlay does on a canvas click
+    assert _list_rows(w) == [1, 4]
+    assert pushed == [], "mirroring the canvas must not push the selection back"
+
+
+def test_list_selection_survives_a_canvas_edit():
+    """Every canvas edit rebuilds the rows; the selection used to go with them."""
+    w, controller, _, image, ov = _active_host()
+    _select_rows(w, [1, 3])
+    h, width = image.data.shape
+    moved = [(p.x * width + 10, p.y * h) for p in _FIVE]
+    ov._points = [list(p) for p in moved]  # a group drag, released
+    ov.points_moved.emit([1, 3])
+    assert _list_rows(w) == [1, 3]
+    assert ov.selected_indices() == [1, 3]
+
+
+def test_delete_key_in_the_list_removes_the_selection_in_one_edit():
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+
+    w, controller, _, _, ov = _active_host()
+    w.show()
+    w.activateWindow()
+    w._list.setFocus()
+    _app.processEvents()
+    seen = []
+    w.settings_changed.connect(seen.append)
+    _select_rows(w, [0, 3])
+    QTest.keyClick(w._list, Qt.Key_Delete)
+    _app.processEvents()
+    _app.processEvents()
+    kept = [(p.x, p.y) for p in w.get_settings().coordinates]
+    assert kept == [(0.2, 0.1), (0.5, 0.5), (0.9, 0.9)]
+    assert len(seen) == 1
+    assert _list_rows(w) == []
+    assert len(ov.get_points()) == 3
+    w.close()
+
+
+def test_canvas_delete_removes_the_selection_and_clears_the_rows():
+    from matplotlib.backend_bases import KeyEvent
+
+    w, controller, _, _, ov = _active_host()
+    _select_rows(w, [1, 2])
+    canvas = controller.fib_canvas
+    canvas.callbacks.process(
+        "key_press_event", KeyEvent("key_press_event", canvas, "delete")
+    )
+    assert len(w.get_settings().coordinates) == 3
+    assert _list_rows(w) == []
+
+
+def test_removing_one_row_keeps_the_rest_of_the_selection():
+    w, _, _, _, ov = _active_host()
+    _select_rows(w, [1, 3, 4])
+    w._remove_coordinate(0)  # the trash button of a row outside the selection
+    _app.processEvents()  # the overlay is redrawn from the new spec on a queued render
+    assert _list_rows(w) == [0, 2, 3]
+    assert ov.selected_indices() == [0, 2, 3]
+
+
+def test_trash_on_a_selected_row_removes_the_whole_selection():
+    w, _, _, _, ov = _active_host()
+    _select_rows(w, [1, 3])
+    w._list.itemWidget(w._list.item(3)).findChild(IconToolButton).click()
+    _app.processEvents()
+    kept = [(p.x, p.y) for p in w.get_settings().coordinates]
+    assert kept == [(0.1, 0.1), (0.5, 0.5), (0.9, 0.9)]
+    assert _list_rows(w) == [] and ov.selected_indices() == []
+
+
+def test_select_all_toggles_and_shows_the_selection():
+    w, _, _, _, ov = _active_host()
+    btn = w.btn_select_all
+    assert not btn.isChecked()
+
+    btn.click()
+    assert _list_rows(w) == [0, 1, 2, 3, 4]
+    assert ov.selected_indices() == [0, 1, 2, 3, 4]
+    assert btn.isChecked() and btn.toolTip() == "Clear the selection"
+
+    btn.click()
+    assert _list_rows(w) == [] and ov.selected_indices() == []
+    assert not btn.isChecked()
+
+    _select_rows(w, [1])  # partial: the minus box, and a click selects all
+    assert not btn.isChecked()
+    minus = fibsem_icon("mdi:minus-box-outline", color=GRAY_ICON_COLOR)
+    assert btn.icon().pixmap(16).toImage() == minus.pixmap(16).toImage()
+    btn.click()
+    assert _list_rows(w) == [0, 1, 2, 3, 4]
+
+    _select_rows(w, [0, 1, 2, 3, 4])  # selected by hand: the button ticks itself
+    assert btn.isChecked()
 
 
 # ── layout: the list absorbs spare height, and survives a cramped host ──────

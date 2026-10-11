@@ -94,7 +94,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
     update_alignment_area_ui,
 )
-from fibsem.cancellation import OperationCancelledError
+from fibsem.cancellation import SKIPPED, OperationCancelledError
 from fibsem.detection import detection as detection_module
 from fibsem.detection.detection import (
     DetectedFeatures,
@@ -117,10 +117,13 @@ from fibsem.structures import (
     ImageSettings,
     Point,
 )
+from fibsem.util.timestamps import now, now_iso
 
 if TYPE_CHECKING:
+    from fibsem.alignment import AlignmentResult
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+    from fibsem.autofunctions.autofocus import AutoFocusResult
     from fibsem.fm.structures import FluorescenceImage
 
 TAutoLamellaTaskConfig = TypeVar(
@@ -184,6 +187,12 @@ class AutoLamellaTask(ABC):
         self.microscope = microscope
         self.config = config
         self.lamella = lamella
+        # Every task's reference images are acquired with its config's imaging
+        # settings; they are saved under its output folder. Set here, once, for
+        # the run this task object is, rather than by hand at the top of each
+        # task's _run (FIB-1253). In __init__ rather than pre_task, so a task
+        # whose _run is called directly still writes there.
+        self.config.imaging.path = self.output_dir
         self.parent_ui = parent_ui
         self.task_manager = task_manager
         self.task_id = str(uuid.uuid4())
@@ -210,6 +219,14 @@ class AutoLamellaTask(ABC):
     def display_name(self) -> str:
         """Return the display name of the task type."""
         return self.config.display_name
+
+    @property
+    def output_dir(self) -> str:
+        """Where this task's run writes what it makes: its alignment and
+        autofocus runs, its milling. Every save path a run hands on starts here,
+        so where a task writes is decided once rather than at each call
+        (FIB-1253). The lamella's folder, for now."""
+        return str(self.lamella.path)
 
     @property
     def validate(self) -> bool:
@@ -305,7 +322,7 @@ class AutoLamellaTask(ABC):
         """
         if self.lamella.task_state is None:
             raise ValueError("Task state is not set. Did you run pre_task()?")
-        self.lamella.task_state.end_timestamp = datetime.timestamp(datetime.now())
+        self.lamella.task_state.end_timestamp = now()
         self.lamella.task_history.append(deepcopy(self.lamella.task_state))
 
     def _is_cancellation(self, exc: Exception) -> bool:
@@ -359,7 +376,7 @@ class AutoLamellaTask(ABC):
         # their only refresh trigger; replacing the object orphans those connections and
         # they silently stop updating mid-workflow. See FIB-325 for the real fix.
         self.lamella.task_state.name = self.task_name
-        self.lamella.task_state.start_timestamp = datetime.timestamp(datetime.now())
+        self.lamella.task_state.start_timestamp = now()
         self.lamella.task_state.end_timestamp = None
         self.lamella.task_state.task_id = self.task_id
         self.lamella.task_state.task_type = self.task_type
@@ -416,7 +433,7 @@ class AutoLamellaTask(ABC):
         logging.debug(
             {
                 "msg": "task_config",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_iso(),
                 "lamella": self.lamella.name,
                 "lamella_id": self.lamella.id,
                 "task_id": self.task_id,
@@ -436,7 +453,7 @@ class AutoLamellaTask(ABC):
         logging.debug(
             {
                 "msg": "status",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_iso(),
                 "lamella": self.lamella.name,
                 "lamella_id": self.lamella.id,
                 "task_id": self.task_id,
@@ -719,8 +736,14 @@ class AutoLamellaTask(ABC):
         # headless mode
         if self.parent_ui is None:
             if milling_enabled:
+                # Raise a failed mill, so the task manager records this task
+                # Failed rather than Completed with nothing milled (FIB-1112).
                 milling_task = run_milling_task(
-                    self.microscope, milling_config, None, stop_event=self._stop_event
+                    self.microscope,
+                    milling_config,
+                    stop_event=self._stop_event,
+                    raise_on_failure=True,
+                    output_dir=self.output_dir,
                 )
                 return milling_task.config
             return milling_config
@@ -737,23 +760,26 @@ class AutoLamellaTask(ABC):
                 # next decision point — as the old loop's re-read did
                 confirm=lambda: self.validate,
                 message=msg,
+                output_dir=self.output_dir,
             ),
             abort=lambda: _abort_requested(self.parent_ui),
         )
         if milling_enabled and self.validate:
-            # The operator watched the mill and pressed Continue: that is the
-            # decision on this run's result, recorded as theirs rather than
-            # the producer's own, and the task does not wait a second time in
-            # the Review tab for a look it already had.
-            experiment = getattr(self.task_manager, "experiment", None)
-            self.inline_decision = Decision(
-                outcome=DecisionOutcome.Confirmed,
-                author=experiment.author()
-                if experiment is not None
-                else human_author(""),
-                via="workflow",
-            )
+            # The operator watched the mill and pressed Continue.
+            self._decided_in_the_workflow()
         return config
+
+    def _decided_in_the_workflow(self) -> None:
+        """The operator answered this run's session in the workflow: a mill's
+        Continue, a setup's Save. That is the decision on the run's result,
+        recorded as theirs rather than the producer's own, and the task does
+        not wait a second time in the Review tab for a look it already had."""
+        experiment = getattr(self.task_manager, "experiment", None)
+        self.inline_decision = Decision(
+            outcome=DecisionOutcome.Confirmed,
+            author=experiment.author() if experiment is not None else human_author(""),
+            via="workflow",
+        )
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""
@@ -783,8 +809,10 @@ class AutoLamellaTask(ABC):
             timeout=INSTRUCTION_TIMEOUT_S,
         )
 
-    def _align_reference_image(self, filename: str):
-        """Align to a reference image."""
+    def _align_reference_image(self, filename: str) -> Optional["AlignmentResult"]:
+        """Align to a reference image in the lamella's folder, saving the run
+        under the task's output folder. Returns what the alignment measured, or
+        None when the reference image does not exist."""
         # beam_shift alignment
         self.log_status_message("ALIGN_REFERENCE_IMAGE", "Aligning Reference Images...")
         full_filename = os.path.join(self.lamella.path, filename)
@@ -795,21 +823,35 @@ class AutoLamellaTask(ABC):
                 f"Reference image {full_filename} for alignment does not exist, "
                 f"but was requested by {self.task_name}. Skipping alignment."
             )
-            return
+            # Recorded, not only logged: the alignment the task asked for did
+            # not happen, and the record should say so beside the ones that did.
+            self.microscope.record_event(
+                "alignment",
+                {
+                    "status": SKIPPED,
+                    "reason": f"reference image {filename} does not exist",
+                    "reference": full_filename,
+                },
+            )
+            return None
 
         # load reference image, align
         ref_image = FibsemImage.load(full_filename)
-        alignment.multi_step_alignment_v2(
+        return alignment.multi_step_alignment_v2(
             microscope=self.microscope,
             ref_image=ref_image,
             use_autocontrast=True,
             steps=MAX_ALIGNMENT_ATTEMPTS,
             stop_event=self._stop_event,
             run_name=f"{self.lamella.name} - {self.task_name}",
+            path=os.path.join(self.output_dir, alignment.ALIGNMENT_SUBDIR),
         )
 
-    def _run_autofocus(self, beam_type: BeamType, hfw: Optional[float] = None) -> None:
-        """Run the image-based autofocus sweep, saving diagnostics to the lamella path.
+    def _run_autofocus(
+        self, beam_type: BeamType, hfw: Optional[float] = None
+    ) -> Optional["AutoFocusResult"]:
+        """Run the image-based autofocus sweep, saving diagnostics under the task's
+        output folder. Returns what it measured, or None when the sweep was skipped.
 
         Args:
             beam_type: which beam to focus.
@@ -848,28 +890,27 @@ class AutoLamellaTask(ABC):
             hfw=hfw,
             settings=settings,
             stop_event=self._stop_event,
+            path=os.path.join(self.output_dir, "autofunctions"),
+            name=f"{self.task_name}_autofocus_{datetime.now():%Y%m%d_%H%M%S}",
         )
         if result is None:
             # run_auto_focus declined the sweep (the working distance is not settable
-            # for this beam on this backend -- TESCAN ION, see FIB-508). Say "skipped"
-            # and save nothing: a placeholder result would write a completed-looking
-            # artifact directory and log a working distance that was never applied.
+            # for this beam on this backend -- TESCAN ION, see FIB-508), and recorded
+            # it skipped. Nothing is saved: a placeholder result would write a
+            # completed-looking artifact directory and log a working distance that
+            # was never applied.
             self.log_status_message(
                 "AUTOFOCUS",
                 f"Autofocus skipped: the {beam_type.name} working distance is not settable on this system.",
                 f"Autofocus skipped ({beam_type.name})",
             )
-            return
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        result.save(
-            path=os.path.join(self.lamella.path, "autofunctions"),
-            name=f"{self.task_name}_autofocus_{ts}",
-        )
+            return None
         self.log_status_message(
             "AUTOFOCUS",
             f"Autofocus (image-based): WD={result.working_distance * 1e3:.3f}mm score={result.focus_score:.2f}",
             f"Autofocus complete: WD={result.working_distance * 1e3:.3f}mm",
         )
+        return result
 
     def _acquire_reference_image(
         self,

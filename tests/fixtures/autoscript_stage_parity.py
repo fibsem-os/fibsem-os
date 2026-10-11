@@ -2,10 +2,11 @@
 
 Run as a script, in its own interpreter: it installs a fake
 ``autoscript_sdb_microscope_client`` in ``sys.modules`` before importing
-``fibsem.microscopes.autoscript``, which must see the SDK at import. It writes JSON to
-the path it is given: ``cases``, each holding the old call's result and SDK log and
-the driver's, for the test to compare; and ``facts``, what the new API makes of each
-stage.
+``fibsem.drivers.autoscript.microscope``, which must see the SDK at import. It writes JSON to
+the path it is given: ``cases``, each holding the driver's result and SDK log, and the
+old call's on a microscope routed as connect routes it, for the test to compare with
+the old code's (``autoscript_old_calls.json``, recorded over this fake before it was
+deleted); and ``facts``, what the new API makes of each stage.
 
 The fake stage records every call and attribute write under the vendor path
 (``stage.absolute_move``, ``connection.beams.electron_beam.working_distance.value``,
@@ -26,7 +27,7 @@ logging.disable(logging.CRITICAL)
 
 import numpy as np  # noqa: E402
 
-# -- a fake AutoScript SDK, just enough for fibsem.microscopes.autoscript ------------
+# -- a fake AutoScript SDK, just enough for fibsem.drivers.autoscript.microscope ------------
 
 
 class _Struct:
@@ -53,7 +54,7 @@ def _install_fake_sdk():
     package = types.ModuleType("autoscript_sdb_microscope_client")
     package.SdbMicroscopeClient = type("SdbMicroscopeClient", (), {})
     build = types.ModuleType("autoscript_sdb_microscope_client.build_information")
-    build.INFO_VERSIONSHORT = "4.8.1"
+    build.INFO_VERSIONSHORT = "4.9.0"
     package.build_information = build
 
     proxies = types.ModuleType(
@@ -77,7 +78,6 @@ def _install_fake_sdk():
         "ManipulatorCoordinateSystem",
         "ManipulatorSavedPosition",
         "ManipulatorState",
-        "MultiChemInsertPosition",
         "PatterningState",
         "RegularCrossSectionScanMethod",
     ):
@@ -206,13 +206,13 @@ class FakeStage(Node):
 
 
 import fibsem.config as cfg  # noqa: E402
-import fibsem.microscopes.autoscript as A  # noqa: E402
+import fibsem.drivers.autoscript.microscope as A  # noqa: E402
 from fibsem import utils  # noqa: E402
-from fibsem.devices.drivers.autoscript import (  # noqa: E402
+from fibsem.drivers.autoscript.devices import (  # noqa: E402
     AutoscriptCompustage,
     bind_autoscript_stage,
 )
-from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.structures import BeamType, FibsemStagePosition  # noqa: E402
 
 assert A.THERMO_API_AVAILABLE, A.THERMO_API_IMPORT_ERROR
 
@@ -229,6 +229,7 @@ SYSTEM = utils.load_microscope_configuration(
 
 class _Objective:
     state = "Inserted"
+    blocked_axes = ("z", "t")
 
 
 class _FM:
@@ -240,7 +241,7 @@ def make(compustage, fm_inserted=False):
     microscope = object.__new__(A.ThermoMicroscope)
     microscope._connection_lock = threading.RLock()
     microscope.system = copy.deepcopy(SYSTEM)
-    microscope.stage_is_compustage = compustage
+    microscope._compustage_installed = compustage
     microscope.fm = _FM() if fm_inserted else None
     microscope._stage_position = None
     connection = Node("connection")
@@ -263,8 +264,71 @@ def make(compustage, fm_inserted=False):
         microscope._default_stage_coordinate_system = "Raw"
         stage = FakeStage("specimen.stage", position, OFFSET_LIMITS)
     microscope.connection = connection
-    microscope.stage = stage
+    microscope._vendor_stage = stage
     return microscope
+
+
+def _preset(node, path, value):
+    """Give a vendor attribute a value without recording it as a write."""
+    *parents, name = path.split(".")
+    for part in parents:
+        node = getattr(node, part)
+    object.__setattr__(node, name, value)
+
+
+def _fake_beam(beam, beam_type):
+    electron = beam_type is BeamType.ELECTRON
+    values = {
+        "is_on": True,
+        "is_blanked": False,
+        "working_distance.value": 4e-3 if electron else 16.5e-3,
+        "beam_current.value": 1e-10 if electron else 2e-11,
+        "beam_current.limits": STRUCTS.Limits(min=1e-12, max=1e-8),
+        "beam_current.available_values": [1e-12, 2e-11, 1e-10, 1e-9],
+        "high_voltage.value": 2000 if electron else 30000,
+        "high_voltage.limits": STRUCTS.Limits(min=200, max=30000),
+        "horizontal_field_width.value": 150e-6,
+        "horizontal_field_width.limits": STRUCTS.Limits(min=1e-7, max=2e-3),
+        "scanning.dwell_time.value": 1e-6,
+        "scanning.rotation.value": 0.0,
+        "scanning.resolution.value": "1536x1024",
+        "scanning.resolution.available_values": ["768x512", "1536x1024", "3072x2048"],
+        "scanning.dwell_time.limits": STRUCTS.Limits(min=25e-9, max=1e-3),
+        "scanning.mode.value": 1,  # ScanningMode.FULL_FRAME
+        "beam_shift.value": STRUCTS.Point(x=1e-7, y=-2e-7),
+        "stigmator.value": STRUCTS.Point(x=0.01, y=-0.02),
+        "source.plasma_gas.value": "Xenon",
+        "source.plasma_gas.available_values": ["Argon", "Oxygen", "Xenon"],
+    }
+    if electron:
+        values["angular_correction.angle.value"] = 0.05
+        values["angular_correction.tilt_correction.is_on"] = False
+    for path, value in values.items():
+        _preset(beam, path, value)
+
+
+def fake_beams(connection):
+    """Give both vendor beams and the detector the values the beam drivers read."""
+    _fake_beam(connection.beams.electron_beam, BeamType.ELECTRON)
+    _fake_beam(connection.beams.ion_beam, BeamType.ION)
+    _preset(connection, "detector.type.value", "ETD")
+    _preset(connection, "detector.type.available_values", ["ETD", "TLD", "ICE"])
+    _preset(connection, "detector.mode.value", "SecondaryElectrons")
+    _preset(
+        connection,
+        "detector.mode.available_values",
+        ["SecondaryElectrons", "BackscatterElectrons"],
+    )
+    _preset(connection, "detector.brightness.value", 0.5)
+    _preset(connection, "detector.contrast.value", 0.6)
+
+
+def connect(microscope):
+    """Build the beams and the stage as connect does: an absolute move on an offset
+    stage restores the working distance through the electron beam."""
+    fake_beams(microscope.connection)
+    microscope._build_beams()
+    microscope._build_stage()
 
 
 def _value(value):
@@ -286,12 +350,18 @@ def run(fn):
 
 
 def pair(compustage, fm_inserted, old, new):
-    """Run *old* on one fresh microscope and *new* on its driver over another."""
-    m_old = make(compustage, fm_inserted)
+    """Run *new* on a fresh microscope's driver, and *old* on another whose stage keys
+    and moves are routed as connect routes them."""
     m_new = make(compustage, fm_inserted)
-    LOG.clear()
-    stage = bind_autoscript_stage(m_new)  # connect's calls are not part of the case
-    return {"old": run(lambda: old(m_old)), "new": run(lambda: new(stage, m_new))}
+    m_routed = make(compustage, fm_inserted)
+    for microscope in (m_new, m_routed):
+        connect(microscope)
+    stage = m_new.stage
+    LOG.clear()  # connect's calls are not part of the case
+    return {
+        "new": run(lambda: new(stage, m_new)),
+        "routed": run(lambda: old(m_routed)),
+    }
 
 
 def positions(compustage):
@@ -327,7 +397,24 @@ def cases():
 
         # connect: the old limits (converted) and the calls reading them
         def old_limits(m):
-            limits = m._get_axis_limits()
+            # What the deleted ThermoMicroscope._get_axis_limits returned, kept here so
+            # the driver's own read is still checked against it.
+            from fibsem.drivers.demo.simulator import (
+                STAGE_LIMITS_COMPUSTAGE,
+                STAGE_LIMITS_DEFAULT,
+            )
+
+            if m._compustage_installed:
+                limits = STAGE_LIMITS_COMPUSTAGE
+            elif not hasattr(m._vendor_stage, "get_axis_limits"):
+                limits = STAGE_LIMITS_DEFAULT
+            else:
+                limits = {}
+                for axis in ("x", "y", "z", "t"):
+                    raw = m._vendor_stage.get_axis_limits(axis)
+                    scale = np.degrees if axis == "t" else float
+                    limits[axis] = A.RangeLimit(min=scale(raw.min), max=scale(raw.max))
+                limits["r"] = A.RangeLimit(min=-360, max=360)
             return {
                 k: A.RangeLimit(
                     min=float(np.radians(v.min)) if k in "rt" else v.min,
@@ -343,7 +430,7 @@ def cases():
         add("limits", old_limits, new_limits)
         add(
             "class",
-            lambda m: "compustage" if m.stage_is_compustage else "stage",
+            lambda m: "compustage" if m._compustage_installed else "stage",
             lambda s, m: (
                 "compustage" if isinstance(s, AutoscriptCompustage) else "stage"
             ),
@@ -372,6 +459,17 @@ def cases():
                 lambda s, m: s.linked.get_value(),
             )
             add("link", lambda m: m.set("stage_link", True), lambda s, m: s._link())
+            add(
+                "link_stage",
+                lambda m: m.link_stage(),
+                lambda s, m: (s._link(), s.linked.get_value())[1],
+            )
+        add("home()", lambda m: m.home(), lambda s, m: (s._home(), True)[1])
+        add(
+            "unlink",
+            lambda m: m.set("stage_link", False),
+            lambda s, m: m.set("stage_link", False),  # no device unlinks
+        )
 
         for i, position in enumerate(positions(compustage)):
             add(
@@ -394,7 +492,9 @@ def facts():
 
     out = {}
     for compustage in (False, True):
-        stage = bind_autoscript_stage(make(compustage))
+        microscope = make(compustage)
+        connect(microscope)
+        stage = microscope.stage
         LOG.clear()
         try:
             stage.move_absolute(FibsemStagePosition(x=1.0))

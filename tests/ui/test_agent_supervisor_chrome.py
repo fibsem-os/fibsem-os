@@ -75,7 +75,7 @@ def test_designation_is_invisible_without_a_running_server(
 ):
     main_ui.autolamella_ui._agent_server_host = None
     assert main_ui._update_supervised_status() is True
-    assert main_ui.supervised_status_btn.text() == "Supervised"
+    assert main_ui.workflow_controls.supervision_btn.text() == "Supervised"
     assert main_ui._running_border_state("Rough Milling") == "supervised"
 
 
@@ -84,7 +84,7 @@ def test_designation_shows_agent_chrome_with_a_running_server(
 ):
     main_ui.autolamella_ui._agent_server_host = _RunningHost()
     assert main_ui._update_supervised_status() is True
-    assert main_ui.supervised_status_btn.text() == "Agent"
+    assert main_ui.workflow_controls.supervision_btn.text() == "Agent"
     assert main_ui._running_border_state("Rough Milling") == "agent"
 
 
@@ -93,5 +93,5 @@ def test_an_unsupervised_task_is_automated_regardless(main_ui, agent_supervised_
     task = agent_supervised_task.task_protocol.workflow_config.tasks[-1]
     task.attention = Attention.automated
     assert main_ui._update_supervised_status() is False
-    assert main_ui.supervised_status_btn.text() == "Automated"
+    assert main_ui.workflow_controls.supervision_btn.text() == "Automated"
     assert main_ui._running_border_state("Rough Milling") == "automated"

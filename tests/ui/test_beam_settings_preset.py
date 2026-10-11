@@ -21,6 +21,8 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from PyQt5.QtCore import QEventLoop, QTimer
 from PyQt5.QtWidgets import QApplication
 
+from fibsem.devices.beam import Beam
+from fibsem.devices.core import ParameterMetadata
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
@@ -35,12 +37,33 @@ def _pump(ms: int = 50) -> None:
     loop.exec_()
 
 
+class FakeParameter:
+    settable = True
+
+    def __init__(self, name, choices=None):
+        self.spec = getattr(Beam, name)
+        self.choices = choices
+        self.metadata = ParameterMetadata(choices=choices)
+
+
+class FakeBeam:
+    def __init__(self, parameters):
+        self.parameters = {
+            name: FakeParameter(name, choices) for name, choices in parameters.items()
+        }
+
+
 class FakeTescan:
-    """The slice of the microscope the beam-settings widget touches, Tescan-flavoured."""
+    """The slice of the microscope the beam-settings widget touches, Tescan-flavoured:
+    the FIB's device has a preset, the SEM's has none (its presets cannot be set)."""
 
     manufacturer = "Tescan"
 
     def __init__(self, presets, current_preset, fail_activation=False):
+        self.beams = {
+            BeamType.ELECTRON: FakeBeam({"current": [1e-9], "working_distance": None}),
+            BeamType.ION: FakeBeam({"current": [1e-9], "preset": list(presets)}),
+        }
         self.presets = presets
         self.current_preset = current_preset
         self.fail_activation = fail_activation
@@ -53,17 +76,7 @@ class FakeTescan:
     def get_beam_voltage(self, beam_type):
         return 30000.0
 
-    def get_available_values_cached(self, key, beam_type):
-        if key == "preset":
-            return list(self.presets)
-        if key == "current":
-            return [1e-9]
-        if key == "voltage":
-            return [30000.0]
-        return []
-
-    def get(self, key, beam_type=None):
-        assert key == "preset"
+    def get_preset(self, beam_type):
         return self.current_preset
 
     def set_preset(self, preset, beam_type):

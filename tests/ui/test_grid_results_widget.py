@@ -1,6 +1,7 @@
 """Grids · Results: what a grid's runs recorded, read off its history."""
 
 import os
+from datetime import timedelta
 
 import numpy as np
 import pytest
@@ -32,7 +33,7 @@ from fibsem.imaging.thumbnail import write_thumbnail
 
 def entry(name, status, message="", outputs=None, seconds=60):
     state = AutoLamellaTaskState(name=name, status=status, status_message=message)
-    state.end_timestamp = state.start_timestamp + seconds
+    state.end_timestamp = state.start_timestamp + timedelta(seconds=seconds)
     state.outputs = outputs or {}
     return state
 
@@ -155,3 +156,111 @@ def test_a_row_with_an_image_offers_to_mark_positions_on_it(qapp, experiment, gr
     widget.mark_requested.connect(lambda g, path: seen.append((g, path)))
     rows["overview_sem"].btn_mark.click()
     assert seen == [(grid, str(root / "overview_sem" / "overview.tif"))]
+
+
+# --- the image viewer (FIB-1189) ---------------------------------------------------
+
+
+@pytest.fixture
+def grid_with_two_overviews(experiment, grid):
+    """The grid above, with a FIB overview recorded after the SEM one."""
+    root = experiment.grid_path(grid)
+    write_thumbnail(
+        (np.random.rand(300, 450) * 255).astype(np.uint8),
+        root / "overview_fib" / "overview-thumbnail.png",
+    )
+    (root / "overview_fib" / "overview.tif").write_bytes(b"")
+    grid.task_history.append(
+        entry(
+            "overview_fib",
+            AutoLamellaTaskStatus.Completed,
+            outputs={
+                "overview_fib": ["overview_fib/overview.tif"],
+                "overview_fib_thumbnail": ["overview_fib/overview-thumbnail.png"],
+            },
+        )
+    )
+    return grid
+
+
+def _viewer_of(window):
+    from fibsem.ui.widgets import image_viewer_dialog
+
+    return getattr(window, image_viewer_dialog._DIALOG_ATTRIBUTE).viewer
+
+
+def test_a_tile_opens_the_viewer_with_every_run_s_image_in_order(
+    qapp, experiment, grid_with_two_overviews
+):
+    from PyQt5.QtWidgets import QVBoxLayout, QWidget
+
+    grid, root = grid_with_two_overviews, experiment.grid_path(grid_with_two_overviews)
+    window = QWidget()
+    widget = GridResultsWidget()
+    QVBoxLayout(window).addWidget(widget)
+    widget.set_experiment(experiment)
+    widget.set_grid(grid)
+    fib_row = next(r for r in widget.rows if r.state.name == "overview_fib")
+
+    fib_row.tile.clicked.emit(fib_row.image)
+
+    viewer = _viewer_of(window)
+    assert [i.path for i in viewer.items] == [
+        str(root / "overview_sem" / "overview.tif"),
+        str(root / "overview_fib" / "overview.tif"),
+    ], "the runs that recorded an image, in the order they ran"
+    assert viewer.index == 1
+    assert viewer.title_label.text().startswith("grid-elm › overview_fib · ")
+    assert all(item.thumbnail is not None for item in viewer.items)
+    viewer.parent().close()
+    window.deleteLater()
+
+
+def test_mark_positions_in_the_viewer_marks_the_image_shown(
+    qapp, experiment, grid_with_two_overviews
+):
+    from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QWidget
+
+    grid, root = grid_with_two_overviews, experiment.grid_path(grid_with_two_overviews)
+    window = QWidget()
+    widget = GridResultsWidget()
+    QVBoxLayout(window).addWidget(widget)
+    widget.set_experiment(experiment)
+    widget.set_grid(grid)
+    seen = []
+    widget.mark_requested.connect(lambda g, path: seen.append((g, path)))
+    sem_row = next(r for r in widget.rows if r.state.name == "overview_sem")
+    sem_row.tile.clicked.emit(sem_row.image)
+    viewer = _viewer_of(window)
+    viewer.step(1)  # to the FIB overview
+
+    (mark,) = [b for b in viewer._actions if isinstance(b, QPushButton)]
+    assert mark.text() == "Mark positions"
+    mark.click()
+    assert seen == [(grid, str(root / "overview_fib" / "overview.tif"))]
+    viewer.parent().close()
+    window.deleteLater()
+
+
+def test_another_caller_s_open_takes_mark_positions_away(
+    qapp, experiment, grid_with_two_overviews
+):
+    """The viewer is shared per window: the History tab's images have no positions to
+    mark, so its open must not keep the grid's button."""
+    from PyQt5.QtWidgets import QVBoxLayout, QWidget
+
+    from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
+
+    window = QWidget()
+    widget = GridResultsWidget()
+    QVBoxLayout(window).addWidget(widget)
+    widget.set_experiment(experiment)
+    widget.set_grid(grid_with_two_overviews)
+    row = next(r for r in widget.rows if r.image)
+    row.tile.clicked.emit(row.image)
+    assert _viewer_of(window)._actions
+
+    open_image_viewer(window, [ViewerItem(row.image, title="lamella")])
+    assert _viewer_of(window)._actions == []
+    _viewer_of(window).parent().close()
+    window.deleteLater()

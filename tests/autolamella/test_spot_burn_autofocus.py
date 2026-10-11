@@ -238,16 +238,26 @@ def test_run_autofocus_skips_cleanly_when_the_sweep_is_declined(tmp_path, monkey
     assert not os.path.exists(os.path.join(task.lamella.path, "autofunctions"))
 
 
-def test_run_autofocus_still_saves_when_the_sweep_ran(tmp_path, monkeypatch):
-    """The guard must not swallow real results: a returned result is still saved."""
+def test_run_autofocus_tells_the_sweep_where_to_save_its_run(tmp_path, monkeypatch):
+    """The sweep saves its own run, as an alignment does (FIB-1255), so its
+    record can say where; the task hands it its autofunctions folder."""
+    import os
+
     import fibsem.autofunctions.autofocus as af
 
     task = _make_task(tmp_path, autofocus=True)
     (tmp_path / "lam").mkdir(parents=True, exist_ok=True)
     task.log_status_message = lambda *a, **k: None
     result = MagicMock(working_distance=16.5e-3, focus_score=1.0)
-    monkeypatch.setattr(af, "run_auto_focus", lambda microscope, **kwargs: result)
+    asked = {}
 
-    task._run_autofocus(BeamType.ION, hfw=150e-6)
+    def run(microscope, **kwargs):
+        asked.update(kwargs)
+        return result
 
-    result.save.assert_called_once()
+    monkeypatch.setattr(af, "run_auto_focus", run)
+
+    assert task._run_autofocus(BeamType.ION, hfw=150e-6) is result
+    assert asked["path"] == os.path.join(task.output_dir, "autofunctions")
+    assert asked["name"].startswith(f"{task.task_name}_autofocus_")
+    result.save.assert_not_called()

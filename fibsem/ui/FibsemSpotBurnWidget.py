@@ -23,6 +23,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
@@ -109,7 +110,7 @@ class FibsemSpotBurnWidget(QWidget):
         layout.addWidget(self.coord_editor)
 
         # beam current + exposure
-        beam_currents = self.microscope.get_available_values("current", BeamType.ION)
+        beam_currents = beam_choices(self.microscope, "current", BeamType.ION)
         closest = min(beam_currents, key=lambda x: abs(x - DEFAULT_BEAM_CURRENT))
         self.comboBox_beam_current = ValueComboBox(
             items=beam_currents,
@@ -146,7 +147,7 @@ class FibsemSpotBurnWidget(QWidget):
         layout.addWidget(self.pushButton_run_spot_burn)
 
         self.label_workflow_hint = QLabel(
-            "Use the 'Run Spot Burn' button in the workflow controls to burn the selected points."
+            "Use the 'Run Spot Burn' button in the workflow controls to burn all the points."
         )
         self.label_workflow_hint.setWordWrap(True)
         self.label_workflow_hint.setStyleSheet("color: gray; font-style: italic;")
@@ -327,11 +328,11 @@ class FibsemSpotBurnWidget(QWidget):
             self.pushButton_run_spot_burn.setEnabled(n > 0)
         if n > 0:
             self.label_information.setText(
-                f"Selected {n} points. Estimated time: {n * exposure:.0f} seconds"
+                f"{n} point{'s' if n != 1 else ''} to burn. Estimated time: {n * exposure:.0f} seconds"
             )
         else:
             self.label_information.setText(
-                "No points selected. Right-click the FIB image to add points."
+                "No points to burn. Right-click the FIB image to add points."
             )
 
     def run_spot_burn_worker(self) -> None:
@@ -339,7 +340,7 @@ class FibsemSpotBurnWidget(QWidget):
         settings = self.get_settings()
         if len(settings.coordinates) == 0:
             notification_service.show_toast(
-                "No points selected within FIB image bounds.", "warning"
+                "No points within the FIB image bounds.", "warning"
             )
             return
 

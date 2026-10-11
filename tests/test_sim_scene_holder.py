@@ -160,11 +160,8 @@ def _arctis(grid_position=GRID_POSITION, captured=None):
     )
 
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=ARCTIS_CONFIG)
-    sim = microscope.system.sim
-    microscope.system.sim = dict(
-        sim, loader=dict(sim.get("loader") or {}, grid_position=list(grid_position))
-    )
-    microscope.system.sim["coincidence_projection"] = True
+    microscope.devices["sample_loader"].sim_grid_position = tuple(grid_position)
+    microscope.system.sim = dict(microscope.system.sim, coincidence_projection=True)
     stage_settings = microscope.system.stage
     if captured is not None:
         slot = GridSlot(

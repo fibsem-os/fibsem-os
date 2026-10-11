@@ -4,8 +4,7 @@ Pure functions, with no microscope and no I/O. Each takes a displacement in the 
 the user is looking at, the geometry of the view it was seen in, and the stage pose, and
 returns a stage movement. Reading those inputs off an instrument, commanding the move and
 restoring the working distance afterwards is the caller's job -- today
-``FibsemMicroscope.stable_move`` and ``vertical_move``, which every backend except
-Tescan shares.
+``FibsemMicroscope.stable_move`` and ``vertical_move``, which every backend shares.
 
 A beam and the fluorescence camera are the same kind of view here. They differ only in
 how far their viewing axis is tilted from the electron column (``view_tilt``) and in the
@@ -13,8 +12,8 @@ display transform undone before projecting: a beam's scan rotation, the camera's
 transform. The projection itself is :func:`fibsem.transformations.
 view_corrected_stage_movement`, which the saved-image reprojection shares.
 
-Tescan keeps its own model: its y-axis travels on the tilted plate, so its stage
-movements are not these (see ``TescanMicroscope._y_corrected_stage_movement``).
+Tescan's stage converts its own axes (y on the tilted plate, z chamber-vertical) to this
+frame inside its stage device, so these hold for it too (FIB-1114).
 """
 
 from __future__ import annotations
@@ -48,7 +47,6 @@ def image_to_stage_delta(
     geometry: FibsemHardwareGeometry,
     stage_rotation: float,
     stage_tilt: float,
-    is_fib_orientation: Optional[bool] = None,
 ) -> FibsemStagePosition:
     """Relative stage movement that slides the sample by (dx, dy) in a view.
 
@@ -62,8 +60,6 @@ def image_to_stage_delta(
         geometry: the instrument geometry.
         stage_rotation: stage rotation, in radians.
         stage_tilt: stage tilt, in radians.
-        is_fib_orientation: whether a compustage is at its FIB orientation, when the
-            caller has classified the pose; None derives it from the pose.
 
     Returns:
         FibsemStagePosition: relative movement in the RAW coordinate system.
@@ -74,7 +70,6 @@ def image_to_stage_delta(
         geometry=geometry,
         stage_rotation=stage_rotation,
         stage_tilt=stage_tilt,
-        is_fib_orientation=is_fib_orientation,
     )
     return FibsemStagePosition(
         x=dx, y=y_move, z=z_move, r=0, t=0, coordinate_system="RAW"
@@ -87,7 +82,7 @@ def vertical_move_delta(
     scan_rotation: float,
     fib_column_tilt: float,
     stage_tilt: float,
-    is_compustage: bool,
+    turned_over: bool,
     relaxation: float = 1.0,
 ) -> FibsemStagePosition:
     """Relative stage movement that cancels an offset seen in the FIB view by height.
@@ -98,7 +93,10 @@ def vertical_move_delta(
     what keeps a feature already centred in the SEM where it is.
 
     The chamber-vertical is then decomposed into the tilted stage axes: y = m*sin(t),
-    z = m*cos(t) (FIB-773).
+    z = m*cos(t) (FIB-773). Where the stage has the sample turned over the offset is
+    reversed. The stage device says where that is (`Stage.turned_over`), not the stage
+    type: past -90 degrees of tilt by default, which only a compustage reaches today,
+    at its FIB and FM poses (FIB-1124).
 
     Args:
         dx: offset along the displayed FIB image x-axis, in metres; moved as is.
@@ -106,7 +104,7 @@ def vertical_move_delta(
         scan_rotation: the ion beam's scan rotation, in radians.
         fib_column_tilt: the ion column tilt, in degrees.
         stage_tilt: stage tilt, in radians.
-        is_compustage: whether the stage is a compustage.
+        turned_over: whether the stage has the sample turned over at this tilt.
         relaxation: under-relaxation of the correction; 1.0 is geometrically exact.
 
     Returns:
@@ -114,11 +112,8 @@ def vertical_move_delta(
     """
     dx, dy = undo_scan_rotation(dx, dy, scan_rotation)
 
-    # TODO: ARCTIS Do we need to reverse the direction of the movement because of the inverted stage tilt?
-    if is_compustage:
+    if turned_over:
         dy *= -1.0
-        if stage_tilt >= np.deg2rad(-90):
-            dy *= -1.0
 
     z_move = dy / np.sin(np.deg2rad(fib_column_tilt)) * relaxation
 

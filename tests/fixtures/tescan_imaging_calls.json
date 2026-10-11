@@ -1,0 +1,2523 @@
+{
+ "ELECTRON acquire both": {
+  "cache": {
+   "ELECTRON": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 8e-05,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": null,
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ELECTRON image."
+   ],
+   [
+    "INFO",
+    "ELECTRON HFW set to 8e-05 m."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    512,
+    768
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.SetViewfield",
+    [
+     0.08
+    ],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Width": 768
+    }
+   ]
+  ]
+ },
+ "ELECTRON acquire current": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ELECTRON image."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 1e-06,
+    "filename": "default_image",
+    "frame_integration": null,
+    "hfw": 0.00015,
+    "line_integration": null,
+    "path": null,
+    "reduced_area": null,
+    "resolution": [
+     1536,
+     1024
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    1024,
+    1536
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 1000.0,
+     "Height": 1024,
+     "Width": 1536
+    }
+   ]
+  ]
+ },
+ "ELECTRON acquire reduced": {
+  "cache": {
+   "ELECTRON": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 8e-05,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": {
+    "height": 0.4,
+    "left": 0.1,
+    "top": 0.2,
+    "width": 0.3
+   },
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ELECTRON image."
+   ],
+   [
+    "INFO",
+    "ELECTRON HFW set to 8e-05 m."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": {
+     "height": 0.4,
+     "left": 0.1,
+     "top": 0.2,
+     "width": 0.3
+    },
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    204,
+    230
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.SetViewfield",
+    [
+     0.08
+    ],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.AcquireROI",
+    [],
+    {
+     "Bottom": 305,
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Left": 76,
+     "Right": 305,
+     "Top": 102,
+     "Width": 768
+    }
+   ]
+  ]
+ },
+ "ELECTRON acquire same hfw": {
+  "cache": {
+   "ELECTRON": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": null,
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ELECTRON image."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 0.00015,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    512,
+    768
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Width": 768
+    }
+   ]
+  ]
+ },
+ "ELECTRON acquire settings": {
+  "cache": {
+   "ELECTRON": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 8e-05,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": null,
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ELECTRON image."
+   ],
+   [
+    "INFO",
+    "ELECTRON HFW set to 8e-05 m."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    512,
+    768
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.SetViewfield",
+    [
+     0.08
+    ],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Width": 768
+    }
+   ]
+  ]
+ },
+ "ELECTRON auto focus": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [],
+  "result": null,
+  "sdk": [
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.AutoWDFine",
+    [
+     "SE"
+    ],
+    {}
+   ]
+  ]
+ },
+ "ELECTRON autocontrast": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "Running autocontrast on ELECTRON."
+   ]
+  ],
+  "result": null,
+  "sdk": [
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Detector.AutoSignal",
+    [],
+    {
+     "Detector": "SE"
+    }
+   ]
+  ]
+ },
+ "ELECTRON autocontrast area": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "Running autocontrast on ELECTRON."
+   ]
+  ],
+  "result": null,
+  "sdk": [
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Detector.AutoSignal",
+    [],
+    {
+     "Detector": "SE"
+    }
+   ]
+  ]
+ },
+ "ELECTRON last image": {
+  "cache": {
+   "ELECTRON": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 8e-05,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": null,
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ELECTRON image."
+   ],
+   [
+    "INFO",
+    "ELECTRON HFW set to 8e-05 m."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    512,
+    768
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.SetViewfield",
+    [
+     0.08
+    ],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Width": 768
+    }
+   ]
+  ]
+ },
+ "ELECTRON last image none": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [],
+  "result": null,
+  "sdk": []
+ },
+ "ION acquire both": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ION",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 8e-05,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": null,
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ION image."
+   ],
+   [
+    "INFO",
+    "ION HFW set to 8e-05 m."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    512,
+    768
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.SetViewfield",
+    [
+     0.08
+    ],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Width": 768
+    }
+   ]
+  ]
+ },
+ "ION acquire current": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ION image."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 1e-06,
+    "filename": "default_image",
+    "frame_integration": null,
+    "hfw": 0.00015,
+    "line_integration": null,
+    "path": null,
+    "reduced_area": null,
+    "resolution": [
+     1536,
+     1024
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    1024,
+    1536
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 1000.0,
+     "Height": 1024,
+     "Width": 1536
+    }
+   ]
+  ]
+ },
+ "ION acquire reduced": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ION",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 8e-05,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": {
+    "height": 0.4,
+    "left": 0.1,
+    "top": 0.2,
+    "width": 0.3
+   },
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ION image."
+   ],
+   [
+    "INFO",
+    "ION HFW set to 8e-05 m."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": {
+     "height": 0.4,
+     "left": 0.1,
+     "top": 0.2,
+     "width": 0.3
+    },
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    204,
+    230
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.SetViewfield",
+    [
+     0.08
+    ],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.AcquireROI",
+    [],
+    {
+     "Bottom": 305,
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Left": 76,
+     "Right": 305,
+     "Top": 102,
+     "Width": 768
+    }
+   ]
+  ]
+ },
+ "ION acquire same hfw": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ION",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": null,
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ION image."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 0.00015,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    512,
+    768
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Width": 768
+    }
+   ]
+  ]
+ },
+ "ION acquire settings": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ION",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 8e-05,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": null,
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ION image."
+   ],
+   [
+    "INFO",
+    "ION HFW set to 8e-05 m."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    512,
+    768
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.SetViewfield",
+    [
+     0.08
+    ],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Width": 768
+    }
+   ]
+  ]
+ },
+ "ION auto focus": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "WARNING",
+    "Auto focus is not supported for ION in Tescan API"
+   ]
+  ],
+  "result": null,
+  "sdk": []
+ },
+ "ION autocontrast": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "Running autocontrast on ION."
+   ]
+  ],
+  "result": null,
+  "sdk": [
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Detector.AutoSignal",
+    [],
+    {
+     "Detector": "SE"
+    }
+   ]
+  ]
+ },
+ "ION autocontrast area": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "Running autocontrast on ION."
+   ]
+  ],
+  "result": null,
+  "sdk": [
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Detector.AutoSignal",
+    [],
+    {
+     "Detector": "SE"
+    }
+   ]
+  ]
+ },
+ "ION last image": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ION",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 8e-05,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": null,
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ION image."
+   ],
+   [
+    "INFO",
+    "ION HFW set to 8e-05 m."
+   ]
+  ],
+  "result": {
+   "pixel_size": [
+    1e-07,
+    1e-07
+   ],
+   "settings": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "shape": [
+    512,
+    768
+   ],
+   "stage": {
+    "coordinate_system": "RAW",
+    "name": null,
+    "r": 0.0,
+    "t": 0.0,
+    "x": -0.0,
+    "y": 0.0,
+    "z": 0.0298
+   },
+   "system": {
+    "application": null,
+    "fibsem_version": "0.6.0.dev0",
+    "hardware_version": "Unknown",
+    "ip_address": "localhost",
+    "manufacturer": "Tescan",
+    "model": "FAKE",
+    "name": "tescan-microscope-configuration",
+    "serial_number": "0000",
+    "software_version": "1.0"
+   }
+  },
+  "sdk": [
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.SetViewfield",
+    [
+     0.08
+    ],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Width": 768
+    }
+   ]
+  ]
+ },
+ "ION last image none": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [],
+  "result": null,
+  "sdk": []
+ },
+ "acquire nothing": {
+  "cache": {
+   "ELECTRON": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ],
+   "ION": [
+    [
+     1536,
+     1024
+    ],
+    1e-06
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ELECTRON",
+   "drift_correction": false,
+   "dwell_time": 1e-06,
+   "filename": "default_image",
+   "frame_integration": null,
+   "hfw": 0.00015,
+   "line_integration": null,
+   "path": null,
+   "reduced_area": null,
+   "resolution": [
+    1536,
+    1024
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [],
+  "result": "raises ValueError: Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type).",
+  "sdk": []
+ },
+ "electron then ion": {
+  "cache": {
+   "ELECTRON": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ],
+   "ION": [
+    [
+     768,
+     512
+    ],
+    2e-07
+   ]
+  },
+  "last_settings": {
+   "autocontrast": false,
+   "beam_type": "ION",
+   "drift_correction": false,
+   "dwell_time": 2e-07,
+   "filename": "img",
+   "frame_integration": null,
+   "hfw": 8e-05,
+   "line_integration": null,
+   "path": "/data",
+   "reduced_area": null,
+   "resolution": [
+    768,
+    512
+   ],
+   "save": false,
+   "scan_interlacing": null
+  },
+  "log": [
+   [
+    "INFO",
+    "acquiring new ELECTRON image."
+   ],
+   [
+    "INFO",
+    "ELECTRON HFW set to 8e-05 m."
+   ],
+   [
+    "INFO",
+    "acquiring new ION image."
+   ],
+   [
+    "INFO",
+    "ION HFW set to 8e-05 m."
+   ]
+  ],
+  "result": [
+   {
+    "pixel_size": [
+     1e-07,
+     1e-07
+    ],
+    "settings": {
+     "autocontrast": false,
+     "beam_type": "ELECTRON",
+     "drift_correction": false,
+     "dwell_time": 2e-07,
+     "filename": "img",
+     "frame_integration": null,
+     "hfw": 8e-05,
+     "line_integration": null,
+     "path": "/data",
+     "reduced_area": null,
+     "resolution": [
+      768,
+      512
+     ],
+     "save": false,
+     "scan_interlacing": null
+    },
+    "shape": [
+     512,
+     768
+    ],
+    "stage": {
+     "coordinate_system": "RAW",
+     "name": null,
+     "r": 0.0,
+     "t": 0.0,
+     "x": -0.0,
+     "y": 0.0,
+     "z": 0.0298
+    },
+    "system": {
+     "application": null,
+     "fibsem_version": "0.6.0.dev0",
+     "hardware_version": "Unknown",
+     "ip_address": "localhost",
+     "manufacturer": "Tescan",
+     "model": "FAKE",
+     "name": "tescan-microscope-configuration",
+     "serial_number": "0000",
+     "software_version": "1.0"
+    }
+   },
+   {
+    "pixel_size": [
+     1e-07,
+     1e-07
+    ],
+    "settings": {
+     "autocontrast": false,
+     "beam_type": "ION",
+     "drift_correction": false,
+     "dwell_time": 2e-07,
+     "filename": "img",
+     "frame_integration": null,
+     "hfw": 8e-05,
+     "line_integration": null,
+     "path": "/data",
+     "reduced_area": null,
+     "resolution": [
+      768,
+      512
+     ],
+     "save": false,
+     "scan_interlacing": null
+    },
+    "shape": [
+     512,
+     768
+    ],
+    "stage": {
+     "coordinate_system": "RAW",
+     "name": null,
+     "r": 0.0,
+     "t": 0.0,
+     "x": -0.0,
+     "y": 0.0,
+     "z": 0.0298
+    },
+    "system": {
+     "application": null,
+     "fibsem_version": "0.6.0.dev0",
+     "hardware_version": "Unknown",
+     "ip_address": "localhost",
+     "manufacturer": "Tescan",
+     "model": "FAKE",
+     "name": "tescan-microscope-configuration",
+     "serial_number": "0000",
+     "software_version": "1.0"
+    }
+   }
+  ],
+  "sdk": [
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "SEM.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "SEM.Optics.SetViewfield",
+    [
+     0.08
+    ],
+    {}
+   ],
+   [
+    "SEM.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "SEM.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Width": 768
+    }
+   ],
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Beam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.Stop",
+    [],
+    {}
+   ],
+   [
+    "FIB.IsBusy",
+    [],
+    {}
+   ],
+   [
+    "FIB.Optics.SetViewfield",
+    [
+     0.08
+    ],
+    {}
+   ],
+   [
+    "FIB.Optics.GetViewfield",
+    [],
+    {}
+   ],
+   [
+    "FIB.Scan.AcquireImage",
+    [],
+    {
+     "Bpp": "Grayscale_8_bit",
+     "Detector": "SE",
+     "DwellTime": 200.0,
+     "Height": 512,
+     "Width": 768
+    }
+   ]
+  ]
+ }
+}

@@ -37,7 +37,7 @@ class _Unanswered:
 
     @property
     def value(self):
-        raise IOError("the odemis backend did not answer")
+        raise OSError("the odemis backend did not answer")
 
 
 def test_the_odemis_fm_is_served_as_its_parts(odemis_stubs):
@@ -55,7 +55,7 @@ def test_the_odemis_fm_is_served_as_its_parts(odemis_stubs):
 
 def test_health_reports_an_fm_that_stopped_answering(odemis_stubs):
     devices = {d.name: d for d in odemis_fm_devices()}
-    devices["fm"]._fm.camera._camera.exposureTime = _Unanswered()
+    devices["camera"]._camera.exposureTime = _Unanswered()
 
     health = device_health(devices["fm"])
 
@@ -85,3 +85,68 @@ def test_the_command_line_stops_with_the_reason(odemis_stubs, caplog):
 
     assert stopped.value.code == 1
     assert "odemis-start" in caplog.text
+
+
+def test_a_remote_fm_shows_power_and_gain_in_the_hardwares_units(odemis_stubs):
+    """Power and gain are fractions everywhere; the hardware's own full scale crosses
+    the wire with their metadata, for a display to show beside them."""
+    pytest.importorskip("websockets")
+    from fibsem.drivers.remote.devices import DeviceClient
+    from fibsem.fm.remote import RemoteFluorescenceMicroscope
+    from fibsem.server.devices import DeviceServer
+
+    components = stubs.default_components()
+    components["ccd"].gain = stubs.FakeVA(4.0, range=(0.0, 16.0))
+    stubs.use_components(components)
+    server = DeviceServer(odemis_fm_devices()).start()
+    client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
+    try:
+        fm = RemoteFluorescenceMicroscope.connect(
+            "127.0.0.1", server.port, client=client
+        )
+        assert fm.light_source.power_native_scale == (0.4, "W")
+        assert fm.camera.gain_native_scale == (16.0, None)
+        assert fm.camera.gain == 0.25
+    finally:
+        client.close()
+        server.stop()
+
+
+def test_a_remote_fm_brings_how_its_camera_is_mounted(odemis_stubs):
+    """The METEOR's server states the mount; a client applies it to every frame
+    before the user's own transform, without being told it separately."""
+    pytest.importorskip("websockets")
+    import numpy as np
+
+    from fibsem.drivers.remote.devices import DeviceClient
+    from fibsem.fm.remote import RemoteFluorescenceMicroscope
+    from fibsem.fm.structures import CameraImageTransform
+    from fibsem.server.devices import DeviceServer
+
+    server = DeviceServer(odemis_fm_devices({"mount_transform": "flip-x"})).start()
+    client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
+    try:
+        fm = RemoteFluorescenceMicroscope.connect(
+            "127.0.0.1", server.port, client=client
+        )
+        assert fm.mount_transform is CameraImageTransform.FLIP_X
+        frame = np.arange(6).reshape(2, 3)
+        np.testing.assert_array_equal(fm._apply_image_transform(frame), frame[:, ::-1])
+    finally:
+        client.close()
+        server.stop()
+
+
+def test_the_command_line_names_the_mount(odemis_stubs, monkeypatch):
+    served = {}
+
+    def odemis_fm_devices(config):
+        served["config"] = config
+        return []
+
+    monkeypatch.setattr(server_devices, "odemis_fm_devices", odemis_fm_devices)
+    monkeypatch.setattr(server_devices.uvicorn, "run", lambda *a, **k: None)
+
+    server_devices.main(["--serve", "odemis-fm", "--mount-transform", "flip-y"])
+
+    assert served["config"] == {"mount_transform": "flip-y"}

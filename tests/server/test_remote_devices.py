@@ -16,7 +16,7 @@ from fibsem.devices.core import (  # noqa: E402
     ParameterReadOnly,
     ParameterUnavailable,
 )
-from fibsem.devices.drivers.remote import (  # noqa: E402
+from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
     RemoteBeam,
     RemoteDeviceUnreachable,

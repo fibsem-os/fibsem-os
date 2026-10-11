@@ -40,9 +40,9 @@ from fibsem.ui.tokens import (
 from fibsem.ui.widgets.task_summary_formatting import (
     STATUS_BADGE_COLORS,
     STATUS_CHIP_ORDER,
-    format_duration_short,
     status_label,
 )
+from fibsem.util.durations import format_duration_as_clock
 
 # Short local names for the shared palette. These appear inside dozens of
 # f-strings below, where the full names would wrap every one of them.
@@ -104,8 +104,8 @@ def _item_column(df: Optional[pd.DataFrame]):
 class _NumericItem(QTableWidgetItem):
     """Table item that sorts by its numeric Qt.UserRole value rather than text.
 
-    Lets the Duration column (displayed as 'MMm:SSs') sort by the underlying
-    seconds, so e.g. '100m:00s' sorts after '99m:00s'.
+    Lets the Duration column (displayed as a clock, '4:05') sort by the underlying
+    seconds, so e.g. '12:00' sorts after '4:05'.
     """
 
     def __lt__(self, other: QTableWidgetItem) -> bool:
@@ -260,7 +260,7 @@ class WorkflowSummaryDialog(QDialog):
             completed_item.setForeground(QColor(_TEXT_MUTED))
 
             dur_seconds = row.get("duration")
-            duration_item = _NumericItem(format_duration_short(dur_seconds))
+            duration_item = _NumericItem(format_duration_as_clock(dur_seconds))
             try:
                 sort_value = float(dur_seconds) if not pd.isna(dur_seconds) else -1.0
             except (TypeError, ValueError):
@@ -306,7 +306,7 @@ class WorkflowSummaryDialog(QDialog):
         if "duration" in df.columns:
             total = pd.to_numeric(df["duration"], errors="coerce").fillna(0).sum()
             if total > 0:
-                parts.append(f"{format_duration_short(total)} total")
+                parts.append(f"{format_duration_as_clock(total)} total")
 
         return " · ".join(parts)
 

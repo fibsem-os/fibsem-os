@@ -68,7 +68,7 @@ def test_the_shipped_rotating_stages_derive_what_they_used_to_state(filename: st
     Tescan is the row worth having: reference 180, so its opposite is 0 and not 360.
     """
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
-    stage = StageSystemSettings.from_dict(config["hardware"]["stage"])
+    stage = StageSystemSettings.from_dict(utils.configuration_device(config, "stage"))
 
     assert stage.rotation_180 == SHIPPED[filename]
 
@@ -91,7 +91,7 @@ def test_a_connected_compustage_derives_no_opposite_rotation():
         manufacturer="Demo",
     )
 
-    assert microscope.stage_is_compustage
+    assert microscope._fm_is_a_pose()
     assert microscope.system.stage.rotation is False
     assert microscope.system.stage.rotation_180 == 0.0
 
@@ -103,7 +103,7 @@ def test_a_connected_rotating_stage_sits_half_a_turn_away():
         manufacturer="Demo",
     )
 
-    assert not microscope.stage_is_compustage
+    assert not microscope._fm_is_a_pose()
     assert microscope.system.stage.rotation is True
     assert microscope.system.stage.rotation_180 == 180.0
 
@@ -111,7 +111,7 @@ def test_a_connected_rotating_stage_sits_half_a_turn_away():
 @pytest.mark.parametrize("filename", sorted(ALL_CONFIGS))
 def test_no_shipped_file_still_states_it(filename: str):
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
-    assert "rotation_180" not in config["hardware"]["stage"]
+    assert "rotation_180" not in utils.configuration_device(config, "stage")
 
 
 def test_a_rotating_stage_sits_half_a_turn_from_its_reference():
@@ -124,7 +124,7 @@ def test_the_half_turn_wraps():
     The modulo is the difference between a file that reads `0` and one that reads `360`.
     Both compare equal through `rotation_angle_is_smaller`, so nothing would have broken
     -- it would just have been written in a spelling no other configuration uses, for a
-    reader to wonder about. `fibsem/configuration.py` omitted the modulo for years.
+    reader to wonder about. The old configuration generator omitted the modulo for years.
     """
     assert _stage(rotation_reference=180.0).rotation_180 == 0.0
 

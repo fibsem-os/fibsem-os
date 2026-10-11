@@ -2,16 +2,14 @@
 
 The driver says which named positions the instrument has, which move types it
 offers, and whether the arm rotates; the widget lists and shows exactly that.
-ThermoFisher and Demo offer PARK/EUCENTRIC and corrected moves, Tescan its three
-presets with relative moves and rotation, and a backend that says nothing gets
-relative moves and the user's own saved positions.
+ThermoFisher and Demo offer PARK/EUCENTRIC and corrected moves, a backend with its
+own presets and a rotating arm gets those with relative moves and rotation, and a
+backend that says nothing gets relative moves and the user's own saved positions.
 
 Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
 """
 
 import os
-import threading
-from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -22,7 +20,6 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem import utils
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import FibsemManipulatorPosition
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 
@@ -105,7 +102,7 @@ def test_demo_moves_to_a_named_position(demo):
     )
 
 
-def test_tescan_like_offers_relative_moves_with_rotation():
+def test_named_presets_with_relative_moves_and_rotation():
     microscope = StubMicroscope(named=["Parking", "Standby", "Working"], rotation=True)
     widget = FibsemManipulatorWidget(microscope=microscope)
 
@@ -129,25 +126,3 @@ def test_a_backend_without_named_positions_lists_only_the_users():
     widget.move_to_saved_position()
     assert _listed(widget) == ["mine"]
     assert microscope.moves[0][0] == "absolute"
-
-
-def test_tescan_named_positions_are_insert_presets():
-    microscope = TescanMicroscope.__new__(TescanMicroscope)
-    microscope._connection_lock = threading.RLock()
-    targets = []
-    microscope.connection = SimpleNamespace(
-        Nanomanipulator=SimpleNamespace(
-            Position=SimpleNamespace(Parking="P", Standby="S", Working="W"),
-            MoveToPosition=lambda Index, Position: targets.append(Position),
-            GetPosition=lambda Index: (0.0, 0.0, 0.0, 0.0),
-        )
-    )
-
-    assert microscope.manipulator_named_positions() == [
-        "Parking",
-        "Standby",
-        "Working",
-    ]
-    assert microscope.manipulator_move_types == ("relative",)
-    microscope.move_manipulator_to_named_position("Parking")
-    assert targets == ["P"]

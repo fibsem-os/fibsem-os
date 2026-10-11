@@ -47,7 +47,6 @@ from fibsem.structures import (
 )
 from fibsem.ui import (
     DETECTION_AVAILABLE,
-    FibsemCryoDepositionWidget,
     FibsemImageSettingsWidget,
     FibsemMovementWidget,
     FibsemSpotBurnWidget,
@@ -1737,8 +1736,6 @@ class AutoLamellaUI(QMainWindow):
         per-field; a rectangle is only judgeable whole). A defect edit stamps
         ``updated_at``, so the verdict record carries when it was changed.
         """
-        import time as _time
-
         from fibsem.applications.autolamella.server.context import (
             ITEM_PATCH_FIELDS,
             item_fields_version,
@@ -1785,7 +1782,9 @@ class AutoLamellaUI(QMainWindow):
                 "path": None,
             }
         if any(p.split(".", 1)[0] == "defect" for p, _o, _n in changes):
-            lamella.defect.updated_at = _time.time()
+            from fibsem.util.timestamps import now
+
+            lamella.defect.updated_at = now()
         # Moving the POI moves what is attached to it: the GUI's move path
         # calls sync_tasks_to_poi (patterns with sync_to_poi follow the
         # point); a patch that bypassed it left rough/polishing patterns
@@ -2239,7 +2238,7 @@ class AutoLamellaUI(QMainWindow):
             return
 
         lamella: Lamella = self.experiment.positions[idx]
-        logging.info(f"Updating Lamella UI for {lamella.status_info}")
+        logging.debug(f"Updating Lamella UI for {lamella.status_info}")
 
         # refresh objective position + pose display for the selected lamella
         self.selected_lamella_widget.set_lamella(lamella)
@@ -2788,13 +2787,6 @@ class AutoLamellaUI(QMainWindow):
         notification_service.show_toast(
             f"Saved Protocol to {os.path.basename(protocol_path)}", "info"
         )
-
-    #########
-    def cryo_deposition(self):
-        if self.microscope is None:
-            return
-        cryo_deposition_widget = FibsemCryoDepositionWidget(self.microscope)
-        cryo_deposition_widget.exec_()
 
     def set_instructions_msg(
         self,

@@ -190,7 +190,8 @@ def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
         ui.microscope.fib_acquisition_signal.emit(inspect_image)
         qapp.processEvents()
         fib = client.get("/app/images", headers=AUTH).json()["fib"]
-        assert fib["acquired_at"] == stamp.isoformat()
+        # With its UTC offset, as the event stream's times carry theirs (FIB-1190).
+        assert fib["acquired_at"] == stamp.astimezone().isoformat()
         # The display cache serves the same scale facts as the acquisition
         # endpoints: overlays drawn on the preview must not guess the FOV.
         assert fib["full_width"] == 1536
