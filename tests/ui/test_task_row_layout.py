@@ -27,10 +27,9 @@ def app():
 
 
 def _lines_and_columns(widget, count):
-    row = widget._build_task_row_with_placeholders(
-        "Task", [f"/tmp/image-{i}.tif" for i in range(count)]
-    )
-    grid = row.findChildren(QGridLayout)[0]
+    row = widget._image_grid([f"/tmp/image-{i}.tif" for i in range(count)])
+    grid = row.layout()
+    assert isinstance(grid, QGridLayout)
     occupied = [
         grid.getItemPosition(i)[:2] for i in range(grid.count())
     ]  # (row, column)
@@ -173,7 +172,7 @@ def test_a_loaded_tile_gets_a_caption_and_the_full_metadata_on_hover(app, tmp_pa
     """Read from the file the loader already opens for the pixels: no second read."""
     path = _sem_file(tmp_path)
     widget = LamellaTaskImageWidget()
-    row = widget._build_task_row_with_placeholders("Rough Milling", [path])  # kept
+    row = widget._image_grid([path])  # kept
     caption = widget._caption_labels[path]
     assert caption.text() == "", "nothing to say until the file is read"
 
