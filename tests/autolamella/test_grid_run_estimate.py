@@ -27,6 +27,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
 )
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
+    UNLOAD_ENTRY_NAME,
     plan_grid_run,
 )
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
@@ -241,6 +242,8 @@ def test_a_grid_step_is_priced_by_its_task_and_a_load_by_the_loader(experiment):
     assert seconds_for(grids[1], LOAD_ENTRY_NAME) == 180.0
     # the grid on the stage loads without an exchange
     assert seconds_for(grids[0], LOAD_ENTRY_NAME) == 0.0
+    # the unload a run can end with is priced, so the finish includes it
+    assert seconds_for(grids[0], UNLOAD_ENTRY_NAME) == 180.0
     assert seconds_for(grids[1], "gone") is None
     assert seconds_for("not-a-grid", "SEM") is None
 
