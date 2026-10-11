@@ -94,6 +94,16 @@ class TestConfig:
         assert again.current == 5e-9 and again.field_of_view == 600e-6
         assert again.duration == 0 and again.acquire_reference is True
 
+    def test_the_estimate_is_the_clean_and_the_reference(self):
+        config = CryoCleaningGridTaskConfig(duration=10.0)
+        assert config.estimated_duration > 10.0
+        longer = CryoCleaningGridTaskConfig(duration=40.0)
+        assert longer.estimated_duration == pytest.approx(
+            config.estimated_duration + 30.0
+        )
+        without = CryoCleaningGridTaskConfig(duration=10.0, acquire_reference=False)
+        assert 10.0 < without.estimated_duration < config.estimated_duration
+
 
 class TestOperation:
     def test_scans_at_the_current_and_restores_it(self, microscope):

@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Literal, Optional, Type
 
+from fibsem import timing
 from fibsem.acquire import new_image
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
@@ -49,6 +50,29 @@ REFERENCE_DWELL_TIME = 1e-6
 ROLE = "cleaning_fib"
 
 
+def cleaning_frame_settings(field_of_view: float) -> ImageSettings:
+    """One frame of the clean: nothing saved, no autocontrast."""
+    return ImageSettings(
+        resolution=CLEANING_RESOLUTION,
+        dwell_time=CLEANING_DWELL_TIME,
+        hfw=field_of_view,
+        beam_type=BeamType.ION,
+        autocontrast=False,
+        save=False,
+    )
+
+
+def reference_settings(field_of_view: float) -> ImageSettings:
+    """The ion reference of the cleaned field; the caller sets where it goes."""
+    return ImageSettings(
+        resolution=REFERENCE_RESOLUTION,
+        dwell_time=REFERENCE_DWELL_TIME,
+        hfw=field_of_view,
+        beam_type=BeamType.ION,
+        autocontrast=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # The operation
 # ---------------------------------------------------------------------------
@@ -70,14 +94,7 @@ def cryo_clean(
     current would mill whatever is imaged next. The field of view is left at the
     cleaned field. Returns the number of frames scanned.
     """
-    settings = ImageSettings(
-        resolution=CLEANING_RESOLUTION,
-        dwell_time=CLEANING_DWELL_TIME,
-        hfw=field_of_view,
-        beam_type=BeamType.ION,
-        autocontrast=False,
-        save=False,
-    )
+    settings = cleaning_frame_settings(field_of_view)
     previous = microscope.get_beam_current(BeamType.ION)
     frames = 0
     try:
@@ -172,6 +189,19 @@ class CryoCleaningGridTaskConfig(GridTaskConfig):
     def role(self) -> str:
         return ROLE
 
+    @property
+    def estimated_duration(self) -> float:
+        """The move to the grid, the clean (and the last frame, which can run past
+        the time), then the reference image."""
+        seconds = (
+            timing.stage_move_cost(1)
+            + self.duration
+            + timing.image_cost(cleaning_frame_settings(self.field_of_view))
+        )
+        if self.acquire_reference:
+            seconds += timing.image_cost(reference_settings(self.field_of_view))
+        return seconds
+
 
 @register_grid_task
 class CryoCleaningGridTask(GridTask):
@@ -226,19 +256,11 @@ class CryoCleaningGridTask(GridTask):
         self._check_for_abort()
 
         self.log_status_message("REFERENCE", "Acquiring the ion reference image")
-        image = new_image(
-            self.microscope,
-            ImageSettings(
-                resolution=REFERENCE_RESOLUTION,
-                dwell_time=REFERENCE_DWELL_TIME,
-                hfw=self.config.field_of_view,
-                beam_type=BeamType.ION,
-                autocontrast=True,
-                save=True,
-                path=self.output_dir,
-                filename=stamped_overview_name(self.config.filename),
-            ),
-        )
+        settings = reference_settings(self.config.field_of_view)
+        settings.save = True
+        settings.path = self.output_dir
+        settings.filename = stamped_overview_name(self.config.filename)
+        image = new_image(self.microscope, settings)
         self.record_output(ROLE, image)
         # As the overview does: a missing thumbnail is worth far less than the
         # recorded image, so a failure here is logged, not raised.
