@@ -5,7 +5,17 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Iterable, List, Mapping, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 import yaml
@@ -511,18 +521,24 @@ class Stage:
     def move_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         return self.parent.move_stage_relative(position)
 
+    def _movement(self) -> Any:
+        """The stage movement service for the view-corrected moves, or the microscope
+        on a backend without one. The plain moves above stay on the microscope."""
+        movement = getattr(self.parent, "stage_movement", None)
+        return self.parent if movement is None else movement
+
     def stable_move(
         self, dx: float, dy: float, beam_type: BeamType
     ) -> FibsemStagePosition:
-        return self.parent.stable_move(dx, dy, beam_type)
+        return self._movement().stable_move(dx, dy, beam_type)
 
     def vertical_move(
         self, dy: float, dx: float = 0.0, beam_type: BeamType = BeamType.ION
     ) -> FibsemStagePosition:
-        return self.parent.vertical_move(dy, dx, beam_type)
+        return self._movement().vertical_move(dy, dx, beam_type)
 
     def move_to_milling_angle(self, milling_angle: float) -> bool:
-        return self.parent.move_to_milling_angle(milling_angle)
+        return self._movement().move_to_milling_angle(milling_angle)
 
     def home(self) -> bool:
         return self.parent.home()
@@ -534,7 +550,7 @@ class Stage:
         beam_type: BeamType,
         base_position: FibsemStagePosition,
     ) -> FibsemStagePosition:
-        return self.parent.project_stable_move(dx, dy, beam_type, base_position)
+        return self._movement().project_stable_move(dx, dy, beam_type, base_position)
 
     def move_to_slot(self, slot_name: str) -> FibsemStagePosition:
         """Move the stage to a specific slot. Refuses a slot that is not calibrated."""
@@ -550,7 +566,7 @@ class Stage:
 
     def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
         """Move the stage to a specific orientation."""
-        return self.parent.move_to_orientation(orientation)
+        return self._movement().move_to_orientation(orientation)
 
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
         """Move the stage to the holder slot that holds this grid."""
