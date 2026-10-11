@@ -733,6 +733,7 @@ def test_the_drivers_are_the_fm_devices(odemis):
     }
     assert sorted(devices["camera"].parameters) == [
         "binning",
+        "display_transform",
         "exposure_time",
         "gain",
         "mount_transform",

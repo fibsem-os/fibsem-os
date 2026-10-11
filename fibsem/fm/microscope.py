@@ -597,9 +597,6 @@ class FluorescenceMicroscope:
             self.filter_set = FilterSet(devices["filter_set"], parent=self)
         self._last_updated_at: Optional[datetime] = datetime.now()
         self._rate_limit = RATE_LIMIT_DEFAULT  # seconds between updates
-        self._transform: Optional[CameraImageTransform] = (
-            CameraImageTransform.NONE
-        )  # image transformation
         self.default_orientation: str = (
             "FM"  # orientation used when computing fluorescence pose for new lamellas
         )
@@ -914,27 +911,45 @@ class FluorescenceMicroscope:
             self.transform_changed.emit(self._transform)
 
     @property
+    def _transform(self) -> CameraImageTransform:
+        """The display transform, held by the camera device (``display_transform``)
+        so the stage movement service, which undoes it for a move by a displacement
+        seen in the image, reads the same one.
+
+        Read from the cache: every frame applies it, and over the device server a
+        live read would be a request per frame."""
+        from fibsem.devices.fm import mount_transform_from_name
+
+        return mount_transform_from_name(self._display_transform_param().cached)
+
+    @_transform.setter
+    def _transform(self, transform: CameraImageTransform) -> None:
+        from fibsem.devices.fm import mount_transform_name
+
+        self._display_transform_param().write_through(mount_transform_name(transform))
+
+    def _display_transform_param(self) -> Any:
+        return self.devices["camera"].parameters["display_transform"]
+
+    @property
     def camera_tilt(self) -> float:
         """Tilt of the FM optical axis from the SEM column, in degrees.
 
         The camera's analogue of a beam column's ``column_tilt``; used to project
-        in-image displacements onto the tilted sample plane.
-
-        Derived from the mount geometry rather than configured:
+        in-image displacements onto the tilted sample plane. The FM entry's
+        ``camera_tilt`` where the configuration states one (FIB-335); otherwise from
+        the mount geometry:
 
         - **Under-grid mounts (Arctis / compustage)** look up at the grid from the
           opposite side to the SEM: a half turn, 180 degrees.
         - **Offset mounts (METEOR, iFLM)** sit parallel to the FIB column, displaced
           along x, so they share the ion column's tilt.
-
-        Drivers override if a system disagrees. This needs to become configurable for
-        systems whose mount is neither of the two known cases -- see FIB-335.
         """
         if self.parent is None:
             return 0.0  # simulator without a parent microscope
-        if self.parent._fm_is_a_pose():
-            return 180.0
-        return self.parent.system.ion.column_tilt
+        from fibsem.services.stage_movement import fm_camera_tilt
+
+        return fm_camera_tilt(self.parent)
 
     @property
     def mount_transform(self) -> CameraImageTransform:
