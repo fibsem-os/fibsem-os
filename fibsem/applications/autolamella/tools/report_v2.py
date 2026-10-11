@@ -31,8 +31,9 @@ import html
 import io
 import logging
 import math
+import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -44,6 +45,8 @@ from fibsem.applications.autolamella.tools.event_tables import (
     EventTables,
     read_event_tables,
 )
+from fibsem.util.durations import format_duration_as_clock, format_duration_in_words
+from fibsem.util.timestamps import wall_time_of, zone_label
 
 REPORT_DIRNAME = "reporting"
 REPORT_FILENAME = "report.html"
@@ -114,11 +117,18 @@ def write_report(experiment: Any, path: Union[str, Path, None] = None) -> Path:
         items=[p.name for p in experiment.positions],
         tasks=workflow_tasks(experiment),
         folders={p.name: Path(p.path) for p in experiment.positions},
+        zone=_zone(experiment),
     )
     path = Path(path) if path is not None else folder / REPORT_DIRNAME / REPORT_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(page, encoding="utf-8")
     return path
+
+
+def _zone(experiment: Any) -> Optional[tzinfo]:
+    """The instrument's zone, as the experiment's latest session recorded it."""
+    session = getattr(experiment, "session", None)
+    return session.zone if session is not None else None
 
 
 def no_record(experiment: Any) -> Optional[str]:
@@ -145,12 +155,15 @@ def render_report(
     tasks: Sequence[str],
     generated: Optional[datetime] = None,
     folders: Optional[Dict[str, Path]] = None,
+    zone: Optional[tzinfo] = None,
 ) -> str:
     """The page, from the record's tables. ``items`` and ``tasks`` give the
     rows' and columns' order: the experiment's lamellae and its workflow. A
     lamella or task that ran without being in either is added after them.
     ``folders`` are the lamellae's folders, where their images are: without
-    them the cards have no thumbnails."""
+    them the cards have no thumbnails. ``zone`` is the instrument's, as the
+    experiment recorded it: the record's times are already on its clock, and
+    the header names it (FIB-1196)."""
     runs = _runs(tables)
     fm = _fm(tables)
     items = _ordered(items, [r["item"] for r in runs] + [a["item"] for a in fm])
@@ -159,9 +172,9 @@ def render_report(
     # but is not a lamella to count or to give an outcome
     lamellae = [item for item in items if item != _NO_ITEM]
     summary = summarise(tables, lamellae, tasks)
-    generated = generated or datetime.now()
+    generated = generated or wall_time_of(time.time(), zone)
     body = [
-        _header(name, summary, lamellae, tasks, generated),
+        _header(name, summary, lamellae, tasks, generated, zone),
         _headline(summary, lamellae, fm),
     ]
     if summary.start is not None:
@@ -212,25 +225,31 @@ def summarise(tables: EventTables, items: Sequence[str], tasks: Sequence[str]):
 # ── the page's parts ─────────────────────────────────────────────────────────
 
 
-def _header(name, summary, items, tasks, generated) -> str:
+def _header(name, summary, items, tasks, generated, zone=None) -> str:
     when = "no runs recorded"
     if summary.start is not None:
         when = (
             f"{_date_time(summary.start)} – {_time_of_day(summary.end, summary.start)}"
-            f" ({_duration(summary.span)})"
+            f" ({format_duration_in_words(summary.span)})"
         )
     facts = [when, f"{len(items)} lamellae"]
     if tasks:
         facts.append(" → ".join(tasks))
     return (
         '<header><div><h1>{name}</h1><div class="muted">{facts}</div>'
-        '<div class="muted small">From events.jsonl · generated {generated}</div>'
+        '<div class="muted small">From events.jsonl · times on {clock} · generated'
+        " {generated}</div>"
         "</div>"
         '<button class="noprint" onclick="window.print()">Print or save as PDF</button>'
         "</header>"
     ).format(
         name=_e(name),
         facts=" · ".join(_e(f) for f in facts),
+        clock=_e(
+            f"the instrument's clock, {zone_label(zone)}"
+            if zone is not None
+            else "the instrument's clock"
+        ),
         generated=_e(generated.strftime("%d %b %Y, %H:%M")),
     )
 
@@ -253,9 +272,17 @@ def _headline(summary: Summary, items: Sequence[str], fm: List[Dict[str, Any]]) 
             f"{throughput:.1f} / h" if throughput is not None else "—",
             "finished lamellae per hour",
         ),
-        ("Machine", share(summary.machine), _duration(summary.machine)),
-        ("Waiting for an answer", share(summary.waiting), _duration(summary.waiting)),
-        ("Idle", share(summary.idle), f"{_duration(summary.idle)}, nothing running"),
+        ("Machine", share(summary.machine), format_duration_in_words(summary.machine)),
+        (
+            "Waiting for an answer",
+            share(summary.waiting),
+            format_duration_in_words(summary.waiting),
+        ),
+        (
+            "Idle",
+            share(summary.idle),
+            f"{format_duration_in_words(summary.idle)}, nothing running",
+        ),
     ]
     if fm:
         imaged = {a["item"] for a in fm if a["item"] != _NO_ITEM}
@@ -341,7 +368,7 @@ def _timeline(runs, fm, tables: EventTables, summary: Summary, items, tasks) -> 
         if x(b) - x(a) >= 60:
             parts.append(
                 f'<text x="{(x(a) + x(b)) / 2:.1f}" y="{top - 8}" '
-                f'text-anchor="middle">idle {_e(_duration((b - a).total_seconds()))}'
+                f'text-anchor="middle">idle {_e(format_duration_in_words((b - a).total_seconds()))}'
                 "</text>"
             )
     for tick, label in _ticks(start, end):
@@ -493,7 +520,7 @@ def _worth_a_look(runs, tables: EventTables, summary: Summary) -> str:
                     2,
                     start,
                     f"{_item(wait['item'])}: {_text(wait['task'])} waited "
-                    f"{_duration(wait['duration'])} for an answer, from {start:%H:%M}.",
+                    f"{format_duration_in_words(wait['duration'])} for an answer, from {start:%H:%M}.",
                 )
             )
     for a, b in summary.idle_gaps:
@@ -504,7 +531,7 @@ def _worth_a_look(runs, tables: EventTables, summary: Summary) -> str:
                 2,
                 a,
                 f"Nothing ran from {a:%H:%M} to {b:%H:%M} "
-                f"({_duration((b - a).total_seconds())}).",
+                f"({format_duration_in_words((b - a).total_seconds())}).",
             )
         )
     notes += _edits_mid_run(runs, tables)
@@ -689,10 +716,10 @@ def _card(item: str, of, summary: Summary, folder: Optional[Path]) -> str:
     facts = [status]
     run_time = sum(r["duration"] or 0.0 for r in runs)
     if run_time:
-        facts.append(f"{_duration(run_time)} run")
+        facts.append(f"{format_duration_in_words(run_time)} run")
     waiting = sum(r["waiting"] or 0.0 for r in runs)
     if waiting:
-        facts.append(f"{_duration(waiting)} waiting")
+        facts.append(f"{format_duration_in_words(waiting)} waiting")
     changed = sum(bool(d["changed"]) for d in of["decisions"])
     if changed:
         facts.append(f"{changed} decision{'s' if changed != 1 else ''} changed")
@@ -999,24 +1026,8 @@ def _union(spans: List[Interval]) -> List[Interval]:
 
 
 def _clock(seconds: Optional[float]) -> str:
-    """A run's length as a clock reads: 4:05, or 1:02:05 past an hour."""
-    if seconds is None:
-        return "—"
-    total = int(round(seconds))
-    hours, rest = divmod(total, 3600)
-    minutes, secs = divmod(rest, 60)
-    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
-
-
-def _duration(seconds: float) -> str:
-    """A span in words: 3 h 40 min, 12 min, 45 s."""
-    total = int(round(seconds))
-    if total < 60:
-        return f"{total} s"
-    hours, minutes = divmod(total // 60, 60)
-    if not hours:
-        return f"{minutes} min"
-    return f"{hours} h {minutes} min" if minutes else f"{hours} h"
+    """A run's length as a clock reads, 4:05; the report's dash when it has none."""
+    return format_duration_as_clock(seconds) or "—"
 
 
 def _date_time(t: datetime) -> str:

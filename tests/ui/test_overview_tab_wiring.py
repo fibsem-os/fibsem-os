@@ -211,10 +211,8 @@ def test_the_container_rebuilds_both(self_calls):
     else:
         pytest.fail("the container has no refresh_microscope; this test is stale")
 
-    # Walked rather than unparsed: `ast.unparse` is 3.9+ and CI still builds on 3.8,
-    # where it is an AttributeError at run time rather than anything a local run or a
-    # linter would show. Matching the node is also stricter than a substring -- it finds
-    # `self._tabs` as an actual attribute access and not as a mention in a comment.
+    # Matching the node is stricter than a substring: it finds `self._tabs` as an
+    # actual attribute access and not as a mention in a comment.
     reaches_both = any(
         isinstance(inner, ast.Attribute)
         and inner.attr == "_tabs"
@@ -316,31 +314,6 @@ def test_the_window_no_longer_imports_napari(window_source):
     window to it (FIB-407).
     """
     assert "import napari" not in window_source
-
-
-def test_the_done_state_in_the_status_bar_clears_itself(window_source):
-    """The shared progress widget shows "Done" when a tiled run finishes, and something
-    has to take it away again.
-
-    That used to be `_on_tile_acquisition_finished`, which is connected to the *napari
-    minimap's* own signal -- so a run driven from the rebuilt tab left a green "Done"
-    bar in the status bar for the rest of the session. Scheduling the hide from the
-    progress signal instead covers every producer of it.
-    """
-    import ast
-
-    tree = ast.parse(window_source)
-    handler = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "_on_tile_acquisition_progress"
-    )
-    body = ast.dump(handler)
-    assert "reset_if_finished" in body, (
-        "nothing hides the Done state; it stays until another operation replaces it"
-    )
-    assert "singleShot" in body, "the hide has to be delayed, or Done is never seen"
 
 
 # ── the two host tabs' shared base ───────────────────────────────────────

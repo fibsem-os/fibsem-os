@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
+from fibsem.util.timestamps import to_iso
 
 __all__ = ["AgentContext", "ITEM_PATCH_FIELDS", "config_version", "item_fields_version"]
 
@@ -87,7 +88,8 @@ def config_version(config) -> str:
 def _json_safe(value: Any) -> Any:
     """Coerce one cell of a dataframe/record into something JSON can carry."""
     if isinstance(value, datetime):
-        return value.isoformat()
+        # pandas' NaT is a datetime too: a time not yet known, as NaN is for a number
+        return None if value != value else value.isoformat()
     if isinstance(value, float) and math.isnan(value):
         return None
     if hasattr(value, "item") and not isinstance(value, str):
@@ -1846,7 +1848,7 @@ class AgentContext:
             {
                 "name": summary.name,
                 "path": summary.path,
-                "created_at": summary.created_at,
+                "created_at": to_iso(summary.created_at),
                 "num_items": summary.num_lamella,
                 "available": summary.available,
                 "instrument_model": summary.instrument_model,

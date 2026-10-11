@@ -19,7 +19,7 @@ those are gone.
 **The default microscope configuration is user state and is not the same on every
 machine**, and it reaches these tests twice over.
 
-Once through ``stage_is_compustage``: two tests branch on it rather than assuming an
+Once through the stage type (``_fm_is_a_pose``): two tests branch on it rather than assuming an
 answer, and the branch not taken is covered directly in
 ``tests/ui/test_stage_position_widget.py``, where the form is cheap enough to build
 against a chosen configuration.
@@ -227,9 +227,7 @@ def test_the_step_size_suits_the_stage(movement):
     times a thousand. Everything else keeps the default."""
     boxes = _boxes(movement)
     expected = (
-        1e-6 * constants.SI_TO_MILLI
-        if movement.microscope.stage_is_compustage
-        else 0.001
+        1e-6 * constants.SI_TO_MILLI if movement.microscope._fm_is_a_pose() else 0.001
     )
 
     for axis in ("x", "y", "z"):
@@ -239,7 +237,7 @@ def test_the_step_size_suits_the_stage(movement):
 def test_rotation_is_offered_only_where_it_exists(movement):
     """A compustage does not rotate, so both the label and the box go -- not just the
     box, which would leave a stranded caption."""
-    shown = not movement.microscope.stage_is_compustage
+    shown = not movement.microscope._fm_is_a_pose()
 
     form = movement.position_widget
     assert form.spinbox_rotation.isVisibleTo(form) is shown

@@ -1,0 +1,571 @@
+{
+ "demo ELECTRON application_file": [
+  "Si",
+  "Si-multipass",
+  "Si-ccs",
+  "autolamella",
+  "cryo_Pt_dep"
+ ],
+ "demo ELECTRON current": [
+  1e-12,
+  3e-12,
+  1e-11,
+  3e-11,
+  1e-10,
+  3e-10,
+  1e-09,
+  4e-09,
+  1.5e-08,
+  6e-08
+ ],
+ "demo ELECTRON detector_mode": [
+  "SecondaryElectrons",
+  "BackscatteredElectrons",
+  "EDS"
+ ],
+ "demo ELECTRON detector_type": [
+  "ETD",
+  "TLD",
+  "EDS"
+ ],
+ "demo ELECTRON not_a_key": [],
+ "demo ELECTRON plasma_gas": [
+  "Oxygen",
+  "Argon",
+  "Nitrogen",
+  "Xenon"
+ ],
+ "demo ELECTRON preset": [],
+ "demo ELECTRON scan_direction": [
+  "BottomToTop",
+  "LeftToRight",
+  "RightToLeft",
+  "TopToBottom"
+ ],
+ "demo ELECTRON voltage": [
+  2000,
+  5000,
+  10000,
+  20000,
+  30000
+ ],
+ "demo ION application_file": [
+  "Si",
+  "Si-multipass",
+  "Si-ccs",
+  "autolamella",
+  "cryo_Pt_dep"
+ ],
+ "demo ION current": [
+  1e-12,
+  3e-12,
+  2e-11,
+  4.1e-11,
+  9e-11,
+  2e-10,
+  4e-10,
+  1.000005e-09,
+  2e-09,
+  4e-09,
+  1.5e-08
+ ],
+ "demo ION detector_mode": [
+  "SecondaryElectrons",
+  "BackscatteredElectrons",
+  "EDS"
+ ],
+ "demo ION detector_type": [
+  "ETD",
+  "TLD",
+  "EDS"
+ ],
+ "demo ION not_a_key": [],
+ "demo ION plasma_gas": [
+  "Oxygen",
+  "Argon",
+  "Nitrogen",
+  "Xenon"
+ ],
+ "demo ION preset": [],
+ "demo ION scan_direction": [
+  "BottomToTop",
+  "LeftToRight",
+  "RightToLeft",
+  "TopToBottom"
+ ],
+ "demo ION voltage": [
+  500,
+  1000,
+  2000,
+  8000,
+  16000,
+  30000
+ ],
+ "demo None application_file": [
+  "Si",
+  "Si-multipass",
+  "Si-ccs",
+  "autolamella",
+  "cryo_Pt_dep"
+ ],
+ "demo None current": "EXC KeyError: None",
+ "demo None detector_mode": [
+  "SecondaryElectrons",
+  "BackscatteredElectrons",
+  "EDS"
+ ],
+ "demo None detector_type": [
+  "ETD",
+  "TLD",
+  "EDS"
+ ],
+ "demo None not_a_key": [],
+ "demo None plasma_gas": [
+  "Oxygen",
+  "Argon",
+  "Nitrogen",
+  "Xenon"
+ ],
+ "demo None preset": [],
+ "demo None scan_direction": [
+  "BottomToTop",
+  "LeftToRight",
+  "RightToLeft",
+  "TopToBottom"
+ ],
+ "demo None voltage": [],
+ "odemis ELECTRON application_file": null,
+ "odemis ELECTRON current": [
+  1e-12,
+  2e-12,
+  4e-12,
+  8e-12,
+  1.6e-11,
+  3.2e-11,
+  6.4e-11,
+  1.28e-10,
+  2.56e-10,
+  5.12e-10,
+  1.024e-09,
+  2.048e-09,
+  4.096e-09,
+  8.192e-09
+ ],
+ "odemis ELECTRON detector_mode": {
+  "set": [
+   "BackscatterElectrons",
+   "SecondaryElectrons"
+  ]
+ },
+ "odemis ELECTRON detector_type": {
+  "set": [
+   "ETD",
+   "TLD"
+  ]
+ },
+ "odemis ELECTRON not_a_key": [],
+ "odemis ELECTRON plasma_gas": [
+  "Argon",
+  "Oxygen",
+  "Xenon"
+ ],
+ "odemis ELECTRON preset": [],
+ "odemis ELECTRON scan_direction": [
+  "TopToBottom",
+  "BottomToTop",
+  "LeftToRight",
+  "RightToLeft"
+ ],
+ "odemis ELECTRON voltage": [
+  1000,
+  2000,
+  3000,
+  5000,
+  10000,
+  20000,
+  30000
+ ],
+ "odemis ION application_file": null,
+ "odemis ION current": [
+  1e-12,
+  3e-11,
+  1e-09
+ ],
+ "odemis ION detector_mode": {
+  "set": [
+   "BackscatterElectrons",
+   "SecondaryElectrons"
+  ]
+ },
+ "odemis ION detector_type": {
+  "set": [
+   "ETD",
+   "ICE"
+  ]
+ },
+ "odemis ION not_a_key": [],
+ "odemis ION plasma_gas": [
+  "Argon",
+  "Oxygen",
+  "Xenon"
+ ],
+ "odemis ION preset": [],
+ "odemis ION scan_direction": [
+  "TopToBottom",
+  "BottomToTop",
+  "LeftToRight",
+  "RightToLeft"
+ ],
+ "odemis ION voltage": [
+  500,
+  1000,
+  2000,
+  8000,
+  16000,
+  30000
+ ],
+ "odemis None application_file": null,
+ "odemis None current": "EXC KeyError: None",
+ "odemis None detector_mode": "EXC KeyError: None",
+ "odemis None detector_type": "EXC KeyError: None",
+ "odemis None not_a_key": [],
+ "odemis None plasma_gas": [
+  "Argon",
+  "Oxygen",
+  "Xenon"
+ ],
+ "odemis None preset": [],
+ "odemis None scan_direction": [
+  "TopToBottom",
+  "BottomToTop",
+  "LeftToRight",
+  "RightToLeft"
+ ],
+ "odemis None voltage": "EXC KeyError: None",
+ "tescan ELECTRON application_file": [],
+ "tescan ELECTRON current": [
+  1e-12
+ ],
+ "tescan ELECTRON detector_mode": [],
+ "tescan ELECTRON detector_type": [
+  "SE",
+  "E-T",
+  "BSE"
+ ],
+ "tescan ELECTRON not_a_key": [],
+ "tescan ELECTRON plasma_gas": [],
+ "tescan ELECTRON preset": [],
+ "tescan ELECTRON scan_direction": [
+  "ZigZag",
+  "Flyback",
+  "RLE",
+  "SpiralInsideOut",
+  "SpiralOutsideIn"
+ ],
+ "tescan ELECTRON voltage": [],
+ "tescan ION application_file": [],
+ "tescan ION current": [
+  2e-11,
+  6e-11,
+  2e-10,
+  7.4e-10,
+  2e-09,
+  7.6e-09,
+  2.8e-08,
+  1.2e-07
+ ],
+ "tescan ION detector_mode": [],
+ "tescan ION detector_type": [
+  "SE",
+  "SI"
+ ],
+ "tescan ION not_a_key": [],
+ "tescan ION plasma_gas": [],
+ "tescan ION preset": [
+  "30 keV; 1 nA",
+  "30 keV; 100 pA"
+ ],
+ "tescan ION scan_direction": [
+  "ZigZag",
+  "Flyback",
+  "RLE",
+  "SpiralInsideOut",
+  "SpiralOutsideIn"
+ ],
+ "tescan ION voltage": [],
+ "tescan None application_file": [],
+ "tescan None current": [],
+ "tescan None detector_mode": [],
+ "tescan None detector_type": [],
+ "tescan None not_a_key": [],
+ "tescan None plasma_gas": [],
+ "tescan None preset": "EXC ValueError: Invalid beam type: None",
+ "tescan None scan_direction": [
+  "ZigZag",
+  "Flyback",
+  "RLE",
+  "SpiralInsideOut",
+  "SpiralOutsideIn"
+ ],
+ "tescan None voltage": [],
+ "thermo plasma=False ELECTRON application_file": [
+  "Si",
+  "Si-multipass",
+  "C"
+ ],
+ "thermo plasma=False ELECTRON current": [
+  1e-12,
+  2e-12,
+  4e-12,
+  8e-12,
+  1.6e-11,
+  3.2e-11,
+  6.4e-11,
+  1.28e-10,
+  2.56e-10,
+  5.12e-10,
+  1.024e-09,
+  2.048e-09,
+  4.096e-09,
+  8.192e-09
+ ],
+ "thermo plasma=False ELECTRON detector_mode": [
+  "SecondaryElectrons",
+  "BackscatterElectrons"
+ ],
+ "thermo plasma=False ELECTRON detector_type": [
+  "ETD",
+  "TLD",
+  "ICE"
+ ],
+ "thermo plasma=False ELECTRON not_a_key": [],
+ "thermo plasma=False ELECTRON plasma_gas": [],
+ "thermo plasma=False ELECTRON preset": [],
+ "thermo plasma=False ELECTRON scan_direction": [
+  "BottomToTop",
+  "DynamicAllDirections",
+  "DynamicInnerToOuter",
+  "DynamicLeftToRight",
+  "DynamicTopToBottom",
+  "InnerToOuter",
+  "LeftToRight",
+  "OuterToInner",
+  "RightToLeft",
+  "TopToBottom"
+ ],
+ "thermo plasma=False ELECTRON voltage": [
+  1000,
+  2000,
+  3000,
+  5000,
+  10000,
+  20000,
+  30000
+ ],
+ "thermo plasma=False ION application_file": [
+  "Si",
+  "Si-multipass",
+  "C"
+ ],
+ "thermo plasma=False ION current": [
+  1e-12,
+  2e-11,
+  1e-10,
+  1e-09
+ ],
+ "thermo plasma=False ION detector_mode": [
+  "SecondaryElectrons",
+  "BackscatterElectrons"
+ ],
+ "thermo plasma=False ION detector_type": [
+  "ETD",
+  "TLD",
+  "ICE"
+ ],
+ "thermo plasma=False ION not_a_key": [],
+ "thermo plasma=False ION plasma_gas": [],
+ "thermo plasma=False ION preset": [],
+ "thermo plasma=False ION scan_direction": [
+  "BottomToTop",
+  "DynamicAllDirections",
+  "DynamicInnerToOuter",
+  "DynamicLeftToRight",
+  "DynamicTopToBottom",
+  "InnerToOuter",
+  "LeftToRight",
+  "OuterToInner",
+  "RightToLeft",
+  "TopToBottom"
+ ],
+ "thermo plasma=False ION voltage": [
+  500,
+  1000,
+  2000,
+  8000,
+  16000,
+  30000
+ ],
+ "thermo plasma=False None application_file": [
+  "Si",
+  "Si-multipass",
+  "C"
+ ],
+ "thermo plasma=False None current": [],
+ "thermo plasma=False None detector_mode": [
+  "SecondaryElectrons",
+  "BackscatterElectrons"
+ ],
+ "thermo plasma=False None detector_type": [
+  "ETD",
+  "TLD",
+  "ICE"
+ ],
+ "thermo plasma=False None not_a_key": [],
+ "thermo plasma=False None plasma_gas": [],
+ "thermo plasma=False None preset": [],
+ "thermo plasma=False None scan_direction": [
+  "BottomToTop",
+  "DynamicAllDirections",
+  "DynamicInnerToOuter",
+  "DynamicLeftToRight",
+  "DynamicTopToBottom",
+  "InnerToOuter",
+  "LeftToRight",
+  "OuterToInner",
+  "RightToLeft",
+  "TopToBottom"
+ ],
+ "thermo plasma=False None voltage": "EXC ValueError: Unknown beam type: None",
+ "thermo plasma=True ELECTRON application_file": [
+  "Si",
+  "Si-multipass",
+  "C"
+ ],
+ "thermo plasma=True ELECTRON current": [
+  1e-12,
+  2e-12,
+  4e-12,
+  8e-12,
+  1.6e-11,
+  3.2e-11,
+  6.4e-11,
+  1.28e-10,
+  2.56e-10,
+  5.12e-10,
+  1.024e-09,
+  2.048e-09,
+  4.096e-09,
+  8.192e-09
+ ],
+ "thermo plasma=True ELECTRON detector_mode": [
+  "SecondaryElectrons",
+  "BackscatterElectrons"
+ ],
+ "thermo plasma=True ELECTRON detector_type": [
+  "ETD",
+  "TLD",
+  "ICE"
+ ],
+ "thermo plasma=True ELECTRON not_a_key": [],
+ "thermo plasma=True ELECTRON plasma_gas": [],
+ "thermo plasma=True ELECTRON preset": [],
+ "thermo plasma=True ELECTRON scan_direction": [
+  "BottomToTop",
+  "DynamicAllDirections",
+  "DynamicInnerToOuter",
+  "DynamicLeftToRight",
+  "DynamicTopToBottom",
+  "InnerToOuter",
+  "LeftToRight",
+  "OuterToInner",
+  "RightToLeft",
+  "TopToBottom"
+ ],
+ "thermo plasma=True ELECTRON voltage": [
+  1000,
+  2000,
+  3000,
+  5000,
+  10000,
+  20000,
+  30000
+ ],
+ "thermo plasma=True ION application_file": [
+  "Si",
+  "Si-multipass",
+  "C"
+ ],
+ "thermo plasma=True ION current": [
+  1e-12,
+  2e-11,
+  1e-10,
+  1e-09
+ ],
+ "thermo plasma=True ION detector_mode": [
+  "SecondaryElectrons",
+  "BackscatterElectrons"
+ ],
+ "thermo plasma=True ION detector_type": [
+  "ETD",
+  "TLD",
+  "ICE"
+ ],
+ "thermo plasma=True ION not_a_key": [],
+ "thermo plasma=True ION plasma_gas": [
+  "Argon",
+  "Oxygen",
+  "Xenon"
+ ],
+ "thermo plasma=True ION preset": [],
+ "thermo plasma=True ION scan_direction": [
+  "BottomToTop",
+  "DynamicAllDirections",
+  "DynamicInnerToOuter",
+  "DynamicLeftToRight",
+  "DynamicTopToBottom",
+  "InnerToOuter",
+  "LeftToRight",
+  "OuterToInner",
+  "RightToLeft",
+  "TopToBottom"
+ ],
+ "thermo plasma=True ION voltage": [
+  500,
+  1000,
+  2000,
+  8000,
+  16000,
+  30000
+ ],
+ "thermo plasma=True None application_file": [
+  "Si",
+  "Si-multipass",
+  "C"
+ ],
+ "thermo plasma=True None current": [],
+ "thermo plasma=True None detector_mode": [
+  "SecondaryElectrons",
+  "BackscatterElectrons"
+ ],
+ "thermo plasma=True None detector_type": [
+  "ETD",
+  "TLD",
+  "ICE"
+ ],
+ "thermo plasma=True None not_a_key": [],
+ "thermo plasma=True None plasma_gas": [],
+ "thermo plasma=True None preset": [],
+ "thermo plasma=True None scan_direction": [
+  "BottomToTop",
+  "DynamicAllDirections",
+  "DynamicInnerToOuter",
+  "DynamicLeftToRight",
+  "DynamicTopToBottom",
+  "InnerToOuter",
+  "LeftToRight",
+  "OuterToInner",
+  "RightToLeft",
+  "TopToBottom"
+ ],
+ "thermo plasma=True None voltage": "EXC ValueError: Unknown beam type: None"
+}

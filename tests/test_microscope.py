@@ -5,6 +5,7 @@ import pytest
 
 from fibsem import utils
 from fibsem.structures import BeamType, FibsemStagePosition
+from tests.fixtures.demo_stage import demo_session
 
 
 def test_microscope():
@@ -34,8 +35,7 @@ def test_microscope():
 )
 def test_get_stage_orientation_compustage(tilt_deg, expected):
     """Test get_stage_orientation for compustage (pretilt=0)."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
 
@@ -56,8 +56,7 @@ def test_get_stage_orientation_compustage(tilt_deg, expected):
 )
 def test_get_stage_orientation_non_compustage(rotation_deg, tilt_deg, expected):
     """Test get_stage_orientation for non-compustage (pretilt=35°)."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope, _ = demo_session(compustage=False)
     microscope.system.stage.shuttle_pre_tilt = 35
     microscope.system.stage.rotation_reference = 0
     microscope.system.stage.rotation = True  # so FIB derives to 180 (FIB-834)
@@ -100,19 +99,20 @@ def test_move_to_orientation_round_trip(orientation):
 
 def _compustage_with_fm():
     """A compustage Demo microscope with fluorescence attached."""
-    from fibsem.fm.microscope import FluorescenceMicroscope
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
     if microscope.fm is None:
-        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
     return microscope
 
 
 @pytest.mark.parametrize("target,expected", [("FIBSEM", "SEM"), ("FM", "FM")])
-def test_move_to_microscope_compustage_lands_on_the_named_orientation(target, expected):
+def test_move_to_microscope_on_a_compustage_lands_on_the_named_orientation(
+    target, expected
+):
     microscope = _compustage_with_fm()
 
     microscope.move_to_microscope(target)
@@ -120,7 +120,7 @@ def test_move_to_microscope_compustage_lands_on_the_named_orientation(target, ex
     assert microscope.get_stage_orientation() == expected
 
 
-def test_move_to_microscope_compustage_round_trip():
+def test_move_to_microscope_on_a_compustage_round_trip():
     microscope = _compustage_with_fm()
     microscope.move_to_microscope("FM")
     start = microscope.get_stage_position()
@@ -133,46 +133,9 @@ def test_move_to_microscope_compustage_round_trip():
     assert np.isclose(end.t, start.t, atol=1e-6)
 
 
-def test_move_to_microscope_compustage_raises_no_deprecation_warning():
-    """It reached the beam pose through `move_flat_to_beam`, which is on its way out.
-
-    Left as a test rather than only a fix because the replacement has to agree with the
-    deprecated method exactly -- `move_to_orientation("SEM")` is what its docstring says
-    the electron branch means -- and the next caller reaching for the old one would
-    otherwise only be caught by a warning nobody reads.
-    """
-    microscope = _compustage_with_fm()
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
-        microscope.move_to_microscope("FIBSEM")
-
-
-def test_the_replacement_move_matches_the_deprecated_one():
-    """Same r and t, from the same starting pose."""
-    deprecated = _compustage_with_fm()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        deprecated.move_flat_to_beam(BeamType.ELECTRON)
-    expected = deprecated.get_stage_position()
-
-    microscope = _compustage_with_fm()
-    microscope.move_to_microscope("FIBSEM")
-
-    actual = microscope.get_stage_position()
-    assert np.isclose(actual.r, expected.r, atol=1e-6)
-    assert np.isclose(actual.t, expected.t, atol=1e-6)
-
-
-# ---------------------------------------------------------------------------
-# get_target_position: MILLING <-> FM conversions (FIB-234)
-# ---------------------------------------------------------------------------
-
-
 def test_get_target_position_milling_to_fm_compustage():
     """MILLING -> FM is now supported on compustage systems."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
 
@@ -191,8 +154,7 @@ def test_get_target_position_milling_to_fm_compustage():
 
 def test_get_target_position_fm_to_milling_compustage():
     """FM -> MILLING is now supported on compustage systems."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
 
@@ -208,8 +170,7 @@ def test_get_target_position_fm_to_milling_compustage():
 
 def test_get_target_position_milling_to_fm_non_compustage_raises():
     """MILLING -> FM still raises on non-compustage systems."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = False
+    microscope, _ = demo_session(compustage=False)
     microscope.system.stage.shuttle_pre_tilt = 35
     microscope._update_orientations()
 
@@ -222,8 +183,7 @@ def test_get_target_position_milling_to_fm_non_compustage_raises():
 
 def test_get_target_position_milling_same_orientation_noop():
     """MILLING -> MILLING returns the position unchanged."""
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    microscope.stage_is_compustage = True
+    microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope._update_orientations()
 

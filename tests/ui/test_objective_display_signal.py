@@ -28,6 +28,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sys
+from contextlib import nullcontext
 
 import pytest
 
@@ -36,7 +37,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.constants import METRE_TO_MICRON
-from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -57,7 +58,7 @@ def _nearby_um(fm) -> float:
 
 @pytest.fixture
 def fm():
-    return FluorescenceMicroscope()
+    return DemoFluorescenceMicroscope()
 
 
 @pytest.fixture
@@ -199,8 +200,11 @@ class TestTheLabelStillExistsBeforeTheFirstMove:
 
         controller.update_info(microscope)  # a stage update, carrying no objective
 
+        # On the FM bar now (FIB-1186), and no longer in the canvas's info text.
+        shown = {f.label: f.value for f in controller.widget.fm_bar.visible_fields()}
+        assert shown.get("OBJ") == "200.0 µm"
         info = dict(controller._states[controller._widget.fm_canvas].info)
-        assert info.get("objective") == "OBJECTIVE: 200.0 µm"
+        assert "objective" not in info
 
     def test_the_seeding_read_happens_once_and_only_once(self):
         """The point of the exercise. One read to have something to show is not the
@@ -257,7 +261,7 @@ class TestTheLabelStillExistsBeforeTheFirstMove:
 
 
 class _StubObjective:
-    pass
+    state = "Retracted"
 
 
 class _StubFM:
@@ -267,12 +271,16 @@ class _StubFM:
         # counter -- or its raising getter -- into the next.
         self.objective = type("_StubObjective", (_StubObjective,), {})()
 
+    def active_channel(self):
+        return nullcontext()
+
 
 class _StubMicroscope:
     """Only what `update_info` touches before reaching the objective branch."""
 
     def __init__(self):
         self.fm = _StubFM()
+        self.stage = object()  # a stage is fitted, so the info bar shows it
         self._stage_position = _StubStagePosition()
         self.current_grid = "grid-1"
 

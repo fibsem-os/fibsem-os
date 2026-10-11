@@ -47,9 +47,11 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import CANVAS_BG as _BG
 from fibsem.ui.stylesheets import PRIMARY_ACCENT as _ACCENT
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
     GRAY_WHITE_COLOR,
     NEUTRAL_400,
     NEUTRAL_450,
+    TEXT_COLOR,
     WHITE_ICON_COLOR,
 )
 from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
@@ -132,6 +134,15 @@ _OVERLAY_GAP = 2
 _TOP_CHROME_INSET = _OVERLAY_MARGIN + _OVERLAY_BTN_SIZE + 4
 # The "● LIVE" chip shares the toolbar row, so it takes the buttons' height and corner
 # radius; the green is the badge's own, not a button state.
+# The status chips (FIB-1188): whether the image still matches the stage. Blue while
+# something is happening to it, grey once it is stale and nothing is coming.
+_BUSY_CHIP_BG = "#1f5f99"
+_STALE_CHIP_BG = BORDER_COLOR
+_STALE_CHIP_TEXT = TEXT_COLOR
+_CHIP_STYLE = (
+    "QLabel {{ background: {bg}; color: {fg}; border-radius: 3px; padding: 0px 6px;"
+    " font-size: 10px; font-weight: bold; }}"
+)
 _LIVE_BADGE_STYLE = (
     f"QLabel {{ background: {_LIVE_BADGE_BG}; color: {WHITE_ICON_COLOR};"
     " border-radius: 3px; padding: 0px 6px; font-size: 10px; font-weight: bold; }"
@@ -170,8 +181,7 @@ _STATUS_FLASH_STYLE = (
 # Padded vertically, unlike the status chips: those are a fixed row height, this one
 # sizes to however many lines it is given.
 _INFO_BAR_STYLE = (
-    f"QLabel {{ color: #e8e8e8; font-size: 9px; padding: 3px 6px;"
-    f" {_STATUS_PLAQUE} }}"
+    f"QLabel {{ color: #e8e8e8; font-size: 9px; padding: 3px 6px; {_STATUS_PLAQUE} }}"
 )
 
 
@@ -232,10 +242,18 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     """
 
     # Trailing ``object`` is a tuple of napari-style modifier strings, e.g. ("Alt",).
-    canvas_clicked = pyqtSignal(float, float, object)  # left single-click (x, y) px, mods
-    canvas_double_clicked = pyqtSignal(float, float, object)  # left double-click (x, y) px, mods
-    canvas_right_clicked = pyqtSignal(float, float, object)  # right single-click (x, y) px, mods
-    canvas_scrolled = pyqtSignal(float, float, int, object)  # (x, y) px, dir +1/-1, mods
+    canvas_clicked = pyqtSignal(
+        float, float, object
+    )  # left single-click (x, y) px, mods
+    canvas_double_clicked = pyqtSignal(
+        float, float, object
+    )  # left double-click (x, y) px, mods
+    canvas_right_clicked = pyqtSignal(
+        float, float, object
+    )  # right single-click (x, y) px, mods
+    canvas_scrolled = pyqtSignal(
+        float, float, int, object
+    )  # (x, y) px, dir +1/-1, mods
     # Where the cursor is, in canvas coordinates, or (None, None) once it leaves the
     # axes -- so a readout can blank rather than freeze on the last point it saw.
     # Typed `object` for exactly that: pyqtSignal(float, float) cannot carry None.
@@ -246,6 +264,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         # Axes + figure background; overridable via set_background_color (the minimap
         # uses black). The label/hint bboxes keep their own colours.
         self._facecolor = _BG
+        # What the canvas says while it has no image; see set_placeholder.
+        self._placeholder = "No image"
         # Extra empty space around the image when fitting the view, as a fraction of the
         # image size per side (0 = tight to the image; set via set_view_margin). Lets
         # overlays that extend past the image (stage limits, grid boundary) stay visible.
@@ -293,6 +313,11 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._info_text: Optional[str] = None  # remembered so it survives set_image
         self._live_badge = None  # top-right "● LIVE" chip during live acquisition
         self._live_on: bool = False  # remembered so it survives set_image
+        # The status chip in the same place, when not live: "MOVING", "ACQUIRING",
+        # "STAGE MOVED" (FIB-1188). Remembered, so it survives set_image.
+        self._chip_text: Optional[str] = None
+        self._chip_stale = False
+        self._chip_while_live = False
 
         # Transient status message (e.g. "WD 4.001 mm" on Shift+scroll); auto-clears.
         # Shares the top-left status zone with the hint, and outranks it while up.
@@ -338,7 +363,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self.mpl_connect("resize_event", lambda _: self.draw_idle())
         # A motion event with `inaxes` unset covers most exits, but a fast flick off
         # the widget can skip one and leave a readout showing a stale point.
-        self.mpl_connect("figure_leave_event", lambda _: self.cursor_moved.emit(None, None))
+        self.mpl_connect(
+            "figure_leave_event", lambda _: self.cursor_moved.emit(None, None)
+        )
 
         # Overlay buttons (parented to self; repositioned in resizeEvent)
         self._overlay_buttons: List[QPushButton] = []
@@ -351,7 +378,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             "mdi:fit-to-screen-outline", "Reset view", self.reset_view
         )
         self.btn_toggle_scalebar = self._add_overlay_button(
-            "mdi:arrow-expand-horizontal", "Hide scalebar", self.toggle_scalebar, checkable=True
+            "mdi:arrow-expand-horizontal",
+            "Hide scalebar",
+            self.toggle_scalebar,
+            checkable=True,
         )
         self.btn_toggle_scalebar.setChecked(True)
         self.btn_toggle_crosshair = self._add_overlay_button(
@@ -534,11 +564,21 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self._title_artist = None
         if self._title_text:
             self._title_artist = self._ax.text(
-                0.5, self._top_chrome_y(), self._title_text,
-                transform=self.figure.transFigure, ha="center", va="top",
-                fontsize=10, color=WHITE_ICON_COLOR, zorder=11,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor=_BG,
-                          edgecolor="none", alpha=0.55),
+                0.5,
+                self._top_chrome_y(),
+                self._title_text,
+                transform=self.figure.transFigure,
+                ha="center",
+                va="top",
+                fontsize=10,
+                color=WHITE_ICON_COLOR,
+                zorder=11,
+                bbox=dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor=_BG,
+                    edgecolor="none",
+                    alpha=0.55,
+                ),
             )
 
     def set_info_text(self, text: Optional[str]) -> None:
@@ -618,11 +658,50 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         each frame, which the artists around it still need.
         """
         self._live_on = bool(on)
+        self._refresh_badge()
+
+    def set_status_chip(
+        self, text: Optional[str], stale: bool = False, while_live: bool = False
+    ) -> None:
+        """Say whether the image still matches the stage, in LIVE's place beside the
+        toolbar: "MOVING", "ACQUIRING", or -- *stale*, grey -- "STAGE MOVED". None
+        clears it.
+
+        One chip at a time, MOVING > LIVE > ACQUIRING > STAGE MOVED. A chip that
+        outranks LIVE says so (*while_live*): the stage moving under a streaming
+        beam is worth saying, and the view's green border still says it is live. A
+        frame on its way, or a stale one, is not: a live view's frames keep coming.
+        """
+        self._chip_text = text or None
+        self._chip_stale = bool(stale)
+        self._chip_while_live = bool(while_live)
+        self._refresh_badge()
+
+    @property
+    def status_chip(self) -> Optional[str]:
+        """The status chip's text, or None; live or not."""
+        return self._chip_text
+
+    def _refresh_badge(self) -> None:
+        """The one chip in the top-right: MOVING > LIVE > ACQUIRING > STAGE MOVED."""
+        chip_first = self._chip_text and self._chip_while_live
+        if chip_first or (self._chip_text and not self._live_on):
+            bg = _STALE_CHIP_BG if self._chip_stale else _BUSY_CHIP_BG
+            fg = _STALE_CHIP_TEXT if self._chip_stale else WHITE_ICON_COLOR
+            text, style = self._chip_text, _CHIP_STYLE.format(bg=bg, fg=fg)
+        elif self._live_on:
+            text, style = "● LIVE", _LIVE_BADGE_STYLE
+        else:
+            text = style = None
         if self._live_badge is None:
-            if not self._live_on:
+            if text is None:
                 return  # never shown, nothing to hide
             self._live_badge = self._make_live_badge()
-        self._live_badge.setVisible(self._live_on)
+        if text is not None:
+            self._live_badge.setText(text)
+            self._live_badge.setStyleSheet(style)
+            self._live_badge.adjustSize()
+        self._live_badge.setVisible(text is not None)
         self._reposition_overlay_buttons()
 
     def _make_live_badge(self) -> QLabel:
@@ -727,18 +806,34 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             marker = entry[2] if len(entry) > 2 else None
             labels.append(label)
             if marker:
-                handles.append(Line2D(
-                    [], [], linestyle="None", marker=marker, markersize=9,
-                    color=color, markeredgewidth=1.6, label=label,
-                ))
+                handles.append(
+                    Line2D(
+                        [],
+                        [],
+                        linestyle="None",
+                        marker=marker,
+                        markersize=9,
+                        color=color,
+                        markeredgewidth=1.6,
+                        label=label,
+                    )
+                )
             else:
-                handles.append(mpatches.Patch(facecolor=color, edgecolor="white", label=label))
+                handles.append(
+                    mpatches.Patch(facecolor=color, edgecolor="white", label=label)
+                )
         # Build the Legend directly (not ax.legend) so it doesn't replace an overlay's
         # own legend (e.g. milling stages); styled like the point/milling legends.
         leg = Legend(
-            self._ax, handles, labels, loc=self._legend_loc,
-            fontsize=7, facecolor=_BG, edgecolor="#555555",
-            labelcolor="#d1d2d4", framealpha=0.85,
+            self._ax,
+            handles,
+            labels,
+            loc=self._legend_loc,
+            fontsize=7,
+            facecolor=_BG,
+            edgecolor="#555555",
+            labelcolor="#d1d2d4",
+            framealpha=0.85,
         )
         leg.set_zorder(10)
         self._ax.add_artist(leg)
@@ -752,7 +847,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._ax.cla()
         self._scalebar_artist = None
         self._crosshair_artists = []
-        self._hint_text = None  # the status chip is a widget; hidden below, not by cla()
+        self._hint_text = (
+            None  # the status chip is a widget; hidden below, not by cla()
+        )
         self._title_artist = None
         self._title_text = None
         self._info_text = None
@@ -763,6 +860,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         if self._live_badge is not None:
             self._live_badge.hide()
         self._live_on = False
+        self._chip_text = None  # no image, nothing to be stale
+        self._chip_stale = False
         self._flash_text = None
         self._readout_text = None
         self._flash_timer.stop()
@@ -849,7 +948,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         metrics = QFontMetrics(label.font())
         # `sizeHint` carries the stylesheet padding, which the metrics do not.
         label.setText(self._status_full_text)
-        padding = max(label.sizeHint().width() - metrics.width(self._status_full_text), 0)
+        padding = max(
+            label.sizeHint().width() - metrics.width(self._status_full_text), 0
+        )
         label.setText(
             metrics.elidedText(
                 self._status_full_text, Qt.ElideRight, max(available - padding, 0)
@@ -873,7 +974,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._toolbar_visible = visible
         if not visible:
             self._toolbar_hidden = [
-                b for b in self._overlay_buttons
+                b
+                for b in self._overlay_buttons
                 if b is not self.btn_mode and not b.isHidden()
             ]
             for b in self._toolbar_hidden:
@@ -992,6 +1094,13 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._fit_view()
         self._schedule_redraw()
 
+    def set_placeholder(self, text: str) -> None:
+        """Set what the canvas says while it has no image, e.g. that the instrument
+        behind it is not there. Shown at once if the canvas is empty."""
+        self._placeholder = text
+        if self._img_w is None:
+            self.clear()
+
     def set_background_color(self, color: str) -> None:
         """Set the axes + figure background colour (the area around the image)."""
         self._facecolor = color
@@ -1100,7 +1209,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         if self._mode_overlay is None:
             return
         if self.btn_mode.isChecked():
-            self.btn_mode.setToolTip(f"{self._mode_label} active — click to enable Move")
+            self.btn_mode.setToolTip(
+                f"{self._mode_label} active — click to enable Move"
+            )
             self.set_active_overlay(self._mode_overlay)
         else:
             self.btn_mode.setToolTip(f"Click to resume {self._mode_label}")
@@ -1114,7 +1225,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._ax.text(
             0.5,
             0.5,
-            "No image",
+            self._placeholder,
             ha="center",
             va="center",
             transform=self._ax.transAxes,
@@ -1168,7 +1279,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """Show or hide the floating contrast / gamma popover."""
         self._contrast.set_open(self.btn_contrast.isChecked(), self.btn_contrast)
 
-    def _contrast_display(self) -> Tuple[Optional[np.ndarray], Optional[Tuple[float, float]]]:
+    def _contrast_display(
+        self,
+    ) -> Tuple[Optional[np.ndarray], Optional[Tuple[float, float]]]:
         """Return (array_to_show, clim) for the current contrast state.
 
         When the control is at its defaults (or the image is RGB) the raw
@@ -1197,7 +1310,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             im.set_clim(*clim)
         elif self._is_gray and self._display_base is not None:
             # back to default → restore the raw intensity range
-            im.set_clim(float(self._display_base.min()), float(self._display_base.max()))
+            im.set_clim(
+                float(self._display_base.min()), float(self._display_base.max())
+            )
         self.draw_idle()
 
     def _refresh_scalebar(self):
@@ -1322,7 +1437,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
                 and event.xdata is not None
                 and event.ydata is not None
             ):
-                self.canvas_clicked.emit(event.xdata, event.ydata, self._press_modifiers)
+                self.canvas_clicked.emit(
+                    event.xdata, event.ydata, self._press_modifiers
+                )
         self._pan_start = None
 
     def wheelEvent(self, event):
@@ -1355,8 +1472,11 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             steps = (angle.x() / 120) or pixel.x()
             if steps:
                 MouseEvent(
-                    "scroll_event", self, *self.mouseEventCoords(event),
-                    step=steps, guiEvent=event,
+                    "scroll_event",
+                    self,
+                    *self.mouseEventCoords(event),
+                    step=steps,
+                    guiEvent=event,
                 )._process()
                 event.accept()
                 return

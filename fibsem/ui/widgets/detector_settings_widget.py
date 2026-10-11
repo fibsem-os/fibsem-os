@@ -10,28 +10,11 @@ from PyQt5.QtWidgets import (
 )
 from superqt import QDoubleSlider
 
+from fibsem.devices.beam import Beam
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemDetectorSettings
 from fibsem.ui.utils import install_wheel_blocker
-
-WIDGET_CONFIG = {
-    "brightness": {
-        "label": "Brightness",
-        "range": (0.0, 1.0),
-        "decimals": 3,
-        "step": 0.01,
-        "suffix": None,
-    },
-    "contrast": {
-        "label": "Contrast",
-        "range": (0.0, 1.0),
-        "decimals": 3,
-        "step": 0.01,
-        "suffix": None,
-    },
-    "type": {"label": "Detector Type"},
-    "mode": {"label": "Detector Mode"},
-}
+from fibsem.ui.widgets.form_builder import parameter_field_metadata
 
 
 class _LabeledSlider(QWidget):
@@ -39,7 +22,9 @@ class _LabeledSlider(QWidget):
 
     valueChanged = pyqtSignal(float)
 
-    def __init__(self, min_val: float = 0.0, max_val: float = 1.0, decimals: int = 3, parent=None):
+    def __init__(
+        self, min_val: float = 0.0, max_val: float = 1.0, decimals: int = 3, parent=None
+    ):
         super().__init__(parent)
         self._decimals = decimals
         self._pct_mode = True
@@ -53,7 +38,9 @@ class _LabeledSlider(QWidget):
         install_wheel_blocker(self._slider)
 
         self._value_label = QLabel(self._format(min_val), self)
-        self._value_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)  # type: ignore[attr-defined]
+        self._value_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter  # type: ignore[attr-defined]
+        )
         self._value_label.setFixedWidth(52)
 
         layout.addWidget(self._slider)
@@ -115,29 +102,31 @@ class FibsemDetectorSettingsWidget(QWidget):
         # --- Detector Type ---
         self.type_combo = QComboBox()
         install_wheel_blocker(self.type_combo)
-        self.type_label = QLabel(WIDGET_CONFIG["type"]["label"])
+        self.type_label = QLabel(self._field("detector_type")["label"])
         layout.addRow(self.type_label, self.type_combo)
 
         # --- Detector Mode ---
         self.mode_combo = QComboBox()
         install_wheel_blocker(self.mode_combo)
-        self.mode_label = QLabel(WIDGET_CONFIG["mode"]["label"])
+        self.mode_label = QLabel(self._field("detector_mode")["label"])
         layout.addRow(self.mode_label, self.mode_combo)
 
         # --- Brightness ---
-        self.brightness_slider = _LabeledSlider(decimals=WIDGET_CONFIG["brightness"]["decimals"])
-        self.brightness_label = QLabel(WIDGET_CONFIG["brightness"]["label"])
+        self.brightness_slider = self._make_slider("detector_brightness")
+        self.brightness_label = QLabel(self._field("detector_brightness")["label"])
         layout.addRow(self.brightness_label, self.brightness_slider)
 
         # --- Contrast ---
-        self.contrast_slider = _LabeledSlider(decimals=WIDGET_CONFIG["contrast"]["decimals"])
-        self.contrast_label = QLabel(WIDGET_CONFIG["contrast"]["label"])
+        self.contrast_slider = self._make_slider("detector_contrast")
+        self.contrast_label = QLabel(self._field("detector_contrast")["label"])
         layout.addRow(self.contrast_label, self.contrast_slider)
 
         # All widgets shown only when advanced mode is active
         self._adv_widgets = [
-            self.type_label, self.type_combo,
-            self.mode_label, self.mode_combo,
+            self.type_label,
+            self.type_combo,
+            self.mode_label,
+            self.mode_combo,
         ]
 
     # ------------------------------------------------------------------
@@ -158,24 +147,46 @@ class FibsemDetectorSettingsWidget(QWidget):
         if not detector_type:
             return
         self.microscope.set_detector_type(detector_type, self.beam_type)
-        logging.info({"msg": "_on_type_changed", "beam_type": self.beam_type.name, "detector_type": detector_type})
+        # the modes depend on the type: the device has read them again
+        self._populate_modes()
+        logging.debug(
+            {
+                "msg": "_on_type_changed",
+                "beam_type": self.beam_type.name,
+                "detector_type": detector_type,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _on_mode_changed(self, mode: str):
         if not mode:
             return
         self.microscope.set_detector_mode(mode, self.beam_type)
-        logging.info({"msg": "_on_mode_changed", "beam_type": self.beam_type.name, "mode": mode})
+        logging.debug(
+            {"msg": "_on_mode_changed", "beam_type": self.beam_type.name, "mode": mode}
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _on_brightness_changed(self, value: float):
         self.microscope.set_detector_brightness(value, self.beam_type)
-        logging.info({"msg": "_on_brightness_changed", "beam_type": self.beam_type.name, "brightness": value})
+        logging.debug(
+            {
+                "msg": "_on_brightness_changed",
+                "beam_type": self.beam_type.name,
+                "brightness": value,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     def _on_contrast_changed(self, value: float):
         self.microscope.set_detector_contrast(value, self.beam_type)
-        logging.info({"msg": "_on_contrast_changed", "beam_type": self.beam_type.name, "contrast": value})
+        logging.debug(
+            {
+                "msg": "_on_contrast_changed",
+                "beam_type": self.beam_type.name,
+                "contrast": value,
+            }
+        )
         self.settings_changed.emit(self.get_settings())
 
     # ------------------------------------------------------------------
@@ -200,24 +211,43 @@ class FibsemDetectorSettingsWidget(QWidget):
         """
         self.type_combo.blockSignals(True)
         self.type_combo.clear()
-        available_types = self.microscope.get_available_values("detector_type", beam_type=self.beam_type)
+        available_types = self._choices("detector_type")
         if available_types:
             self.type_combo.addItems(available_types)
             current_type = self.microscope.get_detector_type(self.beam_type)
             if current_type is not None:
                 self.type_combo.setCurrentText(current_type)
         self.type_combo.blockSignals(False)
+        self._populate_modes()
 
+    def _populate_modes(self):
+        """The mode combo from the beam's detector mode choices, at its current mode."""
         self.mode_combo.blockSignals(True)
         self.mode_combo.clear()
-        available_modes = self.microscope.get_available_values("detector_mode", beam_type=self.beam_type)
-        if available_modes is None:
-            available_modes = []
+        available_modes = self._choices("detector_mode")
         self.mode_combo.addItems(available_modes)
         current_mode = self.microscope.get_detector_mode(self.beam_type)
         if current_mode is not None:
             self.mode_combo.setCurrentText(current_mode)
         self.mode_combo.blockSignals(False)
+
+    def _field(self, name: str) -> dict:
+        """How to show the beam parameter ``name``: its display hint, with the limits
+        and choices this beam reports, or what every beam declares when it has none."""
+        beam = self.microscope.beams.get(self.beam_type)
+        parameter = None if beam is None else beam.parameters.get(name)
+        return parameter_field_metadata(parameter or getattr(Beam, name))
+
+    def _choices(self, name: str) -> list:
+        return [str(choice) for choice in self._field(name).get("items") or []]
+
+    def _make_slider(self, name: str) -> "_LabeledSlider":
+        field = self._field(name)
+        return _LabeledSlider(
+            min_val=field.get("minimum", 0.0),
+            max_val=field.get("maximum", 1.0),
+            decimals=field.get("decimals") or 3,
+        )
 
     def get_settings(self) -> FibsemDetectorSettings:
         """Return a FibsemDetectorSettings built from the current widget values."""
@@ -261,7 +291,9 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", ip_address="localhost"
+    )
 
     main_widget = QWidget()
     layout = QVBoxLayout()
@@ -270,7 +302,9 @@ if __name__ == "__main__":
     header1 = QLabel("Electron Detector Settings")
     header1.setStyleSheet("font-weight: bold; font-size: 16px;")
     layout.addWidget(header1)
-    widget = FibsemDetectorSettingsWidget(microscope=microscope, beam_type=BeamType.ELECTRON)
+    widget = FibsemDetectorSettingsWidget(
+        microscope=microscope, beam_type=BeamType.ELECTRON
+    )
     widget.populate_detector_combos()
     widget.update_from_settings(microscope.get_detector_settings(BeamType.ELECTRON))
     layout.addWidget(widget)
@@ -278,13 +312,16 @@ if __name__ == "__main__":
     header2 = QLabel("Ion Detector Settings")
     header2.setStyleSheet("font-weight: bold; font-size: 16px;")
     layout.addWidget(header2)
-    widget2 = FibsemDetectorSettingsWidget(microscope=microscope, beam_type=BeamType.ION)
+    widget2 = FibsemDetectorSettingsWidget(
+        microscope=microscope, beam_type=BeamType.ION
+    )
     widget2.populate_detector_combos()
     widget2.update_from_settings(microscope.get_detector_settings(BeamType.ION))
     layout.addWidget(widget2)
 
     def print_settings():
         from pprint import pprint
+
         pprint(widget.get_settings().to_dict())
 
     btn = QPushButton("Print Settings")

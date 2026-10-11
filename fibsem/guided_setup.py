@@ -375,8 +375,8 @@ def shipped_stage_values(model: MicroscopeModel) -> Dict[str, float]:
     from fibsem import utils
 
     try:
-        config = utils.load_yaml(model.path)
-        stage = (config.get("hardware") or {}).get("stage") or {}
+        config = utils.upgrade_configuration(utils.load_yaml(model.path))
+        stage = utils.configuration_device(config, "stage")
         calibration = config.get("calibration") or {}
     except Exception as e:  # pragma: no cover - unreadable shipped file
         logger.warning(f"Could not read the stage values for {model.label}: {e}")
@@ -566,7 +566,9 @@ def build_configuration(choices: SetupChoices) -> dict:
     from fibsem import utils
 
     model = choices.model
-    config = utils.load_yaml(model.path)
+    # In the current version whatever the shipped file is in, so a new site's file
+    # starts with the device list.
+    config = utils.upgrade_configuration(utils.load_yaml(model.path))
 
     manufacturer = choices.manufacturer
 
@@ -590,11 +592,11 @@ def build_configuration(choices: SetupChoices) -> dict:
     # problem. So it follows the manufacturer rather than the file that happened to be
     # the starting point. This is a no-op for every shipped file, all of which already
     # agree with their manufacturer's defaults; it exists for the generic base.
-    hardware = config.setdefault("hardware", {})
     defaults = cfg.DEFAULT_CONFIGURATION_VALUES.get(manufacturer.config_value)
     if defaults:
-        hardware.setdefault("ion", {})["column_tilt"] = defaults["ion-column-tilt"]
-        hardware.setdefault("electron", {})["column_tilt"] = defaults[
+        device = utils.configuration_device
+        device(config, "ion", create=True)["column_tilt"] = defaults["ion-column-tilt"]
+        device(config, "electron", create=True)["column_tilt"] = defaults[
             "electron-column-tilt"
         ]
 
@@ -604,7 +606,7 @@ def build_configuration(choices: SetupChoices) -> dict:
         # noise in a file people read by hand.
         config.setdefault("sim", {})["is_compustage"] = model.is_compustage
 
-    stage = hardware.setdefault("stage", {})
+    stage = utils.configuration_device(config, "stage", create=True)
     if choices.rotation_reference is not None:
         stage["rotation_reference"] = float(choices.rotation_reference)
     # Written by no one now: `rotation_180` is derived from the reference and the

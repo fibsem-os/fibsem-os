@@ -6,6 +6,7 @@ channel names and colours. The builder must then turn confirmed answers into an 
 that saves and loads back as it was built. No Qt, no network.
 """
 
+import os
 from types import SimpleNamespace
 
 import numpy as np
@@ -30,6 +31,7 @@ from fibsem.fm.structures import (
     FluorescenceImageMetadata,
 )
 from fibsem.structures import CameraImageTransform, FibsemStagePosition
+from fibsem.util.timestamps import iso_from_posix
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -505,3 +507,26 @@ def test_a_meteor_imagej_export_reads_without_an_error_in_the_log(tmp_path, capl
     assert source.axes == "ZCYX" and source.described_by == "ImageJ metadata"
     np.testing.assert_array_equal(arrange(source.data, source.roles), data)
     assert [r.getMessage() for r in caplog.records if r.name == "tifffile"] == []
+
+
+def test_an_imported_image_is_dated_by_its_file_and_records_no_acquisition(tmp_path):
+    """A file's modification time, with its offset, is all an import knows; it is not
+    the acquisition's, so `acquisition_datetime` stays unset (FIB-1190)."""
+    path = tmp_path / "import.tif"
+    tifffile.imwrite(path, planes(1, 2)[0])
+    os.utime(path, (1_789_355_531.0, 1_789_355_531.0))
+    source = ImportSource(path=str(path), data=planes(1, 2)[0], axes="ZYX", roles="ZYX")
+
+    image = build_image(
+        source,
+        "ZYX",
+        pixel_size=1e-7,
+        channel_names=["GFP"],
+        channel_colors=["green"],
+        geometry=None,
+        stage_position=None,
+    )
+
+    md = image.metadata
+    assert md.acquisition_date == iso_from_posix(1_789_355_531.0)
+    assert md.acquisition_datetime is None

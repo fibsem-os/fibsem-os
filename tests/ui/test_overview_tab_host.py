@@ -48,7 +48,7 @@ def microscope():
     """A simulated Arctis, because these tabs are half about fluorescence.
 
     A plain Demo session is not a compustage, and `DemoMicroscope` only builds a
-    `SimulatedFluorescenceMicroscope` when `sim.is_compustage` is set. Without one,
+    `DemoFluorescenceMicroscope` when `sim.is_compustage` is set. Without one,
     `microscope.fm` is None -- and then `build_lamella_poses` returns no fluorescence
     pose, which `Lamella.fluorescence_pose`'s setter rejects, and the fluorescence tab
     builds no widget at all. That took out 19 of the 27 tests here, invisibly: CI
@@ -65,7 +65,7 @@ def microscope():
         "sim-arctis-configuration.yaml",
     )
     scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    assert scope.stage_is_compustage, "the config stopped being a compustage"
+    assert scope._fm_is_a_pose(), "the config stopped being a compustage"
     assert scope.fm is not None, "no fluorescence microscope to test the FM tab against"
     return scope
 

@@ -41,7 +41,8 @@ class FMLayer:
     # The user explicitly chose manual contrast (turned Auto off). Distinct from
     # ``autocontrast``, which the z-scrub display path also toggles internally: the
     # single-plane / MIP display path keeps a manual channel's clim across live frames /
-    # MIP toggles, but still restores auto for a channel the user left on Auto.
+    # MIP toggles, but still restores auto for a channel the user left on Auto. The
+    # layers panel's Auto pill shows this flag, not ``autocontrast``.
     manual: bool = False
     gamma: float = 1.0  # display = norm ** gamma (1 = linear)
     # cached auto clim, keyed on the data array identity so it's recomputed only

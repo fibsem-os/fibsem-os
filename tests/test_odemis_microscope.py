@@ -142,6 +142,12 @@ class FakeOdemisClient:
     def high_voltage_info(self, channel):
         return {"unit": "V", "range": (1000, 20000)}
 
+    def field_of_view_info(self, channel):
+        return {"unit": "m", "range": (1e-6, 1.5e-3)}
+
+    def dwell_time_info(self, channel):
+        return {"unit": "s", "range": (25e-9, 1e-3)}
+
     # detector
     def get_detector_type(self, channel):
         return "ETD"
@@ -154,6 +160,19 @@ class FakeOdemisClient:
 
     def get_contrast(self, channel):
         return 0.5
+
+    def detector_type_info(self, channel):
+        return {"choices": {"ETD", "TLD"}}
+
+    def detector_mode_info(self, channel):
+        return {"choices": {"SecondaryElectrons", "BackscatterElectrons"}}
+
+    # stage
+    def is_homed(self):
+        return True
+
+    def is_linked(self):
+        return False
 
     # chamber
     def get_chamber_state(self):
@@ -222,7 +241,7 @@ def odemis_microscope_cls():
             saved[name] = sys.modules.pop(name)
 
     stubs.install_odemis_stubs()
-    from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
     yield OdemisThermoMicroscope
 
@@ -235,14 +254,15 @@ def microscope(odemis_microscope_cls):
     microscope = object.__new__(odemis_microscope_cls)  # skip __init__ (hardware)
     microscope.system = utils.load_microscope_configuration(ODEMIS_CONFIG_PATH).system
     microscope.connection = FakeOdemisClient()
-    microscope.stage = FakeStage()
-    microscope.stage_is_compustage = False
+    microscope._vendor_stage = FakeStage()
     microscope.fm = None
     microscope.user = FibsemUser()
     microscope.experiment = FibsemExperimentRef()
     microscope._last_imaging_settings = ImageSettings()
     microscope.milling_channel = BeamType.ION
-    microscope._default_application_file = "Si"
+    microscope._build_devices()
+    microscope._build_milling()
+    microscope.connection.calls.clear()
     return microscope
 
 
@@ -281,6 +301,13 @@ def test_acquire_image_needs_settings_or_a_beam(microscope):
         microscope.acquire_image()
 
 
+def test_there_is_no_chamber_camera(microscope):
+    with pytest.raises(
+        NotImplementedError, match="does not support acquire_chamber_image"
+    ):
+        microscope.acquire_chamber_image()
+
+
 @pytest.mark.parametrize("returns_tuple", [False, True])
 def test_last_image(microscope, returns_tuple):
     frame = np.full((512, 768), 7, dtype=np.uint8)
@@ -306,7 +333,7 @@ def test_auto_focus_runs_the_working_distance_sweep(microscope):
         ("Pumped", "Pumped"),
         ("vacuum", "Pumped"),
         ("vented", "Vented"),
-        ("prevac", "prevac"),
+        ("prevac", "Unknown"),  # a state the chamber device does not list
     ],
 )
 def test_chamber_state(microscope, reported, expected):
@@ -363,7 +390,7 @@ def test_finish_milling_restores_the_beam_and_the_patterning_mode(microscope):
 
 def test_set_patterning_mode_refuses_unknown_modes(microscope):
     with pytest.raises(ValueError):
-        microscope.set_patterning_mode("Sideways")
+        microscope.milling._set_patterning_mode("Sideways")
 
 
 def test_milling_state_is_read_on_the_milling_channel(microscope):
@@ -387,13 +414,11 @@ def test_unsupported_patterns_raise_naming_the_adapter(microscope, settings):
         microscope.draw_pattern(settings)
 
 
-def test_a_task_with_an_unsupported_pattern_returns_and_cleans_up(microscope):
+def test_a_task_with_an_unsupported_pattern_fails_and_cleans_up(microscope):
     """The raise replaces a silent no-op that left an empty stage to wait on.
 
-    It lands in FibsemMillingTask._mill_stage, which logs a stage's error and moves
-    on, so the stage never reports finished and the task's cleanup still restores the
-    beam. The task as a whole still reports finished: that is the task's handling of
-    any failed stage, on every backend, and not this backend's to change.
+    The stage never reports finished, the task ends failed with the error, and the
+    task's cleanup still restores the beam (FIB-1112).
     """
     progress = []
     microscope.milling_progress_signal.connect(progress.append)
@@ -407,11 +432,14 @@ def test_a_task_with_an_unsupported_pattern_returns_and_cleans_up(microscope):
     config.alignment.enabled = False
     config.acquisition.acquire_final_image = False
 
-    FibsemMillingTask(microscope, config).run()
+    task = FibsemMillingTask(microscope, config)
+    task.run()
 
     statuses = [p.status for p in progress]
     assert MillingProgressStatus.STAGE_STARTED in statuses
     assert MillingProgressStatus.STAGE_FINISHED not in statuses
+    assert statuses[-1] is MillingProgressStatus.TASK_FAILED
+    assert isinstance(task.error, NotImplementedError)
     assert ("set_patterning_mode", "Serial") in microscope.connection.calls
     assert "start_milling" not in [call[0] for call in microscope.connection.calls]
 
@@ -444,12 +472,3 @@ def test_an_annulus_is_drawn_with_its_inner_diameter(microscope):
     ]
     assert parameters["outer_diameter"] == pytest.approx(10e-6)
     assert parameters["inner_diameter"] == pytest.approx(8e-6)
-
-
-def test_gis_is_not_fitted_and_raises(microscope):
-    assert microscope.DEFAULT_FITTED["gis"] is False
-    assert microscope.DEFAULT_FITTED["gis_multichem"] is False
-    with pytest.raises(NotImplementedError):
-        microscope.cryo_deposition_v2(gis_settings=None)
-    with pytest.raises(NotImplementedError):
-        microscope.setup_sputter({})

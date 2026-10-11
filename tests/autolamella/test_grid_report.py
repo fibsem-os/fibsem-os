@@ -8,6 +8,7 @@ the failures are the entries the task manager writes.
 """
 
 import os
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -59,7 +60,7 @@ def _entry(name, status, message="", outputs=None) -> AutoLamellaTaskState:
     state = AutoLamellaTaskState(
         name=name, status=status, status_message=message, outputs=outputs or {}
     )
-    state.end_timestamp = state.start_timestamp + 1
+    state.end_timestamp = state.start_timestamp + timedelta(seconds=1)
     return state
 
 

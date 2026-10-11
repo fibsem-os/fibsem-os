@@ -9,6 +9,7 @@ from fibsem.microscopes._stage import (
     _create_sample_stage,
 )
 from fibsem.structures import FibsemStagePosition
+from tests.fixtures.demo_stage import demo_session
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -338,52 +339,44 @@ class TestSlotLookup:
 
 class TestCreateSampleStage:
     def test_compustage_returns_stage(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
+        microscope, _ = demo_session(compustage=True)
         stage = _create_sample_stage(microscope)
         assert isinstance(stage, Stage)
 
     def test_compustage_single_slot(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
+        microscope, _ = demo_session(compustage=True)
         stage = _create_sample_stage(microscope)
         assert stage.holder.capacity == 1
         assert len(stage.holder.slots) == 1
         assert "Slot-01" in stage.holder.slots
 
     def test_compustage_has_loader(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
+        microscope, _ = demo_session(compustage=True)
         stage = _create_sample_stage(microscope)
         assert stage.loader is not None
 
     def test_compustage_parent_set(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
+        microscope, _ = demo_session(compustage=True)
         stage = _create_sample_stage(microscope)
         assert stage.holder._parent is microscope
 
     def test_non_compustage_returns_stage(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
+        microscope, _ = demo_session(compustage=False)
         stage = _create_sample_stage(microscope)
         assert isinstance(stage, Stage)
 
     def test_non_compustage_no_loader(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
+        microscope, _ = demo_session(compustage=False)
         stage = _create_sample_stage(microscope)
         assert stage.loader is None
 
     def test_non_compustage_parent_set(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
+        microscope, _ = demo_session(compustage=False)
         stage = _create_sample_stage(microscope)
         assert stage.holder._parent is microscope
 
     def test_non_compustage_shipped_slots_are_uncalibrated(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
+        microscope, _ = demo_session(compustage=False)
         stage = _create_sample_stage(microscope)
         # the shipped file carries no calibrated positions, and nothing invents one
         for slot in stage.holder.slots.values():
@@ -398,8 +391,7 @@ class TestCreateSampleStage:
             "SAMPLE_HOLDER_CONFIGURATION_PATH",
             str(tmp_path / "missing.yaml"),
         )
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
+        microscope, _ = demo_session(compustage=False)
         stage = _create_sample_stage(microscope)
         assert isinstance(stage, Stage)
         assert len(stage.holder.slots) > 0
@@ -412,8 +404,7 @@ class TestCreateSampleStage:
         h._ensure_slots()
         h.save(path)
         monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
+        microscope, _ = demo_session(compustage=False)
         stage = _create_sample_stage(microscope)
         assert stage.holder.name == "UserHolder"
         assert stage.holder.capacity == 3

@@ -373,6 +373,20 @@ def _zoom_grid(nz: int, new_nz: int) -> np.ndarray:
     return np.linspace(0.0, nz - 1, new_nz)
 
 
+def z_resample_scale(nz: int, new_nz: int) -> float:
+    """The factor that moves a slice index of an ``nz``-slice volume onto its
+    ``new_nz``-slice resampling: source slice ``s`` lands at ``s * scale``.
+
+    The inverse of :func:`_zoom_grid`, whose end slices land on the end slices,
+    so the factor is ``(new_nz - 1) / (nz - 1)``, not ``new_nz / nz`` (FIB-1238).
+    """
+    if nz < 2 or new_nz < 2:
+        raise ValueError(
+            f"a z resampling needs at least two slices each side, got {nz} -> {new_nz}"
+        )
+    return (new_nz - 1) / (nz - 1)
+
+
 def _store_slice(out: np.ndarray, k: int, blend: np.ndarray) -> None:
     """``out[k] = blend`` with zoom's conversion for an integer ``out``: rounded
     half away from zero, in double precision, and clamped to the dtype's range
@@ -546,12 +560,13 @@ def interpolate_fm_volume(
     metadata consistent with the resampled data: ``pixel_size_z`` and
     ``z_positions`` are recomputed for the new slice count.
 
-    scipy's ``zoom`` rounds the output slice count to an integer, so the achieved
-    z-scale is ``new_nz / old_nz`` — not the nominal ``pixel_size_z / target``.
-    The effective z pixel size is derived from that actual ratio, keeping data,
+    The output slice count is rounded to an integer, and the end slices land on
+    the end slices, so the achieved z-scale is :func:`z_resample_scale` —
+    ``(new_nz - 1) / (old_nz - 1)`` — not the nominal ``pixel_size_z / target``.
+    The effective z pixel size is derived from that actual scale, keeping data,
     metadata, and any caller-side coordinate rescale exactly consistent. Callers
-    that must move z-bearing coordinates should scale by ``new_nz / old_nz``,
-    read from the returned image's shape versus the input's.
+    that must move z-bearing coordinates should scale by
+    ``z_resample_scale(old_nz, new_nz)``.
 
     Args:
         fm_image: source ``FluorescenceImage`` (CZYX, with ``pixel_size_z`` set)
@@ -562,7 +577,8 @@ def interpolate_fm_volume(
 
     Raises:
         ValueError: for a single-plane volume (no ``pixel_size_z``), a
-            non-positive target, or a non-CZYX array.
+            non-positive target, a non-CZYX array, or a target so coarse the
+            volume would resample to fewer than two slices.
     """
     import copy
 
@@ -588,14 +604,12 @@ def interpolate_fm_volume(
         progress_callback=progress_callback,
     )
     new_nz = interpolated.shape[1]
-    if new_nz < 1:
-        raise ValueError("interpolation produced an empty volume")
 
-    # Effective z pixel size from the ACTUAL resampled slice count, not the
-    # nominal target — so physical depth (z_index * pixel_size_z) is preserved
-    # when the caller rescales coordinates by new_nz / old_nz.
+    # Effective z pixel size from the ACTUAL resampled grid, not the nominal
+    # target — so physical depth (z_index * pixel_size_z) is preserved when the
+    # caller rescales coordinates by the same scale.
     new_meta = copy.deepcopy(meta)
-    new_meta.pixel_size_z = z_in * old_nz / new_nz
+    new_meta.pixel_size_z = z_in / z_resample_scale(old_nz, new_nz)
 
     # z_positions is a per-plane objective ramp; resample it to the new count so
     # its length scales with the volume (convention-agnostic — np.interp on the
@@ -781,6 +795,26 @@ def hole_fitting_RL(
     return xr, yr, zr, fig
 
 
+# A spot burn in the FIB image is a dark spot a few pixels across. A fitted
+# Gaussian outside these widths, or bright, is a fit to something else: the
+# trench, the bright halo, a gradient (FIB-1216).
+_BURN_SIGMA_PX = (0.5, 12.0)
+
+
+def _burn_shaped(popt: np.ndarray, shape: Tuple[int, int]) -> bool:
+    """Whether a dark-Gaussian fit landed on something burn-like in its window."""
+    amplitude, xo, yo, sx, sy = popt[:5]
+    lo, hi = _BURN_SIGMA_PX
+    return bool(
+        np.all(np.isfinite(popt[:5]))
+        and amplitude < 0
+        and 0 <= xo < shape[1]
+        and 0 <= yo < shape[0]
+        and lo <= abs(sx) <= hi
+        and lo <= abs(sy) <= hi
+    )
+
+
 def hole_fitting_FIB(
     img: np.ndarray,
     x: float,
@@ -788,6 +822,15 @@ def hole_fitting_FIB(
     cutout: int = 15,
 ):
     """Refine selection of hole in FIB image.
+
+    The fit starts at the click, as it always has, and that answer stands when
+    it is burn-shaped (:func:`_burn_shaped`). From a click more than ~4 px off
+    the burn it is not -- the Gaussian starts 1 px wide at the click and has
+    nothing to pull on -- so the fit starts again at the window's darkest point
+    after smoothing, which finds a burn up to the window's edge. When neither
+    finds a burn the fit fails (:class:`FitOutsideWindow`) rather than handing
+    back the click as an unchanged fit (FIB-1216).
+
     Args:
         img: 2D numpy array (Y,X)
         x,y initial coordinates from the user click (may be sub-pixel)
@@ -795,45 +838,56 @@ def hole_fitting_FIB(
     Returns:
         xr, yr: refined x, y coordinates
         diagnostic: FitDiagnostic for the (XY-only) diagnostic figure
+    Raises:
+        FitOutsideWindow: no burn-shaped dark spot in the region searched.
     """
     # The click may be sub-pixel; round for integer slicing but keep the
     # fraction so the input marker is drawn exactly where the user clicked
     # (otherwise a no-change fit shows the markers up to ~1px apart).
     xi, yi = int(round(x)), int(round(y))
-    # cut out a box around the point
-    roi = img[yi - cutout : yi + cutout, xi - cutout : xi + cutout]
-    # fit a 2D gaussian to estimate the hole position
-    err = None
-    try:
-        popt, _ = fit_gauss_2d_mod(roi, show=False)
-        xopt, yopt = popt[1], popt[2]
-    except Exception as e:
-        logging.warning(f"Error in XY fit: {e}")
-        xopt, yopt = cutout, cutout  # fallback to center of cutout if fit fails
-        err = e
+    # Cut out a box around the point, clamped to the image. A plain slice with
+    # a negative start wraps to the far end of the array: a click within the
+    # cutout of the top or left edge gave an empty window or one from the wrong
+    # side of the image. The offsets are kept so the fit comes back absolute.
+    height, width = img.shape
+    y0, y1 = max(0, yi - cutout), min(height, yi + cutout)
+    x0, x1 = max(0, xi - cutout), min(width, xi + cutout)
+    roi = img[y0:y1, x0:x1]
 
-    if not (0 <= xopt < 2 * cutout and 0 <= yopt < 2 * cutout):
-        logging.warning(
-            f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}"
+    def _fit(center):
+        try:
+            popt, _ = fit_gauss_2d_mod(roi, show=False, center=center)
+        except Exception as e:  # maxfev, an empty or flat window
+            logging.debug(f"FIB hole fit from {center}: {e}")
+            return None
+        return popt if _burn_shaped(popt, roi.shape) else None
+
+    # the click, in the clamped window's frame (the window's middle when the
+    # window is not clipped)
+    popt = _fit(center=(xi - x0, yi - y0))
+    if popt is None and roi.size:
+        smooth = ndimage.gaussian_filter(np.asarray(roi, dtype=float), sigma=2)
+        dark_y, dark_x = np.unravel_index(np.argmin(smooth), smooth.shape)
+        popt = _fit(center=(float(dark_x), float(dark_y)))
+    if popt is None:
+        raise FitOutsideWindow(
+            f"no burn-shaped dark spot in the region searched: x {x0}-{x1 - 1}, "
+            f"y {y0}-{y1 - 1}"
         )
-        xopt, yopt = cutout, cutout
+    xopt, yopt = popt[1], popt[2]
 
-    # get the refined positions in the coordinates of the original image
-    xr = xopt + xi - cutout
-    yr = yopt + yi - cutout
-
-    # clip the coordinates to the image bounds
-    xr = np.clip(xr, cutout, img.shape[1] - cutout)
-    yr = np.clip(yr, cutout, img.shape[0] - cutout)
+    # back to the coordinates of the original image; _burn_shaped kept the fit
+    # inside the window, so it is inside the image
+    xr = xopt + x0
+    yr = yopt + y0
 
     # --- Diagnostic (XY only — no z for the FIB image) ---
     diagnostic = FitDiagnostic(
         title="FIB hole fit",
         roi_xy=roi,
-        input_xy=(cutout + (x - xi), cutout + (y - yi)),
-        fitted_xy=None if err is not None else (xopt, yopt),
+        input_xy=(x - x0, y - y0),  # the sub-pixel click, in the window's frame
+        fitted_xy=(xopt, yopt),
         xy_title="XY",
-        xy_message=None if err is None else "fit failed — using input",
     )
     return xr, yr, diagnostic
 
@@ -1216,6 +1270,17 @@ def fit_gauss1d_mod_old(
 _MIN_Z_PLANES = 3
 
 
+class FitOutsideWindow(ValueError):
+    """A fit whose answer lies outside the region it searched.
+
+    A Gaussian fitted to a profile with no clear feature can put its centre
+    anywhere -- measured: 980 px away in xy, 2.5 mm deep in z -- and that
+    number used to come back as the fit, so the confirmation offered it as a
+    success (FIB-1219). Raised instead; the caller keeps the point where it
+    was and reports the fit as failed.
+    """
+
+
 def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     from scipy.ndimage import gaussian_filter
 
@@ -1248,6 +1313,13 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     popt, _ = fit_guass1d(intensity)
     zopt = popt[1]
     zreal = zopt + zmin1  # back to absolute z
+    # The planes searched span zmin1 - 0.5 .. zmax1 - 0.5; a peak beyond them
+    # is an extrapolation from a profile with no dip in it, not a fit.
+    if not np.isfinite(zreal) or not (zmin1 - 0.5 <= zreal <= zmax1 - 0.5):
+        raise FitOutsideWindow(
+            f"z fit fell outside the planes searched: {zreal:.1f}, "
+            f"searched {zmin1}-{zmax1 - 1}"
+        )
 
     # xy fitting on the fitted z-slice
     xy_cutout = 15
@@ -1257,6 +1329,17 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     roi_fitted = da[z_fitted, fy0:fy1, fx0:fx1]
     popt_xy, _ = fit_gauss_2d_mod(roi_fitted, center=(xi - fx0, yi - fy0))
     xopt, yopt = popt_xy[1], popt_xy[2]
+    if not (
+        np.isfinite(xopt)
+        and np.isfinite(yopt)
+        and 0 <= xopt < roi_fitted.shape[1]
+        and 0 <= yopt < roi_fitted.shape[0]
+    ):
+        raise FitOutsideWindow(
+            f"xy fit fell outside the region searched: "
+            f"({xopt + fx0:.0f}, {yopt + fy0:.0f}), searched x {fx0}-{fx1 - 1}, "
+            f"y {fy0}-{fy1 - 1}"
+        )
     xopt_real = xopt + fx0
     yopt_real = yopt + fy0
 
@@ -1265,8 +1348,6 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     # markers); a compact z panel answers "did z land right?". The old figure
     # had a raw-profile panel with six reference lines and a second z panel in a
     # different (cutout-relative) frame with the same labels — dropped.
-    # the window is only square away from the image's edges
-    fit_in_roi = 0 <= xopt < roi_fitted.shape[1] and 0 <= yopt < roi_fitted.shape[0]
 
     # z: signal + gaussian fit (grey). The hole is dark, so the signal is
     # inverted (z_inverted) — the peak is the hole.
@@ -1277,10 +1358,9 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
         title="Reflection hole fit",
         roi_xy=gaussian_filter(roi_fitted, sigma=1),
         input_xy=(x - fx0, y - fy0),  # the sub-pixel click, in the window's frame
-        # A failed 2D fit lands outside the ROI — say so instead of a marker.
-        fitted_xy=(xopt, yopt) if fit_in_roi else None,
+        # A 2D fit outside the window raised above (FIB-1219), so this is in it.
+        fitted_xy=(xopt, yopt),
         xy_title=f"XY  @ z = {zreal:.1f}",
-        xy_message=None if fit_in_roi else "fit fell outside\nthe search region",
         z_axis=z_axis,
         z_signal=intensity,
         z_fit=gauss_curve,

@@ -8,9 +8,6 @@ from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemManipulatorPosition, MicroscopeSettings
 from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.qtdesigner_files import (
-    FibsemManipulatorWidget as FibsemManipulatorWidgetUI,
-)
 from fibsem.ui.utils import install_wheel_blocker_recursive, message_box_ui
 
 if TYPE_CHECKING:
@@ -18,7 +15,7 @@ if TYPE_CHECKING:
     from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 
 
-class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidget):
+class FibsemManipulatorWidget(QtWidgets.QWidget):
     def __init__(
         self,
         microscope: FibsemMicroscope = None,
@@ -30,8 +27,8 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
         parent=None,
     ):
         super().__init__(parent=parent)
-        self.setupUi(self)
-        # generated form: guard its spinboxes/comboboxes against scroll-to-change
+        self._build_ui()
+        # plain spinboxes/comboboxes: guard them against scroll-to-change
         install_wheel_blocker_recursive(self)
 
         self.microscope = microscope
@@ -65,6 +62,89 @@ class FibsemManipulatorWidget(FibsemManipulatorWidgetUI.Ui_Form, QtWidgets.QWidg
             if manipulator_inserted
             else "Manipulator Status: Retracted"
         )
+
+    def _build_ui(self) -> None:
+        layout = QtWidgets.QGridLayout(self)
+
+        def spinbox(limit: float) -> QtWidgets.QDoubleSpinBox:
+            box = QtWidgets.QDoubleSpinBox()
+            box.setRange(-limit, limit)
+            return box
+
+        # status
+        self.calibrated_status_label = QtWidgets.QLabel("")
+        layout.addWidget(self.calibrated_status_label, 0, 0)
+        self.manipulatorStatus_label = QtWidgets.QLabel("")
+        layout.addWidget(self.manipulatorStatus_label, 1, 0, 1, 2)
+        self.insertManipulator_button = QtWidgets.QPushButton("Insert")
+        layout.addWidget(self.insertManipulator_button, 3, 0, 1, 2)
+        self.pushButton_refresh_data = QtWidgets.QPushButton("Refresh Data")
+        layout.addWidget(self.pushButton_refresh_data, 4, 0, 1, 2)
+
+        # move
+        self.move_type_comboBox = QtWidgets.QComboBox()
+        self.move_type_comboBox.addItems(["Relative Move", "Corrected Move"])
+        layout.addWidget(self.move_type_comboBox, 5, 0, 1, 2)
+        self.dx_label = QtWidgets.QLabel("dX (um)")
+        self.dX_spinbox = spinbox(1000.0)
+        layout.addWidget(self.dx_label, 6, 0)
+        layout.addWidget(self.dX_spinbox, 6, 1)
+        self.dy_label = QtWidgets.QLabel("dY (um)")
+        self.dY_spinbox = spinbox(1000.0)
+        layout.addWidget(self.dy_label, 7, 0)
+        layout.addWidget(self.dY_spinbox, 7, 1)
+        self.dz_label = QtWidgets.QLabel("dZ (um)")
+        self.dZ_spinbox = spinbox(1000.0)
+        layout.addWidget(self.dz_label, 8, 0)
+        layout.addWidget(self.dZ_spinbox, 8, 1)
+        self.dr_label = QtWidgets.QLabel("dR (deg)")
+        self.dR_spinbox = spinbox(365.0)
+        layout.addWidget(self.dr_label, 9, 0)
+        layout.addWidget(self.dR_spinbox, 9, 1)
+        self.beam_type_label = QtWidgets.QLabel("Beam Type")
+        self.beam_type_combobox = QtWidgets.QComboBox()
+        self.beam_type_combobox.addItems(["ION", "ELECTRON"])
+        layout.addWidget(self.beam_type_label, 10, 0)
+        layout.addWidget(self.beam_type_combobox, 10, 1)
+        self.moveRelative_button = QtWidgets.QPushButton("Move ")
+        layout.addWidget(self.moveRelative_button, 11, 0, 1, 2)
+
+        # saved positions
+        self.addSavedPosition_button = QtWidgets.QPushButton("Save Position")
+        self.savedPositionName_lineEdit = QtWidgets.QLineEdit()
+        layout.addWidget(self.addSavedPosition_button, 12, 0)
+        layout.addWidget(self.savedPositionName_lineEdit, 12, 1)
+        self.goToPosition_button = QtWidgets.QPushButton("Go To Position")
+        self.savedPosition_combobox = QtWidgets.QComboBox()
+        layout.addWidget(self.goToPosition_button, 13, 0)
+        layout.addWidget(self.savedPosition_combobox, 13, 1)
+
+        layout.addItem(
+            QtWidgets.QSpacerItem(
+                20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+            ),
+            14,
+            0,
+            1,
+            2,
+        )
+
+        order = [
+            self.insertManipulator_button,
+            self.move_type_comboBox,
+            self.dX_spinbox,
+            self.dY_spinbox,
+            self.dZ_spinbox,
+            self.dR_spinbox,
+            self.beam_type_combobox,
+            self.moveRelative_button,
+            self.addSavedPosition_button,
+            self.savedPositionName_lineEdit,
+            self.goToPosition_button,
+            self.savedPosition_combobox,
+        ]
+        for first, second in zip(order, order[1:]):
+            self.setTabOrder(first, second)
 
     def _is_corrected_move(self) -> bool:
         return (

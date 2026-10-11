@@ -35,6 +35,7 @@ from fibsem.ui.stylesheets import (
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.util.system import directory_size
+from fibsem.util.timestamps import format_time
 from fibsem.utils import format_bytes
 
 # Error message constants
@@ -727,7 +728,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         if not available:
             date_str = "unavailable"
         elif info.created_at:
-            date_str = datetime.fromtimestamp(info.created_at).strftime("%Y-%m-%d")
+            date_str = format_time(info.created_at, "%Y-%m-%d")
         else:
             date_str = "unknown date"
         date_color = TEXT_MUTED_COLOR if available else RECENT_UNAVAILABLE_COLOR

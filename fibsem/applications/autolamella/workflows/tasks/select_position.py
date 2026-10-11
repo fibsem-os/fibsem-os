@@ -184,7 +184,6 @@ class SelectMillingPositionTask(AutoLamellaTask):
 
         # bookkeeping
         self.image_settings: ImageSettings = self.config.imaging
-        self.image_settings.path = self.lamella.path
 
         # move to lamella milling position
         self._move_to_milling_pose()
@@ -412,7 +411,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 alignment, diagnostics_path, prefix=f"tilt{i:02d}_"
             )
         if tilt.converged:
-            logging.info(
+            logging.debug(
                 {
                     "msg": "milling_tilt_coincident",
                     "tilt_axis_offset": tilt.tilt_axis_offset,

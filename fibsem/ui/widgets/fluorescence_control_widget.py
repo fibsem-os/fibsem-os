@@ -196,7 +196,7 @@ class FMControlWidget(QWidget):
         # produce a fluorescence pose at all yet (it needs the device leg -- FIB-831),
         # so a choice here would decide nothing. Disabled rather than hidden, with the
         # reason where the user's pointer already is.
-        if not self.microscope.stage_is_compustage:
+        if not self.microscope._fm_is_a_pose():
             self.comboBox_default_orientation.setEnabled(False)
             self.comboBox_default_orientation.setToolTip(
                 "Fluorescence poses cannot yet be derived on an offset-mounted FM; "
@@ -1295,7 +1295,7 @@ def main():
 
     # Ensure compustage configuration
     assert microscope.system.stage.shuttle_pre_tilt == 0
-    assert microscope.stage_is_compustage is True
+    assert microscope._fm_is_a_pose()
 
     app = QApplication.instance() or QApplication([])
     app.setStyle("Fusion")

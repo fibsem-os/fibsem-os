@@ -47,18 +47,23 @@ def ui(qapp, monkeypatch):
     """A real AutoLamellaUI, connected (Demo), with the mill run itself stubbed."""
     from fibsem.ui.widgets import milling_widget as mw
 
-    runs, actors = [], []
+    runs, actors, failures, folders = [], [], [], []
 
     def fake_run_milling_task(microscope, config, parent_ui=None, **kwargs):
         runs.append(config)
         actors.append(current_actor())  # who the record would say milled
+        folders.append(kwargs.get("output_dir"))  # where the run would write
         time.sleep(0.05)  # long enough for is_milling to be observable
+        if failures:  # as run_milling_task(raise_on_failure=True) does
+            raise failures.pop(0)
 
     monkeypatch.setattr(mw, "run_milling_task", fake_run_milling_task)
     widget = AutoLamellaUI(parent_ui=None)
     widget.system_widget.connect_to_microscope()
     widget._mill_runs = runs  # for the tests to inspect
     widget._mill_actors = actors
+    widget._mill_failures = failures  # errors the next runs raise, in order
+    widget._mill_folders = folders
     yield widget
     if widget.microscope is not None:
         widget.microscope.disconnect()
@@ -124,6 +129,60 @@ def test_run_then_continue_runs_once_and_answers_the_editor_config(ui, qapp):
     assert ui.hold is None
     # The old handshakes are gone, and so is the polled flag.
     assert not hasattr(ui, "WAITING_FOR_UI_UPDATE")
+
+
+def test_a_failed_mill_asks_again_with_the_error(ui, qapp):
+    """Supervised: the mill failed, so the prompt says so and asks again
+    (FIB-1112). Run Milling retries; Continue is the operator's call."""
+    ui._mill_failures.append(RuntimeError("could not load type"))
+    request = RunMillingTask(config=_config("rough-mill"), message=MSG)
+    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+
+    ui.pushButton_yes.click()  # run, and it fails
+    failed = f"Milling failed: could not load type\n\n{MSG}"
+    _wait_for_prompt(ui, qapp, failed)
+    assert ui.pushButton_yes.text() == "Run Milling"
+    assert ui.pushButton_no.text() == "Continue"
+    assert thread.is_alive(), "a failed mill does not end the question"
+
+    ui.pushButton_yes.click()  # retry, and it succeeds
+    _wait_for_prompt(ui, qapp, MSG)
+    assert len(ui._mill_runs) == 2
+
+    ui.pushButton_no.click()
+    _finish(thread, qapp)
+
+    assert "error" not in outcome
+    assert outcome["config"].name == "rough-mill"
+
+
+def test_continue_after_a_failed_mill_accepts_it(ui, qapp):
+    ui._mill_failures.append(RuntimeError("could not load type"))
+    request = RunMillingTask(config=_config("accepted"), message=MSG)
+    thread, outcome = _ask_on_worker_thread(ui, qapp, request)
+
+    ui.pushButton_yes.click()
+    _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{MSG}")
+    ui.pushButton_no.click()
+    _finish(thread, qapp)
+
+    assert "error" not in outcome
+    assert outcome["config"].name == "accepted"
+
+
+def test_unsupervised_a_failed_mill_fails_the_ask(ui, qapp):
+    """Nobody to ask: the error reaches the workflow thread, which fails the
+    task, as a headless run does."""
+    error = RuntimeError("could not load type")
+    ui._mill_failures.append(error)
+    request = RunMillingTask(config=_config("auto"), confirm=lambda: False, message=MSG)
+    thread, outcome = _ask_on_worker_thread(ui, qapp, request, wait_for_prompt=False)
+
+    _finish(thread, qapp)
+
+    assert outcome.get("error") is error
+    assert len(ui._mill_runs) == 1
+    assert ui.hold is None
 
 
 def test_continue_without_running_answers_without_a_mill(ui, qapp):
@@ -332,6 +391,33 @@ def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp):
         time.sleep(0.01)
 
     assert ui._mill_actors == [None]
+
+
+def test_every_run_of_the_mill_writes_under_the_task_s_folder(ui, qapp, tmp_path):
+    """The asking task's folder reaches the mill, a re-run after a failure
+    included (FIB-1253). A mill run by hand is given none and falls back to the
+    config's imaging path, as before."""
+    folder = str(tmp_path / "rough-milling")
+    ui._mill_failures.append(RuntimeError("could not load type"))
+    request = RunMillingTask(
+        config=_config("rough-mill"), message=MSG, output_dir=folder
+    )
+    thread, _ = _ask_on_worker_thread(ui, qapp, request)
+
+    ui.pushButton_yes.click()  # run, and it fails
+    _wait_for_prompt(ui, qapp, f"Milling failed: could not load type\n\n{MSG}")
+    ui.pushButton_yes.click()  # the operator's retry
+    _wait_for_prompt(ui, qapp, MSG)
+    ui.pushButton_no.click()
+    _finish(thread, qapp)
+
+    ui.ui_responder._milling_widget().milling_widget.run_milling(_config("by-hand"))
+    deadline = time.monotonic() + 10
+    while len(ui._mill_folders) < 3 and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.01)
+
+    assert ui._mill_folders == [folder, folder, None]
 
 
 def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_path):

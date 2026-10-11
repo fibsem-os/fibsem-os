@@ -17,7 +17,6 @@ Run directly:
 from __future__ import annotations
 
 import ast
-import io
 import os
 
 import numpy as np
@@ -50,7 +49,7 @@ def microscope():
         "sim-arctis-configuration.yaml",
     )
     scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    assert scope.stage_is_compustage, "the config stopped being a compustage"
+    assert scope._fm_is_a_pose(), "the config stopped being a compustage"
     return scope
 
 
@@ -174,7 +173,7 @@ class TestARotatedCompustagePoseIsUnreachable:
     """
 
     def test_a_compustage_has_no_rotation_axis(self):
-        from fibsem.microscopes.simulator import STAGE_LIMITS_COMPUSTAGE
+        from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
 
         assert "r" not in STAGE_LIMITS_COMPUSTAGE
         assert set(STAGE_LIMITS_COMPUSTAGE) == {"x", "y", "z", "t"}
@@ -187,9 +186,9 @@ class TestARotatedCompustagePoseIsUnreachable:
         read the source. Located through the module rather than by relative path, which
         would depend on pytest's working directory.
         """
-        from fibsem.microscopes import autoscript as autoscript_module
+        from fibsem.drivers.autoscript import microscope as autoscript_module
 
-        with io.open(autoscript_module.__file__, encoding="utf-8") as handle:
+        with open(autoscript_module.__file__, encoding="utf-8") as handle:
             source = handle.read()
         tree = ast.parse(source)
         function = next(

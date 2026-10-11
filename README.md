@@ -1,4 +1,4 @@
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fibsem-os/fibsem-os) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/fibsem-os/fibsem-os) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
 # fibsemOS
 
@@ -14,7 +14,7 @@ For more information see the [website](https://www.fibsemos.org).
 
 ## Installation
 
-There are several ways to install fibsemOS depending on your application and needs. Requires Python 3.8+.
+There are several ways to install fibsemOS depending on your application and needs. Requires Python 3.10+.
 
 #### PyPI (For Users)
 
@@ -122,6 +122,18 @@ if __name__ == "__main__":
 
 This example is available as a script in example/example.py.
 For more detailed examples, see the Examples section below.
+
+The microscope's beams, stage and other hardware are also available as devices, whose parameters describe their own units, limits and choices:
+
+```python
+from fibsem.structures import BeamType
+
+sem = microscope.beams[BeamType.ELECTRON]   # or microscope.devices["electron"]
+sem.hfw.set_value(150e-6)
+print(sem.current.get_value(), sem.current.choices)
+```
+
+See the [device guide](docs/developers/devices.md). `microscope.get("key")` and `microscope.set(...)` are deprecated.
 
 ## Examples
 

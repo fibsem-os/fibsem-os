@@ -42,7 +42,7 @@ def test_the_offset_configuration_has_a_fluorescence_microscope():
     """
     microscope = _microscope(IFLM_CONFIG)
 
-    assert microscope.stage_is_compustage is False
+    assert microscope._fm_is_a_pose() is False
     assert microscope.fm is not None
 
 
@@ -50,7 +50,7 @@ def test_the_compustage_configuration_still_has_one():
     """The Arctis sim is unchanged, and did not have to gain a key to stay that way."""
     microscope = _microscope(ARCTIS_CONFIG)
 
-    assert microscope.stage_is_compustage is True
+    assert microscope._fm_is_a_pose() is True
     assert microscope.fm is not None
 
 
@@ -65,7 +65,7 @@ def test_has_fm_defaults_to_whether_the_stage_is_a_compustage():
 
     # The shipped default configuration is non-compustage and says nothing about an FM.
     default = _microscope(cfg.MICROSCOPE_CONFIGURATION_PATH)
-    assert default.stage_is_compustage is False
+    assert default._fm_is_a_pose() is False
     assert default.fm is None
 
 

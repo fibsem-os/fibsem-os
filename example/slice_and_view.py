@@ -44,9 +44,10 @@ def main():
         cross_section=settings.protocol["milling"]["cross_section"],
     )
 
-    # angle correction
-    microscope.set("angular_correction_tilt_correction", True)
-    microscope.set("angular_correction_angle", np.deg2rad(-38))
+    # angle correction, on the electron beam (Thermo only)
+    sem = microscope.beams[BeamType.ELECTRON]
+    sem.parameters["tilt_correction"].value = True
+    sem.parameters["angular_correction"].value = np.deg2rad(-38)
 
     # update image settings
     settings.image.filename = "reference"

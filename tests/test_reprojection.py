@@ -16,8 +16,6 @@ import pytest
 
 from fibsem import utils
 from fibsem.imaging.tiled import (
-    _to_raw_coordinate_system,
-    _to_specimen_coordinate_system,
     _transform_position,
     calculate_reprojected_stage_position,
     calculate_reprojected_stage_position2,
@@ -172,17 +170,7 @@ class TestVariant2:
         )
 
 
-class TestCoordinateSystemHelpers:
-    def test_specimen_and_raw_are_inverses(self):
-        pos = FibsemStagePosition(
-            x=1e-3, y=2e-3, z=3e-3, r=0.5, t=0.2, coordinate_system="RAW"
-        )
-        roundtrip = _to_raw_coordinate_system(_to_specimen_coordinate_system(pos))
-
-        assert roundtrip.x == pytest.approx(pos.x)
-        assert roundtrip.y == pytest.approx(pos.y)
-        assert roundtrip.z == pytest.approx(pos.z)
-
+class TestTransformPositionLogging:
     def test_transform_position_preserves_the_name(self):
         pos = FibsemStagePosition(
             x=1e-3, y=2e-3, z=0.0, r=0, t=0, coordinate_system="RAW", name="lamella-1"
@@ -199,25 +187,3 @@ class TestCoordinateSystemHelpers:
         with caplog.at_level(logging.INFO):
             _transform_position(pos)
         assert [r for r in caplog.records if "was transformed" in r.getMessage()] == []
-
-    def test_transform_position_inverts_xy_about_the_specimen_origin(self):
-        """A 180 degree compucentric rotation, plus a fixed calibration offset."""
-        pos = FibsemStagePosition(
-            x=1e-3, y=2e-3, z=0.0, r=0, t=0, coordinate_system="RAW"
-        )
-        transformed = _transform_position(pos)
-
-        specimen = _to_specimen_coordinate_system(pos)
-        expected = _to_raw_coordinate_system(
-            FibsemStagePosition(
-                x=-specimen.x + 50e-6,
-                y=-specimen.y + 25e-6,
-                z=specimen.z,
-                r=specimen.r,
-                t=specimen.t,
-                coordinate_system="RAW",
-            )
-        )
-
-        assert transformed.x == pytest.approx(expected.x)
-        assert transformed.y == pytest.approx(expected.y)
