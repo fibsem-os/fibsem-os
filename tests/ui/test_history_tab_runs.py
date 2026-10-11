@@ -35,6 +35,7 @@ from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # no
     _ClickableRow,
 )
 from fibsem.structures import FibsemImage, MicroscopeState  # noqa: E402
+from fibsem.util.timestamps import format_time  # noqa: E402
 
 T0 = datetime(2026, 7, 29, 18, 0, tzinfo=timezone(timedelta(hours=10)))
 ROUGH, POLISH = "Rough Milling", "Polishing"
@@ -310,6 +311,8 @@ def test_clicking_an_operation_shows_its_steps_and_stays_open(widget):
 
 
 def test_a_runs_time_sits_on_its_name_line(widget):
+    # in the viewer's zone, as the tab shows it
+    at = format_time(T0 + timedelta(minutes=10), "%H:%M")
     QApplication.processEvents()
     (name,) = [
         label
@@ -319,7 +322,7 @@ def test_a_runs_time_sits_on_its_name_line(widget):
     (when,) = [
         label
         for label in widget._content.findChildren(QLabel)
-        if label.text() == "18:10 · 1 m 30 s" and label.isVisibleTo(widget)
+        if label.text() == f"{at} · 1 m 30 s" and label.isVisibleTo(widget)
     ]
     assert when.parent() is name.parent()
     assert abs(when.geometry().center().y() - name.geometry().center().y()) <= 2
