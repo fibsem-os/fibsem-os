@@ -90,7 +90,7 @@ def test_tiled_still_exports_the_moved_names():
     """Existing importers must not notice the move.
 
     `fibsem/imaging/__init__.py` star-imports tiled, and 15 modules import from it,
-    including a visual harness at fibsem/imaging/tests/.
+    including a visual harness at demos/imaging/.
     """
     import fibsem.imaging.tiled as tiled
 
