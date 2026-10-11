@@ -597,7 +597,7 @@ def test_wd_settable_capability_matrix():
     )
 
 
-def test_run_auto_focus_puts_back_the_beam_except_its_working_distance():
+def test_run_auto_focus_puts_back_only_what_its_probe_images_changed():
     """Odemis writes an acquire's resolution, dwell time and field of view to the beam,
     so the sweep left it imaging at the probe's. The Demo's acquire leaves the beam
     alone, so this one is wrapped to write them the way Odemis does."""
@@ -618,6 +618,8 @@ def test_run_auto_focus_puts_back_the_beam_except_its_working_distance():
         return real_acquire(image_settings=image_settings, **kwargs)
 
     microscope.acquire_image = acquire_writing_the_beam
+    detector_writes = []
+    microscope.set_detector_settings = lambda *a, **k: detector_writes.append(a)
 
     result = run_auto_focus(
         microscope, beam_type=beam, hfw=80e-6, settings=AutoFocusSettings()
@@ -626,7 +628,9 @@ def test_run_auto_focus_puts_back_the_beam_except_its_working_distance():
     assert tuple(microscope.get_resolution(beam)) == (1536, 1024)
     assert microscope.get_dwell_time(beam) == pytest.approx(3e-6)
     assert microscope.get_field_of_view(beam) == pytest.approx(150e-6)
-    # Everything but the working distance, which is the sweep's answer.
+    # The working distance is the sweep's answer, and its autocontrast stays too:
+    # nothing writes the detector back.
     assert microscope.get_working_distance(beam) == pytest.approx(
         result.working_distance
     )
+    assert detector_writes == []

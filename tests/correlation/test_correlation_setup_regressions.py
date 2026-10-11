@@ -307,6 +307,7 @@ def _editor_stub(lamella_path, fib_filename, image):
     stub._image_path = Editor._image_path
     stub._image_paths = Editor._image_paths
     stub._spot_burn_coordinates = Editor._spot_burn_coordinates
+    stub._spot_burn_field_width = Editor._spot_burn_field_width
     return stub
 
 
