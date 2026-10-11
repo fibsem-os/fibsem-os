@@ -61,6 +61,16 @@ def test_choosing_a_level_says_so_and_choosing_the_current_one_does_not(qapp):
     chip.deleteLater()
 
 
+def test_the_menu_offers_to_connect_an_agent(qapp):
+    chip = AgentLevelChip()
+    clicked = []
+    chip.connect_clicked.connect(lambda: clicked.append(True))
+    assert chip.menu_.actions()[-1].text() == "Connect an agent…"
+    chip.connect_action.trigger()
+    assert clicked == [True]
+    chip.deleteLater()
+
+
 def test_the_menu_says_when_the_agent_was_last_heard_from(qapp):
     seconds = [None]
     chip = AgentLevelChip(last_heard=lambda: seconds[0])

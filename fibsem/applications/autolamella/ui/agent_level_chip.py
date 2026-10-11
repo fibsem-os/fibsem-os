@@ -73,6 +73,9 @@ _LEVELS = {
     ),
 }
 
+# The chip's word for each level, for anywhere else that names it.
+LEVEL_WORDS = {level: text for level, (text, _, _) in _LEVELS.items()}
+
 # The menu's choices, in order. Assist joins with FIB-1283.
 OFFERED_LEVELS = (AgentLevel.OFF, AgentLevel.WATCH, AgentLevel.DRIVE)
 
@@ -102,6 +105,7 @@ class AgentLevelChip(QPushButton):
     """The agent's level, and the menu that sets it."""
 
     level_chosen = pyqtSignal(object)  # AgentLevel
+    connect_clicked = pyqtSignal()
 
     def __init__(
         self,
@@ -131,6 +135,9 @@ class AgentLevelChip(QPushButton):
         self.last_heard_action = QAction(last_heard_text(None), self)
         self.last_heard_action.setEnabled(False)
         self.menu_.addAction(self.last_heard_action)
+        self.connect_action = QAction("Connect an agent…", self)
+        self.connect_action.triggered.connect(self.connect_clicked)
+        self.menu_.addAction(self.connect_action)
         # Read when the menu opens, so it is never a stale number.
         self.menu_.aboutToShow.connect(self.refresh_last_heard)
         self.setMenu(self.menu_)
