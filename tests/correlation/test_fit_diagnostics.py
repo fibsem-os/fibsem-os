@@ -194,6 +194,40 @@ def test_fib_hole_fit_works_near_the_edges(cx, cy):
     assert d.fitted_xy == pytest.approx((xr - x0, yr - y0))
 
 
+def _fluor_vol_at(cx: float, cy: float, nz: int = 21, size: int = 40):
+    """A bright target at (cx, cy), brightest at plane 10."""
+    vol = np.zeros((nz, size, size), dtype=np.float32)
+    for zi in range(nz):
+        vol[zi] += (
+            200.0 * np.exp(-((zi - 10) ** 2) / (2 * 2.0**2)) * _blob_2d(size, cx, cy)
+        )
+    return vol
+
+
+@pytest.mark.parametrize("cx, cy", [(3, 3), (3, 20), (20, 3), (1, 1)])
+def test_fluorescence_target_fit_works_near_the_top_and_left_edges(cx, cy):
+    """The target fit's window wrapped the same way: a click within the cutout
+    of the top or left edge raised "array must not contain infs or NaNs"
+    (FIB-1220)."""
+    vol = _fluor_vol_at(cx, cy)
+    xr, yr, zr, d = target_fitting_fluorescence(vol, cx, cy, 10, cutout=5)
+    assert (xr, yr) == (cx, cy)  # xy is the click: no xy fit by default
+    assert zr == pytest.approx(10, abs=1.0)
+    x0, y0 = max(0, cx - 5), max(0, cy - 5)
+    assert d.input_xy == pytest.approx((cx - x0, cy - y0))
+
+    xr, yr, _, d = target_fitting_fluorescence(
+        vol, cx, cy, 10, cutout=5, use_xy_fitting=True
+    )
+    assert 0 <= xr < 10 + cx and 0 <= yr < 10 + cy  # absolute, inside the image
+    assert d.input_xy == pytest.approx((cx - x0, cy - y0))
+
+
+def test_fluorescence_target_fit_refuses_a_click_outside_the_image():
+    with pytest.raises(ValueError, match="outside the image"):
+        target_fitting_fluorescence(_fluor_vol(20), -8, 20, 10, cutout=5)
+
+
 def test_reflection_fit_works_at_the_top_plane_and_far_corner():
     vol = _refl_vol_at(57, 57, cz=19)
     xr, yr, zr, d = hole_fitting_reflection(vol, 57, 57, 20, 2)
