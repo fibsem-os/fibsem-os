@@ -80,10 +80,6 @@ class TestItDoesNotSubscribeAcrossThreads:
         unreachable however it would otherwise have been arrived at.
         """
         source = textwrap.dedent(inspect.getsource(_LamellaRow.__init__))
-        # Hand-walked rather than `ast.unparse`, which is 3.9+. The package supports
-        # 3.8, and CI cannot catch the difference here -- these tests need PyQt5, which
-        # the CI env does not install, so they are skipped there and a 3.9-only call
-        # would only fail for someone running them locally on 3.8.
         connects = []
         for node in ast.walk(ast.parse(source)):
             if not (

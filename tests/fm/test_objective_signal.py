@@ -27,12 +27,14 @@ from pathlib import Path
 import pytest
 
 import fibsem
-from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.drivers.demo.devices import bind_demo_fm
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
+from fibsem.fm.microscope import ObjectiveLens
 
 
 @pytest.fixture
 def fm():
-    return FluorescenceMicroscope()
+    return DemoFluorescenceMicroscope()
 
 
 @pytest.fixture
@@ -45,7 +47,7 @@ def moves(fm):
     return seen
 
 
-class TestTheSimulatedObjectiveAnnounces:
+class TestTheDemoObjectiveAnnounces:
     def test_move_absolute(self, fm, moves):
         fm.objective.move_absolute(fm.objective.position + 1e-4)
         assert len(moves) == 1
@@ -78,9 +80,8 @@ class TestTheSimulatedObjectiveAnnounces:
         objective built alone -- silently, which is the worst way for a notification to
         fail.
         """
-        from fibsem.fm.microscope import ObjectiveLens
 
-        objective = ObjectiveLens()
+        objective = ObjectiveLens(bind_demo_fm()["objective"])
         seen = []
         objective.position_changed.connect(
             lambda position, state: seen.append(position)
@@ -162,7 +163,7 @@ class TestThePayload:
 
 
 class TestEveryDriverAnnounces:
-    """Structural, over the source of all three implementations.
+    """Structural, over the source of every implementation.
 
     A driver that silently stops announcing is a display that silently goes stale, and
     nothing else would catch it: the TFS and odemis classes cannot be constructed here.
@@ -174,7 +175,12 @@ class TestEveryDriverAnnounces:
     def _objective_classes() -> dict:
         """Every `ObjectiveLens` implementation, by qualified name."""
         found = {}
-        modules = ("fm/microscope.py", "fm/api.py", "fm/autoscript.py", "fm/odemis.py")
+        modules = (
+            "fm/microscope.py",
+            "drivers/demo/simulator.py",
+            "fm/autoscript.py",
+            "fm/odemis.py",
+        )
         for module in modules:
             source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
             for node in ast.walk(ast.parse(source)):
@@ -195,15 +201,13 @@ class TestEveryDriverAnnounces:
         return False
 
     def test_every_implementation_is_found(self):
-        """Guard against the probe silently matching nothing. The device-backed lens
-        and its Thermo subclass (`home`) count too."""
+        """Guard against the probe silently matching nothing. The FM API's lens and
+        the Thermo (`home`) and Odemis subclasses."""
         classes = self._objective_classes()
         assert set(classes) == {
             "fm/microscope.py:ObjectiveLens",
-            "fm/api.py:DeviceObjectiveLens",
-            "fm/autoscript.py:ThermoFisherObjectiveLens",
             "fm/autoscript.py:DeviceThermoFisherObjectiveLens",
-            "fm/odemis.py:OdemisObjectiveLens",
+            "fm/odemis.py:DeviceOdemisObjectiveLens",
         }, f"unexpected ObjectiveLens classes: {sorted(classes)}"
 
     @pytest.mark.parametrize("write_method", WRITE_METHODS)
@@ -234,9 +238,9 @@ class TestTheGuardsStillReadTheDevice:
     """The boundary this design depends on, and the one most likely to erode.
 
     `ObjectiveLens.position_changed` is for *displays*. Guards read the device, every time, because one
-    of them is a collision guard: `ThermoMicroscope.move_stage_absolute` suppresses z and
-    r from a stage move while the objective is inserted -- the condition itself now lives
-    in `FibsemMicroscope._axis_restrictions_apply` -- and a stale `"Retracted"` there
+    of them is a collision guard: `AutoscriptStage._move_absolute` suppresses z and
+    t from a stage move while the objective is inserted -- the condition itself now lives
+    in `FibsemMicroscope._blocked_axes` -- and a stale `"Retracted"` there
     means the stage changes height and rotates with the objective in the chamber.
 
     That is affordable because the guards were never the polling load -- this one runs
@@ -250,7 +254,7 @@ class TestTheGuardsStillReadTheDevice:
     def _method(class_name: str, method_name: str) -> ast.FunctionDef:
         module = {
             "FibsemMicroscope": Path("microscope.py"),
-            "ThermoMicroscope": Path("microscopes") / "autoscript.py",
+            "AutoscriptStage": Path("drivers") / "autoscript" / "devices.py",
         }[class_name]
         source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
         cls = next(
@@ -267,13 +271,12 @@ class TestTheGuardsStillReadTheDevice:
     def test_the_guard_reads_the_objective_state_directly(self):
         """Wherever the predicate lives, it must ask the device.
 
-        It moved out of `move_stage_absolute` into `_axis_restrictions_apply` when the
-        objective half was compustage-gated, so that the condition could be tested at
-        all -- AutoScript is absent here, so the move itself cannot be executed. That
+        It moved out of `move_stage_absolute` into the microscope (now
+        `_blocked_axes`) so that the condition could be tested at all -- AutoScript is absent here, so the move itself cannot be executed. That
         is a relocation, not a weakening: the read is still live. The companion test
         below is what keeps the two connected.
         """
-        guard = self._method("FibsemMicroscope", "_axis_restrictions_apply")
+        guard = self._method("FibsemMicroscope", "_blocked_axes")
 
         reads = [
             node
@@ -285,34 +288,35 @@ class TestTheGuardsStillReadTheDevice:
         ]
 
         assert reads, (
-            "_axis_restrictions_apply no longer reads `objective.state` off the "
+            "_blocked_axes no longer reads `objective.state` off the "
             "device. If that is now a cached or pushed value, the collision guard can "
-            "be wrong: a stale 'Retracted' lets the stage move in z and rotate with "
+            "be wrong: a stale 'Retracted' lets the stage move in z and tilt with "
             "the objective inserted (FIB-534)"
         )
 
     def test_the_stage_move_still_asks_the_guard(self):
         """The other half. Splitting the predicate out means the read being live is no
-        longer enough on its own -- the move has to still consult it."""
-        move = self._method("ThermoMicroscope", "move_stage_absolute")
+        longer enough on its own -- the move has to still consult it. Thermo's
+        absolute move is its stage device's."""
+        move = self._method("AutoscriptStage", "_move_absolute")
 
         calls = [
             node
             for node in ast.walk(move)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "_axis_restrictions_apply"
+            and node.func.attr == "_without_blocked_axes"
         ]
 
         assert calls, (
-            "move_stage_absolute no longer calls `_axis_restrictions_apply`, so "
-            "nothing suppresses z and r while the objective is inserted (FIB-534)"
+            "The absolute move no longer calls `_without_blocked_axes`, so "
+            "nothing suppresses z and t while the objective is inserted (FIB-534)"
         )
         # And it has to hand over the destination. Called bare, the predicate falls
         # back to the pose the stage is standing in -- which is the bug FIB-640 fixed:
         # a move out of the fluorescence pose losing its z to the pose it was leaving.
         assert all(call.args for call in calls), (
-            "move_stage_absolute calls `_axis_restrictions_apply` without the target "
+            "The absolute move calls `_without_blocked_axes` without the target "
             "position, so the guard asks where the stage is instead of where it is "
             "going (FIB-640)"
         )

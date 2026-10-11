@@ -1,5 +1,7 @@
 """Preferences dialog for AutoLamella user preferences."""
 
+import copy
+
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -305,44 +307,44 @@ class PreferencesDialog(QDialog):
         )
 
     def get_preferences(self) -> UserPreferences:
-        """Build a UserPreferences instance from current widget state."""
-        from fibsem.config import (
-            AgentPreferences,
-            DisplayPreferences,
-            ExperimentPreferences,
-            FeatureFlags,
-            MovementPreferences,
-        )
+        """Build a UserPreferences instance from current widget state.
 
-        return UserPreferences(
-            display=DisplayPreferences(
-                sound_enabled=self._chk_sound.isChecked(),
-                border_enabled=self._chk_border.isChecked(),
-                dev_mode=self._chk_dev_mode.isChecked(),
-                lamella_card_mode=self._combo_card_mode.currentData(),
-            ),
-            features=FeatureFlags(
-                coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
-                agent_server_enabled=self._chk_agent_server.isChecked(),
-                connection_chip=self._chk_connection_chip.isChecked(),
-                proposer_reviewer_workflow_enabled=self._chk_propose_review.isChecked(),
-            ),
-            movement=MovementPreferences(
-                acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
-                acquire_fib_after_stage_movement=self._chk_acquire_fib.isChecked(),
-            ),
-            agent=AgentPreferences(
-                watchdog_minutes=self._spin_watchdog.value(),
-            ),
-            experiment=ExperimentPreferences(
-                default_experiment_directory=self._dir_experiment.text(),
-                default_protocol_path=self._dir_protocol.text(),
-                last_experiment_path=self._preferences.experiment.last_experiment_path,
-                recent_experiments=self._preferences.experiment.recent_experiments,
-                user=self._edit_exp_user.text(),
-                project=self._edit_exp_project.text(),
-                organisation=self._edit_exp_organisation.text(),
-            ),
-            # Preserve sections not managed by this dialog.
-            reporting=self._preferences.reporting,
-        )
+        Starts from a copy of the preferences the dialog was opened with and overwrites
+        only the fields it has a widget for. Everything else -- the hooks, whether the
+        guided setup was dismissed, the recent experiments, reporting -- is handed back
+        as it came in, and the caller saves the result to disk. Building a fresh
+        UserPreferences instead reset any field not copied across by hand: hooks came
+        back as None, which means "use the defaults", over a user's [] that means "all
+        off" (FIB-497).
+
+        A copy rather than self._preferences itself, which the caller still holds: a
+        cancelled dialog must leave it untouched.
+        """
+        prefs = copy.deepcopy(self._preferences)
+
+        d = prefs.display
+        d.sound_enabled = self._chk_sound.isChecked()
+        d.border_enabled = self._chk_border.isChecked()
+        d.dev_mode = self._chk_dev_mode.isChecked()
+        d.lamella_card_mode = self._combo_card_mode.currentData()
+
+        f = prefs.features
+        f.coincidence_milling_enabled = self._chk_coincidence_milling.isChecked()
+        f.agent_server_enabled = self._chk_agent_server.isChecked()
+        f.connection_chip = self._chk_connection_chip.isChecked()
+        f.proposer_reviewer_workflow_enabled = self._chk_propose_review.isChecked()
+
+        m = prefs.movement
+        m.acquire_sem_after_stage_movement = self._chk_acquire_sem.isChecked()
+        m.acquire_fib_after_stage_movement = self._chk_acquire_fib.isChecked()
+
+        prefs.agent.watchdog_minutes = self._spin_watchdog.value()
+
+        e = prefs.experiment
+        e.default_experiment_directory = self._dir_experiment.text()
+        e.default_protocol_path = self._dir_protocol.text()
+        e.user = self._edit_exp_user.text()
+        e.project = self._edit_exp_project.text()
+        e.organisation = self._edit_exp_organisation.text()
+
+        return prefs

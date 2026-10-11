@@ -1,0 +1,230 @@
+{
+ "30 keV; 100 pA": {
+  "result": [
+   42.0,
+   "RUNNING",
+   "PAUSED"
+  ],
+  "state": "RUNNING",
+  "drawbeam": [
+   [
+    "DrawBeam.UnloadLayer",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.Layer",
+    [
+     "Layer1"
+    ],
+    {
+     "syncWriteField": false,
+     "writeFieldSize": 8e-05,
+     "beamCurrent": 5e-11,
+     "spotSize": 1e-06,
+     "rate": 1.3e-08,
+     "dwellTime": 1e-06,
+     "parallel": false,
+     "preset": "30 keV; 1 nA",
+     "spacing": 0.005
+    }
+   ],
+   [
+    "Layer.addRectangleFilled",
+    [],
+    {
+     "CenterX": 0,
+     "CenterY": 0,
+     "Depth": 1e-06,
+     "DepthUnit": "m",
+     "Width": 1e-05,
+     "Height": 5e-06,
+     "Angle": 0.0,
+     "ScanningPath": "Flyback"
+    }
+   ],
+   [
+    "Layer.addLine",
+    [],
+    {
+     "BeginX": 0,
+     "BeginY": 0,
+     "EndX": 1e-06,
+     "EndY": 0,
+     "Depth": 1e-06,
+     "DepthUnit": "m"
+    }
+   ],
+   [
+    "Layer.addAnnulusFilled",
+    [],
+    {
+     "CenterX": 0,
+     "CenterY": 0,
+     "RadiusA": 2e-06,
+     "RadiusB": 0,
+     "Depth": 1e-06,
+     "DepthUnit": "m"
+    }
+   ],
+   [
+    "DrawBeam.EstimateTime",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.Start",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.Pause",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.Resume",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.UnloadLayer",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.GetStatus",
+    [],
+    {}
+   ]
+  ],
+  "activated": [
+   "30 keV; 1 nA",
+   "30 keV; 100 pA"
+  ]
+ },
+ "None": {
+  "result": [
+   42.0,
+   "RUNNING",
+   "PAUSED"
+  ],
+  "state": "RUNNING",
+  "drawbeam": [
+   [
+    "DrawBeam.UnloadLayer",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.Layer",
+    [
+     "Layer1"
+    ],
+    {
+     "syncWriteField": false,
+     "writeFieldSize": 8e-05,
+     "beamCurrent": 5e-11,
+     "spotSize": 1e-06,
+     "rate": 1.3e-08,
+     "dwellTime": 1e-06,
+     "parallel": false,
+     "preset": "30 keV; 1 nA",
+     "spacing": 0.005
+    }
+   ],
+   [
+    "Layer.addRectangleFilled",
+    [],
+    {
+     "CenterX": 0,
+     "CenterY": 0,
+     "Depth": 1e-06,
+     "DepthUnit": "m",
+     "Width": 1e-05,
+     "Height": 5e-06,
+     "Angle": 0.0,
+     "ScanningPath": "Flyback"
+    }
+   ],
+   [
+    "Layer.addLine",
+    [],
+    {
+     "BeginX": 0,
+     "BeginY": 0,
+     "EndX": 1e-06,
+     "EndY": 0,
+     "Depth": 1e-06,
+     "DepthUnit": "m"
+    }
+   ],
+   [
+    "Layer.addAnnulusFilled",
+    [],
+    {
+     "CenterX": 0,
+     "CenterY": 0,
+     "RadiusA": 2e-06,
+     "RadiusB": 0,
+     "Depth": 1e-06,
+     "DepthUnit": "m"
+    }
+   ],
+   [
+    "DrawBeam.EstimateTime",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.Start",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.Pause",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.GetStatus",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.Resume",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.UnloadLayer",
+    [],
+    {}
+   ],
+   [
+    "DrawBeam.GetStatus",
+    [],
+    {}
+   ]
+  ],
+  "activated": [
+   "30 keV; 1 nA",
+   "30 keV; 10 pA"
+  ]
+ }
+}

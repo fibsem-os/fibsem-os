@@ -16,6 +16,17 @@ from typing import Any, Dict, Optional
 # Mirror the UI constants as plain strings so this module never imports the UI.
 FIT_METHODS = ("None", "Hole", "Gaussian")
 
+# What deleting a FIB or FM fiducial does to its partner on the other side
+# (FIB-1243): ask each time, remove the pair, or remove only that point.
+DELETE_FIDUCIAL_ASK = "ask"
+DELETE_FIDUCIAL_PAIR = "pair"
+DELETE_FIDUCIAL_ONE = "one"
+DELETE_FIDUCIAL_CHOICES = (
+    DELETE_FIDUCIAL_ASK,
+    DELETE_FIDUCIAL_PAIR,
+    DELETE_FIDUCIAL_ONE,
+)
+
 
 @dataclass
 class FitSettings:
@@ -62,13 +73,23 @@ class FitSettings:
 @dataclass
 class RISettings:
     """RI depth-correction ζ inputs + mode. Mirrors ``ZetaParams`` (tilt / depth /
-    NA / n2 / wavelength); defaults match ``DEFAULT_ZETA_PARAMS``. ``wavelength_um``
-    and ``na`` may be seeded from channel metadata on FM load (FIB-277)."""
+    NA / n2 / wavelength). ``wavelength_um`` and ``na`` may be seeded from channel
+    metadata on FM load (FIB-277).
+
+    The defaults are the one default set: the RI widget starts from them too.
+    They are the configuration Perez et al. use for depth correction throughout:
+    vitrified cytoplasm (n = 1.35) through the Arctis iFLM's NA 0.75 objective,
+    for which the paper reports a scaling factor of 1.5
+    (doi:10.64898/2026.05.11.724418, the source of the lookup table). Only NA and
+    n2 move ζ appreciably; it is near-flat in tilt, depth and wavelength. These
+    were NA 0.8 / n 1.4 here while the widget used 0.75 / 1.35, so a new protocol
+    showed one set and computed ζ from the other (FIB-1234).
+    """
 
     tilt_deg: float = 15.0
     depth_um: float = 4.0
-    na: float = 0.8
-    n2: float = 1.4
+    na: float = 0.75
+    n2: float = 1.35
     wavelength_um: float = 0.515
     mode: str = "pre"  # "pre" (correct POI z before correlation) | "post"
 
@@ -121,6 +142,10 @@ class CorrelationConfig:
     # is for the display and for anything downstream that assumes isotropic
     # voxels. Off by default: it costs a rewrite of the volume.
     auto_interpolate: bool = False
+    # Fiducials pair by their place in the FIB and FM lists, so deleting one
+    # side shifts every later pair (FIB-1243). "ask" until someone ticks "Don't
+    # ask again", which stores their choice here; the Method panel sets it back.
+    delete_fiducial: str = DELETE_FIDUCIAL_ASK
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -129,6 +154,7 @@ class CorrelationConfig:
             "load_spot_burns": self.load_spot_burns,
             "auto_rerun": self.auto_rerun,
             "auto_interpolate": self.auto_interpolate,
+            "delete_fiducial": self.delete_fiducial,
         }
 
     @staticmethod
@@ -140,4 +166,9 @@ class CorrelationConfig:
             load_spot_burns=d.get("load_spot_burns", True),
             auto_rerun=d.get("auto_rerun", False),
             auto_interpolate=d.get("auto_interpolate", False),
+            delete_fiducial=(
+                d.get("delete_fiducial")
+                if d.get("delete_fiducial") in DELETE_FIDUCIAL_CHOICES
+                else DELETE_FIDUCIAL_ASK
+            ),
         )

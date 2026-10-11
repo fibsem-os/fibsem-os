@@ -162,7 +162,7 @@ def export_model_checkpoint(path: str, checkpoint_path: str = None) -> None:
     # this makes it more portable and easier to load
 
     def load_json(path: str):
-        with open(path, "r") as f:
+        with open(path) as f:
             return json.load(f)
 
     MODEL_CHECKPOINT = {}

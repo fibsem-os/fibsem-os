@@ -1031,3 +1031,36 @@ def test_an_all_disabled_sweep_is_fine_when_autofocus_is_off(tmp_path):
 
     assert runner._af_mode is AutoFocusMode.NONE
     assert (tmp_path / "overview").is_dir()
+
+
+def test_a_stitched_overview_records_when_its_first_tile_was_acquired(tmp_path):
+    """The mosaic is built, not acquired through `Beam.acquire`, so it takes its
+    acquisition time from its first tile (FIB-1190), and keeps it through a save."""
+    from fibsem import utils
+    from fibsem.imaging.tiled import tiled_image_acquisition_and_stitch
+    from fibsem.structures import FibsemImage
+    from fibsem.util.timestamps import zone_known
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    settings = _make_settings(2, 2, resolution=(64, 64))
+    settings.image_settings.dwell_time = 1e-9
+    settings.image_settings.save = True
+    settings.image_settings.path = str(tmp_path)
+    settings.image_settings.filename = "ov"
+    tiles = []
+    original = microscope.acquire_image
+
+    def recording(*args, **kwargs):
+        image = original(*args, **kwargs)
+        tiles.append(image.metadata.acquisition_datetime)
+        return image
+
+    microscope.acquire_image = recording
+    stitched = tiled_image_acquisition_and_stitch(microscope, settings)
+
+    assert zone_known(stitched.metadata.acquisition_datetime)
+    assert stitched.metadata.acquisition_datetime == tiles[0]
+    saved = sorted(tmp_path.glob("ov*.tif"))
+    assert saved, "the stitched overview was not saved"
+    loaded = FibsemImage.load(str(saved[-1]))
+    assert loaded.metadata.acquisition_datetime == tiles[0]

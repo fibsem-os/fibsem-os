@@ -96,6 +96,28 @@ def test_a_raw_slice_fit_is_brought_to_isotropic_units():
     assert np.allclose(raw.projection[:, :2], iso.projection[:, :2])
 
 
+def test_a_raw_slice_fit_uses_the_anisotropy_of_the_stack_it_was_fitted_on():
+    """FIB-1240: a prior fitted on raw slices of a 4x finer stack has a depth
+    column per fine slice; dividing by the current stack's anisotropy left it
+    4x off."""
+    e = ARCTIS
+    xy, z = e["fm"]["pixel_size_x"], e["fm"]["pixel_size_z"]
+    kw = dict(
+        fm_pixel_size=xy, fm_pixel_size_z=z, fib_pixel_size=e["fib"]["pixel_size"]
+    )
+
+    same = _result(e, fm_z_scale=1.0, fib_px=None)
+    same.input_data.stored_fm_pixel_size_z = z
+    finer = _result(e, fm_z_scale=1.0, fib_px=None)
+    finer.input_data.stored_fm_pixel_size_z = z / 4
+
+    on_same = transform_from_result(same, **kw)
+    on_finer = transform_from_result(finer, **kw)
+    # per fine slice is a quarter of the depth per xy pixel's worth
+    assert np.allclose(on_finer.projection[:, 2], 4 * on_same.projection[:, 2])
+    assert np.allclose(on_finer.projection[:, :2], on_same.projection[:, :2])
+
+
 def test_unusable_results_are_skipped_and_the_order_is_honoured():
     e = ARCTIS
     good = _result(e, fm_z_scale=2.0, fib_px=None)

@@ -612,6 +612,10 @@ class FibsemOverviewWidget(QWidget):
         # before anything was acquired. The first image in one replaces its anchor --
         # see `_seed_frame` and `_set_origin_from`.
         self._provisional: Set["OverviewView"] = set()
+        # What the stage context was last drawn in: the shown view, the view the next
+        # run lands in, that view's origin and the canvas scale. A stage move redraws
+        # the context only when one of them changed -- see `_refresh_context_overlays`.
+        self._context_drawn_for: Optional[tuple] = None
         # The view the canvas is showing. None only before the stage position and the
         # settings are both known; `_seed_frame` fills it in from where the stage is.
         self._current_view: Optional["OverviewView"] = None
@@ -677,6 +681,7 @@ class FibsemOverviewWidget(QWidget):
         # torn down was a segfault.
         self.microscope.tiled_acquisition_signal.connect(self._on_progress)
         self.microscope.stage_position_changed.connect(self._on_stage_signal)
+        self.microscope.holder_changed.connect(self._on_holder_changed)
 
         self._refresh_current_position()
         self._refresh_context_overlays()
@@ -876,6 +881,7 @@ class FibsemOverviewWidget(QWidget):
         self.canvas.cursor_moved.connect(self._on_cursor_moved)
 
         self.settings_widget = FibsemOverviewSettingsWidget(self)
+        self.settings_widget.set_microscope(self.microscope)
         self.settings_widget.settings_changed.connect(self._on_settings_changed)
 
         # Which way of looking at the sample the canvas is showing. Attached to the
@@ -1384,6 +1390,18 @@ class FibsemOverviewWidget(QWidget):
         ):
             self.overlay_controls.set_visible(key, shown)
 
+    @ensure_main_thread
+    def _on_holder_changed(self, _holder) -> None:
+        """Slots calibrated, or another holder fitted: redraw where they are.
+
+        Always, not only when the overlay defaults flip -- recalibrating a slot on a
+        holder that was already calibrated changes nothing `reset_context_overlay_defaults`
+        looks at, and moves the slot all the same. Until now the next stage move
+        redrew it, which is the only reason that went unnoticed.
+        """
+        self.reset_context_overlay_defaults()
+        self._refresh_context_overlays()
+
     def _on_overlay_toggled(self, key: str, checked: bool) -> None:
         """One overlay turned on or off.
 
@@ -1423,8 +1441,8 @@ class FibsemOverviewWidget(QWidget):
         the same way -- kept along the surface, squashed for the view -- so the bars
         stay on the grid's bars whichever view is shown.
 
-        The lattice *centre* is the grid centre, because building it with its own
-        rotation read as a position recorded half a turn away. See :meth:`_landmark`.
+        The lattice is centred on the holder grid the view is looking at; see
+        :meth:`_gridbar_anchor`.
         """
         if not self.overlay_controls.is_visible(_OVERLAY_GRIDBARS):
             return
@@ -1432,7 +1450,7 @@ class FibsemOverviewWidget(QWidget):
         if frame is None:
             return
         try:
-            anchor = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))
+            anchor = frame.to_canvas(self._gridbar_anchor(frame))
             squash = frame.surface_foreshortening()
             dx, dy = self._gridbar_offset
             centre = (
@@ -1459,6 +1477,21 @@ class FibsemOverviewWidget(QWidget):
             radius=frame.length(stage_context.GRID_BOUNDARY_RADIUS_M),
         )
 
+    def _gridbar_anchor(self, frame: StageFrame) -> FibsemStagePosition:
+        """Where undragged bars are centred: the holder grid this view is looking at.
+
+        The holder's slot nearest the view's origin, the same place its grid boundary
+        is drawn around. With no slot position (a holder not yet calibrated), the view's
+        origin -- the first image placed in it -- so the bars are on the overview. They
+        used to be centred on the stage origin and clipped to a grid's disc there, which
+        on a shuttle is millimetres from any grid and drew nothing on the overview.
+        """
+        place = stage_context.nearest_slot_landmark(self.microscope, frame)
+        if place is not None:
+            return place
+        origin = frame.origin
+        return self._landmark(frame, origin.x, origin.y, "Grid Centre")
+
     @property
     def gridbar_placement(self) -> Tuple[float, float, float]:
         """Where the bars have been dragged to: (dx, dy) metres along the sample
@@ -1478,7 +1511,7 @@ class FibsemOverviewWidget(QWidget):
         if frame is None:
             return
         try:
-            anchor = frame.to_canvas(self._landmark(frame, 0.0, 0.0, "Grid Centre"))
+            anchor = frame.to_canvas(self._gridbar_anchor(frame))
             here = self.canvas.canvas_to_metres(cx, cy)
             there = self.canvas.canvas_to_metres(*anchor)
             squash = frame.surface_foreshortening() or 1.0
@@ -2891,7 +2924,7 @@ class FibsemOverviewWidget(QWidget):
 
     # ── overlays ─────────────────────────────────────────────────────────
 
-    def _refresh_context_overlays(self) -> None:
+    def _refresh_context_overlays(self, stage_moved: bool = False) -> None:
         """Redraw the stage limits, holder slots and planned overview footprint.
 
         Everything here is derived from configuration and the cached stage position --
@@ -2911,27 +2944,48 @@ class FibsemOverviewWidget(QWidget):
         The one place that anchors the canvas, so `_frame` stays a pure read: this runs
         on construction, on a stage move, on a settings change and on a view change,
         which is every moment the answer could have changed.
+
+        *stage_moved* redraws only what follows the stage -- the planned grid, the
+        working area, the marker and its readout -- unless the frame or the views
+        changed too. The limits, holder slots, grid bars, aligned images and view chips
+        are drawn in the view's frame, which a translation leaves where it was, and the
+        stage is polled constantly. Everything that does change them -- a toggle, a
+        setting, an image re-anchoring a view, the holder -- comes through here
+        without it, and redraws the lot.
         """
         self._seed_frame()
         frame = self._frame()
         if frame is None:
+            self._context_drawn_for = None
             self.context_overlay.set_shapes([])
             self.aligned_images.refresh(None)
             return
 
-        self.context_overlay.set_shapes(
-            stage_context.context_shapes(
-                self.microscope,
-                frame,
-                limits=self.overlay_controls.is_visible(_OVERLAY_LIMITS),
-                boundaries=self.overlay_controls.is_visible(_OVERLAY_BOUNDARIES),
-                slots=self.overlay_controls.is_visible(_OVERLAY_SLOTS),
-            )
+        drawn_for = (
+            self._current_view,
+            self.acquisition_view,
+            self._origins.get(self._current_view),
+            self.canvas.reference_pixel_size,
         )
+        redraw = not stage_moved or drawn_for != self._context_drawn_for
+        self._context_drawn_for = drawn_for
+
+        if redraw:
+            self.context_overlay.set_shapes(
+                stage_context.context_shapes(
+                    self.microscope,
+                    frame,
+                    limits=self.overlay_controls.is_visible(_OVERLAY_LIMITS),
+                    boundaries=self.overlay_controls.is_visible(_OVERLAY_BOUNDARIES),
+                    slots=self.overlay_controls.is_visible(_OVERLAY_SLOTS),
+                )
+            )
         self._declare_working_area(frame)
         self._refresh_tile_grid()
         self._refresh_stage_info()
         self._refresh_position_markers()
+        if not redraw:
+            return
         self._refresh_gridbars()
         self.aligned_images.refresh(frame)
         # The selector, not just the note: the list includes the view the next run
@@ -3513,7 +3567,7 @@ class FibsemOverviewWidget(QWidget):
         # A re-pose changes which view the next run lands in, and the canvas follows it
         # the same way it follows a change of beam.
         self._follow_the_acquisition_view()
-        self._refresh_context_overlays()
+        self._refresh_context_overlays(stage_moved=True)
 
     def _refresh_current_position(self) -> None:
         """Read where the stage is, and cache it.
@@ -4214,6 +4268,7 @@ class FibsemOverviewWidget(QWidget):
         for signal, slot in (
             (self.microscope.tiled_acquisition_signal, self._on_progress),
             (self.microscope.stage_position_changed, self._on_stage_signal),
+            (self.microscope.holder_changed, self._on_holder_changed),
         ):
             try:
                 signal.disconnect(slot)

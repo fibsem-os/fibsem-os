@@ -96,6 +96,7 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     scrollable,
 )
+from fibsem.util import timestamps
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -2158,10 +2159,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             if remaining is not None and report.estimated_time:
                 pct = int((1 - remaining / report.estimated_time) * 100)
                 self.progressBar_stage.setValue(pct)
-                from fibsem.utils import format_duration
+                from fibsem.util.durations import format_duration_precise
 
                 self.progressBar_stage.setFormat(
-                    f"{label} - {format_duration(remaining)} remaining"
+                    f"{label} - {format_duration_precise(remaining)} remaining"
                 )
             else:
                 # No countdown to draw, but the producer's words are still worth showing:
@@ -2260,7 +2261,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             )
             written = image.save(filename)
 
-            now = datetime.datetime.now().timestamp()
+            now = timestamps.now()
             lamella.task_history.append(
                 AutoLamellaTaskState(
                     name=COINCIDENCE_REVIEW_TASK_NAME,

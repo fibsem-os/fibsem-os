@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 import fibsem.config as cfg
-import fibsem.microscopes
+import fibsem.drivers
 from fibsem import microscope as microscope_module
 from fibsem import utils
 from fibsem.applications.autolamella.event_recording import (
@@ -25,13 +25,13 @@ from fibsem.applications.autolamella.event_recording import (
     EventRecorder,
     read_events,
 )
+from fibsem.drivers.autoscript.microscope import ThermoMicroscope
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
     _records_stage_move,
 )
-from fibsem.microscopes.autoscript import ThermoMicroscope
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition
 
 
@@ -218,21 +218,14 @@ def test_a_beam_shift_is_recorded_as_asked(microscope, recorded):
     }
 
 
-def test_a_tescan_stable_move_is_one_event_not_three():
+def test_a_tescan_stable_move_is_one_event_not_three(monkeypatch):
     # On TESCAN a stable move is a relative move, and a relative move an absolute one.
-    microscope = object.__new__(TescanMicroscope)  # skip __init__ (requires the SDK)
-    microscope._connection_lock = threading.RLock()
-    microscope.system = utils.load_microscope_configuration(
+    from tests.fixtures.tescan_sdk import connect
+
+    system = utils.load_microscope_configuration(
         os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
     ).system
-    microscope.stage_is_compustage = False
-    at = FibsemStagePosition(x=0, y=0, z=0, r=0, t=0, coordinate_system="RAW")
-    microscope.get_stage_position = lambda: at
-    microscope.get_scan_rotation = lambda beam_type: 0.0
-    sent = []
-    microscope.connection = SimpleNamespace(
-        Stage=SimpleNamespace(MoveTo=lambda **axes: sent.append(axes))
-    )
+    microscope, fake = connect(monkeypatch, system)
     events = []
     microscope.record_signal.connect(
         lambda kind, payload: events.append((kind, payload))
@@ -240,7 +233,9 @@ def test_a_tescan_stable_move_is_one_event_not_three():
 
     microscope.stable_move(dx=1e-6, dy=1e-6, beam_type=BeamType.ELECTRON)
 
-    assert len(sent) == 1  # it did move, through the absolute move
+    assert (
+        len(fake.calls("Stage.MoveTo")) == 1
+    )  # it did move, through the absolute move
     assert [(kind, payload["move"]) for kind, payload in events] == [
         ("stage_moved", "stable_move")
     ]
@@ -254,17 +249,19 @@ def test_a_tescan_stable_move_is_one_event_not_three():
 
 
 def _backends():
-    """Every concrete microscope class in ``fibsem.microscopes``."""
-    for module in pkgutil.iter_modules(fibsem.microscopes.__path__):
+    """Every concrete microscope class in a driver's ``microscope.py``."""
+    for driver in pkgutil.iter_modules(fibsem.drivers.__path__):
+        if not driver.ispkg:
+            continue
         try:
-            importlib.import_module(f"fibsem.microscopes.{module.name}")
-        except ImportError:  # a vendor SDK this machine lacks (odemis)
+            importlib.import_module(f"fibsem.drivers.{driver.name}.microscope")
+        except ImportError:  # remote has none, or a vendor SDK this machine lacks
             continue
     found, pending = set(), [FibsemMicroscope]
     while pending:
         for cls in pending.pop().__subclasses__():
             pending.append(cls)
-            if cls.__module__.startswith("fibsem.microscopes."):
+            if cls.__module__.startswith("fibsem.drivers."):
                 found.add(cls)
     return sorted(
         (cls for cls in found if not inspect.isabstract(cls)),

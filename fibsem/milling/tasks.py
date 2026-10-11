@@ -6,7 +6,6 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -23,10 +22,8 @@ from fibsem.structures import (
     MillingAlignment,
     Point,
 )
+from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp_v3
-
-if TYPE_CHECKING:
-    from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
 
 
 @dataclass
@@ -206,7 +203,6 @@ class FibsemMillingTaskConfig:
         return reference_stage
 
 
-# TODO: remove parent_ui arg, use microscope signal only, and stop_event -> need to migrate
 # TODO: restore current to initial current, rather than system.ion.beam.beam_current
 # TODO: support customising alignment imaging parameters?
 @dataclass
@@ -219,24 +215,31 @@ class FibsemMillingTask:
         self,
         microscope: FibsemMicroscope,
         config: FibsemMillingTaskConfig,
-        parent_ui: Optional["FibsemMillingWidget2"] = None,
         stop_event: Optional[threading.Event] = None,
+        output_dir: Optional[str] = None,
     ):
         self.config = config
         self.microscope = microscope
-        self.parent_ui = parent_ui
         self.task_id = str(uuid.uuid4())
+        # The folder the caller gave this run; the task writes under
+        # <output_dir>/Milling/<name>, resolved by _configure_path into
+        # self.output_dir. None: the config's imaging path, then DATA_CC_PATH.
+        self._output_root: Optional[str] = (
+            str(output_dir) if output_dir is not None else None
+        )
+        self.output_dir: Optional[str] = None
         self.initial_beam_shift: Optional[Point] = None
         # Imaging current/voltage captured before milling starts, so cleanup restores the
         # exact pre-milling state (not a config default) even if the task is cancelled.
         self.initial_imaging_current: Optional[float] = None
         self.initial_imaging_voltage: Optional[float] = None
-        # An explicit stop event wins; otherwise borrow the widget's. Before this
-        # parameter existed a headless run (parent_ui=None) had no stop event at
-        # all, so the cancel checks between stages and inside a strategy were no-ops.
+        # Set to cancel: checked between stages, and passed to the strategy, whose
+        # run_milling stops the beam when it is set.
         self._stop_event: Optional[threading.Event] = stop_event
-        if self._stop_event is None and hasattr(self.parent_ui, "_milling_stop_event"):
-            self._stop_event = self.parent_ui._milling_stop_event
+        # How the last run() ended, for callers that never see the progress signal.
+        # None until run() has finished.
+        self.outcome: Optional[MillingProgressStatus] = None
+        self.error: Optional[BaseException] = None
 
     @property
     def name(self) -> str:
@@ -295,15 +298,24 @@ class FibsemMillingTask:
         directory, as every other acquisition in this path already does. Stringifying
         the ``None`` instead put the whole task under a directory literally named
         "None", beside the current working directory.
+
+        A folder passed to the task wins over the imaging path: the imaging path is
+        an imaging setting that happened to also mean "where to save". The result is
+        ``self.output_dir``, which each stage is handed before its strategy runs. The
+        imaging path is still set to it, for strategies written before
+        ``stage.output_dir`` existed.
         """
-        path = self.config.acquisition.imaging.path
+        path = self._output_root
+        if path is None:
+            path = self.config.acquisition.imaging.path
         if path is None:
             path = fcfg.DATA_CC_PATH
-        self.config.acquisition.imaging.path = os.path.join(
+        self.output_dir = os.path.join(
             str(path),
             "Milling",
             self.name.replace(" ", "-"),
         )
+        self.config.acquisition.imaging.path = self.output_dir
 
     def run(self) -> None:
         """Run a list of milling stages, with a progress bar and notifications."""
@@ -316,6 +328,7 @@ class FibsemMillingTask:
         # that as a completed mill is the defect this whole block exists to fix.
         outcome = MillingProgressStatus.TASK_FAILED
         error: Optional[str] = None
+        self.outcome, self.error = None, None
 
         self._emit(MillingProgressStatus.TASK_STARTED, total_stages=len(self.stages))
 
@@ -351,10 +364,12 @@ class FibsemMillingTask:
             logging.info(f"Milling task '{self.name}' cancelled by user: {e}")
             outcome = MillingProgressStatus.TASK_CANCELLED
         except Exception as e:
-            logging.error(e)
+            logging.error(f"Milling task '{self.name}' failed: {e}", exc_info=True)
             outcome = MillingProgressStatus.TASK_FAILED
             error = str(e)
+            self.error = e
         finally:
+            self.outcome = outcome
             # The outcome, not just "it stopped". Both `except` blocks used to log and
             # fall through to a `finally` that emitted `finished` regardless, so a mill
             # the user cancelled and a mill that crashed both told the UI they had
@@ -395,6 +410,12 @@ class FibsemMillingTask:
 
     def _mill_stage(self, stage: FibsemMillingStage, idx: int) -> None:
         """Run a single milling stage with progress updates.
+
+        Raises whatever the stage raises. run() ends the task there, failed or
+        cancelled, and skips the later stages: they build on this one's geometry
+        (rough then polish). Catching here used to log a stage the microscope
+        rejected and report the task finished with nothing milled (FIB-1112).
+
         Args:
             stage (FibsemMillingStage): The milling stage to run.
             idx (int): The index of the milling stage.
@@ -411,60 +432,51 @@ class FibsemMillingTask:
             stage_name=stage.name,
         )
 
-        try:
-            # if self.config.acquisition.enabled:
-            # self._acquire_milling_task_images(stage_name=stage.name, tag="start")
+        # if self.config.acquisition.enabled:
+        # self._acquire_milling_task_images(stage_name=stage.name, tag="start")
 
-            # Set up the stage with the task configuration
-            stage.reference_image = self.reference_image
-            stage.milling.hfw = self.config.field_of_view
-            stage.milling.milling_channel = self.config.channel
-            stage.milling.acquire_images = self.config.acquisition.enabled
-            stage.imaging.path = self.config.acquisition.imaging.path
-            stage.imaging = self.config.acquisition.imaging
-            stage.alignment = self.config.alignment
-            self._record_stage_started(stage, idx)
-            stage.strategy.run(
-                microscope=self.microscope,
-                stage=stage,
-                asynch=False,
-                parent_ui=self.parent_ui,
-                stop_event=self._stop_event,
-            )
-            # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
-            # performance logging
-            msgd = {
-                "msg": "milling_task",
-                "milling_task_id": self.task_id,
-                "milling_task_name": self.name,
-                "idx": idx,
-                "stage": stage.to_dict(),
-                "start_time": start_time,
-                "end_time": time.time(),
-                "timestamp": datetime.now().isoformat(),
-            }
-            logging.debug(f"{msgd}")
+        # Set up the stage with the task configuration
+        stage.reference_image = self.reference_image
+        stage.output_dir = self.output_dir
+        stage.milling.hfw = self.config.field_of_view
+        stage.milling.milling_channel = self.config.channel
+        stage.milling.acquire_images = self.config.acquisition.enabled
+        stage.imaging.path = self.config.acquisition.imaging.path
+        stage.imaging = self.config.acquisition.imaging
+        stage.alignment = self.config.alignment
+        self._record_stage_started(stage, idx)
+        stage.strategy.run(
+            microscope=self.microscope,
+            stage=stage,
+            stop_event=self._stop_event,
+        )
+        # TODO: pass task as parent into strategy.run()?, allow logging from strategy?
+        # performance logging
+        msgd = {
+            "msg": "milling_task",
+            "milling_task_id": self.task_id,
+            "milling_task_name": self.name,
+            "idx": idx,
+            "stage": stage.to_dict(),
+            "start_time": start_time,
+            "end_time": time.time(),
+            "timestamp": now_iso(),
+        }
+        logging.debug(f"{msgd}")
 
-            # optionally acquire images after milling
-            if self.config.acquisition.enabled:
-                self._acquire_milling_task_images(
-                    stage_name=f"{self.name}-{stage.name}", tag="finished"
-                )
-
-            self._emit(
-                MillingProgressStatus.STAGE_FINISHED,
-                start_time=start_time,
-                current_stage=idx,
-                total_stages=len(self.stages),
-                stage_name=stage.name,
+        # optionally acquire images after milling
+        if self.config.acquisition.enabled:
+            self._acquire_milling_task_images(
+                stage_name=f"{self.name}-{stage.name}", tag="finished"
             )
 
-        except OperationCancelledError:
-            raise  # unwind to run() so the whole task aborts + restores conditions
-        except Exception as e:
-            logging.error(
-                f"Error running milling stage: {stage.name}, {e}", exc_info=True
-            )
+        self._emit(
+            MillingProgressStatus.STAGE_FINISHED,
+            start_time=start_time,
+            current_stage=idx,
+            total_stages=len(self.stages),
+            stage_name=stage.name,
+        )
 
     def _record_stage_started(self, stage: FibsemMillingStage, idx: int) -> None:
         """Record what a stage is about to mill, for the experiment's record.
@@ -495,7 +507,7 @@ class FibsemMillingTask:
         if self.reference_image is not None:
             return self.reference_image
 
-        path = self.config.acquisition.imaging.path
+        path = self.output_dir
         if path is None:
             path = Path(fcfg.DATA_CC_PATH)
 
@@ -565,21 +577,34 @@ class FibsemMillingTask:
 def run_milling_task(
     microscope: FibsemMicroscope,
     config: FibsemMillingTaskConfig,
-    parent_ui: Optional["FibsemMillingWidget2"] = None,
     stop_event: Optional[threading.Event] = None,
+    raise_on_failure: bool = False,
+    output_dir: Optional[str] = None,
 ) -> FibsemMillingTask:
     """Run a milling task with the given configuration.
     Args:
         microscope (FibsemMicroscope): The microscope to use for milling.
         config (FibsemMillingTaskConfig): The configuration for the milling task.
-        parent_ui (Optional[FibsemMillingWidget2]): The parent UI widget for progress updates.
-        stop_event (Optional[threading.Event]): Set to cancel the run. Falls back to
-            the parent widget's stop event when not given.
+        stop_event (Optional[threading.Event]): Set to cancel the run.
+        raise_on_failure (bool): Re-raise a failed task's error, after its cleanup
+            has run. For callers that don't listen to the progress signal, which
+            is the only other place a failure is reported. A cancelled task
+            does not raise.
+        output_dir (Optional[str]): The folder this run writes under, as
+            ``<output_dir>/Milling/<name>``. An argument rather than a config
+            field: the config is saved with the protocol, and a run's folder is
+            not. None falls back to the config's imaging path.
     Returns:
-        FibsemMillingTask: The milling task that was run.
+        FibsemMillingTask: The milling task that was run; ``outcome`` and
+            ``error`` say how it ended.
     """
     task = FibsemMillingTask(
-        microscope=microscope, config=config, parent_ui=parent_ui, stop_event=stop_event
+        microscope=microscope,
+        config=config,
+        stop_event=stop_event,
+        output_dir=output_dir,
     )
     task.run()
+    if raise_on_failure and task.error is not None:
+        raise task.error
     return task

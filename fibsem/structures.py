@@ -4,12 +4,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 import weakref
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import InitVar, asdict, dataclass, field, fields
-from datetime import datetime
+from datetime import datetime, tzinfo
 from enum import Enum, auto
 from pathlib import Path
 from typing import (
@@ -20,6 +19,7 @@ from typing import (
     List,
     Literal,
     Mapping,
+    NamedTuple,
     Optional,
     Sequence,
     Set,
@@ -41,7 +41,16 @@ from fibsem.config import (
     SUPPORTED_COORDINATE_SYSTEMS,
     UNVERSIONED_METADATA,
 )
-from fibsem.manufacturers import normalize_manufacturer
+from fibsem.manufacturers import DEMO, normalize_manufacturer
+from fibsem.util.timestamps import (
+    acquisition_datetime_of,
+    now,
+    to_aware,
+    to_datetime,
+    to_iso,
+    utc_offset_of,
+    zone_from_offset,
+)
 from fibsem.versioning import get_revision
 
 if TYPE_CHECKING:
@@ -56,7 +65,8 @@ TFibsemPatternSettings = TypeVar(
 DEFAULT_FIELD_METADATA: Dict[str, Any] = {
     "label": None,  # the display label for the field
     "type": None,  # the data type of the field
-    "unit": None,  # the display unit for the field (after scaling)
+    "unit": None,  # the field's unit; shown with the scale's SI prefix (m + 1e6 -> µm)
+    "display_unit": None,  # the shown unit, when the scale isn't an SI prefix (° , %)
     "tooltip": None,  # the tooltip/help text for the field
     "scale": None,  # scale factor for display (e.g., 1e6 for metres to microns)
     "dimensions": None,  # for complex dimensions, e.g. areas or volumes
@@ -68,7 +78,6 @@ DEFAULT_FIELD_METADATA: Dict[str, Any] = {
     "items": None,  # for lists/enums, the possible items. items specified as 'dynamic' are fetched from the microscope via the 'microscope_parameter' key
     "hidden": False,  # whether the field is hidden from the UI
     "advanced": False,  # whether the field is considered advanced in the UI
-    "manufacturer": None,  # manufacturer specific parameter (ThermoFisher, Tescan, etc.). Common parameters have None
     "microscope_parameter": None,  # the corresponding microscope parameter name, if applicable (via get/set)
     "format_fn": None,  # function to format the value for display
     "format_fn_kwargs": None,  # kwargs for the format function # NOTE: unused yet
@@ -96,6 +105,7 @@ def field_meta(
     label: Optional[str] = None,
     type: Optional[Any] = None,
     unit: Optional[str] = None,
+    display_unit: Optional[str] = None,
     tooltip: Optional[str] = None,
     scale: Optional[float] = None,
     dimensions: Optional[int] = None,
@@ -107,7 +117,6 @@ def field_meta(
     items: Optional[Union[str, Sequence[Any]]] = None,
     hidden: Optional[bool] = None,
     advanced: Optional[bool] = None,
-    manufacturer: Optional[str] = None,
     microscope_parameter: Optional[str] = None,
     format_fn: Optional[Callable[..., str]] = None,
     format_fn_kwargs: Optional[Dict[str, Any]] = None,
@@ -212,9 +221,61 @@ def get_fields_with_metadata(struct_cls: Type[Any]) -> Dict[str, Dict[str, Any]]
     for f in fields(struct_cls):
         declared = dict(f.metadata)
         _warn_unknown_metadata_keys(struct_cls, f.name, declared)
-        merged_metadata = {**default_metadata, **declared}
+        merged_metadata = {
+            **default_metadata,
+            **_beam_parameter_display(declared.get("microscope_parameter")),
+            **declared,
+        }
         field_metadata[f.name] = merged_metadata
     return field_metadata
+
+
+def _beam_parameter_display(name: Optional[str]) -> Dict[str, Any]:
+    """How the beam shows its parameter ``name``, for a field bound to it: the unit,
+    scale, step and decimals a field leaves out are the beam's, so a milling current
+    reads like the beam panel's current. Empty for a name the beam doesn't declare.
+    """
+    if not name:
+        return {}
+    from fibsem.devices.beam import Beam
+    from fibsem.devices.core import Parameter
+
+    parameter = getattr(Beam, name, None)
+    if not isinstance(parameter, Parameter) or parameter.display is None:
+        return {}
+    metadata = parameter.display.as_field_metadata(parameter.unit)
+    # the field names it in its own context, and says where its form shows it
+    metadata.pop("label", None)
+    metadata.pop("advanced", None)
+    return metadata
+
+
+class Resolution(NamedTuple):
+    """An image size in pixels. A tuple, so it compares equal to a plain
+    ``(width, height)`` and goes wherever one does; it adds the "WxH" spelling the
+    microscopes and the widgets use."""
+
+    width: int
+    height: int
+
+    def __str__(self) -> str:
+        return f"{self.width}x{self.height}"
+
+    @classmethod
+    def parse(cls, text: str) -> "Resolution":
+        """Read "1536x1024" (spaces and a capital X allowed)."""
+        try:
+            width, height = text.lower().replace(" ", "").split("x")
+            return cls(int(width), int(height))
+        except (AttributeError, ValueError):
+            raise ValueError(
+                f"A resolution is WxH, e.g. '1536x1024', got {text!r}"
+            ) from None
+
+    @property
+    def aspect(self) -> float:
+        """Width over height: 1.5 for 1536x1024."""
+        return self.width / self.height
 
 
 @dataclass
@@ -337,8 +398,8 @@ class ManipulatorState(Enum):
 
 
 class InsertableDeviceState(Enum):
-    """Where a device that goes in and out is: the FM objective, the manipulator, a
-    gas injector's needle. A driver that only knows in or out reports those two."""
+    """Where a device that goes in and out is: the FM objective, the manipulator. A
+    driver that only knows in or out reports those two."""
 
     RETRACTED = "retracted"
     INSERTED = "inserted"
@@ -450,7 +511,7 @@ class FibsemStagePosition:
     Methods:
         to_dict(): Convert the stage position object to a dictionary.
         from_dict(data: dict): Create a new stage position object from a dictionary.
-        See fibsem.microscopes.autoscript for AutoScript conversion utilities (stage_position_to_autoscript, stage_position_from_autoscript).
+        See fibsem.drivers.autoscript.microscope for AutoScript conversion utilities (stage_position_to_autoscript, stage_position_from_autoscript).
     """
 
     name: Optional[str] = None
@@ -684,7 +745,7 @@ class FibsemManipulatorPosition:
     Methods:
         to_dict(): Convert the manipulator position object to a dictionary.
         from_dict(data: dict): Create a new manipulator position object from a dictionary.
-        See fibsem.microscopes.autoscript for AutoScript conversion utilities (manipulator_position_to_autoscript, manipulator_position_from_autoscript).
+        See fibsem.drivers.autoscript.microscope for AutoScript conversion utilities (manipulator_position_to_autoscript, manipulator_position_from_autoscript).
         to_tescan_position(): Convert the manipulator position to a format that is compatible with Tescan.
         from_tescan_position(): Create a new FibsemManipulatorPosition object from a Tescan-compatible manipulator position.
     """
@@ -888,18 +949,39 @@ class ImageSettings:
     # applied to the array afterwards -- and baking it into the stored data is
     # destructive and unrecoverable. The canvas's ContrastGammaControl does it at
     # display time instead, where it is adjustable and reversible.
-    resolution: Tuple[int, int] = (1536, 1024)
-    dwell_time: float = 1e-6
-    hfw: float = 150e-6
+    # How a form shows them. The beam-bound fields take their unit, scale, step and
+    # decimals from the beam's parameter, and an instrument's limits win over these.
+    resolution: Tuple[int, int] = field(
+        default=(1536, 1024),
+        metadata=field_meta(label="Resolution", microscope_parameter="resolution"),
+    )
+    dwell_time: float = field(
+        default=1e-6,
+        metadata=field_meta(label="Dwell Time", microscope_parameter="dwell_time"),
+    )
+    hfw: float = field(
+        default=150e-6,
+        metadata=field_meta(label="Field of View", microscope_parameter="hfw"),
+    )
     autocontrast: bool = False
     beam_type: BeamType = BeamType.ELECTRON
     save: bool = False
     filename: str = "default_image"
     path: Optional[Union[Path, str]] = None
     reduced_area: Optional[FibsemRectangle] = None
-    line_integration: Optional[int] = None  # (int32) 2 - 255
-    scan_interlacing: Optional[int] = None  # (int32) 2 - 8
-    frame_integration: Optional[int] = None  # (int32) 2 - 512
+    # None is off; a form shows it as 1.
+    line_integration: Optional[int] = field(
+        default=None,
+        metadata=field_meta(label="Line Integration", minimum=1, maximum=255),
+    )
+    scan_interlacing: Optional[int] = field(
+        default=None,
+        metadata=field_meta(label="Scan Interlacing", minimum=1, maximum=8),
+    )
+    frame_integration: Optional[int] = field(
+        default=None,
+        metadata=field_meta(label="Frame Integration", minimum=1, maximum=512),
+    )
     drift_correction: bool = False  # (bool) # requires frame_integration > 1
 
     def __post_init__(self):
@@ -1450,7 +1532,7 @@ class MicroscopeState:
 
     Attributes:
 
-        timestamp (float): A float representing the timestamp at which the state of the microscope was recorded. Defaults to the timestamp of the current datetime.
+        timestamp (float): When the state was read, as a POSIX time. Defaults to the moment it is constructed.
         stage_position (FibsemStagePosition): An instance of FibsemStagePosition representing the current absolute position of the stage. Defaults to an empty instance of FibsemStagePosition.
         electron_beam (BeamSettings): An instance of BeamSettings representing the electron beam settings. Defaults to an instance of BeamSettings with beam_type set to BeamType.ELECTRON.
         ion_beam (BeamSettings): An instance of BeamSettings representing the ion beam settings. Defaults to an instance of BeamSettings with beam_type set to BeamType.ION.
@@ -1461,7 +1543,10 @@ class MicroscopeState:
         from_dict(state_dict: dict) -> "MicroscopeState": Returns a new instance of MicroscopeState with attributes created from the passed dictionary.
     """
 
-    timestamp: float = datetime.timestamp(datetime.now())
+    # When the state was read, as POSIX: not when a frame was taken, which is the
+    # image's acquisition_datetime. default_factory, not a plain default, which is
+    # evaluated once when this module is imported (FIB-487).
+    timestamp: float = field(default_factory=lambda: datetime.now().timestamp())
     stage_position: Optional[FibsemStagePosition] = field(
         default_factory=FibsemStagePosition
     )
@@ -1755,26 +1840,22 @@ class FibsemMillingSettings:
     milling_current: float = field(
         default=20.0e-12,
         metadata={
-            "unit": "A",
             "label": "Milling Current",
             "type": float,
             "items": "dynamic",
             "microscope_parameter": "current",
             "tooltip": "The current used for milling. Higher currents mill faster but with less precision and more damage.",
-            "manufacturer": "ThermoFisher",
         },
     )
     milling_voltage: float = field(
         default=30e3,
         metadata={
-            "unit": "V",
             "label": "Milling Voltage",
             "type": float,
             "items": "dynamic",
             "microscope_parameter": "voltage",
             "advanced": True,
             "tooltip": "The voltage used for milling. Higher voltages provide higher energy ions for milling.",
-            "manufacturer": "ThermoFisher",
         },
     )
     application_file: str = field(
@@ -1786,7 +1867,6 @@ class FibsemMillingSettings:
             "microscope_parameter": "application_file",
             "advanced": True,
             "tooltip": "The application file used for milling. Note: this can be changed at runtime depending on the pattern and other parameters.",
-            "manufacturer": "ThermoFisher",
         },
     )
     patterning_mode: str = field(
@@ -1805,13 +1885,9 @@ class FibsemMillingSettings:
         metadata={
             "label": "Field of View",
             "type": float,
-            "unit": "m",
-            "scale": 1e6,
             "default": 150.0,
             "minimum": 20.0,
             "maximum": 950.0,
-            "step": 10.0,
-            "decimals": 2,
             "microscope_parameter": "hfw",
             "hidden": True,
             "tooltip": "The horizontal field width used for milling. Patterns must fit within this field of view.",
@@ -1825,7 +1901,6 @@ class FibsemMillingSettings:
             "items": "dynamic",
             "microscope_parameter": "preset",
             "tooltip": "The preset used for milling. Presets define the beam settings for different milling conditions.",
-            "manufacturer": "Tescan",
         },
     )
     # 1 µm is the value the cryo lamella milling was validated at on hardware
@@ -1847,7 +1922,6 @@ class FibsemMillingSettings:
             "step": 0.01,
             "decimals": 3,
             "tooltip": "The spot size for the ion beam during milling.",
-            "manufacturer": "Tescan",
         },
     )
     rate: float = field(
@@ -1864,7 +1938,6 @@ class FibsemMillingSettings:
             "tooltip": "Ion etching rate — how much material one amp removes per "
             "second. Equivalently µm³/nA/s, which is how TESCAN quotes "
             "it. Default is the cryo lamella value; silicon is 0.3.",
-            "manufacturer": "Tescan",
         },
     )
     dwell_time: float = field(
@@ -1875,7 +1948,6 @@ class FibsemMillingSettings:
             "unit": "s",
             "scale": 1e6,
             "tooltip": "The dwell time for the ion beam during milling (µs).",
-            "manufacturer": "Tescan",
         },
     )
     spacing: float = field(
@@ -1890,7 +1962,6 @@ class FibsemMillingSettings:
             "tooltip": "Exposition mesh spacing — how finely the pattern is filled "
             "with exposure points. Dimensionless; the TESCAN default is "
             "1.0 and smaller values mill more finely and take longer.",
-            "manufacturer": "Tescan",
         },
     )
     milling_channel: BeamType = field(
@@ -1912,9 +1983,6 @@ class FibsemMillingSettings:
             "hidden": True,
         },
     )
-
-    # Parameter mapping for different manufacturers
-    _SUPPORTED_MANUFACTURERS = {"ThermoFisher", "Tescan"}
 
     def __post_init__(self):
         assert isinstance(self.milling_current, (float, int)), (
@@ -2002,29 +2070,6 @@ class FibsemMillingSettings:
             if metadata.get("advanced", False)
         }
 
-    def get_parameters_for_manufacturer(self, manufacturer: str) -> tuple[str, ...]:
-        """Get all parameter names for a specific manufacturer (any known spelling)."""
-        manufacturer = normalize_manufacturer(manufacturer)
-        if manufacturer not in self._SUPPORTED_MANUFACTURERS:
-            raise ValueError(
-                f"Manufacturer must be one of: {', '.join(self._SUPPORTED_MANUFACTURERS)}"
-            )
-
-        # use the field metadata to determine manufacturer-specific parameters
-        fields_with_metadata = self.field_metadata
-        required_params = []
-
-        for field_name, metadata in fields_with_metadata.items():
-            param_manufacturer = metadata.get("manufacturer", None)
-            if param_manufacturer == manufacturer or param_manufacturer is None:
-                required_params.append(field_name)
-        return tuple(sorted(set(required_params)))
-
-    def get_parameters(self, manufacturer: str) -> Dict[str, Any]:
-        """Get parameter values for a specific manufacturer."""
-        required_params = self.get_parameters_for_manufacturer(manufacturer)
-        return {param: getattr(self, param) for param in required_params}
-
     def summary(self) -> str:
         from fibsem.utils import format_value
 
@@ -2052,8 +2097,12 @@ DEVICE_AXES = ("x", "y", "z")
 # The named orientations the microscope derives poses for -- see
 # `_update_orientations`. The poses themselves are computed from physical parameters
 # (pre-tilt, column tilt, milling angle); these are the only names a device's
-# `acquisition_orientations` may reference.
+# `available_orientations` may reference.
 KNOWN_ORIENTATIONS = ("SEM", "FIB", "MILLING", "FM")
+
+# The orientations the beams image from, which is also a device's default when it
+# states none and its type has no default of its own.
+BEAM_ORIENTATIONS = ("SEM", "FIB", "MILLING")
 
 
 class DeviceImagingState(Enum):
@@ -2143,12 +2192,12 @@ class StageDeviceSettings:
     axis that is absent does not decide anything.
 
     A device is therefore described along **both** axes: `origin` says where the stage
-    goes, `acquisition_orientations` says which poses the instrument can see the sample
+    goes, `available_orientations` says which poses the instrument can see the sample
     in once it is there. Neither answers on its own -- see `FibsemMicroscope` and
     FIB-839 -- and which of the two does the discriminating is a fact about the
     mounting rather than about the code:
 
-    | | origin | acquisition_orientations |
+    | | origin | available_orientations |
     | -- | -- | -- |
     | compustage | shared with the beams, so the term is true everywhere | `["FM"]` -- carries it |
     | offset mount | 48.8 mm away -- carries it | `["FIB"]`, true wherever the objective reaches |
@@ -2167,36 +2216,30 @@ class StageDeviceSettings:
     # derives it, and a list of names can only reference the derived poses, never
     # disagree with them.
     #
-    # Empty means the device does not constrain the pose: the orientation half of the
-    # question is vacuously TRUE, not false. The beams are that case -- SEM, FIB and
-    # MILLING are all views of the sample from there, and choosing between them is not
-    # this field's business. The other reading, "this device can never image", is
-    # deliberately unrepresentable: a device that can never image should not be
-    # declared, and making the empty list mean that would turn every forgotten key
-    # into a silently dead instrument.
-    acquisition_orientations: List[str] = field(default_factory=list)
+    # Always stated, never empty: an empty list is refused where configuration enters
+    # (`from_dict`), because "this device can image from nowhere" would turn a
+    # forgotten key into a silently dead instrument. A device that does not say gets
+    # its type's default (`DEFAULT_AVAILABLE_ORIENTATIONS`) -- the beams image from
+    # SEM, FIB and MILLING.
+    available_orientations: List[str] = field(
+        default_factory=lambda: list(BEAM_ORIENTATIONS)
+    )
 
-    def contains(
-        self, stage_position: FibsemStagePosition, device_range: FibsemStagePosition
-    ) -> bool:
-        """Is `stage_position` within `device_range` of this device's origin?
+    # The region belonging to this device, as a half-width per axis from its origin.
+    # `None` is unbounded: the beams, which the stage is at wherever no other device
+    # claims it. A configured device that states none gets 1 mm on each axis its
+    # origin sets (`default_device_range`).
+    range: Optional[FibsemStagePosition] = None
 
-        `device_range` is the region belonging to a device, as a half-width per axis
-        from its origin. One value shared by every device, and it has to be shared.
-        The stage travels by the *difference* between two origins, so it keeps its
-        offset: a grid position 15 mm along at the beams arrives 15 mm along at the
-        FM. If the destination's range were the smaller of the two, the traverse could
-        legally produce a position the destination refuses to recognise -- the stage
-        would arrive somewhere it reports it has not arrived, ask again and traverse a
-        second time, and be unable to go back either. That is not hypothetical: the
-        two windows this replaces were 20 mm at the beams and about 10 mm at the FM,
-        written out separately, and that is exactly what they did.
+    def contains(self, stage_position: FibsemStagePosition) -> bool:
+        """Is `stage_position` within this device's `range` of its origin?
 
-        Sharing it makes the mapping invertible, and makes a destination check
-        unnecessary rather than merely omitted: `|arrival - target| = |start -
-        source|`, so a traverse that starts inside a range always ends inside one.
-        What has to be checked is the *start*, which
-        `FibsemMicroscope.move_to_microscope` does.
+        Each device has its own range, so a traverse is no longer invertible by
+        construction: the stage travels by the *difference* between two origins and
+        keeps its offset, so a grid position 15 mm along at the beams arrives 15 mm
+        along at the FM, which may not count that as arrived. So a traverse checks
+        both ends -- the source's range at the start, the target's for where it will
+        arrive -- before it moves (`FibsemMicroscope.move_to_device`).
 
         Not the same question as whether the device usefully *covers* the sample
         here -- an objective's field, a knife's approach -- which genuinely does vary
@@ -2207,7 +2250,7 @@ class StageDeviceSettings:
         device axis is degenerate there and this question is not the one to ask -- see
         `FibsemMicroscope.get_current_device`.
 
-        A device whose origin constrains an axis that `device_range` says nothing
+        A device whose origin constrains an axis that `range` says nothing
         about answers **no**. The caller is "have I already arrived", and the two costs are
         not symmetric: a wrong `False` costs a move that was not needed, a wrong
         `True` skips one that was.
@@ -2219,45 +2262,103 @@ class StageDeviceSettings:
             return False
 
         for axis in constrained:
-            extent, value = getattr(device_range, axis), getattr(stage_position, axis)
-            if extent is None or value is None:
+            value = getattr(stage_position, axis)
+            if value is None:
+                return False
+            if self.range is None:
+                continue
+            extent = getattr(self.range, axis)
+            if extent is None:
                 return False
             if abs(value - getattr(self.origin, axis)) > extent:
                 return False
         return True
 
     def to_dict(self) -> dict:
-        return {
+        """The keys a device entry carries for its stage position."""
+        ddict = {
             "origin": device_axes_to_dict(self.origin),
-            "acquisition_orientations": list(self.acquisition_orientations),
+            "available_orientations": list(self.available_orientations),
         }
+        if self.range is not None:
+            ddict["range"] = device_axes_to_dict(self.range)
+        return ddict
 
     @staticmethod
-    def from_dict(ddict: dict) -> "StageDeviceSettings":
-        orientations = [
-            str(orientation)
-            for orientation in ddict.get("acquisition_orientations") or []
-        ]
+    def from_dict(
+        ddict: dict,
+        default_orientations: Sequence[str] = (),
+        default_range: Optional[FibsemStagePosition] = None,
+    ) -> "StageDeviceSettings":
+        """Read a device's stage position.
+
+        `available_orientations` missing is the device type's default; stated empty is
+        an error. The configuration version 1 spelling, `acquisition_orientations`, is
+        read too, and there an empty list meant "any orientation", so it reads as all
+        of them. `range` missing is *default_range*, or 1 mm on each axis the origin
+        sets.
+        """
+        origin = device_axes_from_dict(ddict.get("origin"), "device origin")
+        if "available_orientations" in ddict:
+            orientations = [str(o) for o in ddict["available_orientations"] or []]
+            if not orientations:
+                raise ValueError(
+                    "available_orientations is empty: a device that can image from no "
+                    f"orientation. Name at least one of {list(KNOWN_ORIENTATIONS)}, "
+                    "or leave the key out for the device's default."
+                )
+        elif "acquisition_orientations" in ddict:
+            orientations = [str(o) for o in ddict["acquisition_orientations"] or []]
+            orientations = orientations or list(KNOWN_ORIENTATIONS)
+        else:
+            orientations = list(default_orientations) or list(BEAM_ORIENTATIONS)
         # Validated here, at the one place configuration enters, because a typo would
         # otherwise be perfectly quiet: the conjunction that reads this list would
         # simply never be true, and the instrument would be dead with no error.
         unknown = [o for o in orientations if o not in KNOWN_ORIENTATIONS]
         if unknown:
             raise ValueError(
-                f"Unknown acquisition orientation(s) {unknown}. "
+                f"Unknown orientation(s) {unknown}. "
                 f"Known orientations: {list(KNOWN_ORIENTATIONS)}"
             )
+        if ddict.get("range"):
+            range_ = device_axes_from_dict(ddict["range"], "device range")
+        elif default_range is not None:
+            range_ = deepcopy(default_range)
+        else:
+            range_ = default_device_range(origin)
+        # A range covers every axis the origin sets; one it leaves out gets the
+        # default. Otherwise `contains` answers no on that axis, and the device -- a
+        # version 1 `{x: 20 mm}` copied onto an origin that also sets y -- could never
+        # be arrived at.
+        for axis in DEVICE_AXES:
+            if getattr(origin, axis) is not None and getattr(range_, axis) is None:
+                setattr(range_, axis, DEFAULT_DEVICE_RANGE_EXTENT)
         return StageDeviceSettings(
-            origin=device_axes_from_dict(ddict.get("origin"), "device origin"),
-            acquisition_orientations=orientations,
+            origin=origin, available_orientations=orientations, range=range_
         )
 
 
-# The region belonging to a device, as a half-width from its origin: the grid, give
-# or take. One value for every device, so no device can be given a range inconsistent
-# with the traverse that gets to it -- that inconsistency was a real bug, and
-# per-device windows are how it happened.
-DEFAULT_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
+# What a configured device's range is when it states none: 1 mm on each axis its origin
+# sets.
+DEFAULT_DEVICE_RANGE_EXTENT: float = 1.0e-3
+
+
+def default_device_range(origin: FibsemStagePosition) -> FibsemStagePosition:
+    """1 mm on each axis *origin* constrains, and nothing on the rest."""
+    return FibsemStagePosition(
+        **{
+            axis: DEFAULT_DEVICE_RANGE_EXTENT
+            for axis in DEVICE_AXES
+            if getattr(origin, axis) is not None
+        }
+    )
+
+
+# The range every device shared in configuration version 1 when the file stated none.
+# A version 1 file is read with its `device_range` (or this) copied onto each device,
+# so an existing site keeps the window it had; the 1 mm default is for new entries.
+VERSION_1_DEVICE_RANGE = FibsemStagePosition(x=20.0e-3)
 
 # The ion column's angle from the electron column, in degrees. A property of the
 # instrument rather than a preference, and the same on every dual-beam this supports,
@@ -2271,7 +2372,10 @@ DEFAULT_FIB_COLUMN_TILT: float = 52.0
 # it yet: it exists because a format change cannot migrate a file that does not say
 # what format it is, and the field cannot be added retrospectively -- a file without
 # it is indistinguishable from one written before it existed.
-CONFIGURATION_VERSION: int = 1
+#
+# 2: `hardware:` is a list of devices (`hardware.devices`) instead of one block per
+# device. Version 1 files load unchanged; the reader takes both.
+CONFIGURATION_VERSION: int = 2
 
 # **The default is the objective under the grid**: the FM shares the beams' origin, and
 # is told apart by the pose the sample is held in. A site whose objective is offset --
@@ -2284,32 +2388,68 @@ CONFIGURATION_VERSION: int = 1
 # except the offset simulator, so every other configuration -- Aquilos, Hydra, Arctis,
 # Tescan, Odemis, several with no fluorescence microscope at all -- inherited a phantom
 # FM 48.8 mm away, somewhere their stage never goes. It was invisible because
-# `_device_translation` short-circuits on a compustage; `contains` does not, and reads
-# these origins literally.
+# `_device_translation` used to short-circuit on a compustage; `contains` did not, and
+# read these origins literally. A compustage FM's origin is now travelled by after the
+# flip: the offset of the objective from the beams' coincidence point, at the FM pose.
 #
 # Getting this the right way round is what lets one question be asked of both mountings
 # instead of each caller branching on the stage type (FIB-839).
+# The beams' origin: the stage's zero on x and y. z is left free -- the stage sits at
+# its working distance there, not at zero -- so a device origin's z is checked but
+# never travelled along until the beams' working z is configured too. An axis a
+# device's origin leaves unset is the beams'.
+BEAMS_ORIGIN = FibsemStagePosition(x=0.0, y=0.0)
+
 DEFAULT_STAGE_DEVICES: Dict[str, StageDeviceSettings] = {
-    # The beams say nothing about the pose: SEM, FIB and MILLING are all views of the
-    # sample from here, and choosing between them is not this dict's business.
-    "FIBSEM": StageDeviceSettings(origin=FibsemStagePosition(x=0.0)),
+    # The beams: the implicit zero, imaging from SEM, FIB and MILLING, and unbounded --
+    # the stage is at the beams wherever no other device claims it. Never configured;
+    # no device entry describes them.
+    "FIBSEM": StageDeviceSettings(origin=deepcopy(BEAMS_ORIGIN)),
     "FM": StageDeviceSettings(
         origin=FibsemStagePosition(x=0.0),
-        acquisition_orientations=["FM"],
+        available_orientations=["FM"],
+        range=default_device_range(FibsemStagePosition(x=0.0)),
     ),
 }
 
+# The stage-device key for the beams, which no configuration entry describes.
+BEAMS_STAGE_DEVICE = "FIBSEM"
+
+# A device type's orientations when its entry states none. Any other type gets the
+# beams' (`BEAM_ORIENTATIONS`).
+DEFAULT_AVAILABLE_ORIENTATIONS: Dict[str, Tuple[str, ...]] = {"fm": ("FM",)}
+
+
+def stage_device_key(entry_name: str) -> str:
+    """The `StageSystemSettings.devices` key for a device entry's stage position.
+
+    The FM was keyed `FM` before devices had entries, and `move_to_device("FM")` and
+    its callers still use that; any other device is keyed by its entry name.
+    """
+    return "FM" if entry_name == "fm" else entry_name
+
+
+def stage_device_entry_name(key: str) -> str:
+    """The device entry a `StageSystemSettings.devices` key is written onto."""
+    return "fm" if key == "FM" else key
+
 
 # Where a half turn of the stage is centred, in raw stage coordinates (x, y), metres:
-# a position p recorded on one side of the stage is at 2c - p on the other. This is
-# the value `reprojection._transform_position` has always used, which it wrote as a
-# specimen offset (X_OFFSET, Y_OFFSET) plus a (+50, +25) um "compucentric rotation
-# error" -- one centre, spelled as two constants, since p -> 2O - p + e reflects
-# through O + e/2. It was calibrated on one ThermoFisher instrument (FIB-655).
+# a position p recorded on one side of the stage is at 2c - p on the other. The centre
+# reprojection used before drivers reported one, calibrated on one ThermoFisher
+# instrument (FIB-655); kept for images that recorded no centre. ThermoFisher now
+# reports xT's centre plus `rotation_centre_correction`.
 LEGACY_ROTATION_CENTRE: Tuple[float, float] = (
     -0.0005127403888932854 + 25e-6,
     0.0007937916666666666 + 12.5e-6,
 )
+
+
+# The frame a stage's positions are in (FIB-1114). Every stage reports fibsem's frame
+# except Tescan's, which still reports its own: x and y run opposite the image, y rides
+# on the tilt module and z is chamber-vertical, +z down.
+STAGE_FRAME_FIBSEM = "fibsem"
+STAGE_FRAME_TESCAN = "tescan_native"
 
 
 def _parse_rotation_centre(value) -> Optional[Tuple[float, float]]:
@@ -2357,12 +2497,11 @@ class StageSystemSettings:
     # name -- "FIBSEM" and "FM" today -- and separate from `orientations`, which says
     # what pose the sample is held in once the stage is there.
     #
-    # `device_range` is how far from one of them the stage can be and still count as
-    # having travelled to it. Not to be confused with `microscope._stage.limits`,
-    # which is how far the axes can physically move.
-    device_range: FibsemStagePosition = field(
-        default_factory=lambda: deepcopy(DEFAULT_DEVICE_RANGE)
-    )
+    # Configured on each device's entry (`origin`, `available_orientations`, `range`)
+    # rather than on the stage; `SystemSettings.from_dict` fills this from them. Each
+    # device's `range` is how far from it the stage can be and still count as having
+    # travelled to it. Not to be confused with `microscope._stage.limits`, which is
+    # how far the axes can physically move.
     devices: Dict[str, StageDeviceSettings] = field(
         default_factory=lambda: deepcopy(DEFAULT_STAGE_DEVICES)
     )
@@ -2376,6 +2515,12 @@ class StageSystemSettings:
     # from a dict stays a pure function of that dict.
     holders: Dict[str, "SampleHolder"] = field(default_factory=dict)
     active_holder: str = ""
+    # How far the true centre of a half turn sits from where the vendor's compucentric
+    # rotation puts it, in raw stage coordinates (x, y), metres (FIB-655). Zero means
+    # the vendor's rotation is taken as perfect. Measured per instrument: centre a
+    # feature, rotate, centre it again, and the midpoint of the two positions less the
+    # vendor's centre is this value. Stage moves and image reprojection both add it.
+    rotation_centre_correction: Tuple[float, float] = (0.0, 0.0)
 
     @property
     def rotation_180(self) -> float:
@@ -2392,6 +2537,18 @@ class StageSystemSettings:
         So a value that was never chosen is now computed, and the one case it could not
         express without a coincidence -- a stage with no rotation axis -- is asked of
         the field named for it.
+
+        Readers move to the whole FIB pose (FIB-1101): a rotation alone does not say
+        where a stage faces the ion beam, which a stage can reach by tilting instead.
+        ``microscope.get_orientation("FIB")``, or an image's
+        ``hardware_geometry.declared_poses()["FIB"]``.
+        """
+        return self._fib_rotation()
+
+    def _fib_rotation(self) -> float:
+        """The FIB pose's rotation by the configured rule, in degrees.
+
+        What images stamp as ``rotation_180``, which old readers of an image still use.
         """
         if not self.rotation:
             return self.rotation_reference
@@ -2444,10 +2601,6 @@ class StageSystemSettings:
             "enabled": self.enabled,
             "rotation": self.rotation,
             "milling_angle": self.milling_angle,
-            "device_range": device_axes_to_dict(self.device_range),
-            "devices": {
-                name: device.to_dict() for name, device in self.devices.items()
-            },
             # `include_grids=False`: which grid is in which slot is session state and
             # has its own file. Writing it here would make the configuration go stale
             # every time someone swapped a grid.
@@ -2457,6 +2610,9 @@ class StageSystemSettings:
             },
             "active_holder": self.active_holder,
         }
+        # Written only once measured, so a file that never calibrated it stays as it was.
+        if any(self.rotation_centre_correction):
+            ddict["rotation_centre_correction"] = list(self.rotation_centre_correction)
         # The pre-tilt has one home in the file. Once a holder is named it lives on
         # the holder, and writing it here as well would be a second copy that a hand
         # edit could put out of step -- silently, in the term every projection uses.
@@ -2468,8 +2624,6 @@ class StageSystemSettings:
 
     @staticmethod
     def from_dict(settings: dict):
-        devices = settings.get("devices")
-        device_range = settings.get("device_range")
         # `rotation_180` is deliberately not read. A file written before FIB-834 still
         # carries the key and still loads -- the value is simply ignored, because it is
         # now derived from the two fields that decide it. Ignoring beats honouring: a
@@ -2494,22 +2648,58 @@ class StageSystemSettings:
             enabled=settings.get("enabled", True),
             rotation=settings.get("rotation", True),
             milling_angle=settings.get("milling_angle", 15.0),
-            device_range=(
-                device_axes_from_dict(device_range, "device range")
-                if device_range
-                else deepcopy(DEFAULT_DEVICE_RANGE)
-            ),
-            devices=(
-                {
-                    name: StageDeviceSettings.from_dict(device)
-                    for name, device in devices.items()
-                }
-                if devices
-                else deepcopy(DEFAULT_STAGE_DEVICES)
-            ),
+            devices=_version_1_stage_devices(settings),
             holders=holders,
             active_holder=active_holder,
+            rotation_centre_correction=_parse_rotation_centre(
+                settings.get("rotation_centre_correction")
+            )
+            or (0.0, 0.0),
         )
+
+
+def _version_1_stage_devices(stage: dict) -> Dict[str, StageDeviceSettings]:
+    """The device positions a version 1 `stage:` block declares, or the defaults.
+
+    Version 1 kept them under `stage.devices`, keyed `FIBSEM` and `FM`, with one
+    `device_range` for all of them. Each declared device gets that range (or the 20 mm
+    version 1 used when the file stated none), so an existing site keeps the window it
+    had. The beams are the implicit zero and unbounded whatever the file said; a
+    version 1 origin for them away from zero is not kept, and is warned about.
+    """
+    devices = stage.get("devices")
+    result = deepcopy(DEFAULT_STAGE_DEVICES)
+    if not devices:
+        return result
+    range_ = (
+        device_axes_from_dict(stage["device_range"], "device range")
+        if stage.get("device_range")
+        else deepcopy(VERSION_1_DEVICE_RANGE)
+    )
+    for key, device in devices.items():
+        if key == BEAMS_STAGE_DEVICE:
+            origin = device_axes_from_dict(
+                (device or {}).get("origin"), "device origin"
+            )
+            if any(getattr(origin, axis) for axis in DEVICE_AXES):
+                logging.warning(
+                    f"stage.devices.{key}.origin {device_axes_to_dict(origin)} is not "
+                    "kept: the beams are the stage's zero."
+                )
+            continue
+        result[key] = StageDeviceSettings.from_dict(
+            device or {},
+            default_orientations=DEFAULT_AVAILABLE_ORIENTATIONS.get(
+                stage_device_entry_name(key), ()
+            ),
+            default_range=range_,
+        )
+    # A version 1 file that declared devices declared all of them: one it left out
+    # did not exist there.
+    for key in list(result):
+        if key != BEAMS_STAGE_DEVICE and key not in devices:
+            del result[key]
+    return result
 
 
 def _detector_block_from(settings: dict) -> dict:
@@ -2696,33 +2886,6 @@ class ManipulatorSystemSettings:
 
 
 @dataclass
-class GISSystemSettings:
-    # What is fitted is not in the configuration file. It is asked of the instrument
-    # where the backend can (AutoScript), and is the backend's own answer where it
-    # cannot -- see `FibsemMicroscope._read_hardware_capabilities`. These are the
-    # runtime record of that answer, and `is_available("gis")` reads them.
-    enabled: bool = False
-    multichem: bool = False
-    sputter_coater: bool = False
-    inserted: bool = False
-
-    def to_dict(self):
-        return {
-            "enabled": self.enabled,
-            "multichem": self.multichem,
-            "sputter_coater": self.sputter_coater,
-        }
-
-    @staticmethod
-    def from_dict(settings: dict):
-        return GISSystemSettings(
-            enabled=settings.get("enabled", False),
-            multichem=settings.get("multichem", False),
-            sputter_coater=settings.get("sputter_coater", False),
-        )
-
-
-@dataclass
 class SystemInfo:
     """Which instrument, and what software is running on it. Provenance.
 
@@ -2760,9 +2923,12 @@ class SystemInfo:
     # for a wheel install. default_factory, not a plain default, so the lookup
     # happens on first use rather than at import of this module.
     fibsem_revision: Optional[str] = field(default_factory=get_revision)
+    # The port the driver connects on. None uses the port its driver registers
+    # (``fibsem.drivers.registry``): 7520 for ThermoFisher, 8300 for Tescan.
+    port: Optional[int] = None
 
     def to_dict(self):
-        return {
+        ddict = {
             "name": self.name,
             "ip_address": self.ip_address,
             "manufacturer": self.manufacturer,
@@ -2774,12 +2940,18 @@ class SystemInfo:
             "application": self.application,
             "fibsem_revision": self.fibsem_revision,
         }
+        # Written only when set: unset is the driver's registered port, and a file
+        # that says `port: null` reads as though it chose one.
+        if self.port is not None:
+            ddict["port"] = self.port
+        return ddict
 
     @staticmethod
     def from_dict(settings: dict):
         return SystemInfo(
             name=settings.get("name", "Unknown"),
             ip_address=settings.get("ip_address", "Unknown"),
+            port=settings.get("port"),
             # normalise on read: configs and old experiments carry "Thermo"/"TESCAN"
             # etc.; everything downstream compares against the canonical spellings
             manufacturer=normalize_manufacturer(
@@ -2854,14 +3026,31 @@ class FluorescenceSystemSettings:
     focus_position: Optional[float] = None
     limit_position: Optional[float] = None
 
+    # The flip that puts the camera's frames into the stage's axes, from how it is
+    # mounted (`none`, `flip-x`, `flip-y`, `flip-xy`). A fact about this instrument,
+    # found by watching which way a feature moves in the FM view as the stage moves.
+    # Absent is none, as every FM has been. An FM on its own PC states its own on
+    # its server (`--mount-transform`), so this is not read for `driver: remote`.
+    mount_transform: "CameraImageTransform" = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.mount_transform is None:
+            self.mount_transform = CameraImageTransform.NONE
+
     def to_dict(self) -> dict:
-        return {
+        """The fm entry's own keys, as the configuration writes them and as every FM
+        binder receives them (``config``)."""
+        settings = {
             "enabled": self.enabled,
             "driver": self.driver,
             "address": self.address,
             "port": self.port,
             "required": self.required,
         }
+        # Written only when stated, so a file that never named it is saved unchanged.
+        if self.mount_transform is not CameraImageTransform.NONE:
+            settings["mount_transform"] = self.mount_transform.value
+        return settings
 
     def objective_to_dict(self) -> dict:
         return {
@@ -2887,7 +3076,205 @@ class FluorescenceSystemSettings:
                 if settings.get("required") is not None
                 else None
             ),
+            mount_transform=_mount_transform(settings.get("mount_transform")),
         )
+
+
+def _mount_transform(name: Optional[str]) -> "CameraImageTransform":
+    from fibsem.devices.fm import mount_transform_from_name
+
+    try:
+        return mount_transform_from_name(name)
+    except ValueError as e:
+        raise ValueError(f"hardware.devices: fm: {e}") from None
+
+
+# The devices configuration v1 had a block for, and their type. Each has its own record
+# on `SystemSettings` (`system.stage`, `system.electron`, ...), which is what every
+# reader uses; their entries in `hardware.devices` fill those records.
+CONFIGURED_DEVICES: Dict[str, str] = {
+    "stage": "stage",
+    "electron": "beam",
+    "ion": "beam",
+    "fm": "fm",
+}
+
+# Types a backend builds a device of by itself, so an entry named after one of them
+# needs no `type:` -- `name: chamber` is the chamber. A plugin may configure a type not
+# listed here; such an entry states its `type`.
+DEVICE_TYPES: Tuple[str, ...] = (
+    "beam",
+    "stage",
+    "chamber",
+    "manipulator",
+    "fm",
+    "sample_loader",
+)
+
+
+# The devices with records of their own whose entries also keep `required:`, and a
+# `driver:` with that driver's own keys, which the records have no place for
+# (`SystemSettings.device_entry_keys`). The FM's record has its own.
+DEVICES_KEEPING_DRIVER_KEYS: Tuple[str, ...] = ("stage", "electron", "ion")
+
+
+class UnknownDeviceType(ValueError):
+    """A `hardware.devices` entry states no type, and its name is no device type."""
+
+
+@dataclass
+class DeviceEntry:
+    """One entry of `hardware.devices`: a device the configuration says something about.
+
+    **The list is an overlay.** A backend builds the devices it always has; an entry
+    only changes one (switches it off, gives it another driver, gives it keys), or adds
+    one the backend cannot find for itself, such as an FM on its own PC. A device the
+    file does not name is built exactly as before.
+
+    `name` is unique within the file and is how the device is found; it defaults to the
+    `type`, so a site with one manipulator writes `type: manipulator` and nothing else.
+    `type` may be left out where the name says it (`name: fm`). Two devices of one
+    type need two names. A beam is named for its column, `electron` or `ion`, as
+    `beams[BeamType]` keys it.
+
+    `enabled` has three states, as `fm.enabled` always has: absent is the backend's
+    default, `false` means never built and its driver never touches it. `driver`
+    absent is the driver for `info.manufacturer`. `roles` binds a role this device has
+    to another entry by name (`{scanner: scan_generator}`); the Demo binds it
+    (`fibsem.devices.entries.bind_device_roles`), and every backend keeps it on save.
+
+    Every other key is the entry's own and sits beside these in the file: the device's
+    facts (`column_tilt`, `rotation_reference`) and its driver's keys (`address`,
+    `port`). They are kept in `options` and written back flat.
+    """
+
+    name: str
+    type: str
+    enabled: Optional[bool] = None
+    driver: Optional[str] = None
+    required: Optional[bool] = None
+    roles: Optional[Dict[str, str]] = None
+    options: Dict[str, Any] = field(default_factory=dict)
+
+    # Which entry it is, rather than anything about the device.
+    IDENTITY_KEYS = ("name", "type")
+
+    def to_dict(self) -> dict:
+        entry: Dict[str, Any] = {"name": self.name, "type": self.type}
+        for key in ("enabled", "driver", "required", "roles"):
+            value = getattr(self, key)
+            if value is not None:
+                entry[key] = value
+        entry.update(self.options)
+        return entry
+
+    def as_block(self) -> dict:
+        """The entry as the version 1 block for its device, which the records read."""
+        block = dict(self.options)
+        for key in ("enabled", "driver", "required"):
+            value = getattr(self, key)
+            if value is not None:
+                block[key] = value
+        return block
+
+    @staticmethod
+    def from_dict(data: dict, name: Optional[str] = None) -> "DeviceEntry":
+        """Read one entry. *name* is the block's key, for a version 1 block."""
+        data = dict(data or {})
+        name = data.pop("name", None) or name
+        type_ = data.pop("type", None)
+        if name is None and type_ is None:
+            raise ValueError(
+                f"A device in hardware.devices names neither a name nor a type: {data}"
+            )
+        if type_ is None:
+            type_ = CONFIGURED_DEVICES.get(name) or (
+                name if name in DEVICE_TYPES else None
+            )
+            if type_ is None:
+                raise UnknownDeviceType(
+                    f"hardware.devices: '{name}' states no type, and no device type "
+                    "is called that. A device the backend does not build itself "
+                    "needs a `type:`."
+                )
+        if name is None:
+            name = type_
+        if type_ == "beam" and name not in ("electron", "ion"):
+            raise ValueError(
+                f"hardware.devices: a beam is named `electron` or `ion`, not '{name}'."
+            )
+        reserved = {
+            key: data.pop(key, None)
+            for key in ("enabled", "driver", "required", "roles")
+        }
+        return DeviceEntry(
+            name=str(name),
+            type=str(type_),
+            enabled=reserved["enabled"],
+            driver=reserved["driver"],
+            required=reserved["required"],
+            roles=reserved["roles"],
+            options=data,
+        )
+
+
+# The keys a device entry carries for where the stage travels for it to see the sample.
+STAGE_POSITION_KEYS = ("origin", "available_orientations", "range")
+
+
+def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
+    """Every device a configuration dict names, by name, in file order.
+
+    Reads all three shapes a file can be in: the blocks at the top level from before the
+    sections (`stage:`), the version 1 blocks under `hardware:` (`hardware.stage:`) --
+    both only for the devices that had one, `CONFIGURED_DEVICES` -- and the version 2
+    list (`hardware.devices:`). A later shape wins key by key, so a file
+    half way between two reads as it says. Two list entries with one name are an error:
+    which of them the file meant cannot be known. A list entry with no type whose name
+    is no device type is ignored with a warning, so a file naming a device this version
+    no longer has still loads.
+    """
+    settings = settings or {}
+    hardware = settings.get("hardware") or {}
+    entries: Dict[str, DeviceEntry] = {}
+
+    def merge(entry: DeviceEntry) -> None:
+        old = entries.get(entry.name)
+        if old is None:
+            entries[entry.name] = entry
+            return
+        entries[entry.name] = DeviceEntry.from_dict(
+            {**old.to_dict(), **entry.to_dict()}
+        )
+
+    for name in CONFIGURED_DEVICES:
+        if isinstance(settings.get(name), dict):
+            merge(DeviceEntry.from_dict(settings[name], name=name))
+    # Only the blocks version 1 wrote. Any other `hardware.<name>` block was never read,
+    # and reading it now would build a device from a key a site left there for nothing.
+    for name in CONFIGURED_DEVICES:
+        if isinstance(hardware.get(name), dict):
+            merge(DeviceEntry.from_dict(hardware[name], name=name))
+
+    listed = hardware.get("devices") or []
+    if not isinstance(listed, list):
+        raise ValueError("hardware.devices must be a list of devices.")
+    seen: Set[str] = set()
+    for item in listed:
+        try:
+            entry = DeviceEntry.from_dict(item)
+        except UnknownDeviceType as e:
+            # such as a device this version no longer has (`name: gis`)
+            logging.warning(f"{e} It is ignored.")
+            continue
+        if entry.name in seen:
+            raise ValueError(
+                f"hardware.devices names '{entry.name}' twice. Give each device its "
+                "own name."
+            )
+        seen.add(entry.name)
+        merge(entry)
+    return entries
 
 
 @dataclass
@@ -2896,7 +3283,6 @@ class SystemSettings:
     electron: BeamSystemSettings
     ion: BeamSystemSettings
     manipulator: ManipulatorSystemSettings
-    gis: GISSystemSettings
     info: SystemInfo
     sim: Dict[str, Union[str, bool]] = field(default_factory=dict)
     fm: FluorescenceSystemSettings = field(default_factory=FluorescenceSystemSettings)
@@ -2907,6 +3293,17 @@ class SystemSettings:
     # Whether each column is turned on at connect (`turn_beams_on`), before the
     # defaults are applied. Only ever on; off unless the file says so.
     beams_on_at_connect: bool = False
+    # The devices `hardware.devices` names beyond the four with records of their own
+    # (`CONFIGURED_DEVICES`), as the file states them, and written back as they were.
+    other_devices: List[DeviceEntry] = field(default_factory=list)
+    # The `roles:` the file gives those four, by device name. Their records have no
+    # place for it, so it is kept here and written back onto their entries.
+    device_roles: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    # The entry keys the file gives the stage and the beams that their records have no
+    # place for, by device name: `required:`, and a `driver:` with that driver's own
+    # keys (`driver: remote` with its `address` and `port`). Kept here and written
+    # back onto their entries. A key no driver is named for is not kept, as before.
+    device_entry_keys: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     #: What a column *is*: the keys that stay in `electron:` / `ion:`. Everything
     #: else a `BeamSystemSettings` writes -- voltage, current, hfw, detector, the
@@ -2936,6 +3333,10 @@ class SystemSettings:
         }
         if "shuttle_pre_tilt" in stage:
             calibration["shuttle_pre_tilt"] = stage.pop("shuttle_pre_tilt")
+        if "rotation_centre_correction" in stage:
+            calibration["rotation_centre_correction"] = stage.pop(
+                "rotation_centre_correction"
+            )
         calibration["objective"] = self.fm.objective_to_dict()
 
         electron = self.electron.to_dict()
@@ -2946,31 +3347,59 @@ class SystemSettings:
             "electron": _split_defaults(electron),
             "ion": _split_defaults(ion),
         }
+        electron.pop("beam_type", None)  # the entry's name says which column
+        ion.pop("beam_type", None)
+        devices = [
+            {"name": "stage", "type": "stage", **stage},
+            {"name": "electron", "type": "beam", **electron},
+            {"name": "ion", "type": "beam", **ion},
+            {"name": "fm", "type": "fm", **self.fm.to_dict()},
+        ]
+        for entry in devices:
+            if entry["name"] in self.device_roles:
+                entry["roles"] = self.device_roles[entry["name"]]
+            entry.update(self.device_entry_keys.get(entry["name"], {}))
+        devices.extend(entry.to_dict() for entry in self.other_devices)
+        self._write_stage_positions(devices)
         return {
             "info": self.info.to_dict(),
-            # No `manipulator:` or `gis:`. What is fitted is the instrument's to
-            # report (or the backend's, where it cannot be asked), not a file's to
-            # state; a file that said so could describe hardware a site does not have,
-            # or omit hardware it does, and nothing would disagree.
-            "hardware": {
-                "stage": stage,
-                "electron": electron,
-                "ion": ion,
-                "fm": self.fm.to_dict(),
-            },
+            # No manipulator unless the file named one. What is fitted is the
+            # instrument's to report (or the backend's, where it cannot be asked), not
+            # a file's to state: `hardware.devices` is an overlay on what the backend
+            # builds, so a device it does not name is built exactly as before.
+            "hardware": {"devices": devices},
             "calibration": calibration,
             "defaults": defaults,
             "sim": self.sim,
         }
 
+    def _write_stage_positions(self, devices: List[dict]) -> None:
+        """Write each device's stage position onto its entry in *devices*.
+
+        The beams have none to write: they are the implicit zero. The FM's is written
+        only when it is not the default -- the objective under the grid -- so a site
+        with nothing to say about it says nothing.
+        """
+        by_name = {entry["name"]: entry for entry in devices}
+        for key, position in self.stage.devices.items():
+            if key == BEAMS_STAGE_DEVICE:
+                continue
+            if key in DEFAULT_STAGE_DEVICES and position == DEFAULT_STAGE_DEVICES[key]:
+                continue
+            name = stage_device_entry_name(key)
+            entry = by_name.get(name)
+            if entry is None:
+                entry = by_name[name] = {"name": name, "type": name}
+                devices.append(entry)
+            entry.update(position.to_dict())
+
     @staticmethod
     def from_dict(settings: dict):
 
         # A missing *section* defaults like a missing field. A configuration that
-        # drops a block it does not need -- no GIS, no manipulator -- is a
-        # configuration, not a corrupt file, and this is what lets a key be removed
-        # from the shipped files without every existing one raising `KeyError` at
-        # load.
+        # drops a block it does not need -- no manipulator -- is a configuration,
+        # not a corrupt file, and this is what lets a key be removed from the
+        # shipped files without every existing one raising `KeyError` at load.
         #
         # `defaults:` names what a session starts from; `electron:` / `ion:` describe
         # what the column *is*. Merged back together here because nothing downstream
@@ -2982,15 +3411,25 @@ class SystemSettings:
         # Every file written before the sections existed has its blocks at the top
         # level, so each block is read from there first and from `hardware:` over
         # it; `calibration:` folds into the stage record it belongs to.
-        hardware = settings.get("hardware") or {}
+        #
+        # Version 2 lists the devices (`hardware.devices`); `read_device_entries`
+        # reads the list and both older shapes, and gives each device back as the
+        # block its record has always read.
         calibration = settings.get("calibration") or {}
         defaults = settings.get("defaults") or {}
+        entries = read_device_entries(settings)
 
         def block(name: str) -> dict:
-            return {**(settings.get(name) or {}), **(hardware.get(name) or {})}
+            entry = entries.get(name)
+            return entry.as_block() if entry is not None else {}
 
         stage = block("stage")
-        for key in ("holders", "active_holder", "shuttle_pre_tilt"):
+        for key in (
+            "holders",
+            "active_holder",
+            "shuttle_pre_tilt",
+            "rotation_centre_correction",
+        ):
             if key in calibration:
                 stage[key] = calibration[key]
         electron = {**block("electron"), **(defaults.get("electron") or {})}
@@ -2998,23 +3437,87 @@ class SystemSettings:
         electron["beam_type"] = BeamType.ELECTRON.name
         ion["beam_type"] = BeamType.ION.name
 
+        # Device positions are on each device's entry (`origin`,
+        # `available_orientations`, `range`); version 1 kept them under
+        # `stage.devices`, which `StageSystemSettings.from_dict` reads. An entry's
+        # wins.
+        stage_settings = StageSystemSettings.from_dict(stage)
+        for name, entry in entries.items():
+            position = {
+                key: entry.options.pop(key)
+                for key in STAGE_POSITION_KEYS
+                if key in entry.options
+            }
+            if not position or name == BEAMS_STAGE_DEVICE:
+                continue
+            if "origin" not in position:
+                raise ValueError(
+                    f"hardware.devices: '{name}' states "
+                    f"{sorted(position)} but no origin."
+                )
+            stage_settings.devices[stage_device_key(name)] = (
+                StageDeviceSettings.from_dict(
+                    position,
+                    default_orientations=DEFAULT_AVAILABLE_ORIENTATIONS.get(
+                        entry.type, ()
+                    ),
+                )
+            )
+
         fm = FluorescenceSystemSettings.from_dict(block("fm"))
         objective = calibration.get("objective") or {}
         fm.focus_position = objective.get("focus_position")
         fm.limit_position = objective.get("limit_position")
 
+        electron_settings = BeamSystemSettings.from_dict(electron)
+        ion_settings = BeamSystemSettings.from_dict(ion)
+        records = {
+            "stage": set(stage_settings.to_dict()) | set(calibration),
+            "electron": set(electron_settings.to_dict()),
+            "ion": set(ion_settings.to_dict()),
+        }
+        device_entry_keys = {}
+        for name in DEVICES_KEEPING_DRIVER_KEYS:
+            record_keys = records[name]
+            entry = entries.get(name)
+            if entry is None:
+                continue
+            kept: Dict[str, Any] = {}
+            if entry.driver is not None:
+                kept["driver"] = entry.driver
+            if entry.required is not None:
+                kept["required"] = entry.required
+            if entry.driver is not None:
+                kept.update(
+                    (key, value)
+                    for key, value in entry.options.items()
+                    if key not in record_keys
+                )
+            if kept:
+                device_entry_keys[name] = kept
+
         return SystemSettings(
             apply_defaults_on_connect=bool(defaults.get("apply_on_connect", False)),
             beams_on_at_connect=bool(defaults.get("beams_on_at_connect", False)),
-            stage=StageSystemSettings.from_dict(stage),
-            electron=BeamSystemSettings.from_dict(electron),
-            ion=BeamSystemSettings.from_dict(ion),
+            stage=stage_settings,
+            electron=electron_settings,
+            ion=ion_settings,
             # Not read from the file: filled in at connect by the backend.
             manipulator=ManipulatorSystemSettings(),
-            gis=GISSystemSettings(),
             info=SystemInfo.from_dict(settings.get("info") or {}),
             sim=settings.get("sim", {}),
             fm=fm,
+            other_devices=[
+                entry
+                for name, entry in entries.items()
+                if name not in CONFIGURED_DEVICES
+            ],
+            device_roles={
+                name: entry.roles
+                for name, entry in entries.items()
+                if name in CONFIGURED_DEVICES and entry.roles is not None
+            },
+            device_entry_keys=device_entry_keys,
         )
 
 
@@ -3135,9 +3638,41 @@ class FibsemHardwareGeometry:
     # image was reprojected with before this field existed, so an image saved without
     # it draws exactly as it did (FIB-1081).
     rotation_centre: Tuple[float, float] = LEGACY_ROTATION_CENTRE
+    # The pose the stage declared for each orientation name (SEM, FIB, and FM on a
+    # compustage), as (r, t) in degrees (FIB-1101). Empty on an image written before
+    # the stage declared its poses; `declared_poses` rebuilds them for those.
+    poses: Dict[str, Tuple[float, float]] = field(default_factory=dict)
+    # The frame the image's stage position is in: STAGE_FRAME_FIBSEM, or
+    # STAGE_FRAME_TESCAN from a Tescan without a stage device (FIB-1114). None on an
+    # image written before this was stamped, whose position is in the frame its backend
+    # reported: Tescan's own for a Tescan image, fibsem's for any other. Nothing reads
+    # Tescan's frame any more; old Tescan images are not converted.
+    stage_frame: Optional[str] = None
     # Fluorescence only; left at these defaults for a beam image.
     camera_tilt: float = 0.0  # viewing axis, from the electron column
     transform: CameraImageTransform = CameraImageTransform.NONE
+
+    def declared_poses(self) -> Dict[str, "FibsemStagePosition"]:
+        """The stage's pose for each orientation name when this was recorded, in radians.
+
+        The stamped poses when there are any. An image from before the stage declared
+        them gets them rebuilt the way its readers interpreted it: SEM at the reference
+        rotation and the pre-tilt; FIB at the stamped ``rotation_180``, tilted to the
+        ion column less the pre-tilt, and turned over by 180 on a compustage, which
+        also has FM with the grid turned fully over.
+        """
+        poses = self.poses
+        if not poses:
+            ref, pre_tilt = self.rotation_reference, self.shuttle_pre_tilt
+            fib_tilt = self.fib_column_tilt - pre_tilt
+            poses = {"SEM": (ref, pre_tilt), "FIB": (self.rotation_180, fib_tilt)}
+            if self.is_compustage:
+                poses["FIB"] = (self.rotation_180, fib_tilt - 180)
+                poses["FM"] = (ref, -180.0)
+        return {
+            name: FibsemStagePosition(r=np.radians(r), t=np.radians(t))
+            for name, (r, t) in poses.items()
+        }
 
     @classmethod
     def from_system_settings(
@@ -3145,27 +3680,36 @@ class FibsemHardwareGeometry:
         system: SystemSettings,
         is_compustage: bool = False,
         rotation_centre: Optional[Tuple[float, float]] = None,
+        poses: Optional[Mapping[str, "FibsemStagePosition"]] = None,
+        stage_frame: Optional[str] = None,
     ) -> "FibsemHardwareGeometry":
         """Gather the geometry terms out of a full system configuration.
 
         ``is_compustage`` is a parameter because ``SystemSettings`` does not carry it:
         it is a property of the installed hardware, which only the connected
-        microscope knows. Callers holding one should pass ``microscope.stage_is_compustage``.
+        microscope knows. Callers holding one should pass ``microscope._fm_is_a_pose()``.
         ``rotation_centre`` likewise comes from the driver (``microscope.rotation_centre``);
-        None records LEGACY_ROTATION_CENTRE.
+        None records LEGACY_ROTATION_CENTRE. ``poses`` are the stage's declared poses
+        (``microscope._stage_poses()``), in radians; None records none.
+        ``stage_frame`` is the frame the stage reports (``microscope.stage_frame``).
         """
         return cls(
             column_tilt=system.electron.column_tilt,
             fib_column_tilt=system.ion.column_tilt,
             shuttle_pre_tilt=system.stage.shuttle_pre_tilt,
             rotation_reference=system.stage.rotation_reference,
-            rotation_180=system.stage.rotation_180,
+            rotation_180=system.stage._fib_rotation(),
             is_compustage=is_compustage,
             rotation_centre=(
                 rotation_centre
                 if rotation_centre is not None
                 else LEGACY_ROTATION_CENTRE
             ),
+            poses={
+                name: (float(np.degrees(pose.r)), float(np.degrees(pose.t)))
+                for name, pose in (poses or {}).items()
+            },
+            stage_frame=stage_frame,
         )
 
     def to_dict(self) -> dict:
@@ -3177,6 +3721,8 @@ class FibsemHardwareGeometry:
             "rotation_180": self.rotation_180,
             "is_compustage": self.is_compustage,
             "rotation_centre": list(self.rotation_centre),
+            "poses": {name: list(pose) for name, pose in self.poses.items()},
+            "stage_frame": self.stage_frame,
             "camera_tilt": self.camera_tilt,
             "transform": self.transform.value,
         }
@@ -3197,6 +3743,11 @@ class FibsemHardwareGeometry:
                 _parse_rotation_centre(ddict.get("rotation_centre"))
                 or LEGACY_ROTATION_CENTRE
             ),
+            poses={
+                name: (float(pose[0]), float(pose[1]))
+                for name, pose in (ddict.get("poses") or {}).items()
+            },
+            stage_frame=ddict.get("stage_frame"),
             camera_tilt=ddict.get("camera_tilt", 0.0),
             # Not a bare CameraImageTransform(...): stored configurations may hold a
             # rotation that is no longer a member, which the parser migrates.
@@ -3311,10 +3862,12 @@ class FibsemExperimentRef:
     # is a name. See FIB-446.
     id: Optional[str] = None
     name: Optional[str] = None
-    # default_factory, not a plain default: a plain default is evaluated once at
-    # class definition, so every experiment recorded the interpreter's import
-    # time rather than its own creation time.
-    date: float = field(default_factory=lambda: datetime.timestamp(datetime.now()))
+    # When the reference was made, which is when a session adopted the experiment.
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older images hold a
+    # POSIX float, which reads as this machine's zone. default_factory, not a plain
+    # default: a plain default is evaluated once at class definition, so every
+    # experiment recorded the interpreter's import time rather than its own.
+    date: Optional[datetime] = field(default_factory=now)
 
     # Where in the run. None outside a workflow -- the minimap, a manual acquisition,
     # a script -- which is a real answer rather than missing information.
@@ -3363,7 +3916,7 @@ class FibsemExperimentRef:
         return {
             "id": self.id,
             "name": self.name,
-            "date": self.date,
+            "date": to_iso(self.date),
             "item_id": self.item_id,
             "item_name": self.item_name,
             "task_id": self.task_id,
@@ -3387,7 +3940,8 @@ class FibsemExperimentRef:
             # as None rather than backfilled from `id`, so a reader can tell the two
             # eras apart instead of being handed a name that claims to be an ID.
             name=settings.get("name"),
-            date=settings.get("date", "Unknown"),
+            # None when absent or unreadable; files before FIB-1197 hold a float
+            date=to_datetime(settings.get("date")),
             # Absent before v8, and in any image acquired outside a workflow.
             item_id=settings.get("item_id"),
             item_name=settings.get("item_name"),
@@ -3496,21 +4050,44 @@ class SessionInfo:
     images and v0.5.2 here -- two true facts, which is the same reasoning that put
     the version fields on ``SystemInfo`` in the first place (FIB-445 D1). Keeping
     every session rather than the latest is FIB-452's shape, not this record's.
+
+    **The instrument's zone** (FIB-1196): ``utc_offset`` and ``zone_name``, so a time
+    that carries no offset of its own -- a POSIX float, which every task time and
+    most beam images before FIB-1190 are -- can be read on the instrument's clock
+    on any machine (``wall_time_of(value, session.zone)``). New times carry their own
+    offset and do not need it. Three limits:
+
+    - An offset belongs to a moment, not a zone. A run that crosses a daylight
+      saving change reads an hour out on the side the session did not record.
+    - ``zone_name`` is what the OS calls the zone, as given: ``AEST`` on macOS and
+      Linux, ``AUS Eastern Standard Time`` on Windows. It labels, it is not parsed.
+    - A Demo session records no zone of its own and keeps the last one recorded, so
+      opening an experiment on another machine does not replace the instrument's.
     """
 
-    recorded_at: float = field(
-        default_factory=lambda: datetime.timestamp(datetime.now())
-    )
+    # Aware, written as ISO 8601 with its offset (FIB-1197); older experiments hold
+    # a POSIX float, which reads as this machine's zone.
+    recorded_at: Optional[datetime] = field(default_factory=now)
     system: Optional[SystemInfo] = None
     user: Optional[FibsemUser] = None
     # Distribution name -> version for every installed extension; see
     # `installed_plugin_versions`. A plain dict so it survives `yaml.safe_dump`,
     # which is how an experiment is written.
     plugins: Dict[str, str] = field(default_factory=dict)
+    utc_offset: Optional[str] = None  # "+10:00"
+    zone_name: Optional[str] = None
+
+    @property
+    def zone(self) -> Optional[tzinfo]:
+        """The instrument's zone, fixed at its recorded offset; None when unknown."""
+        return zone_from_offset(self.utc_offset, self.zone_name)
 
     @classmethod
     def collect(
-        cls, microscope: "FibsemMicroscope", user: Optional[FibsemUser] = None
+        cls,
+        microscope: "FibsemMicroscope",
+        user: Optional[FibsemUser] = None,
+        previous: Optional["SessionInfo"] = None,
     ) -> "SessionInfo":
         """Snapshot what is running right now.
 
@@ -3521,6 +4098,8 @@ class SessionInfo:
         The system info is copied. It is a live object on the microscope -- the
         application field is set on it during registration, and a driver may update
         it -- and a record that quietly changes after the fact is not a record.
+
+        ``previous`` is the session this one replaces: a Demo session keeps its zone.
         """
         from copy import deepcopy
 
@@ -3529,18 +4108,28 @@ class SessionInfo:
         from fibsem.plugins.report import installed_plugin_versions
 
         info = getattr(getattr(microscope, "system", None), "info", None)
+        if normalize_manufacturer(getattr(info, "manufacturer", None)) == DEMO:
+            utc_offset = previous.utc_offset if previous is not None else None
+            zone_name = previous.zone_name if previous is not None else None
+        else:
+            here = now()
+            utc_offset, zone_name = utc_offset_of(here), here.tzname()
         return cls(
             system=deepcopy(info) if info is not None else None,
             user=user if user is not None else FibsemUser.from_environment(),
             plugins=installed_plugin_versions(),
+            utc_offset=utc_offset,
+            zone_name=zone_name,
         )
 
     def to_dict(self) -> dict:
         return {
-            "recorded_at": self.recorded_at,
+            "recorded_at": to_iso(self.recorded_at),
             "system": self.system.to_dict() if self.system is not None else None,
             "user": self.user.to_dict() if self.user is not None else None,
             "plugins": dict(self.plugins),
+            "utc_offset": self.utc_offset,
+            "zone_name": self.zone_name,
         }
 
     @staticmethod
@@ -3548,10 +4137,12 @@ class SessionInfo:
         system = ddict.get("system")
         user = ddict.get("user")
         return SessionInfo(
-            recorded_at=ddict.get("recorded_at"),
+            recorded_at=to_datetime(ddict.get("recorded_at")),
             system=SystemInfo.from_dict(system) if system else None,
             user=FibsemUser.from_dict(user) if user else None,
             plugins=dict(ddict.get("plugins") or {}),
+            utc_offset=ddict.get("utc_offset"),
+            zone_name=ddict.get("zone_name"),
         )
 
 
@@ -3603,6 +4194,14 @@ class FibsemImageMetadata:
     experiment: FibsemExperimentRef = field(
         default_factory=lambda: FibsemExperimentRef()
     )
+    # When the image was acquired: an aware datetime, written as ISO 8601 with its
+    # UTC offset, `2026-09-13T21:19:40.974286-06:00` (FIB-1190). An observation, like
+    # microscope_state, but a separate field: the state's timestamp says when the
+    # state was read, which is not the same moment. `Beam.acquire` stamps it just
+    # before the driver runs; a driver with a vendor time sets its own. None on
+    # files from before v11 and on images built rather than acquired -- read the
+    # time through `acquisition_datetime_of`, which falls back for those.
+    acquisition_datetime: Optional[datetime] = None
 
     @property
     def beam_type(self) -> BeamType:
@@ -3613,8 +4212,14 @@ class FibsemImageMetadata:
         return self.microscope_state.stage_position
 
     @property
-    def acquisition_date(self) -> datetime:
-        return datetime.fromtimestamp(self.microscope_state.timestamp)
+    def acquisition_date(self) -> Optional[datetime]:
+        """When the image was acquired: aware, with the offset it was recorded with,
+        when the file says which zone.
+
+        Naive when it does not: a ThermoFisher image from before v11 records the
+        instrument PC's clock time alone. See `acquisition_datetime_of`.
+        """
+        return acquisition_datetime_of(self)
 
     def to_dict(self) -> dict:
         """Converts metadata to a dictionary.
@@ -3627,6 +4232,10 @@ class FibsemImageMetadata:
             settings_dict["image"] = self.image_settings.to_dict()
         if self.version is not None:
             settings_dict["version"] = self.version
+        if self.acquisition_datetime is not None:
+            settings_dict["acquisition_datetime"] = (
+                self.acquisition_datetime.isoformat()
+            )
         if self.pixel_size is not None:
             settings_dict["pixel_size"] = self.pixel_size.to_dict()
         if self.microscope_state is not None:
@@ -3727,6 +4336,7 @@ class FibsemImageMetadata:
             experiment=FibsemExperimentRef.from_dict(settings.get("experiment", {})),
             system_info=system_info,
             hardware_geometry=hardware_geometry,
+            acquisition_datetime=to_aware(settings.get("acquisition_datetime")),
         )
         return metadata
 
@@ -3954,7 +4564,6 @@ class FibsemImage:
             Channel,
             Image,
             Instrument,
-            ManufacturerSpec,
             MapAnnotation,
             Microscope,
             Pixels,
@@ -4031,7 +4640,7 @@ class FibsemImage:
         ome_image = Image(
             id="Image:0",
             name=md.image_settings.filename,
-            acquisition_date=md.microscope_state.timestamp,
+            acquisition_date=acquisition_datetime_of(md),
             pixels=pixels,
         )
 
@@ -4339,31 +4948,6 @@ def load_tiff(path: Union[str, Path]) -> np.ndarray:
     return tff.imread(str(path))
 
 
-@dataclass
-class FibsemGasInjectionSettings:
-    port: str
-    gas: str
-    duration: float
-    insert_position: Optional[str] = None  # multichem only
-
-    @staticmethod
-    def from_dict(d: dict):
-        return FibsemGasInjectionSettings(
-            port=d["port"],
-            gas=d["gas"],
-            duration=d["duration"],
-            insert_position=d.get("insert_position", None),
-        )
-
-    def to_dict(self):
-        return {
-            "port": self.port,
-            "gas": self.gas,
-            "duration": self.duration,
-            "insert_position": self.insert_position,
-        }
-
-
 def calculate_fiducial_area_v2(
     image: FibsemImage, fiducial_centre: Point, fiducial_length: float
 ) -> Tuple[FibsemRectangle, bool]:
@@ -4586,8 +5170,15 @@ class SlotCalibration:
     orientation: str
     pre_tilt: float
     rotation_reference: float
-    captured_at: str = ""
+    # When the wizard captured it: aware, written as ISO 8601 with its offset
+    # (FIB-1190, FIB-1197). Records before FIB-1190 hold a naive string, which stays
+    # naive. None for a position nobody captured.
+    captured_at: Optional[datetime] = None
     fibsem_version: str = ""
+
+    def __post_init__(self) -> None:
+        # the string a holder file or a caller holds
+        self.captured_at = to_datetime(self.captured_at) if self.captured_at else None
 
     @classmethod
     def builtin(cls, pre_tilt: float, rotation_reference: float) -> "SlotCalibration":
@@ -4602,7 +5193,7 @@ class SlotCalibration:
             orientation="SEM",
             pre_tilt=pre_tilt,
             rotation_reference=rotation_reference,
-            captured_at="",
+            captured_at=None,
             fibsem_version="built-in",
         )
 
@@ -4621,7 +5212,7 @@ class SlotCalibration:
             "orientation": self.orientation,
             "pre_tilt": self.pre_tilt,
             "rotation_reference": self.rotation_reference,
-            "captured_at": self.captured_at,
+            "captured_at": to_iso(self.captured_at) or "",
             "fibsem_version": self.fibsem_version,
         }
 
@@ -4631,7 +5222,7 @@ class SlotCalibration:
             orientation=str(data.get("orientation", "")),
             pre_tilt=float(data.get("pre_tilt", 0.0)),
             rotation_reference=float(data.get("rotation_reference", 0.0)),
-            captured_at=str(data.get("captured_at", "")),
+            captured_at=data.get("captured_at") or None,
             fibsem_version=str(data.get("fibsem_version", "")),
         )
 
@@ -4899,7 +5490,7 @@ class SampleHolder:
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Sample holder config not found: {path}")
-        with open(path, "r") as f:
+        with open(path) as f:
             data = yaml.safe_load(f)
         return cls.from_dict(data)
 

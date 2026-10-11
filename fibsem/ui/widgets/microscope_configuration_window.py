@@ -12,7 +12,8 @@ kinds the configuration file is divided into:
   fluorescence objective. Never typed in: the holder's slots come from its guided
   calibration, opened from here.
 - **Defaults**: what the columns and the acquire tab start at -- read off the
-  instrument, edited, and saved by the window's Save; Apply to Microscope sets them.
+  instrument, edited, and saved by the window's Save. Nothing here writes to the
+  instrument: the saved defaults are set at connect, if the file asks.
 - **Session**: what the application remembers for this configuration between
   sessions (`fibsem.session_state`) -- the file it is kept in and everything each
   section holds. Shown, not edited: each section is changed where it is used.
@@ -21,7 +22,6 @@ Only while connected: everything here is read from the live session. The Default
 is the only one with anything to save; the window says when it has unsaved changes.
 """
 
-import logging
 import math
 import os
 from typing import Callable, Iterable, List, Optional, Sequence, Tuple
@@ -43,10 +43,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import ImageSettings
-from fibsem.ui import notification_service, stylesheets
+from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     OK_COLOR,
     PANEL_COLOR,
@@ -59,6 +58,8 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.microscope_defaults_widget import MicroscopeDefaultsWidget
+from fibsem.util.durations import format_time_ago
+from fibsem.util.timestamps import format_time
 
 NOT_STATED = "—"
 
@@ -153,13 +154,33 @@ def _mm(metres: Optional[float]) -> str:
     return NOT_STATED if metres is None else f"{metres * 1e3:.2f} mm"
 
 
+def _axes_mm(position, prefix: str = "") -> str:
+    """The x, y and z a partial position sets, in mm: `x 48.80 mm, y 2.00 mm`."""
+    stated = [
+        f"{axis} {prefix}{_mm(getattr(position, axis))}"
+        for axis in ("x", "y", "z")
+        if getattr(position, axis) is not None
+    ]
+    return ", ".join(stated) or NOT_STATED
+
+
 def _degrees(value: Optional[float]) -> str:
     return NOT_STATED if value is None else f"{value:g}°"
 
 
+def _fib_rotation(microscope: FibsemMicroscope) -> float:
+    """The rotation of the pose the stage declares for the ion beam, in degrees."""
+    return math.degrees(microscope.get_orientation("FIB").r) % 360
+
+
 # ---- the tabs -------------------------------------------------------------------------
 
-SOURCE_LABELS = {"instrument": "Instrument", "backend": "Backend default"}
+SOURCE_LABELS = {
+    "instrument": "Instrument",
+    "backend": "Backend default",
+    "device": "Configured device",
+    "not_built": "Device failed to build",
+}
 
 
 def devices_rows(microscope: FibsemMicroscope) -> List[Tuple[str, bool, str, str]]:
@@ -191,12 +212,9 @@ def devices_rows(microscope: FibsemMicroscope) -> List[Tuple[str, bool, str, str
             "Stage",
             bool(microscope.is_available("stage")),
             "Instrument",
-            "CompuStage" if microscope.stage_is_compustage else "",
+            "" if microscope.system.stage.rotation else "No rotation",
         ),
         ("Manipulator", *probed("manipulator"), ""),
-        ("GIS", *probed("gis"), ""),
-        ("Multichem", *probed("gis_multichem"), ""),
-        ("Sputter coater", *probed("gis_sputter_coater"), ""),
         ("Fluorescence", microscope.fm is not None, "Configuration", ""),
         ("Grid loader", loader is not None, "Instrument", ""),
     ]
@@ -289,22 +307,25 @@ def geometry_tab(microscope: FibsemMicroscope) -> QWidget:
     stage_form = _form(
         [
             ("Rotation reference", _degrees(stage.rotation_reference)),
-            ("Facing the ion beam", f"{_degrees(stage.rotation_180)}  (derived)"),
+            (
+                "Facing the ion beam",
+                f"{_degrees(_fib_rotation(microscope))}  (derived)",
+            ),
             (
                 "Rotation axis",
                 ("Yes" if stage.rotation else "No") + "  (reported by the stage)",
             ),
             ("Milling angle", _degrees(stage.milling_angle)),
-            ("Device range", f"± {_mm(stage.device_range.x)} in x"),
         ]
     )
     devices = _table(
-        ["Device", "Origin (x)", "Acquires at"],
+        ["Device", "Origin", "Range", "Acquires at"],
         [
             (
                 name,
-                _mm(device.origin.x),
-                ", ".join(device.acquisition_orientations) or NOT_STATED,
+                _axes_mm(device.origin),
+                "unbounded" if device.range is None else _axes_mm(device.range, "± "),
+                ", ".join(device.available_orientations) or NOT_STATED,
             )
             for name, device in stage.devices.items()
         ],
@@ -357,7 +378,7 @@ def slot_rows(holder) -> List[Tuple[str, str, str, str, str]]:
                 f"x {position.x * 1e3:.2f}  y {position.y * 1e3:.2f} mm"
                 if position is not None and slot.is_calibrated
                 else NOT_STATED,
-                calibration.captured_at.replace("T", " ")
+                format_time(calibration.captured_at, "%Y-%m-%d %H:%M:%S")
                 if calibration is not None and calibration.captured_at
                 else NOT_STATED,
             )
@@ -553,14 +574,6 @@ def session_sections(sections: dict) -> List[Tuple[str, Sequence[str], List[tupl
     return result
 
 
-def _ago(seconds: float) -> str:
-    for unit, size in (("day", 86400), ("hour", 3600), ("minute", 60)):
-        if seconds >= size:
-            n = int(seconds // size)
-            return f"{n} {unit}{'s' if n > 1 else ''} ago"
-    return "just now"
-
-
 def _show_in_folder(path) -> None:
     from PyQt5.QtCore import QUrl
     from PyQt5.QtGui import QDesktopServices
@@ -583,7 +596,7 @@ def session_tab(microscope: FibsemMicroscope) -> QWidget:
         head.addWidget(_value(path.name))
         head.addWidget(
             _muted(
-                f"written {_ago(time.time() - path.stat().st_mtime)}"
+                f"written {format_time_ago(time.time() - path.stat().st_mtime)}"
                 if path.exists()
                 else "nothing saved yet"
             )
@@ -682,13 +695,6 @@ class MicroscopeConfigurationWindow(QDialog):
         path = getattr(microscope, "configuration_path", None)
         self._file_name = os.path.basename(path) if path else ""
         self.label_unsaved = _status("", WARN_COLOR)
-        self.pushButton_apply = QPushButton("Apply to Microscope")
-        self.pushButton_apply.setToolTip(
-            "Set the columns and detectors to the defaults on the Defaults tab, "
-            "saved or not. The beams should be on."
-        )
-        self.pushButton_apply.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.pushButton_apply.setEnabled(cfg.APPLY_CONFIGURATION_ENABLED)
         self.pushButton_save = QPushButton("Save")
         self.pushButton_save.setToolTip(
             "Write the defaults into the configuration file this session was started "
@@ -701,7 +707,6 @@ class MicroscopeConfigurationWindow(QDialog):
         foot.addWidget(self.label_unsaved)
         foot.addStretch()
         for button in (
-            self.pushButton_apply,
             self.pushButton_save,
             self.pushButton_close,
         ):
@@ -715,7 +720,6 @@ class MicroscopeConfigurationWindow(QDialog):
         self.resize(1040, 560)
 
         self.defaults.changed.connect(self._show_unsaved)
-        self.pushButton_apply.clicked.connect(self.apply_to_microscope)
         self.pushButton_save.clicked.connect(self.save)
         self.pushButton_close.clicked.connect(self.close)
         self._show_unsaved()
@@ -738,19 +742,6 @@ class MicroscopeConfigurationWindow(QDialog):
     def save(self) -> bool:
         """Write the window's changes into the configuration. Returns whether saved."""
         return self.defaults.save_to_configuration()
-
-    def apply_to_microscope(self) -> None:
-        """Set the instrument to the defaults the Defaults tab shows."""
-        self.defaults.write_form_into_system()
-        try:
-            self.microscope.apply_configuration()
-        except Exception as e:  # a slot: nothing may reach Qt
-            logging.error(f"Could not apply the defaults: {e}")
-            notification_service.show_toast(
-                f"Could not apply the defaults: {e}", "error"
-            )
-            return
-        notification_service.show_toast("Defaults applied to the microscope.", "info")
 
     def reject(self) -> None:
         """Close, Escape and the title bar all come here: offer to save first."""

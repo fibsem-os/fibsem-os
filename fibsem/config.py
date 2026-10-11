@@ -2,13 +2,16 @@ import dataclasses
 import logging
 import os
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
 import fibsem
 from fibsem import manufacturers
+from fibsem.drivers import registry
+from fibsem.util.timestamps import to_datetime
 
 # Documentation for a human reading a file, not a parsing switch -- from_dict does not
 # branch on it, and additive changes are detected from field presence instead (FIB-445
@@ -25,7 +28,19 @@ from fibsem import manufacturers
 # v8 added `workflow` -- which item and which task an image was acquired for
 # (FIB-466). Absent in earlier files, and absent in any image acquired outside a
 # workflow, which is a real answer rather than a missing one.
-METADATA_VERSION = "v8"
+# v9 added `hardware_geometry.poses` -- the pose the stage declared for each
+# orientation name (FIB-1101). Absent in earlier files, where
+# `FibsemHardwareGeometry.declared_poses` rebuilds them from `rotation_180` and
+# `is_compustage`.
+# v10 added `hardware_geometry.stage_frame` -- the frame the stage position is in,
+# "fibsem" or "tescan_native" (FIB-1114). Absent in earlier files, whose positions
+# are in the frame their backend reported: Tescan's own on a Tescan image.
+# v11 added `acquisition_datetime` -- when the image was acquired, as ISO 8601 with
+# the acquiring machine's UTC offset (FIB-1190). Absent in earlier files, whose time
+# is `microscope_state.timestamp`: a POSIX float, or AutoScript's naive
+# `%m/%d/%Y %H:%M:%S` string on a ThermoFisher image. Read either through
+# `fibsem.util.timestamps.acquisition_datetime_of`.
+METADATA_VERSION = "v11"
 # What an unversioned file is. Absent means written before versioning existed, i.e.
 # older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
 UNVERSIONED_METADATA = "v0"
@@ -148,17 +163,12 @@ def load_yaml(fname):
         IOError: If the file cannot be opened or read.
         yaml.YAMLError: If the file is not valid YAML.
     """
-    with open(fname, "r") as f:
+    with open(fname) as f:
         config = yaml.safe_load(f)
 
     return config
 
 
-AVAILABLE_MANUFACTURERS = [
-    manufacturers.THERMOFISHER,
-    manufacturers.TESCAN,
-    manufacturers.DEMO,
-]
 DEFAULT_MANUFACTURER = manufacturers.THERMOFISHER
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 SUPPORTED_PLASMA_GASES = ["Argon", "Oxygen", "Nitrogen", "Xenon"]
@@ -204,10 +214,6 @@ if not os.path.exists(DEFAULT_CONFIGURATION_PATH):
         MICROSCOPE_CONFIGURATION_PATH
     )
     DEFAULT_CONFIGURATION_PATH = MICROSCOPE_CONFIGURATION_PATH
-
-print(
-    f"Default configuration {DEFAULT_CONFIGURATION_NAME}. Configuration Path: {DEFAULT_CONFIGURATION_PATH}"
-)
 
 
 def _is_same_path(path: Optional[str], other: Optional[str]) -> bool:
@@ -270,29 +276,26 @@ def set_default_configuration(configuration_name: str):
         yaml.dump(USER_CONFIGURATIONS_YAML, f)
 
 
-# default configuration values
-DEFAULT_CONFIGURATION_VALUES = {
-    manufacturers.THERMOFISHER: {
-        "ion-column-tilt": 52,
-        "electron-column-tilt": 0,
-    },
-    "Tescan": {
-        "ion-column-tilt": 55,
-        "electron-column-tilt": 0,
-    },
-    "Demo": {
-        "ion-column-tilt": 52,
-        "electron-column-tilt": 0,
-    },
-}
+def __getattr__(name: str):
+    """``DEFAULT_CONFIGURATION_VALUES`` and ``AVAILABLE_MANUFACTURERS``, from the
+    driver registry (FIB-1123).
+
+    Read on each access rather than at import: reading a driver's record imports its
+    module, which imports this one, and a driver registered later is then included.
+    ``DEFAULT_CONFIGURATION_VALUES`` is each driver's config (column tilts, port);
+    ``AVAILABLE_MANUFACTURERS`` is the manufacturers that have one. Odemis has none,
+    so it is in neither.
+    """
+    if name == "DEFAULT_CONFIGURATION_VALUES":
+        return registry.default_configuration_values()
+    if name == "AVAILABLE_MANUFACTURERS":
+        return list(registry.default_configuration_values())
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # machine learning
 HUGGINFACE_REPO = "patrickcleeve/autolamella"
 DEFAULT_CHECKPOINT = "autolamella-mega-20240107.pt"
-
-# feature flags
-APPLY_CONFIGURATION_ENABLED = True
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +370,17 @@ class DisplayPreferences:
     # dismissing must not fake one: a person who intends to configure by hand has
     # still configured nothing.
     guided_setup_dismissed: bool = False
+    # Which fields the bar under each view shows, by view kind ("SEM", "FIB", "FM"),
+    # in order (FIB-1186). Only a kind someone has customised has an entry: an absent
+    # kind takes the bar's defaults, so a later change to those defaults still reaches
+    # everyone who never chose -- which a stored default would not, since every save
+    # writes every key.
+    info_bar_fields: Dict[str, List[str]] = field(default_factory=dict)
+    # What the History tab shows (FIB-1256): ``show``, ``status`` and ``task``, as
+    # ``HistoryFilter.to_dict`` writes them. Empty until someone filters, so the
+    # tab's default still reaches everyone who never did; a value the tab does not
+    # recognise shows everything.
+    history_filter: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -536,7 +550,7 @@ def load_user_preferences() -> UserPreferences:
         return UserPreferences()
 
     try:
-        with open(USER_PREFERENCES_PATH, "r") as f:
+        with open(USER_PREFERENCES_PATH) as f:
             loaded = yaml.safe_load(f) or {}
         return UserPreferences.from_dict(loaded)
     except Exception as e:
@@ -562,6 +576,21 @@ def save_user_preferences(preferences) -> None:
         )
 
 
+def update_user_preferences(
+    change: Callable[[UserPreferences], None],
+) -> UserPreferences:
+    """Apply *change* to the preferences as they are on disk now, save, and return them.
+
+    For a widget that owns one setting. Reading just before writing means it keeps
+    whatever another window saved meanwhile, where saving a copy held since start-up
+    would put the rest of that copy back over it.
+    """
+    preferences = load_user_preferences()
+    change(preferences)
+    save_user_preferences(preferences)
+    return preferences
+
+
 @dataclass
 class ExperimentSummary:
     """What an experiment says about itself, read without loading it.
@@ -578,7 +607,7 @@ class ExperimentSummary:
 
     path: str  # path to the experiment.yaml file
     name: str
-    created_at: float = 0.0
+    created_at: Optional[datetime] = None  # None when the file does not say
     num_lamella: int = 0
     exists: bool = True
     available: bool = True  # False if the file is missing or could not be read
@@ -609,7 +638,7 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
         )
 
     try:
-        with open(experiment_yaml_path, "r") as f:
+        with open(experiment_yaml_path) as f:
             ddict = yaml.safe_load(f) or {}
         # `or {}` at each level, not `.get(k, {})`: a key present but null is how
         # an experiment no session has adopted serialises, and that has to read
@@ -620,7 +649,7 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
         return ExperimentSummary(
             path=experiment_yaml_path,
             name=ddict.get("name") or fallback_name,
-            created_at=ddict.get("created_at") or 0.0,
+            created_at=to_datetime(ddict.get("created_at")),
             num_lamella=len(ddict.get("positions") or []),
             exists=True,
             available=True,

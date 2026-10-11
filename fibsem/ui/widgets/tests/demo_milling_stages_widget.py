@@ -9,7 +9,6 @@ import sys
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
-    QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -62,10 +61,6 @@ def main() -> None:
     ctrl_layout = QFormLayout(controls)
     ctrl_layout.setContentsMargins(0, 0, 0, 0)
 
-    mfr_combo = QComboBox()
-    mfr_combo.addItems(["Demo (none)", "ThermoFisher", "Tescan"])
-    ctrl_layout.addRow("Manufacturer:", mfr_combo)
-
     adv_check = QCheckBox("Show advanced")
     ctrl_layout.addRow("Advanced:", adv_check)
 
@@ -90,10 +85,6 @@ def main() -> None:
     root.addWidget(btn_row)
 
     # --- connections ---
-    def on_mfr_changed(idx: int) -> None:
-        mfr_map = {0: "Demo", 1: "ThermoFisher", 2: "Tescan"}
-        widget.set_manufacturer(mfr_map[idx])
-
     def on_stages_changed(changed_stages) -> None:
         names = [s.name for s in changed_stages]
         status.setText(f"stages_changed: {names}")
@@ -110,14 +101,10 @@ def main() -> None:
         for s in widget.get_enabled_stages():
             print(s.name, s.milling.to_dict())
 
-    mfr_combo.currentIndexChanged.connect(on_mfr_changed)
     adv_check.toggled.connect(widget.set_advanced_visible)
     widget.stages_changed.connect(on_stages_changed)
     btn_get.clicked.connect(on_print_all)
     btn_enabled.clicked.connect(on_print_enabled)
-
-    # start with ThermoFisher
-    mfr_combo.setCurrentIndex(1)
 
     win.show()
     sys.exit(app.exec_())

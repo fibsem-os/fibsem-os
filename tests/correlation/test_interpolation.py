@@ -12,6 +12,7 @@ from fibsem.correlation.util import (
     interpolate_fm_volume,
     interpolate_z_stack,
     multi_channel_interpolation,
+    z_resample_scale,
 )
 
 
@@ -195,27 +196,54 @@ def test_interpolate_fm_volume_makes_it_isotropic():
     assert out.data.shape[1] == 81
 
 
-def test_pixel_size_z_matches_the_actual_slice_ratio_not_the_nominal():
-    """scipy rounds the slice count, so pixel_size_z must come from the achieved
-    ratio (old_nz/new_nz) — otherwise metadata and data drift apart."""
+def test_pixel_size_z_matches_the_actual_grid_not_the_nominal():
+    """The slice count is rounded and the end slices land on the end slices, so
+    pixel_size_z must come from the achieved grid — otherwise metadata and data
+    drift apart (FIB-1238)."""
     fm = _fake_fm(nz=21, z_step=500e-9, xy=130e-9)
     out = interpolate_fm_volume(fm, target_z_size_m=130e-9)
 
-    new_nz = out.data.shape[1]  # 81
-    expected = 500e-9 * 21 / new_nz  # ~129.6 nm, NOT the nominal 130
+    # 21 slices span 20 steps of 500 nm; 81 slices span the same 10 um in 80
+    expected = 500e-9 * 20 / 80  # 125 nm, NOT the nominal 130
     assert out.metadata.pixel_size_z == pytest.approx(expected)
-    assert out.metadata.pixel_size_z != pytest.approx(130e-9)  # the nominal is wrong
+    assert out.metadata.pixel_size_z != pytest.approx(130e-9)  # the nominal
+    assert out.metadata.pixel_size_z != pytest.approx(500e-9 * 21 / 81)  # was
+
+
+@pytest.mark.parametrize("z_in,z_out", _RATIOS)
+@pytest.mark.parametrize("method", ["linear", "cubic"])
+def test_a_rescaled_point_stays_on_its_feature(z_in, z_out, method):
+    """A point at source slice s, moved by z_resample_scale, reads the same
+    feature in the resampled volume. The ramp makes each slice's value its own
+    source position, so the value under the moved point is where it came from.
+    The new_nz / old_nz it used to move by put slice 16 of 21 at 32.0 of 42
+    instead of 32.8 — 0.4 of a source slice off, growing with depth (FIB-1238)."""
+    fm = _fake_fm(nz=21, z_step=z_in)
+    out = interpolate_fm_volume(fm, target_z_size_m=z_out, method=method)
+    ramp = out.data[0, :, 0, 0]
+    scale = z_resample_scale(21, out.data.shape[1])
+
+    for s in (0.0, 7.0, 16.0, 20.0, 12.4):
+        landed = np.interp(s * scale, np.arange(len(ramp)), ramp)
+        assert landed == pytest.approx(s, abs=0.01)
+
+
+def test_z_resample_scale_needs_two_slices_each_side():
+    with pytest.raises(ValueError):
+        z_resample_scale(1, 10)
+    with pytest.raises(ValueError):
+        z_resample_scale(10, 1)
 
 
 def test_physical_depth_is_preserved_under_the_matched_rescale():
-    """A coordinate at slice k, rescaled by new_nz/old_nz, keeps its physical
+    """A coordinate at slice k, rescaled by z_resample_scale, keeps its physical
     depth (z_index * pixel_size_z) — the property the whole feature rests on."""
     fm = _fake_fm(nz=21, z_step=500e-9, xy=130e-9)
     old_nz = fm.data.shape[1]
     out = interpolate_fm_volume(fm, target_z_size_m=130e-9)
     new_nz = out.data.shape[1]
 
-    scale = new_nz / old_nz
+    scale = z_resample_scale(old_nz, new_nz)
     for k in (0, 7, 15, 20):
         depth_before = k * fm.metadata.pixel_size_z
         depth_after = (k * scale) * out.metadata.pixel_size_z
@@ -413,9 +441,9 @@ def test_interpolating_shows_embedded_progress_and_locks_the_button(qapp):
     assert tab._btn_interpolate.isEnabled() is True  # re-armed
 
 
-def test_adopt_interpolated_volume_preserves_physical_depth(qapp):
-    """The end-to-end widget behaviour: after adopting the resampled volume, every
-    FM point keeps its physical depth and pixel_size_z propagates to the tab."""
+def test_adopt_interpolated_volume_only_resamples_the_view(qapp):
+    """The resampled volume is shown on the canvas; the points, the stack the
+    fits and the file use, and its z step are untouched (FIB-1248)."""
     from fibsem.correlation.structures import PointType
     from fibsem.correlation.util import interpolate_fm_volume
 
@@ -431,31 +459,41 @@ def test_adopt_interpolated_volume_preserves_physical_depth(qapp):
     w._coords_tab.poi_list.coordinates[0].point.z = 11.0
     assert w._fm_point_count() == 2
 
-    depth_before = 11.0 * old_z_step
-
     new_image = interpolate_fm_volume(fm, fm.metadata.pixel_size_x, "linear")
     w._adopt_interpolated_volume(new_image, old_nz)
 
-    new_z = w._coords_tab.poi_list.coordinates[0].point.z
-    depth_after = new_z * new_image.metadata.pixel_size_z
-    assert depth_after == pytest.approx(depth_before)  # matched pair holds
-    assert new_z != pytest.approx(11.0)  # it actually moved
-    assert w._fm_pixel_size_z() == pytest.approx(new_image.metadata.pixel_size_z)
+    assert w._coords_tab.fm_list.coordinates[0].point.z == 15.0
+    assert w._coords_tab.poi_list.coordinates[0].point.z == 11.0
+    assert w._fm_image is fm  # the stack the fits and the file use
+    assert w._fm_pixel_size_z() == pytest.approx(old_z_step)
+    # only the canvas changed: it scrubs the resampled planes
+    assert w._fm_display._z_max == new_image.data.shape[1] - 1
 
 
-def test_rescale_only_touches_fm_side_points(qapp):
-    from fibsem.correlation.structures import PointType
+def test_moving_to_another_z_step_only_touches_fm_side_points():
+    from fibsem.correlation.structures import (
+        Coordinate,
+        CorrelationInputData,
+        PointType,
+        PointXYZ,
+    )
 
-    w = _widget(qapp)
-    w.set_fm_image(_meteor_like_fm())
-    w._on_canvas_add_requested(10.0, 10.0, PointType.FIB)  # FIB side
-    w._coords_tab.fib_list.coordinates[0].point.z = 5.0
-    w._on_canvas_add_requested(20.0, 20.0, PointType.FM)  # FM side
-    w._coords_tab.fm_list.coordinates[0].point.z = 5.0
+    def at(z, pt):
+        return Coordinate(PointXYZ(1.0, 2.0, z), pt)
 
-    w._rescale_fm_z(2.0)
-    assert w._coords_tab.fib_list.coordinates[0].point.z == 5.0  # FIB untouched
-    assert w._coords_tab.fm_list.coordinates[0].point.z == 10.0  # FM scaled
+    data = CorrelationInputData(
+        fib_coordinates=[at(5.0, PointType.FIB)],
+        fm_coordinates=[at(5.0, PointType.FM)],
+        poi_coordinates=[at(5.0, PointType.POI)],
+        surface_coordinate=at(5.0, PointType.SURFACE),
+        stored_fm_pixel_size_z=100e-9,
+    )
+    assert data.move_fm_z_to_step(500e-9) == pytest.approx(0.2)
+    assert data.fib_coordinates[0].point.z == 5.0  # FIB untouched
+    assert data.surface_coordinate.point.z == 5.0
+    assert data.fm_coordinates[0].point.z == pytest.approx(1.0)  # same depth
+    assert data.poi_coordinates[0].point.z == pytest.approx(1.0)
+    assert data.move_fm_z_to_step(500e-9) == 1.0  # now recorded at that step
 
 
 def _aniso_fm(nz=8, xy=1e-7, z=5e-7, shape=(8, 8)):

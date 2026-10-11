@@ -324,7 +324,13 @@ def test_a_configuration_that_names_holders_wins_over_the_live_one():
     incoming = SystemSettings.from_dict(utils.load_yaml(path))
     incoming.stage.holders = {chosen.name: chosen}
     incoming.stage.active_holder = chosen.name
+    announced = []
+    microscope.holder_changed.connect(announced.append)
     microscope.apply_configuration(incoming)
+
+    # Said on the microscope, which outlives the `Stage` that was just rebuilt: what
+    # draws the slots has to hear that they are now another holder's.
+    assert announced == [microscope._stage.holder]
 
     assert microscope.system.stage.active_holder == "Flat Shuttle"
     assert set(microscope.system.stage.holders) == {"Flat Shuttle"}
@@ -548,7 +554,7 @@ def test_the_compustage_holder_states_its_pre_tilt():
 
     path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
     microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
-    assert microscope.stage_is_compustage, "fixture no longer exercises the compustage"
+    assert microscope._fm_is_a_pose(), "fixture no longer exercises the compustage"
 
     holder = _create_sample_stage(microscope).holder
 

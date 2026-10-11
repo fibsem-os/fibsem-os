@@ -1665,7 +1665,7 @@ def save_json(data, filename):
 
 
 def load_json(filename):
-    with open(filename, "r") as f:
+    with open(filename) as f:
         data = json.load(f)
     return data
 

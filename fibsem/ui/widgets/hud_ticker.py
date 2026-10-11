@@ -20,6 +20,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont, QPainter, QPainterPath
 
 from fibsem.structures import FibsemImage
+from fibsem.util.timestamps import acquisition_datetime_of, format_time
 from fibsem.utils import format_angle, format_distance
 
 _BG = QColor(10, 10, 12, 190)
@@ -78,13 +79,13 @@ class HUDTicker(QtWidgets.QWidget):
             ("res", f"{s.resolution[0]}×{s.resolution[1]}" if s else "—"),
         ]
 
-        # Timestamp
-        if state and state.timestamp:
-            import datetime
-
-            ts = datetime.datetime.fromtimestamp(state.timestamp).strftime("%H:%M:%S")
+        # When the image was acquired: through acquisition_datetime_of, so an older
+        # ThermoFisher image, whose state holds AutoScript's string, shows rather
+        # than raising (FIB-1190, FIB-487).
+        acquired = format_time(acquisition_datetime_of(meta), "%H:%M:%S")
+        if acquired is not None:
             self._segments.append(None)
-            self._segments.append(("t", ts))
+            self._segments.append(("t", acquired))
 
         self.update()
 

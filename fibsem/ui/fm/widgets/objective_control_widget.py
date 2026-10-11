@@ -18,6 +18,7 @@ from superqt import ensure_main_thread
 from superqt.utils import qdebounced
 
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
+from fibsem.devices.fm import Objective
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import FunctionWorker, thread_worker
@@ -29,22 +30,19 @@ from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.custom_widgets import (
     ValueSpinBox,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_field_metadata
 
-OBJECTIVE_CONFIG = {
-    "position": {
-        "step_size": 1.0,  # µm
-        "decimals": 1,  # number of decimal places
-        "suffix": " µm",  # unit suffix
-        "tooltip": "Objective position in microns relative to current position",
-    },
-    "step_size_control": {
-        "range": (0.1, 250.0),  # µm
-        "step": 0.1,  # µm
-        "default": 1.0,  # µm
-        "decimals": 1,  # number of decimal places
-        "suffix": " µm",  # unit suffix
-        "tooltip": "Step size for objective movement in microns",
-    },
+# How a position is shown (unit, step, decimals) is the objective's display hint.
+POSITION_FIELD = parameter_field_metadata(Objective.position)
+
+# The step-size box is this widget's own state, not an objective parameter.
+STEP_SIZE_CONTROL = {
+    "range": (0.1, 250.0),  # µm
+    "step": 0.1,  # µm
+    "default": 1.0,  # µm
+    "decimals": 1,  # number of decimal places
+    "suffix": " µm",  # unit suffix
+    "tooltip": "Step size for objective movement in microns",
 }
 MAX_OBJECTIVE_STEP_SIZE_UM = 100.0  # µm
 _SAFE_TILT_TOLERANCE_DEG = 0.5
@@ -135,15 +133,7 @@ class ObjectiveControlWidget(QWidget):
             )
         else:
             self.doubleSpinBox_focus_position.setValue(0.0)
-        self.doubleSpinBox_focus_position.setSingleStep(
-            OBJECTIVE_CONFIG["position"]["step_size"]
-        )
-        self.doubleSpinBox_focus_position.setDecimals(
-            OBJECTIVE_CONFIG["position"]["decimals"]
-        )
-        self.doubleSpinBox_focus_position.setSuffix(
-            OBJECTIVE_CONFIG["position"]["suffix"]
-        )
+        configure_spinbox(self.doubleSpinBox_focus_position, POSITION_FIELD)
         self.doubleSpinBox_focus_position.setToolTip(
             "Focus position in microns - set and move to autofocus position"
         )
@@ -168,40 +158,22 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.setValue(
             self.fm.objective.position * METRE_TO_MICRON
         )  # Convert m to µm
-        self.doubleSpinBox_objective_position.setSingleStep(
-            OBJECTIVE_CONFIG["position"]["step_size"]
-        )
-        self.doubleSpinBox_objective_position.setDecimals(
-            OBJECTIVE_CONFIG["position"]["decimals"]
-        )
-        self.doubleSpinBox_objective_position.setSuffix(
-            OBJECTIVE_CONFIG["position"]["suffix"]
-        )
+        configure_spinbox(self.doubleSpinBox_objective_position, POSITION_FIELD)
         self.doubleSpinBox_objective_position.setToolTip(
-            OBJECTIVE_CONFIG["position"]["tooltip"]
+            "Objective position in microns relative to current position"
         )
         self.doubleSpinBox_objective_position.setKeyboardTracking(
             False
         )  # Disable keyboard tracking for immediate updates
         self.doubleSpinBox_objective_step_size = ValueSpinBox(parent=self)
-        self.doubleSpinBox_objective_step_size.setRange(
-            *OBJECTIVE_CONFIG["step_size_control"]["range"]
-        )
-        self.doubleSpinBox_objective_step_size.setSingleStep(
-            OBJECTIVE_CONFIG["step_size_control"]["step"]
-        )
-        self.doubleSpinBox_objective_step_size.setValue(
-            OBJECTIVE_CONFIG["step_size_control"]["default"]
-        )
+        self.doubleSpinBox_objective_step_size.setRange(*STEP_SIZE_CONTROL["range"])
+        self.doubleSpinBox_objective_step_size.setSingleStep(STEP_SIZE_CONTROL["step"])
+        self.doubleSpinBox_objective_step_size.setValue(STEP_SIZE_CONTROL["default"])
         self.doubleSpinBox_objective_step_size.setDecimals(
-            OBJECTIVE_CONFIG["step_size_control"]["decimals"]
+            STEP_SIZE_CONTROL["decimals"]
         )
-        self.doubleSpinBox_objective_step_size.setSuffix(
-            OBJECTIVE_CONFIG["step_size_control"]["suffix"]
-        )
-        self.doubleSpinBox_objective_step_size.setToolTip(
-            OBJECTIVE_CONFIG["step_size_control"]["tooltip"]
-        )
+        self.doubleSpinBox_objective_step_size.setSuffix(STEP_SIZE_CONTROL["suffix"])
+        self.doubleSpinBox_objective_step_size.setToolTip(STEP_SIZE_CONTROL["tooltip"])
         self.doubleSpinBox_objective_step_size.setKeyboardTracking(
             False
         )  # Disable keyboard tracking for immediate updates
@@ -215,15 +187,7 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_limit.setValue(
             self.fm.objective.limit_position * METRE_TO_MICRON
         )
-        self.doubleSpinBox_objective_limit.setSingleStep(
-            OBJECTIVE_CONFIG["position"]["step_size"]
-        )
-        self.doubleSpinBox_objective_limit.setDecimals(
-            OBJECTIVE_CONFIG["position"]["decimals"]
-        )
-        self.doubleSpinBox_objective_limit.setSuffix(
-            OBJECTIVE_CONFIG["position"]["suffix"]
-        )
+        configure_spinbox(self.doubleSpinBox_objective_limit, POSITION_FIELD)
         self.doubleSpinBox_objective_limit.setToolTip(
             "User-defined upper limit for objective position in microns"
         )
@@ -336,7 +300,7 @@ class ObjectiveControlWidget(QWidget):
         """Flash where the objective is going, on the canvas being scrolled (FIB-635).
 
         The beam canvases have done this for the working distance since the quad view
-        shipped -- `flash_message(f"WD {v:.3f} mm")` -- and the FM, the one you focus by
+        shipped -- `WD 16.575 mm  +1 µm` -- and the FM, the one you focus by
         while watching the stream, showed nothing.
 
         Not a duplicate of the `OBJECTIVE` field in the info bar, which reports where the
@@ -354,7 +318,8 @@ class ObjectiveControlWidget(QWidget):
         canvas = self.sender()
         if canvas is None or not hasattr(canvas, "flash_message"):
             return
-        canvas.flash_message(f"OBJ {new_pos_um:.1f} um  ({step_um:+.1f} um)")
+        # In the bar's words and units (FIB-1188): the bar shows `OBJ 200.5 µm`.
+        canvas.flash_message(f"OBJ {new_pos_um:.1f} µm  {step_um:+.1f} µm")
 
     def _objective_busy_reason(self) -> Optional[str]:
         """What is driving the objective right now, phrased for a warning, or None.
@@ -520,9 +485,12 @@ class ObjectiveControlWidget(QWidget):
         logging.info("Objective retracted.")
 
     def update_objective_position_labels(
-        self, objective_position: Optional[float] = None
+        self,
+        objective_position: Optional[float] = None,
+        objective_state: Optional[str] = None,
     ):
-        """Update the objective position input and label."""
+        """Update the objective position input and label, and the quad view's
+        chamber drawing with *objective_state* when the caller knows it."""
         if objective_position is None:
             objective_position = self.fm.objective.position
         self.doubleSpinBox_objective_position.blockSignals(
@@ -546,7 +514,9 @@ class ObjectiveControlWidget(QWidget):
                 controller = None
             if controller is not None:
                 controller.update_info(
-                    self.parent_widget.microscope, objective_position=objective_position
+                    self.parent_widget.microscope,
+                    objective_position=objective_position,
+                    objective_state=objective_state,
                 )
 
     @ensure_main_thread
@@ -562,9 +532,10 @@ class ObjectiveControlWidget(QWidget):
         moves the objective, which emits `position_changed` again. Qt does not warn
         about that; it simply never returns.
 
-        `state` is accepted and unused: the button states it would drive are decided by
-        guards that read the device deliberately, and a stale "Retracted" there is what
-        moves the stage with the objective still in the chamber (FIB-534).
+        `state` drives no buttons: those are decided by guards that read the device
+        deliberately, and a stale "Retracted" there is what moves the stage with the
+        objective still in the chamber (FIB-534). It is passed on only to the quad
+        view's chamber drawing, which draws the objective in or out by it.
 
         Stands aside while the wheel is driving: every emit then comes from the wheel's
         own move and reports a position the user has already scrolled past. Not decided
@@ -572,7 +543,7 @@ class ObjectiveControlWidget(QWidget):
         """
         if self._wheel_is_driving():
             return
-        self.update_objective_position_labels(position)
+        self.update_objective_position_labels(position, state)
 
     def closeEvent(self, event) -> None:
         """Drop the psygnal before Qt takes the widgets down.
@@ -923,7 +894,7 @@ class ObjectiveControlWidget(QWidget):
             self.update_objective_position_labels()
             return
         position_um = self._wheel_target_um
-        logging.info(f"Executing debounced wheel move to: {position_um:.1f} µm")
+        logging.debug(f"Executing debounced wheel move to: {position_um:.1f} µm")
         self._wheel_moving_to_um = position_um
         worker = self._wheel_move_worker(position_um * MICRON_TO_METRE)
         worker.returned.connect(self._on_wheel_move_finished)

@@ -26,7 +26,10 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.manufacturers import THERMOFISHER
 from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import SessionInfo
+from fibsem.util.timestamps import now, utc_offset_of
 
 
 @pytest.fixture
@@ -202,9 +205,7 @@ def test_registering_again_records_the_later_session(
     assert experiment.session.system.software_version == "9.9-after-the-upgrade"
 
 
-def test_registering_persists_it(
-    microscope: FibsemMicroscope, tmp_path: Path
-) -> None:
+def test_registering_persists_it(microscope: FibsemMicroscope, tmp_path: Path) -> None:
     """The value of this record is that it is *in experiment.yaml*.
 
     Leaving it to whatever saves next is how FIB-490 lost every failed task, so
@@ -237,9 +238,7 @@ def test_registering_does_not_conjure_a_file(
     assert experiment.session is not None
 
 
-def test_it_survives_a_round_trip(
-    microscope: FibsemMicroscope, tmp_path: Path
-) -> None:
+def test_it_survives_a_round_trip(microscope: FibsemMicroscope, tmp_path: Path) -> None:
     experiment = _experiment(tmp_path, metadata={"user": "Dr Someone"})
     experiment.save()
     experiment.register_metadata(microscope)
@@ -263,6 +262,72 @@ def test_an_experiment_written_before_this_loads_with_none(tmp_path: Path) -> No
         yaml.safe_dump(stored, f, indent=4)
 
     assert Experiment.load(Path(experiment.path) / "experiment.yaml").session is None
+
+
+# ---------------------------------------------------------------------------
+# The instrument's zone (FIB-1196)
+# ---------------------------------------------------------------------------
+
+
+def test_an_instrument_session_records_its_zone(
+    microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """So a POSIX time can be read on the instrument's clock on another machine."""
+    microscope.system.info.manufacturer = THERMOFISHER
+    experiment = _experiment(tmp_path)
+
+    experiment.register_metadata(microscope)
+
+    here = now()
+    assert experiment.session.utc_offset == utc_offset_of(here)
+    assert experiment.session.zone_name == here.tzname()
+    assert experiment.session.zone.utcoffset(None) == here.utcoffset()
+
+
+def test_a_demo_session_records_no_zone(
+    microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    experiment = _experiment(tmp_path)
+    experiment.register_metadata(microscope)
+    assert experiment.session.utc_offset is None
+    assert experiment.session.zone is None
+
+
+def test_a_demo_session_keeps_the_instruments_zone(
+    microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """Opening the experiment in Demo on an analysis machine elsewhere must not
+    replace the zone its times were taken in."""
+    experiment = _experiment(tmp_path)
+    experiment.session = SessionInfo(utc_offset="-06:00", zone_name="MDT")
+
+    experiment.register_metadata(microscope)
+
+    assert experiment.session.system.manufacturer == "Demo"
+    assert (experiment.session.utc_offset, experiment.session.zone_name) == (
+        "-06:00",
+        "MDT",
+    )
+
+
+def test_the_zone_survives_a_round_trip(
+    microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    microscope.system.info.manufacturer = THERMOFISHER
+    experiment = _experiment(tmp_path)
+    experiment.save()
+    experiment.register_metadata(microscope)
+
+    reloaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
+
+    assert reloaded.session.utc_offset == experiment.session.utc_offset
+    assert reloaded.session.zone_name == experiment.session.zone_name
+
+
+def test_a_session_recorded_before_the_zone_loads_without_one() -> None:
+    session = SessionInfo.from_dict({"recorded_at": 1789355531.0, "plugins": {}})
+    assert session.utc_offset is None
+    assert session.zone is None
 
 
 # ---------------------------------------------------------------------------

@@ -71,7 +71,7 @@ def client(microscope, host, event_buffer):
 
 def test_capabilities_reports_the_app_router(client):
     body = client.get("/capabilities", headers=AUTH).json()
-    assert body["routers"] == {"microscope": True, "app": True}
+    assert body["routers"] == {"microscope": True, "devices": True, "app": True}
 
 
 def test_without_app_context_the_routes_do_not_exist(microscope):

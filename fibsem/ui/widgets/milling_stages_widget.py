@@ -8,12 +8,12 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import manufacturers
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategy, get_strategy
 from fibsem.milling.patterning import get_pattern
 from fibsem.milling.patterning.patterns2 import BasePattern
 from fibsem.structures import BeamType, FibsemMillingSettings
+from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.milling_settings_widget import FibsemMillingSettingsWidget
 from fibsem.ui.widgets.milling_stage_list_widget import MillingStageListWidget
@@ -57,15 +57,15 @@ class FibsemMillingStagesWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        # Stage list. Tescan mills by preset — milling_current is a no-op on that backend —
-        # so it gets a Preset column where every other backend gets Current.
-        _show_preset = manufacturers.is_tescan(self.microscope.manufacturer)
-        _current_values = self.microscope.get_available_values_cached(
-            "current", BeamType.ION
+        # Stage list. A FIB set by preset (Tescan: milling_current is a no-op there) gets
+        # a Preset column where every other FIB gets Current. The milling service says
+        # so by milling with a preset.
+        _milling = getattr(self.microscope, "milling", None)
+        _show_preset = _milling is not None and "preset" in _milling.supported_settings(
+            BeamType.ION
         )
-        _preset_values = self.microscope.get_available_values_cached(
-            "preset", BeamType.ION
-        )
+        _current_values = beam_choices(self.microscope, "current", BeamType.ION)
+        _preset_values = beam_choices(self.microscope, "preset", BeamType.ION)
         self._list = MillingStageListWidget(
             current_values=_current_values,
             preset_values=_preset_values,
@@ -235,9 +235,6 @@ class FibsemMillingStagesWidget(QWidget):
 
     def get_enabled_stages(self) -> List[FibsemMillingStage]:
         return self._list.get_enabled_stages()
-
-    def set_manufacturer(self, manufacturer: Optional[str]) -> None:
-        self._milling_widget.set_manufacturer(manufacturer)
 
     def set_advanced_visible(self, show: bool) -> None:
         """Advanced fields in all three detail panels: one switch for one idea."""

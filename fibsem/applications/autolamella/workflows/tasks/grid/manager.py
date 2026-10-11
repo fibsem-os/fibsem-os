@@ -70,6 +70,7 @@ from fibsem.hooks import HookEvent, HookManager
 from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.microscopes._stage import GridExchangeError
 from fibsem.structures import BeamType, ImageSettings
+from fibsem.util import timestamps
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -585,7 +586,7 @@ class GridTaskManager(BaseTaskManager):
             self._not_loaded[grid.name] = str(e)
             entry.status = AutoLamellaTaskStatus.Failed
             entry.status_message = str(e)
-            entry.end_timestamp = datetime.timestamp(datetime.now())
+            entry.end_timestamp = timestamps.now()
             grid.task_history.append(entry)
             self.experiment.save()
             logging.warning(
@@ -598,7 +599,7 @@ class GridTaskManager(BaseTaskManager):
             entry.status_message = f"Loaded into {slot.name}."
             # The entry's duration is the exchange's; the reference after it is
             # not part of what an exchange costs.
-            entry.end_timestamp = datetime.timestamp(datetime.now())
+            entry.end_timestamp = timestamps.now()
             self._record_load_reference(grid, entry)
             grid.task_history.append(entry)
             self.experiment.save()
@@ -656,7 +657,7 @@ class GridTaskManager(BaseTaskManager):
             return
         entry.status = AutoLamellaTaskStatus.Cancelled
         entry.status_message = msg
-        entry.end_timestamp = datetime.timestamp(datetime.now())
+        entry.end_timestamp = timestamps.now()
         grid.task_history.append(entry)
         self.experiment.save()
         raise OperationCancelledError(msg)
@@ -703,7 +704,7 @@ class GridTaskManager(BaseTaskManager):
         The record's one task_state is set field by field, as a task does it,
         never replaced: the UI holds on to it."""
         state = grid.task_state
-        now = datetime.timestamp(datetime.now())
+        now = timestamps.now()
         state.name = task_name
         state.task_id = str(uuid.uuid4())
         state.task_type = self._task_type(task_name)

@@ -35,16 +35,19 @@ from typing import (
     Optional,
     Sequence,
     Tuple,
+    TypeVar,
     Union,
 )
 
 from psygnal import Signal
 
+from fibsem.devices.display import DisplayHint
 from fibsem.structures import RangeLimit
 
 IMAGING_CHANNEL = "imaging_channel"
 _SHARED = "shared"
 _UNSET = object()
+_C = TypeVar("_C", bound="_Controllable")
 
 
 class ParameterUnavailable(AttributeError):
@@ -53,6 +56,10 @@ class ParameterUnavailable(AttributeError):
 
 class ParameterReadOnly(Exception):
     """The parameter is bound but cannot be set."""
+
+
+class RoleUnfilled(AttributeError):
+    """The device declares the role, but no device fills it."""
 
 
 Limits = Union[RangeLimit, Mapping[str, RangeLimit]]
@@ -64,11 +71,17 @@ class ParameterMetadata:
 
     ``limits`` is a ``RangeLimit`` for a number. For a composite value, such as a
     stage position, it is one ``RangeLimit`` per field, by field name.
+
+    ``native_max`` and ``native_unit`` are for a parameter kept as a fraction of the
+    hardware's maximum (power, gain): what 1.0 is in the hardware's own units, when
+    the driver knows. A display can then show both.
     """
 
     limits: Optional[Limits] = None
     choices: Optional[Sequence[Any]] = None
     settable: bool = True
+    native_max: Optional[float] = None
+    native_unit: Optional[str] = None
 
 
 class Parameter:
@@ -103,17 +116,22 @@ class Parameter:
     snapped, with a warning when it moved, rather than refused; and after every write
     the parameter is read back, so its cache and its ``changed`` signal carry what the
     hardware applied rather than what was asked for.
+
+    ``display`` says how to show it (a ``fibsem.devices.display.Display``, or one per field for
+    a composite value). Like the type and unit it means the same on every backend: a
+    subclass that redeclares the parameter keeps it, and can't give another.
     """
 
     def __init__(
         self,
         type_: type,
         unit: Optional[str] = None,
-        limits: Optional[RangeLimit] = None,
+        limits: Optional[Limits] = None,
         choices: Optional[Sequence[Any]] = None,
         depends_on: Sequence[str] = (),
         doc: str = "",
         nearest: bool = False,
+        display: Optional[DisplayHint] = None,
     ):
         self.type = type_
         self.unit = unit
@@ -122,12 +140,13 @@ class Parameter:
         self.depends_on = tuple(depends_on)
         self.doc = doc
         self.nearest = nearest
+        self.display = display
         self.name = ""
 
     def __set_name__(self, owner: type, name: str) -> None:
         self.name = name
 
-    def __get__(self, device: Optional[Device], owner: type) -> Any:
+    def __get__(self, device: Optional[_Controllable], owner: type) -> Any:
         if device is None:
             return self
         try:
@@ -140,6 +159,48 @@ class Parameter:
     def __repr__(self) -> str:
         unit = f", unit={self.unit!r}" if self.unit else ""
         return f"Parameter({self.type.__name__}{unit})"
+
+
+class Role:
+    """A place on a device that another device fills, typed by what it must be.
+
+    Declared on the class next to the parameters; a builder fills it per instance with
+    `Device.fill_roles`, and the device reaches the filler through the attribute::
+
+        class FM(Device):
+            camera = Role(Camera)
+
+        group.fill_roles(camera=camera)
+        group.camera.acquire()
+
+    The device talks to a role only through its interface, so it doesn't care which
+    driver's device fills it. A required role left unfilled is an error at
+    ``connect()``; reading any unfilled role raises `RoleUnfilled`.
+    """
+
+    def __init__(self, interface: type, required: bool = True, doc: str = ""):
+        self.interface = interface
+        self.required = required
+        self.doc = doc
+        self.name = ""
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self.name = name
+
+    def __get__(self, device: Optional[_Controllable], owner: type) -> Any:
+        if device is None:
+            return self
+        try:
+            return device._roles[self.name]
+        except KeyError:
+            raise RoleUnfilled(
+                f"{type(device).__name__} '{device.name}' has no device in its "
+                f"'{self.name}' role"
+            ) from None
+
+    def __repr__(self) -> str:
+        optional = "" if self.required else ", required=False"
+        return f"Role({self.interface.__name__}{optional})"
 
 
 MetadataSource = Union[ParameterMetadata, Callable[[], ParameterMetadata], None]
@@ -157,7 +218,7 @@ class BoundParameter:
 
     def __init__(
         self,
-        device: Device,
+        device: _Controllable,
         spec: Parameter,
         read: Callable[[], Any],
         write: Optional[Callable[[Any], None]],
@@ -189,6 +250,10 @@ class BoundParameter:
     @property
     def unit(self) -> Optional[str]:
         return self.spec.unit
+
+    @property
+    def display(self) -> Optional[DisplayHint]:
+        return self.spec.display
 
     @property
     def limits(self) -> Optional[Limits]:
@@ -356,6 +421,9 @@ class BoundParameter:
             if previous is not _UNSET:
                 self.previous = previous
                 self._emit(value)
+                # changed outside this device (the vendor UI): what depends on it
+                # is read again, as after a write
+                self.device._dependency_changed(self.name)
 
     def _emit(self, value: Any) -> None:
         self.changed.emit(value)
@@ -430,8 +498,14 @@ def resources_of(owner: Any) -> Resources:
     return resources if isinstance(resources, Resources) else Resources()
 
 
-class Device:
-    """One piece of hardware: named, with parameters and commands, and a parent."""
+class _Controllable:
+    """What a device and a service share: a name, a parent, parameters, commands,
+    roles, change events and the parent's resources.
+
+    Private: code names `Device` (a piece of hardware) or
+    `fibsem.services.Service` (a capability that uses devices over time, such as
+    milling), never this.
+    """
 
     changed = Signal(str, object)
     """(parameter name, value) for any parameter on the device."""
@@ -450,6 +524,7 @@ class Device:
         # Without one given, a device claims its parent microscope's resources.
         self.resources = resources if resources is not None else resources_of(parent)
         self._bound: Dict[str, BoundParameter] = {}
+        self._roles: Dict[str, Device] = {}
         self._select_channel: Optional[Callable[[], None]] = None
 
     # -- binding, done by a backend ------------------------------------------------
@@ -462,6 +537,47 @@ class Device:
                 if isinstance(attr, Parameter):
                     found[name] = attr
         return found
+
+    @classmethod
+    def declared_roles(cls) -> Dict[str, Role]:
+        found: Dict[str, Role] = {}
+        for klass in reversed(cls.__mro__):
+            for name, attr in vars(klass).items():
+                if isinstance(attr, Role):
+                    found[name] = attr
+        return found
+
+    def fill_roles(self: _C, **devices: Device) -> _C:
+        """Put a device in each named role. A builder calls this before ``connect()``.
+
+        A name the class doesn't declare, or a device that isn't the role's interface,
+        is an error. Returns the device.
+        """
+        declared = self.declared_roles()
+        for name, device in devices.items():
+            role = declared.get(name)
+            if role is None:
+                raise TypeError(f"{type(self).__name__} has no '{name}' role")
+            if not isinstance(device, role.interface):
+                raise TypeError(
+                    f"{type(self).__name__}.{name} takes a {role.interface.__name__}, "
+                    f"not {type(device).__name__} '{device.name}'"
+                )
+        self._roles.update(devices)
+        return self
+
+    def check_roles(self) -> None:
+        """Raise `RoleUnfilled` if a required role has no device. ``connect()`` calls it."""
+        missing = [
+            name
+            for name, role in self.declared_roles().items()
+            if role.required and name not in self._roles
+        ]
+        if missing:
+            raise RoleUnfilled(
+                f"{type(self).__name__} '{self.name}' has no device in its required "
+                f"roles {missing}"
+            )
 
     def bind(
         self,
@@ -493,7 +609,7 @@ class Device:
         inherited = {
             name: param
             for base in cls.__bases__
-            if issubclass(base, Device)
+            if issubclass(base, _Controllable)
             for name, param in base.declared_parameters().items()
         }
         for name, attr in vars(cls).items():
@@ -506,6 +622,14 @@ class Device:
                     f"but is declared {base_param.type.__name__} in "
                     f"{base_param.unit!r}; a backend can't change a parameter's type "
                     f"or unit"
+                )
+            if attr.display is None:
+                attr.display = base_param.display
+            elif attr.display != base_param.display:
+                raise TypeError(
+                    f"{cls.__name__}.{name} declares another display than "
+                    f"{base_param.display!r}; a backend can't change how a parameter "
+                    f"is shown"
                 )
         declared = cls.declared_parameters()
         for attr, value in vars(cls).items():
@@ -521,13 +645,14 @@ class Device:
         if unknown:
             raise TypeError(f"{cls.__name__}.needs_channel names {sorted(unknown)}")
 
-    def connect(self) -> Device:
+    def connect(self: _C) -> _C:
         """Bind every parameter this class implements, reading its metadata once.
 
         A backend calls this after constructing its device. A parameter with no
-        ``read_<name>``, or whose ``available_<name>()`` is False, stays absent.
-        Returns the device.
+        ``read_<name>``, or whose ``available_<name>()`` is False, stays absent. A
+        required role with no device is an error. Returns the device.
         """
+        self.check_roles()
         for name in self.declared_parameters():
             read = getattr(self, f"read_{name}", None)
             if read is None:
@@ -560,6 +685,12 @@ class Device:
         return dict(self._bound)
 
     @property
+    def roles(self) -> Dict[str, Device]:
+        """The devices in this device's roles, by role name. A declared one missing
+        here is unfilled."""
+        return dict(self._roles)
+
+    @property
     def commands(self) -> Dict[str, CommandInfo]:
         found = {}
         for name, attr in inspect.getmembers(type(self), inspect.isfunction):
@@ -578,25 +709,17 @@ class Device:
 
     def describe(self) -> Dict[str, Dict[str, Any]]:
         """Plain data for every bound parameter: enough for a UI or a remote proxy."""
-        return {
-            name: {
-                "type": p.type.__name__,
-                "unit": p.unit,
-                "limits": _limits_to_dict(p.limits),
-                "choices": list(p.choices) if p.choices is not None else None,
-                "settable": p.settable,
-            }
-            for name, p in self._bound.items()
-        }
+        return {name: _describe(p) for name, p in self._bound.items()}
 
     # -- internals -----------------------------------------------------------------
 
     @contextmanager
-    def _claim(self, param: BoundParameter) -> Iterator[None]:
-        if not param.needs_channel:
-            yield
-            return
-        # claim, select, act, restore, release
+    def claim_channel(self) -> Iterator[None]:
+        """Hold the imaging channel with this device selected on it.
+
+        What a ``needs_channel`` parameter does around its read or write, for a command
+        whose vendor call needs the channel: claim, select, act, restore, release.
+        """
         with self.resources.claim(IMAGING_CHANNEL):
             restore = self.select_channel()
             try:
@@ -604,6 +727,14 @@ class Device:
             finally:
                 if restore is not None:
                     restore()
+
+    @contextmanager
+    def _claim(self, param: BoundParameter) -> Iterator[None]:
+        if not param.needs_channel:
+            yield
+            return
+        with self.claim_channel():
+            yield
 
     def select_channel(self) -> Optional[Callable[[], None]]:
         """Make this device the active imaging channel. Backends that share one override it.
@@ -622,6 +753,33 @@ class Device:
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} '{self.name}': {sorted(self._bound)}>"
+
+
+class Device(_Controllable):
+    """One piece of hardware: named, with parameters and commands, and a parent."""
+
+    def facts(self) -> Dict[str, Any]:
+        """What the device says about itself that is neither a parameter nor a
+        command, as JSON-ready data: what a remote copy of it needs to answer the
+        same questions (the stage's frame, the needle's named positions). The device
+        server sends it with the device's description. Nothing by default.
+        """
+        return {}
+
+
+def _describe(p: BoundParameter) -> Dict[str, Any]:
+    described = {
+        "type": p.type.__name__,
+        "unit": p.unit,
+        "limits": _limits_to_dict(p.limits),
+        "choices": list(p.choices) if p.choices is not None else None,
+        "settable": p.settable,
+    }
+    # Only a fraction of a hardware maximum has these, so only it carries them.
+    if p.metadata.native_max is not None:
+        described["native_max"] = p.metadata.native_max
+        described["native_unit"] = p.metadata.native_unit
+    return described
 
 
 def _limits_to_dict(limits: Optional[Limits]) -> Any:
