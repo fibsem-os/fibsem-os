@@ -63,7 +63,11 @@ def _lamella_status_text(lamella) -> tuple[str, str]:
             return f"{ts.name}", "color: #6aabdf; background: transparent;"
     last = getattr(lamella, "last_completed_task", None)
     if last:
-        return last.completed, f"color: {NEUTRAL_550}; background: transparent;"
+        from fibsem.applications.autolamella.ui.lamella_list_widget import (
+            completed_text,
+        )
+
+        return completed_text(last), f"color: {NEUTRAL_550}; background: transparent;"
     return "", "background: transparent;"
 
 
