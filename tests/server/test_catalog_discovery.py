@@ -68,7 +68,10 @@ def test_catalog_names_unique_and_scopes_valid():
 def test_tools_for_scopes_filters_hardware():
     read_only = tools_for_scopes({"read": True, "hardware": False})
     assert all(t.scope == "read" for t in read_only)
-    assert any(t.name == "stop_milling" for t in read_only)
+    # A watching agent stops nothing (FIB-1035); whoever can act may stop.
+    assert not any(t.name == "stop_milling" for t in read_only)
+    for can_act in ({"read": True, "control": True}, {"read": True, "hardware": True}):
+        assert any(t.name == "stop_milling" for t in tools_for_scopes(can_act))
     armed = tools_for_scopes(
         {"read": True, "control": True, "configure": True, "hardware": True}
     )

@@ -106,6 +106,7 @@ class AppServerHost:
         import uvicorn
 
         from fibsem.server import AuthConfig, build_server
+        from fibsem.server.auth import AgentLevel
         from fibsem.server.discovery import (
             read_discovery_file,
             remove_discovery_file,
@@ -131,10 +132,13 @@ class AppServerHost:
         arm_control = os.environ.get("FIBSEM_AGENT_ARM_CONTROL") == "1"
         if arm_control:
             logging.warning(
-                "App Server: control scope ARMED via FIBSEM_AGENT_ARM_CONTROL "
-                "(developer override; the arming dialog replaces this)"
+                "App Server: agent level DRIVE via FIBSEM_AGENT_ARM_CONTROL "
+                "(developer override; the agent chip replaces this)"
             )
-        self.auth = AuthConfig.generate(arm_control=arm_control)
+        self.auth = AuthConfig.generate()
+        # The agent level starts at Watch at every launch (FIB-1035): it is
+        # never remembered. The override is Drive, today's armed behaviour.
+        self.auth.set_level(AgentLevel.DRIVE if arm_control else AgentLevel.WATCH)
         if event_buffer is not None:
             # The app's stream: already fed, and not ours to detach on stop.
             self.event_buffer = event_buffer
@@ -203,8 +207,9 @@ class AppServerHost:
         )
         self._wrote_discovery = True
         atexit.register(self._remove_discovery)
-        armed = ", ".join(s.value for s in self.auth.armed_scopes())
-        logging.info("App Server on %s — scopes: %s", self.url, armed)
+        logging.info(
+            "App Server on %s — agent level: %s", self.url, self.auth.level.value
+        )
         logging.info("App Server token: %s", self.auth.token)
         return True
 

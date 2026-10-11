@@ -320,9 +320,10 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         assert empty.status_code == 422
 
 
-def test_agent_notes_need_the_control_scope(client):
+def test_agent_notes_need_only_the_read_scope(client):
+    # A watching agent notes what it sees (FIB-1035); a note changes nothing.
     resp = client.post("/app/agent/notes", headers=AUTH, json={"text": "x"})
-    assert resp.status_code == 403
+    assert resp.status_code == 200
 
 
 # --- grids: the screening read model (FIB-876) -------------------------------

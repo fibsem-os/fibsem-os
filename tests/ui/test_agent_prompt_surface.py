@@ -360,9 +360,11 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
         dispose()
 
 
-def test_stop_workflow_rides_the_read_scope(ui, qapp):
-    # The safety action: available without arming, like stop_milling.
+def test_stop_workflow_needs_the_control_scope(ui, qapp):
+    # A watching agent stops nothing (FIB-1035); one that can act can stop.
     with _client(ui, arm_control=False) as client:
+        assert client.post("/app/workflow/stop", headers=AUTH).status_code == 403
+    with _client(ui, arm_control=True) as client:
         body = client.post("/app/workflow/stop", headers=AUTH)
         assert body.status_code == 200
         assert body.json() == {

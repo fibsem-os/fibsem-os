@@ -21,12 +21,18 @@ class ToolSpec:
     description: str
     method: str  # "GET" | "POST" | "PUT"
     path: str
-    scope: str  # "read" | "hardware"
+    scope: str  # "read" | "control" | "configure" | "hardware"
     params: Dict[str, str] = field(default_factory=dict)  # name -> description
     # Which router serves it: "microscope" unless the App Server's devices
     # service is off (FIB-1035); "app" only when the server was built with an
     # app_context. /capabilities reports which.
     router: str = "microscope"
+    # Further scopes, any of which also allows it (stop_milling: control or
+    # hardware), matching the route's require_scope.
+    also: Tuple[str, ...] = ()
+
+    def allowed(self, armed: Dict[str, bool]) -> bool:
+        return any(armed.get(s, False) for s in (self.scope, *self.also))
 
 
 CATALOG: Tuple[ToolSpec, ...] = (
@@ -111,10 +117,11 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_milling",
-        description="Emergency stop for an in-progress mill. Always allowed with a valid token.",
+        description="Emergency stop for an in-progress mill. Allowed whenever the agent can act (Drive; on a bench server, hardware too), and never waits on the command lock. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/stop_milling",
-        scope="read",  # deliberate: stopping is never gated behind arming
+        scope="control",
+        also=("hardware",),
     ),
     # --- hardware ---
     ToolSpec(
@@ -327,7 +334,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         description="Put an observation on the record — the event stream and the experiment log. Use it for judgments worth keeping ('curtaining on 02's face, accepted anyway'); notes change nothing. Optionally name the item it concerns.",
         method="POST",
         path="/app/agent/notes",
-        scope="control",
+        scope="read",  # Watch adds notes: they change nothing
         router="app",
         params={
             "text": "the note, at most 4000 characters",
@@ -441,10 +448,10 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_workflow",
-        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. The safety action: available on the read scope, never waits on the command lock.",
+        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed whenever the agent can act (Drive), and never waits on the command lock. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/app/workflow/stop",
-        scope="read",
+        scope="control",
         router="app",
     ),
     ToolSpec(
@@ -581,7 +588,7 @@ CATALOG = CATALOG + APP_TOOLS
 
 def tools_for_scopes(armed: Dict[str, bool]) -> Tuple[ToolSpec, ...]:
     """Catalog entries usable given armed scopes alone (router-blind)."""
-    return tuple(t for t in CATALOG if armed.get(t.scope, False))
+    return tuple(t for t in CATALOG if t.allowed(armed))
 
 
 def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
@@ -594,7 +601,5 @@ def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     scopes = capabilities.get("scopes", {})
     routers = capabilities.get("routers", {})
     return tuple(
-        t
-        for t in CATALOG
-        if scopes.get(t.scope, False) and routers.get(t.router, False)
+        t for t in CATALOG if t.allowed(scopes) and routers.get(t.router, False)
     )

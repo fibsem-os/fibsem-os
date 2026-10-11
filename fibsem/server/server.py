@@ -214,6 +214,12 @@ def build_server(
     # dashboard included.
     base = APIRouter(dependencies=[Depends(require_monitoring())])
     read = APIRouter(dependencies=[Depends(require_scope(Scope.READ))])
+    # The always-allowed stop, for whoever can act: control (the App Server at
+    # Drive) or hardware (the bench). Never the command slot: a stop must not
+    # wait behind the mill it stops.
+    stop = APIRouter(
+        dependencies=[Depends(require_scope(Scope.CONTROL, Scope.HARDWARE))]
+    )
     # Hardware routes also take the command slot, so two commands never interleave.
     hw = APIRouter(
         dependencies=[Depends(require_scope(Scope.HARDWARE)), Depends(command_slot)]
@@ -253,6 +259,8 @@ def build_server(
                 "app": app_context is not None,
             },
             "scopes": {s.value: auth.is_armed(s) for s in Scope},
+            # The agent level (FIB-1035); None on a server without one.
+            "level": auth.level.value if auth.level is not None else None,
         }
 
     @read.get("/system")
@@ -534,7 +542,7 @@ def build_server(
 
     # read scope, and no command slot: an emergency stop must never be blocked
     # by arming or by the in-flight command it exists to interrupt.
-    @read.post("/stop_milling")
+    @stop.post("/stop_milling")
     def stop_milling():
         microscope.stop_milling()
         return {"status": "ok"}
@@ -573,6 +581,7 @@ def build_server(
     app.include_router(base)
     if devices:
         app.include_router(read)
+        app.include_router(stop)
         app.include_router(hw)
         # Every device's parameters and commands, as the device server serves
         # them: reads are read scope, writes and commands hardware scope and the
