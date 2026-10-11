@@ -141,9 +141,12 @@ itself from the event stream; there is nothing to refresh.
 
 It is a monitor, not a second cockpit: questions are answered in AutoLamella.
 The page is served by the App Server itself, so it exists wherever the
-server does — on this machine by default. The button hands the page your
-session token in the URL fragment, which stays in the browser (fragments are
-never sent over the network or written to server logs).
+server does — on this machine by default. The button hands the page the
+dashboard's own token in the URL fragment, which stays in the browser
+(fragments are never sent over the network or written to server logs). That
+token is read-only: it reads the session's monitoring routes and nothing
+else, so the link can't be used to act on the session or reach the
+microscope, and it is never written to the discovery file the agent uses.
 
 ## Connecting an agent
 

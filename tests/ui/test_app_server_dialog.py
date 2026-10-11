@@ -66,7 +66,10 @@ def test_dashboard_url_puts_the_token_in_the_fragment(qapp, host):
     # which is the whole reason the button can carry the token at all.
     dialog = AppServerDialog(lambda: host)
     assert dialog._btn_dashboard.isEnabled()
-    assert dialog.dashboard_url(host) == "http://127.0.0.1:8001/dashboard#token=tok"
+    url = dialog.dashboard_url(host)
+    # The dashboard's own token, never the agent's (FIB-1035).
+    assert url == f"http://127.0.0.1:8001/dashboard#token={host.auth.dashboard_token}"
+    assert host.auth.dashboard_token not in (None, "tok")
     dialog.deleteLater()
 
 

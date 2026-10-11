@@ -13,6 +13,13 @@ One bearer token per server instance, three scopes:
 
 Fail closed: a server always has a token (generated when the hosting does not
 supply one), and only ``read`` is armed unless the hosting says otherwise.
+
+A second, read-only **dashboard token** (FIB-1035) reaches the monitoring
+routes -- /capabilities and GETs of the app's read routes -- and nothing else:
+not the microscope, not a POST, whatever is armed. It is carried in the
+dashboard link and never written to the discovery file, so the dashboard and
+the agent are told apart, and what governs the agent never cuts off the
+dashboard.
 """
 
 import hmac
@@ -49,6 +56,10 @@ class AuthConfig:
 
     token: str
     armed: FrozenSet[Scope] = field(default_factory=frozenset)
+    # The dashboard's own token: monitoring reads only (require_monitoring).
+    # None means no dashboard access, which is what a bare AuthConfig(token=...)
+    # gets; generate() always makes one.
+    dashboard_token: Optional[str] = None
     # Monotonic time of the last request that presented the valid token; None
     # until one arrives. The connected agent's proof of life: its event
     # long-poll alone touches the server every half-minute, so staleness here
@@ -95,7 +106,11 @@ class AuthConfig:
             armed.add(Scope.CONFIGURE)
         if arm_hardware:
             armed.add(Scope.HARDWARE)
-        return cls(token=token or secrets.token_urlsafe(32), armed=frozenset(armed))
+        return cls(
+            token=token or secrets.token_urlsafe(32),
+            armed=frozenset(armed),
+            dashboard_token=secrets.token_urlsafe(32),
+        )
 
     def is_armed(self, scope: Scope) -> bool:
         return scope is Scope.READ or scope in self.armed
@@ -111,20 +126,48 @@ def _bearer_token(request: Request) -> Optional[str]:
     return header[len("Bearer ") :]
 
 
+def _matches(token: Optional[str], expected: Optional[str]) -> bool:
+    return (
+        token is not None
+        and expected is not None
+        and hmac.compare_digest(token, expected)
+    )
+
+
+def _unauthorized() -> HTTPException:
+    return HTTPException(
+        status_code=401,
+        detail={
+            "error_type": "unauthorized",
+            "message": "Missing or invalid bearer token.",
+        },
+    )
+
+
+def _dashboard_refused() -> HTTPException:
+    return HTTPException(
+        status_code=403,
+        detail={
+            "error_type": "dashboard_read_only",
+            "message": "The dashboard token reads the monitoring routes only.",
+        },
+    )
+
+
 def require_scope(scope: Scope):
-    """Build a FastAPI dependency enforcing a valid token + an armed scope."""
+    """Build a FastAPI dependency enforcing a valid token + an armed scope.
+
+    The agent token only: the dashboard token is refused here (403), so it
+    reaches nothing beyond the routes guarded by :func:`require_monitoring`.
+    """
 
     def dependency(request: Request) -> None:
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
-        if token is None or not hmac.compare_digest(token, auth.token):
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "error_type": "unauthorized",
-                    "message": "Missing or invalid bearer token.",
-                },
-            )
+        if not _matches(token, auth.token):
+            if _matches(token, auth.dashboard_token):
+                raise _dashboard_refused()
+            raise _unauthorized()
         # A valid token is proof of life whatever happens next — a scope
         # refusal below is still the agent talking.
         auth.mark_seen()
@@ -137,6 +180,25 @@ def require_scope(scope: Scope):
                     "message": f"The '{scope.value}' scope is not armed on this server.",
                 },
             )
+
+    return dependency
+
+
+def require_monitoring():
+    """The monitoring routes' dependency: the agent token as ``read``, or the
+    dashboard token for a GET. The dashboard is not the agent, so it does not
+    count as the agent being heard from."""
+    as_agent = require_scope(Scope.READ)
+
+    def dependency(request: Request) -> None:
+        auth: AuthConfig = request.app.state.auth
+        if _matches(_bearer_token(request), auth.dashboard_token):
+            if request.method != "GET":
+                # The read router carries POSTs too (the workflow stop, the
+                # grid plan): the dashboard only looks.
+                raise _dashboard_refused()
+            return
+        as_agent(request)
 
     return dependency
 
