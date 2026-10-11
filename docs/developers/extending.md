@@ -199,9 +199,9 @@ work unchanged.
 - **Reference implementations.** `DemoMicroscope` in
   `fibsem/drivers/demo/microscope.py` is the complete, hardware-free
   reference. `fibsem/drivers/tescan/microscope.py` shows a vendor SDK behind the
-  same interface. `microscopes/zeiss.py` is an empty placeholder awaiting a
+  same interface. `fibsem/drivers/zeiss/` is an empty placeholder awaiting a
   SerialFIB migration; a Zeiss backend should be built there rather than in
-  a new file.
+  a new package.
 - **Registration.** Implementing the class is not sufficient. A driver is
   a `DriverEntry` in the registry (`fibsem/drivers/registry.py`): a
   module-level `DRIVER` record listed in `_BUILT_IN` for a backend in the
