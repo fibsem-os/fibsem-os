@@ -1683,7 +1683,11 @@ def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypat
 
     def cancel_during_the_first_pass(*args, **kwargs):
         stop_event.set()
-        return Mock(spec=FluorescenceImage)
+        # A frame the sweep can score. A bare Mock raised on `.data`, which the old
+        # wrapper swallowed and reported as a cancel; a failure is no longer a cancel.
+        image = Mock(spec=FluorescenceImage)
+        image.data = np.zeros((8, 8), dtype=np.uint16)
+        return image
 
     monkeypatch.setattr(fm_microscope.fm, "acquire_image", cancel_during_the_first_pass)
 
@@ -2247,6 +2251,53 @@ def test_the_objective_is_moved_before_a_sweep_would_search(fm_microscope, monke
     runner.run()
 
     assert swept_at == [pytest.approx(SAVED_FOCUS)]
+
+
+def test_a_failed_tileset_autofocus_fails_the_run_rather_than_cancelling_it(
+    fm_microscope, monkeypatch
+):
+    """The tile runner reads False from `run_tileset_autofocus` as the user stopping
+    the run. A sweep that raised used to come back as False too, so a failed
+    autofocus ended the overview reported as cancelled with the reason only in the
+    log. The error now reaches the caller as itself."""
+
+    def broken_sweep(*args, **kwargs):
+        raise RuntimeError("objective did not respond")
+
+    monkeypatch.setattr(acquisition, "run_coarse_fine_autofocus", broken_sweep)
+    runner = acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(
+            name="DAPI",
+            excitation_wavelength=358,
+            emission_wavelength=461,
+            power=0.1,
+            exposure_time=0.1,
+        ),
+        overview_parameters=OverviewParameters(
+            rows=1,
+            cols=1,
+            overlap=0.1,
+            use_zstack=False,
+            autofocus_mode=AutoFocusMode.ONCE,
+        ),
+        autofocus_settings=AutoFocusSettings(),
+    )
+
+    with pytest.raises(RuntimeError, match="objective did not respond"):
+        runner.run()
+
+
+def test_a_cancelled_tileset_autofocus_still_reads_as_a_cancel(
+    fm_microscope, monkeypatch
+):
+    """The sweep reports a cancel by returning None; that stays False."""
+    monkeypatch.setattr(acquisition, "run_coarse_fine_autofocus", lambda *a, **k: None)
+
+    assert (
+        acquisition.run_tileset_autofocus(fm_microscope, None, AutoFocusSettings())
+        is False
+    )
 
 
 def test_asking_for_a_focus_position_that_was_never_saved_is_refused(

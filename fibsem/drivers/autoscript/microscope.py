@@ -930,6 +930,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         self._build_beams()
         self._build_milling()
+        self._build_spot_burn()
 
         if reset_beam_shift:
             self.reset_beam_shifts()
@@ -1023,6 +1024,13 @@ class ThermoMicroscope(FibsemMicroscope):
         from fibsem.drivers.autoscript.services import bind_autoscript_milling
 
         self.milling = bind_autoscript_milling(self)
+
+    def _build_spot_burn(self) -> None:
+        """Build the spot burn service over the beams; `run_spot_burn` then goes to
+        it: the point-by-point burn, with the beams' spot and blank commands."""
+        from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
+
+        self.spot_burn = bind_spot_burn(SpotBurn, self)
 
     def _build_stage(self) -> None:
         """Build the stage device and route the stage keys to it.

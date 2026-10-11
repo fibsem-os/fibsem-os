@@ -216,10 +216,18 @@ class FibsemMillingTask:
         microscope: FibsemMicroscope,
         config: FibsemMillingTaskConfig,
         stop_event: Optional[threading.Event] = None,
+        output_dir: Optional[str] = None,
     ):
         self.config = config
         self.microscope = microscope
         self.task_id = str(uuid.uuid4())
+        # The folder the caller gave this run; the task writes under
+        # <output_dir>/Milling/<name>, resolved by _configure_path into
+        # self.output_dir. None: the config's imaging path, then DATA_CC_PATH.
+        self._output_root: Optional[str] = (
+            str(output_dir) if output_dir is not None else None
+        )
+        self.output_dir: Optional[str] = None
         self.initial_beam_shift: Optional[Point] = None
         # Imaging current/voltage captured before milling starts, so cleanup restores the
         # exact pre-milling state (not a config default) even if the task is cancelled.
@@ -290,15 +298,24 @@ class FibsemMillingTask:
         directory, as every other acquisition in this path already does. Stringifying
         the ``None`` instead put the whole task under a directory literally named
         "None", beside the current working directory.
+
+        A folder passed to the task wins over the imaging path: the imaging path is
+        an imaging setting that happened to also mean "where to save". The result is
+        ``self.output_dir``, which each stage is handed before its strategy runs. The
+        imaging path is still set to it, for strategies written before
+        ``stage.output_dir`` existed.
         """
-        path = self.config.acquisition.imaging.path
+        path = self._output_root
+        if path is None:
+            path = self.config.acquisition.imaging.path
         if path is None:
             path = fcfg.DATA_CC_PATH
-        self.config.acquisition.imaging.path = os.path.join(
+        self.output_dir = os.path.join(
             str(path),
             "Milling",
             self.name.replace(" ", "-"),
         )
+        self.config.acquisition.imaging.path = self.output_dir
 
     def run(self) -> None:
         """Run a list of milling stages, with a progress bar and notifications."""
@@ -420,6 +437,7 @@ class FibsemMillingTask:
 
         # Set up the stage with the task configuration
         stage.reference_image = self.reference_image
+        stage.output_dir = self.output_dir
         stage.milling.hfw = self.config.field_of_view
         stage.milling.milling_channel = self.config.channel
         stage.milling.acquire_images = self.config.acquisition.enabled
@@ -489,7 +507,7 @@ class FibsemMillingTask:
         if self.reference_image is not None:
             return self.reference_image
 
-        path = self.config.acquisition.imaging.path
+        path = self.output_dir
         if path is None:
             path = Path(fcfg.DATA_CC_PATH)
 
@@ -561,6 +579,7 @@ def run_milling_task(
     config: FibsemMillingTaskConfig,
     stop_event: Optional[threading.Event] = None,
     raise_on_failure: bool = False,
+    output_dir: Optional[str] = None,
 ) -> FibsemMillingTask:
     """Run a milling task with the given configuration.
     Args:
@@ -571,12 +590,19 @@ def run_milling_task(
             has run. For callers that don't listen to the progress signal, which
             is the only other place a failure is reported. A cancelled task
             does not raise.
+        output_dir (Optional[str]): The folder this run writes under, as
+            ``<output_dir>/Milling/<name>``. An argument rather than a config
+            field: the config is saved with the protocol, and a run's folder is
+            not. None falls back to the config's imaging path.
     Returns:
         FibsemMillingTask: The milling task that was run; ``outcome`` and
             ``error`` say how it ended.
     """
     task = FibsemMillingTask(
-        microscope=microscope, config=config, stop_event=stop_event
+        microscope=microscope,
+        config=config,
+        stop_event=stop_event,
+        output_dir=output_dir,
     )
     task.run()
     if raise_on_failure and task.error is not None:

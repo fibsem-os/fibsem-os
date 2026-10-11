@@ -19,6 +19,8 @@ import pytest
 
 from fibsem.correlation.fit_diagnostics import FitDiagnostic, plot_fit_diagnostic
 from fibsem.correlation.util import (
+    FitOutsideWindow,
+    fit_gauss_2d_mod,
     hole_fitting_FIB,
     hole_fitting_reflection,
     target_fitting_fluorescence,
@@ -79,6 +81,46 @@ def test_fluorescence_fit_returns_z_and_xy_diagnostic():
     assert d.fitted_xy is None  # default has no XY fitting -> no fitted marker
 
 
+# --- FIB-1216: the FIB hole fit finds a burn anywhere in its window ----------
+
+
+def _fib_burn(cx: float, cy: float, size: int = 80) -> np.ndarray:
+    """A dark burn 3 px wide on a noisy background."""
+    rng = np.random.default_rng(1)
+    img = 200.0 - 120.0 * _blob_2d(size, cx, cy, sigma=3.0)
+    return (img + rng.normal(0, 4, img.shape)).astype(np.float32)
+
+
+@pytest.mark.parametrize("offset", [0, 4, 8, 12, 14])
+@pytest.mark.parametrize("direction", [(1, 0), (0, 1), (-1, 0), (0, -1), (0.7, -0.7)])
+def test_fib_hole_fit_finds_the_burn_from_anywhere_in_its_window(offset, direction):
+    """It started a 1 px Gaussian at the click and found the burn only from
+    within ~4 px; from further it stayed at the click and called that a fit."""
+    img = _fib_burn(40.0, 40.0)
+    x = 40.0 + offset * direction[0]
+    y = 40.0 + offset * direction[1]
+    xr, yr, d = hole_fitting_FIB(img, x, y)
+    assert np.hypot(xr - 40.0, yr - 40.0) < 1.0
+    assert d.fitted_xy is not None
+
+
+def test_fib_hole_fit_from_on_the_burn_is_the_fit_it_always_was():
+    """A start the old fit handled is not re-fitted: the click-start answer
+    stands whenever it is burn-shaped."""
+    img = _fib_burn(40.3, 39.6)
+    popt, _ = fit_gauss_2d_mod(img[38 - 15 : 38 + 15, 41 - 15 : 41 + 15])
+    xr, yr, _ = hole_fitting_FIB(img, 41.0, 38.0)
+    assert (xr, yr) == (popt[1] + 41 - 15, popt[2] + 38 - 15)
+
+
+def test_fib_hole_fit_with_no_burn_fails_instead_of_returning_the_click():
+    """A brightness ramp: the old fit modelled it with a Gaussian hundreds of px
+    wide, whose centre stayed near the click, and reported that as a fit."""
+    xx = np.mgrid[0:80, 0:80][1].astype(np.float32)
+    with pytest.raises(FitOutsideWindow, match="no burn-shaped dark spot"):
+        hole_fitting_FIB(200.0 - 1.5 * xx, 40.0, 40.0)
+
+
 # --- FIB-282: the input marker tracks the sub-pixel click ------------------
 
 
@@ -137,6 +179,21 @@ def test_reflection_fit_works_near_the_top_and_left_edges(cx, cy):
     assert d.fitted_xy is not None
 
 
+@pytest.mark.parametrize("cx, cy", [(5, 5), (5, 30), (30, 5), (76, 76)])
+def test_fib_hole_fit_works_near_the_edges(cx, cy):
+    """The FIB fit's window wrapped the same way within the cutout of the top or
+    left edge; near the bottom or right it only clipped, but the answer was then
+    clamped to a cutout from the edge, moving a burn the fit had found."""
+    img = _fib_burn(cx, cy)
+    x, y = cx + 0.3, cy - 0.4  # a sub-pixel click on the burn
+    xr, yr, d = hole_fitting_FIB(img, x, y)
+    assert xr == pytest.approx(cx, abs=0.75) and yr == pytest.approx(cy, abs=0.75)
+    # the input marker sits on the click, in the clamped window's frame
+    x0, y0 = max(0, round(x) - 15), max(0, round(y) - 15)
+    assert d.input_xy == pytest.approx((x - x0, y - y0))
+    assert d.fitted_xy == pytest.approx((xr - x0, yr - y0))
+
+
 def test_reflection_fit_works_at_the_top_plane_and_far_corner():
     vol = _refl_vol_at(57, 57, cz=19)
     xr, yr, zr, d = hole_fitting_reflection(vol, 57, 57, 20, 2)
@@ -157,6 +214,46 @@ def test_reflection_fit_at_the_centre_is_unchanged():
     assert (xr, yr, zr) == pytest.approx((30, 30, 10), abs=0.3)
     assert d.input_xy == pytest.approx((15.0, 15.0))
     assert d.z_axis[0] == 0 and len(d.z_axis) == 15
+
+
+# --- FIB-1219: an answer outside the region searched is a failure, not a fit --
+
+
+def _blend_in_at_plane_10(plane: np.ndarray, nz: int = 21) -> np.ndarray:
+    """A stack that is ``plane`` around z = 10 and plain 200 elsewhere."""
+    vol = np.full((nz,) + plane.shape, 200.0, dtype=np.float32)
+    for zi in range(nz):
+        w = np.exp(-((zi - 10) ** 2) / 8.0)
+        vol[zi] = (1 - w) * 200.0 + w * plane
+    return vol
+
+
+def test_a_profile_with_no_dip_fails_rather_than_returning_a_z_past_the_window():
+    """Brightness falling steadily with depth: no hole, so the inverted profile
+    rises to the window's edge and the Gaussian's centre lands beyond it."""
+    vol = np.stack([np.full((60, 60), 200.0 - 6.0 * z) for z in range(21)])
+    vol += np.random.default_rng(0).normal(0, 0.5, vol.shape)
+    with pytest.raises(FitOutsideWindow, match="z fit fell outside the planes"):
+        hole_fitting_reflection(vol.astype(np.float32), 30, 30, 10, 2)
+
+
+def test_a_slice_with_no_hole_fails_rather_than_returning_a_runaway_xy():
+    """A brightness ramp and no hole: the 2D fit put the centre ~6000 px away,
+    and that came back as the fit."""
+    xx = np.mgrid[0:60, 0:60][1].astype(np.float32)
+    vol = _blend_in_at_plane_10(150.0 - 2.0 * xx)
+    with pytest.raises(FitOutsideWindow, match="xy fit fell outside the region"):
+        hole_fitting_reflection(vol, 30, 30, 10, 2)
+
+
+def test_a_fit_that_left_its_window_reads_as_no_clear_burn():
+    pytest.importorskip("PyQt5")
+    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
+        humanize_fit_error,
+    )
+
+    msg = humanize_fit_error(FitOutsideWindow("z fit fell outside the planes searched"))
+    assert "No clear burn" in msg and "stays where you placed it" in msg
 
 
 def test_reflection_input_marker_tracks_subpixel_click():

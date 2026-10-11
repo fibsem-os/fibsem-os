@@ -50,7 +50,7 @@ from __future__ import annotations
 import logging
 from contextlib import contextmanager
 from types import MappingProxyType
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fibsem import manufacturers
 from fibsem._timing import sim_sleep
@@ -60,7 +60,7 @@ from fibsem.devices.core import Device, resources_of
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.drivers.demo.devices import bind_demo_fm
-from fibsem.drivers.demo.services import bind_demo_milling
+from fibsem.drivers.demo.services import bind_demo_milling, bind_demo_spot_burn
 from fibsem.drivers.demo.simulator import (
     SIM_OBJECTIVE_FOCUS_POSITION,
     DemoConfiguration,
@@ -97,13 +97,6 @@ DEMO_DEVICES = (
 
 # A simulated compustage also has an autoloader, as an Arctis does.
 DEMO_SAMPLE_LOADER = DeviceEntry(name="sample_loader", type="sample_loader")
-
-# Today's scan-mode set keys, and the methods that run the beam commands for them.
-_SCAN_MODE_KEYS: Dict[str, Callable[[Any, Any, BeamType], None]] = {
-    "spot_mode": lambda m, point, bt: m.set_spot_scanning_mode(point, bt),
-    "reduced_area": lambda m, area, bt: m.set_reduced_area_scanning_mode(area, bt),
-    "full_frame": lambda m, _, bt: m.set_full_frame_scanning_mode(bt),
-}
 
 
 def _routes(device: str, routes: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
@@ -210,6 +203,7 @@ class DemoMicroscope(
             }
         )
         self.milling = bind_demo_milling(self)
+        self.spot_burn = bind_demo_spot_burn(self)
 
     def _create_grid_loader(self) -> Optional[SampleGridLoader]:
         """The grid model over the ``sample_loader`` device, or None when there is

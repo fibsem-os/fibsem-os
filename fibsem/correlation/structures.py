@@ -240,6 +240,12 @@ class CorrelationInputData:
     # before the correlation transform is applied (see run_correlation_from_data).
     fm_surface_coordinate: Optional[Coordinate] = None
     ri_pre_correction_factor: Optional[float] = None
+    # The optical parameters on screen when the factor was armed (tilt_deg,
+    # depth_um, na, n2, wavelength_um), and whether the factor is ζ of them
+    # ("computed") or was typed, reset or restored instead.
+    # The factor alone could not be traced back to its settings, so a reopened
+    # run could not say why it used the depth correction it did (FIB-1234).
+    ri_pre_correction_params: Optional[dict] = None
     method: str = "multi-point"
     # Fallbacks restored from serialized files, so a result loaded from JSON
     # (images absent) can still convert corrected pixels to px / px_m
@@ -269,6 +275,7 @@ class CorrelationInputData:
             if self.fm_surface_coordinate
             else None,
             "ri_pre_correction_factor": self.ri_pre_correction_factor,
+            "ri_pre_correction_params": self.ri_pre_correction_params,
             "fm_image_shape": self.fm_image_shape,
             "fib_image_shape": self.fib_image_shape,
             "fib_image_pixel_size": self.fib_image_pixel_size,
@@ -331,6 +338,33 @@ class CorrelationInputData:
         """The FM stack this run's fiducials were picked in, or None."""
         return _loaded_filename(self.fm_image) or self.stored_fm_image_filename
 
+    def move_fm_z_to_step(self, fm_pixel_size_z: Optional[float]) -> float:
+        """Re-express the FM-side z values in planes ``fm_pixel_size_z`` apart.
+
+        A file records its points in the planes of the stack they were picked
+        on, and that stack's z step. Runs saved from an interpolated stack, or
+        seeded from another acquisition, have a different step from the stack
+        now loaded; multiplying by the ratio keeps every point at its depth
+        (FIB-1239). For points moved there by the old interpolation, which kept
+        depth too, this returns them exactly to where they were picked.
+
+        No-op when either step is unknown or the two are equal. Returns the
+        factor applied.
+        """
+        recorded = self.stored_fm_pixel_size_z
+        if not recorded or not fm_pixel_size_z:
+            return 1.0
+        if abs(recorded - fm_pixel_size_z) <= 1e-9 * abs(fm_pixel_size_z):
+            return 1.0
+        scale = float(recorded) / float(fm_pixel_size_z)
+        coords = list(self.fm_coordinates) + list(self.poi_coordinates)
+        if self.fm_surface_coordinate is not None:
+            coords.append(self.fm_surface_coordinate)
+        for coord in coords:
+            coord.point.z *= scale
+        self.stored_fm_pixel_size_z = fm_pixel_size_z
+        return scale
+
     @staticmethod
     def from_dict(data: dict) -> CorrelationInputData:
         # Reject rather than default. to_dict always writes "fib_coordinates",
@@ -377,6 +411,7 @@ class CorrelationInputData:
             surface_coordinate=surface_coordinate,
             fm_surface_coordinate=fm_surface_coordinate,
             ri_pre_correction_factor=data.get("ri_pre_correction_factor"),
+            ri_pre_correction_params=data.get("ri_pre_correction_params"),
             # Has a dataclass default and sits between two .get() calls; the hard
             # subscript was the second key that could throw out of this function.
             method=data.get("method", "multi-point"),
