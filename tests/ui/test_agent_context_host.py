@@ -1,4 +1,4 @@
-"""AgentContext against the real window.
+"""AutoLamellaAppContext against the real window.
 
 The unit tests (tests/autolamella/test_agent_context.py) drive the facade over
 real domain objects in a plain holder; this file proves the production host —
@@ -18,7 +18,7 @@ pytest.importorskip("PyQt5")
 
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.server import AgentContext
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -39,7 +39,7 @@ def ui(qapp):
 
 
 def test_a_fresh_window_satisfies_the_host_contract(ui):
-    ctx = AgentContext(ui)
+    ctx = AutoLamellaAppContext(ui)
     status = ctx.status()
     json.dumps(status)
     assert status["microscope_connected"] is False
@@ -64,7 +64,7 @@ def test_display_images_mirror_the_widgets_current_images(ui):
         0, 255, _Widget.eb_image.data.shape, dtype=np.uint8
     )
     ui.image_widget = _Widget()
-    ctx = AgentContext(ui)
+    ctx = AutoLamellaAppContext(ui)
 
     payload = ctx.display_images()
     json.dumps(payload)
@@ -84,7 +84,9 @@ def test_an_adopted_experiment_is_visible_through_the_facade(ui, tmp_path):
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
     exp.add_new_lamella(MicroscopeState(), EventedDict())
 
-    ctx = AgentContext(ui)  # built BEFORE the experiment exists — call-time wins
+    ctx = AutoLamellaAppContext(
+        ui
+    )  # built BEFORE the experiment exists — call-time wins
     ui.experiment = exp
 
     status = ctx.status()
@@ -126,7 +128,7 @@ def test_run_summary_survives_the_post_run_dialog(ui, monkeypatch):
     ui._show_workflow_summary()  # a second finished-signal must not re-show
     assert len(shown) == 1
 
-    payload = AgentContext(ui).run_summary()
+    payload = AutoLamellaAppContext(ui).run_summary()
     assert payload["available"] is True
     assert payload["items"][0]["task_name"] == "Rough Milling"
     json.dumps(payload)

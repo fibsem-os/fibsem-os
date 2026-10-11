@@ -1,4 +1,4 @@
-"""Tests for AgentContext: the read-side facade the embedded server will use.
+"""Tests for AutoLamellaAppContext: the read-side facade the embedded server will use.
 
 Real domain objects throughout — a real Experiment with real lamellae, the real
 TaskQueue mechanics, the Demo microscope — held by a plain host object standing
@@ -12,7 +12,7 @@ import pytest
 from psygnal.containers import EventedDict
 
 from fibsem import utils
-from fibsem.applications.autolamella.server import AgentContext
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskProtocol,
@@ -53,7 +53,7 @@ def _assert_json_safe(payload):
 
 
 def test_every_method_tolerates_an_empty_host():
-    ctx = AgentContext(Host())
+    ctx = AutoLamellaAppContext(Host())
     payloads = [
         ctx.status(),
         ctx.queue(),
@@ -75,7 +75,7 @@ def test_resolution_is_call_time_not_construction_time(experiment):
     # The app rebinds `experiment` on load; a facade built earlier must see the
     # new binding, not the one from construction (the ScriptContext hazard).
     host = Host()
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
     assert ctx.status()["experiment"] is None
     host.experiment = experiment
     assert ctx.status()["experiment"]["name"] == "agent-context-exp"
@@ -86,7 +86,7 @@ def test_resolution_is_call_time_not_construction_time(experiment):
 def test_status_and_summaries_reflect_a_real_experiment(experiment):
     host = Host()
     host.experiment = experiment
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
 
     status = ctx.status()
     assert status["experiment"]["num_items"] == 2
@@ -105,7 +105,7 @@ def test_status_and_summaries_reflect_a_real_experiment(experiment):
 def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
     host = Host()
     host.experiment = experiment
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
 
     name = experiment.positions[0].name
     payload = ctx.task_outputs(name)
@@ -138,7 +138,7 @@ def test_output_image_renders_recorded_outputs_only(experiment):
 
     host = Host()
     host.experiment = experiment
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
     lamella = experiment.positions[0]
     os.makedirs(lamella.path, exist_ok=True)
     fname = "ref_Rough Milling_final_res_01_ib.tif"
@@ -191,7 +191,7 @@ def test_task_config_documents_carry_the_full_config_and_a_version(experiment):
 
     host = Host()
     host.experiment = experiment
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
     config = MillRoughTaskConfig(task_name="Rough Milling")
     experiment.task_protocol.task_config["Rough Milling"] = config
     lamella = experiment.positions[0]
@@ -232,7 +232,7 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
 
     host = Host()
     host.experiment = experiment
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
 
     lamella = experiment.positions[0]
     lamella.poi = Point(1.5e-6, -2.5e-6)
@@ -263,7 +263,7 @@ def test_stop_workflow_takes_the_stop_path_only_while_running():
             calls.append("stop")
 
     host = StoppableHost()
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
     idle = ctx.stop_workflow()
     assert idle == {
         "available": True,
@@ -277,7 +277,7 @@ def test_stop_workflow_takes_the_stop_path_only_while_running():
     assert calls == ["stop"]
 
     # A host without the stop path at all reads as unavailable, not an error.
-    assert AgentContext(Host()).stop_workflow()["available"] is False
+    assert AutoLamellaAppContext(Host()).stop_workflow()["available"] is False
 
 
 def test_set_supervision_flips_the_live_protocol(experiment):
@@ -290,7 +290,7 @@ def test_set_supervision_flips_the_live_protocol(experiment):
     )
     host = Host()
     host.experiment = experiment
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
 
     applied = ctx.set_supervision("Rough Milling", True)
     assert applied["applied"] is True
@@ -304,7 +304,9 @@ def test_set_supervision_flips_the_live_protocol(experiment):
     assert unknown["task_names"] == ["Rough Milling"]
     _assert_json_safe(unknown)
 
-    assert AgentContext(Host()).set_supervision("x", True)["available"] is False
+    assert (
+        AutoLamellaAppContext(Host()).set_supervision("x", True)["available"] is False
+    )
 
 
 def test_supervisor_designation_round_trips_and_is_settable(experiment):
@@ -319,7 +321,7 @@ def test_supervisor_designation_round_trips_and_is_settable(experiment):
     )
     host = Host()
     host.experiment = experiment
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
 
     # Default is human — today's behaviour exactly.
     task = experiment.task_protocol.workflow_config.tasks[-1]
@@ -361,7 +363,7 @@ def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
     )
     host = Host()
     host.experiment = experiment
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
 
     # Before a run there is no queue: a structured refusal, not an error.
     idle = ctx.requeue_task(experiment.positions[0].name, "Rough Milling")
@@ -398,7 +400,7 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     host = Host()
     host.experiment = experiment
     host._task_manager = manager
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
 
     queue = ctx.queue()
     assert queue["available"] is True
@@ -418,7 +420,7 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
 def test_stage_position_reads_the_cache_only(microscope):
     host = Host()
     host.microscope = microscope
-    ctx = AgentContext(host)
+    ctx = AutoLamellaAppContext(host)
 
     microscope.get_stage_position()  # populate the cache, as the app would
     cached = ctx.stage_position()
@@ -432,5 +434,5 @@ def test_stage_position_reads_the_cache_only(microscope):
 
 
 def test_recent_experiments_is_json_safe():
-    ctx = AgentContext(Host())
+    ctx = AutoLamellaAppContext(Host())
     _assert_json_safe(ctx.recent_experiments())

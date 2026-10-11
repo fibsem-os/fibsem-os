@@ -118,7 +118,7 @@ def serialize_request(request) -> Dict[str, Any]:
                 "coordinates": "areas are fractions of the frame (origin "
                 "top-left), so they need no rescaling against the preview",
                 # The frame is display state the request doesn't carry;
-                # AgentContext.pending_prompt fills it from the FIB display
+                # AutoLamellaAppContext.pending_prompt fills it from the FIB display
                 # cache — the same source /app/images serves.
                 "image": None,
             }

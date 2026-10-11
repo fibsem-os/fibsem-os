@@ -19,7 +19,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-from fibsem.applications.autolamella.server import AgentContext
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows.interaction import Confirm, ask
 from fibsem.server import AuthConfig, build_server
@@ -55,7 +55,7 @@ def ui(qapp, monkeypatch):
 def _client(ui, arm_control):
     app = build_server(
         ui.microscope,
-        app_context=AgentContext(ui),
+        app_context=AutoLamellaAppContext(ui),
         auth=AuthConfig.generate(arm_control=arm_control, token=TOKEN),
     )
     return TestClient(app, raise_server_exceptions=False)
@@ -325,7 +325,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
     buffer = EventBuffer()
     app = build_server(
         ui.microscope,
-        app_context=AgentContext(ui, event_buffer=buffer),
+        app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
         auth=AuthConfig.generate(arm_control=True, token=TOKEN),
     )
     dispose = ui.ui_responder.add_question_observer(buffer.append)

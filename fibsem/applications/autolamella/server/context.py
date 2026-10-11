@@ -1,4 +1,4 @@
-"""AgentContext: the read-side facade an embedded server sees the app through.
+"""AutoLamellaAppContext: the read-side facade an embedded server sees the app through.
 
 Deliberately not the ``AutoLamellaUI`` object, for the same reasons
 ``ScriptContext`` isn't: the window's ``experiment`` is rebound on load, its
@@ -35,7 +35,12 @@ from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
 from fibsem.util.timestamps import to_iso
 
-__all__ = ["AgentContext", "ITEM_PATCH_FIELDS", "config_version", "item_fields_version"]
+__all__ = [
+    "AutoLamellaAppContext",
+    "ITEM_PATCH_FIELDS",
+    "config_version",
+    "item_fields_version",
+]
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
 # verdict, notes. Everything else on the object (poses, ids, paths, history)
@@ -250,7 +255,7 @@ def _attendance_line(task_protocol: Any, task_name: str) -> str:
     return att.line if att is not None else ""
 
 
-class AgentContext:
+class AutoLamellaAppContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
     def __init__(self, host, event_buffer=None):

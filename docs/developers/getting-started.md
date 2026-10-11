@@ -38,7 +38,7 @@ fibsem/applications/autolamella/
                             registration, one module per task
   workflows/interaction.py  how tasks ask questions (ask(), Request types)
   ui/                       the application windows
-  server/                   AgentContext, the view remote agents get
+  server/                   AutoLamellaAppContext, the view remote agents get
   scripting.py              ScriptContext, the view user scripts get
 
 tests/                      mirrors the layout; tests/ui requires

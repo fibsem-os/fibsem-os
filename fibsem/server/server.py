@@ -175,7 +175,7 @@ def build_server(
 
     ``auth`` defaults to a generated token with only the ``read`` scope armed.
     ``app_context`` is anything satisfying app_routes.AppContext (structurally
-    -- the application's AgentContext in practice); passing one mounts the
+    -- the application's AutoLamellaAppContext in practice); passing one mounts the
     app-level router and flips ``routers.app`` in /capabilities.
 
     ``devices`` is the App Server's devices service (FIB-1035): every route

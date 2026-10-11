@@ -24,7 +24,7 @@ from fibsem.applications.autolamella.proposals import (  # noqa: E402
     DecisionOutcome,
     Proposal,
 )
-from fibsem.applications.autolamella.server import AgentContext  # noqa: E402
+from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.server.events import EventBuffer  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     Attention,
@@ -128,7 +128,7 @@ def ui(qapp, monkeypatch, tmp_path):
 def _client(ui, buffer=None):
     app = build_server(
         ui.microscope,
-        app_context=AgentContext(ui, event_buffer=buffer),
+        app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
         auth=AuthConfig.generate(arm_control=True, token=TOKEN),
     )
     return TestClient(app, raise_server_exceptions=False)
