@@ -67,18 +67,18 @@ _TIP_PROPOSE_REVIEW = (
     "records what it did whether this is on or not; this shows the tab and "
     "allows a task to be set to Review. Early access."
 )
-_LBL_AGENT_SERVER = "Enable Agent Server"
+_LBL_APP_SERVER = "Enable App Server"
 _LBL_WATCHDOG = "Hand questions to me after"
 _TIP_WATCHDOG = (
     "If the agent leaves a question unanswered this long, it becomes yours — "
     "orange border, attention button, sound. Applies only to tasks the agent "
     "supervises."
 )
-_TIP_AGENT_SERVER = (
-    "Host a local, token-protected API over this session when a microscope "
-    "connects, so an AI agent (via the fibsem-mcp sidecar) can observe it. "
-    "Read-only until you grant permissions for the session in Tools → Agent "
-    "Server, which also shows the session token."
+_TIP_APP_SERVER = (
+    "Run the App Server when a microscope connects: a local, token-protected "
+    "API over this session that an AI agent (through the fibsem-mcp sidecar) "
+    "and the dashboard can reach. Read-only until you grant permissions for "
+    "the session in Tools → Agent Server, which also shows the session token."
 )
 
 # Experiment defaults
@@ -133,7 +133,7 @@ class PreferencesDialog(QDialog):
         self._sidebar = QListWidget()
         self._sidebar.setFixedWidth(120)
         self._sidebar.addItems(
-            ["Display", "Features", "Experiment", "Movement", "Agent"]
+            ["Display", "Features", "Experiment", "Movement", "App Server"]
         )
         self._sidebar.setCurrentRow(0)
 
@@ -209,14 +209,14 @@ class PreferencesDialog(QDialog):
         movement_form.addRow(_LBL_ACQ_FIB, self._chk_acquire_fib)
         self._stack.addWidget(movement_page)
 
-        # --- Agent ---
+        # --- App Server ---
         # Durable policy only. Scope ARMING is deliberately absent: arming is
         # consent, granted per session in Tools -> Agent Server, and must not
         # survive a restart via this file.
         agent_page = QWidget()
         agent_form = QFormLayout(agent_page)
-        self._chk_agent_server = QCheckBox()
-        self._chk_agent_server.setToolTip(_TIP_AGENT_SERVER)
+        self._chk_app_server = QCheckBox()
+        self._chk_app_server.setToolTip(_TIP_APP_SERVER)
         self._spin_watchdog = QSpinBox()
         self._spin_watchdog.setRange(1, 120)
         self._spin_watchdog.setSuffix(" min")
@@ -229,7 +229,7 @@ class PreferencesDialog(QDialog):
         agent_intro.setWordWrap(True)
         agent_intro.setStyleSheet("color: #868e93; font-size: 11px;")
         agent_form.addRow(agent_intro)
-        agent_form.addRow(_LBL_AGENT_SERVER, self._chk_agent_server)
+        agent_form.addRow(_LBL_APP_SERVER, self._chk_app_server)
         agent_form.addRow(_LBL_WATCHDOG, self._spin_watchdog)
         self._stack.addWidget(agent_page)
 
@@ -267,10 +267,10 @@ class PreferencesDialog(QDialog):
 
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
-        self._chk_agent_server.setChecked(f.agent_server_enabled)
         self._chk_connection_chip.setChecked(f.connection_chip)
         self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
 
+        self._chk_app_server.setChecked(prefs.app_server.enabled)
         self._spin_watchdog.setValue(prefs.agent.watchdog_minutes)
 
         e = prefs.experiment
@@ -330,7 +330,6 @@ class PreferencesDialog(QDialog):
 
         f = prefs.features
         f.coincidence_milling_enabled = self._chk_coincidence_milling.isChecked()
-        f.agent_server_enabled = self._chk_agent_server.isChecked()
         f.connection_chip = self._chk_connection_chip.isChecked()
         f.proposer_reviewer_workflow_enabled = self._chk_propose_review.isChecked()
 
@@ -338,6 +337,7 @@ class PreferencesDialog(QDialog):
         m.acquire_sem_after_stage_movement = self._chk_acquire_sem.isChecked()
         m.acquire_fib_after_stage_movement = self._chk_acquire_fib.isChecked()
 
+        prefs.app_server.enabled = self._chk_app_server.isChecked()
         prefs.agent.watchdog_minutes = self._spin_watchdog.value()
 
         e = prefs.experiment

@@ -278,7 +278,7 @@ class AutoLamellaUI(QMainWindow):
         self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
         # The embedded agent server (FIB-845): built on microscope connect when the
-        # agent_server_enabled preference is on; None means the feature is off.
+        # App Server preference is on; None means the feature is off.
         self._agent_server_host = None
         # The app's event stream (FIB-1031): built on microscope connect, always,
         # and recorded to events.jsonl in the experiment directory. The agent
@@ -750,7 +750,7 @@ class AutoLamellaUI(QMainWindow):
         Read-only until scopes are armed; never raises — an optional observer
         must not be able to take the session down (see hosting.py).
         """
-        if fibsem_cfg.load_user_preferences().features.agent_server_enabled:
+        if fibsem_cfg.load_user_preferences().app_server.enabled:
             from fibsem.applications.autolamella.server.hosting import AgentServerHost
 
             if self._agent_server_host is None:
@@ -773,7 +773,7 @@ class AutoLamellaUI(QMainWindow):
         picks the preference up as before.
         """
         host = self._agent_server_host
-        if fibsem_cfg.load_user_preferences().features.agent_server_enabled:
+        if fibsem_cfg.load_user_preferences().app_server.enabled:
             if self.microscope is not None and (host is None or not host.running):
                 self._start_agent_server()
         elif host is not None and host.running:

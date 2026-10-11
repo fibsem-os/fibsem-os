@@ -1,7 +1,7 @@
 """Embedded hosting: the agent server running inside the AutoLamella process.
 
 This is the piece that turns the factory into the app's public interface: when
-a microscope connects (and the ``agent_server_enabled`` preference is on), the
+a microscope connects (and the App Server preference, ``app_server.enabled``, is on), the
 app builds ``build_server(microscope, app_context=AgentContext(ui, buffer))``
 and runs it on a daemon thread. One process, one microscope connection, one
 commander — the whole reason embedded hosting exists. The buffer is the
