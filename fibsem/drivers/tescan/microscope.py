@@ -1,12 +1,10 @@
 import datetime
 import logging
-import os
 import re
 import sys
 import threading
 import time
 from copy import deepcopy
-from queue import Queue
 from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -19,7 +17,6 @@ from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
-    _records_stage_move,
 )
 
 TESCAN_API_AVAILABLE = False
@@ -49,10 +46,11 @@ TESCAN_SCAN_DIRECTIONS = (
 try:
     import tescanautomation
     from tescanautomation import Automation
-    from tescanautomation.Common import Bpp, Detector, Document
-    from tescanautomation.DrawBeam import DepthUnit, IEtching
+
+    # Bpp, DepthUnit and IEtching are read through this module by devices.py and services.py.
+    from tescanautomation.Common import Bpp, Detector, Document  # noqa: F401
+    from tescanautomation.DrawBeam import DepthUnit, IEtching  # noqa: F401
     from tescanautomation.DrawBeam import Status as DBStatus
-    from tescanautomation.SEM import HVBeamStatus as SEMStatus
 
     sys.modules.pop("tescanautomation.GUI")
     sys.modules.pop("tescanautomation.pyside6gui")
@@ -70,13 +68,7 @@ try:
 except Exception as e:
     logging.debug(f"Automation (TESCAN) not installed. {e}")
 
-from fibsem.imaging.spot import (
-    SpotBurnProgress,
-    SpotBurnSettings,
-    SpotBurnStatus,
-)
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
     STAGE_FRAME_TESCAN,
@@ -328,20 +320,8 @@ try:
         DBStatus.ProjectLoadedExpositionPaused: MillingState.PAUSED,
         DBStatus.Unknown: MillingState.ERROR,
     }
-except Exception as e:
+except Exception:
     pass
-
-# def printProgressBar(
-#     value, total, prefix="", suffix="", decimals=0, length=100, fill="█"
-# ):
-#     """
-#     terminal progress bar
-#     """
-#     percent = ("{0:." + str(decimals) + "f}").format(100 * (value / float(total)))
-#     filled_length = int(length * value // total)
-#     bar = fill * filled_length + "-" * (length - filled_length)
-#     print(f"\r{prefix} |{bar}| {percent}% {suffix}", end="\r")
-
 
 SEM_LIMITS: Dict[str, Tuple] = {
     "hfw": (1.0e-6, 2580.0e-6),
@@ -473,9 +453,6 @@ class TescanMicroscope(FibsemMicroscope):
         # initialise last images
         self.last_image_eb: Optional[FibsemImage] = None
         self.last_image_ib: Optional[FibsemImage] = None
-
-        # fluorescence microscope: none until connected (`connect_to_microscope`)
-        self.fm = None
 
         # cached beam parameters
         # not all parameters are available via the api, so we cache them after acquiring image
@@ -795,77 +772,6 @@ class TescanMicroscope(FibsemMicroscope):
         Kept for one release because custom scripts may call it.
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
-    # def run_milling_drift_corrected(self, milling_current: float,
-    #     image_settings: ImageSettings,
-    #     ref_image: FibsemImage,
-    #     reduced_area: FibsemRectangle = None,
-    #     asynch: bool = False
-    #     ):
-    #     """
-    #     Run ion beam milling using the specified milling current.
-
-    #     Args:
-    #         milling_current (float): The current to use for milling in amps.
-    #         asynch (bool, optional): If True, the milling will be run asynchronously.
-    #                                  Defaults to False, in which case it will run synchronously.
-
-    #     Returns:
-    #         None
-
-    #     Raises:
-    #         None
-    #     """
-    #     status = self.connection.FIB.Beam.GetStatus()
-    #     if status != Automation.FIB.Beam.Status.BeamOn:
-    #         self.connection.FIB.Beam.On()
-    #     self.connection.DrawBeam.LoadLayer(self.layer)
-    #     logging.info("running ion beam milling now...")
-    #     self.connection.DrawBeam.Start()
-    #     self.connection.Progress.Show(
-    #         "DrawBeam", "Layer 1 in progress", False, False, 0, 100
-    #     )
-    #     from fibsem import alignment
-    #     while True:
-    #         status = self.connection.DrawBeam.GetStatus()
-    #         running = status[0] == DBStatus.ProjectLoadedExpositionInProgress
-    #         if running:
-    #             progress = 0
-    #             if status[1] > 0:
-    #                 progress = min(100, status[2] / status[1] * 100)
-    #             printProgressBar(progress, 100)
-    #             self.connection.Progress.SetPercents(progress)
-    #             status = self.connection.DrawBeam.GetStatus()
-    #             if status[0] == DBStatus.ProjectLoadedExpositionInProgress:
-    #                 self.connection.DrawBeam.Pause()
-    #             elif status[0] == DBStatus.ProjectLoadedExpositionIdle:
-    #                 printProgressBar(100, 100, suffix="Finished")
-    #                 self.connection.DrawBeam.Stop()
-    #                 self.connection.DrawBeam.UnloadLayer()
-    #                 break
-    #             logging.info("Drift correction in progress...")
-    #             image_settings.beam_type = BeamType.ION
-    #             alignment.beam_shift_alignment(
-    #                 self,
-    #                 image_settings,
-    #                 ref_image,
-    #                 reduced_area,
-    #             )
-    #             time.sleep(1)
-    #             status = self.connection.DrawBeam.GetStatus()
-    #             if status[0] == DBStatus.ProjectLoadedExpositionPaused :
-    #                 self.connection.DrawBeam.Resume()
-    #             logging.info("Drift correction complete.")
-    #             time.sleep(5)
-    #         else:
-    #             if status[0] == DBStatus.ProjectLoadedExpositionIdle:
-    #                 printProgressBar(100, 100, suffix="Finished")
-    #                 self.connection.DrawBeam.Stop()
-    #                 self.connection.DrawBeam.UnloadLayer()
-    #             break
-
-    #     print()  # new line on complete
-    #     self.connection.Progress.Hide()
 
     @staticmethod
     def _spot_burn_point_to_metres(
