@@ -966,12 +966,12 @@ class ThermoMicroscope(FibsemMicroscope):
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
 
-        from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
+        from fibsem.drivers.autoscript.devices import ThermoFisherFluorescenceMicroscope
 
         # Its own FM leaves the shared imaging channel on the FM, as building it
         # selects the channel; any other outcome leaves it on the electron beam.
         self.fm = self._build_fluorescence(manufacturers.THERMOFISHER)
-        if not isinstance(self.fm, DeviceThermoFisherFluorescenceMicroscope):
+        if not isinstance(self.fm, ThermoFisherFluorescenceMicroscope):
             self.set_channel(BeamType.ELECTRON)
 
         self._apply_fluorescence_calibration()

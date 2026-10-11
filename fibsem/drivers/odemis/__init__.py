@@ -55,7 +55,10 @@ def add_odemis_path(config_path: str = "/etc/odemis.conf"):
         logging.debug(f"Odemis config not available at {config_path}: {e}")
         return
 
+    # Each module that imports odemis calls this, so a path is added once.
     devpath = config.get("DEVPATH")
-    if devpath:
-        sys.path.append(f"{devpath}/odemis/src")  # dev version
-    sys.path.append("/usr/lib/python3/dist-packages")  # release version + pyro4
+    paths = [f"{devpath}/odemis/src"] if devpath else []  # dev version
+    paths.append("/usr/lib/python3/dist-packages")  # release version + pyro4
+    for path in paths:
+        if path not in sys.path:
+            sys.path.append(path)

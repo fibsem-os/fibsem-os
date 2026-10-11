@@ -40,9 +40,8 @@ def odemis_fm_module():
             saved[name] = sys.modules.pop(name)
     stubs.install_odemis_stubs()
     import fibsem.drivers.odemis.devices as drivers
-    import fibsem.fm.odemis as fm_odemis
 
-    yield fm_odemis, drivers
+    yield drivers
 
     stubs.remove_odemis_stubs()
     sys.modules.update(saved)
@@ -50,10 +49,10 @@ def odemis_fm_module():
 
 @pytest.fixture
 def served(odemis_fm_module):
-    fm_odemis, drivers = odemis_fm_module
+    drivers = odemis_fm_module
     stubs.use_components(stubs.default_components())
     devices = drivers.bind_odemis_fm()
-    far = fm_odemis.DeviceOdemisFluorescenceMicroscope(devices)
+    far = drivers.OdemisFluorescenceMicroscope(devices)
     server = DeviceServer(devices.values()).start()
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
     fm = RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port, client=client)

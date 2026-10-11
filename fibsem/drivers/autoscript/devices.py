@@ -25,7 +25,7 @@ The Thermo Fisher FM (Arctis, Hydra) as devices.
 write and command makes the SDK calls the old property or method made, in the same
 order (``tests/fixtures/autoscript_fm_old_pins.json`` holds those calls).
 ``ThermoMicroscope.fm`` is the FM API over them
-(``DeviceThermoFisherFluorescenceMicroscope``).
+(``ThermoFisherFluorescenceMicroscope``, below).
 
 The channel. The FM and the beams are one AutoScript connection with one active view,
 so whoever sets the view last owns it (FIB-517). ``AutoscriptFMChannel`` is the old
@@ -42,8 +42,8 @@ pushed: `AutoscriptFM.start_live` switches the light on and starts the acquisiti
 ``acquire_frame`` while live is the next ``imaging.get_image()``, and stopping switches
 the light off and stops the acquisition.
 
-The FM parts need the SDK, through ``fibsem.fm.autoscript``, which each imports in the
-method that uses it, so the module still loads where AutoScript is not installed.
+The FM parts import the SDK names they need in the method that uses them, so the module
+still loads where AutoScript is not installed.
 """
 
 from __future__ import annotations
@@ -64,6 +64,7 @@ from typing import (
     Optional,
     Tuple,
     Type,
+    Union,
 )
 
 import numpy as np
@@ -95,6 +96,7 @@ from fibsem.devices.stage import (
     compustage_poses,
 )
 from fibsem.devices.wire import Frame
+from fibsem.fm import microscope as fm_api
 from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
@@ -121,7 +123,8 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.drivers.autoscript.microscope import ThermoMicroscope
     from fibsem.drivers.registry import BuildContext
-    from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
+    from fibsem.fm.structures import CameraSettings
+    from fibsem.microscope import FibsemMicroscope
 
 
 class AutoscriptStage(Stage):
@@ -1145,6 +1148,78 @@ FM_ACTIVE_VIEW = 3
 MULTI_BAND = emission_filter_for("Fluorescence", {})
 """Thermo's one fluorescence filter, multi-band; the other choice is reflection."""
 
+AVAILABLE_FM_WAVELENGTHS = (365, 450, 550, 635)
+"""The FM light's excitation wavelengths, in nm, one per AutoScript emission colour."""
+
+
+def _color_to_wavelength() -> Dict[Any, float]:
+    """Each AutoScript emission colour's excitation wavelength, in nm."""
+    from autoscript_sdb_microscope_client.enumerations import CameraEmissionType
+
+    # TODO: migrate to using the enumeration from autoscript_sdb_microscope_client
+    return dict(
+        zip(
+            (
+                CameraEmissionType.BLUE,
+                CameraEmissionType.GREEN_YELLOW,
+                CameraEmissionType.RED,
+                CameraEmissionType.VIOLET,
+            ),
+            AVAILABLE_FM_WAVELENGTHS,
+        )
+    )
+
+
+# specs:
+# arctis: https://assets.thermofisher.com/TFS-Assets/MSD/Datasheets/arctis-cryo-plasma-fib-ds0384-en.pdf
+# - 100x magnification
+# - 0.75 NA
+# - 150 um fov
+# - 4mm working distance
+# - light source: 365 nm, 450 nm, 550 nm, 635 nm
+# iflm: https://assets.thermofisher.com/TFS-Assets/MSD/Datasheets/iflm-correlative-system-ds0499.pdf
+# - 20x magnification
+# - 0.7 NA
+# - 500 um fov
+# - 1.3 mm working distance
+# - light source: 365 nm, 450 nm, 550 nm, 635 nm
+
+ARCTIS_CONFIGURATION = {
+    "name": "ARCTIS",
+    "magnification": 100.0,
+    "numerical_aperture": 0.75,
+    "working_distance": 4e-3,
+    "pixel_size": (2.74822695035461e-08, 2.74822695035461e-08),
+    "resolution": (4512, 4512),
+    "focus_position": 8.0e-3,  # 8000 microns
+    "limit_position": 8.6e-3,  # 8600 microns
+}
+
+ARCTIS_LWD_CONFIGURATION = {
+    "name": "ARCTIS_LWD",
+    "magnification": 50.0,
+    "numerical_aperture": 0.75,
+    "working_distance": 4e-3,
+    "pixel_size": (2.74822695035461e-08 * 2, 2.74822695035461e-08 * 2),
+    "resolution": (4512, 4512),
+    "focus_position": 7.6e-3,  # 7600 microns
+    "limit_position": 8.6e-3,  # 8600 microns
+}
+
+IFLM_CONFIGURATION = {
+    "magnification": 20.0,
+    "numerical_aperture": 0.7,
+    "working_distance": 1.3e-3,
+    "pixel_size": (2.74822695035461e-08, 2.74822695035461e-08),
+    "resolution": (4512, 4512),
+}
+
+# 2.74822695035461e-08
+DEFAULT_CONFIGURATION = ARCTIS_CONFIGURATION  # Default to ARCTIS configuration
+
+HFW = 150e-6  # Horizontal field width for ARCTIS (diagonal)
+IFLM_HFW = 500e-6  # Horizontal field width for iFlm
+
 
 class AutoscriptFMChannel:
     """The FM's share of the microscope's one AutoScript connection, shared by the FM
@@ -1164,7 +1239,7 @@ class AutoscriptFMChannel:
 
     def set_active_channel(self) -> None:
         """Point the connection at the FM and leave it there (the old method)."""
-        from fibsem.fm.autoscript import ImagingDevice
+        from autoscript_sdb_microscope_client.enumerations import ImagingDevice
 
         self.connection.imaging.set_active_view(FM_ACTIVE_VIEW)
         self.connection.imaging.set_active_device(
@@ -1268,38 +1343,34 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
     needs_channel = frozenset({"emission_filter"})
 
     def __init__(self, channel: AutoscriptFMChannel, **kwargs: Any):
-        from fibsem.fm.autoscript import CameraEmissionType
+        from autoscript_sdb_microscope_client.enumerations import CameraEmissionType
 
         super().__init__("filter_set", channel, **kwargs)
         self.emission_type = CameraEmissionType.RED
 
     def read_excitation_wavelength(self) -> float:
-        from fibsem.fm.autoscript import COLOR_TO_WAVELENGTH
-
+        color_to_wavelength = _color_to_wavelength()
         color = self.emission_type
-        if color not in COLOR_TO_WAVELENGTH:
+        if color not in color_to_wavelength:
             raise ValueError(
                 f"Invalid excitation color: {color}: must be one of "
-                f"{list(COLOR_TO_WAVELENGTH.keys())}"
+                f"{list(color_to_wavelength.keys())}"
             )
-        return COLOR_TO_WAVELENGTH[color]
+        return color_to_wavelength[color]
 
     def write_excitation_wavelength(self, value: float) -> None:
-        from fibsem.fm.autoscript import COLOR_TO_WAVELENGTH, WAVELENGTH_TO_COLOR
-
-        color = WAVELENGTH_TO_COLOR.get(value, None)
+        wavelength_to_color = {v: k for k, v in _color_to_wavelength().items()}
+        color = wavelength_to_color.get(value, None)
         if color is None:
-            closest = min(COLOR_TO_WAVELENGTH.values(), key=lambda x: abs(x - value))
-            color = WAVELENGTH_TO_COLOR[closest]
+            closest = min(wavelength_to_color, key=lambda x: abs(x - value))
+            color = wavelength_to_color[closest]
         self.emission_type = color
 
     def metadata_excitation_wavelength(self) -> ParameterMetadata:
-        from fibsem.fm.autoscript import AVAILABLE_FM_WAVELENGTHS
-
         return ParameterMetadata(choices=sorted(AVAILABLE_FM_WAVELENGTHS))
 
     def read_emission_filter(self) -> EmissionFilter:
-        from fibsem.fm.autoscript import CameraFilterType
+        from autoscript_sdb_microscope_client.enumerations import CameraFilterType
 
         mode = self._channel.settings().filter.type.value
         if mode is CameraFilterType.FLUORESCENCE:
@@ -1307,7 +1378,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
         return REFLECTION
 
     def write_emission_filter(self, value: EmissionFilter) -> None:
-        from fibsem.fm.autoscript import CameraFilterType
+        from autoscript_sdb_microscope_client.enumerations import CameraFilterType
 
         if value not in (REFLECTION, MULTI_BAND):
             raise ValueError(f"filter_set has no emission filter {value}")
@@ -1334,8 +1405,6 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
         filter_set: AutoscriptFMFilterSet,
         **kwargs: Any,
     ):
-        from fibsem.fm.autoscript import DEFAULT_CONFIGURATION
-
         super().__init__("camera", channel, **kwargs)
         self._filter_set = filter_set
         # AutoScript has no camera offset to set, so it is kept here, from zero.
@@ -1424,7 +1493,7 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
         # acquisition around it to hold the channel. Here the grab holds it itself;
         # inside an acquisition that is the same calls, and a bare grab can't leave
         # the connection on the FM (FIB-517).
-        from fibsem.fm.autoscript import GrabFrameSettings
+        from autoscript_sdb_microscope_client.structures import GrabFrameSettings
 
         with self._channel.scope():
             frame_settings = GrabFrameSettings(
@@ -1493,8 +1562,6 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
     needs_channel = frozenset({"position", "state"})
 
     def __init__(self, channel: AutoscriptFMChannel, **kwargs: Any):
-        from fibsem.fm.autoscript import DEFAULT_CONFIGURATION
-
         super().__init__("objective", channel, **kwargs)
         self._magnification = DEFAULT_CONFIGURATION["magnification"]
         self._numerical_aperture = DEFAULT_CONFIGURATION["numerical_aperture"]
@@ -1637,7 +1704,7 @@ class AutoscriptFM(FM):
             self.camera._start_acquisition()
 
     def _live_frame(self) -> np.ndarray:
-        from fibsem.fm.autoscript import ImagingState
+        from autoscript_sdb_microscope_client.enumerations import ImagingState
 
         if self._channel.connection.imaging.state != ImagingState.ACQUIRING:
             # Stopped from outside (the microscope's own UI): end live view as the old
@@ -1652,6 +1719,87 @@ class AutoscriptFM(FM):
     def _stop_live(self) -> None:
         self.light_source.stop_emission()
         self.camera._stop_acquisition()
+
+
+class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
+    """The FM API's objective over the Thermo objective device, with what the old
+    Thermo objective added: its configured focus position, and homing."""
+
+    def __init__(self, device, channel, parent=None):
+        super().__init__(device, parent=parent)
+        self._channel = channel
+        self._focus_position = DEFAULT_CONFIGURATION["focus_position"]
+
+    def is_homed(self) -> bool:
+        with self._channel.scope():
+            return self._channel.connection.detector.is_homed
+
+    def home(self) -> None:
+        with self._channel.scope():
+            self._channel.connection.detector.home()
+        self._notify_moved()
+
+
+class ThermoFisherFilterSet(fm_api.FilterSet):
+    """The FM API's filter set over the Thermo filter set device. Thermo names its
+    multi-band fluorescence filter by the excitation wavelength, as the old filter set
+    did, where the other drivers name it "Fluorescence"."""
+
+    @property
+    def emission_wavelength(self) -> Optional[float]:
+        if self._device.emission_filter.get_value() == REFLECTION:
+            return None
+        return self.excitation_wavelength
+
+    @emission_wavelength.setter
+    def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
+        fm_api.FilterSet.emission_wavelength.fset(self, value)
+
+
+class ThermoFisherFluorescenceMicroscope(fm_api.FluorescenceMicroscope):
+    """The FM API over the Thermo FM devices (Arctis, Hydra, iFLM).
+
+    What the old ``ThermoFisherFluorescenceMicroscope`` did, through its devices: the channel
+    scope is the devices' own (``AutoscriptFMChannel``), so a tileset that holds the
+    FM's view holds it for every device inside it, and live view is the old fast
+    acquisition, pulled.
+    """
+
+    objective: ThermoFisherObjectiveLens
+    filter_set: ThermoFisherFilterSet
+
+    def __init__(self, devices, parent: Optional["FibsemMicroscope"] = None):
+        super().__init__(devices, parent=parent)
+        self._channel = devices["fm"]._channel
+        self.objective = ThermoFisherObjectiveLens(
+            devices["objective"], self._channel, parent=self
+        )
+        self.filter_set = ThermoFisherFilterSet(devices["filter_set"], parent=self)
+
+    @property
+    def connection(self) -> Any:
+        """The microscope's AutoScript client (``SdbMicroscopeClient``)."""
+        return self._channel.connection
+
+    def set_active_channel(self) -> None:
+        self._channel.set_active_channel()
+
+    @contextmanager
+    def active_channel(self):
+        with self._channel.scope():
+            yield
+
+    @property
+    def fm_settings(self) -> "CameraSettings":
+        return self._channel.settings()
+
+    def _metadata_for_frame(self, frame_metadata):
+        md = super()._metadata_for_frame(frame_metadata)
+        for channel in md.channels:
+            if isinstance(channel.emission_wavelength, str):
+                # The multi-band filter, named by the excitation as the old one is.
+                channel.emission_wavelength = channel.excitation_wavelength
+        return md
 
 
 def bind_autoscript_fm(
@@ -1679,7 +1827,7 @@ def bind_autoscript_fm(
 
 def build_autoscript_fm(
     entry: DeviceEntry, context: BuildContext
-) -> "DeviceThermoFisherFluorescenceMicroscope":
+) -> ThermoFisherFluorescenceMicroscope:
     """The FM API over the Thermo FM devices, sharing the microscope's connection and
     its imaging channel lock with the beams.
 
@@ -1688,11 +1836,9 @@ def build_autoscript_fm(
     Live view is pulled by this process's own worker, which never stops asking while
     it runs, so it has no watchdog: a slow frame handler must not end it. A served FM
     keeps the default."""
-    from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
-
     microscope = context.microscope
     devices = bind_autoscript_fm(microscope, config=entry.as_block())
     devices["fm"].live_timeout = None
-    fm = DeviceThermoFisherFluorescenceMicroscope(devices, parent=microscope)
+    fm = ThermoFisherFluorescenceMicroscope(devices, parent=microscope)
     fm.set_active_channel()
     return fm
