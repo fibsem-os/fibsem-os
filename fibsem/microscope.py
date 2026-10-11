@@ -936,7 +936,7 @@ class FibsemMicroscope(ABC):
         free, because the one path that enters the pose sends r and t only.
 
         `position` is the destination. Without one, or with a partial pose that has no
-        orientation to read (`_safe_rotation_movement` sends a bare tilt), the stage's
+        orientation to read (the safe move's rotation step sends a bare tilt), the stage's
         own pose stands in -- what such a move got before.
 
         `get_stage_orientation` can never return "FM" on an offset mount -- the FM is a
