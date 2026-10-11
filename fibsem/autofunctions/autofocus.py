@@ -513,38 +513,58 @@ def _auto_focus(
     centre_wd = initial_wd
     iterations: list[AutoFocusIteration] = []
 
-    if settings.use_autocontrast:
-        microscope.autocontrast(beam_type, settings.reduced_area)
-
+    # The probe images are acquired with the sweep's own resolution, dwell time and
+    # field of view, and on some backends (Odemis) an acquire writes those to the beam.
+    # Put the beam back as it was, however the sweep ends; only the working distance
+    # is left where the sweep put it. The stage and objective are left out: the sweep
+    # doesn't move them, and restoring them would be a stage move.
+    state = microscope.get_microscope_state(beam_type=beam_type)
+    beam_state = (
+        state.electron_beam if beam_type is BeamType.ELECTRON else state.ion_beam
+    )
+    if beam_state is not None:
+        beam_state.working_distance = None
+    state.stage_position = None
+    state.objective_position = None
     try:
-        for pass_index, sweep_pass in enumerate(active_passes):
-            raise_if_cancelled(
-                stop_event, "AutoFocus cancelled by user."
-            )  # abort between passes
-            pass_iters, centre_wd = _run_sweep(
-                microscope,
-                probe_settings,
-                focus_fn,
-                centre_wd,
-                sweep_pass,
-                pass_index,
-                beam_type,
-                stop_event=stop_event,
-            )
-            iterations.extend(pass_iters)
-    except OperationCancelledError:
-        logger.info("AutoFocus cancelled — restoring initial WD %.4e", initial_wd)
-        microscope.set_working_distance(initial_wd, beam_type)
-        raise
-    except Exception:
-        logger.exception("AutoFocus failed — restoring initial WD %.4e", initial_wd)
-        microscope.set_working_distance(initial_wd, beam_type)
-        raise
+        if settings.use_autocontrast:
+            microscope.autocontrast(beam_type, settings.reduced_area)
 
-    best_idx = int(np.argmax([it.focus_score for it in iterations]))
-    best = iterations[best_idx]
+        try:
+            for pass_index, sweep_pass in enumerate(active_passes):
+                raise_if_cancelled(
+                    stop_event, "AutoFocus cancelled by user."
+                )  # abort between passes
+                pass_iters, centre_wd = _run_sweep(
+                    microscope,
+                    probe_settings,
+                    focus_fn,
+                    centre_wd,
+                    sweep_pass,
+                    pass_index,
+                    beam_type,
+                    stop_event=stop_event,
+                )
+                iterations.extend(pass_iters)
+        except OperationCancelledError:
+            logger.info("AutoFocus cancelled — restoring initial WD %.4e", initial_wd)
+            microscope.set_working_distance(initial_wd, beam_type)
+            raise
+        except Exception:
+            logger.exception("AutoFocus failed — restoring initial WD %.4e", initial_wd)
+            microscope.set_working_distance(initial_wd, beam_type)
+            raise
 
-    microscope.set_working_distance(best.working_distance, beam_type)
+        best_idx = int(np.argmax([it.focus_score for it in iterations]))
+        best = iterations[best_idx]
+
+        microscope.set_working_distance(best.working_distance, beam_type)
+    finally:
+        try:
+            microscope.set_microscope_state(state)
+        except Exception:
+            # Logged, not raised: it must not hide the error that ended the sweep.
+            logger.exception("AutoFocus could not restore the %s beam", beam_type.name)
     logger.info(
         "AutoFocus complete: best WD=%.4e score=%.4f (%d passes, %d steps total)",
         best.working_distance,
