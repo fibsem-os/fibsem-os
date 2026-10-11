@@ -164,8 +164,10 @@ def test_the_sample_stage_moves_through_the_service(microscope):
     }
 
 
-def test_without_the_service_the_sample_stage_uses_the_microscope(microscope):
+def test_without_the_service_the_moves_say_there_is_no_stage(microscope):
     microscope.stage_movement = None
-    start = microscope.get_stage_position()
-    end = microscope._stage.stable_move(10e-6, 0.0, BeamType.ELECTRON)
-    assert end != start
+    with pytest.raises(ValueError, match="no stage"):
+        microscope._stage.stable_move(10e-6, 0.0, BeamType.ELECTRON)
+    with pytest.raises(ValueError, match="no stage"):
+        microscope.move_to_orientation("SEM")
+    assert not microscope.supports_vertical_move(BeamType.ION)

@@ -42,12 +42,9 @@ SHARED_MOVES = (
     "stable_move",
     "vertical_move",
     "project_stable_move",
-    "_vertical_move_from_fib",
-    "_vertical_move_from_sem",
     "_y_corrected_stage_movement",
     "_inverse_y_corrected_stage_movement",
     "safe_absolute_stage_movement",
-    "_safe_rotation_movement",
 )
 
 

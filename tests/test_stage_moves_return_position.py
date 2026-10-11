@@ -54,6 +54,7 @@ def _tescan():
     stage = _TescanStage()
     microscope.connection = SimpleNamespace(Stage=stage)
     microscope.stage = bind_tescan_stage(microscope)
+    microscope._build_stage_movement()
     return microscope, stage
 
 
