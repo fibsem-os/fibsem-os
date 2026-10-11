@@ -2806,19 +2806,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if grid_protocol is not None:
             grid_protocol.refresh()
 
-    def _show_grid_protocol(self) -> None:
-        """⚙ on the Workflow tab's grid task list: the Protocol tab, on its Grid
-        page, where the grid tasks' settings are."""
-        for i in range(self.tab_widget.count()):
-            if self.tab_widget.tabText(i) == "Protocol":
-                if not self.tab_widget.isTabEnabled(i):
-                    return
-                self.tab_widget.setCurrentIndex(i)
-                break
-        tabs = getattr(self.task_widget, "protocol_tabs", None)
-        if tabs is not None:
-            tabs.setCurrentIndex(1)  # Lamella, Grid
-
     def _record_inventoried_grids(self) -> None:
         """A record for every grid the inventory lists and the experiment does not.
 
@@ -3033,9 +3020,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         self.grid_workflow_widget.protocol_changed.connect(
             self._refresh_grid_protocol_editor
-        )
-        self.grid_workflow_widget.protocol_settings_requested.connect(
-            self._show_grid_protocol
         )
         self.workflow_left_tabs.addTab(self.grid_workflow_widget, "Grids")
         # An inventory, a rename, a manual load on the Grids tab: the run view's

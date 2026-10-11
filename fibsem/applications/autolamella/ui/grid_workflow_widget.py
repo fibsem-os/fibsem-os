@@ -5,7 +5,7 @@ and Stop buttons, the timeline on the right, the confirmation before a start.
 Grid rows come from the experiment's records with the hardware's word on each
 (slot, loaded) drawn as chips; only a present grid can be ticked. Task rows
 come from the grid protocol in its order, and the order can be changed here.
-Settings live on the Protocol tab's Grid page; the ⚙ on the task list opens it.
+Settings live on the Protocol tab's Grid page.
 
 "Screen all", on the grid list's header, is the Arctis user's one action:
 inventory, every present grid, the ticked tasks.
@@ -18,6 +18,7 @@ import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -123,6 +124,7 @@ _HEADER_STYLE = "font-weight: bold; background: transparent;"
 TASK_LIST_HINTS = (
     "The order here is the order they run on each grid: drag to reorder"
     "  \u2022  use \u270e to edit what a task requires"
+    "  \u2022  settings are on the Protocol tab's Grid page"
 )
 
 
@@ -581,8 +583,6 @@ class GridWorkflowWidget(QWidget):
     screen_all_requested = pyqtSignal()
     # The task order was changed here and saved to the protocol.
     protocol_changed = pyqtSignal()
-    # ⚙ on the task list: the host shows the Protocol tab's Grid page.
-    protocol_settings_requested = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -619,14 +619,25 @@ class GridWorkflowWidget(QWidget):
         self.task_header = ListHeader("Tasks")
         self.task_header.select_all_changed.connect(self.set_all_tasks_selected)
         self.task_header.add_stretch()
-        # The settings are the protocol's, on the Protocol tab's Grid page: ⚙
-        # goes there, where a line under the list said so on every view.
+        # ⚙ where the Lamella page has its workflow options, disabled: a grid
+        # run has none yet. It is not a way to the Protocol tab -- on the
+        # Lamella page ⚙ opens options, and the two should mean one thing.
         self.btn_settings = IconToolButton(
             icon="mdi:cog-outline",
-            tooltip="Grid task settings, on the Protocol tab's Grid page",
+            tooltip="No grid workflow options yet",
             size=24,
         )
-        self.btn_settings.clicked.connect(self.protocol_settings_requested)
+        # Qt's own disabled rendering of the icon reads as enabled on this
+        # palette: draw the disabled state dim, as a disabled control's text is.
+        icon = QIcon()
+        for colour, mode in (
+            (stylesheets.GRAY_ICON_COLOR, QIcon.Normal),
+            (NEUTRAL_700, QIcon.Disabled),
+        ):
+            pixmap = fibsem_icon("mdi:cog-outline", color=colour).pixmap(32, 32)
+            icon.addPixmap(pixmap, mode)
+        self.btn_settings.setIcon(icon)
+        self.btn_settings.setEnabled(False)
         self.task_header.add_widget(self.btn_settings)
         self.btn_help = help_button(TASK_LIST_HINTS)
         self.task_header.add_widget(self.btn_help)

@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFontMetrics
+from PyQt5.QtGui import QFontMetrics, QIcon
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QDialog, QLabel
 
@@ -474,29 +474,22 @@ class TestPanelChrome:
         assert view.get_selected_task_names() == ["overview_sem", "overview_fm"]
         assert box.checkState() == Qt.CheckState.Checked
 
-    def test_settings_and_hints_are_on_the_task_header(self, view):
-        requested = []
-        view.protocol_settings_requested.connect(lambda: requested.append(True))
-        view.btn_settings.click()
-        assert requested == [True]
-        assert "order they run" in view.btn_help.toolTip()
-
-
-def test_the_task_list_gear_opens_the_protocol_tabs_grid_page(main_ui, experiment):
-    # the editor builds once it has a microscope and an experiment
-    main_ui.autolamella_ui.system_widget.connect_to_microscope()
-    main_ui.task_widget.set_experiment(experiment)
-    tabs = main_ui.tab_widget
-    index = {tabs.tabText(i): i for i in range(tabs.count())}
-    protocol = index["Protocol"]
-    # the app enables both on experiment load; a click on a disabled tab's
-    # button is swallowed
-    for name in ("Workflow", "Protocol"):
-        tabs.setTabEnabled(index[name], True)
-    main_ui.grid_workflow_widget.btn_settings.click()
-    assert tabs.currentIndex() == protocol
-    pages = main_ui.task_widget.protocol_tabs
-    assert pages.tabText(pages.currentIndex()) == "Grid"
+    def test_the_gear_is_disabled_until_grid_runs_have_options(self, view):
+        # on the Lamella page ⚙ opens the workflow's options; a grid run has
+        # none yet, and ⚙ is not a way to the Protocol tab
+        assert not view.btn_settings.isEnabled()
+        # and looks it: Qt's own disabled icon read as enabled on this palette
+        image = view.btn_settings.icon().pixmap(16, 16, QIcon.Disabled).toImage()
+        drawn = [
+            image.pixelColor(x, y)
+            for x in range(image.width())
+            for y in range(image.height())
+            if image.pixelColor(x, y).alpha() > 128
+        ]
+        assert drawn and max(c.lightness() for c in drawn) < 0x80
+        assert "No grid workflow options" in view.btn_settings.toolTip()
+        hints = view.btn_help.toolTip()
+        assert "order they run" in hints and "Protocol tab's Grid page" in hints
 
 
 def test_the_grids_view_sits_beside_lamella(main_ui):
