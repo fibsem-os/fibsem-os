@@ -175,11 +175,11 @@ class DeviceClient:
         events: bool = True,
     ):
         """*token*, when given, goes on every HTTP request as a bearer token, for
-        the agent server, which serves the same ``/devices`` routes behind one
+        the App Server, which serves the same ``/devices`` routes behind one
         (``fibsem.server.server``); the event stream carries none.
 
         *events* False never opens the event stream, for a server that has none
-        (the agent server). Reads, writes and commands work the same; but nothing
+        (the App Server). Reads, writes and commands work the same; but nothing
         signals a change made on the far side, ``cached`` is only as current as
         this client's last read or write, metadata (limits, choices) only as
         current as its last ``refresh_metadata()``, and ``connected``,

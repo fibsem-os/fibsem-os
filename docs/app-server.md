@@ -1,6 +1,6 @@
 # The Agent, Explained
 
-What the AutoLamella agent server is, what an AI agent can see and do through
+What the AutoLamella App Server is, what an AI agent can see and do through
 it, and how to connect one — locally or from another machine.
 
 (Setup commands for the `fibsem-mcp` sidecar live in
@@ -9,7 +9,7 @@ the *why*.)
 
 ## What it is
 
-When you enable the agent server, AutoLamella hosts a small, token-protected
+When you enable the App Server, AutoLamella hosts a small, token-protected
 API on your machine while a microscope is connected. An AI agent (Claude,
 Codex, or anything that speaks MCP or plain HTTP) can connect to it and watch
 your session: the workflow, the queue, the images on screen, the questions the
@@ -22,10 +22,10 @@ observer with a doorbell, not a second driver.
 
 ## Turning it on
 
-1. **Preferences → Agent**: tick *Enable Agent Server*. This is the durable
+1. **Preferences → App Server**: tick *Enable App Server*. This is the durable
    switch; it also holds the hand-over time (below).
 2. Connect a microscope. The server starts with the session and stops with it.
-3. **Tools → Agent Server** shows the live session: whether it is running, the
+3. **Tools → App Server** shows the live session: whether it is running, the
    session token, and what the agent may do.
 
 ## What the agent can see (always, while running)
@@ -62,7 +62,7 @@ view's field width can differ from the acquisition's.
 
 ## What the agent may do (with your permission)
 
-In **Tools → Agent Server**, the *Act* switch lets the agent:
+In **Tools → App Server**, the *Act* switch lets the agent:
 
 - **answer supervision questions** — through exactly the same path as your
   Yes/No buttons. First answer wins: you can always answer first, and your
@@ -118,21 +118,21 @@ enabled). A task set to *Agent* raises its questions to the connected agent:
   shows **✦ Agent** — you can walk away;
 - if the agent answers, you never notice; the timeline records who answered;
 - if the agent goes quiet for longer than *Hand questions to me after*
-  (Preferences → Agent, default 5 minutes), the question becomes yours: the
+  (Preferences → App Server, default 5 minutes), the question becomes yours: the
   ordinary orange border, attention button, and sound, plus a message saying
   why. This hand-over runs inside AutoLamella, so it works even if the agent's
   own process has died;
 - and the app knows whether anyone is actually out there: a watching agent is
   in touch with the server every half-minute, so if it hasn't been heard from
   — it never connected, or its session died — a question is handed to you
-  right away instead of waiting out the timer. The Agent Server dialog shows
+  right away instead of waiting out the timer. The App Server dialog shows
   when the agent was last heard from.
 
 You can always answer any question yourself, whoever it is addressed to.
 
 ## The dashboard
 
-**Open Dashboard** in Tools → Agent Server opens a read-only monitor page in
+**Open Dashboard** in Tools → App Server opens a read-only monitor page in
 your browser — the same session the agent sees, for human eyes: experiment
 and workflow state, a card per item with its latest recorded image, a review
 strip of each completed task's final image, and progress through the tasks,
@@ -140,7 +140,7 @@ plus the live workflow queue and event feed while a run is up. It updates
 itself from the event stream; there is nothing to refresh.
 
 It is a monitor, not a second cockpit: questions are answered in AutoLamella.
-The page is served by the agent server itself, so it exists wherever the
+The page is served by the App Server itself, so it exists wherever the
 server does — on this machine by default. The button hands the page your
 session token in the URL fragment, which stays in the browser (fragments are
 never sent over the network or written to server logs).
@@ -155,7 +155,7 @@ finds by itself:
 claude mcp add fibsem -- fibsem-mcp
 ```
 
-**From another machine** — copy the session token from Tools → Agent Server
+**From another machine** — copy the session token from Tools → App Server
 and point the sidecar at the microscope PC:
 
 ```bash

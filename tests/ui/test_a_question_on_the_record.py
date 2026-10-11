@@ -6,7 +6,7 @@ as a proposal (FIB-1025), and then the answer is a decision -- from the Review
 tab, or from anything else that goes through ``Experiment.decide`` -- rather
 than the prompt's button. These drive the real main window and the real
 responder, ask from a worker thread the way a task does, and decide on the main
-thread the way the tab and the agent server both do.
+thread the way the tab and the App Server both do.
 
 Whenever the question cannot go on the record it is asked the way it always
 was, so the second half is about that: nothing here may leave a question
@@ -510,7 +510,7 @@ def test_an_agent_answering_the_prompt_is_told_to_decide_instead(window, qapp):
     assert ui.ui_responder.recorded_question() is None
 
 
-def test_the_agent_server_says_how_it_is_answered(window, qapp):
+def test_the_app_server_says_how_it_is_answered(window, qapp):
     """The pending prompt names the decision to make, and answering the prompt
     anyway is refused without a click -- not reported as applied."""
     from fibsem.applications.autolamella.server.context import AutoLamellaAppContext

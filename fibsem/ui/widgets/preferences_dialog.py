@@ -85,7 +85,7 @@ _TIP_APP_SERVER = (
     "Run the App Server when a microscope connects: a local, token-protected "
     "API over this session that an AI agent (through the fibsem-mcp sidecar) "
     "and the dashboard can reach. Read-only until you grant permissions for "
-    "the session in Tools → Agent Server, which also shows the session token."
+    "the session in Tools → App Server, which also shows the session token."
 )
 
 # Experiment defaults
@@ -218,7 +218,7 @@ class PreferencesDialog(QDialog):
 
         # --- App Server ---
         # Durable policy only. Scope ARMING is deliberately absent: arming is
-        # consent, granted per session in Tools -> Agent Server, and must not
+        # consent, granted per session in Tools -> App Server, and must not
         # survive a restart via this file.
         agent_page = QWidget()
         agent_form = QFormLayout(agent_page)
@@ -234,7 +234,7 @@ class PreferencesDialog(QDialog):
         self._spin_watchdog.setToolTip(_TIP_WATCHDOG)
         agent_intro = QLabel(
             "Let an AI agent watch this session — and, with permission you "
-            "grant per session in Tools → Agent Server, act on it — over a "
+            "grant per session in Tools → App Server, act on it — over a "
             "local, token-protected connection."
         )
         agent_intro.setWordWrap(True)

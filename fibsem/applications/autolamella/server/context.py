@@ -1455,7 +1455,7 @@ class AutoLamellaAppContext:
         to ("human" or "agent") — display and watchdog semantics only; the
         questions themselves are raised identically, the operator can always
         answer first, and the designation shows nothing in the GUI unless the
-        agent server is running.
+        App Server is running.
         """
         if supervisor not in (None, "human", "agent"):
             return {

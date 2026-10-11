@@ -1,6 +1,6 @@
 # fibsem-mcp — connect an agent to the microscope
 
-> New to the agent? Start with the guide: [docs/agent-server.md](../../docs/agent-server.md) — what the agent can see and do, permissions, and the security model.
+> New to the agent? Start with the guide: [docs/app-server.md](../../docs/app-server.md) — what the agent can see and do, permissions, and the security model.
 
 The MCP sidecar lets Claude (Code or Desktop) drive a fibsem server: acquire
 and *look at* images, read state, move the stage, and always stop a mill. The

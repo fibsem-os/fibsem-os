@@ -99,8 +99,8 @@ failure modes, and shipping a task as a plugin are under
 **Using a segmentation model.** Models live under `fibsem/segmentation/`;
 see [Segmentation models](extending.md#segmentation-models).
 
-**Building against the agent server.** The agent server is internal for
-now. `docs/agent-server.md` describes it; the tool catalogue in
+**Building against the App Server.** The App Server is internal for
+now. `docs/app-server.md` describes it; the tool catalogue in
 `fibsem/server/catalog.py` is the contract, and the supervision skill under
 `.claude/skills/` is a reference client.
 

@@ -243,7 +243,7 @@ def test_reject_needs_a_reason_and_fails_the_task(tab, experiment, monkeypatch):
 
 
 def test_a_decision_made_elsewhere_refreshes_the_inbox(tab, experiment):
-    """The agent server decides through the same function; the tab follows."""
+    """The App Server decides through the same function; the tab follows."""
     lamella = experiment.positions[0]
     assert tab.pending_count == 1
     experiment.decide(

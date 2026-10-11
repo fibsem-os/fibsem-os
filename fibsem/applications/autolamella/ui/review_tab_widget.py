@@ -15,7 +15,7 @@ no defer button on purpose: items commit independently, so walking away is
 deferral.
 
 Every action here is self-contained and never touches hardware. The one write
-path is ``Experiment.decide``; the agent server's decide endpoint is the same
+path is ``Experiment.decide``; the App Server's decide endpoint is the same
 client of the same function, so the tab owns no state a decision could be
 lost in -- the inbox is re-derived from the experiment on every refresh.
 """

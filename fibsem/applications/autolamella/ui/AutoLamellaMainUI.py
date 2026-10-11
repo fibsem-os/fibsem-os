@@ -713,17 +713,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
 
-        # Session controls for the embedded agent server: status, token, and
+        # Session controls for the embedded App Server: status, token, and
         # scope arming (arming is per-session consent; the durable policy is in
         # Preferences -> Agent). Visible only with the feature enabled, next to
         # Scripts — its future Automation-menu sibling (FIB-863).
-        self.action_agent_server = QAction("Agent Server...", self)
-        self.action_agent_server.setMenuRole(QAction.NoRole)
-        self.action_agent_server.setToolTip(
+        self.action_app_server = QAction("App Server...", self)
+        self.action_app_server.setMenuRole(QAction.NoRole)
+        self.action_app_server.setToolTip(
             "Session status, access token, and what the connected agent may do"
         )
-        self.action_agent_server.triggered.connect(self._on_agent_server_dialog)
-        tools_menu.addAction(self.action_agent_server)
+        self.action_app_server.triggered.connect(self._on_app_server_dialog)
+        tools_menu.addAction(self.action_app_server)
 
         # Below the separator because these act on the install rather than on the
         # experiment. The wizard needs a home here as well as on the connection tab:
@@ -996,11 +996,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _apply_preferences(self):
         """Apply current preferences to UI state."""
-        # The embedded agent server follows its flag immediately: ticking the
+        # The embedded App Server follows its flag immediately: ticking the
         # box mid-session starts it against the connected microscope (or stops
         # it), instead of waiting for the next connect.
         if getattr(self, "autolamella_ui", None) is not None:
-            self.autolamella_ui.sync_agent_server_with_preference()
+            self.autolamella_ui.sync_app_server_with_preference()
         d = self._preferences.display
         self._sound_enabled = d.sound_enabled
         self._border_enabled = d.border_enabled
@@ -1021,7 +1021,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._action_coincidence_separator.setVisible(coincidence_enabled)
         self._apply_review_visibility()
         # Same rule as the rest of the agent chrome: invisible unless enabled.
-        self.action_agent_server.setVisible(self._preferences.app_server.enabled)
+        self.action_app_server.setVisible(self._preferences.app_server.enabled)
         # getattr because this also runs from the preferences dialog, and the tab it
         # reaches into is built by AutoLamellaUI rather than here.
         system_widget = getattr(self.autolamella_ui, "system_widget", None)
@@ -2076,14 +2076,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _agent_supervision_active(self, task_name: str) -> bool:
         """Whether ``task_name``'s questions are addressed to a connected agent.
 
-        Gated on the agent server actually running — with no server there is
+        Gated on the App Server actually running — with no server there is
         nobody the designation could refer to, so all the agent chrome stays
         invisible and a designated task behaves as plain supervised.
         """
         ui = self.autolamella_ui
         if ui is None or task_name is None:
             return False
-        host = getattr(ui, "_agent_server_host", None)
+        host = getattr(ui, "_app_server_host", None)
         if host is None or not getattr(host, "running", False):
             return False
         protocol = ui.protocol
@@ -3650,22 +3650,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if tab is not None and getattr(tab, "lamella_list", None) is not None
         ]
 
-    def _on_agent_server_dialog(self) -> None:
+    def _on_app_server_dialog(self) -> None:
         """Open the session dialog: status, token, and scope arming."""
-        from fibsem.applications.autolamella.ui.agent_server_dialog import (
-            AgentServerDialog,
+        from fibsem.applications.autolamella.ui.app_server_dialog import (
+            AppServerDialog,
         )
 
-        dialog = AgentServerDialog(
+        dialog = AppServerDialog(
             host_provider=lambda: getattr(
-                self.autolamella_ui, "_agent_server_host", None
+                self.autolamella_ui, "_app_server_host", None
             ),
             parent=self,
         )
         dialog.exec_()
 
     def _watchdog_ms(self) -> int:
-        """The watchdog deadline, from Preferences → Agent (constant fallback)."""
+        """The watchdog deadline, from Preferences → App Server (constant fallback)."""
         try:
             minutes = fibsem_cfg.load_user_preferences().agent.watchdog_minutes
             return max(1, int(minutes)) * 60 * 1000
@@ -3674,7 +3674,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _agent_seconds_since_seen(self) -> Optional[float]:
         """Seconds since the agent's token last made a request, or None."""
-        host = getattr(self.autolamella_ui, "_agent_server_host", None)
+        host = getattr(self.autolamella_ui, "_app_server_host", None)
         if host is None:
             return None
         try:

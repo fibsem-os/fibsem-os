@@ -30,7 +30,7 @@ microscope connects, attaching the taps, and re-registering the lifecycle hook
 inside ``setup_hooks()`` — the app rebuilds its hook set every run, so a
 once-at-startup registration silently goes deaf after the first run. That is
 ``event_recording.EventRecorder`` (FIB-1031), which also records the stream to
-disk; the agent server reads the same buffer when it runs.
+disk; the App Server reads the same buffer when it runs.
 """
 
 import dataclasses

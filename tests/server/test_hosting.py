@@ -1,4 +1,4 @@
-"""AgentServerHost over a real socket: lifecycle, discovery, events, refusal."""
+"""AppServerHost over a real socket: lifecycle, discovery, events, refusal."""
 
 import os
 import socket
@@ -9,7 +9,7 @@ fastapi = pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
 from fibsem import utils  # noqa: E402
-from fibsem.applications.autolamella.server.hosting import AgentServerHost  # noqa: E402
+from fibsem.applications.autolamella.server.hosting import AppServerHost  # noqa: E402
 
 
 class Host:
@@ -36,7 +36,7 @@ def microscope():
 def host(tmp_path, microscope):
     ui = Host()
     ui.microscope = microscope
-    server_host = AgentServerHost(
+    server_host = AppServerHost(
         ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
     )
     yield server_host
@@ -128,7 +128,7 @@ def test_microscope_taps_are_live_and_detach_on_stop(host, microscope):
 def test_start_failure_is_contained_not_raised(microscope, tmp_path):
     ui = Host()
     # Port 1 is unbindable without privileges — start must fail closed.
-    server_host = AgentServerHost(
+    server_host = AppServerHost(
         ui, port=1, discovery_path=tmp_path / "agent-server.json"
     )
     assert server_host.start(microscope) is False
@@ -138,7 +138,7 @@ def test_start_failure_is_contained_not_raised(microscope, tmp_path):
 def test_env_override_arms_control_scope(microscope, tmp_path, monkeypatch):
     monkeypatch.setenv("FIBSEM_AGENT_ARM_CONTROL", "1")
     ui = Host()
-    server_host = AgentServerHost(
+    server_host = AppServerHost(
         ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
     )
     try:

@@ -1,7 +1,7 @@
 """The workflow row's attention chip: one control for when a person is
 involved in a task, cycling Automated → Supervised → (Agent) → (Review).
 
-The Agent step exists only while the agent-server preference is on and the
+The Agent step exists only while the App Server preference is on and the
 Review step only while interactive review is on; with neither this is the old
 two-state toggle. A stored ``supervisor: agent`` displays as plain Supervised
 with the feature off, and a stored ``review: true`` as Automated -- the state

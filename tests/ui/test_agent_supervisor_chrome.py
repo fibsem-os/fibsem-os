@@ -1,7 +1,7 @@
 """The agent-supervision chrome: purple only when there is actually an agent.
 
 The supervisor designation is display-and-watchdog semantics, and the display
-half is gated hard: with no agent server running, a task designated
+half is gated hard: with no App Server running, a task designated
 ``supervisor: agent`` looks exactly like plain supervised — none of the agent
 chrome exists for a user who never enabled the feature.
 
@@ -63,17 +63,17 @@ def agent_supervised_task(main_ui, tmp_path):
         )
     )
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
-    previous = (ui.experiment, ui._agent_server_host, main_ui._current_task_name)
+    previous = (ui.experiment, ui._app_server_host, main_ui._current_task_name)
     ui.experiment = experiment
     main_ui._current_task_name = "Rough Milling"
     yield experiment
-    ui.experiment, ui._agent_server_host, main_ui._current_task_name = previous
+    ui.experiment, ui._app_server_host, main_ui._current_task_name = previous
 
 
 def test_designation_is_invisible_without_a_running_server(
     main_ui, agent_supervised_task
 ):
-    main_ui.autolamella_ui._agent_server_host = None
+    main_ui.autolamella_ui._app_server_host = None
     assert main_ui._update_supervised_status() is True
     assert main_ui.workflow_controls.supervision_btn.text() == "Supervised"
     assert main_ui._running_border_state("Rough Milling") == "supervised"
@@ -82,14 +82,14 @@ def test_designation_is_invisible_without_a_running_server(
 def test_designation_shows_agent_chrome_with_a_running_server(
     main_ui, agent_supervised_task
 ):
-    main_ui.autolamella_ui._agent_server_host = _RunningHost()
+    main_ui.autolamella_ui._app_server_host = _RunningHost()
     assert main_ui._update_supervised_status() is True
     assert main_ui.workflow_controls.supervision_btn.text() == "Agent"
     assert main_ui._running_border_state("Rough Milling") == "agent"
 
 
 def test_an_unsupervised_task_is_automated_regardless(main_ui, agent_supervised_task):
-    main_ui.autolamella_ui._agent_server_host = _RunningHost()
+    main_ui.autolamella_ui._app_server_host = _RunningHost()
     task = agent_supervised_task.task_protocol.workflow_config.tasks[-1]
     task.attention = Attention.automated
     assert main_ui._update_supervised_status() is False

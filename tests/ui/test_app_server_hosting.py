@@ -1,4 +1,4 @@
-"""The embedded agent server through the real window: preference-gated start on
+"""The embedded App Server through the real window: preference-gated start on
 microscope connect, per-run hook registration, stop on disconnect."""
 
 import os
@@ -30,8 +30,8 @@ def ui(qapp):
     try:
         yield window
     finally:
-        if window._agent_server_host is not None:
-            window._agent_server_host.stop()
+        if window._app_server_host is not None:
+            window._app_server_host.stop()
         window._stop_event_recorder()
         window.close()
         window.deleteLater()
@@ -45,7 +45,7 @@ def app_server_enabled(monkeypatch, tmp_path):
     preferences.app_server.enabled = True
     monkeypatch.setattr(fibsem_cfg, "load_user_preferences", lambda: preferences)
 
-    real_host = hosting.AgentServerHost
+    real_host = hosting.AppServerHost
     port = _free_port()
 
     def confined(ui_object, **kwargs):
@@ -56,7 +56,7 @@ def app_server_enabled(monkeypatch, tmp_path):
             devices=kwargs.get("devices", False),
         )
 
-    monkeypatch.setattr(hosting, "AgentServerHost", confined)
+    monkeypatch.setattr(hosting, "AppServerHost", confined)
     return preferences
 
 
@@ -64,7 +64,7 @@ def test_connect_starts_a_live_read_only_server(ui, app_server_enabled):
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
 
-    host = ui._agent_server_host
+    host = ui._app_server_host
     assert host is not None and host.running
     body = httpx.get(
         f"{host.url}/capabilities",
@@ -93,11 +93,11 @@ def _confine_and_control_preferences(monkeypatch, tmp_path):
     """A mutable preferences object the tests flip, host confined to a test port."""
     preferences = fibsem_cfg.UserPreferences()
     monkeypatch.setattr(fibsem_cfg, "load_user_preferences", lambda: preferences)
-    real_host = hosting.AgentServerHost
+    real_host = hosting.AppServerHost
     port = _free_port()
     monkeypatch.setattr(
         hosting,
-        "AgentServerHost",
+        "AppServerHost",
         lambda ui_object, **kwargs: real_host(
             ui_object,
             port=port,
@@ -114,21 +114,21 @@ def test_saving_the_preference_mid_session_starts_and_stops_the_server(
     preferences = _confine_and_control_preferences(monkeypatch, tmp_path)
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
-    assert ui._agent_server_host is None  # flag off at connect, as before
+    assert ui._app_server_host is None  # flag off at connect, as before
 
     # The user ticks the box and saves: the server starts now, not next connect.
     preferences.app_server.enabled = True
-    ui.sync_agent_server_with_preference()
-    host = ui._agent_server_host
+    ui.sync_app_server_with_preference()
+    host = ui._app_server_host
     assert host is not None and host.running
 
     # Already matching: syncing again must not restart or double-bind.
-    ui.sync_agent_server_with_preference()
-    assert ui._agent_server_host is host and host.running
+    ui.sync_app_server_with_preference()
+    assert ui._app_server_host is host and host.running
 
     # Unticking stops it just as immediately.
     preferences.app_server.enabled = False
-    ui.sync_agent_server_with_preference()
+    ui.sync_app_server_with_preference()
     assert not host.running
 
 
@@ -147,20 +147,20 @@ def test_the_devices_service_is_off_by_default_and_restarts_when_changed(
     preferences.app_server.enabled = True
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
-    first = ui._agent_server_host
+    first = ui._app_server_host
     assert first is not None and first.running
     assert _routers(first) == {"microscope": False, "devices": False, "app": True}
 
     # Turning devices on rebuilds the server with the instrument routes.
     preferences.app_server.devices = True
-    ui.sync_agent_server_with_preference()
-    second = ui._agent_server_host
+    ui.sync_app_server_with_preference()
+    second = ui._app_server_host
     assert second is not first and not first.running and second.running
     assert _routers(second) == {"microscope": True, "devices": True, "app": True}
 
     # Unchanged: no restart.
-    ui.sync_agent_server_with_preference()
-    assert ui._agent_server_host is second and second.running
+    ui.sync_app_server_with_preference()
+    assert ui._app_server_host is second and second.running
 
     ui.disconnect_from_microscope()
     assert not second.running
@@ -169,9 +169,9 @@ def test_the_devices_service_is_off_by_default_and_restarts_when_changed(
 def test_syncing_without_a_microscope_waits_for_connect(ui, monkeypatch, tmp_path):
     preferences = _confine_and_control_preferences(monkeypatch, tmp_path)
     preferences.app_server.enabled = True
-    ui.sync_agent_server_with_preference()
+    ui.sync_app_server_with_preference()
     # Nothing to serve yet: the connect path picks the preference up, as before.
-    assert ui._agent_server_host is None
+    assert ui._app_server_host is None
 
 
 def test_default_preference_hosts_nothing(ui, monkeypatch):
@@ -182,12 +182,12 @@ def test_default_preference_hosts_nothing(ui, monkeypatch):
     )
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
-    assert ui._agent_server_host is None
+    assert ui._app_server_host is None
     manager = ui.setup_hooks()
     assert manager is not None  # and built without any agent involvement
 
 
-def test_the_event_stream_runs_without_the_agent_server(ui, monkeypatch):
+def test_the_event_stream_runs_without_the_app_server(ui, monkeypatch):
     """The stream is the app's (FIB-1031): connect starts it, server or not."""
     monkeypatch.setattr(
         fibsem_cfg, "load_user_preferences", lambda: fibsem_cfg.UserPreferences()
@@ -195,7 +195,7 @@ def test_the_event_stream_runs_without_the_agent_server(ui, monkeypatch):
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
     recorder = ui._event_recorder
-    assert recorder is not None and ui._agent_server_host is None
+    assert recorder is not None and ui._app_server_host is None
     # A run finds this recorder and registers its lifecycle hook (FIB-1044).
     assert recorder_for(ui.microscope) is recorder
     assert recorder.buffer.append in ui.ui_responder._question_observers
@@ -209,13 +209,13 @@ def test_the_event_stream_runs_without_the_agent_server(ui, monkeypatch):
     assert not recorder.writer.alive
 
 
-def test_the_agent_server_reads_the_session_stream(ui, app_server_enabled):
+def test_the_app_server_reads_the_session_stream(ui, app_server_enabled):
     # connect_to_microscope runs twice here: through the widget's signal, then
     # called directly -- as it would on any later refresh of the widget while
     # connected. The second must not leave the server on a stream it replaced.
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
-    host, recorder = ui._agent_server_host, ui._event_recorder
+    host, recorder = ui._app_server_host, ui._event_recorder
     assert host.running
     assert host.event_buffer is recorder.buffer
     assert host.lifecycle_hook is recorder.lifecycle_hook

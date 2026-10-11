@@ -135,7 +135,7 @@ def grid_outputs(
     """Absolute, existing, de-duplicated paths a grid's task runs recorded under `roles`.
 
     The grid-side read model (FIB-876): a results card, the Overview tab and the
-    agent server all read the history's `outputs`, and nothing globs the grid's
+    App Server all read the history's `outputs`, and nothing globs the grid's
     directory. Paths are recorded relative to `experiment.grid_path(grid)`, so a
     copied experiment still resolves. Pass `task_name` to read one task's runs
     only; by default every run on the grid contributes.

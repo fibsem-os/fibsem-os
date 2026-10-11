@@ -1,4 +1,4 @@
-"""The agent server's review surface: GET /app/reviews is the tab's inbox,
+"""The App Server's review surface: GET /app/reviews is the tab's inbox,
 POST /app/decide is the tab's Confirm and Reject, through the same
 Experiment.decide -- on the main thread, blocking the server worker until
 applied, with the agent recorded as author.
