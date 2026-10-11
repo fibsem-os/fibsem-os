@@ -1,4 +1,5 @@
 """Test script for LamellaListWidget."""
+
 import sys
 import time
 from pathlib import Path
@@ -34,7 +35,9 @@ def _make_lamella(
     lamella = Lamella(path=Path(f"/tmp/test/{petname}"), number=number, petname=petname)
 
     if last_task:
-        state = AutoLamellaTaskState(name=last_task, status=AutoLamellaTaskStatus.Completed)
+        state = AutoLamellaTaskState(
+            name=last_task, status=AutoLamellaTaskStatus.Completed
+        )
         state.end_timestamp = time.time()
         lamella.task_history.append(state)
 
@@ -51,9 +54,15 @@ def _make_lamella(
 SAMPLE = [
     _make_lamella(1, "01-humble-molly"),
     _make_lamella(2, "01-hearty-wombat", last_task="Acquire Reference Image"),
-    _make_lamella(3, "02-jolly-koala", last_task="Mill Rough", in_progress="Mill Polishing"),
-    _make_lamella(4, "03-brave-falcon", last_task="Mill Rough", defect_state=DefectType.REWORK),
-    _make_lamella(5, "04-eager-otter", last_task="Mill Polishing", defect_state=DefectType.FAILURE),
+    _make_lamella(
+        3, "02-jolly-koala", last_task="Mill Rough", in_progress="Mill Polishing"
+    ),
+    _make_lamella(
+        4, "03-brave-falcon", last_task="Mill Rough", defect_state=DefectType.REWORK
+    ),
+    _make_lamella(
+        5, "04-eager-otter", last_task="Mill Polishing", defect_state=DefectType.FAILURE
+    ),
 ]
 
 
@@ -105,8 +114,8 @@ class TestWindow(QWidget):
 
         for label, fn in [
             ("Actions", self.lamella_list.enable_actions_button),
-            ("Remove",  self.lamella_list.enable_remove_button),
-            ("Defect",  self.lamella_list.enable_defect_button),
+            ("Remove", self.lamella_list.enable_remove_button),
+            ("Defect", self.lamella_list.enable_defect_button),
         ]:
             cb = QCheckBox(label)
             cb.setChecked(True)
@@ -139,13 +148,19 @@ class TestWindow(QWidget):
 
     def _add_random(self) -> None:
         import random
+
         adjectives = ["calm", "deft", "fierce", "gentle", "nimble"]
         animals = ["crane", "viper", "lynx", "bison", "heron"]
-        name = f"{self._counter:02d}-{random.choice(adjectives)}-{random.choice(animals)}"
+        name = (
+            f"{self._counter:02d}-{random.choice(adjectives)}-{random.choice(animals)}"
+        )
         lamella = _make_lamella(
-            self._counter, name,
+            self._counter,
+            name,
             last_task="Acquire Reference Image",
-            defect_state=random.choice([DefectType.NONE, DefectType.REWORK, DefectType.FAILURE]),
+            defect_state=random.choice(
+                [DefectType.NONE, DefectType.REWORK, DefectType.FAILURE]
+            ),
         )
         self.lamella_list.add_lamella(lamella)
         self._counter += 1
