@@ -333,9 +333,8 @@ def build_app_router(context: AppContext) -> APIRouter:
 def build_app_control_router(context: AppContext) -> APIRouter:
     """Routes that act on the session rather than observe it.
 
-    Mounted (by build_server) behind the ``control`` scope, which embedded
-    hosting does not arm yet — so today these exist only where a hosting
-    explicitly arms control (tests; later, the arming dialog).
+    Mounted (by build_server) behind the ``control`` scope, which the agent
+    holds at Drive: the operator raises it from the Agent chip (FIB-1035).
     """
     router = APIRouter(prefix="/app")
 

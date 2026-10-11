@@ -1,6 +1,6 @@
 # fibsem-mcp — connect an agent to the microscope
 
-> New to the agent? Start with the guide: [docs/app-server.md](../../docs/app-server.md) — what the agent can see and do, permissions, and the security model.
+> New to the agent? Start with the guide: [docs/app-server.md](../../docs/app-server.md) — what the agent can see and do at each level, and the security model.
 
 The MCP sidecar lets Claude (Code or Desktop) drive a fibsem server: acquire
 and *look at* images, read state, move the stage, and always stop a mill. The
@@ -92,7 +92,8 @@ tools) and ask:
 Loopback bind keeps everything off the network by default; the per-session
 bearer token keeps other users on the same machine out; the `hardware` scope
 must be armed before anything moves or images; one hardware command runs at a
-time (a second gets `409 busy`); `stop_milling` is always allowed and never
-waits. **Never run this beside a running AutoLamella session** — one
-commander per microscope; agent access to a live AutoLamella session goes
-*through* the app (embedded hosting, in development), not around it.
+time (a second gets `409 busy`); `stop_milling` needs `control` or
+`hardware` and never waits. **Never run this beside a running AutoLamella
+session** — one commander per microscope; agent access to a live AutoLamella
+session goes *through* the app (its App Server, where the operator sets the
+agent's level), not around it.

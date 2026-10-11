@@ -1,6 +1,6 @@
 ---
 name: supervise-autolamella
-description: Supervise a running AutoLamella workflow through the agent server — watch its events, judge and answer its questions, and escalate to the operator when unsure. Use when asked to supervise, watch, babysit, or run a workflow, or to answer AutoLamella's supervision prompts.
+description: Supervise a running AutoLamella workflow through the App Server — watch its events, judge and answer its questions, and escalate to the operator when unsure. Use when asked to supervise, watch, babysit, or run a workflow, or to answer AutoLamella's supervision prompts.
 argument-hint: [optional mode: collaborative | exemplar | batch-review]
 ---
 
@@ -41,13 +41,43 @@ to slip past it.
 
 Check the capabilities response before doing anything else:
 - `routers.app` must be true (an application is hosted, not just a bench server);
-- `scopes.control` true means you may answer and act. If it is false you can
-  only watch — say so, and ask the operator to grant *Act* in
-  Tools → Agent Server. Never treat a 403 as an error to work around.
+- `level` is what the operator lets you do (next section). Tell them, in a
+  sentence, what that level means you can and can't do this session.
 
 No discovery file → no server. Tell the operator to enable it
-(Preferences → Agent) and connect a microscope. Do not go looking for other
-ways in.
+(Preferences → App Server) and connect a microscope. Do not go looking for
+other ways in.
+
+## Your level
+
+The operator sets one level for you from the Agent chip in AutoLamella's
+status bar. Every launch starts at Watch; nothing in a file raises it.
+
+- **Watch** — you see everything and can add notes; you cannot answer,
+  start, stop, re-queue or edit. Watch is a complete job: say what you see,
+  say what you would answer and why, and leave the click to the operator.
+- **Drive** — you may answer questions, start and stop workflows, change
+  supervision, re-queue, and edit configuration and schedules.
+- **Assist** is not offered yet. **Off** refuses everything, `/capabilities`
+  included (`403 agent_off`).
+
+Hardware (moving the stage, acquiring, milling directly) is never part of a
+level. Milling happens only inside a workflow's own steps.
+
+A refusal names its reason in `detail.error_type`:
+
+- `scope_not_armed` with `level` — the action needs a higher level. Say what
+  you wanted to do and that it needs Drive; ask once, then carry on watching.
+- `agent_stopped` — the operator pressed *Stop agent* and you are at Watch.
+  Stop acting at once: abandon what you were doing, report where you left
+  it, and keep watching. Do not ask to be raised again unless they ask you
+  to continue.
+- `agent_off` — you are off. Report that once and stop; there is nothing to
+  watch.
+
+If `level` drops from Drive to Watch mid-session for any reason, the rule is
+the same as `agent_stopped`: report and stop acting. Never treat a 403 as an
+error to work around, and never retry it in another form.
 
 ## Watch
 
@@ -226,26 +256,24 @@ The argument selects a variation on the same loop:
   One run at a time: it is refused while a lamella run is live, and a
   lamella start is refused while a grid run is.
 
-## Acting beyond answers (control permission)
+## Acting beyond answers (Drive)
 
 - `POST /app/workflow/start {"task_names": [...], "item_names": [...]}` —
   items omitted = all. Say what you are starting before you start it.
-- `POST /app/workflow/stop` — works without the Act permission, deliberately:
-  if you believe the run is doing damage, stop first and explain second.
-- `POST /app/supervision {"task_name", "supervise", "supervisor"}` — takes
-  effect at the next decision point. Designating a task
-  `"supervisor": "agent"` turns the window purple and puts its questions on
-  your clock: the app hands them to the operator if you go silent past the
-  hand-over time, so keep your watch alive for tasks you own.
+- `POST /app/workflow/stop` — if you believe the run is doing damage, stop
+  first and explain second. At Watch you cannot stop it: tell the operator
+  at once, plainly, what you see and that they should press Stop.
+- `POST /app/supervision {"task_name", "supervise"}` — takes effect at the
+  next decision point. A supervised task's questions go to the operator and
+  to you alike; the first answer wins, and the operator can always answer
+  first.
 - `POST /app/queue/requeue {"item_name", "task_name"}` — re-runs a completed
   pair inside a running workflow.
 
-## Editing configuration (configure permission)
+## Editing configuration (Drive)
 
-A separate permission from *Act* — the operator arms **Configure** in
-Tools → Agent Server. With it you can change task parameters; without it
-you can still read them (`get_protocol_task_config`,
-`get_item_task_config`).
+At Drive you can change task parameters. At Watch you can still read them
+(`get_protocol_task_config`, `get_item_task_config`).
 
 Two levels, one dance:
 
@@ -262,7 +290,7 @@ config for the run in progress — patch after it finishes. Values are SI
 (metres, amps); bounds are validated for you and refusals name the
 failing path.
 
-Scheduling rides the same permission: `set_task_schedule` sets or clears
+Scheduling is Drive too: `set_task_schedule` sets or clears
 when a task may start (ISO-8601, instrument-local when naive; null
 clears). The workflow reads it at each task start, so it never interrupts
 anything running.
