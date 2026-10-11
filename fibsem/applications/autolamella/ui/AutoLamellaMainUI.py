@@ -1615,6 +1615,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.hide()
         self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
         self.agent_chip.connect_clicked.connect(self._on_connect_agent_dialog)
+        self.agent_chip.stop_clicked.connect(self._on_stop_agent)
         self.status_bar.add_action(self.agent_chip)
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -3727,9 +3728,39 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         its next request."""
         host = self._running_app_server()
         if host is not None:
+            previous = host.auth.level
             host.auth.set_level(level)
             logging.info("Agent level set to %s by the operator", level.value)
+            self._record_agent_event("agent_level_set", previous=previous, level=level)
         self._refresh_agent_chip()
+
+    def _on_stop_agent(self) -> None:
+        """GUI thread, from the chip: the brake. Down to Watch at once, without
+        asking; the agent's next action is refused as stopped. A running
+        workflow is left running -- runs are the app's, with their own Stop."""
+        host = self._running_app_server()
+        if host is not None:
+            previous = host.auth.level
+            host.auth.stop_agent()
+            logging.warning("Agent stopped by the operator: level set to watch")
+            self._record_agent_event(
+                "agent_stopped", previous=previous, level=host.auth.level
+            )
+        self._refresh_agent_chip()
+
+    def _record_agent_event(self, kind: str, previous, level) -> None:
+        """Put a level change on the session's record (events.jsonl). Emitted
+        here, on the GUI thread, so the recorder names the operator."""
+        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        if recorder is None:
+            return
+        recorder.buffer.append(
+            kind,
+            {
+                "previous": previous.value if previous is not None else None,
+                "level": level.value,
+            },
+        )
 
     def _agent_seconds_since_seen(self) -> Optional[float]:
         """Seconds since the agent's token last made a request, or None."""

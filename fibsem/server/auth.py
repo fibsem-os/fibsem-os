@@ -77,6 +77,9 @@ class AuthConfig:
     # is a server with no level model -- the bench and headless hostings --
     # where the armed scopes alone decide.
     level: Optional[AgentLevel] = None
+    # Set by stop_agent, cleared by the next set_level: the operator braked, so a
+    # refusal says so rather than only naming the level.
+    stopped: bool = False
     # Monotonic time of the last request that presented the valid token; None
     # until one arrives. The connected agent's proof of life: its event
     # long-poll alone touches the server every half-minute, so staleness here
@@ -106,6 +109,14 @@ class AuthConfig:
         # Two atomic rebinds, read independently by requests.
         self.armed = frozenset(LEVEL_SCOPES[level] | keep)
         self.level = level
+        self.stopped = False
+
+    def stop_agent(self) -> None:
+        """The operator's Stop agent: down to Watch at once. The agent still
+        sees, so it can say what happened; its next action is refused as
+        stopped."""
+        self.set_level(AgentLevel.WATCH)
+        self.stopped = True
 
     def set_armed(self, scope: Scope, armed: bool) -> None:
         """Arm or disarm one scope, effective for the next request."""
@@ -184,7 +195,14 @@ def _dashboard_refused() -> HTTPException:
 
 def _not_armed_detail(auth: AuthConfig, scope: Scope) -> dict:
     detail = {"error_type": "scope_not_armed", "scope": scope.value}
-    if auth.level is None:
+    if auth.stopped:
+        detail["error_type"] = "agent_stopped"
+        detail["level"] = AgentLevel.WATCH.value
+        detail["message"] = (
+            "The operator stopped the agent and set it to Watch: it can look and "
+            "add notes, but not act, until they raise the level."
+        )
+    elif auth.level is None:
         detail["message"] = f"The '{scope.value}' scope is not armed on this server."
     else:
         detail["level"] = auth.level.value

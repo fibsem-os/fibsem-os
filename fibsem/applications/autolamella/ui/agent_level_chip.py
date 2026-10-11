@@ -105,6 +105,7 @@ class AgentLevelChip(QPushButton):
     """The agent's level, and the menu that sets it."""
 
     level_chosen = pyqtSignal(object)  # AgentLevel
+    stop_clicked = pyqtSignal()
     connect_clicked = pyqtSignal()
 
     def __init__(
@@ -118,6 +119,15 @@ class AgentLevelChip(QPushButton):
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
 
         self.menu_ = QMenu(self)
+        # The brake, first whenever the agent can act: no confirmation.
+        self.stop_action = QAction("Stop agent", self)
+        self.stop_action.setToolTip(
+            "Stop the agent acting: down to Watch at once. A running workflow "
+            "keeps running; its own Stop is beside this."
+        )
+        self.stop_action.triggered.connect(self.stop_clicked)
+        self.menu_.addAction(self.stop_action)
+        self._stop_separator = self.menu_.addSeparator()
         self._group = QActionGroup(self)
         self._group.setExclusive(True)
         self._actions = {}
@@ -159,6 +169,9 @@ class AgentLevelChip(QPushButton):
         action = self._actions.get(level)
         if action is not None:
             action.setChecked(True)
+        can_act = level in (AgentLevel.ASSIST, AgentLevel.DRIVE)
+        self.stop_action.setVisible(can_act)
+        self._stop_separator.setVisible(can_act)
 
     def refresh_last_heard(self) -> None:
         try:
