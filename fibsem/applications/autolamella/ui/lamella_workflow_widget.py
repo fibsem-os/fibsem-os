@@ -216,10 +216,8 @@ class LamellaWorkflowWidget(QWidget):
         root.setSpacing(0)
 
         # ── lamella section ──────────────────────────────────────────────
-        self._lamella_header = QLabel("Lamella")
-        self._lamella_header.setStyleSheet(_SECTION_LABEL_STYLE)
-        root.addWidget(self._lamella_header)
-
+        # No section label over either list: each list's own header names it
+        # (`list_chrome.ListHeader`).
         self.lamella_list = LamellaListWidget()
         self.lamella_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.lamella_list.enable_move_to_action(False)
@@ -244,10 +242,6 @@ class LamellaWorkflowWidget(QWidget):
         root.addWidget(sep2)
 
         # ── workflow section ─────────────────────────────────────────────
-        self._workflow_header = QLabel("Tasks")
-        self._workflow_header.setStyleSheet(_SECTION_LABEL_STYLE)
-        root.addWidget(self._workflow_header)
-
         self.workflow = WorkflowConfigWidget()
         self.workflow.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         root.addWidget(self.workflow, 1)
@@ -331,12 +325,6 @@ class LamellaWorkflowWidget(QWidget):
         self.workflow.clear()
         self._update_summary()
 
-    def set_lamella_header(self, text: str) -> None:
-        self._lamella_header.setText(text)
-
-    def set_workflow_header(self, text: str) -> None:
-        self._workflow_header.setText(text)
-
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -345,11 +333,6 @@ class LamellaWorkflowWidget(QWidget):
         if self.experiment is None:
             return []
         return sorted(self.experiment.task_protocol.task_config.keys())
-
-    def set_section_title_visible(self, visible: bool) -> None:
-        """The "Lamella" title over the list. Off when the host's Lamella | Grids
-        selector already says which list this is."""
-        self._lamella_header.setVisible(visible)
 
     def _update_summary(self) -> None:
         n_lam = len(self.lamella_list.get_selected())

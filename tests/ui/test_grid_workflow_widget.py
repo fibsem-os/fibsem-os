@@ -459,10 +459,10 @@ def test_the_grids_view_sits_beside_lamella(main_ui):
     index = left.indexOf(main_ui.grid_workflow_widget)
     assert left.tabText(index) == "Grids" and left.tabText(0) == "Lamella"
     assert left.isTabVisible(index) and not left.tabBar().isHidden()
-    # the selector says which list it is; the list's own title would say it twice
-    assert not main_ui.lamella_workflow_widget._lamella_header.isVisibleTo(
-        main_ui.lamella_workflow_widget
-    )
+    # each list is named by its own header, with no section label over it
+    lamella = main_ui.lamella_workflow_widget
+    assert not hasattr(lamella, "_lamella_header")
+    assert lamella.lamella_list._header.title_label.text() == "Lamella"
 
 
 def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):
