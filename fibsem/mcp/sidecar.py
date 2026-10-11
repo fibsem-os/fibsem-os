@@ -410,10 +410,8 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/workflow/grids/start", payload)
         return err if err else data
 
-    def set_task_supervision(task_name: str, supervise: bool, supervisor: str = None):  # noqa: RUF013
+    def set_task_supervision(task_name: str, supervise: bool):
         payload = {"task_name": task_name, "supervise": bool(supervise)}
-        if supervisor is not None:
-            payload["supervisor"] = supervisor
         data, err = _call(client, "POST", "/app/supervision", payload)
         return err if err else data
 

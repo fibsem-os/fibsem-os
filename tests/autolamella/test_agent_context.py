@@ -309,47 +309,32 @@ def test_set_supervision_flips_the_live_protocol(experiment):
     )
 
 
-def test_supervisor_designation_round_trips_and_is_settable(experiment):
+def test_supervision_sets_attention_and_names_no_supervisor(experiment):
+    # A supervised question goes to the operator and the agent alike, and the
+    # first answer wins (FIB-1035): no task says whose its questions are.
     from fibsem.applications.autolamella.structures import (
         AutoLamellaTaskDescription,
     )
 
     experiment.task_protocol.workflow_config.tasks.append(
         AutoLamellaTaskDescription(
-            name="Rough Milling", attention=Attention.supervised, required=True
+            name="Rough Milling", attention=Attention.automated, required=True
         )
     )
     host = Host()
     host.experiment = experiment
     ctx = AutoLamellaAppContext(host)
 
-    # Default is human — today's behaviour exactly.
+    assert "supervisor" not in ctx.protocol()["tasks"][-1]
+    applied = ctx.set_supervision("Rough Milling", True)
+    assert applied == {
+        "available": True,
+        "applied": True,
+        "task_name": "Rough Milling",
+        "supervise": True,
+    }
     task = experiment.task_protocol.workflow_config.tasks[-1]
-    assert task.supervisor == "human"
-    assert experiment.task_protocol.get_supervisor("Rough Milling") == "human"
-    assert ctx.protocol()["tasks"][-1]["supervisor"] == "human"
-
-    # The agent designates itself; the same read the chrome uses sees it.
-    applied = ctx.set_supervision("Rough Milling", True, supervisor="agent")
-    assert applied["applied"] is True
-    assert applied["supervisor"] == "agent"
-    assert experiment.task_protocol.get_supervisor("Rough Milling") == "agent"
-
-    bad = ctx.set_supervision("Rough Milling", True, supervisor="robot overlord")
-    assert bad["applied"] is False
-
-    # Serialization: the field survives a round trip, an old dict without it
-    # defaults to human, and unknown keys from a newer version are ignored.
-    reloaded = AutoLamellaTaskDescription.from_dict(task.to_dict())
-    assert reloaded.supervisor == "agent"
-    legacy = AutoLamellaTaskDescription.from_dict(
-        {"name": "x", "supervise": True, "required": False}
-    )
-    assert legacy.supervisor == "human"
-    future = AutoLamellaTaskDescription.from_dict(
-        {"name": "x", "supervise": True, "required": False, "from_the_future": 1}
-    )
-    assert future.name == "x"
+    assert task.attention is Attention.supervised
 
 
 def test_requeue_task_reruns_a_completed_pair(experiment, microscope):
