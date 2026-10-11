@@ -50,7 +50,10 @@ def app_server_enabled(monkeypatch, tmp_path):
 
     def confined(ui_object, **kwargs):
         return real_host(
-            ui_object, port=port, discovery_path=tmp_path / "agent-server.json"
+            ui_object,
+            port=port,
+            discovery_path=tmp_path / "agent-server.json",
+            devices=kwargs.get("devices", False),
         )
 
     monkeypatch.setattr(hosting, "AgentServerHost", confined)
@@ -96,7 +99,10 @@ def _confine_and_control_preferences(monkeypatch, tmp_path):
         hosting,
         "AgentServerHost",
         lambda ui_object, **kwargs: real_host(
-            ui_object, port=port, discovery_path=tmp_path / "agent-server.json"
+            ui_object,
+            port=port,
+            discovery_path=tmp_path / "agent-server.json",
+            devices=kwargs.get("devices", False),
         ),
     )
     return preferences
@@ -124,6 +130,40 @@ def test_saving_the_preference_mid_session_starts_and_stops_the_server(
     preferences.app_server.enabled = False
     ui.sync_agent_server_with_preference()
     assert not host.running
+
+
+def _routers(host) -> dict:
+    return httpx.get(
+        f"{host.url}/capabilities",
+        headers={"Authorization": f"Bearer {host.auth.token}"},
+        timeout=10,
+    ).json()["routers"]
+
+
+def test_the_devices_service_is_off_by_default_and_restarts_when_changed(
+    ui, monkeypatch, tmp_path
+):
+    preferences = _confine_and_control_preferences(monkeypatch, tmp_path)
+    preferences.app_server.enabled = True
+    ui.system_widget.connect_to_microscope()
+    ui.connect_to_microscope()
+    first = ui._agent_server_host
+    assert first is not None and first.running
+    assert _routers(first) == {"microscope": False, "devices": False, "app": True}
+
+    # Turning devices on rebuilds the server with the instrument routes.
+    preferences.app_server.devices = True
+    ui.sync_agent_server_with_preference()
+    second = ui._agent_server_host
+    assert second is not first and not first.running and second.running
+    assert _routers(second) == {"microscope": True, "devices": True, "app": True}
+
+    # Unchanged: no restart.
+    ui.sync_agent_server_with_preference()
+    assert ui._agent_server_host is second and second.running
+
+    ui.disconnect_from_microscope()
+    assert not second.running
 
 
 def test_syncing_without_a_microscope_waits_for_connect(ui, monkeypatch, tmp_path):

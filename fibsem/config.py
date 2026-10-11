@@ -471,6 +471,10 @@ class AppServerPreferences:
     """
 
     enabled: bool = False
+    # The devices service: the routes that reach the instrument, local or on a
+    # Device Server -- /devices/... and the microscope routes, reads included.
+    # Off by default: a read of the instrument is hardware access, not monitoring.
+    devices: bool = False
 
 
 @dataclass

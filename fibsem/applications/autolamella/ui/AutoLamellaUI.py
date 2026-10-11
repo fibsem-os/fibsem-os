@@ -750,11 +750,14 @@ class AutoLamellaUI(QMainWindow):
         Read-only until scopes are armed; never raises — an optional observer
         must not be able to take the session down (see hosting.py).
         """
-        if fibsem_cfg.load_user_preferences().app_server.enabled:
+        preference = fibsem_cfg.load_user_preferences().app_server
+        if preference.enabled:
             from fibsem.applications.autolamella.server.hosting import AgentServerHost
 
             if self._agent_server_host is None:
-                self._agent_server_host = AgentServerHost(self)
+                self._agent_server_host = AgentServerHost(
+                    self, devices=preference.devices
+                )
             recorder = self._event_recorder
             self._agent_server_host.start(
                 self.microscope,
@@ -771,9 +774,17 @@ class AutoLamellaUI(QMainWindow):
         than at the next connect. Starting needs a connected microscope (the
         server wraps it); without one this is a no-op and the connect path
         picks the preference up as before.
+
+        The services are fixed when the server starts, so a changed devices
+        setting restarts it. The token is new after that, and a connected agent
+        reconnects as it would after any restart.
         """
         host = self._agent_server_host
-        if fibsem_cfg.load_user_preferences().app_server.enabled:
+        preference = fibsem_cfg.load_user_preferences().app_server
+        if host is not None and host.devices != preference.devices:
+            host.stop()
+            self._agent_server_host = host = None
+        if preference.enabled:
             if self.microscope is not None and (host is None or not host.running):
                 self._start_agent_server()
         elif host is not None and host.running:

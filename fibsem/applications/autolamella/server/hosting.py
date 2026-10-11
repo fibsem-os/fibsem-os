@@ -48,9 +48,17 @@ class AgentServerHost:
     """Owns the embedded server's lifecycle: buffer, taps, thread, discovery."""
 
     def __init__(
-        self, ui, host: str = "127.0.0.1", port: int = 8001, discovery_path=None
+        self,
+        ui,
+        host: str = "127.0.0.1",
+        port: int = 8001,
+        discovery_path=None,
+        devices: bool = False,
     ):
         self._ui = ui
+        # The devices service (FIB-1035): whether the instrument routes are
+        # served. Fixed for the host's life; a changed preference builds a new one.
+        self.devices = devices
         self._host = host
         self._port = port
         self._discovery_path = discovery_path
@@ -150,6 +158,7 @@ class AgentServerHost:
             microscope,
             app_context=AgentContext(self._ui, event_buffer=self.event_buffer),
             auth=self.auth,
+            devices=self.devices,
         )
         config = uvicorn.Config(
             app,

@@ -120,11 +120,24 @@ def test_app_server_section_round_trips(qapp):
     dialog.deleteLater()
 
 
+def test_the_devices_service_is_offered_only_with_the_app_server_on(qapp):
+    prefs = UserPreferences()
+    dialog = PreferencesDialog(prefs)
+    assert not dialog._chk_app_server_devices.isEnabled()
+    dialog._chk_app_server.setChecked(True)
+    assert dialog._chk_app_server_devices.isEnabled()
+    dialog._chk_app_server_devices.setChecked(True)
+    rebuilt = dialog.get_preferences()
+    assert rebuilt.app_server.enabled and rebuilt.app_server.devices
+    dialog.deleteLater()
+
+
 def test_the_app_server_fails_closed():
     # Absent section, empty section and the retired flag all read as off (FIB-1035):
     # `agent_server_enabled` was never in a release, so it is not migrated.
     assert UserPreferences.from_dict({"features": {}}).app_server.enabled is False
     assert UserPreferences.from_dict({"app_server": {}}).app_server.enabled is False
+    assert UserPreferences.from_dict({"app_server": {}}).app_server.devices is False
     retired = {"features": {"agent_server_enabled": True}}
     assert UserPreferences.from_dict(retired).app_server.enabled is False
 
@@ -168,6 +181,7 @@ def _every_field_changed() -> UserPreferences:
     prefs.agent.watchdog_minutes = 12
 
     prefs.app_server.enabled = True
+    prefs.app_server.devices = True
 
     prefs.hooks = [{"type": "notification", "name": "custom"}]
     return prefs

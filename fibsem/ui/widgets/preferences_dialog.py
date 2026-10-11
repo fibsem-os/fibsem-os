@@ -68,6 +68,13 @@ _TIP_PROPOSE_REVIEW = (
     "allows a task to be set to Review. Early access."
 )
 _LBL_APP_SERVER = "Enable App Server"
+_LBL_APP_SERVER_DEVICES = "Serve the microscope's devices"
+_TIP_APP_SERVER_DEVICES = (
+    "Also serve the routes that reach the instrument, local or on a Device "
+    "Server: its devices, stage, beams and milling state, reads included. Off, "
+    "clients see the session but cannot query the microscope. Moving it still "
+    "needs hardware permission. Changing this restarts the App Server."
+)
 _LBL_WATCHDOG = "Hand questions to me after"
 _TIP_WATCHDOG = (
     "If the agent leaves a question unanswered this long, it becomes yours — "
@@ -217,6 +224,10 @@ class PreferencesDialog(QDialog):
         agent_form = QFormLayout(agent_page)
         self._chk_app_server = QCheckBox()
         self._chk_app_server.setToolTip(_TIP_APP_SERVER)
+        self._chk_app_server_devices = QCheckBox()
+        self._chk_app_server_devices.setToolTip(_TIP_APP_SERVER_DEVICES)
+        # A service of the App Server: nothing to serve while it is off.
+        self._chk_app_server.toggled.connect(self._chk_app_server_devices.setEnabled)
         self._spin_watchdog = QSpinBox()
         self._spin_watchdog.setRange(1, 120)
         self._spin_watchdog.setSuffix(" min")
@@ -230,6 +241,7 @@ class PreferencesDialog(QDialog):
         agent_intro.setStyleSheet("color: #868e93; font-size: 11px;")
         agent_form.addRow(agent_intro)
         agent_form.addRow(_LBL_APP_SERVER, self._chk_app_server)
+        agent_form.addRow(_LBL_APP_SERVER_DEVICES, self._chk_app_server_devices)
         agent_form.addRow(_LBL_WATCHDOG, self._spin_watchdog)
         self._stack.addWidget(agent_page)
 
@@ -271,6 +283,8 @@ class PreferencesDialog(QDialog):
         self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
 
         self._chk_app_server.setChecked(prefs.app_server.enabled)
+        self._chk_app_server_devices.setChecked(prefs.app_server.devices)
+        self._chk_app_server_devices.setEnabled(prefs.app_server.enabled)
         self._spin_watchdog.setValue(prefs.agent.watchdog_minutes)
 
         e = prefs.experiment
@@ -338,6 +352,7 @@ class PreferencesDialog(QDialog):
         m.acquire_fib_after_stage_movement = self._chk_acquire_fib.isChecked()
 
         prefs.app_server.enabled = self._chk_app_server.isChecked()
+        prefs.app_server.devices = self._chk_app_server_devices.isChecked()
         prefs.agent.watchdog_minutes = self._spin_watchdog.value()
 
         e = prefs.experiment

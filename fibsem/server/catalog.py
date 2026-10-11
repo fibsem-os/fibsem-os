@@ -23,8 +23,9 @@ class ToolSpec:
     path: str
     scope: str  # "read" | "hardware"
     params: Dict[str, str] = field(default_factory=dict)  # name -> description
-    # Which router serves it: "microscope" is always mounted; "app" only when
-    # the server was built with an app_context (/capabilities reports which).
+    # Which router serves it: "microscope" unless the App Server's devices
+    # service is off (FIB-1035); "app" only when the server was built with an
+    # app_context. /capabilities reports which.
     router: str = "microscope"
 
 
