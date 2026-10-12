@@ -34,9 +34,10 @@ or supplied with `--token`), sent as an `Authorization: Bearer <token>` header.
 A valid token grants the `read` scope (observation). The `hardware` scope —
 moves, acquisition, milling — must be armed explicitly (`--arm-hardware`);
 unarmed hardware calls are refused with a structured `403 scope_not_armed`.
-Hardware commands are serialized: a second concurrent command gets `409 busy`.
-`POST /stop_milling` is deliberately read-scope and lock-exempt — stopping is
-always allowed. `GET /capabilities` reports the armed scopes.
+A hardware command takes control of the microscope while it runs: when a run, a
+script or another command is in control it gets `409 microscope_busy`, naming who.
+`POST /stop_milling` never takes control — stopping is always allowed.
+`GET /capabilities` reports the armed scopes.
 
 The server binds `127.0.0.1` by default. Exposing it on the LAN
 (`--host 0.0.0.0`) is an explicit choice: the token then travels in cleartext
@@ -179,8 +180,8 @@ microscope.get_beam_settings(BeamType.ION)              # GET /beams/ion/beam_se
 ```
 
 Reads are `read` scope. Parameter writes and commands are `hardware` scope and
-take the command slot, except the `stop` and `stop_live` commands, which like
-`/stop_milling` are always allowed.
+take control of the microscope, except the `stop` and `stop_live` commands,
+which like `/stop_milling` are always allowed.
 
 ---
 

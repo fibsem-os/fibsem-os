@@ -100,7 +100,7 @@ tools) and ask:
 Loopback bind keeps everything off the network by default; the per-session
 bearer token keeps other users on the same machine out; the `hardware` scope
 must be armed before anything moves or images; one hardware command runs at a
-time (a second gets `409 busy`); `stop_milling` needs `control` or
+time (a second gets `409 microscope_busy`); `stop_milling` needs `control` or
 `hardware` and never waits. **Never run this beside a running AutoLamella
 session** — one commander per microscope; agent access to a live AutoLamella
 session goes *through* the app (its App Server, where the operator sets the
