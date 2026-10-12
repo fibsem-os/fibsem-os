@@ -10,11 +10,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.tokens import (
-    NEUTRAL_400,
-    SURFACE_COLOR,
-    WHITE_ICON_COLOR,
-)
+from fibsem.theme.plots import DARK, style_axes
+from fibsem.ui.tokens import NEUTRAL_400
 
 try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -59,7 +56,7 @@ class HistogramWidget(QWidget):
         else:
             # Create matplotlib figure and canvas with napari-style dark theme
             self.figure = Figure(figsize=(4, 3), dpi=80)
-            self.figure.patch.set_facecolor(f'{SURFACE_COLOR}')  # napari dark background
+            self.figure.patch.set_facecolor(DARK.background)
             
             self.canvas = FigureCanvas(self.figure)
             self.canvas.setMinimumSize(200, 150)
@@ -93,7 +90,7 @@ class HistogramWidget(QWidget):
         
         self.ax.text(0.5, 0.5, 'No image selected', 
                     horizontalalignment='center', verticalalignment='center',
-                    transform=self.ax.transAxes, fontsize=12, color=NEUTRAL_400)
+                    transform=self.ax.transAxes, fontsize=12, color=DARK.text_muted)
         self.ax.set_xlabel('Intensity')
         self.ax.set_ylabel('Frequency')
         self.ax.set_title('Image Histogram')
@@ -102,19 +99,10 @@ class HistogramWidget(QWidget):
         self.axes_setup_complete = False
     
     def _apply_dark_theme(self):
-        """Apply napari-style dark theme to the axes."""
+        """The shared dark plot theme, re-applied after every clear."""
         if not MATPLOTLIB_AVAILABLE:
             return
-            
-        self.ax.set_facecolor(f'{SURFACE_COLOR}')  # napari dark background
-        self.ax.tick_params(colors='white', which='both')
-        self.ax.spines['bottom'].set_color('white')
-        self.ax.spines['top'].set_color('white')
-        self.ax.spines['right'].set_color('white')
-        self.ax.spines['left'].set_color('white')
-        self.ax.xaxis.label.set_color('white')
-        self.ax.yaxis.label.set_color('white')
-        self.ax.title.set_color('white')
+        style_axes(self.ax, DARK)
 
     def _setup_axes_for_blitting(self, data_range):
         """Set up the axes with static elements for blitting optimization."""
@@ -140,11 +128,12 @@ class HistogramWidget(QWidget):
         
         # Create empty bars (will be updated with data)
         self.histogram_patches = self.ax.bar(bin_centers, np.zeros(self.n_bins), 
-                                           width=bin_width, alpha=0.8, color='#0f7aad', 
-                                           edgecolor=f'{WHITE_ICON_COLOR}', animated=True)
+                                           width=bin_width, alpha=0.8, color=DARK.series[0],
+                                           # a gap in the background between bars
+                                           edgecolor=DARK.background, animated=True)
         
         # Create mean line artist
-        self.mean_line_artist = self.ax.axvline(0, color='#ff6600', linestyle='--', 
+        self.mean_line_artist = self.ax.axvline(0, color=DARK.series[1], linestyle='--', 
                                                alpha=0.9, animated=True)
         
         self.figure.tight_layout()

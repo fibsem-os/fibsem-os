@@ -10,6 +10,7 @@ import sys
 
 import numpy as np
 import pytest
+from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 
 from fibsem.theme import tokens
@@ -104,3 +105,22 @@ def test_the_theme_imports_without_qt():
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
     assert out.stdout.strip() == "", f"importing the theme loaded {out.stdout}"
+
+
+def test_style_axes_themes_an_axes_made_outside_the_block():
+    """For a widget that clears its axes on every redraw, where defaults set when
+    the figure was made are gone by the next one."""
+    from fibsem.theme.plots import style_axes, style_legend
+
+    ax = Figure().subplots()
+    ax.plot([0, 1], [0, 1], label="a")
+    ax.set_title("t")
+    style_axes(ax, DARK)
+    legend = ax.legend()
+    style_legend(legend, DARK)
+
+    assert to_hex(ax.get_facecolor()) == DARK.background
+    assert to_hex(ax.title.get_color()) == DARK.text_strong
+    assert {to_hex(s.get_edgecolor()) for s in ax.spines.values()} == {DARK.grid}
+    assert to_hex(legend.get_frame().get_facecolor()) == DARK.background
+    assert {to_hex(t.get_color()) for t in legend.get_texts()} == {DARK.text}

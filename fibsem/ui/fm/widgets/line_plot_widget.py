@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.theme.plots import DARK, style_axes, style_legend
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     GRAY_WHITE_COLOR,
@@ -119,7 +120,7 @@ class LinePlotWidget(QWidget):
 
         # Create matplotlib figure and canvas with napari-style dark theme
         self.figure = Figure(figsize=(4, 3), dpi=80)
-        self.figure.patch.set_facecolor(SURFACE_COLOR)
+        self.figure.patch.set_facecolor(DARK.background)
 
         self.canvas = FigureCanvas(self.figure)
         self.canvas.setMinimumSize(200, 150)
@@ -204,7 +205,7 @@ class LinePlotWidget(QWidget):
             verticalalignment="center",
             transform=self.ax.transAxes,
             fontsize=12,
-            color=NEUTRAL_400,
+            color=DARK.text_muted,
         )
         self.ax.set_xlabel("Time" if self.use_datetime_axis else "Sample")
         self.ax.set_ylabel("Value")
@@ -214,16 +215,8 @@ class LinePlotWidget(QWidget):
         self.axes_setup_complete = False
 
     def _apply_dark_theme(self):
-        """Apply napari-style dark theme to the axes."""
-        self.ax.set_facecolor(SURFACE_COLOR)
-        self.ax.tick_params(colors="white", which="both")
-        self.ax.spines["bottom"].set_color("white")
-        self.ax.spines["top"].set_color("white")
-        self.ax.spines["right"].set_color("white")
-        self.ax.spines["left"].set_color("white")
-        self.ax.xaxis.label.set_color("white")
-        self.ax.yaxis.label.set_color("white")
-        self.ax.title.set_color("white")
+        """The shared dark plot theme, re-applied after every clear."""
+        style_axes(self.ax, DARK)
 
     def _setup_axes_for_blitting(self):
         """Set up the axes with static elements for blitting optimization."""
@@ -256,7 +249,7 @@ class LinePlotWidget(QWidget):
             [],
             [],
             "o-",
-            color="#0f7aad",
+            color=DARK.series[0],
             linewidth=2,
             markersize=2,
             alpha=0.8,
@@ -265,7 +258,7 @@ class LinePlotWidget(QWidget):
         )
         self.mean_line_artist = self.ax.axhline(
             0,
-            color="#ff6600",
+            color=DARK.series[1],
             linestyle="--",
             alpha=0.9,
             animated=True,
@@ -273,7 +266,7 @@ class LinePlotWidget(QWidget):
         )
         self.rolling_mean_line_artist = self.ax.axhline(
             0,
-            color="#00ff66",
+            color=DARK.series[2],
             linestyle=":",
             alpha=0.9,
             animated=True,
@@ -281,7 +274,7 @@ class LinePlotWidget(QWidget):
         )
         self.peak_rolling_mean_artist = self.ax.axhline(
             0,
-            color=ORANGE_COLOR,
+            color=DARK.series[3],
             linestyle="-",
             linewidth=1.2,
             alpha=0.85,
@@ -291,7 +284,7 @@ class LinePlotWidget(QWidget):
         )
         self.threshold_artist = self.ax.axhline(
             0,
-            color="#ef5350",
+            color=DARK.bad,  # the trigger line: crossing it means something
             linestyle="--",
             linewidth=1.2,
             alpha=0.85,
@@ -302,10 +295,7 @@ class LinePlotWidget(QWidget):
 
         # Set up legend in fixed top left corner
         self.legend = self.ax.legend(loc="upper left", fontsize=8)
-        self.legend.get_frame().set_facecolor(SURFACE_COLOR)
-        self.legend.get_frame().set_edgecolor("white")
-        for text in self.legend.get_texts():
-            text.set_color("white")
+        style_legend(self.legend, DARK)
 
         self.figure.tight_layout()
         self.canvas.draw()
@@ -437,10 +427,7 @@ class LinePlotWidget(QWidget):
             if legend_needs_update and self.legend is not None:
                 self.legend.remove()
                 self.legend = self.ax.legend(loc="upper left", fontsize=8)
-                self.legend.get_frame().set_facecolor(SURFACE_COLOR)
-                self.legend.get_frame().set_edgecolor("white")
-                for text in self.legend.get_texts():
-                    text.set_color("white")
+                style_legend(self.legend, DARK)
                 self.last_legend_update = current_time
 
                 # Redraw background to include updated legend
@@ -690,7 +677,7 @@ class LinePlotWidget(QWidget):
         if self.scrub_line_artist is None:
             self.scrub_line_artist = self.ax.axvline(
                 x=x_pos,
-                color="yellow",
+                color=DARK.crosshair,  # "you are here", as on the canvas
                 linestyle="--",
                 linewidth=1.5,
                 alpha=0.9,
