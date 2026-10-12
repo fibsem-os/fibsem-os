@@ -127,9 +127,10 @@ def test_a_run_that_raises_still_closes_the_recorder_it_made(
     with pytest.raises(RuntimeError):
         run_tasks(microscope, experiment, [SETUP])
 
-    # closed (the fixture checks), and what it recorded is on disk
+    # closed (the fixture checks), and what it recorded is on disk: the run's
+    # failure included, recorded before the recorder closed (FIB-1327)
     kinds = _kinds(read_events(Path(experiment.path) / EVENTS_FILENAME))
-    assert kinds == ["workflow_started"]
+    assert kinds == ["workflow_started", "workflow_failed"]
 
 
 def test_a_run_that_raises_leaves_the_recorder_it_found_open(
