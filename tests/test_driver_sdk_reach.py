@@ -20,7 +20,7 @@ import inspect
 
 import pytest
 
-DRIVERS = ["tescan", "autoscript"]
+DRIVERS = ["tescan", "autoscript", "odemis"]
 
 ALLOWED = {
     "_last_imaging_settings",

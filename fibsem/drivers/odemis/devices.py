@@ -8,10 +8,11 @@ same order and log the same messages. ``OdemisThermoMicroscope`` builds them whe
 is created and routes its keys and moves to them; its old branches are deleted, and
 ``tests/fixtures/odemis_device_calls.json`` keeps what they did.
 
-The odemis client (``microscope.connection``, the ``fibsem`` component) takes the
-channel on every call, so nothing here selects an imaging channel first. The vendor
-stage is ``microscope._vendor_stage`` (the ``stage-bare`` component);
-``microscope.stage`` is the stage device. This module imports odemis only through
+Each device is handed the microscope's `OdemisConnection` (``connection.py``). Its
+odemis client (``connection.sdk``, the ``fibsem`` component) takes the channel on every
+call, so nothing here selects an imaging channel first. The vendor stage is
+``connection.vendor_stage`` (the ``stage-bare`` component); ``microscope.stage`` is the
+stage device. This module imports odemis only through
 ``fibsem.drivers.odemis.microscope``, inside the methods, so it loads where odemis
 is not installed.
 
@@ -57,7 +58,8 @@ from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
 from fibsem.devices.wire import Frame, to_wire
-from fibsem.drivers.odemis import add_odemis_path
+from fibsem.drivers.odemis import add_odemis_path, images
+from fibsem.drivers.odemis.connection import OdemisConnection
 from fibsem.fm import microscope as fm_api
 from fibsem.fm.structures import (
     REFLECTION,
@@ -124,15 +126,17 @@ class OdemisBeam(Beam):
         self,
         beam_type: BeamType,
         parent: OdemisThermoMicroscope,
+        connection: OdemisConnection,
         resources: Optional[Resources] = None,
     ):
         super().__init__(beam_type, parent=parent, resources=resources)
+        self.connection = connection
         self.channel = ODEMIS_CHANNELS[beam_type]
 
     @property
     def _client(self) -> Any:
-        """The odemis client, looked up on every call, as the old branches did."""
-        return self.parent.connection
+        """The odemis client."""
+        return self.connection.sdk
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
         logging.debug(
@@ -314,7 +318,7 @@ class OdemisBeam(Beam):
             )
 
     # Imaging and autocontrast, moved from ``OdemisThermoMicroscope`` as they are; the
-    # FibsemImage is built by the microscope's ``_construct_image``, as before. No
+    # FibsemImage is built by ``_image`` (``images.fibsem_image_from_frame``). No
     # ``_auto_focus``: the client has no focus call, and the working-distance sweep
     # stays ``microscope.auto_focus``'s. No ``_live``: Odemis has no live view.
 
@@ -323,9 +327,7 @@ class OdemisBeam(Beam):
         if image_settings is None:
             # acquire_image(beam_type=...): the beam's current settings
             image, _md = client.acquire_image(channel=channel, frame_settings=None)
-            return microscope._construct_image(
-                image, microscope._current_image_settings(self.beam_type, image)
-            )
+            return self._image(image, self._current_image_settings(image))
 
         if image_settings.reduced_area is not None:
             area = image_settings.reduced_area
@@ -361,18 +363,29 @@ class OdemisBeam(Beam):
         if tmp_resolution is not None:
             image_settings.resolution = tmp_resolution
         microscope._last_imaging_settings = image_settings
-        return microscope._construct_image(image, image_settings)
+        return self._image(image, image_settings)
 
     def _last_image(self) -> FibsemImage:
-        microscope = self.parent
         image = self._client.get_last_image(channel=self.channel)
         # The client is annotated as returning (image, metadata), but the AutoScript
         # adapter (1.16.0) returns the bare array.
         if isinstance(image, tuple):
             image = image[0]
-        return microscope._construct_image(
-            image, microscope._current_image_settings(self.beam_type, image)
-        )
+        return self._image(image, self._current_image_settings(image))
+
+    def _current_image_settings(self, image: np.ndarray) -> ImageSettings:
+        """The beam's current imaging settings, at the resolution of the frame it gave."""
+        image_settings = self.parent.get_imaging_settings(self.beam_type)
+        image_settings.resolution = [image.shape[1], image.shape[0]]
+        return image_settings
+
+    def _image(self, data: np.ndarray, image_settings: ImageSettings) -> FibsemImage:
+        """A FibsemImage with the microscope's metadata, as every backend stamps it."""
+        microscope = self.parent
+        state = microscope.get_microscope_state(beam_type=image_settings.beam_type)
+        image = images.fibsem_image_from_frame(data, image_settings, state)
+        microscope._set_additional_metadata(image)
+        return image
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         client, channel = self._client, self.channel
@@ -413,7 +426,9 @@ def bind_odemis_beams(
         BeamType.ION: microscope.system.ion.enabled,
     }
     return {
-        beam_type: OdemisBeam(beam_type, microscope, resources).connect()
+        beam_type: OdemisBeam(
+            beam_type, microscope, microscope._connection, resources
+        ).connect()
         for beam_type, on in enabled.items()
         if on
     }
@@ -450,14 +465,18 @@ class OdemisStage(Stage):
     """
 
     def __init__(
-        self, parent: OdemisThermoMicroscope, resources: Optional[Resources] = None
+        self,
+        parent: OdemisThermoMicroscope,
+        connection: OdemisConnection,
+        resources: Optional[Resources] = None,
     ):
         super().__init__(parent=parent, resources=resources)
+        self.connection = connection
 
     @property
     def _stage(self) -> Any:
-        """The vendor stage, looked up on each call as the old methods do."""
-        return self.parent._vendor_stage
+        """The vendor stage, ``stage-bare``."""
+        return self.connection.vendor_stage
 
     def read_position(self) -> FibsemStagePosition:
         return FibsemStagePosition.from_odemis_dict(self._stage.position.value)
@@ -466,10 +485,10 @@ class OdemisStage(Stage):
         return ParameterMetadata(limits=axis_limits_from_degrees(STAGE_LIMITS))
 
     def read_homed(self) -> bool:
-        return self.parent.connection.is_homed()
+        return self.connection.sdk.is_homed()
 
     def read_linked(self) -> bool:
-        return self.parent.connection.is_linked()
+        return self.connection.sdk.is_linked()
 
     def _move_absolute(self, position: FibsemStagePosition) -> None:
         from fibsem.drivers.odemis.microscope import stage_position_to_odemis_dict
@@ -483,12 +502,12 @@ class OdemisStage(Stage):
 
     def _home(self) -> None:
         logging.info("Homing stage...")
-        self.parent.connection.home_stage()
+        self.connection.sdk.home_stage()
         logging.info("Stage homed.")
 
     def _link(self) -> None:
         logging.info("Linking stage...")
-        self.parent.connection.link(True)
+        self.connection.sdk.link(True)
         logging.info("Stage linked.")
 
 
@@ -496,7 +515,7 @@ def bind_odemis_stage(
     microscope: OdemisThermoMicroscope, resources: Optional[Resources] = None
 ) -> OdemisStage:
     """Build ``stage`` for an Odemis microscope."""
-    return OdemisStage(microscope, resources).connect()
+    return OdemisStage(microscope, microscope._connection, resources).connect()
 
 
 class OdemisChamber(Chamber):
@@ -510,13 +529,17 @@ class OdemisChamber(Chamber):
     """
 
     def __init__(
-        self, parent: OdemisThermoMicroscope, resources: Optional[Resources] = None
+        self,
+        parent: OdemisThermoMicroscope,
+        connection: OdemisConnection,
+        resources: Optional[Resources] = None,
     ):
         super().__init__(parent=parent, resources=resources)
+        self.connection = connection
 
     @property
     def _client(self) -> Any:
-        return self.parent.connection
+        return self.connection.sdk
 
     def read_state(self) -> ChamberState:
         from fibsem.drivers.odemis.microscope import ODEMIS_CHAMBER_STATES
@@ -544,7 +567,7 @@ def bind_odemis_chamber(
     microscope: OdemisThermoMicroscope, resources: Optional[Resources] = None
 ) -> OdemisChamber:
     """Build ``chamber`` for an Odemis microscope."""
-    return OdemisChamber(microscope, resources).connect()
+    return OdemisChamber(microscope, microscope._connection, resources).connect()
 
 
 # The builders the Odemis driver record names, one per device type: how
@@ -557,17 +580,18 @@ def build_odemis_beam(entry: DeviceEntry, context: BuildContext) -> OdemisBeam:
     if entry.name not in ("electron", "ion"):
         raise ValueError("an Odemis beam is named 'electron' or 'ion'")
     beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
-    return OdemisBeam(beam_type, context.microscope).connect()
+    microscope = context.microscope
+    return OdemisBeam(beam_type, microscope, microscope._connection).connect()
 
 
 def build_odemis_stage(entry: DeviceEntry, context: BuildContext) -> OdemisStage:
-    stage = OdemisStage(context.microscope)
+    stage = OdemisStage(context.microscope, context.microscope._connection)
     stage.name = entry.name
     return stage.connect()
 
 
 def build_odemis_chamber(entry: DeviceEntry, context: BuildContext) -> OdemisChamber:
-    chamber = OdemisChamber(context.microscope)
+    chamber = OdemisChamber(context.microscope, context.microscope._connection)
     chamber.name = entry.name
     return chamber.connect()
 
