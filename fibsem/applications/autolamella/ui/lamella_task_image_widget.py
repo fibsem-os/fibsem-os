@@ -27,8 +27,12 @@ from PyQt5.QtWidgets import (
 )
 from skimage.transform import resize
 
-from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
+from fibsem.applications.autolamella.event_recording import (
+    EVENTS_FILENAME,
+    read_new_events,
+)
 from fibsem.applications.autolamella.history_rows import (
+    OPERATION_KINDS,
     HistoryFilter,
     HistoryOperation,
     HistoryRun,
@@ -103,6 +107,15 @@ def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
     )
 
 
+def _stamp(path: str) -> Optional[Tuple[int, int]]:
+    """The file's modification time and size, or None when it cannot be read."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
 def _load_and_resize(
     filepath: str, target_width: int = _TARGET_WIDTH
 ) -> Tuple[np.ndarray, float, ImageFields]:
@@ -144,8 +157,21 @@ def _load_and_resize(
     max_height = target_width * _PLACEHOLDER_HEIGHT / _TARGET_WIDTH
     scale = min(target_width / w, max_height / h)
     new_w, new_h = int(w * scale), int(h * scale)
+    # Average whole blocks of pixels down to near the size first: resize's
+    # anti-aliasing filter over a full 6144 x 4096 frame took seconds an image.
+    # The few edge pixels that do not fill a block are left off.
+    factor = int(1 / scale)
+    covered = w
+    if factor >= 2:
+        bh, bw = h // factor, w // factor
+        covered = bw * factor
+        data = (
+            data[: bh * factor, :covered]
+            .reshape(bh, factor, bw, factor, *data.shape[2:])
+            .mean(axis=(1, 3))
+        )
     resized = resize(data, (new_h, new_w), preserve_range=True).astype(np.uint8)
-    return resized, pixel_size_x / scale, info
+    return resized, pixel_size_x * covered / w / scale, info
 
 
 class ClickableLabel(QLabel):
@@ -224,11 +250,16 @@ class _ImageLoaderWorker(QThread):
     # filepath, array, pixel_size_x, ImageFields
     image_loaded = pyqtSignal(str, np.ndarray, float, object)
 
-    def __init__(self, filepaths: List[str], target_width: int, parent=None):
-        super().__init__(parent)
+    def __init__(self, filepaths: List[str], target_width: int):
+        # No parent, and kept in _WORKERS until it has finished: a cancelled
+        # worker ends the image it is on by itself, and Qt aborts the app when a
+        # QThread is destroyed while it runs, as a parent's deletion would do.
+        super().__init__()
         self._filepaths = filepaths
         self._target_width = target_width
         self._cancel = threading.Event()
+        _WORKERS.difference_update([w for w in _WORKERS if w.isFinished()])
+        _WORKERS.add(self)
 
     def cancel(self):
         self._cancel.set()
@@ -244,6 +275,9 @@ class _ImageLoaderWorker(QThread):
                 self.image_loaded.emit(fpath, arr, pixel_size_x, info)
             except Exception as e:
                 logging.warning(f"Failed to load image {fpath}: {e}")
+
+
+_WORKERS: Set[_ImageLoaderWorker] = set()
 
 
 # Status words and colours, as the run's header shows them. The colours are the
@@ -438,6 +472,9 @@ class LamellaTaskImageWidget(QWidget):
         self._lamella: Optional[Lamella] = None
         self._lamella_id: Optional[str] = None
         self._pixmap_cache: Dict[str, QPixmap] = {}
+        # image path -> the file's (mtime, size) when its pixmap was read: a
+        # refresh keeps the pixmaps whose files have not changed since.
+        self._stamps: Dict[str, Tuple[int, int]] = {}
         self._placeholder_labels: Dict[str, QLabel] = {}
         self._caption_labels: Dict[str, QLabel] = {}
         self._task_names: Dict[str, str] = {}  # image path -> the task that made it
@@ -452,6 +489,12 @@ class LamellaTaskImageWidget(QWidget):
         # Whether the experiment records its events: without the file nothing
         # was ever recorded, so "no operations" would be a claim it cannot make.
         self._has_events = False
+        # The experiment's operation events read so far, and where in its file
+        # the next read starts: a rebuild reads only what was written since,
+        # not the whole file again (it grows through a run).
+        self._events_path: Optional[Path] = None
+        self._events_offset = 0
+        self._operation_events: List[Dict[str, Any]] = []
         self._thumb_width = _TARGET_WIDTH
         # Re-fit the thumbnails once a resize settles, not on every pixel of a drag.
         self._refit = QTimer(self)
@@ -509,6 +552,7 @@ class LamellaTaskImageWidget(QWidget):
         self._lamella = lamella
         self._lamella_id = new_id
         self._pixmap_cache.clear()
+        self._stamps.clear()
         self._captions.clear()
         self._placeholder_labels.clear()
         self._expanded.clear()
@@ -519,27 +563,35 @@ class LamellaTaskImageWidget(QWidget):
 
         `set_lamella` skips the lamella it already shows, so without this the
         panel kept the history it was opened with until another lamella was
-        selected and back (FIB-1111). The image cache goes too: a re-run writes
-        its reference images to the same filenames, so a cached pixmap would be
-        the previous run's picture.
+        selected and back (FIB-1111). A cached image goes when its file has
+        changed: a re-run writes its reference images to the same filenames, so
+        its pixmap would be the previous run's picture. The others stay, so a
+        refresh after each task reads only the images that task wrote.
         """
         if self._lamella is None:
             return
         self._cancel_worker()
-        self._pixmap_cache.clear()
-        self._captions.clear()
+        for path in list(self._pixmap_cache):
+            if _stamp(path) != self._stamps.get(path):
+                self._forget_image(path)
         self._rebuild()
+
+    def _forget_image(self, path: str) -> None:
+        self._pixmap_cache.pop(path, None)
+        self._stamps.pop(path, None)
+        self._captions.pop(path, None)
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
     def _cancel_worker(self) -> None:
+        """Stop the loader without waiting for it: it finishes the image it is on
+        in the background, and nothing it loads reaches the panel. Waiting held
+        the GUI for up to two seconds, as a large image takes that to resize."""
         if self._worker is not None:
             self._worker.image_loaded.disconnect(self._on_image_loaded)
             self._worker.cancel()
-            self._worker.quit()
-            self._worker.wait(2000)
             self._worker = None
 
     def _clear_layout(self) -> None:
@@ -577,7 +629,11 @@ class LamellaTaskImageWidget(QWidget):
             return
         if abs(self._fitted_thumb_width() - self._thumb_width) < 16:
             return
-        self.refresh()
+        self._cancel_worker()
+        self._pixmap_cache.clear()
+        self._stamps.clear()
+        self._captions.clear()
+        self._rebuild()
 
     def _on_filter_changed(self) -> None:
         flt = self._filter_button.filter
@@ -593,14 +649,27 @@ class LamellaTaskImageWidget(QWidget):
         if self._lamella is None:
             return []
         path = Path(self._lamella.path).parent / EVENTS_FILENAME
-        self._has_events = path.exists()
-        if not self._has_events:
-            return []
         try:
-            return list(read_events(path))
+            size = path.stat().st_size
+        except OSError:
+            size = None
+        self._has_events = size is not None
+        if size is None:
+            return []
+        if path != self._events_path or size < self._events_offset:
+            # another experiment, or a file that was started again
+            self._events_path = path
+            self._events_offset = 0
+            self._operation_events = []
+        try:
+            new, self._events_offset = read_new_events(
+                path, self._events_offset, OPERATION_KINDS
+            )
         except OSError as e:
             logging.warning(f"Could not read {path}: {e}")
-            return []
+            return self._operation_events
+        self._operation_events.extend(new)
+        return self._operation_events
 
     def _rebuild(self) -> None:
         """Build the rows with placeholders, then load the images in the background."""
@@ -662,9 +731,10 @@ class LamellaTaskImageWidget(QWidget):
                 self._show_caption(fpath)
             else:
                 to_load.append(fpath)
+                self._stamps[fpath] = _stamp(fpath)
 
         if to_load:
-            self._worker = _ImageLoaderWorker(to_load, self._thumb_width, parent=self)
+            self._worker = _ImageLoaderWorker(to_load, self._thumb_width)
             self._worker.image_loaded.connect(self._on_image_loaded)
             self._worker.start()
 
