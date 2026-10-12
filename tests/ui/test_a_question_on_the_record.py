@@ -1,12 +1,12 @@
 """A detection asked mid-task is recorded, held and answered in the Review tab.
 
-``QtResponder`` owns the wait for every question: the nonce, the hold, the
+``QtResponder`` owns the wait for every question: the question id, the hold, the
 abort. For a question that carries a value it also puts it on the item's record
 as a proposal (FIB-1025), and then the answer is a decision -- from the Review
 tab, or from anything else that goes through ``Experiment.decide`` -- rather
 than the prompt's button. These drive the real main window and the real
 responder, ask from a worker thread the way a task does, and decide on the main
-thread the way the tab and the agent server both do.
+thread the way the tab and the App Server both do.
 
 Whenever the question cannot go on the record it is asked the way it always
 was, so the second half is about that: nothing here may leave a question
@@ -432,7 +432,7 @@ def test_the_timeline_hears_who_answered(window, qapp):
         lambda kind, payload: heard.append((kind, payload))
     )
     thread, _ = _ask(window, qapp, _request(window))
-    nonce = heard[0][1]["nonce"]
+    question_id = heard[0][1]["question_id"]
 
     _decide(window, author="agent:claude")
     _finish(qapp, thread)
@@ -442,7 +442,7 @@ def test_the_timeline_hears_who_answered(window, qapp):
         "type": "ReviewDetection",
         "response": True,
         "answered_by": "agent",
-        "nonce": nonce,
+        "question_id": question_id,
     }
 
 
@@ -491,14 +491,14 @@ def test_an_agent_answering_the_prompt_is_told_to_decide_instead(window, qapp):
     ui = window.autolamella_ui
     lamella = ui.experiment.positions[0]
     thread, outcome = _ask(window, qapp, _request(window))
-    _request_up, nonce = ui.ui_responder.pending_question_and_nonce()
+    _request_up, question_id = ui.ui_responder.pending_question_and_id()
     assert ui.ui_responder.recorded_question() == (
         lamella.id,
         TASK,
         lamella.proposal(TASK).id,
     )
 
-    answered = ui.ui_responder.submit_answer(True, nonce=nonce)
+    answered = ui.ui_responder.submit_answer(True, question_id=question_id)
     assert _pump(qapp, answered.done)
 
     with pytest.raises(ValueError, match="decide"):
@@ -510,14 +510,14 @@ def test_an_agent_answering_the_prompt_is_told_to_decide_instead(window, qapp):
     assert ui.ui_responder.recorded_question() is None
 
 
-def test_the_agent_server_says_how_it_is_answered(window, qapp):
+def test_the_app_server_says_how_it_is_answered(window, qapp):
     """The pending prompt names the decision to make, and answering the prompt
     anyway is refused without a click -- not reported as applied."""
-    from fibsem.applications.autolamella.server.context import AgentContext
+    from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 
     ui = window.autolamella_ui
     lamella = ui.experiment.positions[0]
-    context = AgentContext(ui)
+    context = AutoLamellaAppContext(ui)
     thread, outcome = _ask(window, qapp, _request(window))
 
     pending = context.pending_prompt()["pending"]
@@ -530,7 +530,7 @@ def test_the_agent_server_says_how_it_is_answered(window, qapp):
     }
     assert pending["decide"] == named, "everything a decision has to name"
 
-    refused = context.answer_prompt(True, nonce=pending["nonce"])
+    refused = context.answer_prompt(True, question_id=pending["question_id"])
     assert refused == {
         "available": True,
         "applied": False,

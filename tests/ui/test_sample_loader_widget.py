@@ -18,7 +18,7 @@ def arctis():
         manufacturer="Demo",
         config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
     )
-    assert microscope._stage.loader is not None
+    assert microscope.sample_handling.magazine is not None
     return microscope
 
 
@@ -49,7 +49,7 @@ def test_load_brings_the_grid_into_the_beam(widget, arctis):
     changed = []
     widget.loader_changed.connect(lambda: changed.append(True))
     widget._row_widget(1).btn_action.click()
-    assert arctis._stage.loaded_grids[0].name == "Grid-02"
+    assert arctis.sample_handling.loaded_grids[0].name == "Grid-02"
     assert states(widget)[:3] == ["occupied", "loaded", "occupied"]
     # the loaded row's action turns into Unload; the others still offer Load
     assert "Return Grid-02" in widget._row_widget(1).btn_action.toolTip()
@@ -62,7 +62,7 @@ def test_load_brings_the_grid_into_the_beam(widget, arctis):
 def test_unload_returns_it(widget, arctis):
     widget._row_widget(0).btn_action.click()
     widget._row_widget(0).btn_action.click()  # now the unload action
-    assert arctis._stage.loaded_grids == []
+    assert arctis.sample_handling.loaded_grids == []
     assert states(widget)[0] == "occupied"
     assert "returned to the magazine" in widget.status_label.text()
 
@@ -89,9 +89,9 @@ def test_refresh_reads_without_asking_and_the_scan_asks_first(widget, monkeypatc
 
 
 def test_a_refused_exchange_is_reported_and_the_controls_come_back(widget, arctis):
-    arctis._stage.loader.fail_next_exchange = True
+    arctis.sample_handling.magazine.device.fail_next_exchange = True
     widget._row_widget(0).btn_action.click()
-    assert arctis._stage.loaded_grids == []
+    assert arctis.sample_handling.loaded_grids == []
     assert "Simulated autoloader exchange failure" in widget.status_label.text()
     assert widget._row_widget(0).btn_action.isEnabled()
     assert not widget.busy
@@ -100,7 +100,7 @@ def test_a_refused_exchange_is_reported_and_the_controls_come_back(widget, arcti
 def test_naming_a_grid_goes_through_the_stage(widget, arctis, monkeypatch):
     written = []
     monkeypatch.setattr(
-        arctis._stage.loader,
+        arctis.sample_handling.magazine,
         "_write_slot_description",
         lambda slot: written.append((slot.name, slot.loaded_grid.name)),
     )
@@ -108,7 +108,10 @@ def test_naming_a_grid_goes_through_the_stage(widget, arctis, monkeypatch):
     row.name_edit.setText("grid-cedar")
     row.name_edit.editingFinished.emit()
     assert written == [("Slot-03", "grid-cedar")]
-    assert arctis._stage.loader.slots["Slot-03"].loaded_grid.name == "grid-cedar"
+    assert (
+        arctis.sample_handling.magazine.slots["Slot-03"].loaded_grid.name
+        == "grid-cedar"
+    )
     assert widget._row_widget(2).name_edit.text() == "grid-cedar"
 
 
@@ -117,7 +120,9 @@ def test_a_grid_cannot_be_unnamed(widget, arctis):
     row.name_edit.setText("")
     row.name_edit.editingFinished.emit()
     assert row.name_edit.text() == "Grid-01"
-    assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+    assert (
+        arctis.sample_handling.magazine.slots["Slot-01"].loaded_grid.name == "Grid-01"
+    )
 
 
 def test_the_host_can_lock_the_exchange_controls(widget):
@@ -133,7 +138,7 @@ class TestSampleView:
     def test_has_the_loader_only_when_there_is_one(self, qapp, arctis):
         view = FibsemSampleWidget(microscope=arctis)
         assert view.loader_widget is not None
-        assert view.holder_widget.current_holder is arctis._stage.holder
+        assert view.holder_widget.current_holder is arctis.sample_handling.holder
 
         plain, _ = utils.setup_session(manufacturer="Demo")
         assert FibsemSampleWidget(microscope=plain).loader_widget is None
@@ -181,7 +186,9 @@ def test_the_host_can_refuse_a_rename(widget, arctis):
     row.name_edit.editingFinished.emit()
     assert asked == [("Grid-01", "grid-aspen")]
     assert renamed == []
-    assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+    assert (
+        arctis.sample_handling.magazine.slots["Slot-01"].loaded_grid.name == "Grid-01"
+    )
     assert widget._row_widget(0).name_edit.text() == "Grid-01"
     assert widget.status_label.text() == "Grid-01 cannot be renamed."
 
@@ -190,13 +197,17 @@ def test_a_name_the_hardware_does_not_take_is_put_back(widget, arctis, monkeypat
     def refuse(slot):
         raise RuntimeError("the name did not stick")
 
-    monkeypatch.setattr(arctis._stage.loader, "_write_slot_description", refuse)
+    monkeypatch.setattr(
+        arctis.sample_handling.magazine, "_write_slot_description", refuse
+    )
     renamed = []
     widget.grid_renamed.connect(lambda *a: renamed.append(a))
     row = widget._row_widget(0)
     row.name_edit.setText("grid-aspen")
     row.name_edit.editingFinished.emit()
     assert renamed == []
-    assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+    assert (
+        arctis.sample_handling.magazine.slots["Slot-01"].loaded_grid.name == "Grid-01"
+    )
     assert widget._row_widget(0).name_edit.text() == "Grid-01"
     assert "did not stick" in widget.status_label.text()

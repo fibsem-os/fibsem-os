@@ -12,7 +12,7 @@ import yaml
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes._stage import HOLDER_OCCUPANCY
+from fibsem.services.sample_handling import HOLDER_OCCUPANCY
 from fibsem.session_state import SessionState, session_state_for
 from fibsem.structures import SampleGrid
 
@@ -29,7 +29,7 @@ def _connect(config_path=SHIPPED):
 def _slots(microscope) -> dict:
     return {
         name: slot.loaded_grid.name if slot.loaded_grid is not None else None
-        for name, slot in microscope._stage.holder.slots.items()
+        for name, slot in microscope.sample_handling.holder.slots.items()
     }
 
 
@@ -73,7 +73,9 @@ def test_two_configurations_do_not_share_their_grids(tmp_path):
     other = tmp_path / "bay-2.yaml"
     other.write_text(Path(SHIPPED).read_text())
     first = _connect()
-    first._stage.assign_grid("Slot-01", SampleGrid(name="grid-ash"), persist=True)
+    first.sample_handling.assign_grid(
+        "Slot-01", SampleGrid(name="grid-ash"), persist=True
+    )
 
     second = _connect(other)
 
@@ -84,15 +86,15 @@ def test_two_configurations_do_not_share_their_grids(tmp_path):
 def test_a_rebuilt_stage_keeps_its_grids():
     """Apply rebuilds the stage when the configuration names a holder; the grids
     are restored from the session state then too."""
-    from fibsem.microscopes._stage import _create_sample_stage
+    from fibsem.services.sample_handling import bind_sample_handling
 
     microscope = _connect()
     session_state_for(microscope, writable=True).save_section(
         HOLDER_OCCUPANCY, {"Slot-02": {"name": "grid-birch"}}
     )
-    for slot in microscope._stage.holder.slots.values():
+    for slot in microscope.sample_handling.holder.slots.values():
         slot.loaded_grid = None  # only the session state knows
 
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
 
     assert _slots(microscope)["Slot-02"] == "grid-birch"

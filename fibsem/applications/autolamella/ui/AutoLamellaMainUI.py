@@ -29,7 +29,6 @@ from PyQt5.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -39,7 +38,6 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 import fibsem
 import fibsem.config as fibsem_cfg
@@ -51,6 +49,7 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
     Lamella,
 )
+from fibsem.applications.autolamella.ui.agent_level_chip import AgentLevelChip
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -73,9 +72,19 @@ from fibsem.applications.autolamella.ui.lamella_workflow_widget import (
 from fibsem.applications.autolamella.ui.overview_container_tab import (
     AutoLamellaOverviewContainerTab,
 )
+from fibsem.applications.autolamella.ui.quad_overview_page import QuadOverviewPage
 from fibsem.applications.autolamella.ui.review_tab_widget import (
     ReviewTabWidget,
     review_tab_icon,
+)
+from fibsem.applications.autolamella.ui.screen_grids_dialog import (
+    ScreenGridsDialog,
+    scan_in_progress,
+)
+from fibsem.applications.autolamella.ui.workflow_controls import (
+    AUTOMATED,
+    SUPERVISED,
+    WorkflowControls,
 )
 from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
     WorkflowPreflightDialog,
@@ -90,6 +99,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     NAME_FIXED_REASON,
     grid_has_run,
+    plan_grid_run,
 )
 from fibsem.applications.autolamella.workflows.tasks.queue import QueueOp, QueueResult
 from fibsem.applications.autolamella.workflows.tasks.status import (
@@ -102,34 +112,23 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import get_task_super
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     AdditionEstimate,
     estimate_addition,
+    estimate_grid_run,
     estimate_workflow,
+    grid_item_seconds,
 )
-from fibsem.imaging.spot import SpotBurnProgress
-from fibsem.imaging.tiling.progress import TiledProgress, TiledStatus
-from fibsem.milling.progress import (
-    MillingMessageTracker,
-    MillingProgress,
-    MillingProgressStatus,
-)
+from fibsem.server.levels import AgentLevel
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
-from fibsem.ui.FibsemSpotBurnWidget import build_spot_burn_progress_update
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
-    DANGER_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
     MENU_BUTTON_STYLESHEET,
     MUTED_GHOST_BUTTON_STYLESHEET,
     NAPARI_STYLE,
     PRIMARY_BUTTON_STYLESHEET,
-    PROGRESS_BAR_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
     STATUS_BAR_STYLESHEET,
-    SUPERVISION_STATUS_AGENT_STYLESHEET,
-    SUPERVISION_STATUS_AUTOMATED_STYLESHEET,
-    SUPERVISION_STATUS_SUPERVISED_STYLESHEET,
-    USER_ATTENTION_BUTTON_STYLESHEET,
     border_stylesheet,
 )
 from fibsem.ui.tokens import (
@@ -141,8 +140,9 @@ from fibsem.ui.widgets import preflight
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
-from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
-from fibsem.utils import format_duration
+from fibsem.ui.widgets.status_bar import FibsemStatusBar
+from fibsem.util.durations import format_duration_rounded
+from fibsem.util.timestamps import format_time, now
 from fibsem.versioning import get_version_string
 
 # How wide the experiment name button in the tab corner is allowed to grow. Wide
@@ -170,9 +170,9 @@ def experiment_tooltip(experiment: Experiment) -> str:
     """
     rows: List[Tuple[str, str]] = []
 
-    if experiment.created_at:
-        created = datetime.fromtimestamp(experiment.created_at)
-        rows.append(("Created", html.escape(created.strftime("%d %b %Y, %H:%M"))))
+    created = format_time(experiment.created_at, "%d %b %Y, %H:%M")
+    if created:
+        rows.append(("Created", html.escape(created)))
 
     lamella = str(len(experiment.positions))
     # `is_failure` is a human's judgement that a lamella is defective, not a record
@@ -236,18 +236,6 @@ def set_menu_icon(action: QAction, key: str) -> None:
     """
     action.setIcon(fibsem_icon(key, color=GRAY_ICON_COLOR))
     action.setIconVisibleInMenu(True)
-
-
-# How long a question addressed to the agent may stand unanswered before it
-# escalates to the operator. A preference later; a constant until the arming
-# dialog gives it a home.
-AGENT_WATCHDOG_MS = 5 * 60 * 1000
-# A live supervising agent long-polls the event stream every ~25 s, so its
-# token is heard from continuously. Silence this long means nobody is on the
-# other end — a parked question is handed to the operator immediately instead
-# of waiting out the full hand-over time above.
-AGENT_PRESUMED_GONE_S = 90
-AGENT_LIVENESS_CHECK_MS = 15 * 1000
 
 
 def play_notification_sound():
@@ -318,7 +306,7 @@ def confirm_add_to_queue_dialog(
         metrics.addWidget(
             preflight.metric(
                 "Adds",
-                preflight.format_duration(estimate.work_seconds),
+                format_duration_rounded(estimate.work_seconds, pad=True),
                 _priced_note(estimate),
             ),
             1,
@@ -409,16 +397,16 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
     explain a wait that did not exist on a queue with nothing scheduled at all.
 
     **And the disagreement has to be one the reader can see.** Both figures are rendered
-    with `format_duration`, so a gap that rounds away is not a discrepancy needing an
+    with `format_duration_rounded`, so a gap that rounds away is not a discrepancy needing an
     explanation -- it is two identical numbers with a paragraph between them.
     """
     if estimate is None or not estimate.is_priced:
         return ""
     if estimate.hold_seconds <= 0 or estimate.work_seconds <= 0:
         return ""
-    if preflight.format_duration(estimate.delay_seconds) == preflight.format_duration(
-        estimate.work_seconds
-    ):
+    if format_duration_rounded(
+        estimate.delay_seconds, pad=True
+    ) == format_duration_rounded(estimate.work_seconds, pad=True):
         return ""
     if estimate.delay_seconds <= 0:
         return (
@@ -426,7 +414,7 @@ def _absorbed_note(estimate: Optional[AdditionEstimate]) -> str:
             "fits inside that wait — so it costs no extra time overall."
         )
     return (
-        f"Only {preflight.format_duration(estimate.delay_seconds)} of this lands after "
+        f"Only {format_duration_rounded(estimate.delay_seconds, pad=True)} of this lands after "
         "the workflow's scheduled wait; the rest fits inside it."
     )
 
@@ -457,9 +445,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        # The last words a producer supplied, so a backend's messageless tick still
-        # has a label to show. See `MillingMessageTracker`.
-        self._milling_label = MillingMessageTracker()
         self.setWindowTitle(f"AutoLamella v{get_version_string()} ")
         self.resize(1600, 1000)
 
@@ -592,17 +577,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         edit_menu.addAction(self.action_preferences)
 
         # View menu
-        self.action_show_minimap = QAction("Show Minimap Widget", self)
-        self.action_show_minimap.setCheckable(True)
-        self.action_show_minimap.setChecked(False)
-        self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
-        # `MinimapPlotWidget` -- a matplotlib window, and nothing to do with the napari
-        # Minimap tab that used to sit beside the Overview one. That tab is gone; this
-        # stays, hidden pending a rework of the plot widget itself.
-        self.action_show_minimap.setVisible(False)
-
-        view_menu.addAction(self.action_show_minimap)
-
         # Quad-view display controls. The F5/Esc shortcuts live on these QActions — one
         # source of truth for the menu item and its keybinding (Qt renders the shortcut
         # text in the menu automatically). They are scoped to the Microscope tab via
@@ -721,17 +695,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
 
-        # Session controls for the embedded agent server: status, token, and
-        # scope arming (arming is per-session consent; the durable policy is in
-        # Preferences -> Agent). Visible only with the feature enabled, next to
-        # Scripts — its future Automation-menu sibling (FIB-863).
-        self.action_agent_server = QAction("Agent Server...", self)
-        self.action_agent_server.setMenuRole(QAction.NoRole)
-        self.action_agent_server.setToolTip(
-            "Session status, access token, and what the connected agent may do"
+        # The embedded App Server's dialog: status, services, the dashboard. The
+        # agent's level and connecting one are the agent chip's (FIB-1035); the
+        # durable settings are in Preferences -> App Server. Visible only with the
+        # App Server enabled, next to Scripts (FIB-863).
+        self.action_app_server = QAction("App Server...", self)
+        self.action_app_server.setMenuRole(QAction.NoRole)
+        self.action_app_server.setToolTip(
+            "The App Server: whether it is running, its services, and the dashboard"
         )
-        self.action_agent_server.triggered.connect(self._on_agent_server_dialog)
-        tools_menu.addAction(self.action_agent_server)
+        self.action_app_server.triggered.connect(self._on_app_server_dialog)
+        tools_menu.addAction(self.action_app_server)
 
         # Below the separator because these act on the install rather than on the
         # experiment. The wizard needs a home here as well as on the connection tab:
@@ -939,10 +913,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_border_idle.triggered.connect(
             lambda: self._set_border_state("idle")
         )
-        self.action_border_agent = QAction("Agent (electric purple)", self)
-        self.action_border_agent.triggered.connect(
-            lambda: self._set_border_state("agent")
-        )
 
         # add to menu bar
         menu_bar = self.menuBar()
@@ -963,7 +933,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         border_menu.addAction(self.action_border_pending)  # type: ignore
         border_menu.addAction(self.action_border_stopping)  # type: ignore
         border_menu.addAction(self.action_border_idle)  # type: ignore
-        border_menu.addAction(self.action_border_agent)  # type: ignore
 
         test_menu.addSeparator()  # type: ignore
         test_menu.addAction(self.action_beep)  # type: ignore
@@ -975,20 +944,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
     def _on_sound_toggle(self, checked: bool):
         """Handle sound toggle."""
         self._sound_enabled = checked
-        self._preferences.display.sound_enabled = checked
-        fibsem_cfg.save_user_preferences(self._preferences)
+        # Through the file, not this window's copy: another widget may have saved a
+        # setting of its own since start-up (the view bars' fields, FIB-1186).
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.display, "sound_enabled", checked)
+        )
 
     def _on_border_toggle(self, checked: bool):
         """Handle workflow border toggle."""
         self._border_enabled = checked
-        self._preferences.display.border_enabled = checked
-        fibsem_cfg.save_user_preferences(self._preferences)
+        self._preferences = fibsem_cfg.update_user_preferences(
+            lambda p: setattr(p.display, "border_enabled", checked)
+        )
         self._set_border_state("idle")
 
     def _on_open_preferences(self):
         """Open the preferences dialog."""
         from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
 
+        # Fresh from disk, so saving the dialog's result does not put back anything
+        # another widget has changed since start-up.
+        self._preferences = fibsem_cfg.load_user_preferences()
         dialog = PreferencesDialog(self._preferences, parent=self)
         if dialog.exec_() == QDialog.Accepted:
             self._preferences = dialog.get_preferences()
@@ -997,11 +973,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _apply_preferences(self):
         """Apply current preferences to UI state."""
-        # The embedded agent server follows its flag immediately: ticking the
+        # The embedded App Server follows its flag immediately: ticking the
         # box mid-session starts it against the connected microscope (or stops
         # it), instead of waiting for the next connect.
         if getattr(self, "autolamella_ui", None) is not None:
-            self.autolamella_ui.sync_agent_server_with_preference()
+            self.autolamella_ui.sync_app_server_with_preference()
         d = self._preferences.display
         self._sound_enabled = d.sound_enabled
         self._border_enabled = d.border_enabled
@@ -1022,9 +998,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._action_coincidence_separator.setVisible(coincidence_enabled)
         self._apply_review_visibility()
         # Same rule as the rest of the agent chrome: invisible unless enabled.
-        self.action_agent_server.setVisible(
-            self._preferences.features.agent_server_enabled
-        )
+        self.action_app_server.setVisible(self._preferences.app_server.enabled)
         # getattr because this also runs from the preferences dialog, and the tab it
         # reaches into is built by AutoLamellaUI rather than here.
         system_widget = getattr(self.autolamella_ui, "system_widget", None)
@@ -1218,14 +1192,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             "Create Desktop Shortcut",
             f"Could not create the desktop shortcut:\n{exc}",
         )
-
-    def _on_toggle_minimap_widget(self, checked: bool):
-        """Toggle the minimap plot widget visibility."""
-        if self.autolamella_ui is not None and hasattr(
-            self.autolamella_ui, "minimap_plot_widget"
-        ):
-            self.autolamella_ui.minimap_plot_widget.setVisible(checked)
-            self.autolamella_ui.minimap_plot_widget.activateWindow()
 
     def _sync_view_menu(self) -> None:
         """Refresh the View menu's dynamic state right before it opens: reflect whether a
@@ -1577,89 +1543,49 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.autolamella_ui._open_coincidence_milling_viewer()
 
     def _create_status_bar(self):
-        """Create the status bar."""
-        status_bar = self.statusBar()
-        if status_bar is None:
-            raise RuntimeError("Failed to create status bar for AutoLamella UI.")
-        self.status_bar = status_bar
-        self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
+        """Create the status bar: the shared bar's line on the left (FIB-1188), with
+        the microscope's progress in it, and this window's workflow buttons on the
+        right."""
+        self.status_bar = FibsemStatusBar(self)
+        self.setStatusBar(self.status_bar)
+        # This run's failures, for the line it leaves when it ends (FIB-1188). Here
+        # rather than on the Run click: an agent starts runs too, and the report
+        # handlers read these unconditionally (FIB-329).
+        self._run_active = False
+        self._run_failures: List[Tuple[str, str]] = []
+        self._run_total = 0
+        self.status_bar.failure_details_requested.connect(self._show_run_failures)
 
-        # Add generic progress widget (tile acquisition, etc.)
-        self.progress_widget = FibsemProgressWidget(self.status_bar)
-        self.progress_widget.setMaximumWidth(400)
-        self.status_bar.addPermanentWidget(self.progress_widget)
-
-        # Add milling progress bar
-        self.milling_progress_bar = QProgressBar(self.status_bar)
-        self.milling_progress_bar.setMaximumWidth(400)
-        self.milling_progress_bar.setMaximum(100)
-        self.milling_progress_bar.setValue(0)
-        self.milling_progress_bar.setTextVisible(True)
-        self.milling_progress_bar.setAlignment(Qt.AlignCenter)
-        self.milling_progress_bar.setStyleSheet(PROGRESS_BAR_STYLESHEET)
-        self.milling_progress_bar.hide()  # Hidden by default
-        self.status_bar.addPermanentWidget(self.milling_progress_bar)
-
-        # Add user attention button (shown when waiting for user interaction)
-        self.user_attention_btn = QPushButton("Attention Required")
-        self.user_attention_btn.setStyleSheet(USER_ATTENTION_BUTTON_STYLESHEET)
-        self.user_attention_btn.setIcon(
-            fibsem_icon("mdi:alert-circle", color=GRAY_ICON_COLOR)
-        )
-        self.user_attention_btn.hide()  # Hidden by default
-        self.user_attention_btn.setToolTip(
-            "User Input Required - Click to go to Microscope tab"
-        )
-        self.user_attention_btn.clicked.connect(self._on_user_attention_clicked)
-        self.status_bar.addPermanentWidget(self.user_attention_btn)
-
-        # Add supervised status chip (shown during workflow to indicate supervision mode)
         self._current_task_name = None  # Track current task for supervision toggle
-        # The agent watchdog: a question addressed to the agent that goes
-        # unanswered this long stops being the agent's and becomes yours —
-        # the ordinary waiting chrome (orange border, attention button, sound)
-        # takes over, with a toast saying why. Lives in the app, so it
-        # survives the agent's own loop dying — the whole point.
-        self._agent_watchdog = QTimer(self)
-        self._agent_watchdog.setSingleShot(True)
-        self._agent_watchdog.timeout.connect(self._on_agent_watchdog_expired)
-        # The companion check: while a question parks on the agent's clock,
-        # confirm someone is actually on the other end (the agent's token is
-        # heard from continuously while it watches). An agent that dies
-        # mid-question hands over in seconds, not the full deadline above.
-        self._agent_liveness_check = QTimer(self)
-        self._agent_liveness_check.setInterval(AGENT_LIVENESS_CHECK_MS)
-        self._agent_liveness_check.timeout.connect(self._on_agent_liveness_check)
-        self.supervised_status_btn = QPushButton("Supervised")
-        self.supervised_status_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self.supervised_status_btn.setToolTip("Click to toggle supervision")
-        self.supervised_status_btn.clicked.connect(self._on_supervised_status_clicked)
-        self.supervised_status_btn.hide()  # Hidden by default
-        self.status_bar.addPermanentWidget(self.supervised_status_btn)
+        # The agent chip (FIB-1035): the agent's level, beside the workflow buttons,
+        # shown whenever the App Server runs. Polled rather than signalled: the
+        # server starts and stops with the microscope connection, from the other
+        # window, and a poll a second is cheaper than threading that through.
+        self.agent_chip = AgentLevelChip(
+            last_heard=self._agent_seconds_since_seen, parent=self.status_bar
+        )
+        self.agent_chip.hide()
+        self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
+        self.agent_chip.connect_clicked.connect(self._on_connect_agent_dialog)
+        self.agent_chip.stop_clicked.connect(self._on_stop_agent)
+        self.status_bar.add_action(self.agent_chip)
+        self._agent_chip_timer = QTimer(self)
+        self._agent_chip_timer.setInterval(1000)
+        self._agent_chip_timer.timeout.connect(self._refresh_agent_chip)
+        self._agent_chip_timer.start()
 
-        # Add run workflow button (visible when workflow is not running)
-        self.run_workflow_btn = QPushButton("Run Workflow")
-        self.run_workflow_btn.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        self.run_workflow_btn.setIcon(
-            fibsem_icon("mdi:play-circle", color=GRAY_ICON_COLOR)
+        # Attention Required, the supervision chip, Run and Stop: one component on the
+        # right of the bar, which shows what it is told; what a click does is here.
+        self.workflow_controls = WorkflowControls(self.status_bar)
+        self.workflow_controls.attention_clicked.connect(
+            self._on_user_attention_clicked
         )
-        self.run_workflow_btn.setEnabled(False)
-        self.run_workflow_btn.setToolTip("Run the AutoLamella workflow.")
-        self.run_workflow_btn.clicked.connect(self._on_run_workflow_clicked)
-        self.status_bar.addPermanentWidget(self.run_workflow_btn)
-
-        # Add stop workflow button
-        self.stop_workflow_btn = QPushButton("Stop Workflow")
-        self.stop_workflow_btn.setStyleSheet(DANGER_BUTTON_STYLESHEET)
-        self.stop_workflow_btn.setIcon(
-            fibsem_icon("mdi:stop-circle", color=GRAY_ICON_COLOR)
+        self.workflow_controls.supervision_clicked.connect(
+            self._on_supervised_status_clicked
         )
-        self.stop_workflow_btn.hide()  # Hidden by default
-        self.stop_workflow_btn.setToolTip(
-            "Stop the current workflow. You will be asked to confirm."
-        )
-        self.stop_workflow_btn.clicked.connect(self._on_stop_workflow_clicked)
-        self.status_bar.addPermanentWidget(self.stop_workflow_btn)
+        self.workflow_controls.run_clicked.connect(self._on_run_workflow_clicked)
+        self.workflow_controls.stop_clicked.connect(self._on_stop_workflow_clicked)
+        self.status_bar.add_action(self.workflow_controls)
 
     def _on_stop_workflow_clicked(self):
         """Handle stop workflow button click with confirmation."""
@@ -1805,7 +1731,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Why these lamellae cannot run now, or "": a lamella linked to a grid
         that is not on the stage. Reads the inventory first; see `grid_gate`."""
         ui = self.autolamella_ui
-        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        stage = getattr(getattr(ui, "microscope", None), "sample_handling", None)
         if ui is None or ui.experiment is None or stage is None:
             return ""
         return run_refusal(ui.experiment, stage, lamellae)
@@ -1824,21 +1750,31 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if not grids or not task_names or ui.experiment is None:
             return
         grid_names = [g.name for g in grids]
+        exchanges = self.grid_workflow_widget.exchanges_for(grids)
+        ending = self._end_of_run()
         dialog = GridRunPreflightDialog(
             task_names,
             grid_names,
-            self.grid_workflow_widget.exchanges_for(grids),
+            exchanges,
             str(ui.experiment.path),
             beams_off=self._beams_off(),
             first_run=[g.name for g in grids if not grid_has_run(g)],
+            estimate=self._grid_run_estimate(task_names, grid_names, exchanges),
+            **ending,
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
             return
-        self._start_grid_run(task_names, grid_names, inventory_first=False)
+        self._start_grid_run(
+            task_names,
+            grid_names,
+            inventory_first=False,
+            **ending,
+        )
 
     def _on_screen_all_grids(self) -> None:
-        """One click: inventory, every present grid, the ticked tasks (FIB-898)."""
+        """One click: read the magazine, scan and name the grids in one dialog,
+        then the ticked tasks on every grid it found (FIB-898, FIB-1138)."""
         ui = self.autolamella_ui
         if ui is None or ui.is_workflow_running or ui.experiment is None:
             return
@@ -1847,35 +1783,61 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         task_names = self.grid_workflow_widget.get_selected_task_names()
         if not task_names:
             return
-        known = [g.name for g in ui.experiment.grids]
-        dialog = GridRunPreflightDialog(
+        if scan_in_progress():
+            notification_service.show_toast(
+                "The magazine scan started from Screen all grids is still running.",
+                "warning",
+            )
+            return
+        # The run writes the experiment from its own thread, and Screen writes
+        # the grid records: land any edit still in the editors first.
+        self.lamella_widget.flush_pending_save()
+        ending = self._end_of_run()
+        dialog = ScreenGridsDialog(
+            ui.microscope.sample_handling,
+            ui.experiment,
             task_names,
-            known,
-            self.grid_workflow_widget.exchanges_for(list(ui.experiment.grids)),
             str(ui.experiment.path),
-            screen_all=True,
             beams_off=self._beams_off(),
-            first_run=self._present_grids_not_run(),
+            # priced on the grids the scan found, not the ones known before it
+            estimate=lambda names, exchanges: self._grid_run_estimate(
+                task_names, names, exchanges
+            ),
+            **ending,
             parent=self,
         )
-        if dialog.exec_() != QDialog.Accepted:
+        accepted = dialog.exec_() == QDialog.Accepted
+        # A scan or a Screen changes what the slots hold and which grids the
+        # experiment records, whether or not a run follows.
+        self._refresh_after_naming()
+        if not accepted or not dialog.grid_names:
             return
-        self._start_grid_run(task_names, None, inventory_first=True)
+        self._start_grid_run(
+            task_names,
+            dialog.grid_names,
+            inventory_first=False,
+            **ending,
+        )
 
-    def _present_grids_not_run(self) -> list:
-        """The grids Screen all grids will run for the first time, as far as the
-        last inventory knows: present, and nothing run on them yet. Read off
-        the stage's cached inventory; nothing here asks the hardware."""
-        ui = self.autolamella_ui
-        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
-        if ui is None or ui.experiment is None or stage is None:
-            return []
-        present = {e.name for e in stage.grid_inventory() if e.present}
-        return [
-            g.name
-            for g in ui.experiment.grids
-            if g.name in present and not grid_has_run(g)
-        ]
+    def _end_of_run(self) -> dict:
+        """How a grid run ends, as the Grids page's ⚙ sets it: unload the last
+        grid, write the screening report. Read once at the click, so the run
+        ends the way its confirmation said."""
+        view = self.grid_workflow_widget
+        return {
+            "unload_at_end": view.unload_at_end(),
+            "report_at_end": view.report_at_end(),
+        }
+
+    def _refresh_after_naming(self) -> None:
+        self.grids_tab.refresh()
+        self.grid_workflow_widget.refresh()
+        self._refresh_grid_context()
+        sample = getattr(self.autolamella_ui, "sample_widget", None)
+        for panel in ("loader_widget", "holder_widget"):
+            widget = getattr(sample, panel, None)
+            if widget is not None:
+                widget.refresh()
 
     def _beams_off(self) -> list:
         """The beams that are off now, which the run will turn on: the preflight
@@ -1896,13 +1858,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         return off
 
     def _start_grid_run(
-        self, task_names: list, grid_names, inventory_first: bool
+        self,
+        task_names: list,
+        grid_names,
+        inventory_first: bool,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ) -> None:
         ui = self.autolamella_ui
         self._set_border_state("automated")
+        # The plan's steps, priced for the timeline. Screen all grids builds its
+        # queue after the inventory, so it is priced for the grids known now.
+        known = grid_names
+        if known is None and ui.experiment is not None:
+            known = [g.name for g in ui.experiment.grids]
+        self._push_timeline_estimates(plan_grid_run(task_names, known or []))
         # One writer (FIB-683): land any edit still in the editors first.
         self.lamella_widget.flush_pending_save()
-        ui._start_run_grid_workflow_thread(task_names, grid_names, inventory_first)
+        ui._start_run_grid_workflow_thread(
+            task_names,
+            grid_names,
+            inventory_first,
+            unload_at_end=unload_at_end,
+            report_at_end=report_at_end,
+        )
         self.set_workflow_running()
         # Clear the grid ticks, as a lamella run clears its selection: left ticked,
         # the grids this run is on would be queued again by the next Add to Queue.
@@ -1938,12 +1917,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             n_grid = len(self.grid_workflow_widget.get_selected_grids())
             n_task = len(self.grid_workflow_widget.get_selected_task_names())
             valid = n_grid > 0 and n_task > 0
-            self.run_workflow_btn.setEnabled(valid)
-            self.run_workflow_btn.setToolTip(
+            self.workflow_controls.set_run_enabled(
+                valid,
                 f"Run grid workflow: {n_grid} grid{'s' if n_grid != 1 else ''}, "
                 f"{n_task} task{'s' if n_task != 1 else ''}"
                 if valid
-                else "Select a present grid and a task to run the grid workflow"
+                else "Select a present grid and a task to run the grid workflow",
             )
             if hasattr(self, "workflow_timeline"):
                 self.workflow_timeline.set_add_enabled(
@@ -1957,24 +1936,25 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                         else "Select a present grid and a task to add to the queue"
                     ),
                 )
+            self._say_selection(
+                f"Ready to run: {self.grid_workflow_widget.selection_summary()}."
+                if valid
+                else "Select a present grid and a task to run the grid workflow."
+            )
             return
         n_lam = len(self.lamella_workflow_widget.get_selected_lamella())
         n_task = len(self.lamella_workflow_widget.get_selected_tasks())
         valid = n_lam > 0 and n_task > 0
-        self.run_workflow_btn.setEnabled(valid)
         if valid:
-            self.run_workflow_btn.setToolTip(
-                f"Run workflow: {n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''}"
-            )
+            tooltip = f"Run workflow: {n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''}"
         else:
             missing = []
             if n_lam == 0:
                 missing.append("a lamella")
             if n_task == 0:
                 missing.append("a task")
-            self.run_workflow_btn.setToolTip(
-                f"Select {' and '.join(missing)} to run the workflow"
-            )
+            tooltip = f"Select {' and '.join(missing)} to run the workflow"
+        self.workflow_controls.set_run_enabled(valid, tooltip)
 
         # The timeline's Add button commits the same selection, so it follows the
         # same rule — there is nothing to add until something is ticked.
@@ -1989,13 +1969,30 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self.workflow_timeline.set_add_enabled(
                 valid and not refused, refused or tip
             )
+        self._say_selection(
+            f"Ready to run: {n_lam} lamella, {n_task} task{'s' if n_task != 1 else ''}."
+            if valid
+            else f"{tooltip}."
+        )
 
-    def set_workflow_running(self, message: str | None = None):
-        """Show stop button and update status message."""
-        self.run_workflow_btn.hide()
-        self.stop_workflow_btn.show()
-        if message and self.status_bar is not None:
-            self.status_bar.showMessage(message)
+    def _say_selection(self, text: str) -> None:
+        """What the Workflow tab's selection means, as the status line's last
+        instruction: the panel's footer said it, under the lists, before the
+        status line could."""
+        self._selection_instruction = text
+        self._update_instructions()
+
+    def set_workflow_running(self):
+        """Show the stop button, and lock what a run owns.
+
+        Called on every report of a run, so the start is the first call after
+        `hide_workflow_running`: that is when the last run's failure line goes."""
+        if not self._run_active:
+            self._run_active = True
+            self._run_failures = []
+            self._run_total = 0
+            self.status_bar.dismiss_failure()
+        self.workflow_controls.set_running(True)
         self._set_overviews_allowed(False)
         # A run owns the loader: no manual exchange from the Grids tab meanwhile.
         if getattr(self, "grids_tab", None) is not None:
@@ -2015,9 +2012,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def hide_workflow_running(self):
         """Hide the stop button and show run button."""
-        self.stop_workflow_btn.hide()
-        self.supervised_status_btn.hide()
-        self.run_workflow_btn.show()
+        self._run_active = False
+        self.status_bar.set_waiting(None)
+        self.status_bar.set_run(None)
+        self.workflow_controls.set_running(False)
         self._set_overviews_allowed(True)
         # The timeline stays on screen after a run, but there is no longer a
         # queue behind it — offering to reorder one would be a lie.
@@ -2105,32 +2103,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             style.polish(self._border_frame)
         self._border_frame.update()
 
-    def _agent_supervision_active(self, task_name: str) -> bool:
-        """Whether ``task_name``'s questions are addressed to a connected agent.
-
-        Gated on the agent server actually running — with no server there is
-        nobody the designation could refer to, so all the agent chrome stays
-        invisible and a designated task behaves as plain supervised.
-        """
-        ui = self.autolamella_ui
-        if ui is None or task_name is None:
-            return False
-        host = getattr(ui, "_agent_server_host", None)
-        if host is None or not getattr(host, "running", False):
-            return False
-        protocol = ui.protocol
-        if protocol is None:
-            return False
-        return protocol.get_supervisor(task_name) == "agent"
-
     def _running_border_state(self, task_name: Optional[str]) -> str:
-        """The border for a running workflow: automated, supervised, or agent."""
+        """The border for a running workflow: automated or supervised."""
         if task_name is None or not get_task_supervision(
             task_name, self.autolamella_ui
         ):
             return "automated"
-        if self._agent_supervision_active(task_name):
-            return "agent"
         return "supervised"
 
     def _update_supervised_status(self) -> bool:
@@ -2139,42 +2117,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if task_name is None or self.autolamella_ui is None:
             return False
         supervised = get_task_supervision(task_name, self.autolamella_ui)
-        if supervised and self._agent_supervision_active(task_name):
-            self.supervised_status_btn.setIcon(
-                fibsem_icon("mdi:star-four-points", color="white")
-            )
-            self.supervised_status_btn.setText("Agent")
-            self.supervised_status_btn.setToolTip(
-                f"{task_name} is supervised by the connected agent. "
-                "You can still answer any question first. Click to toggle "
-                "supervision."
-            )
-            self.supervised_status_btn.setStyleSheet(
-                SUPERVISION_STATUS_AGENT_STYLESHEET
-            )
-        elif supervised:
-            self.supervised_status_btn.setIcon(
-                fibsem_icon("mdi:account-hard-hat", color="white")
-            )
-            self.supervised_status_btn.setText("Supervised")
-            self.supervised_status_btn.setToolTip(
-                f"{task_name} is running in supervised mode. Your input will be required. Click to toggle."
-            )
-            self.supervised_status_btn.setStyleSheet(
-                SUPERVISION_STATUS_SUPERVISED_STYLESHEET
-            )
+        if supervised:
+            mode = SUPERVISED
         else:
-            self.supervised_status_btn.setIcon(
-                fibsem_icon("mdi:lightning-bolt", color="white")
-            )
-            self.supervised_status_btn.setText("Automated")
-            self.supervised_status_btn.setToolTip(
-                f"{task_name} is running in automated mode. Click to toggle."
-            )
-            self.supervised_status_btn.setStyleSheet(
-                SUPERVISION_STATUS_AUTOMATED_STYLESHEET
-            )
-        self.supervised_status_btn.show()
+            mode = AUTOMATED
+        self.workflow_controls.set_supervision(mode, task_name)
 
         return supervised
 
@@ -2222,168 +2169,46 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         elif not has_positions:
             msg = INSTRUCTIONS["NO_LAMELLA"]
         else:
-            msg = INSTRUCTIONS["AUTOLAMELLA_READY"]
+            # What the selection allows, once the Workflow tab has one to say.
+            msg = (
+                getattr(self, "_selection_instruction", None)
+                or INSTRUCTIONS["AUTOLAMELLA_READY"]
+            )
 
-        self.status_bar.showMessage(msg)
+        self.status_bar.set_instruction(msg)
+
+    def _refresh_fm_placeholder(self) -> None:
+        """Say so on the quad's FM panel when the connected system has no FM."""
+        view_controller = getattr(self, "view_controller", None)
+        if view_controller is None:
+            return
+        microscope = self.autolamella_ui.microscope if self.autolamella_ui else None
+        no_fm = microscope is not None and getattr(microscope, "fm", None) is None
+        view_controller.fm_canvas.set_placeholder(
+            "No fluorescence microscope available" if no_fm else "No image"
+        )
 
     def _on_microscope_connected(self):
-        """Handle microscope connection and connect milling progress signal."""
+        """Handle microscope connection: hand the microscope to what shows its
+        progress."""
         # Before the signal wiring below, which returns early on a disconnect: both
         # overview modalities have to hear about that case too, to let go of the old
         # microscope. They hold it for life, so each has to be handed the new one. It
         # also re-answers whether the tab can be used, which is only knowable now --
         # whether this system has a fluorescence detector at all.
         self._refresh_overview_microscope()
-        if (
-            self.autolamella_ui is not None
-            and self.autolamella_ui.microscope is not None
-        ):
-            try:
-                self.autolamella_ui.microscope.milling_progress_signal.disconnect(
-                    self._on_milling_progress
-                )
-            except Exception:
-                pass
-            self.autolamella_ui.microscope.milling_progress_signal.connect(
-                self._on_milling_progress
+        if getattr(self, "quad_overview_page", None) is not None:
+            self.quad_overview_page.set_microscope(
+                self.autolamella_ui.microscope if self.autolamella_ui else None
             )
-            try:
-                self.autolamella_ui.microscope.tiled_acquisition_signal.disconnect(
-                    self._on_tile_acquisition_progress
-                )
-            except Exception:
-                pass
-            self.autolamella_ui.microscope.tiled_acquisition_signal.connect(
-                self._on_tile_acquisition_progress
-            )
-            try:
-                self.autolamella_ui.microscope.spot_burn_progress_signal.disconnect(
-                    self._on_spot_burn_progress
-                )
-            except Exception:
-                pass
-            self.autolamella_ui.microscope.spot_burn_progress_signal.connect(
-                self._on_spot_burn_progress
-            )
+        self._refresh_fm_placeholder()
+        # Milling, tiles, spot burn: the bar listens for them itself (FIB-1188).
+        self.status_bar.set_microscope(
+            self.autolamella_ui.microscope if self.autolamella_ui else None
+        )
         self._update_connection_chip()
         self._update_experiment_header()
         self._update_instructions()
-
-    @ensure_main_thread
-    def _on_milling_progress(self, payload: object):
-        """Handle milling progress updates from the microscope."""
-        # Total-by-construction decode. Every in-tree producer emits a
-        # `MillingProgress` and this is a no-op for them; it stands because a
-        # plugin-loaded strategy is a producer too, and psygnal hands whatever it
-        # emits to this slot unchanged (FIB-797).
-        report = MillingProgress.from_payload(payload)
-        if report.status.is_terminal:
-            self.milling_progress_bar.setVisible(False)
-            return
-
-        label = self._milling_label.label(report)
-
-        if report.status is MillingProgressStatus.STAGE_STARTED:
-            # `or 1` rather than a `.get` default: a producer that sends 0 total stages
-            # is as much a division by zero as one that sends nothing.
-            total_stages = report.total_stages or 1
-            stage = report.display_stage or 1
-            stage_name = report.stage_name or f"Stage {stage}"
-            self.milling_progress_bar.setVisible(True)
-            self.milling_progress_bar.setValue(0)
-            self.milling_progress_bar.setFormat(label)
-            self.milling_progress_bar.setToolTip(
-                f"Milling Stage: {stage}/{total_stages} - {stage_name}"
-            )
-
-        elif report.status is MillingProgressStatus.STAGE_UPDATE:
-            remaining_time = report.remaining_time
-            if remaining_time is not None and report.estimated_time:
-                percent_complete = int(
-                    (1 - (remaining_time / report.estimated_time)) * 100
-                )
-                self.milling_progress_bar.setValue(percent_complete)
-                self.milling_progress_bar.setFormat(
-                    f"{label} - {format_duration(remaining_time)} remaining"
-                )
-            else:
-                # No countdown to draw, but the producer's words are still worth showing:
-                # this is the branch a strategy's own report lands in, and it used to
-                # match nothing at all and render nowhere.
-                self.milling_progress_bar.setFormat(label)
-
-    @ensure_main_thread
-    def _on_spot_burn_progress(self, report: SpotBurnProgress) -> None:
-        """Handle spot burn progress updates from the microscope (supervised + unsupervised)."""
-        self.progress_widget.update_progress(build_spot_burn_progress_update(report))
-        if report.status.is_terminal:
-            # hide the Done/Failed state after a moment; reset_if_finished leaves the
-            # widget alone if another operation has started rendering progress since
-            QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
-
-    # What the status bar calls each state of a run. One table for both modalities and
-    # deliberately generic: this is read at a glance from another tab, so it says what
-    # kind of thing is happening rather than repeating the producer's own wording. It is
-    # also the seam FIB-742 needs -- saying *which* run is going is a modality prefix on
-    # these, which is only possible now the words live here instead of arriving baked
-    # into the report.
-    _STATUS_LABELS = {
-        TiledStatus.STARTING: "Collecting tiles",
-        TiledStatus.MOVING: "Moving stage",
-        TiledStatus.TILE_STARTED: "Collecting tiles",
-        TiledStatus.TILE_COLLECTED: "Collecting tiles",
-        TiledStatus.TILES_ACQUIRED: "Collecting tiles",
-        TiledStatus.STITCHING: "Stitching tiles",
-        TiledStatus.SAVING: "Saving overview",
-        TiledStatus.FINISHED: "Complete",
-        TiledStatus.CANCELLED: "Cancelled",
-        TiledStatus.FAILED: "Failed",
-    }
-
-    @ensure_main_thread
-    def _on_tile_acquisition_progress(self, event: TiledProgress) -> None:
-        """Handle tiled acquisition progress updates from the microscope.
-
-        Deliberately **not** filtered by modality,
-        unlike the two overview widgets: they each drive one modality's canvas and must
-        ignore the other's run, while the status bar is the one consumer that wants both
-        (FIB-725).
-        """
-        message = self._STATUS_LABELS.get(event.status, "Collecting tiles")
-
-        if event.status.is_terminal:
-            self.progress_widget.update_progress(
-                self._overview_outcome(event.status, message)
-            )
-            # Hide the Done state after a moment, the same way spot burn does above.
-            QTimer.singleShot(2000, self.progress_widget.reset_if_finished)
-            return
-
-        if event.completed is None or not event.total:
-            # A state that carries no counts: a stage move, a stitch, a save. Nothing is
-            # drawn for them, which leaves the last real count standing -- still true
-            # while the stage moves or the mosaic is written.
-            return
-
-        if event.completed >= event.total:
-            self.progress_widget.update_progress(ProgressUpdate.indeterminate(message))
-        else:
-            self.progress_widget.update_progress(
-                ProgressUpdate.numeric(event.completed, event.total, message)
-            )
-
-    @staticmethod
-    def _overview_outcome(status: TiledStatus, message: str) -> ProgressUpdate:
-        """How a finished tiled acquisition reads once the bar is full.
-
-        A cancel is deliberately not `failed`, which paints the bar red: it is someone
-        getting what they asked for.
-        """
-        if status is TiledStatus.FAILED:
-            return ProgressUpdate.failed(message)
-        if status is TiledStatus.CANCELLED:
-            return ProgressUpdate(finished=True, message=message)
-        return ProgressUpdate.done()
 
     def _on_tab_changed(self, index: int):
         """Handle tab change and update status bar."""
@@ -2411,9 +2236,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.autolamella_ui._workflow_finished_signal.connect(
             self._on_workflow_finished
         )
+        # A grid task records its overview as it finishes, and says so in a status.
+        self.autolamella_ui.workflow_status_signal.connect(self._refresh_quad_overviews)
+        self.autolamella_ui._workflow_finished_signal.connect(
+            self._refresh_quad_overviews
+        )
         self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
-        # Question lifecycle drives the agent watchdog (armed per prompt on
-        # agent-designated tasks, disarmed by any answer). GUI thread: the
+        # Question lifecycle refreshes the waiting chrome. GUI thread: the
         # responder emits these where the lifecycle already runs.
         self.autolamella_ui.ui_responder.add_question_observer(self._on_question_event)
         notification_service._get_service().toast.connect(self._on_notification_service)
@@ -2438,8 +2267,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         splitter.setChildrenCollapsible(False)
 
         self.view_controller = MicroscopeViewController(parent=self)
+        self.status_bar.follow(self.view_controller)
         splitter.addWidget(self.view_controller.widget)
         splitter.addWidget(self.autolamella_ui)
+        # The fourth cell's overview page: the experiment's overviews of the grid the
+        # stage is on. Fed from the same places as the Overview tabs, below.
+        self.quad_overview_page = QuadOverviewPage()
+        self.view_controller.widget.page_cell.add_page(
+            "overview",
+            "Overview",
+            self.quad_overview_page,
+            header=self.quad_overview_page.header,
+        )
+        self.view_controller.stage_updated.connect(self.quad_overview_page.set_stage)
+        self.quad_overview_page.lamella_selected.connect(
+            self._on_quad_overview_lamella_selected
+        )
 
         splitter.setSizes([700, 550])
         # set minimum width of right panel to 500
@@ -2492,6 +2335,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.review_tab.set_experiment(self.autolamella_ui.experiment)
         self.review_tab.set_microscope(self.autolamella_ui.microscope)
         experiment = self.autolamella_ui.experiment
+        self.quad_overview_page.set_experiment(experiment)
         self._listen_for_questions(experiment)
         if experiment is not None and experiment.task_protocol is not None:
             self.lamella_workflow_widget.set_experiment(experiment)
@@ -2510,7 +2354,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._update_experiment_header()
 
         # Show run workflow button when experiment is loaded
-        self.run_workflow_btn.show()
+        self.workflow_controls.run_btn.show()
 
         # enable all the tabs (except lamella tab, which is managed by _update_lamella_tab_enabled)
         lamella_tab_index = (
@@ -2537,7 +2381,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # Rebuild lamella list and wire position events for the new experiment
         self._rebuild_lamella_list()
         self._on_workflow_selection_changed()  # evaluate after lamella are populated
-        self.lamella_workflow_widget._update_summary()
         self._wire_position_events()
 
     def _wire_position_events(self):
@@ -2959,7 +2802,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         own refresh was pressed. Reads the stage's cached inventory: no hardware.
         """
         ui = self.autolamella_ui
-        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        stage = getattr(getattr(ui, "microscope", None), "sample_handling", None)
         if ui is None or ui.experiment is None or stage is None:
             return
         try:
@@ -2997,14 +2840,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             loader.loader_changed.connect(self.grid_workflow_widget.refresh)
             loader.loader_changed.connect(self._refresh_grid_context)
         self._refresh_grid_context()
-        # Calibrating a slot from the Sample view changes what the Overview
-        # tabs should draw by default; they re-resolve rather than wait for a
-        # reconnect.
+        # Renaming a grid in the Sample view has to follow the experiment's records.
+        # Calibrating a slot there needs nothing here: the Overview tabs hear of it
+        # from `microscope.holder_changed`, whichever window ran the calibration.
         holder_panel = getattr(sample, "holder_widget", None)
         if holder_panel is not None:
             holder_panel.set_rename_check(self._grid_rename_refusal)
             holder_panel.grid_renamed.connect(self._on_slot_grid_renamed)
-            holder_panel.holder_changed.connect(self._on_holder_changed)
 
     def _grid_rename_refusal(self, old: str, new: str) -> str:
         """Why the Sample view may not rename grid *old* to *new*, or "".
@@ -3052,7 +2894,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if experiment is None or not experiment.grids:
             return None
         loaded = set()
-        stage = getattr(self.autolamella_ui.microscope, "_stage", None)
+        stage = getattr(self.autolamella_ui.microscope, "sample_handling", None)
         if stage is not None:
             try:
                 loaded = {e.name for e in stage.grid_inventory() if e.loaded}
@@ -3081,14 +2923,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         sample = getattr(self.autolamella_ui, "sample_widget", None)
         if sample is not None:
             sample.refresh()
-
-    def _on_holder_changed(self, _holder) -> None:
-        for tab in (
-            getattr(self, "beam_overview_tab", None),
-            getattr(self, "fm_overview_tab", None),
-        ):
-            if tab is not None and hasattr(tab, "reset_context_overlay_defaults"):
-                tab.reset_context_overlay_defaults()
 
     def add_workflow_tab(self):
         """Add the workflow tab with the combined lamella + workflow widget."""
@@ -3176,9 +3010,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._refresh_grid_protocol_editor
         )
         self.workflow_left_tabs.addTab(self.grid_workflow_widget, "Grids")
-        # The selector's tab already says which list this is; the list's own
-        # "Lamella" title would say it twice.
-        self.lamella_workflow_widget.set_section_title_visible(False)
         # An inventory, a rename, a manual load on the Grids tab: the run view's
         # rows and chips follow. Built after the Grids tab, so the signal exists.
         self.grids_tab.experiment_changed.connect(self.grid_workflow_widget.refresh)
@@ -3202,6 +3033,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             fibsem_icon("mdi:play-circle-outline", color=GRAY_ICON_COLOR),
             "Workflow",
         )
+        self._workflow_tab_container = container
 
         # disable the workflow tab by default
         self.tab_widget.setTabEnabled(self.tab_widget.indexOf(container), False)
@@ -3250,6 +3082,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Sync card container and overviews when experiment-tab list selection changes."""
         self.fm_overview_tab.set_selected(lamella)
         self.beam_overview_tab.set_selected(lamella)
+        self.quad_overview_page.set_selected(lamella)
         if getattr(self, "_syncing_selection", False) or lamella is None:
             return
         if not hasattr(self, "lamella_card_container"):
@@ -3370,7 +3203,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """
         from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
             GridTaskManager,
-            plan_grid_run,
         )
 
         if not isinstance(manager, GridTaskManager):
@@ -3397,6 +3229,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             str(experiment.path) if experiment is not None else "",
             adding=True,
             first_run=[g.name for g in grids if not grid_has_run(g)],
+            addition=self._estimate_addition(manager, pairs, run_next=False),
             parent=self,
         )
         if dialog.exec_() != QDialog.Accepted:
@@ -3429,16 +3262,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return None
 
         lamella_by_name = {lam.name: lam for lam in experiment.positions}
+        step_seconds = self._step_seconds(experiment)
 
         def seconds_for(item):
-            lamella = lamella_by_name.get(item.item_name)
-            if lamella is None:
-                return None
-            config = lamella.task_config.get(item.task_name)
-            if config is None:
-                return None
             try:
-                return config.estimated_duration
+                return step_seconds(item.item_name, item.task_name)
             except Exception:
                 # `estimated_time` divides by the sputter rate (milling/base.py:292), so
                 # a hand-edited protocol can raise. Losing the figure is a great deal
@@ -3466,11 +3294,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         active_elapsed = None
         active = manager.queue.active
         if active is not None:
-            lamella = lamella_by_name.get(active.item_name)
-            if lamella is not None and lamella.task_state.start_timestamp:
-                active_elapsed = max(
-                    0.0, time.time() - lamella.task_state.start_timestamp
-                )
+            item = lamella_by_name.get(active.item_name)
+            if item is None:
+                item = experiment.get_grid_by_name(active.item_name)
+            started = item.task_state.start_timestamp if item is not None else None
+            if started is not None:
+                active_elapsed = max(0.0, (now() - started).total_seconds())
 
         return estimate_addition(
             manager.queue.items,
@@ -3480,6 +3309,48 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             schedule=schedule,
             active_elapsed=active_elapsed,
         )
+
+    def _step_seconds(self, experiment):
+        """``(item, task) -> seconds``, or None for a step with nothing to offer:
+        a lamella's from its own task config, a grid's from the grid protocol and
+        the loader's exchange (``grid_item_seconds``). The timeline and the queue
+        key steps by name, so one lookup serves either kind of run."""
+        lamella_by_name = {lam.name: lam for lam in experiment.positions}
+        grid_seconds = None
+        if experiment.task_protocol is not None:
+            view = self.grid_workflow_widget
+            grid_seconds = grid_item_seconds(
+                experiment, view.exchange_seconds(), view.loaded_grid_names()
+            )
+
+        def seconds_for(item_name: str, task_name: str):
+            lamella = lamella_by_name.get(item_name)
+            if lamella is not None:
+                config = lamella.task_config.get(task_name)
+                return config.estimated_duration if config is not None else None
+            if grid_seconds is not None:
+                return grid_seconds(item_name, task_name)
+            return None
+
+        return seconds_for
+
+    def _grid_run_estimate(self, task_names: list, grid_names: list, exchanges: int):
+        """What a grid run will take, for its confirmation; None if it cannot say.
+        A figure is not worth losing the dialog over (see `_push_timeline_estimates`)."""
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        if experiment is None:
+            return None
+        try:
+            return estimate_grid_run(
+                experiment,
+                task_names,
+                grid_names,
+                exchanges,
+                self.grid_workflow_widget.exchange_seconds(),
+            )
+        except Exception:
+            logging.warning("Could not estimate the grid run.", exc_info=True)
+            return None
 
     def _push_timeline_estimates(self, pairs: list) -> None:
         """Give the timeline the per-item durations, and the schedule they walk past.
@@ -3494,19 +3365,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if experiment is None:
             return
 
-        lamella_by_name = {lam.name: lam for lam in experiment.positions}
+        step_seconds = self._step_seconds(experiment)
         estimates = {}
         for lamella_name, task_name in pairs:
-            lamella = lamella_by_name.get(lamella_name)
-            if lamella is None:
-                continue
-            config = lamella.task_config.get(task_name)
-            # A lamella with no config for the task has no duration to offer, and
-            # inventing one would be worse than leaving the column empty.
-            if config is None:
-                continue
             try:
-                estimates[(lamella_name, task_name)] = config.estimated_duration
+                seconds = step_seconds(lamella_name, task_name)
+                # A lamella with no config for the task has no duration to offer,
+                # and inventing one would be worse than leaving the column empty.
+                if seconds is not None:
+                    estimates[(lamella_name, task_name)] = seconds
             except Exception:
                 # Deliberately caught, against this codebase's fail-fast default. This
                 # runs in a slot, and PyQt5 aborts the process on an unhandled exception
@@ -3636,9 +3503,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         }.get(action, "")
 
     def _show_queue_message(self, message: str) -> None:
-        """Transient confirmation for a queue edit — no modal, no interruption."""
-        if message and self.status_bar is not None:
-            self.status_bar.showMessage(message, 4000)
+        """Transient confirmation for a queue edit — no modal, no interruption.
+
+        A toast, not the status bar: there it covered the run's own line."""
+        if message:
+            notification_service.show_toast(message)
 
     def _on_workflow_status(self, event: "WorkflowStatusEvent"):
         """Handle a fire-and-forget status update, from workflow_status_signal.
@@ -3649,9 +3518,10 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         lifecycle report starts or finishes the run, and the responder pings
         this signal when a question flips the waiting state.
         """
-        # transient status-bar messages (e.g. scheduled-start countdown)
-        if event.status_bar is not None and self.status_bar is not None:
-            self.status_bar.showMessage(event.status_bar)
+        # What the run is doing now (a scheduled-start countdown, waiting on
+        # decisions, loading a grid), under the task it is for; "" clears it.
+        if event.status_bar is not None:
+            self.status_bar.set_run_step(event.status_bar)
 
         if event.report is not None:
             self._apply_status_report(event.report)
@@ -3680,14 +3550,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         # Position in the live queue, not the launch matrix — stays correct
         # when the queue is added to or reordered mid-run.
-        txt = f"Workflow: {task_name} | {lamella_name}"
         # `queue_total` is a count, so 0 means "nothing to be in the middle of"
         # rather than "unknown" -- truthiness, not `is not None`, or a malformed
-        # payload renders "3/0".
+        # payload renders "3 of 0".
+        where = None
         if queue_position is not None and queue_total:
-            txt += f" | {queue_position}/{queue_total}"
+            where = f"{queue_position} of {queue_total}"
 
-        self.set_workflow_running(txt)
+        self.status_bar.set_run(f"{lamella_name} › {task_name}", None, where)
+        self.set_workflow_running()
+        if queue_total:
+            self._run_total = queue_total
+        if status is AutoLamellaTaskStatus.Failed:
+            # Said for a moment under its own name -- the run moves on to the next
+            # item -- and kept for the line the run leaves when it ends.
+            what = f"{lamella_name} › {task_name}"
+            reason = report.error_message or "failed"
+            self._run_failures.append((what, reason))
+            self.status_bar.show_outcome(
+                what, f"failed: {reason}", failed=True, standalone=True
+            )
 
         # update current task
         self._current_task_name = task_name
@@ -3775,31 +3657,94 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if tab is not None and getattr(tab, "lamella_list", None) is not None
         ]
 
-    def _on_agent_server_dialog(self) -> None:
-        """Open the session dialog: status, token, and scope arming."""
-        from fibsem.applications.autolamella.ui.agent_server_dialog import (
-            AgentServerDialog,
+    def _on_connect_agent_dialog(self) -> None:
+        """From the agent chip's menu: the agent token and how to register the
+        sidecar (FIB-1035)."""
+        from fibsem.applications.autolamella.ui.connect_agent_dialog import (
+            ConnectAgentDialog,
         )
 
-        dialog = AgentServerDialog(
+        dialog = ConnectAgentDialog(
+            lambda: getattr(self.autolamella_ui, "_app_server_host", None), self
+        )
+        dialog.exec_()
+
+    def _on_app_server_dialog(self) -> None:
+        """Open Tools → App Server: status, services, clients, the dashboard."""
+        from fibsem.applications.autolamella.ui.app_server_dialog import (
+            AppServerDialog,
+        )
+
+        dialog = AppServerDialog(
             host_provider=lambda: getattr(
-                self.autolamella_ui, "_agent_server_host", None
+                self.autolamella_ui, "_app_server_host", None
             ),
             parent=self,
         )
         dialog.exec_()
 
-    def _watchdog_ms(self) -> int:
-        """The watchdog deadline, from Preferences → Agent (constant fallback)."""
-        try:
-            minutes = fibsem_cfg.load_user_preferences().agent.watchdog_minutes
-            return max(1, int(minutes)) * 60 * 1000
-        except Exception:
-            return AGENT_WATCHDOG_MS
+    def _running_app_server(self):
+        """The App Server's host while it runs, else None."""
+        host = getattr(self.autolamella_ui, "_app_server_host", None)
+        if host is None or not getattr(host, "running", False):
+            return None
+        if getattr(host, "auth", None) is None:
+            return None
+        return host
+
+    def _refresh_agent_chip(self) -> None:
+        """Show the chip while the App Server runs, at the level its auth holds."""
+        host = self._running_app_server()
+        if host is None:
+            self.agent_chip.hide()
+            return
+        level = host.auth.level or AgentLevel.WATCH
+        if self.agent_chip.level is not level:
+            self.agent_chip.set_level(level)
+        self.agent_chip.show()
+
+    def _on_agent_level_chosen(self, level: AgentLevel) -> None:
+        """GUI thread, from the chip's menu: set the agent's level, effective for
+        its next request."""
+        host = self._running_app_server()
+        if host is not None:
+            previous = host.auth.level
+            host.auth.set_level(level)
+            logging.info("Agent level set to %s by the operator", level.value)
+            self._record_agent_event("agent_level_set", previous=previous, level=level)
+        self._refresh_agent_chip()
+
+    def _on_stop_agent(self) -> None:
+        """GUI thread, from the chip: the brake. Down to Watch at once, without
+        asking; the agent's next action is refused as stopped. A running
+        workflow is left running -- runs are the app's, with their own Stop."""
+        host = self._running_app_server()
+        if host is not None:
+            previous = host.auth.level
+            host.auth.stop_agent()
+            logging.warning("Agent stopped by the operator: level set to watch")
+            self._record_agent_event(
+                "agent_stopped", previous=previous, level=host.auth.level
+            )
+        self._refresh_agent_chip()
+
+    def _record_agent_event(self, kind: str, previous, level) -> None:
+        """Put a level change on the session's record (events.jsonl). Emitted
+        here, on the GUI thread, so the recorder names the operator."""
+        recorder = getattr(self.autolamella_ui, "_event_recorder", None)
+        if recorder is None:
+            return
+        recorder.buffer.append(
+            kind,
+            {
+                "previous": previous.value if previous is not None else None,
+                "level": level.value,
+            },
+        )
 
     def _agent_seconds_since_seen(self) -> Optional[float]:
         """Seconds since the agent's token last made a request, or None."""
-        host = getattr(self.autolamella_ui, "_agent_server_host", None)
+        host = getattr(self.autolamella_ui, "_app_server_host", None)
         if host is None:
             return None
         try:
@@ -3807,75 +3752,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         except Exception:
             return None
 
-    def _agent_presumed_gone(self) -> bool:
-        """Nobody is on the other end: never connected, or silent too long."""
-        age = self._agent_seconds_since_seen()
-        return age is None or age > AGENT_PRESUMED_GONE_S
-
     def _on_question_event(self, kind: str, payload: dict) -> None:
-        """GUI thread, from the responder: arm/disarm the agent watchdog."""
-        ui = self.autolamella_ui
-        if kind == "prompt_raised":
-            hold = ui.hold
-            if hold is not None and self._agent_supervision_active(
-                self._current_task_name
-            ):
-                # The question is the agent's: re-address the hold, and start
-                # the clock that hands it to the operator if the agent goes
-                # quiet. Not for an agent that isn't there.
-                if self._agent_presumed_gone():
-                    self._hand_question_to_operator(
-                        "The agent hasn't been in touch — this question is yours."
-                    )
-                    return
-                ui.hold = replace(
-                    hold,
-                    kind=HoldKind.agent,
-                    releases="the agent answers the question, or it comes to you",
-                )
-                self._agent_watchdog.start(self._watchdog_ms())
-                self._agent_liveness_check.start()
-            else:
-                self._agent_watchdog.stop()
-                self._agent_liveness_check.stop()
-        elif kind in ("prompt_answered", "prompt_cancelled"):
-            self._agent_watchdog.stop()
-            self._agent_liveness_check.stop()
-        self._refresh_workflow_indicators()
-
-    def _on_agent_watchdog_expired(self) -> None:
-        """The agent went quiet: the standing question becomes the operator's."""
-        minutes = max(1, self._watchdog_ms() // 60000)
-        self._hand_question_to_operator(
-            f"The agent hasn't answered in {minutes} minutes — "
-            "this question is now yours."
-        )
-
-    def _on_agent_liveness_check(self) -> None:
-        """Periodic while a question parks on the agent's clock: hand over the
-        moment the agent stops being heard from, not at the full deadline."""
-        if self._agent_presumed_gone():
-            self._hand_question_to_operator(
-                "The agent hasn't been in touch — this question is yours."
-            )
-
-    def _hand_question_to_operator(self, message: str) -> None:
-        """Escalate the standing question: ordinary waiting chrome + a toast
-        saying why. Informs, never revokes — a late agent answer still applies,
-        and the first writer still wins."""
-        self._agent_watchdog.stop()
-        self._agent_liveness_check.stop()
-        hold = self.autolamella_ui.hold
-        if hold is None:
-            return  # the answer raced the escalation; nothing is standing
-        self.autolamella_ui.hold = replace(
-            hold,
-            kind=HoldKind.question,
-            releases="answer the question on the Microscope tab",
-        )
-        notification_service.show_toast(message, "warning")
-        # The ordinary waiting chrome (orange border, attention button, sound)
-        # takes over below, now that the hold is the operator's.
+        """GUI thread, from the responder: a question was raised, answered or
+        cancelled, so the waiting chrome follows."""
         self._refresh_workflow_indicators()
 
     def _refresh_workflow_indicators(self) -> None:
@@ -3888,34 +3767,31 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # a decision is not machine time whoever is giving it, and left running
         # it would spend the estimate while nothing is happening.
         self.workflow_timeline.set_waiting_for_user(hold is not None)
-        # A question addressed to a running agent is not (yet) a wait for the
-        # operator: the chrome stays agent-purple and quiet while the watchdog
-        # counts down. Expiry -- or a human-designated question -- is what
-        # turns it into the ordinary waiting state. A run parked on review
-        # decisions is a wait for the operator too, just not at the beam: same
-        # chrome, but the button leads to the Review tab.
-        if hold is not None and hold.kind is not HoldKind.agent:
-            self.user_attention_btn.setText(_attention_label(hold))
-            self.user_attention_btn.setToolTip(
-                f"The run is waiting on you: {hold.releases}."
+        # A question is a wait for the operator, whether or not an agent is
+        # connected and may answer first. A run parked on review decisions is a
+        # wait for the operator too, just not at the beam: same chrome, but the
+        # button leads to the Review tab.
+        # The line says what releases a hold the operator can release, and counts
+        # the wait; Attention Required stays the way there.
+        self.status_bar.set_waiting(hold.releases if hold is not None else None)
+        if hold is not None:
+            self.workflow_controls.set_attention(
+                _attention_label(hold), f"The run is waiting on you: {hold.releases}."
             )
-            self.user_attention_btn.show()
             # Play notification sound once when entering waiting state
             if not self._user_interaction_sound_played and self._sound_enabled:
                 play_notification_sound()
                 self._user_interaction_sound_played = True
         else:
             # Hide user attention button and reset to original dark theme
-            self.user_attention_btn.hide()
+            self.workflow_controls.set_attention(None)
             self._user_interaction_sound_played = False  # Reset for next time
 
         # Update border to reflect current workflow state
         if self._border_state == "stopping":
             pass  # Keep the red border until the workflow finishes unwinding
         elif hold is not None:
-            self._set_border_state(
-                "agent" if hold.kind is HoldKind.agent else "waiting"
-            )
+            self._set_border_state("waiting")
         elif self.autolamella_ui.WORKFLOW_PENDING:
             self._set_border_state("pending")
         elif self.autolamella_ui.is_workflow_running:
@@ -4050,17 +3926,44 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if sample is not None:
             sample.set_controls_enabled(True)
             sample.refresh()
-        self.user_attention_btn.hide()
+        self.workflow_controls.set_attention(None)
         self.lamella_list_widget.refresh_all()
         review_tab = getattr(self, "review_tab", None)
         if review_tab is not None:
             review_tab.set_running(False)
             review_tab.refresh()
         self.lamella_card_container.refresh_all()
-        if self.status_bar is not None:
-            self.status_bar.showMessage("Workflow: Finished")
-            self.status_bar.setStyleSheet(STATUS_BAR_STYLESHEET)
+        self._say_how_the_run_ended()
         self._set_border_state("idle")
+
+    def _show_run_failures(self) -> None:
+        """The failure line's Show: the Workflow tab, with the run's
+        first failed row selected and in view. The timeline is where the run is
+        laid out, failures marked, and where they are queued again."""
+        container = getattr(self, "_workflow_tab_container", None)
+        if container is None:
+            return
+        self.tab_widget.setCurrentWidget(container)
+        self.workflow_timeline.show_first_failed()
+
+    def _say_how_the_run_ended(self) -> None:
+        """The run's line has gone (`hide_workflow_running`). A run with failures,
+        or one that stalled, leaves a line that stays until it is dismissed or the
+        next run starts; a clean one says so once, as a toast, and the line goes
+        back to the instruction."""
+        note = getattr(self.autolamella_ui, "_last_run_note", "") or ""
+        failures = self._run_failures
+        if failures:
+            what, reason = failures[-1]
+            n = len(failures)
+            count = f"{n} of {self._run_total}" if self._run_total >= n else f"{n}"
+            self.status_bar.show_failure(
+                "Run finished", f"{count} failed · {what}: {reason}"
+            )
+        elif note:
+            self.status_bar.show_failure("Run stalled", note)
+        else:
+            notification_service.show_toast("Workflow finished.")
 
     def add_overview_tab(self):
         """Reserve the Overview tab: both modalities, one tab.
@@ -4102,6 +4005,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # keeps the two sources of that derivation the same two objects it reads.
         self.fm_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
         self.beam_overview_tab.acquiring_changed.connect(self._apply_overview_locks)
+        # A finished run has saved its overview by the time it says so.
+        self.fm_overview_tab.acquiring_changed.connect(self._refresh_quad_overviews)
+        self.beam_overview_tab.acquiring_changed.connect(self._refresh_quad_overviews)
 
         self.tab_widget.insertTab(
             2,
@@ -4149,6 +4055,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         self.overview_tab.refresh_microscope()
 
+    def _on_quad_overview_lamella_selected(self, lamella):
+        """A lamella clicked on the Microscope tab's overview page: select it in the
+        lists and the Overview tabs, as a click on either Overview tab does."""
+        self.fm_overview_tab.set_selected(lamella)
+        self.beam_overview_tab.set_selected(lamella)
+        if getattr(self, "_syncing_selection", False) or lamella is None:
+            return
+        self._syncing_selection = True
+        try:
+            self.autolamella_ui.lamella_list.select(lamella.name)
+            if hasattr(self, "lamella_card_container"):
+                self.lamella_card_container.select_lamella(lamella.name)
+        finally:
+            self._syncing_selection = False
+
     def _on_beam_overview_lamella_selected(self, lamella):
         """Sync the other lists when the rebuilt Overview tab's list changes.
 
@@ -4182,6 +4103,13 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         finally:
             self._syncing_selection = False
 
+    def _refresh_quad_overviews(self, *_args) -> None:
+        """Have the quad view's overview page look for new overviews. It redraws
+        only if it finds one, and not at all while hidden."""
+        page = getattr(self, "quad_overview_page", None)
+        if page is not None:
+            page.refresh()
+
     def _refresh_overview_positions(self):
         """Re-mark **both** overview canvases, tolerating either tab being absent.
 
@@ -4203,6 +4131,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             tab = getattr(self, name, None)
             if tab is not None:
                 tab.refresh_positions()
+        # The Microscope tab's stage map and overview page mark the same lamellae,
+        # from the same place.
+        experiment = getattr(self.autolamella_ui, "experiment", None)
+        page = getattr(self, "quad_overview_page", None)
+        if page is not None:
+            if page.experiment is not experiment:
+                page.set_experiment(experiment)
+            else:
+                page.refresh_positions()
+        controller = getattr(self, "view_controller", None)
+        if controller is not None:
+            controller.set_map_positions(
+                [lamella.stage_position for lamella in experiment.positions]
+                if experiment is not None
+                else []
+            )
 
     def _on_notification_service(
         self, message: str, notification_type: str, temporary: bool

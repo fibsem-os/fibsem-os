@@ -49,7 +49,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     NAME_FIXED_REASON,
     grid_has_run,
 )
-from fibsem.microscopes._stage import GridInventoryEntry, SampleGrid
+from fibsem.structures import GridInventoryEntry, SampleGrid
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker
@@ -272,7 +272,7 @@ class GridsTabWidget(QWidget):
         loaded = entry is not None and entry.loaded
         can_load = (
             self.stage is not None
-            and self.stage.loader is not None
+            and self.stage.magazine is not None
             and entry is not None
             and entry.present
             and self._controls_enabled
@@ -286,7 +286,7 @@ class GridsTabWidget(QWidget):
 
     @property
     def stage(self):
-        return getattr(self._microscope, "_stage", None)
+        return getattr(self._microscope, "sample_handling", None)
 
     @property
     def selected_grid(self) -> Optional[GridRecord]:
@@ -319,7 +319,7 @@ class GridsTabWidget(QWidget):
                 self._inventory = {e.name: e for e in stage.grid_inventory() if e.name}
             except Exception as e:  # noqa: BLE001 - drawn as "not present", said once
                 logging.warning(f"Could not read the grid inventory: {e}")
-            has_loader = stage.loader is not None
+            has_loader = stage.magazine is not None
 
         # A record added since the last rebuild (an inventory just created it)
         # needs a card; one removed needs its card gone.

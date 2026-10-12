@@ -32,7 +32,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
     acquire_fluorescence_overview,
 )
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
-from fibsem.microscopes._stage import SampleGrid
+from fibsem.structures import InsertableDeviceState, SampleGrid
 
 
 @pytest.fixture
@@ -41,9 +41,9 @@ def microscope():
         manufacturer="Demo",
         config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
     )
-    assert microscope.stage_is_compustage and microscope.fm is not None
+    assert microscope._fm_is_a_pose() and microscope.fm is not None
     # the working slot is the origin by construction; put a grid in it
-    microscope._stage.holder.slots["Slot-01"].loaded_grid = SampleGrid(
+    microscope.sample_handling.holder.slots["Slot-01"].loaded_grid = SampleGrid(
         name="grid-aspen"
     )
     return microscope
@@ -118,15 +118,17 @@ class TestRun:
         self, microscope, experiment
     ):
         grid = experiment.get_grid_by_name("grid-aspen")
-        assert microscope.fm.objective.state != "Inserted"
+        assert microscope.fm.objective.state is not InsertableDeviceState.INSERTED
         run_grid_task(microscope, "overview_fm", experiment, grid)
-        assert microscope.fm.objective.state != "Inserted"  # put back how it was found
+        assert (
+            microscope.fm.objective.state is not InsertableDeviceState.INSERTED
+        )  # put back how it was found
 
     def test_an_already_inserted_objective_is_left_in(self, microscope, experiment):
         microscope.fm.objective.insert()
         grid = experiment.get_grid_by_name("grid-aspen")
         run_grid_task(microscope, "overview_fm", experiment, grid)
-        assert microscope.fm.objective.state == "Inserted"
+        assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
     def test_centre_is_the_slot_at_the_fm(self, microscope, experiment):
         grid = experiment.get_grid_by_name("grid-aspen")

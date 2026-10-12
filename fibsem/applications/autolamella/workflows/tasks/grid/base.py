@@ -42,11 +42,13 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.workflows.tasks.proposing import settle
 from fibsem.cancellation import OperationCancelledError
+from fibsem.util.timestamps import now, now_iso
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.microscopes._stage import GridSlot, Stage
+    from fibsem.services.sample_handling import SampleHandling
+    from fibsem.structures import GridSlot
 
 _LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
@@ -77,6 +79,19 @@ class GridTaskConfig(ABC):
     # for the grid, and is skipped when one of them did not complete. Empty:
     # it runs whatever happened before it on the grid.
     requires: List[str] = field(default_factory=list)
+
+    @property
+    def estimated_duration(self) -> float:
+        """Conservative forward estimate of one run of this task on one grid, in
+        seconds: what the run confirmation, the timeline and Add to queue quote.
+
+        On the config, as on the lamella side, because those callers hold configs
+        and no microscope. The exchange that brings the grid in is not the task's:
+        it is the loader's (``GridMagazine.exchange_seconds``), priced once per
+        grid. Zero here; each task type adds what its run does (see
+        :mod:`fibsem.timing`).
+        """
+        return 0.0
 
     @property
     def parameters(self) -> Tuple[str, ...]:
@@ -237,8 +252,8 @@ class GridTask(ABC):
     # -- where the grid is, and where its files go -----------------------------
 
     @property
-    def stage(self) -> "Stage":
-        return self.microscope._stage
+    def stage(self) -> "SampleHandling":
+        return self.microscope.sample_handling
 
     @property
     def slot(self) -> Optional["GridSlot"]:
@@ -321,7 +336,7 @@ class GridTask(ABC):
         # the UI: reset field by field, never replace it.
         state = self.grid.task_state
         state.name = self.task_name
-        state.start_timestamp = datetime.timestamp(datetime.now())
+        state.start_timestamp = now()
         state.end_timestamp = None
         state.task_id = self.task_id
         state.task_type = self.task_type
@@ -354,7 +369,7 @@ class GridTask(ABC):
 
     def _record_outcome(self) -> None:
         """Freeze the finished task_state into task_history, on every terminal path."""
-        self.grid.task_state.end_timestamp = datetime.timestamp(datetime.now())
+        self.grid.task_state.end_timestamp = now()
         self.grid.task_history.append(deepcopy(self.grid.task_state))
 
     def _is_cancellation(self, exc: Exception) -> bool:
@@ -396,7 +411,7 @@ class GridTask(ABC):
         logging.debug(
             {
                 "msg": "status",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": now_iso(),
                 "grid": self.grid.name,
                 "grid_id": self.grid.id,
                 "task_id": self.task_id,

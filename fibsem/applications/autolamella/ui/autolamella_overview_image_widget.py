@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import Experiment, find_overviews
 from fibsem.imaging.tiled import plot_minimap
 from fibsem.structures import FibsemImage
+from fibsem.theme.plots import LIGHT
 from fibsem.ui.tokens import (
     NEUTRAL_400,
     NEUTRAL_750,
@@ -679,10 +680,11 @@ class OverviewImageWidget(QWidget):
             #
             # This also retires recolouring the preview's title black for the save and
             # putting it back afterwards.
-            export_figure = self._build_figure(title_color="black")
+            # paper: the light plot theme's title and background
+            export_figure = self._build_figure(title_color=LIGHT.text_strong)
             self._match_view_limits(source=self.current_figure, target=export_figure)
             export_figure.savefig(
-                output_path, dpi=300, bbox_inches="tight", facecolor="white"
+                output_path, dpi=300, bbox_inches="tight", facecolor=LIGHT.background
             )
 
             logging.info(f"Saved overview image to: {output_path}")

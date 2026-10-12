@@ -1,5 +1,6 @@
 """The Defaults panel: read from the instrument, edit, save to the configuration."""
 
+import copy
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -11,6 +12,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 import fibsem.config as cfg  # noqa: E402
+import fibsem.ui.widgets.microscope_defaults_widget as defaults_widget  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.structures import MicroscopeSettings  # noqa: E402
 from fibsem.ui.widgets.microscope_defaults_widget import (  # noqa: E402
@@ -192,7 +194,9 @@ def test_saving_writes_the_defaults_section_and_nothing_else(widget, microscope)
     written = utils.load_yaml(path)
     assert written["defaults"]["ion"]["voltage"] == 8000
     assert written["defaults"]["electron"]["hfw"] == pytest.approx(80.0e-6)
-    assert written["hardware"] == before["hardware"]
+    # Saving lists the devices (configuration v2) and changes nothing they say.
+    upgraded = utils.upgrade_configuration(copy.deepcopy(before))
+    assert written["hardware"] == upgraded["hardware"]
     assert written["calibration"] == before["calibration"]
     assert written["defaults"]["imaging"] == before["defaults"]["imaging"]
     assert written["defaults"]["apply_on_connect"] is False
@@ -388,14 +392,14 @@ def preset_widget(qapp, microscope, monkeypatch):
         "beam_uses_presets",
         lambda beam_type: beam_type is BeamType.ION,
     )
-    original = microscope.get_available_values_cached
+    original = defaults_widget.beam_choices
 
-    def available(key, beam_type=None):
+    def available(microscope, key, beam_type):
         if key == "preset":
             return PRESETS
-        return original(key, beam_type)
+        return original(microscope, key, beam_type)
 
-    monkeypatch.setattr(microscope, "get_available_values_cached", available)
+    monkeypatch.setattr(defaults_widget, "beam_choices", available)
     microscope.system.ion.beam.preset = "30 keV; 150 pA"
     w = MicroscopeDefaultsWidget()
     w.set_microscope(microscope)
@@ -446,9 +450,9 @@ def test_a_configured_preset_the_instrument_does_not_list_is_kept(
         microscope, "beam_uses_presets", lambda beam_type: beam_type is BeamType.ION
     )
     monkeypatch.setattr(
-        microscope,
-        "get_available_values_cached",
-        lambda key, beam_type=None: PRESETS if key == "preset" else [],
+        defaults_widget,
+        "beam_choices",
+        lambda microscope, key, beam_type: PRESETS if key == "preset" else [],
     )
     microscope.system.ion.beam.preset = "10 keV; 5 pA"
     w = MicroscopeDefaultsWidget()

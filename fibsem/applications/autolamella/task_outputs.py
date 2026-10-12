@@ -66,18 +66,23 @@ def fluorescence_images(lamella: Lamella, *tasks: AutoLamellaTaskState) -> List[
     return _recorded(lamella, tasks, "fluorescence")
 
 
-def final_reference_images(lamella: Lamella, *tasks: AutoLamellaTaskState) -> List[str]:
+def final_reference_images(
+    lamella: Lamella, *tasks: AutoLamellaTaskState, fallback: bool = True
+) -> List[str]:
     """Absolute paths to the final reference images the given runs produced.
 
     Prefers what the runs recorded. Falls back to the filename convention, which
     remains the only route for experiments written before outputs existed, and for
     runs that failed before reaching post_task and so have no history entry at all.
+    ``fallback=False`` for a caller asking about one run of an experiment that
+    records outputs: there, a run that recorded no final images made none, and the
+    convention would hand it an earlier run's files of the same name.
 
     Sorted so both routes yield the same order: alphabetical puts the highest-res
     pair last, which is what callers slice off.
     """
     recorded = _recorded(lamella, tasks, "final_sem", "final_fib")
-    if recorded:
+    if recorded or not fallback:
         return recorded
     return sorted(
         {
@@ -130,7 +135,7 @@ def grid_outputs(
     """Absolute, existing, de-duplicated paths a grid's task runs recorded under `roles`.
 
     The grid-side read model (FIB-876): a results card, the Overview tab and the
-    agent server all read the history's `outputs`, and nothing globs the grid's
+    App Server all read the history's `outputs`, and nothing globs the grid's
     directory. Paths are recorded relative to `experiment.grid_path(grid)`, so a
     copied experiment still resolves. Pass `task_name` to read one task's runs
     only; by default every run on the grid contributes.

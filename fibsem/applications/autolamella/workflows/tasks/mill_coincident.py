@@ -39,13 +39,13 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import ChannelSettings
 from fibsem.milling.base import FibsemMillingSettings
-from fibsem.milling.patterning.patterns2 import RectanglePattern
+from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategy,
     CoincidenceMillingStrategyConfig,
 )
 from fibsem.milling.tasks import FibsemMillingStage, FibsemMillingTaskConfig
-from fibsem.structures import CrossSectionPattern, field_meta
+from fibsem.structures import CrossSectionPattern, InsertableDeviceState, field_meta
 
 MILL_COINCIDENT_KEY = "mill_coincident"
 DEFAULT_SETUP_TASK_NAME = "Setup Coincidence Milling"
@@ -173,7 +173,6 @@ class MillCoincidentTask(AutoLamellaTask):
             )
 
         image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         # 1. the milling pose, stage only; tilt lands before the objective goes in
         self._move_to_milling_pose()
@@ -238,7 +237,7 @@ class MillCoincidentTask(AutoLamellaTask):
     def _move_objective(self, position: float) -> None:
         objective = self.microscope.fm.objective
         self.log_status_message("MOVE_OBJECTIVE", "Inserting Objective...")
-        if objective.state != "Inserted":
+        if objective.state is not InsertableDeviceState.INSERTED:
             objective.insert()
         self.log_status_message("MOVE_OBJECTIVE", "Moving Objective to position...")
         objective.move_absolute(position)
@@ -269,7 +268,6 @@ class MillCoincidentTask(AutoLamellaTask):
         milling_task_config = self.config.milling[MILL_COINCIDENT_KEY]
         milling_task_config.field_of_view = setup.field_of_view
         milling_task_config.alignment.rect = self.lamella.alignment_area
-        milling_task_config.acquisition.imaging.path = self.lamella.path
 
         supervised = self.validate
         for stage in milling_task_config.enabled_stages:

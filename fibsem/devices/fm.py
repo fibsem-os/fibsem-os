@@ -1,9 +1,9 @@
 """The fluorescence microscope's parts as devices, and the FM that groups them.
 
 Each part is its own device with its own parameters: the camera, the light source,
-the filter set and the objective. ``FM`` holds no parameters of its own; it is where
-sequences that use several parts live, such as acquiring one channel (filter, light,
-exposure, camera). A driver runs those sequences next to the hardware, which matters
+the filter set and the objective. ``FM`` holds no hardware parameters of its own (only
+``progress``, where a running z-stack is); it is where sequences that use several parts
+live, such as acquiring one channel (filter, light, exposure, camera) or a z-stack. A driver runs those sequences next to the hardware, which matters
 when the FM is on another computer: one call over the network, not one per step, and
 a dropped connection can't leave the light on.
 
@@ -21,30 +21,92 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime
-from types import MappingProxyType
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
-from fibsem.devices.core import Device, Parameter, command
+from fibsem.devices.core import Device, Parameter, Role, command
+from fibsem.devices.display import Display
 from fibsem.devices.wire import Frame, to_wire
 from fibsem.fm.structures import EmissionFilter
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures import CameraImageTransform, InsertableDeviceState, RangeLimit
+from fibsem.util.timestamps import now_iso, zone_known
+
+
+def mount_transform_name(transform: CameraImageTransform) -> str:
+    """How a mount transform is written in a configuration and on the wire."""
+    return transform.value or "none"
+
+
+def mount_transform_from_name(name: Optional[str]) -> CameraImageTransform:
+    """The mount transform a configuration or a camera names; absent is none."""
+    if name is None or name == "none":
+        return CameraImageTransform.NONE
+    try:
+        return CameraImageTransform(name)
+    except ValueError:
+        names = ", ".join(mount_transform_name(t) for t in CameraImageTransform)
+        raise ValueError(
+            f"Unknown mount transform {name!r}; it is one of {names}."
+        ) from None
 
 
 class Camera(Device):
-    exposure_time = Parameter(float, unit="s")
-    binning = Parameter(int)
-    gain = Parameter(float)
+    exposure_time = Parameter(
+        float,
+        unit="s",
+        display=Display("Exposure Time", scale=1e3, step=1.0, decimals=1),
+    )
+    binning = Parameter(int, display=Display("Binning"))
+    gain = Parameter(
+        float,
+        limits=RangeLimit(0.0, 1.0),
+        doc="A fraction of the camera's gain range, 0 to 1.",
+        display=Display("Gain", scale=100, unit="%", step=1.0, decimals=1),
+    )
     offset = Parameter(float)
     pixel_size = Parameter(tuple, unit="m", doc="(x, y), after binning.")
     resolution = Parameter(tuple, doc="(width, height) in pixels, after binning.")
+    mount_transform = Parameter(
+        str,
+        doc="The flip that puts the camera's frames into the stage's axes, from how "
+        "it is mounted: none, flip-x, flip-y or flip-xy. Applied to every frame "
+        "before the user's own image transform.",
+    )
+
+    display_transform = Parameter(
+        str,
+        doc="The flip the user views frames under: none, flip-x, flip-y or flip-xy. "
+        "A display preference, applied after mount_transform; a move by a "
+        "displacement seen in the displayed image undoes it.",
+    )
+
+    _mount_transform: CameraImageTransform = CameraImageTransform.NONE
+    _display_transform: CameraImageTransform = CameraImageTransform.NONE
+
+    def configure(self, config: Optional[Mapping[str, Any]]) -> None:
+        """Take the facts about this camera that the site's configuration states and
+        the hardware can't report: ``mount_transform``. *config* is the fm entry's own
+        keys, as every FM binder receives them; keys meant for other parts are
+        ignored. Called by the binder before ``connect``."""
+        config = config or {}
+        self._mount_transform = mount_transform_from_name(config.get("mount_transform"))
 
     @command
     def acquire(self) -> np.ndarray:
-        """One frame with the current settings, as the camera gives it."""
+        """One frame with the current settings, as the camera gives it. ``acquire``
+        returns the sensor's frame; ``mount_transform`` is applied by whoever builds
+        the image."""
         return self._acquire()
+
+    def read_mount_transform(self) -> str:
+        return mount_transform_name(self._mount_transform)
+
+    def read_display_transform(self) -> str:
+        return mount_transform_name(self._display_transform)
+
+    def write_display_transform(self, value: str) -> None:
+        self._display_transform = mount_transform_from_name(value)
 
     def _acquire(self) -> np.ndarray:
         raise NotImplementedError(f"{type(self).__name__} can't acquire")
@@ -58,7 +120,11 @@ class LightSource(Device):
     says what the next frame will use.
     """
 
-    power = Parameter(float, doc="A fraction of the source's maximum, 0 to 1.")
+    power = Parameter(
+        float,
+        doc="A fraction of the source's maximum, 0 to 1.",
+        display=Display("Power", scale=100, unit="%", step=1.0, decimals=1),
+    )
 
 
 class FilterSet(Device):
@@ -87,21 +153,31 @@ class FilterSet(Device):
 class Objective(Device):
     """Where the objective is and what it's doing. It moves only through commands."""
 
-    position = Parameter(float, unit="m")
+    position = Parameter(
+        float,
+        unit="m",
+        display=Display("Position", scale=1e6, step=1.0, decimals=1),
+    )
     state = Parameter(InsertableDeviceState)
     magnification = Parameter(float)
     numerical_aperture = Parameter(float)
     limit_position = Parameter(float, unit="m", doc="The furthest a move may go in.")
 
     @command
-    def insert(self) -> None:
-        """Move the objective in, to its imaging position."""
-        self._insert()
+    def insert(self) -> Optional[bool]:
+        """Move the objective in, to its imaging position.
+
+        Returns False when it was already in and nothing moved, where the driver
+        knows; otherwise None."""
+        return self._insert()
 
     @command
-    def retract(self) -> None:
-        """Move the objective out, clear of the sample."""
-        self._retract()
+    def retract(self) -> Optional[bool]:
+        """Move the objective out, clear of the sample.
+
+        Returns False when it was already out and nothing moved, where the driver
+        knows; otherwise None."""
+        return self._retract()
 
     @command
     def move_absolute(self, position: float) -> None:
@@ -113,10 +189,10 @@ class Objective(Device):
         """Move the objective by a distance, in metres (positive is towards the sample)."""
         self._move_relative(delta)
 
-    def _insert(self) -> None:
+    def _insert(self) -> Optional[bool]:
         raise NotImplementedError
 
-    def _retract(self) -> None:
+    def _retract(self) -> Optional[bool]:
         raise NotImplementedError
 
     def _move_absolute(self, position: float) -> None:
@@ -126,7 +202,7 @@ class Objective(Device):
         raise NotImplementedError
 
 
-# What `FM.acquire_frame` reports with a frame: (part, parameter) -> metadata key.
+# What `FM.acquire_frame` reports with a frame: (role, parameter) -> metadata key.
 FRAME_METADATA: Dict[Tuple[str, str], str] = {
     ("camera", "exposure_time"): "exposure_time",
     ("camera", "gain"): "gain",
@@ -143,11 +219,30 @@ FRAME_METADATA: Dict[Tuple[str, str], str] = {
 }
 
 
+Z_STACK_ORDERS = ("channel", "z")
+"""A z-stack's order: each channel through every z position, or every channel at each
+z position."""
+
+
 class FM(Device):
     """The group: sequences over several parts, run by the driver next to them."""
 
-    parts: Mapping[str, Device] = MappingProxyType({})
-    """The parts this group drives, by device name. A driver sets it."""
+    progress = Parameter(
+        dict,
+        doc="Where a running z-stack is: channel, channel_index, total_channels, "
+        "zlevel and total_zlevels (1-based), reported before each frame; empty when "
+        "none is running.",
+    )
+
+    # The parts this group drives. A driver fills them with ``fill_roles``.
+    camera = Role(Camera)
+    light_source = Role(LightSource)
+    filter_set = Role(FilterSet)
+    objective = Role(Objective)
+
+    runs_elsewhere: bool = False
+    """Whether the group's commands run on another computer, where one call for a
+    whole sequence saves a round trip per step."""
 
     live_timeout: Optional[float] = 5.0
     """Seconds live view may go without a frame being asked for before it stops by
@@ -160,6 +255,19 @@ class FM(Device):
         self._live = False
         self._last_pull = 0.0
         self._pulling = 0  # frames being acquired right now, so a long exposure counts
+        self._cancel = threading.Event()
+        self._progress: Dict[str, Any] = {}
+
+    def read_progress(self) -> Dict[str, Any]:
+        return dict(self._progress)
+
+    def _report_progress(self, progress: Dict[str, Any]) -> None:
+        param = self.parameters.get("progress")
+        if param is not None:
+            _ = param.cached  # a first report signals only once something was read
+        self._progress = progress
+        if param is not None:
+            param.report(dict(progress))
 
     # -- live view --------------------------------------------------------------------
     #
@@ -238,32 +346,132 @@ class FM(Device):
         """``acquire_channel``, with what the frame was taken with.
 
         The metadata is read here, next to the hardware, so building the image needs
-        no reads after the frame. It holds ``acquisition_date`` (ISO, when the
-        acquisition started) and the keys of `FRAME_METADATA` the parts have, as plain
-        JSON-ready values: tuples are lists and the emission filter is its
-        ``to_dict()``.
+        no reads after the frame. It holds ``acquisition_date`` (ISO 8601 with the
+        UTC offset, when the acquisition started) and the keys of `FRAME_METADATA` the
+        parts have, as plain JSON-ready values: tuples are lists and the emission
+        filter is its ``to_dict()``.
         """
+        # Taken before the driver runs, as `Beam.acquire` takes a beam image's, so
+        # every driver's frame has it (FIB-1190). A driver that reads the time off the
+        # instrument (odemis stamps it at exposure) has set its own, and keeps it,
+        # unless it has no offset -- a server from before this, say.
+        started = now_iso()
         self._pulled(1)
         try:
-            return self._acquire_frame(channel)
+            frame = self._acquire_frame(channel)
         finally:
             self._pulled(-1)
+        if not zone_known(frame.metadata.get("acquisition_date")):
+            frame.metadata["acquisition_date"] = started
+        return frame
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         raise NotImplementedError(f"{type(self).__name__} can't acquire")
 
     def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
-        acquisition_date = datetime.now().isoformat()
         data = self._acquire_channel(channel)
-        metadata = {"acquisition_date": acquisition_date, **self._frame_metadata()}
-        return Frame(data, metadata)
+        return Frame(data, self._frame_metadata())
 
     def _frame_metadata(self) -> Dict[str, Any]:
         """What the parts say now, through their parameters. A part or parameter the
         driver doesn't have is left out."""
         found: Dict[str, Any] = {}
-        for (part_name, parameter), key in FRAME_METADATA.items():
-            part = self.parts.get(part_name)
+        parts = self.roles
+        for (role, parameter), key in FRAME_METADATA.items():
+            part = parts.get(role)
             if part is not None and parameter in part.parameters:
                 found[key] = to_wire(part.parameters[parameter].get_value())
         return found
+
+    # -- z-stack ------------------------------------------------------------------------
+
+    @command
+    def acquire_z_stack(
+        self,
+        channels: List[Dict[str, Any]],
+        positions: List[float],
+        order: str = "channel",
+        restore_position: Optional[float] = None,
+    ) -> List[Frame]:
+        """A z-stack, next to the hardware: one frame per channel (each a
+        ``ChannelSettings.to_dict()``) at each objective position, in metres.
+
+        ``order`` is "channel" (each channel through every position) or "z" (every
+        channel at each position). The frames come back channel by channel, each
+        channel's in position order, whichever the order. The objective goes back to
+        ``restore_position`` afterwards, when given. `cancel` stops it between frames:
+        the objective goes back, and the result is empty.
+        """
+        if order not in Z_STACK_ORDERS:
+            raise ValueError(f"order must be one of {Z_STACK_ORDERS}, not {order!r}")
+        self._cancel.clear()
+        try:
+            return self._acquire_z_stack(channels, positions, order, restore_position)
+        finally:
+            self._report_progress({})
+
+    @command
+    def cancel(self) -> None:
+        """Stop a running z-stack before its next frame. Safe when none is running."""
+        self._cancel.set()
+        self._cancelled()
+
+    def _cancelled(self) -> None:
+        """Pass the cancel on, for a driver whose z-stack runs elsewhere."""
+
+    def _acquire_z_stack(
+        self,
+        channels: List[Dict[str, Any]],
+        positions: List[float],
+        order: str,
+        restore_position: Optional[float],
+    ) -> List[Frame]:
+        """Moves the objective and takes each frame with `acquire_frame`, so it runs
+        on any driver; the same steps, in the same order, as the FM API's z-stack."""
+        objective = self.objective
+        n_channels, n_positions = len(channels), len(positions)
+        frames: List[List[Optional[Frame]]] = [[None] * n_positions for _ in channels]
+
+        def frame(i: int, j: int) -> bool:
+            channel = channels[i]
+            self._report_progress(
+                {
+                    "channel": channel.get("name"),
+                    "channel_index": i + 1,
+                    "total_channels": n_channels,
+                    "zlevel": j + 1,
+                    "total_zlevels": n_positions,
+                }
+            )
+            if self._cancel.is_set():
+                return False
+            if order == "channel":
+                objective.move_absolute(positions[j])
+            frames[i][j] = self.acquire_frame(channel)
+            return True
+
+        def cancelled() -> List[Frame]:
+            logging.info(f"{self.name}: z-stack cancelled")
+            if restore_position is not None:
+                objective.move_absolute(restore_position)
+            return []
+
+        if order == "z":
+            for j, z in enumerate(positions):
+                if self._cancel.is_set():
+                    return cancelled()
+                objective.move_absolute(z)
+                for i in range(n_channels):
+                    if not frame(i, j):
+                        return cancelled()
+        else:
+            for i in range(n_channels):
+                if self._cancel.is_set():
+                    return cancelled()
+                for j in range(n_positions):
+                    if not frame(i, j):
+                        return cancelled()
+
+        if restore_position is not None:
+            objective.move_absolute(restore_position)
+        return [f for channel_frames in frames for f in channel_frames]

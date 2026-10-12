@@ -14,10 +14,11 @@ rendering here can be tested where the `reporting` extra is not installed.
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import logging
 import os
-from datetime import datetime
+from datetime import tzinfo
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -37,6 +38,7 @@ from fibsem.applications.autolamella.tools.grid_report import (
 )
 from fibsem.fm.preview import is_fluorescence_image, load_projection
 from fibsem.structures import FibsemImage
+from fibsem.util.timestamps import to_datetime, zone_label
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +174,23 @@ def render_overview(entry: OverviewEntry, max_edge: int = PRINT_MAX_EDGE) -> byt
 # ---------------------------------------------------------------------------
 
 
-def _when(stamp: Optional[float], fmt: str = "%H:%M") -> str:
-    return datetime.fromtimestamp(stamp).strftime(fmt) if stamp else ""
+def _when(stamp, fmt: str = "%H:%M", zone: Optional[tzinfo] = None) -> str:
+    """A time in the zone the cover names (FIB-1196): the instrument's when the
+    experiment recorded it, else this machine's. A task's time is aware (FIB-1197),
+    the report's own is POSIX; both are converted, so every time on the page is on
+    the one clock the cover states."""
+    when = to_datetime(stamp) if stamp else None
+    if when is None:
+        return ""
+    if when.tzinfo is not None:
+        when = when.astimezone(zone)
+    return when.strftime(fmt)
+
+
+def _clock(zone: Optional[tzinfo]) -> str:
+    if zone is None:
+        return "this computer's clock"
+    return f"the instrument's clock, {zone_label(zone)}"
 
 
 def _fov_text(fov: Optional[Tuple[float, float]]) -> str:
@@ -208,6 +225,15 @@ def _escape(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def report_unavailable_reason() -> str:
+    """Why the report cannot be written on this install, or "". reportlab is the
+    optional `reporting` extra; asked before offering to write the report at the
+    end of a run, so an overnight run does not find out at its end."""
+    if importlib.util.find_spec("reportlab") is None:
+        return "Needs the reporting tools: pip install fibsem-os[reporting]"
+    return ""
+
+
 def generate_grid_report(
     experiment: Experiment,
     output_path: Optional[str] = None,
@@ -238,6 +264,8 @@ def generate_grid_report(
     )
 
     report = collect_grid_report(experiment, inventory=inventory)
+    session = getattr(experiment, "session", None)
+    zone = session.zone if session is not None else None
     if output_path is None:
         output_path = os.path.join(str(experiment.path), REPORT_FILENAME)
 
@@ -338,13 +366,14 @@ def generate_grid_report(
     story.append(p(report.experiment_name, "title"))
     screened = report.screened
     meta = [
-        ("Generated", _when(report.generated_at, "%d %b %Y %H:%M")),
+        ("Generated", _when(report.generated_at, "%d %b %Y %H:%M", zone)),
         (
             "Screened",
-            f"{_when(screened[0], '%d %b %Y %H:%M')} to {_when(screened[1])}"
+            f"{_when(screened[0], '%d %b %Y %H:%M', zone)} to {_when(screened[1], zone=zone)}"
             if screened
             else "nothing ran",
         ),
+        ("Times", _clock(zone)),
         ("Microscope", report.microscope or "not recorded"),
         ("Grid protocol", " → ".join(report.protocol) or "none"),
         ("Experiment folder", report.experiment_path),
@@ -370,6 +399,21 @@ def generate_grid_report(
         ),
     )
     story += [meta_table, Spacer(1, 8)]
+    # Written at the end of a run, before anyone has looked: a record of the
+    # overviews, not yet the handout for choosing a grid. Said, so it is not
+    # read as "nothing was any good".
+    if report.sections and all(
+        s.quality.verdict is Verdict.UNASSESSED for s in report.sections
+    ):
+        story += [
+            p(
+                "No grid has a verdict yet, so none is recommended. Set each "
+                "grid's quality on the Grids tab, then write the report again "
+                "to choose a grid.",
+                "muted",
+            ),
+            Spacer(1, 6),
+        ]
 
     thumb_w = 42 * mm
     rows = [
@@ -450,7 +494,7 @@ def generate_grid_report(
             facts.append(f"Slot {section.slot}")
         if section.load is not None:
             facts.append(
-                f"Load {_STATUS_TEXT.get(section.load.status, section.load.status.name).lower()} {_when(section.load.when)} · {section.load.status_message}"
+                f"Load {_STATUS_TEXT.get(section.load.status, section.load.status.name).lower()} {_when(section.load.when, zone=zone)} · {section.load.status_message}"
             )
         facts.append(
             "Lamellae " + (", ".join(section.lamellae) if section.lamellae else "none")
@@ -474,7 +518,7 @@ def generate_grid_report(
                 _escape(entry.modality + (f" · {entry.pose}" if entry.pose else "")),
             ]
             details = [
-                ("When", _when(entry.when)),
+                ("When", _when(entry.when, zone=zone)),
                 ("Tiles", _tiles_text(entry.tiles)),
                 ("FOV", _fov_text(entry.fov)),
                 ("Status", status),

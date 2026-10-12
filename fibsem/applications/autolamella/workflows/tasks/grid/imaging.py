@@ -26,6 +26,7 @@ from typing import (
 
 import numpy as np
 
+from fibsem import timing
 from fibsem.applications.autolamella.proposals import (
     OVERVIEW_POSITIONS,
     Proposal,
@@ -41,8 +42,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import TiledAcquisitionRunner, stamped_overview_name
 from fibsem.imaging.tiling.geometry import compute_tile_grid, unreachable_tiles
-from fibsem.microscopes._stage import uncalibrated_message
 from fibsem.projection import BeamStageProjection
+from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -53,7 +54,7 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
-# The output roles a results card, the Overview tab and the agent server read
+# The output roles a results card, the Overview tab and the App Server read
 # (FIB-876). One per beam, plus the thumbnail beside it.
 ROLE_BY_BEAM = {BeamType.ELECTRON: "overview_sem", BeamType.ION: "overview_fib"}
 
@@ -129,7 +130,8 @@ def reachable_overview(
     *projection* is one already built for this beam, by a caller asking repeatedly
     (the Grid page, on every edit): building it reads the scan rotation.
     """
-    limits = getattr(microscope._stage, "limits", None)
+    stage = microscope.stage
+    limits = stage.position.limits if stage is not None else None
     if projection is None:
         projection = BeamStageProjection.from_microscope(
             microscope, settings.image_settings.beam_type
@@ -181,6 +183,11 @@ class BeamOverviewGridTaskConfig(GridTaskConfig):
     @property
     def role(self) -> str:
         return ROLE_BY_BEAM.get(self.beam_type, "overview")
+
+    @property
+    def estimated_duration(self) -> float:
+        """The move to the grid at the task's orientation, then the overview."""
+        return timing.stage_move_cost(1) + timing.beam_overview_cost(self.settings)
 
 
 class OverviewPositionsProposer:

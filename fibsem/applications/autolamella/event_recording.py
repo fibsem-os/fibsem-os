@@ -1,6 +1,6 @@
 """The app's event stream for a microscope session, and its record on disk.
 
-The event buffer (``server/events.py``) began as the agent server's: built when
+The event buffer (``server/events.py``) began as the App Server's: built when
 the server started, gone when it stopped, so with the server off nothing -- the
 dashboard, a monitor, a replay -- had a stream to read. It is the app's now.
 An :class:`EventRecorder` is created when a microscope connects, whether or not
@@ -17,7 +17,7 @@ A workflow run records through the same recorder: the task manager finds the
 microscope's with :func:`recorder_for`, or makes one for the run when nothing
 keeps one -- a run without the GUI (FIB-1044).
 
-The agent server, when it runs, reads the same buffer.
+The App Server, when it runs, reads the same buffer.
 
 Events while no experiment is loaded stay in the buffer but are not written:
 the file belongs to an experiment, and there is none yet.
@@ -32,7 +32,7 @@ import threading
 import uuid
 import weakref
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR, TASK, acting, current_actor
 from fibsem.applications.autolamella.proposals import _encode_values
@@ -187,6 +187,52 @@ def read_events(path: Path) -> Iterator[Dict[str, Any]]:
             yield record
 
 
+def read_new_events(
+    path: Path, offset: int = 0, kinds: Optional[Iterable[str]] = None
+) -> Tuple[List[Dict[str, Any]], int]:
+    """The complete records in an events file from byte *offset* on, and the
+    offset just past the last of them: reading on from there next time gets only
+    what was written since, where `read_events` reads the whole file again.
+
+    A final line without its newline is left for the next read, as its write may
+    not have finished. With *kinds*, only records of those kinds are returned,
+    and a line that does not name one is skipped without being parsed: a long
+    run's file is mostly progress records, and parsing them all took seconds.
+    """
+    with open(path, "rb") as f:
+        f.seek(offset)
+        data = f.read()
+    end = data.rfind(b"\n")
+    if end < 0:
+        return [], offset
+    data = data[: end + 1]
+    wanted = frozenset(kinds) if kinds is not None else None
+    if wanted is None:
+        lines = data.split(b"\n")
+    else:
+        # Find the lines that name a wanted kind, rather than look at every line.
+        starts = set()
+        for needle in (json.dumps(kind).encode() for kind in wanted):
+            at = data.find(needle)
+            while at >= 0:
+                starts.add(data.rfind(b"\n", 0, at) + 1)
+                at = data.find(needle, data.find(b"\n", at) + 1)
+        lines = [data[start : data.find(b"\n", start)] for start in sorted(starts)]
+    records: List[Dict[str, Any]] = []
+    for line in lines:
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(record, dict) and (
+            wanted is None or record.get("kind") in wanted
+        ):
+            records.append(record)
+    return records, offset + end + 1
+
+
 def _lifecycle_events() -> frozenset:
     from fibsem.hooks import HookEvent
 
@@ -325,7 +371,7 @@ class EventRecorder:
         nothing.
 
         ``actor`` is who marked the thread the event was emitted on: a task, for
-        everything it does, or the agent, for every request to the agent server.
+        everything it does, or the agent, for every request to the App Server.
         Not whatever task happens to be running -- ``microscope.experiment`` is
         the app's, not the thread's, so reading it would make a move the operator
         made during a run the task's. Unmarked, it is ``default_actor``. A task's

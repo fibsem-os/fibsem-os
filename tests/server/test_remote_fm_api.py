@@ -1,4 +1,4 @@
-"""Today's FM API over a simulated FM served on localhost: the calls the FM UI and
+"""Today's FM API over the Demo FM devices served on localhost: the calls the FM UI and
 workflows make answer as they do on a local FM, and read the FM's computer each time."""
 
 import time
@@ -6,14 +6,16 @@ import time
 import numpy as np
 import pytest
 
+from fibsem.structures import InsertableDeviceState
+
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
-from fibsem.devices.drivers.remote import (  # noqa: E402
+from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
     RemoteDeviceUnreachable,
 )
-from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
+from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402  # noqa: E402
 from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage  # noqa: E402
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
@@ -31,8 +33,8 @@ def served():
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
     fm = RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port, client=client)
     fm._served = local  # for the tests that check the far side's devices
-    # The simulated FM behind the served devices, as its computer would hold it.
-    far = local["fm"]._fm
+    # The FM API over the served devices, as the FM's computer would hold it.
+    far = FluorescenceMicroscope(local)
     yield far, fm
     client.close()
     server.stop()
@@ -105,10 +107,10 @@ def test_the_objective_moves_and_announces_where_it_ended_up(served):
     far, fm = served
     moves = []
     fm.objective.position_changed.connect(lambda p, s: moves.append((p, s)))
-    assert fm.objective.state == "Retracted"
+    assert fm.objective.state is InsertableDeviceState.RETRACTED
     fm.objective.insert()
-    assert far.objective.state == "Inserted" == fm.objective.state
-    assert moves == [(far.objective.position, "Inserted")]
+    assert far.objective.state is InsertableDeviceState.INSERTED is fm.objective.state
+    assert moves == [(far.objective.position, InsertableDeviceState.INSERTED)]
     fm.objective.move_relative(1e-6)
     assert fm.objective.position == pytest.approx(far.objective.position)
     assert len(moves) == 2
@@ -117,7 +119,7 @@ def test_the_objective_moves_and_announces_where_it_ended_up(served):
     fm.objective.focus_position = fm.objective.position  # a session setting
     assert fm.objective.focus_position == fm.objective.position
     fm.objective.retract()
-    assert far.objective.state == "Retracted"
+    assert far.objective.state is InsertableDeviceState.RETRACTED
 
 
 def test_acquire_image_with_the_current_settings(served):
@@ -204,16 +206,25 @@ def test_a_server_without_acquire_frame_still_acquires(served):
     assert image.metadata.channels[0].exposure_time == far.camera.exposure_time
 
 
+def _stop_live(fm) -> None:
+    """Stop live view and wait for its worker to end: `stop_acquisition` waits only
+    2 s, which a frame can outlast under `pytest -n`, and the worker sends the far
+    side's ``stop_live`` on its way out."""
+    fm.stop_acquisition()
+    if fm._acquisition_thread is not None:
+        fm._acquisition_thread.join(timeout=60)
+
+
 def test_live_acquisition_streams_frames(served):
     _, fm = served
     fm._rate_limit = 0
     images = []
     fm.acquisition_signal.connect(images.append)
     fm.start_acquisition()
-    end = time.monotonic() + 5
+    end = time.monotonic() + 30
     while len(images) < 3 and time.monotonic() < end:
         time.sleep(0.01)
-    fm.stop_acquisition()
+    _stop_live(fm)
     assert len(images) >= 3
 
 
@@ -226,10 +237,10 @@ def test_live_view_is_pulled_from_the_far_side(served):
     sent = _counting_requests(fm)
     channel = ChannelSettings(excitation_wavelength=450, power=0.3, exposure_time=0.01)
     fm.start_acquisition(channel)
-    end = time.monotonic() + 5
+    end = time.monotonic() + 30
     while len(images) < 3 and time.monotonic() < end:
         time.sleep(0.01)
-    fm.stop_acquisition()
+    _stop_live(fm)
     assert len(images) >= 3
     assert far.light_source.power == 0.3  # set up on the far side
     commands = [path.rsplit("/", 1)[-1] for _, path in sent if "/commands/" in path]
@@ -246,7 +257,7 @@ def test_far_side_live_view_stops_when_the_viewer_goes(served):
     far_group.live_timeout = 0.2
     group.start_live()
     assert far_group.is_live
-    deadline = time.monotonic() + 3
+    deadline = time.monotonic() + 30
     while far_group.is_live and time.monotonic() < deadline:
         time.sleep(0.05)
     assert not far_group.is_live
@@ -260,10 +271,10 @@ def test_a_server_without_live_view_is_still_pulled(served):
     images = []
     fm.acquisition_signal.connect(images.append)
     fm.start_acquisition()
-    end = time.monotonic() + 5
+    end = time.monotonic() + 30
     while len(images) < 2 and time.monotonic() < end:
         time.sleep(0.01)
-    fm.stop_acquisition()
+    _stop_live(fm)
     assert len(images) >= 2
     assert not _far_group(fm).is_live
 
@@ -302,7 +313,7 @@ def test_a_configuration_naming_a_remote_fm_connects_to_it(tmp_path):
         settings = utils.load_yaml(
             os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
         )
-        settings["hardware"]["fm"].update(
+        utils.configuration_device(settings, "fm").update(
             driver="remote", address="127.0.0.1", port=server.port
         )
         settings["sim"]["has_fm"] = False  # no FM on the beams' connection
@@ -365,13 +376,17 @@ def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
         local = {d.name: d for d in demo_fm_devices()}
         server = DeviceServer(local.values(), port=port).start()
 
-        assert _wait_for(lambda: fm.online and client.connected, timeout=5)
+        # On came_online too: the client marks itself connected and then emits
+        # `reconnected`, so `connected` can read True a moment before it fires.
+        assert _wait_for(
+            lambda: fm.online and client.connected and came_online, timeout=5
+        )
         assert came_online == [True]
-        assert fm.objective.state == "Retracted"
+        assert fm.objective.state is InsertableDeviceState.RETRACTED
         power = fm.devices["light_source"].power
         assert power.cached == local["light_source"].power.get_value()  # primed
         fm.set_power(0.3)
-        assert local["fm"]._fm.light_source.power == 0.3
+        assert local["light_source"].power.get_value() == 0.3
         assert isinstance(fm.acquire_image(), FluorescenceImage)
     finally:
         client.close()
@@ -393,7 +408,9 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
     settings = utils.load_yaml(
         os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
-    settings["hardware"]["fm"].update(driver="remote", address="127.0.0.1", port=port)
+    utils.configuration_device(settings, "fm").update(
+        driver="remote", address="127.0.0.1", port=port
+    )
     settings.setdefault("calibration", {})["objective"] = {"limit_position": 0.004}
     path = tmp_path / "remote-fm-configuration.yaml"
     utils.save_yaml(path, settings)
@@ -409,7 +426,7 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
         local = {d.name: d for d in demo_fm_devices()}
         server = DeviceServer(local.values(), port=port).start()
 
-        far = local["fm"]._fm
+        far = FluorescenceMicroscope(local)
         assert _wait_for(lambda: far.objective.limit_position == 0.004, timeout=10)
         assert fm.online
         assert fm.objective.limit_position == 0.004

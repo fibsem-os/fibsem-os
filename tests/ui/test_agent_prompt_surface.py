@@ -19,7 +19,7 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient
 
-from fibsem.applications.autolamella.server import AgentContext
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows.interaction import Confirm, ask
 from fibsem.server import AuthConfig, build_server
@@ -55,7 +55,7 @@ def ui(qapp, monkeypatch):
 def _client(ui, arm_control):
     app = build_server(
         ui.microscope,
-        app_context=AgentContext(ui),
+        app_context=AutoLamellaAppContext(ui),
         auth=AuthConfig.generate(arm_control=arm_control, token=TOKEN),
     )
     return TestClient(app, raise_server_exceptions=False)
@@ -99,7 +99,7 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
         assert pending["type"] == "Confirm"
         assert pending["message"] == "Continue to polishing?"
         assert pending["positive"] == "Continue"
-        assert isinstance(pending["nonce"], int)
+        assert isinstance(pending["question_id"], int)
         # A Confirm has no live half — no GUI peek happens, no "current" key.
         assert "current" not in pending
 
@@ -112,7 +112,7 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
             posted["response"] = client.post(
                 "/app/prompt/answer",
                 headers=AUTH,
-                json={"response": True, "nonce": pending["nonce"]},
+                json={"response": True, "question_id": pending["question_id"]},
             )
 
         poster = threading.Thread(target=do_post, daemon=True)
@@ -126,10 +126,12 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
         assert outcome.get("answer") is True
 
 
-def test_a_stale_nonce_is_refused_and_the_question_stands(ui, qapp):
+def test_a_stale_question_id_is_refused_and_the_question_stands(ui, qapp):
     with _client(ui, arm_control=True) as client:
         thread, outcome = _ask_on_worker(ui, qapp)
-        nonce = client.get("/app/prompt", headers=AUTH).json()["pending"]["nonce"]
+        question_id = client.get("/app/prompt", headers=AUTH).json()["pending"][
+            "question_id"
+        ]
 
         posted = {}
 
@@ -137,7 +139,7 @@ def test_a_stale_nonce_is_refused_and_the_question_stands(ui, qapp):
             posted["response"] = client.post(
                 "/app/prompt/answer",
                 headers=AUTH,
-                json={"response": True, "nonce": nonce - 1},
+                json={"response": True, "question_id": question_id - 1},
             )
 
         poster = threading.Thread(target=do_post, daemon=True)
@@ -190,7 +192,8 @@ def test_display_images_follow_a_one_shot_acquisition(ui, qapp):
         ui.microscope.fib_acquisition_signal.emit(inspect_image)
         qapp.processEvents()
         fib = client.get("/app/images", headers=AUTH).json()["fib"]
-        assert fib["acquired_at"] == stamp.isoformat()
+        # With its UTC offset, as the event stream's times carry theirs (FIB-1190).
+        assert fib["acquired_at"] == stamp.astimezone().isoformat()
         # The display cache serves the same scale facts as the acquisition
         # endpoints: overlays drawn on the preview must not guess the FOV.
         assert fib["full_width"] == 1536
@@ -261,12 +264,14 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
     clicks nothing, and the question stands."""
     with _client(ui, arm_control=True) as client:
         thread, outcome = _ask_on_worker(ui, qapp)
-        nonce = client.get("/app/prompt", headers=AUTH).json()["pending"]["nonce"]
+        question_id = client.get("/app/prompt", headers=AUTH).json()["pending"][
+            "question_id"
+        ]
 
         malformed = client.post(
             "/app/prompt/answer",
             headers=AUTH,
-            json={"response": True, "nonce": nonce, "value": [1, 2]},
+            json={"response": True, "question_id": question_id, "value": [1, 2]},
         )
         assert malformed.status_code == 422
         assert malformed.json()["detail"]["error_type"] == "invalid_value"
@@ -277,7 +282,11 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
             posted["response"] = client.post(
                 "/app/prompt/answer",
                 headers=AUTH,
-                json={"response": True, "nonce": nonce, "value": {"x": 0, "y": 0}},
+                json={
+                    "response": True,
+                    "question_id": question_id,
+                    "value": {"x": 0, "y": 0},
+                },
             )
 
         poster = threading.Thread(target=do_post, daemon=True)
@@ -288,14 +297,14 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
         assert refused.json()["detail"]["error_type"] == "invalid_value"
         assert "Confirm" in refused.json()["detail"]["message"]
 
-        # The refusals clicked nothing: the same nonce still answers.
+        # The refusals clicked nothing: the same question id still answers.
         posted.clear()
 
         def do_plain_post():
             posted["response"] = client.post(
                 "/app/prompt/answer",
                 headers=AUTH,
-                json={"response": True, "nonce": nonce},
+                json={"response": True, "question_id": question_id},
             )
 
         poster = threading.Thread(target=do_plain_post, daemon=True)
@@ -307,13 +316,13 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
         assert outcome.get("answer") is True
 
 
-def test_an_answer_without_a_nonce_is_rejected(ui, qapp):
+def test_an_answer_without_a_question_id_is_rejected(ui, qapp):
     with _client(ui, arm_control=True) as client:
         rejected = client.post(
             "/app/prompt/answer", headers=AUTH, json={"response": True}
         )
         assert rejected.status_code == 422
-        assert rejected.json()["detail"]["error_type"] == "missing_nonce"
+        assert rejected.json()["detail"]["error_type"] == "missing_question_id"
 
 
 def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
@@ -324,7 +333,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
     buffer = EventBuffer()
     app = build_server(
         ui.microscope,
-        app_context=AgentContext(ui, event_buffer=buffer),
+        app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
         auth=AuthConfig.generate(arm_control=True, token=TOKEN),
     )
     dispose = ui.ui_responder.add_question_observer(buffer.append)
@@ -333,7 +342,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
             thread, outcome = _ask_on_worker(ui, qapp)
             raised = client.get("/app/events?since=0", headers=AUTH).json()["events"]
             assert raised[-1]["kind"] == "prompt_raised"
-            nonce = raised[-1]["payload"]["nonce"]
+            question_id = raised[-1]["payload"]["question_id"]
 
             posted = {}
 
@@ -341,7 +350,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
                 posted["response"] = client.post(
                     "/app/prompt/answer",
                     headers=AUTH,
-                    json={"response": True, "nonce": nonce},
+                    json={"response": True, "question_id": question_id},
                 )
 
             poster = threading.Thread(target=do_post, daemon=True)
@@ -354,14 +363,16 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
             answered = [e for e in events if e["kind"] == "prompt_answered"][-1]
             assert answered["payload"]["answered_by"] == "agent"
             assert answered["payload"]["response"] is True
-            assert answered["payload"]["nonce"] == nonce
+            assert answered["payload"]["question_id"] == question_id
     finally:
         dispose()
 
 
-def test_stop_workflow_rides_the_read_scope(ui, qapp):
-    # The safety action: available without arming, like stop_milling.
+def test_stop_workflow_needs_the_control_scope(ui, qapp):
+    # A watching agent stops nothing (FIB-1035); one that can act can stop.
     with _client(ui, arm_control=False) as client:
+        assert client.post("/app/workflow/stop", headers=AUTH).status_code == 403
+    with _client(ui, arm_control=True) as client:
         body = client.post("/app/workflow/stop", headers=AUTH)
         assert body.status_code == 200
         assert body.json() == {
@@ -481,7 +492,9 @@ def test_answering_requires_the_control_scope(ui, qapp):
         # Reading the prompt is observation: read scope suffices.
         assert client.get("/app/prompt", headers=AUTH).status_code == 200
         refused = client.post(
-            "/app/prompt/answer", headers=AUTH, json={"response": True, "nonce": 1}
+            "/app/prompt/answer",
+            headers=AUTH,
+            json={"response": True, "question_id": 1},
         )
         assert refused.status_code == 403
         assert refused.json()["detail"]["scope"] == "control"
@@ -510,4 +523,5 @@ def test_capabilities_reflect_the_armed_control_scope(ui, qapp):
             )
         }
         assert "get_pending_prompt" in names
-        assert "answer_prompt" not in names
+        # Offered at Watch too: the server refuses it (FIB-1035).
+        assert "answer_prompt" in names

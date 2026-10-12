@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -25,10 +24,18 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskState,
     AutoLamellaTaskStatus,
     Lamella,
     QualityRecord,
     Verdict,
+)
+from fibsem.applications.autolamella.ui.list_chrome import (
+    DETAIL_PX,
+    NAME_PX,
+    ROW_HEIGHT,
+    ListHeader,
+    column_label,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -38,6 +45,8 @@ from fibsem.ui.tokens import (
     NEUTRAL_550,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
+from fibsem.ui.widgets.preflight import format_clock
+from fibsem.util.timestamps import now
 
 _NAME_MIN_WIDTH = 160
 
@@ -46,9 +55,9 @@ _NAME_MIN_WIDTH = 160
 # pushed to every list and card; the rows never read the stage themselves.
 GridContext = Dict[str, Tuple[str, bool]]
 
-# The rows' type scale: name / row text / secondary line.
+# The cards' type scale: name / row text / secondary line. The list's rows use
+# the workflow panel's (`list_chrome`).
 NAME_FONT_PX = 12
-ROW_FONT_PX = 11
 DETAIL_FONT_PX = 10
 
 
@@ -80,6 +89,7 @@ def apply_grid_label(
     grid: Optional[Tuple[str, bool]],
     shown: bool,
     followed: bool = True,
+    font_px: int = DETAIL_FONT_PX,
 ) -> None:
     """The grid's name ahead of the status: accent while that grid is on the
     stage, muted while it is not; hidden when there is nothing to say. The
@@ -91,7 +101,7 @@ def apply_grid_label(
     name, loaded = grid
     label.setText(f"{name} ·" if followed else name)
     label.setStyleSheet(
-        f"font-size: {DETAIL_FONT_PX}px; background: transparent; "
+        f"font-size: {font_px}px; background: transparent; "
         f"color: {ACCENT_COLOR if loaded else NEUTRAL_550};"
     )
     label.setToolTip(
@@ -101,8 +111,9 @@ def apply_grid_label(
 
 
 def short_status(text: str) -> str:
-    """The task name without its time stamp, for a line with no room for it."""
-    return re.sub(r"\s*\([^)]*\)\s*$", "", text)
+    """The task name without its time, for a line with no room for it:
+    "Rough Milling · 1:44PM" (`completed_text`) is "Rough Milling"."""
+    return text.split(" \u00b7 ", 1)[0]
 
 
 def has_defect(lamella) -> bool:
@@ -187,11 +198,7 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
                 return
             lamella.defect = QualityRecord(
                 verdict=verdict,
-                updated_at=(
-                    None
-                    if verdict is Verdict.UNASSESSED
-                    else datetime.timestamp(datetime.now())
-                ),
+                updated_at=None if verdict is Verdict.UNASSESSED else now(),
             )
             on_changed()
 
@@ -206,7 +213,7 @@ def add_defect_menu(menu: QMenu, lamella, on_changed) -> QMenu:
 
 
 _BTN_SIZE = QSize(24, 24)
-_ROW_HEIGHT = 34
+_ROW_HEIGHT = ROW_HEIGHT
 
 
 class _LamellaTooltip(QWidget):
@@ -257,6 +264,27 @@ class _LamellaTooltip(QWidget):
         self.raise_()
 
 
+def completed_text(task: AutoLamellaTaskState) -> str:
+    """The last task done and when, for a list's status column: "Rough Milling ·
+    1:44PM", "· Yesterday, 1:44PM", and further back "· Sep 14, 1:44PM".
+
+    The clock the preflight and timeline use, in the viewer's zone, after a dot.
+    Further back than yesterday that clock gives the whole date and time, which
+    is long for a column; a short date says as much. `task.completed` ("Rough
+    Milling (01:44PM)") is left as it is: the reports and the exported table
+    read it.
+    """
+    when = task.end_timestamp
+    if when is None:
+        return task.name
+    if when.tzinfo is not None:
+        when = when.astimezone()
+    today = datetime.now(when.tzinfo).date()
+    if (today - when.date()).days > 1:
+        return f"{task.name} \u00b7 {when:%b} {when.day}, {format_clock(when, None)}"
+    return f"{task.name} \u00b7 {format_clock(when, datetime.now(when.tzinfo))}"
+
+
 def _status_text(lamella: Lamella) -> tuple[str, str]:
     """Return (text, stylesheet) for the status column."""
     ts = lamella.task_state
@@ -267,7 +295,7 @@ def _status_text(lamella: Lamella) -> tuple[str, str]:
         )
     last = lamella.last_completed_task
     if last:
-        return last.completed, f"color: {NEUTRAL_550}; background: transparent;"
+        return completed_text(last), f"color: {NEUTRAL_550}; background: transparent;"
     return "", "background: transparent;"
 
 
@@ -321,7 +349,7 @@ class LamellaRowWidget(QWidget):
         self.name_label = QLabel()
         self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
         self.name_label.setStyleSheet(
-            f"font-size: {ROW_FONT_PX}px; background: transparent;"
+            f"font-size: {NAME_PX}px; background: transparent;"
         )
         layout.addWidget(self.name_label)
 
@@ -439,26 +467,17 @@ class LamellaRowWidget(QWidget):
         grid = grid_of(self.lamella, self._grid_context)
         status_text, status_style = _status_text(self.lamella)
         apply_grid_label(
-            self.grid_label, grid, grids_named(self._grid_context), bool(status_text)
+            self.grid_label,
+            grid,
+            grids_named(self._grid_context),
+            bool(status_text),
+            font_px=DETAIL_PX,
         )
         self.status_label.setText(status_text)
         self.status_label.setStyleSheet(
-            f"font-size: {DETAIL_FONT_PX}px; "
+            f"font-size: {DETAIL_PX}px; "
             + (status_style or f"color: {NEUTRAL_550}; background: transparent;")
         )
-
-
-class _ToggleLabel(QLabel):
-    """A label that toggles the tick box it captions, as a checkbox's own text
-    would."""
-
-    def __init__(self, text: str, checkbox: QCheckBox) -> None:
-        super().__init__(text)
-        self._checkbox = checkbox
-
-    def mousePressEvent(self, event) -> None:
-        self._checkbox.toggle()
-        super().mousePressEvent(event)
 
 
 # The filter's two fixed choices; a grid's own key is its record id.
@@ -544,50 +563,21 @@ class _GridFilterButton(QToolButton):
         )
 
 
-class _LamellaListHeader(QWidget):
-    select_all_changed = pyqtSignal(bool)
+class _LamellaListHeader(ListHeader):
+    """The list's header: the shared one (`list_chrome.ListHeader`), with the rows'
+    Status column named and the grid filter over the actions column."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setStyleSheet(f"background: {CANVAS_BG};")
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(8)
-
-        # The same shape as a row -- a textless tick box, then the name column
-        # -- so the style sizes the tick box here and there alike and "Status"
-        # starts where the rows' status does.
-        self.checkbox_all = QCheckBox()
-        self.checkbox_all.setChecked(True)
-        self.checkbox_all.setStyleSheet("background: transparent;")
-        self.checkbox_all.setToolTip("Select all")
-        layout.addWidget(self.checkbox_all)
-        self.label_all = _ToggleLabel("Select All", self.checkbox_all)
-        self.label_all.setMinimumWidth(_NAME_MIN_WIDTH)
-        self.label_all.setStyleSheet(
-            f"font-weight: bold; font-size: {ROW_FONT_PX}px; background: transparent;"
-        )
-        layout.addWidget(self.label_all)
-
-        status_header = QLabel("Status")
-        status_header.setStyleSheet(
-            f"font-weight: bold; font-size: {ROW_FONT_PX}px; background: transparent;"
-        )
-        layout.addWidget(status_header, 1)
-
+        super().__init__("Lamella", title_width=_NAME_MIN_WIDTH, parent=parent)
+        self.add_widget(column_label("Status"), 1)
         # Over the rows' two trailing buttons: a blank where the defect icon
         # sits, and the grid filter over the actions column.
         spacer = QWidget()
         spacer.setFixedWidth(_BTN_SIZE.width())
         spacer.setStyleSheet("background: transparent;")
-        layout.addWidget(spacer)
+        self.add_widget(spacer)
         self.grid_filter = _GridFilterButton()
-        layout.addWidget(self.grid_filter)
-
-        self.checkbox_all.stateChanged.connect(
-            lambda s: self.select_all_changed.emit(bool(s))
-        )
+        self.add_widget(self.grid_filter)
 
 
 class LamellaListWidget(QWidget):
@@ -777,6 +767,7 @@ class LamellaListWidget(QWidget):
 
     def clear(self) -> None:
         self._list.clear()
+        self._sync_select_all()
 
     def set_all_selected(self, checked: bool) -> None:
         """Tick or untick every row, and bring the header checkbox with them.
@@ -820,6 +811,7 @@ class LamellaListWidget(QWidget):
     def _sync_select_all(self) -> None:
         rows = self._visible_rows()
         count = len(rows)
+        self._header.set_count(str(count) if count else "")
         if count == 0:
             return
         n_checked = sum(row.checkbox.isChecked() for row in rows)

@@ -40,6 +40,15 @@ from fibsem.structures import (  # noqa: E402
 TASK = "Trench"
 
 
+@pytest.fixture(autouse=True)
+def _preferences(tmp_path, monkeypatch):
+    """A throwaway preferences file: the panel opens with the user's saved
+    filter, and a developer's own must not hide the rows these tests look for."""
+    import fibsem.config as cfg
+
+    monkeypatch.setattr(cfg, "USER_PREFERENCES_PATH", str(tmp_path / "prefs.yaml"))
+
+
 @pytest.fixture
 def main_ui(qapp):
     window = module.AutoLamellaSingleWindowUI()
@@ -114,13 +123,13 @@ def test_a_finished_task_shows_in_the_history_of_the_selected_lamella(
     one = experiment.positions[0]
     main_ui._on_lamella_card_selected(one)
     history = main_ui.lamella_task_image_widget
-    assert "No task images available." in _texts(history)
+    assert "No task runs yet." in _texts(history)
 
     _finish(one)
     main_ui._apply_status_report(_report("one", AutoLamellaTaskStatus.Completed))
 
     assert TASK in _texts(history)
-    assert "No task images available." not in _texts(history)
+    assert "No task runs yet." not in _texts(history)
     assert list(history._placeholder_labels) == [
         os.path.join(one.path, f"ref_{TASK}_final_high_res.tif")
     ]
@@ -179,6 +188,30 @@ def test_a_re_run_shows_its_own_image_not_the_last_run_s(qapp, tmp_path):
 
         centre = (first.width() // 2, first.height() // 2)
         assert first.pixelColor(*centre) != second.pixelColor(*centre)
+    finally:
+        widget._cancel_worker()
+        widget.deleteLater()
+
+
+def test_a_refresh_reads_only_the_images_that_changed(qapp, tmp_path):
+    """A refresh after each task used to read every image of every run again."""
+    from fibsem.applications.autolamella.structures import Lamella
+
+    lamella = Lamella(path=tmp_path / "lam", number=1, petname="lam")
+    os.makedirs(lamella.path, exist_ok=True)
+    first = os.path.join(lamella.path, f"ref_{TASK}_final_high_res.tif")
+    widget = LamellaTaskImageWidget()
+    try:
+        _finish(lamella)
+        widget.set_lamella(lamella)
+        _loaded(widget, first)
+        kept = widget._pixmap_cache[first]
+
+        _finish(lamella, task_name="Polish")
+        widget.refresh()
+        second = os.path.join(lamella.path, "ref_Polish_final_high_res.tif")
+        _loaded(widget, second)
+        assert widget._pixmap_cache[first] is kept
     finally:
         widget._cancel_worker()
         widget.deleteLater()

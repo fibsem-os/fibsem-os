@@ -5,6 +5,7 @@ is the joining: that a change on the left reaches the right, that the counter an
 button quote the same number, and that what comes back out is what the acquisition needs
 and nothing it does not.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -23,7 +24,7 @@ from fibsem.fm.structures import (
 )
 from fibsem.structures import TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_sparse_selection_dialog import FMSparseSelectionDialog
-from fibsem.ui.widgets.preflight import format_duration
+from fibsem.util.durations import format_duration_rounded
 
 
 @pytest.fixture(scope="module")
@@ -61,7 +62,10 @@ CHANNELS = [
 
 def parameters(**kwargs):
     base = dict(
-        rows=11, cols=15, overlap=0.1, autofocus_mode=AutoFocusMode.NONE,
+        rows=11,
+        cols=15,
+        overlap=0.1,
+        autofocus_mode=AutoFocusMode.NONE,
         tile_order=TileOrderStrategy.SERPENTINE,
     )
     base.update(kwargs)
@@ -173,9 +177,7 @@ def test_the_counter_reports_how_long_the_run_would_take(dialog):
     assert "s" in dialog._status.text().rsplit("·", 1)[-1]
 
 
-def test_without_channel_settings_it_counts_tiles_and_quotes_no_time(
-    microscope, views
-):
+def test_without_channel_settings_it_counts_tiles_and_quotes_no_time(microscope, views):
     """Rather than a duration it cannot stand behind: the time depends on exposure and
     channel count, and a number invented here would be quoted back as if it meant
     something."""
@@ -290,8 +292,10 @@ def test_no_duration_is_quoted_for_a_run_that_cannot_happen(dialog):
     stretch(dialog, _TOO_TALL)
 
     duration = dialog._counts()[2]
-    assert duration is not None, "the estimate still exists; it is the display that hides it"
-    assert format_duration(duration) not in dialog._status.text()
+    assert duration is not None, (
+        "the estimate still exists; it is the display that hides it"
+    )
+    assert format_duration_rounded(duration, pad=True) not in dialog._status.text()
 
 
 def test_shrinking_back_inside_the_limits_makes_it_acceptable_again(dialog):

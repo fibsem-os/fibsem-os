@@ -21,7 +21,9 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes.tescan import TescanMicroscope
+from fibsem.drivers.tescan.connection import TescanConnection
+from fibsem.drivers.tescan.devices import bind_tescan_stage
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import FibsemStagePosition
 from tests.fm import _odemis_stubs as stubs
 
@@ -45,14 +47,16 @@ class _TescanStage:
 
 def _tescan():
     microscope = object.__new__(TescanMicroscope)  # skip __init__ (requires the SDK)
-    microscope._connection_lock = threading.RLock()
     microscope.system = utils.load_microscope_configuration(
         os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
     ).system
-    microscope.stage_is_compustage = False
     microscope.fm = None
     stage = _TescanStage()
-    microscope.connection = SimpleNamespace(Stage=stage)
+    microscope._connection = TescanConnection(
+        SimpleNamespace(Stage=stage), "localhost", 8300
+    )
+    microscope.stage = bind_tescan_stage(microscope)
+    microscope._build_stage_movement()
     return microscope, stage
 
 
@@ -72,12 +76,13 @@ def test_a_tescan_absolute_move_returns_where_the_stage_ended():
 
     assert isinstance(moved, FibsemStagePosition)
     assert _close(moved, TARGET)
-    assert stage.reads == 1  # the one read after the move
+    # read back by the device after the move, then by get_stage_position, as on
+    # every stage device; none before it, since the move gives every axis
+    assert stage.reads == 2
 
 
-def test_a_tescan_relative_move_reads_the_stage_no_more_than_before():
-    # It read before and after the move; the read after is now the absolute
-    # move's, not a second one of its own.
+def test_a_tescan_relative_move_reads_the_stage_once_before_and_twice_after():
+    # Where it is, to add the offset to; then the absolute move's two reads after.
     microscope, stage = _tescan()
     microscope.move_stage_absolute(TARGET)
     stage.reads = 0
@@ -87,7 +92,7 @@ def test_a_tescan_relative_move_reads_the_stage_no_more_than_before():
     )
 
     assert moved.x == pytest.approx(TARGET.x + 1e-6)
-    assert stage.reads == 2
+    assert stage.reads == 3
 
 
 def test_a_tescan_safe_move_records_where_it_ended():
@@ -118,7 +123,7 @@ def odemis_microscope_cls():
             saved[name] = sys.modules.pop(name)
 
     stubs.install_odemis_stubs()
-    from fibsem.microscopes.odemis_microscope import OdemisThermoMicroscope
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
     yield OdemisThermoMicroscope
 
@@ -150,12 +155,14 @@ class _OdemisStage:
 
 
 def _odemis(cls):
+    from fibsem.drivers.odemis.devices import bind_odemis_stage
+
     microscope = object.__new__(cls)  # skip __init__ (requires odemis)
     microscope.system = utils.load_microscope_configuration(
         os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
     ).system
-    microscope.stage_is_compustage = False
-    microscope.stage = _OdemisStage()
+    microscope._vendor_stage = _OdemisStage()
+    microscope.stage = bind_odemis_stage(microscope)
     return microscope
 
 

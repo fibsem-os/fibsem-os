@@ -150,7 +150,8 @@ def _detection(feature: str, dx: float, second: int) -> str:
     # the shape `detection.utils.save_ml_feature_data` logs
     correct = dx == 0
     return _line(
-        "{'msg': 'feature_detection', 'fname': 'ml-01', 'feature': %r, "
+        # Not an f-string: every literal brace would need doubling.
+        "{'msg': 'feature_detection', 'fname': 'ml-01', 'feature': %r, "  # noqa: UP031
         "'px': {'x': 10.0, 'y': 20.0}, 'dpx': {'x': %r, 'y': 0.0}, "
         "'dm': {'x': %r, 'y': 0.0}, 'is_correct': %r, 'beam_type': 'ION', "
         "'pixelsize': 1e-08, 'checkpoint': 'model.pt'}"

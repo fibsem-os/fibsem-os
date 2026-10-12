@@ -9,13 +9,14 @@ is the only thing that writes a trusted position.
 import pytest
 
 from fibsem import utils
-from fibsem.microscopes._stage import (
+from fibsem.services.sample_handling import bind_sample_handling
+from fibsem.structures import (
+    FibsemStagePosition,
     GridSlot,
     SampleHolder,
     SlotCalibration,
-    _create_sample_stage,
 )
-from fibsem.structures import FibsemStagePosition
+from tests.fixtures.demo_stage import demo_session
 
 
 def _position(name="Slot-01", x=-5e-3):
@@ -40,7 +41,7 @@ class TestRecordRoundTrip:
         again = GridSlot.from_dict(slot.to_dict())
         assert again.is_calibrated
         assert again.calibration.pre_tilt == 35.0
-        assert again.calibration.captured_at == "2026-09-02T11:20:00"
+        assert again.calibration.to_dict()["captured_at"] == "2026-09-02T11:20:00"
 
     def test_old_file_without_the_key_loads(self):
         slot = GridSlot.from_dict(
@@ -101,28 +102,26 @@ class TestDiscardUntrustedPositions:
 
 class TestStageRefusesUncalibratedSlots:
     def _fixed(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
-        microscope._stage = _create_sample_stage(microscope)
+        microscope, _ = demo_session(compustage=False)
+        microscope.sample_handling = bind_sample_handling(microscope)
         return microscope
 
     def test_move_to_slot_refuses(self):
         microscope = self._fixed()
         with pytest.raises(ValueError, match="Calibrate slot positions"):
-            microscope._stage.move_to_slot("Slot-01")
+            microscope.sample_handling.move_to_slot("Slot-01")
 
     def test_move_to_slot_works_once_calibrated(self):
         microscope = self._fixed()
-        slot = microscope._stage.holder.slots["Slot-01"]
+        slot = microscope.sample_handling.holder.slots["Slot-01"]
         slot.position = _position()
         slot.calibration = _record()
-        microscope._stage.move_to_slot("Slot-01")
+        microscope.sample_handling.move_to_slot("Slot-01")
         assert abs(microscope.get_stage_position().x + 5e-3) < 1e-9
 
     def test_compustage_working_slot_is_the_origin_by_construction(self):
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
-        stage = _create_sample_stage(microscope)
+        microscope, _ = demo_session(compustage=True)
+        stage = bind_sample_handling(microscope)
         slot = stage.holder.slots["Slot-01"]
         assert slot.is_calibrated and slot.calibration.is_builtin
         assert (slot.position.x, slot.position.y) == (0.0, 0.0)
@@ -130,7 +129,7 @@ class TestStageRefusesUncalibratedSlots:
 
 class TestLoadingAnOldFile:
     def test_field_file_positions_are_dropped_on_load(self, tmp_path, monkeypatch):
-        import fibsem.microscopes._stage as stage_module
+        import fibsem.services.sample_handling as stage_module
 
         path = tmp_path / "holder.yaml"
         path.write_text(
@@ -139,9 +138,8 @@ class TestLoadingAnOldFile:
             "    loaded_grid: {name: grid-a, description: '', radius: 1.0e-3}\n"
         )
         monkeypatch.setattr(stage_module, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(path))
-        microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
-        stage = _create_sample_stage(microscope)
+        microscope, _ = demo_session(compustage=False)
+        stage = bind_sample_handling(microscope)
         slot = stage.holder.slots["Slot-01"]
         assert slot.position is None  # the number is gone
         assert slot.loaded_grid.name == "grid-a"  # the name is not

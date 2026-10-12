@@ -130,8 +130,8 @@ def test_system_info_missing_manufacturer_defaults_unknown():
 
 
 def test_thermo_property_is_canonical():
+    from fibsem.drivers.autoscript.microscope import ThermoMicroscope
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.microscopes.autoscript import ThermoMicroscope
 
     # the base-class property (which ThermoMicroscope inherits) -- evaluated
     # without an instance, since it returns a constant
@@ -140,7 +140,7 @@ def test_thermo_property_is_canonical():
 
 
 def test_tescan_property_is_canonical():
-    from fibsem.microscopes.tescan import TescanMicroscope
+    from fibsem.drivers.tescan.microscope import TescanMicroscope
 
     value = TescanMicroscope.manufacturer.fget(object.__new__(TescanMicroscope))
     assert value == TESCAN
@@ -197,22 +197,6 @@ def test_setup_session_accepts_any_demo_spelling(tmp_path):
     microscope.disconnect()
 
 
-def test_milling_parameters_accept_any_manufacturer_spelling():
-    """get_parameters_for_manufacturer used to raise on "Thermo" and "TESCAN" --
-    the exact spellings configs and live image headers carry."""
-    from fibsem.structures import FibsemMillingSettings
-
-    s = FibsemMillingSettings()
-    assert s.get_parameters_for_manufacturer(
-        "Thermo"
-    ) == s.get_parameters_for_manufacturer("ThermoFisher")
-    assert s.get_parameters_for_manufacturer(
-        "TESCAN"
-    ) == s.get_parameters_for_manufacturer("Tescan")
-    with pytest.raises(ValueError):
-        s.get_parameters_for_manufacturer("Hitachi")
-
-
 # ---------------------------------------------------------------------------
 # the config surface is canonical
 # ---------------------------------------------------------------------------
@@ -223,17 +207,6 @@ def test_available_manufacturers_are_canonical():
 
     assert all(normalize_manufacturer(m) == m for m in cfg.AVAILABLE_MANUFACTURERS)
     assert cfg.DEFAULT_MANUFACTURER == THERMOFISHER
-
-
-def test_column_tilt_lookup_accepts_any_spelling():
-    from fibsem.configuration import get_column_tilt
-
-    assert (
-        get_column_tilt("Thermo", "ion") == get_column_tilt("ThermoFisher", "ion") == 52
-    )
-    assert get_column_tilt("TESCAN", "ion") == 55
-    with pytest.raises(ValueError):
-        get_column_tilt("Hitachi", "ion")
 
 
 def test_wizard_config_values_are_canonical():

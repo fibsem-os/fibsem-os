@@ -9,14 +9,13 @@ import threading
 import pytest
 
 from fibsem import utils
+from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.tescan import TescanMicroscope
 from fibsem.structures import BeamType
 
 
 def test_only_the_tescan_ion_column_is_set_by_preset():
     tescan = object.__new__(TescanMicroscope)
-    tescan._connection_lock = threading.RLock()
 
     assert tescan.beam_uses_presets(BeamType.ION)
     assert not tescan.beam_uses_presets(BeamType.ELECTRON)
@@ -42,20 +41,18 @@ def preset_ion(monkeypatch):
         lambda self, beam_type: beam_type is BeamType.ION,
     )
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
-    original_get, original_set = microscope.get, microscope.set
+    original_get = microscope.get_preset
 
-    def get(key, beam_type=None):
-        if key == "preset" and beam_type is BeamType.ION:
+    def get_preset(beam_type):
+        if beam_type is BeamType.ION:
             return active["preset"]
-        return original_get(key, beam_type)
+        return original_get(beam_type)
 
-    def set_(key, value, beam_type=None):
-        if key == "preset":
-            active["preset"] = value
-            return
-        return original_set(key, value, beam_type)
+    def set_preset(preset, beam_type):
+        active["preset"] = preset
+        return preset
 
-    microscope.get, microscope.set = get, set_
+    microscope.get_preset, microscope.set_preset = get_preset, set_preset
     microscope._active = active
     yield microscope
     microscope.disconnect()

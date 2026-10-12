@@ -16,7 +16,7 @@ from fibsem.devices.core import (  # noqa: E402
     ParameterReadOnly,
     ParameterUnavailable,
 )
-from fibsem.devices.drivers.remote import (  # noqa: E402
+from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
     RemoteBeam,
     RemoteDeviceUnreachable,
@@ -292,3 +292,15 @@ def test_the_scan_area_commands_run_on_the_far_side(served):
     beam.full_frame()
     assert far.scanning_mode.get_value() is ScanMode.FULL_FRAME
     assert beam.scanning_mode.cached is ScanMode.FULL_FRAME
+
+
+def test_a_remote_ion_beam_reports_the_gas_its_source_runs(served, monkeypatch):
+    """`installed_plasma_gas` is a fact, so a remote column answers as the local one."""
+    local, remote, _ = served
+    ion = remote[BeamType.ION]
+    assert ion.installed_plasma_gas() is None
+
+    monkeypatch.setattr(local[BeamType.ION], "installed_plasma_gas", lambda: "Xenon")
+    ion.connect(ion.client.describe()["ion"])
+    assert ion.installed_plasma_gas() == "Xenon"
+    assert remote[BeamType.ELECTRON].installed_plasma_gas() is None

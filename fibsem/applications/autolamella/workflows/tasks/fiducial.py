@@ -19,9 +19,12 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     ALIGNMENT_REFERENCE_IMAGE_FILENAME,
     AutoLamellaTask,
 )
-from fibsem.milling.patterning.utils import get_pattern_reduced_area
+from fibsem.milling.patterning.utils import (
+    get_pattern_reduced_area,
+    get_patterns_bounding_box,
+)
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemImage, field_meta
+from fibsem.structures import FibsemImage, FibsemRectangle, Point, field_meta
 
 
 @dataclass
@@ -65,6 +68,48 @@ class MillFiducialTaskConfig(AutoLamellaTaskConfig):
         return self.align_to_reference
 
 
+def fiducial_point_in_alignment_area(
+    milling_config: FibsemMillingTaskConfig,
+    area: FibsemRectangle,
+    image: FibsemImage,
+) -> Optional[Point]:
+    """The point that puts the fiducial at the centre of ``area``, or None
+    when the fiducial does not fit inside it.
+
+    ``area`` is in fractions of ``image``, the image it was chosen on, so the
+    point is converted with that image's field of view, not the milling one.
+    The point is in the milling frame: metres from the image centre, y up.
+    """
+    if not milling_config.stages:
+        return None
+    height, width = image.data.shape[:2]
+    pixelsize = image.metadata.pixel_size.x
+    cx = area.left + area.width / 2
+    cy = area.top + area.height / 2
+    target = Point(x=(cx - 0.5) * width * pixelsize, y=(0.5 - cy) * height * pixelsize)
+
+    # the fiducial's footprint with its first stage at the image centre, so a
+    # pattern near the image edge is not clipped; then shifted to the target
+    origin = milling_config.stages[0].pattern.point
+    patterns = []
+    for stage in milling_config.stages:
+        pattern = deepcopy(stage.pattern)
+        pattern.point = stage.pattern.point - origin
+        patterns.append(pattern)
+    bbox = get_patterns_bounding_box(patterns, image)
+    if bbox == (0, 0, 0, 0):
+        return None
+    xmin, ymin, xmax, ymax = bbox
+    dx, dy = (cx - 0.5) * width, (cy - 0.5) * height
+    fits = (
+        (xmin + dx) / width >= area.left
+        and (xmax + dx) / width <= area.left + area.width
+        and (ymin + dy) / height >= area.top
+        and (ymax + dy) / height <= area.top + area.height
+    )
+    return target if fits else None
+
+
 class MillFiducialTask(AutoLamellaTask):
     """Task to setup the lamella for milling."""
 
@@ -89,7 +134,6 @@ class MillFiducialTask(AutoLamellaTask):
         from fibsem.structures import ImageSettings
 
         image_settings: ImageSettings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         # move to lamella milling position
         self._move_to_milling_pose()
@@ -108,7 +152,6 @@ class MillFiducialTask(AutoLamellaTask):
         self.log_status_message("MILL_FIDUCIAL", "Milling Fiducial...")
         msg = f"Press Run Milling to mill the Fiducial for {self.lamella.name}. Press Continue when done."
         fiducial_task_config.alignment.rect = self.lamella.alignment_area
-        fiducial_task_config.acquisition.imaging.path = self.lamella.path
         milling_task_config = self.update_milling_config_ui(
             fiducial_task_config, msg=msg
         )

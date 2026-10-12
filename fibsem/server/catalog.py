@@ -5,10 +5,12 @@ contract test asserts every entry maps onto a real route on the server app —
 so the two surfaces cannot drift apart. Pure data, no dependencies beyond the
 standard library: importable everywhere, including the py3.8 floor.
 
-Scopes mirror the server's enforcement (fibsem/server/auth.py): the sidecar
-registers ``read`` tools for any valid token and ``hardware`` tools only when
-``/capabilities`` reports that scope armed — but the server enforces either
-way; the catalog filter is a courtesy, not the security boundary.
+Scopes mirror the server's enforcement (fibsem/server/auth.py). The sidecar
+registers every tool the server's mounted routers serve, whatever the agent's
+level (FIB-1035): the level changes mid-session, and an MCP client may never
+re-read its tool list, so the server's 403 is the gate and each description
+names the level it needs. Only ``hardware`` tools are still filtered, by the
+armed scope, which no level grants and which changes only with a restart.
 """
 
 from dataclasses import dataclass, field
@@ -19,27 +21,56 @@ from typing import Dict, Tuple
 class ToolSpec:
     name: str
     description: str
-    method: str  # "GET" | "POST"
+    method: str  # "GET" | "POST" | "PUT"
     path: str
-    scope: str  # "read" | "hardware"
+    scope: str  # "read" | "control" | "configure" | "hardware"
     params: Dict[str, str] = field(default_factory=dict)  # name -> description
-    # Which router serves it: "microscope" is always mounted; "app" only when
-    # the server was built with an app_context (/capabilities reports which).
+    # Which router serves it: "microscope" unless the App Server's devices
+    # service is off (FIB-1035); "app" only when the server was built with an
+    # app_context; "base" always. /capabilities reports which.
     router: str = "microscope"
+    # Further scopes, any of which also allows it (stop_milling: control or
+    # hardware), matching the route's require_scope.
+    also: Tuple[str, ...] = ()
+
+    def allowed(self, armed: Dict[str, bool]) -> bool:
+        return any(armed.get(s, False) for s in (self.scope, *self.also))
+
+    @property
+    def hardware_only(self) -> bool:
+        """Needs the hardware scope and nothing a level grants."""
+        return {self.scope, *self.also} == {"hardware"}
+
+    @property
+    def level_note(self) -> str:
+        """What the tool needs, in the agent's terms (FIB-1035)."""
+        if self.hardware_only:
+            return "Needs the hardware scope, which no agent level grants."
+        if self.scope == "read":
+            return "Works at Watch and Drive."
+        return (
+            "Needs the agent at Drive: refused (403) at Watch; the operator "
+            "sets the level from the Agent chip in AutoLamella."
+        )
+
+    @property
+    def full_description(self) -> str:
+        return f"{self.description} {self.level_note}"
 
 
 CATALOG: Tuple[ToolSpec, ...] = (
     # --- read ---
     ToolSpec(
         name="get_capabilities",
-        description="Server capabilities: API version, manufacturer, mounted routers, armed scopes.",
+        description="Server capabilities: API version, manufacturer, mounted routers, armed scopes, and the agent's level (off / watch / drive). Read it first: the level says what the other tools will do.",
         method="GET",
         path="/capabilities",
         scope="read",
+        router="base",
     ),
     ToolSpec(
         name="get_system_info",
-        description="Microscope system settings and stage geometry flags.",
+        description="Microscope system settings and which optional hardware is fitted.",
         method="GET",
         path="/system",
         scope="read",
@@ -66,6 +97,28 @@ CATALOG: Tuple[ToolSpec, ...] = (
         scope="read",
     ),
     ToolSpec(
+        name="list_devices",
+        description=(
+            "Every device on the microscope (electron, ion, stage, chamber, ...): "
+            "its parameters with type, unit, limits, choices and whether settable, "
+            "and its commands."
+        ),
+        method="GET",
+        path="/devices",
+        scope="read",
+    ),
+    ToolSpec(
+        name="get_parameter",
+        description="Read one device parameter live, e.g. device=ion parameter=current.",
+        method="GET",
+        path="/devices/{device}/{parameter}",
+        scope="read",
+        params={
+            "device": "device name from list_devices",
+            "parameter": "parameter name",
+        },
+    ),
+    ToolSpec(
         name="get_milling_angle",
         description="Current milling angle in degrees.",
         method="GET",
@@ -88,10 +141,11 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_milling",
-        description="Emergency stop for an in-progress mill. Always allowed with a valid token.",
+        description="Emergency stop for an in-progress mill. Allowed whenever the agent can act (Drive; on a bench server, hardware too), and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/stop_milling",
-        scope="read",  # deliberate: stopping is never gated behind arming
+        scope="control",
+        also=("hardware",),
     ),
     # --- hardware ---
     ToolSpec(
@@ -145,6 +199,75 @@ CATALOG: Tuple[ToolSpec, ...] = (
         params={"milling_angle_deg": "target milling angle in degrees"},
     ),
     ToolSpec(
+        name="set_parameter",
+        description=(
+            "Set one device parameter (SI units); the server checks it against the "
+            "parameter's limits and choices and answers the value written."
+        ),
+        method="PUT",
+        path="/devices/{device}/{parameter}",
+        scope="hardware",
+        params={
+            "device": "device name from list_devices",
+            "parameter": "parameter name",
+            "value": "the new value",
+        },
+    ),
+    ToolSpec(
+        name="call_command",
+        description="Run a device command listed by list_devices, e.g. device=ion command=blank.",
+        method="POST",
+        path="/devices/{device}/commands/{command}",
+        scope="hardware",
+        params={
+            "device": "device name from list_devices",
+            "command": "command name",
+            "kwargs": "the command's arguments, by name",
+        },
+    ),
+    ToolSpec(
+        name="list_services",
+        description=(
+            "Every service on the microscope (milling, stage_movement, spot_burn, "
+            "sample_handling, ...): what the instrument does with its devices over "
+            "time. Each lists its parameters (e.g. milling progress) and its commands "
+            "with their signatures and whether this microscope has them."
+        ),
+        method="GET",
+        path="/services",
+        scope="read",
+    ),
+    ToolSpec(
+        name="get_service_parameter",
+        description=(
+            "Read one service parameter live, e.g. service=milling parameter=progress."
+        ),
+        method="GET",
+        path="/services/{service}/{parameter}",
+        scope="read",
+        params={
+            "service": "service name from list_services",
+            "parameter": "parameter name",
+        },
+    ),
+    ToolSpec(
+        name="call_service_command",
+        description=(
+            "Run a service command listed by list_services, e.g. service=stage_movement "
+            "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
+            "(milling run, spot burn run) answers when it ends; command=stop from "
+            "another call stops it."
+        ),
+        method="POST",
+        path="/services/{service}/commands/{command}",
+        scope="hardware",
+        params={
+            "service": "service name from list_services",
+            "command": "command name",
+            "kwargs": "the command's arguments, by name",
+        },
+    ),
+    ToolSpec(
         name="autocontrast",
         description="Run autocontrast for a beam (changes detector settings).",
         method="POST",
@@ -182,7 +305,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_task_history",
-        description="Every task run so far: outcomes, durations, errors.",
+        description="Every task run so far: outcomes, durations, errors. Oldest first, by start time.",
         method="GET",
         path="/app/task_history",
         scope="read",
@@ -195,6 +318,21 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/run_summary",
         scope="read",
         router="app",
+    ),
+    ToolSpec(
+        name="get_log",
+        description="The session's log (logfile.log), raw: one record per logged line, with any traceback after it. Read a window: a run's own with task_id (the id on its task events; a few seconds either side; INFO and above unless you give a level), or since/until; with none, the latest records. Times are the instrument's wall clock. level=WARNING keeps warnings and errors, which is usually what explains a failure. Over the lines cap the latest records are kept: truncated says older records in the window were dropped, so narrow the window or raise the level.",
+        method="GET",
+        path="/app/log",
+        scope="read",
+        router="app",
+        params={
+            "task_id": "a run's task id: read the log while that run was going",
+            "since": "ISO time: records at or after it (instead of task_id)",
+            "until": "ISO time: records at or before it (instead of task_id)",
+            "level": "the lowest level to keep: DEBUG, INFO, WARNING, ERROR (default DEBUG, or INFO with task_id)",
+            "lines": "the most records to return, the latest kept (default 200, max 2000)",
+        },
     ),
     ToolSpec(
         name="get_protocol",
@@ -215,12 +353,24 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_task_outputs",
-        description="The files an item's completed tasks produced (reference images by role).",
+        description="The files an item's task runs produced (reference images by role). tasks has every run with its status; completed_tasks names only the runs that completed.",
         method="GET",
         path="/app/task_outputs/{item_name}",
         scope="read",
         router="app",
         params={"item_name": "the item (lamella) name"},
+    ),
+    ToolSpec(
+        name="get_item_output_image",
+        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file get_task_outputs lists (stacks and channels max-projected). A preview, not the data. An unlisted name is refused with the valid ones.",
+        method="GET",
+        path="/app/items/{item_name}/outputs/{filename}",
+        scope="read",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "filename": "a basename from get_task_outputs",
+        },
     ),
     ToolSpec(
         name="get_grids",
@@ -277,7 +427,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         description="Put an observation on the record — the event stream and the experiment log. Use it for judgments worth keeping ('curtaining on 02's face, accepted anyway'); notes change nothing. Optionally name the item it concerns.",
         method="POST",
         path="/app/agent/notes",
-        scope="control",
+        scope="read",  # Watch adds notes: they change nothing
         router="app",
         params={
             "text": "the note, at most 4000 characters",
@@ -286,7 +436,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="apply_protocol_to_item",
-        description="Re-copy protocol task configs onto an existing item (protocol-level edits only reach items created after them; this brings an existing item up to date). Wholesale replace of that item's copies for the named tasks — omit task_names for all. Running tasks are refused. Needs the configure permission.",
+        description="Re-copy protocol task configs onto an existing item (protocol-level edits only reach items created after them; this brings an existing item up to date). Wholesale replace of that item's copies for the named tasks — omit task_names for all. Running tasks are refused.",
         method="POST",
         path="/app/items/{item_name}/apply_protocol",
         scope="configure",
@@ -298,7 +448,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="reorder_item_milling_stages",
-        description="Reorder the milling stages inside one of an item's task configs ('run the stress relief first'). order must be exactly the current stage names in their new sequence — this can never add, drop, or duplicate a stage. Echo the version from get_item_task_config; stale is refused. Needs the configure permission.",
+        description="Reorder the milling stages inside one of an item's task configs ('run the stress relief first'). order must be exactly the current stage names in their new sequence — this can never add, drop, or duplicate a stage. Echo the version from get_item_task_config; stale is refused.",
         method="POST",
         path="/app/items/{item_name}/task_config/{task_name}/stages/reorder",
         scope="configure",
@@ -313,7 +463,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="reorder_protocol_milling_stages",
-        description="Reorder the milling stages inside a protocol-level task config. Same rules as the item form; reaches items created (or re-applied) after. Needs the configure permission.",
+        description="Reorder the milling stages inside a protocol-level task config. Same rules as the item form; reaches items created (or re-applied) after.",
         method="POST",
         path="/app/protocol/task_config/{task_name}/stages/reorder",
         scope="configure",
@@ -327,7 +477,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="set_task_schedule",
-        description="Set (or clear) when a task may start: ISO-8601 timestamp (naive = instrument-local time), or null to clear. The workflow reads schedules at each task start, so a change takes effect at the next start; the schedule persists with the protocol. Needs the configure permission.",
+        description="Set (or clear) when a task may start: ISO-8601 timestamp (naive = instrument-local time), or null to clear. The workflow reads schedules at each task start, so a change takes effect at the next start; the schedule persists with the protocol.",
         method="POST",
         path="/app/workflow/schedule",
         scope="configure",
@@ -339,7 +489,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="update_item_detail",
-        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description, defect.verdict (UNASSESSED/GOOD/REWORK/FAILED) and defect.reason. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from get_item_detail — a mismatch is refused (409 stale_config). Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override. Needs the configure permission.",
+        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description, defect.verdict (UNASSESSED/GOOD/REWORK/FAILED) and defect.reason. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from get_item_detail — a mismatch is refused (409 stale_config). Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override.",
         method="POST",
         path="/app/items/{item_name}",
         scope="configure",
@@ -352,7 +502,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="update_protocol_task_config",
-        description="Patch a task's protocol-level defaults (what new items copy) with dotted-path edits. Echo the version from get_protocol_task_config — a mismatch is refused (409 stale_config). Running tasks are never affected: they hold their item's copy; the edit reaches items created after. Needs the configure permission.",
+        description="Patch a task's protocol-level defaults (what new items copy) with dotted-path edits. Echo the version from get_protocol_task_config — a mismatch is refused (409 stale_config). Running tasks are never affected: they hold their item's copy; the edit reaches items created after.",
         method="POST",
         path="/app/protocol/task_config/{task_name}",
         scope="configure",
@@ -365,7 +515,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="update_item_task_config",
-        description="Patch an item's task config with dotted-path edits (e.g. {'milling.mill_rough.stages.0.pattern.depth': 2e-6}). Echo the version from get_item_task_config — a mismatch is refused (409 stale_config): re-read and re-patch. A task currently running for that item is refused (it already copied its config); pending tasks pick the change up at start. Values are validated against the live field's type and declared bounds; the response echoes every change old -> new. Needs the configure permission.",
+        description="Patch an item's task config with dotted-path edits (e.g. {'milling.mill_rough.stages.0.pattern.depth': 2e-6}). Echo the version from get_item_task_config — a mismatch is refused (409 stale_config): re-read and re-patch. A task currently running for that item is refused (it already copied its config); pending tasks pick the change up at start. Values are validated against the live field's type and declared bounds; the response echoes every change old -> new.",
         method="POST",
         path="/app/items/{item_name}/task_config/{task_name}",
         scope="configure",
@@ -391,10 +541,10 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_workflow",
-        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. The safety action: available on the read scope, never waits on the command lock.",
+        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed whenever the agent can act (Drive), and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/app/workflow/stop",
-        scope="read",
+        scope="control",
         router="app",
     ),
     ToolSpec(
@@ -445,7 +595,6 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "task_name": "the task to change, e.g. 'Rough Milling'",
             "supervise": "true to ask before acting, false to run automatically",
-            "supervisor": "optional: who supervised questions are addressed to — 'human' (default) or 'agent'; the operator can always answer first",
         },
     ),
     ToolSpec(
@@ -487,7 +636,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="decide_review",
-        description="Confirm or reject a proposal, exactly as the Review tab would. Pass the proposal_id get_pending_reviews gave for it: the decision is on that proposal, and is refused (409 stale_review) if it is no longer the one on the record -- the task re-ran, or asked again in the same run -- so re-read and decide the current one. (task_id, the run, is accepted in its place but cannot tell two questions from one run apart.) Confirming a pending proposal needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; they are written through, the consumer becomes runnable, and the delta against the proposal is computed, so pass the values you actually judge right. Confirming a to_check proposal (already applied) acknowledges it and must carry no values; to change an applied value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- unless that task is the one stopped on this very proposal (holding_the_run), which a decision releases: Confirmed hands the values back and the task carries on, Rejected fails it. Also refused when there is no proposal for that item and task. The decision is recorded with the agent as author. Needs the control permission.",
+        description="Confirm or reject a proposal, exactly as the Review tab would. Pass the proposal_id get_pending_reviews gave for it: the decision is on that proposal, and is refused (409 stale_review) if it is no longer the one on the record -- the task re-ran, or asked again in the same run -- so re-read and decide the current one. (task_id, the run, is accepted in its place but cannot tell two questions from one run apart.) Confirming a pending proposal needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; they are written through, the consumer becomes runnable, and the delta against the proposal is computed, so pass the values you actually judge right. Confirming a to_check proposal (already applied) acknowledges it and must carry no values; to change an applied value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- unless that task is the one stopped on this very proposal (holding_the_run), which a decision releases: Confirmed hands the values back and the task carries on, Rejected fails it. Also refused when there is no proposal for that item and task. The decision is recorded with the agent as author.",
         method="POST",
         path="/app/decide",
         scope="control",
@@ -505,14 +654,14 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="answer_prompt",
-        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the nonce from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea and PickPOI the answer may carry a value: adjusted geometry that is placed into the widget (the operator sees it land) and then accepted through the same click path. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
+        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the question_id from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea and PickPOI the answer may carry a value: adjusted geometry that is placed into the widget (the operator sees it land) and then accepted through the same click path. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
         method="POST",
         path="/app/prompt/answer",
         scope="control",
         router="app",
         params={
             "response": "true for the positive option, false for the negative",
-            "nonce": "the nonce from get_pending_prompt, naming the question being answered",
+            "question_id": "the question_id from get_pending_prompt, naming the question being answered",
             "value": "optional adjusted geometry: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea, or {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI",
         },
     ),
@@ -531,20 +680,22 @@ CATALOG = CATALOG + APP_TOOLS
 
 def tools_for_scopes(armed: Dict[str, bool]) -> Tuple[ToolSpec, ...]:
     """Catalog entries usable given armed scopes alone (router-blind)."""
-    return tuple(t for t in CATALOG if armed.get(t.scope, False))
+    return tuple(t for t in CATALOG if t.allowed(armed))
 
 
 def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
-    """Catalog entries usable given a full /capabilities payload.
+    """Catalog entries to offer given a full /capabilities payload.
 
-    Filters on both dimensions: the tool's scope must be armed AND the router
-    serving it must be mounted. The server enforces either way -- this filter
-    only keeps the agent's tool list honest about what can succeed.
+    Every tool whose router is mounted, whatever the agent's level: the level
+    changes mid-session and the server's 403 is the gate (FIB-1035). Hardware
+    tools are left out unless the hardware scope is armed, which no level
+    does and only a restart changes.
     """
     scopes = capabilities.get("scopes", {})
-    routers = capabilities.get("routers", {})
+    routers = dict(capabilities.get("routers", {}), base=True)
     return tuple(
         t
         for t in CATALOG
-        if scopes.get(t.scope, False) and routers.get(t.router, False)
+        if routers.get(t.router, False)
+        and (not t.hardware_only or scopes.get("hardware", False))
     )

@@ -34,7 +34,11 @@ from fibsem.fm.structures import (
 )
 from fibsem.imaging.reduce import PREVIEW_MAX_DIMENSION
 from fibsem.imaging.tiling.progress import TiledStatus
-from fibsem.structures import FibsemStagePosition, TileOrderStrategy
+from fibsem.structures import (
+    FibsemStagePosition,
+    InsertableDeviceState,
+    TileOrderStrategy,
+)
 
 
 @pytest.fixture
@@ -49,7 +53,7 @@ def fm_microscope(demo_microscope):
     """Fixture providing a demo microscope configured for FM operations."""
     microscope = demo_microscope
     microscope.system.stage.shuttle_pre_tilt = 0
-    microscope.stage_is_compustage = True
+    microscope.stage_device.compustage = True
     microscope.move_to_microscope("FM")
     return microscope
 
@@ -221,15 +225,15 @@ def test_acquire_channels(demo_microscope):
     channels = [
         ChannelSettings(
             name="DAPI",
-            excitation_wavelength=358,
-            emission_wavelength=461,
+            excitation_wavelength=365,
+            emission_wavelength="Fluorescence",
             power=0.1,
             exposure_time=0.5,
         ),
         ChannelSettings(
             name="GFP",
-            excitation_wavelength=488,
-            emission_wavelength=509,
+            excitation_wavelength=450,
+            emission_wavelength="Fluorescence",
             power=0.2,
             exposure_time=0.3,
         ),
@@ -244,14 +248,14 @@ def test_acquire_channels(demo_microscope):
     # Check metadata
     assert len(result.metadata.channels) == 2
     assert result.metadata.channels[0].name == "DAPI"
-    assert result.metadata.channels[0].excitation_wavelength == 358
-    assert result.metadata.channels[0].emission_wavelength == 461
+    assert result.metadata.channels[0].excitation_wavelength == 365
+    assert result.metadata.channels[0].emission_wavelength == "Fluorescence"
     assert result.metadata.channels[0].power == 0.1
     assert result.metadata.channels[0].exposure_time == 0.5
 
     assert result.metadata.channels[1].name == "GFP"
-    assert result.metadata.channels[1].excitation_wavelength == 488
-    assert result.metadata.channels[1].emission_wavelength == 509
+    assert result.metadata.channels[1].excitation_wavelength == 450
+    assert result.metadata.channels[1].emission_wavelength == "Fluorescence"
     assert result.metadata.channels[1].power == 0.2
     assert result.metadata.channels[1].exposure_time == 0.3
 
@@ -269,8 +273,8 @@ def test_acquire_z_stack(demo_microscope):
     # Create test channel
     channel = ChannelSettings(
         name="DAPI",
-        excitation_wavelength=358,
-        emission_wavelength=461,
+        excitation_wavelength=365,
+        emission_wavelength="Fluorescence",
         power=0.1,
         exposure_time=0.1,
     )
@@ -289,8 +293,8 @@ def test_acquire_z_stack(demo_microscope):
     # Check metadata
     assert len(result.metadata.channels) == 1
     assert result.metadata.channels[0].name == "DAPI"
-    assert result.metadata.channels[0].excitation_wavelength == 358
-    assert result.metadata.channels[0].emission_wavelength == 461
+    assert result.metadata.channels[0].excitation_wavelength == 365
+    assert result.metadata.channels[0].emission_wavelength == "Fluorescence"
     assert result.metadata.channels[0].power == 0.1
     assert result.metadata.channels[0].exposure_time == 0.1
 
@@ -578,8 +582,8 @@ def test_acquire_image(fm_microscope):
     # Create test channel
     channel = ChannelSettings(
         name="GFP",
-        excitation_wavelength=488,
-        emission_wavelength=509,
+        excitation_wavelength=450,
+        emission_wavelength="Fluorescence",
         power=0.2,
         exposure_time=0.3,
     )
@@ -593,8 +597,8 @@ def test_acquire_image(fm_microscope):
     # Check metadata
     assert len(result.metadata.channels) == 1
     assert result.metadata.channels[0].name == "GFP"
-    assert result.metadata.channels[0].excitation_wavelength == 488
-    assert result.metadata.channels[0].emission_wavelength == 509
+    assert result.metadata.channels[0].excitation_wavelength == 450
+    assert result.metadata.channels[0].emission_wavelength == "Fluorescence"
     assert result.metadata.channels[0].power == 0.2
     assert result.metadata.channels[0].exposure_time == 0.3
 
@@ -1683,7 +1687,11 @@ def test_a_cancelled_sweep_does_not_start_the_next_pass(fm_microscope, monkeypat
 
     def cancel_during_the_first_pass(*args, **kwargs):
         stop_event.set()
-        return Mock(spec=FluorescenceImage)
+        # A frame the sweep can score. A bare Mock raised on `.data`, which the old
+        # wrapper swallowed and reported as a cancel; a failure is no longer a cancel.
+        image = Mock(spec=FluorescenceImage)
+        image.data = np.zeros((8, 8), dtype=np.uint16)
+        return image
 
     monkeypatch.setattr(fm_microscope.fm, "acquire_image", cancel_during_the_first_pass)
 
@@ -1907,21 +1915,26 @@ def test_a_name_whose_mosaic_survived_its_tiles_is_not_reused(tmp_path):
 # ── stage limits ─────────────────────────────────────────────────────────
 
 
-def _narrow_limits(microscope, half_width: float):
-    """Shrink the stage limits to a box of +/- half_width about the origin."""
+def _narrow_limits(microscope, half_width: float, monkeypatch):
+    """Shrink the stage device's x and y limits to +/- half_width about the origin."""
+    from dataclasses import replace
+
     from fibsem.structures import RangeLimit
 
-    microscope._stage.limits = {
-        "x": RangeLimit(min=-half_width, max=half_width),
-        "y": RangeLimit(min=-half_width, max=half_width),
-    }
+    position = microscope.stage.position
+    limits = dict(
+        position.limits,
+        x=RangeLimit(min=-half_width, max=half_width),
+        y=RangeLimit(min=-half_width, max=half_width),
+    )
+    monkeypatch.setattr(position, "metadata", replace(position.metadata, limits=limits))
 
 
-def test_a_grid_reaching_past_the_stage_limits_is_refused(fm_microscope):
+def test_a_grid_reaching_past_the_stage_limits_is_refused(fm_microscope, monkeypatch):
     """The same answer the beam tiler gives, through the same helper. Rejected rather
     than trimmed: a mosaic quietly missing the tiles the stage could not reach stitches
     those gaps as zeros, which nothing downstream can tell from dark sample."""
-    _narrow_limits(fm_microscope, 10e-6)  # far smaller than one tile step
+    _narrow_limits(fm_microscope, 10e-6, monkeypatch)  # far smaller than one tile step
 
     runner = FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -1933,9 +1946,9 @@ def test_a_grid_reaching_past_the_stage_limits_is_refused(fm_microscope):
         runner.run()
 
 
-def test_the_refusal_names_the_tiles_that_caused_it(fm_microscope):
+def test_the_refusal_names_the_tiles_that_caused_it(fm_microscope, monkeypatch):
     """So the grid can be fixed rather than guessed at."""
-    _narrow_limits(fm_microscope, 10e-6)
+    _narrow_limits(fm_microscope, 10e-6, monkeypatch)
 
     runner = FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -1951,9 +1964,9 @@ def test_the_refusal_names_the_tiles_that_caused_it(fm_microscope):
     assert "(0,2)" in str(excinfo.value)
 
 
-def test_nothing_moves_when_a_grid_is_refused(fm_microscope):
+def test_nothing_moves_when_a_grid_is_refused(fm_microscope, monkeypatch):
     """The check runs before the tile loop, so a refused grid costs no stage time."""
-    _narrow_limits(fm_microscope, 10e-6)
+    _narrow_limits(fm_microscope, 10e-6, monkeypatch)
     start = fm_microscope.get_stage_position()
 
     runner = FMTiledAcquisitionRunner(
@@ -1969,10 +1982,12 @@ def test_nothing_moves_when_a_grid_is_refused(fm_microscope):
     assert runner.tileset == [] or all(t is None for row in runner.tileset for t in row)
 
 
-def test_masking_off_the_unreachable_tiles_makes_a_grid_acquirable(fm_microscope):
+def test_masking_off_the_unreachable_tiles_makes_a_grid_acquirable(
+    fm_microscope, monkeypatch
+):
     """Only the tiles that will actually be visited are checked, so excluding a corner
     that falls outside the limits is a legitimate way to bring a grid back into range."""
-    _narrow_limits(fm_microscope, 10e-6)
+    _narrow_limits(fm_microscope, 10e-6, monkeypatch)
 
     parameters = OverviewParameters(
         rows=1,
@@ -2249,6 +2264,53 @@ def test_the_objective_is_moved_before_a_sweep_would_search(fm_microscope, monke
     assert swept_at == [pytest.approx(SAVED_FOCUS)]
 
 
+def test_a_failed_tileset_autofocus_fails_the_run_rather_than_cancelling_it(
+    fm_microscope, monkeypatch
+):
+    """The tile runner reads False from `run_tileset_autofocus` as the user stopping
+    the run. A sweep that raised used to come back as False too, so a failed
+    autofocus ended the overview reported as cancelled with the reason only in the
+    log. The error now reaches the caller as itself."""
+
+    def broken_sweep(*args, **kwargs):
+        raise RuntimeError("objective did not respond")
+
+    monkeypatch.setattr(acquisition, "run_coarse_fine_autofocus", broken_sweep)
+    runner = acquisition.FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(
+            name="DAPI",
+            excitation_wavelength=358,
+            emission_wavelength=461,
+            power=0.1,
+            exposure_time=0.1,
+        ),
+        overview_parameters=OverviewParameters(
+            rows=1,
+            cols=1,
+            overlap=0.1,
+            use_zstack=False,
+            autofocus_mode=AutoFocusMode.ONCE,
+        ),
+        autofocus_settings=AutoFocusSettings(),
+    )
+
+    with pytest.raises(RuntimeError, match="objective did not respond"):
+        runner.run()
+
+
+def test_a_cancelled_tileset_autofocus_still_reads_as_a_cancel(
+    fm_microscope, monkeypatch
+):
+    """The sweep reports a cancel by returning None; that stays False."""
+    monkeypatch.setattr(acquisition, "run_coarse_fine_autofocus", lambda *a, **k: None)
+
+    assert (
+        acquisition.run_tileset_autofocus(fm_microscope, None, AutoFocusSettings())
+        is False
+    )
+
+
 def test_asking_for_a_focus_position_that_was_never_saved_is_refused(
     fm_microscope, monkeypatch
 ):
@@ -2301,7 +2363,9 @@ def test_the_retracted_objective_is_caught_before_anything_moves(
     assert fm_microscope.fm.objective.position == pytest.approx(retracted_at), (
         "the objective was driven somewhere before the run was refused"
     )
-    assert fm_microscope.fm.objective.state == "Retracted", "the run inserted it"
+    assert fm_microscope.fm.objective.state is InsertableDeviceState.RETRACTED, (
+        "the run inserted it"
+    )
 
 
 def test_the_stitch_is_announced_between_the_last_tile_and_the_mosaic(fm_microscope):

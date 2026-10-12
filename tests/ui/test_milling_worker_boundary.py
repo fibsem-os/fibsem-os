@@ -218,3 +218,45 @@ def test_the_worker_body_does_not_touch_the_widget(milling, mill):
 
     assert mill.calls, "the milling task never ran"
     assert touched == [], "the worker body updated the widget's buttons"
+
+
+def test_a_failed_mill_is_kept_for_the_finished_signals_listeners(qapp):
+    """The real task, with the microscope rejecting the mill (FIB-1112): the error
+    is on the widget by the time ``finished_milling_signal`` reaches a listener,
+    and a run that then succeeds clears it.
+
+    Its own microscope, not the shared session's: this is the one test here whose
+    task emits progress, and the viewers the other tests deleted are still
+    connected to the shared microscope's psygnal ``milling_progress_signal``.
+    """
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    viewer = MillingTaskViewerWidget(
+        microscope=microscope,
+        milling_task_config=_config_with_a_stage(),
+        milling_enabled=True,
+    )
+    milling = viewer.milling_widget
+    real_run_milling = microscope.run_milling
+
+    def rejected(*args, **kwargs):
+        raise RuntimeError("could not load type")
+
+    microscope.run_milling = rejected
+    seen = []
+    milling.finished_milling_signal.connect(lambda: seen.append(milling.milling_error))
+    try:
+        milling.run_milling(None)
+        _run(lambda: seen, tries=100)
+
+        assert len(seen) == 1
+        assert isinstance(seen[0], RuntimeError)
+        assert str(seen[0]) == "could not load type"
+
+        microscope.run_milling = real_run_milling
+        milling.run_milling(None)
+        _run(lambda: len(seen) == 2, tries=100)
+
+        assert seen[1] is None
+    finally:
+        viewer.close()
+        microscope.disconnect()

@@ -8,6 +8,7 @@ import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QDialog, QLabel
@@ -34,12 +35,14 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
 )
-from fibsem.microscopes._stage import SampleGrid, SlotCalibration, _create_sample_stage
+from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,
     OverviewAcquisitionSettings,
+    SampleGrid,
+    SlotCalibration,
 )
 
 
@@ -74,7 +77,7 @@ def experiment(tmp_path):
 
 @pytest.fixture
 def view(qapp, arctis, experiment):
-    experiment.sync_grids_from_inventory(arctis._stage)
+    experiment.sync_grids_from_inventory(arctis.sample_handling)
     experiment.add_grid(GridRecord(name="grid-oak"))  # not in the magazine
     widget = GridWorkflowWidget()
     widget.set_microscope(arctis)
@@ -102,34 +105,34 @@ class TestSelection:
     def test_rows_and_defaults(self, view):
         assert view.grid_empty.isHidden() and view.task_empty.isHidden()
         assert list(view._grid_rows) == ["Grid-01", "Grid-02", "Grid-03", "grid-oak"]
-        assert view.grid_header.trailing.text() == "3 of 4 present"
+        assert view.grid_header.count_label.text() == "4 · 3 present"
         assert not view._grid_rows["grid-oak"].checkbox.isEnabled()
         # every task ticked by default, in the protocol's order
         assert view.get_selected_task_names() == ["overview_sem", "overview_fm"]
         assert view.get_selected_grids() == []
-        assert view.summary_label.text() == "0 grids, 2 tasks selected"
+        assert view.selection_summary() == "0 grids, 2 tasks"
 
     def test_select_all_ticks_only_present_grids(self, view):
-        view.grid_header.select_all.setChecked(True)
+        view.grid_header.checkbox_all.setChecked(True)
         assert [g.name for g in view.get_selected_grids()] == [
             "Grid-01",
             "Grid-02",
             "Grid-03",
         ]
-        assert view.summary_label.text() == "3 grids, 2 tasks selected · 3 exchanges"
+        assert view.selection_summary() == "3 grids, 2 tasks · 3 exchanges"
 
     def test_clearing_from_the_window_unticks_the_header_too(self, view):
-        view.grid_header.select_all.setChecked(True)
+        view.grid_header.checkbox_all.setChecked(True)
         view.set_all_grids_selected(False)  # as a run starting does
         assert view.get_selected_grids() == []
-        assert not view.grid_header.select_all.isChecked()
-        view.grid_header.select_all.setChecked(True)  # one click selects all again
+        assert not view.grid_header.checkbox_all.isChecked()
+        view.grid_header.checkbox_all.setChecked(True)  # one click selects all again
         assert len(view.get_selected_grids()) == 3
 
     def test_a_grid_in_the_beam_costs_no_exchange(self, view, arctis):
-        arctis._stage.ensure_loaded("Grid-02")
+        arctis.sample_handling.ensure_loaded("Grid-02")
         view.refresh()
-        view.grid_header.select_all.setChecked(True)
+        view.grid_header.checkbox_all.setChecked(True)
         assert view.exchanges_for(view.get_selected_grids()) == 2
         row = view._grid_rows["Grid-02"]
         assert [c.text() for c in row._chip_widgets] == ["Loaded"]
@@ -138,7 +141,7 @@ class TestSelection:
     def test_a_loaded_row_keeps_its_slot_inside_the_list(self, view, arctis):
         """The Loaded pill once pushed the slot column past the list's edge, and
         the slot read as "s". The row must ask for less than the panel gives."""
-        arctis._stage.ensure_loaded("Grid-02")
+        arctis.sample_handling.ensure_loaded("Grid-02")
         view.refresh()
         row = view._grid_rows["Grid-02"]
         assert [c.text() for c in row._chip_widgets] == ["Loaded"]
@@ -147,12 +150,12 @@ class TestSelection:
     def test_an_unscanned_magazine_says_so_on_every_row(self, view, arctis):
         """Before an inventory the rows are UNKNOWN: the chip says the magazine
         has not been read, not that the grids are missing, and none can be run."""
-        arctis._stage.loader.scanned = False
+        arctis.sample_handling.magazine.scanned = False
         view.refresh()
         rows = [view._grid_rows[n] for n in ("Grid-01", "Grid-02", "Grid-03")]
         assert all([c.text() for c in r._chip_widgets] == ["not scanned"] for r in rows)
         assert not any(r.checkbox.isEnabled() for r in rows)
-        arctis._stage.loader.scanned = True
+        arctis.sample_handling.magazine.scanned = True
         view.refresh()
         assert all(r.checkbox.isEnabled() for r in rows)
 
@@ -201,8 +204,8 @@ class TestSelection:
 
     def test_screen_all_needs_a_task_and_a_stage(self, view):
         assert view.btn_screen_all.isEnabled()
-        assert view.task_header.select_all.isChecked()  # reads the rows
-        view.task_header.select_all.setChecked(False)
+        assert view.task_header.checkbox_all.isChecked()  # reads the rows
+        view.task_header.checkbox_all.setChecked(False)
         assert view.get_selected_task_names() == []
         assert not view.btn_screen_all.isEnabled()
         view.set_all_tasks_selected(True)
@@ -431,6 +434,26 @@ def test_the_preflight_says_which_beams_are_off(qapp):
     )
 
 
+def test_the_preflight_says_how_the_run_ends(qapp):
+    """Set on the ⚙, said on the confirmation; not when adding to a running
+    queue: the added work ends the way that run was started."""
+    both = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", unload_at_end=True, report_at_end=True
+    )
+    assert (
+        "When the run ends: unload the last grid and write the grid screening report."
+        in _labels(both)
+    )
+    neither = GridRunPreflightDialog(["overview_sem"], ["Grid-01"], 1, "/exp")
+    assert any(
+        t.startswith("When the run ends: nothing more") for t in _labels(neither)
+    )
+    adding = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", adding=True, unload_at_end=True
+    )
+    assert not any(t.startswith("When the run ends") for t in _labels(adding))
+
+
 @pytest.fixture
 def main_ui(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
@@ -454,15 +477,77 @@ def _wait_for_run(ui, timeout_s: float = 90.0) -> None:
     assert not ui.is_workflow_running, "the grid run did not finish in time"
 
 
+class TestPanelChrome:
+    """The Lamella page's list chrome: one header style, Screen all on the grid
+    list's, settings and hints on the task list's, and no footer."""
+
+    def test_headers_count_and_carry_screen_all(self, view):
+        assert view.grid_header.count_label.text() == "4 \u00b7 3 present"
+        assert view.task_header.count_label.text() == "2"
+        assert view.btn_screen_all.parent() is view.grid_header
+        for gone in ("summary_label", "task_hint"):
+            assert not hasattr(view, gone)
+
+    def test_the_task_header_reads_partly_ticked(self, view):
+        view._task_rows["overview_fm"].checkbox.setChecked(False)
+        box = view.task_header.checkbox_all
+        assert box.checkState() == Qt.CheckState.PartiallyChecked
+        box.click()  # partly ticked: one click ticks them all
+        assert view.get_selected_task_names() == ["overview_sem", "overview_fm"]
+        assert box.checkState() == Qt.CheckState.Checked
+
+    def test_the_gear_opens_the_grid_workflow_options(self, view):
+        # on the Lamella page ⚙ opens the workflow's settings; here, how a run
+        # ends. Unload off and the report on until asked otherwise.
+        assert view.btn_settings.isEnabled()
+        assert view.btn_settings.toolTip() == "Grid workflow options"
+        view.btn_settings.click()
+        assert view.options.isVisible()
+        assert not view.unload_at_end()
+        assert view.report_at_end() == view.options.report_check.isEnabled()
+        view.options.hide()
+        hints = view.btn_help.toolTip()
+        assert "order they run" in hints and "Protocol tab's Grid page" in hints
+
+    def test_unload_is_offered_only_with_a_loader(self, view):
+        options = view.options
+        options.set_availability(can_unload=False, report_unavailable="")
+        options.unload_check.setChecked(True)
+        assert options.unload_check.isHidden()
+        assert not view.unload_at_end(), "a fixed holder has nothing to unload"
+        options.set_availability(can_unload=True, report_unavailable="")
+        assert not options.unload_check.isHidden()
+        assert view.unload_at_end(), "the choice is kept"
+
+    def test_the_gear_says_why_it_cannot_write_the_report(self, view):
+        reason = "Needs the reporting tools: pip install fibsem-os[reporting]"
+        view.options.set_availability(can_unload=False, report_unavailable=reason)
+        assert not view.options.report_check.isEnabled()
+        assert not view.options.report_check.isChecked(), "reads unticked"
+        assert view.options.report_check.toolTip() == reason
+        assert not view.report_at_end()
+        view.options.set_availability(can_unload=False, report_unavailable="")
+        assert view.report_at_end(), "not a choice the operator made"
+
+    def test_the_gear_is_accent_while_an_option_is_off_its_default(self, view):
+        view.options.set_availability(can_unload=True, report_unavailable="")
+        assert "some set" not in view.btn_settings.toolTip()
+        view.options.unload_check.setChecked(True)
+        assert "some set" in view.btn_settings.toolTip()
+        view.options.unload_check.setChecked(False)
+        view.options.report_check.setChecked(False)
+        assert "some set" in view.btn_settings.toolTip()
+
+
 def test_the_grids_view_sits_beside_lamella(main_ui):
     left = main_ui.workflow_left_tabs
     index = left.indexOf(main_ui.grid_workflow_widget)
     assert left.tabText(index) == "Grids" and left.tabText(0) == "Lamella"
     assert left.isTabVisible(index) and not left.tabBar().isHidden()
-    # the selector says which list it is; the list's own title would say it twice
-    assert not main_ui.lamella_workflow_widget._lamella_header.isVisibleTo(
-        main_ui.lamella_workflow_widget
-    )
+    # each list is named by its own header, with no section label over it
+    lamella = main_ui.lamella_workflow_widget
+    assert not hasattr(lamella, "_lamella_header")
+    assert lamella.lamella_list._header.title_label.text() == "Lamella"
 
 
 def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):
@@ -471,9 +556,9 @@ def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = False
-    microscope._stage = _create_sample_stage(microscope)
-    slot = microscope._stage.holder.slots["Slot-01"]
+    microscope.stage_device.compustage = False
+    microscope.sample_handling = bind_sample_handling(microscope)
+    slot = microscope.sample_handling.holder.slots["Slot-01"]
     slot.position = FibsemStagePosition(
         name=slot.name, x=-4e-3, y=1e-3, z=4e-3, r=0, t=0.61
     )
@@ -526,11 +611,11 @@ def test_an_inventory_on_the_sample_view_reaches_the_grids_tab_and_run_view(
 
     loader = ui.sample_widget.loader_widget
     assert loader is not None
-    ui.microscope._stage.get_inventory()
+    ui.microscope.sample_handling.get_inventory()
     loader.loader_changed.emit()  # what the Sample view does after an inventory
     names = [g.name for g in exp.grids]
     assert names and names == [
-        e.name for e in ui.microscope._stage.grid_inventory() if e.present
+        e.name for e in ui.microscope.sample_handling.grid_inventory() if e.present
     ]
     assert [c.grid.name for c in main_ui.grids_tab.cards.cards] == names
     assert list(main_ui.grid_workflow_widget._grid_rows) == names
@@ -554,9 +639,9 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _NoDialog)
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = False
-    microscope._stage = _create_sample_stage(microscope)
-    slot = microscope._stage.holder.slots["Slot-01"]
+    microscope.stage_device.compustage = False
+    microscope.sample_handling = bind_sample_handling(microscope)
+    slot = microscope.sample_handling.holder.slots["Slot-01"]
     slot.position = FibsemStagePosition(
         name=slot.name, x=-4e-3, y=1e-3, z=4e-3, r=0, t=0.61
     )
@@ -570,7 +655,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     exp.grid_protocol.add(
         BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
     )
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     ui.experiment = exp
     # The pieces of _on_experiment_update this test needs. The whole handler also
     # rebuilds the lamella task editor, which cannot take a protocol with no
@@ -583,9 +668,9 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
 
     view = main_ui.grid_workflow_widget
     main_ui.workflow_left_tabs.setCurrentWidget(view)
-    view.grid_header.select_all.setChecked(True)
-    assert main_ui.run_workflow_btn.isEnabled()
-    assert "1 grid, 1 task" in main_ui.run_workflow_btn.toolTip()
+    view.grid_header.checkbox_all.setChecked(True)
+    assert main_ui.workflow_controls.run_btn.isEnabled()
+    assert "1 grid, 1 task" in main_ui.workflow_controls.run_btn.toolTip()
 
     # A beam that is off is turned on before the first task; the preflight
     # said it would be.
@@ -601,7 +686,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     # could not queue grid-aspen again; the task ticks stay for the next add.
     # Checked after the run: a failure mid-run would leave its worker going.
     assert view.get_selected_grids() == []
-    assert not view.grid_header.select_all.isChecked()
+    assert not view.grid_header.checkbox_all.isChecked()
     assert view.get_selected_task_names() == ["overview_sem"]
 
     grid = exp.get_grid_by_name("grid-aspen")
@@ -610,7 +695,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     assert grid.task_history[-1].status is AutoLamellaTaskStatus.Completed
     assert len(grid_outputs(exp, grid, "overview_sem")) == 1
     assert main_ui.grids_tab.btn_inventory.isEnabled()
-    assert ui._last_run_summary is not None  # the grid summary, for the agent server
+    assert ui._last_run_summary is not None  # the grid summary, for the App Server
     assert microscope.is_on(BeamType.ION) and main_ui._beams_off() == []
 
 
@@ -629,10 +714,10 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = False
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.stage_device.compustage = False
+    microscope.sample_handling = bind_sample_handling(microscope)
     for i, name in enumerate(["grid-aspen", "grid-birch"]):
-        slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
+        slot = microscope.sample_handling.holder.slots[f"Slot-{i + 1:02d}"]
         slot.position = FibsemStagePosition(
             name=slot.name, x=-4e-3 + i * 8e-3, y=1e-3, z=4e-3, r=0, t=0.61
         )
@@ -645,7 +730,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     exp.grid_protocol.add(
         BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
     )
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     ui.experiment = exp
     main_ui.grid_workflow_widget.set_experiment(exp)
     main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)
@@ -698,17 +783,17 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
 def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     main_ui, tmp_path, monkeypatch
 ):
-    """The window hands the confirmation the grids that have never run: the
-    ticked ones for Run, the present ones for Screen all grids."""
+    """The window hands Run's confirmation the ticked grids that have never run;
+    Screen all grids runs on the grids its own dialog names."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
-    microscope.stage_is_compustage = False
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.stage_device.compustage = False
+    microscope.sample_handling = bind_sample_handling(microscope)
     for i, name in enumerate(["grid-aspen", "grid-birch"]):
-        slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
+        slot = microscope.sample_handling.holder.slots[f"Slot-{i + 1:02d}"]
         slot.position = FibsemStagePosition(
             name=slot.name, x=-4e-3 + i * 8e-3, y=1e-3, z=4e-3, r=0, t=0.61
         )
@@ -721,7 +806,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     exp.grid_protocol.add(
         BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
     )
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     # grid-aspen has run once; grid-birch has not
     ran = exp.get_grid_by_name("grid-aspen")
     ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
@@ -730,18 +815,187 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)
 
     shown = []
+    offered = []
 
     class _Capture:
         def __init__(self, *args, **kwargs):
             shown.append(kwargs.get("first_run"))
+            offered.append(kwargs.get("unload_at_end"))
 
         def exec_(self):
             return QDialog.Rejected  # look, do not run
 
     monkeypatch.setattr(module, "GridRunPreflightDialog", _Capture)
     view = main_ui.grid_workflow_widget
-    view.grid_header.select_all.setChecked(True)
+    view.grid_header.checkbox_all.setChecked(True)
     main_ui._run_grid_workflow()
     assert shown == [["grid-birch"]]
-    assert main_ui._present_grids_not_run() == ["grid-birch"]
+    assert offered == [False], "a fixed holder has nothing to unload"
     assert not ui.is_workflow_running
+
+    # Screen all grids asks its own dialog, which names and records the grids,
+    # and runs on exactly the grids it hands back (FIB-1138).
+    started = []
+    told = []
+
+    class _Screen:
+        def __init__(self, stage, experiment, task_names, *args, **kwargs):
+            self.grid_names = ["grid-birch"]
+            told.append((kwargs["unload_at_end"], kwargs["report_at_end"]))
+
+        def exec_(self):
+            return QDialog.Accepted
+
+    monkeypatch.setattr(module, "ScreenGridsDialog", _Screen)
+    monkeypatch.setattr(
+        main_ui,
+        "_start_grid_run",
+        lambda *args, **kwargs: started.append((args, kwargs)),
+    )
+    main_ui._on_screen_all_grids()
+    # the run ends as the Grids page's ⚙ says, and the dialog says so (FIB-1133)
+    ending = main_ui._end_of_run()
+    assert told == [(ending["unload_at_end"], ending["report_at_end"])]
+    assert started == [
+        ((["overview_sem"], ["grid-birch"]), dict(inventory_first=False, **ending))
+    ]
+
+
+def _labels(dialog) -> list:
+    return [w.text() for w in dialog.findChildren(QLabel)]
+
+
+def test_the_preflight_quotes_the_time_per_task_and_the_finish(
+    qapp, view, experiment, arctis
+):
+    """FIB-1134: the run confirmation shows a time per task, the exchanges as a
+    row of their own priced at the loader's figure, a total and a finish."""
+    from datetime import datetime
+
+    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+        estimate_grid_run,
+    )
+    from fibsem.util.durations import format_duration_rounded
+
+    view.grid_header.checkbox_all.setChecked(True)
+    grids = view.get_selected_grids()
+    names = [g.name for g in grids]
+    exchanges = view.exchanges_for(grids)
+    assert (
+        view.exchange_seconds() == arctis.sample_handling.magazine.exchange_seconds > 0
+    )
+    estimate = estimate_grid_run(
+        experiment,
+        ["overview_sem", "overview_fm"],
+        names,
+        exchanges,
+        view.exchange_seconds(),
+        now=datetime(2026, 10, 5, 14, 0),
+    )
+    dialog = GridRunPreflightDialog(
+        ["overview_sem", "overview_fm"], names, exchanges, "/exp", estimate=estimate
+    )
+    labels = _labels(dialog)
+    assert "Estimated duration" in labels and "Expected finish" in labels
+    assert format_duration_rounded(estimate.work_seconds, pad=True) in labels
+    rows = [t for t in labels if "×" in t]
+    assert [r.split("<")[0].strip() for r in rows] == [
+        LOAD_ENTRY_NAME,
+        "overview_sem",
+        "overview_fm",
+    ]
+    assert all("×3" in r for r in rows)
+    assert "Estimates round up." in labels
+
+    # Screen all grids quotes the grids known before the inventory, and says so
+    dialog = GridRunPreflightDialog(
+        ["overview_sem"], names, 3, "/exp", screen_all=True, estimate=estimate
+    )
+    assert any("Quoted for the 3 grids known now" in t for t in _labels(dialog))
+
+    # no estimate, no time: what a caller that could not price gets
+    dialog = GridRunPreflightDialog(["overview_sem"], names, 3, "/exp")
+    assert "Estimated duration" not in _labels(dialog)
+
+
+def test_the_preflight_says_what_adding_costs_and_moves_the_finish(qapp):
+    from datetime import datetime, timedelta
+
+    from fibsem.applications.autolamella.workflows.workflow_estimate import (
+        AdditionEstimate,
+    )
+
+    before = datetime(2026, 10, 5, 14, 0)
+    addition = AdditionEstimate(
+        work_seconds=600,
+        delay_seconds=600,
+        finish_before=before,
+        finish_after=before + timedelta(minutes=10),
+        priced_count=2,
+        total_count=2,
+    )
+    dialog = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", adding=True, addition=addition
+    )
+    labels = _labels(dialog)
+    assert "Adds" in labels and "Expected finish" in labels
+    assert any(t.startswith("was ") for t in labels)
+
+
+def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
+    main_ui, tmp_path, monkeypatch
+):
+    """On a fixed holder: no exchange is priced, each task is, and the timeline
+    gets a figure for every step of the plan."""
+    from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
+
+    ui = main_ui.autolamella_ui
+    ui.system_widget.connect_to_microscope()
+    microscope = ui.microscope
+    microscope.stage_device.compustage = False
+    microscope.sample_handling = bind_sample_handling(microscope)
+    for i, name in enumerate(["grid-aspen", "grid-birch"]):
+        slot = microscope.sample_handling.holder.slots[f"Slot-{i + 1:02d}"]
+        slot.position = FibsemStagePosition(
+            name=slot.name, x=-4e-3 + i * 8e-3, y=1e-3, z=4e-3, r=0, t=0.61
+        )
+        slot.calibration = SlotCalibration("SEM", 35.0, 0.0, "2026-09-02T11:24:09", "t")
+        slot.loaded_grid = SampleGrid(name=name)
+    main_ui._refresh_grids_tab_microscope()
+    exp = Experiment(path=tmp_path, name="exp")
+    (tmp_path / "exp").mkdir()
+    exp.task_protocol = AutoLamellaTaskProtocol()
+    exp.grid_protocol.add(
+        BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
+    )
+    exp.sync_grids_from_inventory(microscope.sample_handling)
+    ui.experiment = exp
+    main_ui.grid_workflow_widget.set_experiment(exp)
+    main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)
+
+    shown = []
+
+    class _Capture:
+        def __init__(self, *args, **kwargs):
+            shown.append(kwargs.get("estimate"))
+
+        def exec_(self):
+            return QDialog.Rejected  # look, do not run
+
+    monkeypatch.setattr(module, "GridRunPreflightDialog", _Capture)
+    main_ui.grid_workflow_widget.grid_header.checkbox_all.setChecked(True)
+    main_ui._run_grid_workflow()
+    (estimate,) = shown
+    assert [(t.name, t.lamella_count) for t in estimate.tasks] == [("overview_sem", 2)]
+    per_grid = exp.grid_protocol.task_config["overview_sem"].estimated_duration
+    assert estimate.work_seconds == pytest.approx(2 * per_grid)
+
+    pairs = [
+        (g, s)
+        for g in ["grid-aspen", "grid-birch"]
+        for s in [LOAD_ENTRY_NAME, "overview_sem"]
+    ]
+    main_ui._push_timeline_estimates(pairs)
+    estimates = main_ui.workflow_timeline._estimates
+    assert estimates[("grid-aspen", LOAD_ENTRY_NAME)] == 0.0  # a fixed holder
+    assert estimates[("grid-birch", "overview_sem")] == pytest.approx(per_grid)

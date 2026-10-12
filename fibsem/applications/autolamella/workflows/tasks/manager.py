@@ -21,9 +21,11 @@ from fibsem.applications.autolamella.workflows.tasks.status import (
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.constants import DATETIME_DISPLAY_AMPM
+from fibsem.control import WORKFLOW
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
-from fibsem.utils import format_duration, format_time_remaining
+from fibsem.structures import InsertableDeviceState
+from fibsem.util.durations import format_duration_precise, format_duration_rounded
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -220,7 +222,7 @@ class BaseTaskManager:
                 + (
                     "waiting until one is made."
                     if review_wait is None
-                    else f"giving up after {format_duration(review_wait)} without one."
+                    else f"giving up after {format_duration_precise(review_wait)} without one."
                 )
             )
             deadline = None if review_wait is None else time.monotonic() + review_wait
@@ -231,7 +233,7 @@ class BaseTaskManager:
                     if timeout <= 0:
                         self.stalled = True
                         self.stall_reason = (
-                            f"Timed out after {format_duration(review_wait)} "
+                            f"Timed out after {format_duration_precise(review_wait)} "
                             f"waiting for a review: {n} decision(s) still pending."
                         )
                         logging.warning(self.stall_reason)
@@ -239,7 +241,7 @@ class BaseTaskManager:
                 if self._decision_event.wait(timeout):
                     logging.info(
                         "A decision landed after "
-                        f"{format_duration(time.monotonic() - started)} parked; "
+                        f"{format_duration_precise(time.monotonic() - started)} parked; "
                         "rescanning the queue."
                     )
                     return True
@@ -765,7 +767,7 @@ class TaskManager(BaseTaskManager):
         # if the objective is inserted, retract for safety
         if (
             self.microscope.fm is not None
-            and self.microscope.fm.objective.state == "Inserted"
+            and self.microscope.fm.objective.state is InsertableDeviceState.INSERTED
         ):
             self.microscope.fm.objective.retract()
 
@@ -796,7 +798,6 @@ class TaskManager(BaseTaskManager):
             # finishable. Not fired on the cancelled path: an aborted run has not
             # established anything about the experiment.
             self._maybe_fire_experiment_completed()
-        print(self.experiment.task_history_dataframe())
 
     def build_run_summary_dataframe(self) -> pd.DataFrame:
         """Build a per-run summary of attempted tasks from the queue snapshot.
@@ -955,7 +956,7 @@ class TaskManager(BaseTaskManager):
                 if now >= next_update:
                     msg = (
                         f"Waiting until {target_str} to start {task_name} on "
-                        f"{lamella.name} ({format_time_remaining(remaining)} remaining)."
+                        f"{lamella.name} ({format_duration_rounded(remaining)} remaining)."
                     )
                     update_status_ui(self.parent_ui, "", status_bar=msg)
                     next_update = now + 15.0
@@ -1106,6 +1107,9 @@ def run_tasks(
 ) -> None:
     """Run the specified tasks for all lamellas in the experiment.
     Thin wrapper around TaskManager for backward compatibility and headless usage.
+    In control of the microscope for the run (FIB-1270): refused with
+    ``MicroscopeBusy`` if someone else is.
     """
     manager = TaskManager(microscope, experiment, parent_ui, hook_manager=hook_manager)
-    manager.run(task_names, required_lamella)
+    with microscope.control.take(WORKFLOW, "a lamella run"):
+        manager.run(task_names, required_lamella)

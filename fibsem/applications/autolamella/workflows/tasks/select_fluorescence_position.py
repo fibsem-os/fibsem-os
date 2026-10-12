@@ -13,6 +13,7 @@ from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.ui import (
     ask_user,
 )
+from fibsem.structures import InsertableDeviceState
 
 
 @dataclass
@@ -85,7 +86,7 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
 
         # move objective to saved position
         self.log_status_message("MOVE_OBJECTIVE", "Moving Objective to position...")
-        if not self.microscope.fm.objective.state == "Inserted":
+        if self.microscope.fm.objective.state is not InsertableDeviceState.INSERTED:
             logging.info(
                 "Objective is not inserted. Inserting the objective before acquiring fluorescence images."
             )

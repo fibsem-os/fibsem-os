@@ -47,9 +47,9 @@ from fibsem.structures import (
     BeamType,
     DeviceImagingState,
     FibsemStagePosition,
+    InsertableDeviceState,
     TileOrderStrategy,
 )
-from fibsem.util.filename import remove_suffix
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -96,6 +96,15 @@ def acquire_z_stack(
     stop_event: Optional["threading.Event"] = None,
 ) -> Optional[FluorescenceImage]:
     """Acquire a Z-stack of images for a given channel."""
+    from fibsem.fm.microscope import FluorescenceMicroscope
+
+    if isinstance(microscope, FluorescenceMicroscope) and (
+        microscope.runs_z_stack_on_device
+    ):
+        # A remote FM: the whole stack is one command on its computer.
+        return microscope.acquire_z_stack_on_device(
+            channel_settings, zparams, stop_event
+        )
 
     # Claimed for the whole stack, as a tileset claims it for a whole run. Each z
     # step is a move and an acquisition, and each of those opened and closed its own
@@ -279,8 +288,8 @@ def acquire_image(
     if image is not None and filename is not None:
         try:
             # Set description from filename (without extension)
-            image.metadata.description = remove_suffix(
-                os.path.basename(filename), ".ome.tiff"
+            image.metadata.description = os.path.basename(filename).removesuffix(
+                ".ome.tiff"
             )
             image.metadata.filename = filename
             image.save(filename)
@@ -303,7 +312,7 @@ def run_tileset_autofocus(
     autofocus_settings: AutoFocusSettings,
     stop_event: Optional[threading.Event] = None,
 ) -> bool:
-    """Run autofocus during tileset acquisition with error handling and logging.
+    """Run autofocus during tileset acquisition.
 
     A thin wrapper over `run_coarse_fine_autofocus` -- the same sweep the live
     auto-focus button runs -- so a tileset focuses exactly the way focusing by hand
@@ -319,26 +328,27 @@ def run_tileset_autofocus(
 
     Returns:
         True if autofocus completed successfully, False if cancelled
+
+    Raises:
+        ValueError: if the microscope has no fluorescence microscope.
+        Whatever the sweep raised. A failure is not a cancel: the tile runner reads
+        False as the user stopping the run, so a failed sweep returning False ended
+        the overview reported as cancelled, with the error only in the log.
     """
     if microscope.fm is None:
-        logging.error(
+        raise ValueError(
             "Fluorescence microscope not initialized in the FibsemMicroscope instance"
         )
+    result = run_coarse_fine_autofocus(
+        microscope=microscope.fm,
+        autofocus_settings=autofocus_settings,
+        channel_settings=channel_settings,
+        stop_event=stop_event,
+    )
+    if result is None:
+        logging.info("Auto-focus cancelled")
         return False
-    try:
-        result = run_coarse_fine_autofocus(
-            microscope=microscope.fm,
-            autofocus_settings=autofocus_settings,
-            channel_settings=channel_settings,
-            stop_event=stop_event,
-        )
-        if result is None:
-            logging.info("Auto-focus cancelled")
-            return False
-        return True
-    except Exception as e:
-        logging.warning(f"Auto-focus failed: {e}")
-        return False
+    return True
 
 
 def _to_channel_planes(data: np.ndarray, n_channels: int) -> np.ndarray:
@@ -675,9 +685,9 @@ class FMTiledAcquisitionRunner:
             ValueError: if the objective is anywhere but inserted.
         """
         state = self.microscope.fm.objective.state
-        if state != "Inserted":
+        if state is not InsertableDeviceState.INSERTED:
             raise ValueError(
-                f"The objective is {state.lower()}, so an overview cannot be acquired. "
+                f"The objective is {state.value}, so an overview cannot be acquired. "
                 f"Insert it and try again."
             )
 
@@ -820,7 +830,8 @@ class FMTiledAcquisitionRunner:
         # different conclusions about the same limits. Only the tiles that will be
         # visited: `_ordered` has the masked-off ones dropped already, so excluding a
         # corner is a legitimate way to bring a grid back into range.
-        limits = getattr(self.microscope._stage, "limits", None)
+        stage = self.microscope.stage
+        limits = stage.position.limits if stage is not None else None
         if limits:
             raise_if_outside_stage_limits(
                 self._ordered,

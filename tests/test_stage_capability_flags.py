@@ -23,7 +23,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes.simulator import (
+from fibsem.drivers.demo.simulator import (
     STAGE_LIMITS_COMPUSTAGE,
     STAGE_LIMITS_DEFAULT,
 )
@@ -50,7 +50,8 @@ CONFIGS = (
 
 
 def _stage_block(filename: str) -> dict:
-    return utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))["hardware"]["stage"]
+    config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
+    return utils.configuration_device(config, "stage")
 
 
 @pytest.mark.parametrize("filename", CONFIGS)
@@ -69,7 +70,7 @@ def test_no_shipped_file_states_a_manipulator_capability(filename: str, key: str
     instrument's to report, not a file's to restate.
     """
     config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
-    assert "manipulator" not in config["hardware"]
+    assert utils.configuration_device(config, "manipulator") == {}
 
 
 @pytest.mark.parametrize("key", ["tilt", "rotation"])
@@ -80,9 +81,11 @@ def test_a_manipulator_does_not_gain_an_axis_by_default(key: str):
     scoped edit goes wrong: a manipulator quietly given an axis it does not have.
     While the files said `false` that was safe by restatement; now it is safe by
     default, and this is the test that says so. `False` is the only correct default --
-    an axis assumed present is a move the hardware will refuse.
+    an axis assumed present is a move the hardware will refuse. The axes are now the
+    manipulator device's (`is_available("manipulator_rotation")`), so a file cannot
+    state one at all.
     """
-    assert getattr(ManipulatorSystemSettings.from_dict({}), key) is False
+    assert not hasattr(ManipulatorSystemSettings.from_dict({key: True}), key)
 
 
 @pytest.mark.parametrize(
@@ -170,7 +173,7 @@ def test_connecting_fills_the_capability_from_the_stage(
         config_path=os.path.join(cfg.CONFIG_PATH, filename), manufacturer="Demo"
     )
 
-    assert microscope.stage_is_compustage is compustage
+    assert microscope._fm_is_a_pose() is compustage
     assert microscope.system.stage.rotation is rotates
     assert microscope.system.stage.rotation_180 == opposite
 
@@ -204,30 +207,15 @@ def test_applying_a_configuration_does_not_overwrite_the_capability():
 def test_the_thermo_backend_reports_a_compustage_without_a_rotation_axis():
     """The real Arctis path, which no test on CI can connect to.
 
-    `ThermoMicroscope._get_axis_limits` is where an AutoScript compustage becomes "no
-    `r` axis", and it is what `_read_stage_capabilities` asks. CI has no AutoScript, and
-    the simulator cannot stand in for this branch -- it has its own `_get_axis_limits`.
-    So the branch is asserted from the source, the way FIB-500 pinned its
-    `r=0.0` literal: crude, but it fails if someone deletes the short-circuit, which is
-    the failure that would otherwise reach an instrument.
+    `AutoscriptCompustage.metadata_position` is where an AutoScript compustage becomes
+    "no `r` axis", and `_read_stage_capabilities` asks the stage device's axes. CI has no
+    AutoScript, but the compustage's limits are a fixed table that needs no SDK, so the
+    driver is asked directly: it fails if someone gives the compustage the offset
+    stage's SDK read, which is the failure that would otherwise reach an instrument.
     """
-    import ast
-    import inspect
-    import textwrap
+    from fibsem.drivers.autoscript.devices import AutoscriptCompustage
 
-    from fibsem.microscopes.autoscript import ThermoMicroscope
+    limits = AutoscriptCompustage(parent=None).metadata_position().limits
 
-    tree = ast.parse(
-        textwrap.dedent(inspect.getsource(ThermoMicroscope._get_axis_limits))
-    )
-    returns_under_a_compustage_test = [
-        node.body[0].value.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.If)
-        and isinstance(node.test, ast.Attribute)
-        and node.test.attr == "stage_is_compustage"
-        and isinstance(node.body[0], ast.Return)
-        and isinstance(node.body[0].value, ast.Name)
-    ]
-    assert returns_under_a_compustage_test == ["STAGE_LIMITS_COMPUSTAGE"]
-    assert "r" not in STAGE_LIMITS_COMPUSTAGE
+    assert set(limits) == set(STAGE_LIMITS_COMPUSTAGE)
+    assert "r" not in limits

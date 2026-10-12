@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.workflows.tasks.basic_milling import (
     BasicMillingTaskConfig,
 )
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import RectanglePattern
+from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
@@ -96,7 +96,7 @@ def test_defect_state_backwards_compat_failure():
     )
     assert d.state == DefectType.FAILURE
     assert d.description == "bad mill"
-    assert d.updated_at == 1.0
+    assert d.updated_at.timestamp() == 1.0  # an older float, read as a time
 
 
 def test_defect_state_backwards_compat_rework():

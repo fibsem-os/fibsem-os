@@ -13,7 +13,13 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 import numpy as np
 
-from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
+from fibsem.cancellation import (
+    COMPLETED,
+    SKIPPED,
+    OperationCancelledError,
+    ended_by,
+    raise_if_cancelled,
+)
 from fibsem.structures import BeamType
 
 if TYPE_CHECKING:
@@ -225,6 +231,20 @@ class AutoFocusResult:
     def n_iterations(self) -> int:
         return len(self.iterations)
 
+    def to_dict(self) -> dict:
+        """The result without its images: the working distances, scores and
+        settings, each iteration naming the file its image is saved as. What
+        ``save`` writes to ``data.json``, and what the App Server answers."""
+        return {
+            "working_distance": self.working_distance,
+            "initial_working_distance": self.initial_working_distance,
+            "focus_score": self.focus_score,
+            "n_iterations": self.n_iterations,
+            "method": self.method,
+            "settings": self.settings.to_dict() if self.settings is not None else None,
+            "iterations": [it.to_dict(i) for i, it in enumerate(self.iterations)],
+        }
+
     def plot(self, save_path: str = "autofocus.png") -> None:
         from fibsem.autofunctions.plotting import plot_autofocus_result
 
@@ -244,15 +264,7 @@ class AutoFocusResult:
         result_dir = Path(path) / name
         result_dir.mkdir(parents=True, exist_ok=True)
 
-        data = {
-            "working_distance": self.working_distance,
-            "initial_working_distance": self.initial_working_distance,
-            "focus_score": self.focus_score,
-            "n_iterations": self.n_iterations,
-            "method": self.method,
-            "settings": self.settings.to_dict() if self.settings is not None else None,
-            "iterations": [it.to_dict(i) for i, it in enumerate(self.iterations)],
-        }
+        data = self.to_dict()
 
         with open(result_dir / "data.json", "w") as f:
             json.dump(data, f, indent=2)
@@ -267,7 +279,7 @@ class AutoFocusResult:
         if save_plot:
             self.plot(save_path=str(result_dir / "plot.png"))
 
-        logger.info("AutoFocus result saved to %s", result_dir)
+        logger.debug("AutoFocus result saved to %s", result_dir)
         return result_dir
 
     @classmethod
@@ -349,7 +361,7 @@ def _run_sweep(
 
     best_idx = int(np.argmax([it.focus_score for it in iterations]))
     best_wd = iterations[best_idx].working_distance
-    logger.info(
+    logger.debug(
         "AutoFocus pass %d complete: best WD=%.4e score=%.4f",
         pass_index,
         best_wd,
@@ -364,6 +376,73 @@ def run_auto_focus(
     hfw: float = 150e-6,
     settings: AutoFocusSettings = None,
     stop_event: Optional[threading.Event] = None,
+    path: Optional[str] = None,
+    name: str = "autofocus",
+) -> Optional[AutoFocusResult]:
+    """Multi-pass image-based auto-focus sweep, recorded however it ends.
+
+    Every call records one ``autofocus`` event: ``completed`` with the working
+    distance it left, ``skipped`` when the working distance cannot be set,
+    ``cancelled`` or ``failed`` when it raised (and re-raises), each with when it
+    ``started_at``. Given a ``path``, a completed run is saved to
+    ``<path>/<name>`` first and the event says where.
+
+    See :func:`_auto_focus` for the sweep itself.
+    """
+    from fibsem.util.timestamps import now_iso
+
+    if beam_type is None:
+        beam_type = BeamType.ELECTRON
+    if settings is None:
+        settings = AutoFocusSettings()
+    started_at = now_iso()
+    record = {
+        "beam_type": beam_type.name,
+        "method": settings.method.value,
+        "hfw": hfw,
+        "passes": sum(1 for p in settings.passes if p.enabled),
+        "started_at": started_at,
+    }
+    try:
+        result = _auto_focus(microscope, beam_type, hfw, settings, stop_event)
+        saved = None
+        if result is not None and path is not None:
+            saved = str(result.save(path=path, name=name))
+    except Exception as error:
+        microscope.record_event("autofocus", {**record, **ended_by(error)})
+        raise
+    if result is None:
+        microscope.record_event(  # for the experiment's record; it never raises
+            "autofocus",
+            {
+                **record,
+                "status": SKIPPED,
+                "reason": f"the working distance is not settable for the "
+                f"{beam_type.name} beam on this system",
+            },
+        )
+        return None
+    microscope.record_event(
+        "autofocus",
+        {
+            **record,
+            "status": COMPLETED,
+            "steps": result.n_iterations,
+            "initial_working_distance": result.initial_working_distance,
+            "working_distance": result.working_distance,
+            "focus_score": result.focus_score,
+            "path": saved,
+        },
+    )
+    return result
+
+
+def _auto_focus(
+    microscope: "FibsemMicroscope",
+    beam_type: BeamType,
+    hfw: float,
+    settings: AutoFocusSettings,
+    stop_event: Optional[threading.Event],
 ) -> Optional[AutoFocusResult]:
     """Multi-pass image-based auto-focus sweep.
 
@@ -376,7 +455,7 @@ def run_auto_focus(
         microscope: FibsemMicroscope instance.
         beam_type: Which beam to focus.
         hfw: Horizontal field width for probe images (metres).
-        settings: ``AutoFocusSettings``; defaults constructed if ``None``.
+        settings: ``AutoFocusSettings``.
         stop_event: Cancellation event, polled between passes and between working
             distance steps. On cancel the starting working distance is restored and
             ``OperationCancelledError`` is raised.
@@ -391,12 +470,7 @@ def run_auto_focus(
         OperationCancelledError: if ``stop_event`` is set during the sweep.
     """
     from fibsem.autofunctions.metrics import get_focus_measure_function
-    from fibsem.structures import BeamType, ImageSettings
-
-    if beam_type is None:
-        beam_type = BeamType.ELECTRON
-    if settings is None:
-        settings = AutoFocusSettings()
+    from fibsem.structures import ImageSettings
 
     # Skip rather than fake success: on backends where the working-distance write is
     # a best-effort no-op (TESCAN ION), the sweep would run to completion, score
@@ -445,38 +519,53 @@ def run_auto_focus(
     centre_wd = initial_wd
     iterations: list[AutoFocusIteration] = []
 
-    if settings.use_autocontrast:
-        microscope.autocontrast(beam_type, settings.reduced_area)
-
+    # The probe images are acquired with the sweep's own resolution, dwell time and
+    # field of view, and on some backends (Odemis) an acquire writes those to the beam.
+    # Those three go back however the sweep ends, and nothing else: the working
+    # distance is the sweep's answer, and its autocontrast (when on) is part of
+    # focusing, so both stay where the sweep left them.
+    saved = microscope.get_beam_settings(beam_type)
     try:
-        for pass_index, sweep_pass in enumerate(active_passes):
-            raise_if_cancelled(
-                stop_event, "AutoFocus cancelled by user."
-            )  # abort between passes
-            pass_iters, centre_wd = _run_sweep(
-                microscope,
-                probe_settings,
-                focus_fn,
-                centre_wd,
-                sweep_pass,
-                pass_index,
-                beam_type,
-                stop_event=stop_event,
-            )
-            iterations.extend(pass_iters)
-    except OperationCancelledError:
-        logger.info("AutoFocus cancelled — restoring initial WD %.4e", initial_wd)
-        microscope.set_working_distance(initial_wd, beam_type)
-        raise
-    except Exception:
-        logger.exception("AutoFocus failed — restoring initial WD %.4e", initial_wd)
-        microscope.set_working_distance(initial_wd, beam_type)
-        raise
+        if settings.use_autocontrast:
+            microscope.autocontrast(beam_type, settings.reduced_area)
 
-    best_idx = int(np.argmax([it.focus_score for it in iterations]))
-    best = iterations[best_idx]
+        try:
+            for pass_index, sweep_pass in enumerate(active_passes):
+                raise_if_cancelled(
+                    stop_event, "AutoFocus cancelled by user."
+                )  # abort between passes
+                pass_iters, centre_wd = _run_sweep(
+                    microscope,
+                    probe_settings,
+                    focus_fn,
+                    centre_wd,
+                    sweep_pass,
+                    pass_index,
+                    beam_type,
+                    stop_event=stop_event,
+                )
+                iterations.extend(pass_iters)
+        except OperationCancelledError:
+            logger.info("AutoFocus cancelled — restoring initial WD %.4e", initial_wd)
+            microscope.set_working_distance(initial_wd, beam_type)
+            raise
+        except Exception:
+            logger.exception("AutoFocus failed — restoring initial WD %.4e", initial_wd)
+            microscope.set_working_distance(initial_wd, beam_type)
+            raise
 
-    microscope.set_working_distance(best.working_distance, beam_type)
+        best_idx = int(np.argmax([it.focus_score for it in iterations]))
+        best = iterations[best_idx]
+
+        microscope.set_working_distance(best.working_distance, beam_type)
+    finally:
+        try:
+            microscope.set_resolution(saved.resolution, beam_type)
+            microscope.set_dwell_time(saved.dwell_time, beam_type)
+            microscope.set_field_of_view(saved.hfw, beam_type)
+        except Exception:
+            # Logged, not raised: it must not hide the error that ended the sweep.
+            logger.exception("AutoFocus could not restore the %s beam", beam_type.name)
     logger.info(
         "AutoFocus complete: best WD=%.4e score=%.4f (%d passes, %d steps total)",
         best.working_distance,
@@ -484,20 +573,6 @@ def run_auto_focus(
         len(settings.passes),
         len(iterations),
     )
-    microscope.record_event(  # for the experiment's record; it never raises
-        "autofocus",
-        {
-            "beam_type": beam_type.name,
-            "method": settings.method.value,
-            "hfw": hfw,
-            "passes": len(active_passes),
-            "steps": len(iterations),
-            "initial_working_distance": initial_wd,
-            "working_distance": best.working_distance,
-            "focus_score": best.focus_score,
-        },
-    )
-
     return AutoFocusResult(
         image=best.image,
         working_distance=best.working_distance,

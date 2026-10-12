@@ -243,7 +243,7 @@ def test_reject_needs_a_reason_and_fails_the_task(tab, experiment, monkeypatch):
 
 
 def test_a_decision_made_elsewhere_refreshes_the_inbox(tab, experiment):
-    """The agent server decides through the same function; the tab follows."""
+    """The App Server decides through the same function; the tab follows."""
     lamella = experiment.positions[0]
     assert tab.pending_count == 1
     experiment.decide(
@@ -487,8 +487,16 @@ def test_go_to_lamella_hands_the_item_over(tab, experiment):
     assert heard == [experiment.positions[0]]
 
 
+@pytest.mark.parametrize(
+    "started, ended",
+    [
+        # as proposals recorded them before FIB-1197, and as they do since
+        (1000.0, 1130.0),
+        ("2026-09-13T21:12:11-06:00", "2026-09-13T21:14:21-06:00"),
+    ],
+)
 def test_a_task_result_renders_both_images_and_confirms_with_no_values(
-    tab, experiment, qapp
+    tab, experiment, qapp, started, ended
 ):
     """The generic kind: what a task did, for someone to look at. Nothing to
     drag, nothing written; the verbs are the same two."""
@@ -508,8 +516,8 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
                 "proposer": "task",
                 "task_name": ROUGH,
                 "status": "Completed",
-                "started_at": 1000.0,
-                "ended_at": 1130.0,
+                "started_at": started,
+                "ended_at": ended,
                 "reference_image": "ref_setup_ib.tif",
                 "reference_image_eb": "ref_rough_eb.tif",
                 "failure": "",
@@ -523,7 +531,8 @@ def test_a_task_result_renders_both_images_and_confirms_with_no_values(
     assert renderer._image is not None and renderer._electron is not None
     assert renderer._controller.widget._sem_panel.isVisibleTo(renderer)
     assert renderer.line.text() == "Waiting for your decision · nothing is held"
-    assert "Rough Milling completed in 2.2 min" in renderer.line.toolTip()
+    # in words, as the report says it (FIB-1191): 130 s is "2 min", not "2.2 min"
+    assert "Rough Milling completed in 2 min" in renderer.line.toolTip()
     assert renderer.btn_confirm.text() == "Confirm · looks right"
     assert not renderer._controller.overlay_points(BeamType.ION, "poi")
 
@@ -586,7 +595,6 @@ def test_author_labels_and_row_details():
 def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
     from fibsem.applications.autolamella.ui import workflow_config_widget as W
 
-    monkeypatch.setattr(W, "_agent_supervision_available", lambda: False)
     monkeypatch.setattr(W, "_review_available", lambda: True)
     task = AutoLamellaTaskDescription(
         name=SETUP, attention=Attention.supervised, required=True

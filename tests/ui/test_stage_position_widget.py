@@ -3,8 +3,8 @@
 The widget is cheap to build: a microscope and nothing else. No host, no view
 controller, no image widget. That is most of the point of extracting it, and it is what
 lets these tests do something ``tests/ui/test_stage_position_readout.py`` cannot --
-build the form against a *chosen* microscope configuration and pin both sides of the
-compustage branch, rather than branching on whichever configuration the machine
+build the form against a *chosen* microscope configuration and pin both kinds of
+stage, rather than branching on whichever configuration the machine
 happens to default to.
 
 Two configurations, both shipped in ``fibsem/config``:
@@ -36,6 +36,7 @@ from PyQt5.QtGui import QWheelEvent  # noqa: E402
 
 from fibsem import config as cfg  # noqa: E402
 from fibsem import constants, utils  # noqa: E402
+from fibsem.devices.stage import axis_limits_to_degrees
 from fibsem.structures import FibsemStagePosition  # noqa: E402
 from fibsem.ui.widgets.stage_position_widget import StagePositionWidget  # noqa: E402
 
@@ -153,7 +154,7 @@ def test_translation_is_shown_to_ten_nanometres(widget):
 
 
 def test_translation_ranges_are_the_stage_limits_in_millimetres(widget):
-    limits = widget.microscope._stage.limits
+    limits = axis_limits_to_degrees(widget.microscope.stage.position.limits)
 
     for axis, spinbox in (
         ("x", widget.spinbox_x),
@@ -171,7 +172,7 @@ def test_translation_ranges_are_the_stage_limits_in_millimetres(widget):
 def test_the_tilt_range_is_taken_in_degrees_already(widget):
     """The stage reports x/y/z in metres but t in degrees, and the form must not
     convert the one that needs no converting."""
-    tilt = widget.microscope._stage.limits["t"]
+    tilt = axis_limits_to_degrees(widget.microscope.stage.position.limits)["t"]
 
     assert widget.spinbox_tilt.minimum() == pytest.approx(tilt.min)
     assert widget.spinbox_tilt.maximum() == pytest.approx(tilt.max)
@@ -181,8 +182,8 @@ def test_the_two_stages_really_do_disagree_about_tilt():
     """Guards the two tests above from being run twice against the same numbers -- if
     the fixtures ever resolved to one configuration, the range tests would still pass
     and prove nothing."""
-    flat = _microscope(FLAT_STAGE)._stage.limits["t"]
-    compu = _microscope(COMPUSTAGE)._stage.limits["t"]
+    flat = axis_limits_to_degrees(_microscope(FLAT_STAGE).stage.position.limits)["t"]
+    compu = axis_limits_to_degrees(_microscope(COMPUSTAGE).stage.position.limits)["t"]
 
     assert (flat.min, flat.max) != (compu.min, compu.max)
 
@@ -217,6 +218,36 @@ def test_a_compustage_is_not_offered_rotation(compustage_widget):
 def test_any_other_stage_is(flat_widget):
     assert flat_widget.spinbox_rotation.isVisibleTo(flat_widget)
     assert flat_widget.label_rotation.isVisibleTo(flat_widget)
+
+
+# --- the stage device decides, not the stage type ---------------------------
+
+
+def test_the_axes_shown_are_the_stage_devices(qapp, monkeypatch):
+    """The microscope says compustage, the device still has r: the device wins."""
+    microscope = _microscope(FLAT_STAGE)
+    monkeypatch.setattr(microscope, "_fm_is_a_pose", lambda: True)
+    form = StagePositionWidget(microscope=microscope)
+    assert "r" in microscope.stage.axes
+    assert form.spinbox_rotation.isVisibleTo(form)
+    assert form.label_rotation.isVisibleTo(form)
+    form.deleteLater()
+
+
+def test_the_rotation_range_is_the_stage_devices(flat_widget):
+    r = flat_widget.microscope.stage.axes["r"].limits
+    assert flat_widget.spinbox_rotation.minimum() == pytest.approx(np.degrees(r.min))
+    assert flat_widget.spinbox_rotation.maximum() == pytest.approx(np.degrees(r.max))
+
+
+def test_without_a_stage_device_no_axis_shows(qapp, monkeypatch):
+    microscope = _microscope(FLAT_STAGE)
+    monkeypatch.setattr(microscope, "stage", None)
+    form = StagePositionWidget(microscope=microscope)
+    for axis, spinbox in form._spinboxes().items():
+        assert not spinbox.isVisibleTo(form), axis
+        assert not form._labels()[axis].isVisibleTo(form), axis
+    form.deleteLater()
 
 
 # --- the guards --------------------------------------------------------------

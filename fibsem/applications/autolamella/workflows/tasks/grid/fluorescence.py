@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type, Union
 
+from fibsem import timing
 from fibsem.applications.autolamella.workflows.tasks.grid.base import (
     GridTask,
     GridTaskConfig,
@@ -32,7 +33,14 @@ from fibsem.fm.acquisition import (
     record_fluorescence_image,
 )
 from fibsem.fm.preview import composite_projection
-from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
+from fibsem.fm.structures import (
+    AutoFocusMode,
+    ChannelSettings,
+    ObjectiveStartPosition,
+    OverviewParameters,
+    ZParameters,
+)
+from fibsem.fm.timing import estimate_autofocus_time, estimate_tileset_acquisition_time
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.imaging.tiling.geometry import (
@@ -44,9 +52,9 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.microscopes._stage import uncalibrated_message
 from fibsem.projection import FMStageProjection
-from fibsem.structures import FibsemStagePosition
+from fibsem.services.sample_handling import uncalibrated_message
+from fibsem.structures import FibsemStagePosition, InsertableDeviceState
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -73,7 +81,8 @@ def reachable_fluorescence_overview(
     page, on every edit). It carries the camera's pixel size and shape, so the
     camera is not read again; building one reads it, which is slow on hardware.
     """
-    limits = getattr(microscope._stage, "limits", None)
+    stage = microscope.stage
+    limits = stage.position.limits if stage is not None else None
     if projection is None:
         projection = FMStageProjection.from_microscope(microscope)
     if not limits or projection is None:
@@ -178,6 +187,46 @@ class FluorescenceOverviewGridTaskConfig(GridTaskConfig):
 
     role: ClassVar[str] = "overview_fm"
 
+    @property
+    def estimated_duration(self) -> float:
+        """What ``_run`` does, in order: the move to the FM, the objective in, the
+        tileset, the runner's return of the stage and objective, the objective out.
+
+        The images come from ``estimate_tileset_acquisition_time``; its tile moves
+        (an unmeasured 5 s) and focus sweeps (a flat 5 s) are replaced by the
+        measured tile move and the sweep as configured -- every pass for a focus
+        once, the finest for one per row or tile, as the runner does. Inserting and
+        retracting are always counted, though the task skips both when the
+        objective is already in: which it is, is runtime state. Errs long.
+        """
+        overview = self.overview
+        tiles = overview.n_enabled_tiles
+        if tiles <= 0:
+            return 0.0
+        tileset = estimate_tileset_acquisition_time(
+            list(self.channels),
+            (overview.rows, overview.cols),
+            zparams=self.zparams if overview.use_zstack else None,
+            autofocus_mode=overview.autofocus_mode,
+            tile_mask=overview.tile_mask,
+        )
+        total = tileset["image_acquisition_time"]
+        total += tiles * timing.OVERVIEW_TILE_MOVE_S
+        sweeps = tileset["breakdown"]["autofocus"]["operations"]
+        focus = self.autofocus_settings
+        if sweeps and focus is not None and self.channels:
+            passes = [p for p in focus.passes if p.enabled]
+            if overview.autofocus_mode is not AutoFocusMode.ONCE:
+                passes = passes[-1:]
+            sweep = replace(focus, passes=passes)
+            total += sweeps * estimate_autofocus_time(sweep, list(self.channels))
+        if overview.objective_start is not ObjectiveStartPosition.CURRENT:
+            total += timing.OBJECTIVE_FOCUS_MOVE_S
+        total += timing.stage_move_cost(1) + timing.OBJECTIVE_INSERT_S
+        total += timing.stage_move_cost(1) + timing.OBJECTIVE_FOCUS_MOVE_S
+        total += timing.OBJECTIVE_RETRACT_S
+        return total
+
 
 @register_grid_task
 class FluorescenceOverviewGridTask(GridTask):
@@ -216,13 +265,13 @@ class FluorescenceOverviewGridTask(GridTask):
         # Read before the travel: on a compustage `move_to_device("FM")` inserts the
         # objective itself, and "how it was found" means before any of this ran.
         objective = fm.objective
-        was_inserted = objective.state == "Inserted"
+        was_inserted = objective.state is InsertableDeviceState.INSERTED
 
         self.log_status_message("MOVE_TO_FM", f"Moving {self.grid.name} to the FM")
         self.microscope.move_to_device("FM")
         self._check_for_abort()
 
-        if objective.state != "Inserted":
+        if objective.state is not InsertableDeviceState.INSERTED:
             self.log_status_message("INSERT_OBJECTIVE", "Inserting the objective")
             objective.insert()
         try:

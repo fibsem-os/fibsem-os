@@ -73,7 +73,13 @@ from fibsem.milling.progress import (
     MillingProgressStatus,
 )
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
-from fibsem.structures import BeamType, DeviceImagingState, FibsemImage, Point
+from fibsem.structures import (
+    BeamType,
+    DeviceImagingState,
+    FibsemImage,
+    InsertableDeviceState,
+    Point,
+)
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.fm.widgets import LinePlotWidget
 from fibsem.ui.icon import fibsem_icon
@@ -96,6 +102,7 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     scrollable,
 )
+from fibsem.util import timestamps
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
@@ -1349,7 +1356,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             notification_service.show_toast("No lamella selected.", "warning")
             return
         obj = self.microscope.fm.objective
-        value_m = obj.position if obj.state == "Inserted" else obj.focus_position
+        value_m = (
+            obj.position
+            if obj.state is InsertableDeviceState.INSERTED
+            else obj.focus_position
+        )
         if value_m is None:
             notification_service.show_toast(
                 "Objective position unavailable.", "warning"
@@ -1399,7 +1410,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             )
             return
         obj = self.microscope.fm.objective
-        if obj.state != "Inserted":
+        if obj.state is not InsertableDeviceState.INSERTED:
             notification_service.show_toast(
                 "Insert the objective before moving to a stored position.", "warning"
             )
@@ -2158,10 +2169,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             if remaining is not None and report.estimated_time:
                 pct = int((1 - remaining / report.estimated_time) * 100)
                 self.progressBar_stage.setValue(pct)
-                from fibsem.utils import format_duration
+                from fibsem.util.durations import format_duration_precise
 
                 self.progressBar_stage.setFormat(
-                    f"{label} - {format_duration(remaining)} remaining"
+                    f"{label} - {format_duration_precise(remaining)} remaining"
                 )
             else:
                 # No countdown to draw, but the producer's words are still worth showing:
@@ -2260,7 +2271,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             )
             written = image.save(filename)
 
-            now = datetime.datetime.now().timestamp()
+            now = timestamps.now()
             lamella.task_history.append(
                 AutoLamellaTaskState(
                     name=COINCIDENCE_REVIEW_TASK_NAME,

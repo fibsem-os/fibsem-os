@@ -24,7 +24,7 @@ import time
 
 import pytest
 
-from fibsem.microscopes.simulator import FM_ACTIVE_VIEW
+from fibsem.drivers.demo.simulator import FM_ACTIVE_DEVICE, FM_ACTIVE_VIEW
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ class TestTheFastPath:
         fm = microscope.fm
         imaging = microscope.imaging_system
         imaging.active_view = FM_ACTIVE_VIEW
-        imaging.active_device = fm._active_device
+        imaging.active_device = FM_ACTIVE_DEVICE
 
         before = (imaging.active_view, imaging.active_device)
         with fm.active_channel():
@@ -131,7 +131,9 @@ class TestTheSlowPathIsUnchanged:
         imaging.active_view = 1  # a beam view — not ours
 
         with fm.active_channel():
-            assert imaging.active_view == FM_ACTIVE_VIEW, "the scope did not take the channel"
+            assert imaging.active_view == FM_ACTIVE_VIEW, (
+                "the scope did not take the channel"
+            )
 
         assert imaging.active_view == 1, "the scope did not put the beam view back"
 
@@ -186,8 +188,8 @@ class TestTheSlowPathIsUnchanged:
 
 
 class TestBothDriversHaveIt:
-    """Structural: `ThermoFisherFluorescenceMicroscope` needs an SDK absent off the
-    microscope, and the hardware driver is the one that actually hurt."""
+    """Structural: the Thermo FM devices' channel (`AutoscriptFMChannel`) needs an SDK
+    absent off the microscope, and the hardware driver is the one that actually hurt."""
 
     def test_the_driver_and_the_simulator_both_short_circuit(self):
         import ast
@@ -196,28 +198,41 @@ class TestBothDriversHaveIt:
         import fibsem
 
         root = Path(fibsem.__file__).parent
-        for module, cls_name in (
-            ("fm/autoscript.py", "ThermoFisherFluorescenceMicroscope"),
-            ("microscopes/simulator.py", "SimulatedFluorescenceMicroscope"),
+        for module, cls_name, check, scope_name in (
+            (
+                "drivers/autoscript/devices.py",
+                "AutoscriptFMChannel",
+                "_is_ours",
+                "scope",
+            ),
+            (
+                "drivers/demo/devices.py",
+                "DemoFMChannel",
+                "_is_ours",
+                "scope",
+            ),
         ):
             tree = ast.parse((root / module).read_text(encoding="utf-8"))
             cls = next(
-                n for n in ast.walk(tree)
+                n
+                for n in ast.walk(tree)
                 if isinstance(n, ast.ClassDef) and n.name == cls_name
             )
             names = {n.name for n in cls.body if isinstance(n, ast.FunctionDef)}
-            assert "_channel_is_ours" in names, f"{cls_name} lost its fast-path check"
+            assert check in names, f"{cls_name} lost its fast-path check"
 
             scope = next(
-                n for n in cls.body
-                if isinstance(n, ast.FunctionDef) and n.name == "active_channel"
+                n
+                for n in cls.body
+                if isinstance(n, ast.FunctionDef) and n.name == scope_name
             )
             calls = {
-                c.func.attr for c in ast.walk(scope)
+                c.func.attr
+                for c in ast.walk(scope)
                 if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
             }
-            assert "_channel_is_ours" in calls, (
-                f"{cls_name}.active_channel no longer consults `_channel_is_ours`, so "
+            assert check in calls, (
+                f"{cls_name}.{scope_name} no longer consults `{check}`, so "
                 f"every scope contends for the lock again and the objective starves "
                 f"against a live stream"
             )

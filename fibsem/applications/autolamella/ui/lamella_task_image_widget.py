@@ -1,50 +1,95 @@
-"""Widget for displaying saved task images for a single lamella."""
+"""The History tab: one row per task run on a lamella, with its operations and images."""
 
 from __future__ import annotations
 
 import logging
 import os
 import threading
-from typing import Dict, List, Optional, Tuple
+from dataclasses import replace
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QRectF, Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QImage, QPainter, QPixmap
+from PyQt5.QtCore import QSize, Qt, QThread, QTimer, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QImage, QImageReader, QPixmap
 from PyQt5.QtWidgets import (
-    QApplication,
-    QDialog,
+    QAction,
     QFrame,
-    QGraphicsScene,
-    QGraphicsView,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
+    QPushButton,
     QScrollArea,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 from skimage.transform import resize
 
-from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lamella
-from fibsem.applications.autolamella.task_outputs import (
-    final_reference_images,
-    fluorescence_images,
+from fibsem.applications.autolamella.event_recording import (
+    EVENTS_FILENAME,
+    read_new_events,
 )
-from fibsem.fm.preview import is_fluorescence_image, load_projection
+from fibsem.applications.autolamella.history_rows import (
+    OPERATION_KINDS,
+    HistoryFilter,
+    HistoryOperation,
+    HistoryRun,
+    filter_runs,
+    history_rows,
+    operation_facts,
+)
+from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
+from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
+from fibsem.config import load_user_preferences, update_user_preferences
+from fibsem.fm.preview import composite_projection, is_fluorescence_image
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.imaging.drawing import draw_image_overlays
+from fibsem.imaging.export import (
+    ImageFields,
+    image_caption,
+    image_fields,
+    image_summary,
+)
 from fibsem.structures import FibsemImage
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
+    ACCENT_COLOR,
+    GRAY_ICON_COLOR,
     NEUTRAL_200,
     NEUTRAL_400,
     NEUTRAL_550,
     NEUTRAL_900,
+    NUMBER_FONT,
+    PANEL_COLOR,
     SURFACE_COLOR,
 )
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
+from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
+from fibsem.ui.widgets.task_summary_formatting import STATUS_BADGE_COLORS
+from fibsem.util.timestamps import format_time
 
-_TARGET_WIDTH = 1024 // 2
-_PLACEHOLDER_HEIGHT = 768 // 2  # estimated height for placeholder labels
+# Thumbnails, two to a line in the panel's width, up to the size the tab has
+# always shown them at: big enough to judge a lamella from without opening it.
+# Narrower panels shrink them, down to the minimum. _TARGET_WIDTH is also the
+# loader's default.
+_TARGET_WIDTH = 512
+_PLACEHOLDER_HEIGHT = 384  # 3:4 of the width, the box a 3:2 beam image fits
+_MIN_THUMB_WIDTH = 120
+_MAX_THUMB_WIDTH = _TARGET_WIDTH
+_MARGIN = 16
+_SPACING = 8
+# The runs stay as wide as a pair of thumbnails rather than spreading across a
+# wider panel, so a line's duration sits above the pictures it timed.
+_MAX_CONTENT_WIDTH = 2 * _MAX_THUMB_WIDTH + _SPACING + 2 * _MARGIN
 _MAX_IMAGES_PER_TASK = 2  # last 2 files = highest-res SEM + FIB
 _IMAGES_PER_LINE = 2  # tiles per line before wrapping; matches the SEM/FIB pair
+_CAPTION_STYLE = (
+    f"color: {NEUTRAL_550}; font-family: {NUMBER_FONT}; font-size: 11px;"
+    " background: transparent;"
+)
 
 
 def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
@@ -62,9 +107,18 @@ def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
     )
 
 
+def _stamp(path: str) -> Optional[Tuple[int, int]]:
+    """The file's modification time and size, or None when it cannot be read."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
 def _load_and_resize(
     filepath: str, target_width: int = _TARGET_WIDTH
-) -> Tuple[np.ndarray, float]:
+) -> Tuple[np.ndarray, float, ImageFields]:
     """Load an image and resize to target width, preserving aspect ratio.
 
     Handles both a plain .tif and a fluorescence z-stack, which becomes an RGB
@@ -72,16 +126,29 @@ def _load_and_resize(
     both shapes go through the same path below.
 
     Returns:
-        Tuple of (resized array, pixel_size_x in metres adjusted for resize).
+        Tuple of (resized array, pixel_size_x in metres adjusted for resize, the
+        image's fields, as its bar would show them). The fields come from the file
+        already open for the pixels, so a caption costs no second read.
     """
     if is_fluorescence_image(filepath):
-        data, pixel_size_x = load_projection(filepath)
+        stack = FluorescenceImage.load(filepath)
+        pixel_size_x = stack.metadata.pixel_size_x
+        info = image_fields(stack)
+        try:
+            data = composite_projection(stack)
+        except ValueError as e:
+            raise ValueError(f"{e}: {filepath}") from e
+        finally:
+            # A real METEOR stack is ~530 MB in memory where its projection is
+            # ~25 MB, and the loader reads several in a row: keep only the latter.
+            del stack
     else:
         img = FibsemImage.load(filepath)
         data = img.data
         if data.ndim == 3 and data.shape[2] in (3, 4):
             data = data[..., :3].mean(axis=2).astype(data.dtype)
         pixel_size_x = img.metadata.pixel_size.x
+        info = image_fields(img)
     h, w = data.shape[:2]
     # Fit inside the tile box rather than filling its width. Beam images are 3:2 and
     # are width-limited, but a fluorescence stack is square: scaling it to the full
@@ -90,8 +157,21 @@ def _load_and_resize(
     max_height = target_width * _PLACEHOLDER_HEIGHT / _TARGET_WIDTH
     scale = min(target_width / w, max_height / h)
     new_w, new_h = int(w * scale), int(h * scale)
+    # Average whole blocks of pixels down to near the size first: resize's
+    # anti-aliasing filter over a full 6144 x 4096 frame took seconds an image.
+    # The few edge pixels that do not fill a block are left off.
+    factor = int(1 / scale)
+    covered = w
+    if factor >= 2:
+        bh, bw = h // factor, w // factor
+        covered = bw * factor
+        data = (
+            data[: bh * factor, :covered]
+            .reshape(bh, factor, bw, factor, *data.shape[2:])
+            .mean(axis=(1, 3))
+        )
     resized = resize(data, (new_h, new_w), preserve_range=True).astype(np.uint8)
-    return resized, pixel_size_x / scale
+    return resized, pixel_size_x * covered / w / scale, info
 
 
 class ClickableLabel(QLabel):
@@ -110,83 +190,76 @@ class ClickableLabel(QLabel):
         super().mousePressEvent(event)
 
 
-class ZoomableImageView(QGraphicsView):
-    """QGraphicsView with scroll-to-zoom and drag-to-pan."""
+class _ClickableRow(QWidget):
+    """A line that emits clicked() when left-clicked: an operation, to expand it."""
 
-    _ZOOM_FACTOR = 1.05
+    clicked = pyqtSignal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self._scene = QGraphicsScene(self)
-        self.setScene(self._scene)
-        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
-        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        self.setBackgroundBrush(Qt.GlobalColor.black)
-        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def set_pixmap(self, pixmap: QPixmap) -> None:
-        self._scene.clear()
-        self._scene.addPixmap(pixmap)
-        self._scene.setSceneRect(QRectF(pixmap.rect()))
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        if self._scene.items():
-            self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-
-    def wheelEvent(self, event) -> None:
-        factor = (
-            self._ZOOM_FACTOR if event.angleDelta().y() > 0 else 1 / self._ZOOM_FACTOR
-        )
-        self.scale(factor, factor)
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 
-class ExpandedImageDialog(QDialog):
-    """Modal dialog showing a zoomable/pannable expanded image."""
+def _open_path(path: str) -> None:
+    """In the system's own viewer: a folder in the file browser, a figure in
+    whatever opens PNGs."""
+    QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
-    _EXPANDED_WIDTH = _TARGET_WIDTH * 2
 
-    def __init__(self, filepath: str, title: str = "", parent=None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(title or os.path.basename(filepath))
-        self.setModal(True)
-        self.setStyleSheet("background: black;")
+# The widest a figure is drawn on hover: readable, and well inside a screen.
+_FIGURE_TOOLTIP_WIDTH = 640
+# An opened operation's figure, small at the right of its values and no taller
+# than they are; shown only when the thumbnails are at least
+# _MIN_WIDTH_FOR_MINI_FIGURE wide, so the values keep their room.
+_MINI_FIGURE_SIZE = QSize(220, 140)
+_MIN_WIDTH_FOR_MINI_FIGURE = 300
 
-        screen = QApplication.primaryScreen().availableGeometry()
-        self.resize(int(screen.width() * 0.8), int(screen.height() * 0.8))
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+def _figure_tooltip(path: str) -> str:
+    """A tooltip that is the figure at ``path``, no wider than the cap. Qt draws
+    rich-text tooltips, images included, and reads the file only when shown."""
+    width = QImageReader(path).size().width()
+    if width <= 0:
+        return path
+    width = min(width, _FIGURE_TOOLTIP_WIDTH)
+    return f'<img src="{QUrl.fromLocalFile(path).toString()}" width="{width}">'
 
-        self._view = ZoomableImageView(self)
-        layout.addWidget(self._view)
 
-        try:
-            arr, pixel_size_x = _load_and_resize(filepath, self._EXPANDED_WIDTH)
-            arr = draw_image_overlays(arr, pixel_size_x)
-            h, w = arr.shape[:2]
-            self._view.set_pixmap(_arr_to_pixmap(arr, w, h))
-        except Exception as e:
-            logging.warning(f"ExpandedImageDialog: failed to load {filepath}: {e}")
-
-    def keyPressEvent(self, event) -> None:
-        if event.key() == Qt.Key.Key_Escape:
-            self.close()
-        super().keyPressEvent(event)
+def _link(text: str, path: str) -> QPushButton:
+    """A flat accent link that opens ``path``, the path on hover."""
+    link = QPushButton(text)
+    link.setFlat(True)
+    link.setCursor(Qt.CursorShape.PointingHandCursor)
+    link.setToolTip(path)
+    link.setStyleSheet(
+        f"QPushButton {{ color: {ACCENT_COLOR}; background: transparent;"
+        " border: none; padding: 0; text-align: left; font-size: 11px; }"
+    )
+    link.clicked.connect(lambda _c=False: _open_path(path))
+    return link
 
 
 class _ImageLoaderWorker(QThread):
     """Background worker that loads images one at a time."""
 
-    image_loaded = pyqtSignal(str, np.ndarray, float)  # filepath, array, pixel_size_x
+    # filepath, array, pixel_size_x, ImageFields
+    image_loaded = pyqtSignal(str, np.ndarray, float, object)
 
-    def __init__(self, filepaths: List[str], target_width: int, parent=None):
-        super().__init__(parent)
+    def __init__(self, filepaths: List[str], target_width: int):
+        # No parent, and kept in _WORKERS until it has finished: a cancelled
+        # worker ends the image it is on by itself, and Qt aborts the app when a
+        # QThread is destroyed while it runs, as a parent's deletion would do.
+        super().__init__()
         self._filepaths = filepaths
         self._target_width = target_width
         self._cancel = threading.Event()
+        _WORKERS.difference_update([w for w in _WORKERS if w.isFinished()])
+        _WORKERS.add(self)
 
     def cancel(self):
         self._cancel.set()
@@ -196,30 +269,202 @@ class _ImageLoaderWorker(QThread):
             if self._cancel.is_set():
                 return
             try:
-                arr, pixel_size_x = _load_and_resize(fpath, self._target_width)
+                arr, pixel_size_x, info = _load_and_resize(fpath, self._target_width)
                 if self._cancel.is_set():
                     return
-                self.image_loaded.emit(fpath, arr, pixel_size_x)
+                self.image_loaded.emit(fpath, arr, pixel_size_x, info)
             except Exception as e:
                 logging.warning(f"Failed to load image {fpath}: {e}")
 
 
+_WORKERS: Set[_ImageLoaderWorker] = set()
+
+
+# Status words and colours, as the run's header shows them. The colours are the
+# task-summary badges, so a run reads the same here as in the workflow summary.
+_RUN_STATUS = {
+    AutoLamellaTaskStatus.Completed: ("Completed", "mdi:check", "Completed"),
+    AutoLamellaTaskStatus.Failed: ("Failed", "mdi:close", "Failed"),
+    AutoLamellaTaskStatus.Cancelled: ("Cancelled", "mdi:stop", "Cancelled"),
+    AutoLamellaTaskStatus.InProgress: (
+        "In progress",
+        "mdi:progress-clock",
+        "InProgress",
+    ),
+    AutoLamellaTaskStatus.AwaitingDecision: (
+        "Awaiting decision",
+        "mdi:progress-clock",
+        "AwaitingDecision",
+    ),
+    AutoLamellaTaskStatus.Skipped: ("Skipped", "mdi:skip-next", "Skipped"),
+}
+_OPERATION_ICON = {
+    COMPLETED: ("mdi:check", "Completed"),
+    SKIPPED: ("mdi:skip-next", "Skipped"),
+    FAILED: ("mdi:close", "Failed"),
+    CANCELLED: ("mdi:stop", "Cancelled"),
+}
+_SHOW = (
+    ("all", "Everything"),
+    ("images", "Images only"),
+    ("operations", "Operations only"),
+)
+_RUNS = (("all", "All runs"), ("failed", "Failed"), ("cancelled", "Cancelled"))
+
+
+def _clock(value) -> str:
+    return format_time(value, "%H:%M") or ""
+
+
+def _duration(seconds: Optional[float]) -> str:
+    if seconds is None:
+        return ""
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds} s"
+    minutes, seconds = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes} m {seconds:02d} s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours} h {minutes:02d} m"
+
+
+def _icon_label(key: str, color: str, size: int = 14) -> QLabel:
+    label = QLabel()
+    label.setPixmap(fibsem_icon(key, color=color).pixmap(QSize(size, size)))
+    label.setFixedSize(size + 2, size + 2)
+    label.setStyleSheet("background: transparent;")
+    return label
+
+
+def _text(text: str, style: str) -> QLabel:
+    label = QLabel(text)
+    label.setStyleSheet(style + " background: transparent;")
+    return label
+
+
+class _HistoryFilterButton(QToolButton):
+    """The filter menu: what each run shows, which runs, which task.
+
+    Behind an icon, as in the Review tab: set once and left, so not worth a row
+    of controls. The icon takes the accent while anything is narrowed, so a
+    filtered history is never mistaken for the whole one. Each section is one of
+    several, so its items read as radio buttons -- the mark is the action's icon.
+    """
+
+    changed = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(QSize(26, 26))
+        self.setStyleSheet(
+            stylesheets.TOOLBUTTON_ICON_STYLESHEET
+            + " QToolButton::menu-indicator { image: none; }"
+        )
+        self.setPopupMode(QToolButton.InstantPopup)
+        self.setFocusPolicy(Qt.NoFocus)
+        # No parent: a child of this button inherits the stylesheets above it, and
+        # the header row's unscoped `background: transparent` made the menu
+        # see-through. Unparented, it is styled as every other menu in the app,
+        # and is not deleted with the header either. self._menu keeps it alive.
+        self._menu = QMenu()
+        self.setMenu(self._menu)
+        self._filter = HistoryFilter()
+        self._tasks: List[str] = []
+        self._actions: Dict[Tuple[str, Any], QAction] = {}
+        self._build_menu()
+
+    @property
+    def filter(self) -> HistoryFilter:
+        return self._filter
+
+    def set_filter(self, flt: HistoryFilter) -> None:
+        self._filter = flt
+        self._paint()
+
+    def set_tasks(self, names: List[str]) -> None:
+        """The lamella's task names, for the Task section. A filtered task the
+        lamella has not run stays listed, so it can be seen and cleared."""
+        names = list(dict.fromkeys(names))
+        if self._filter.task is not None and self._filter.task not in names:
+            names.append(self._filter.task)
+        if names != self._tasks:
+            self._tasks = names
+            self._build_menu()
+
+    def _build_menu(self) -> None:
+        self._menu.clear()
+        self._actions.clear()
+        self._heading("Show")
+        for value, text in _SHOW:
+            self._add("show", value, text)
+        self._menu.addSeparator()
+        self._heading("Runs")
+        for value, text in _RUNS:
+            self._add("status", value, text)
+        self._menu.addSeparator()
+        self._heading("Task")
+        self._add("task", None, "All tasks")
+        for name in self._tasks:
+            self._add("task", name, name)
+        self._menu.addSeparator()
+        reset = self._menu.addAction("Reset filters")
+        reset.triggered.connect(lambda _c=False: self._pick(HistoryFilter()))
+        self._paint()
+
+    def _heading(self, text: str) -> None:
+        """A section's name, as a disabled item: ``QMenu.addSection`` draws a
+        bare separator under several platform styles, losing the name."""
+        self._menu.addAction(text.upper()).setEnabled(False)
+
+    def _add(self, key: str, value: Any, text: str) -> None:
+        action = self._menu.addAction(text)
+        action.triggered.connect(
+            lambda _c=False, k=key, v=value: self._pick(replace(self._filter, **{k: v}))
+        )
+        self._actions[(key, value)] = action
+
+    def _pick(self, flt: HistoryFilter) -> None:
+        self._filter = flt
+        self._paint()
+        self.changed.emit()
+
+    def _paint(self) -> None:
+        chosen = {
+            ("show", self._filter.show),
+            ("status", self._filter.status),
+            ("task", self._filter.task),
+        }
+        for key, action in self._actions.items():
+            on = key in chosen
+            action.setIcon(
+                fibsem_icon(
+                    "mdi:radiobox-marked" if on else "mdi:radiobox-blank",
+                    color=ACCENT_COLOR if on else GRAY_ICON_COLOR,
+                )
+            )
+        active = self._filter.active
+        self.setIcon(
+            fibsem_icon(
+                "mdi:filter-variant", color=ACCENT_COLOR if active else GRAY_ICON_COLOR
+            )
+        )
+        self.setToolTip("Filtered: change or reset" if active else "Filter runs")
+
+
 class LamellaTaskImageWidget(QWidget):
-    """Displays final SEM/FIB images for each completed task of a lamella.
+    """The History tab: one row per task run on a lamella, in the order they ran.
 
-    Images are loaded progressively in a background thread so the layout
-    appears immediately with gray placeholders that fill in as images load.
+    Each row says how the run ended, what its operations did (an alignment, an
+    autofocus, each with what it measured or why it did not run to an end), and
+    shows its images as thumbnails that open in the image viewer. Rows come from
+    ``history_rows``: the lamella's task history joined to the operation events in
+    the experiment's ``events.jsonl``. An experiment without that file still shows
+    its runs and images.
 
-    Layout:
-        Lamella Name (bold)
-        Last Completed Task, completed at timestamp
-
-        Task 1
-        [SEM Image]  [FIB Image]
-
-        Task 2
-        [SEM Image]  [FIB Image]
-        ...
+    A filter behind the icon at the top right narrows what is shown; it is
+    remembered per user. Images load in a background thread, so the rows appear at
+    once with placeholders that fill in.
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -227,8 +472,35 @@ class LamellaTaskImageWidget(QWidget):
         self._lamella: Optional[Lamella] = None
         self._lamella_id: Optional[str] = None
         self._pixmap_cache: Dict[str, QPixmap] = {}
+        # image path -> the file's (mtime, size) when its pixmap was read: a
+        # refresh keeps the pixmaps whose files have not changed since.
+        self._stamps: Dict[str, Tuple[int, int]] = {}
         self._placeholder_labels: Dict[str, QLabel] = {}
+        self._caption_labels: Dict[str, QLabel] = {}
+        self._task_names: Dict[str, str] = {}  # image path -> the task that made it
+        self._kinds: Dict[str, str] = {}  # image path -> SEM / FIB / FM, once read
+        # image path -> (caption, tooltip), kept with the pixmaps they came with
+        self._captions: Dict[str, Tuple[str, str]] = {}
         self._worker: Optional[_ImageLoaderWorker] = None
+        self._runs: List[HistoryRun] = []
+        # The operations shown expanded, as (run, index in the run): kept across
+        # a rebuild, so a refresh after a task does not fold what was open.
+        self._expanded: Set[Tuple[str, int]] = set()
+        # Whether the experiment records its events: without the file nothing
+        # was ever recorded, so "no operations" would be a claim it cannot make.
+        self._has_events = False
+        # The experiment's operation events read so far, and where in its file
+        # the next read starts: a rebuild reads only what was written since,
+        # not the whole file again (it grows through a run).
+        self._events_path: Optional[Path] = None
+        self._events_offset = 0
+        self._operation_events: List[Dict[str, Any]] = []
+        self._thumb_width = _TARGET_WIDTH
+        # Re-fit the thumbnails once a resize settles, not on every pixel of a drag.
+        self._refit = QTimer(self)
+        self._refit.setSingleShot(True)
+        self._refit.setInterval(150)
+        self._refit.timeout.connect(self._refit_thumbnails)
 
         self._setup_ui()
 
@@ -246,10 +518,18 @@ class LamellaTaskImageWidget(QWidget):
 
         self._content = QWidget()
         self._content.setStyleSheet(f"background: {SURFACE_COLOR};")
+        self._content.setMaximumWidth(_MAX_CONTENT_WIDTH)
         self._content_layout = QVBoxLayout(self._content)
-        self._content_layout.setContentsMargins(16, 16, 16, 16)
+        self._content_layout.setContentsMargins(_MARGIN, _MARGIN, _MARGIN, _MARGIN)
         self._content_layout.setSpacing(12)
         self._content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self._filter_button = _HistoryFilterButton(self)
+        self._filter_button.set_filter(
+            HistoryFilter.from_dict(load_user_preferences().display.history_filter)
+        )
+        self._filter_button.changed.connect(self._on_filter_changed)
+        self._filter_button.hide()
 
         self._empty_label = QLabel("Select a lamella card to view task images.")
         self._empty_label.setStyleSheet(f"color: {NEUTRAL_550}; font-size: 12px;")
@@ -272,7 +552,10 @@ class LamellaTaskImageWidget(QWidget):
         self._lamella = lamella
         self._lamella_id = new_id
         self._pixmap_cache.clear()
+        self._stamps.clear()
+        self._captions.clear()
         self._placeholder_labels.clear()
+        self._expanded.clear()
         self._rebuild()
 
     def refresh(self) -> None:
@@ -280,42 +563,123 @@ class LamellaTaskImageWidget(QWidget):
 
         `set_lamella` skips the lamella it already shows, so without this the
         panel kept the history it was opened with until another lamella was
-        selected and back (FIB-1111). The image cache goes too: a re-run writes
-        its reference images to the same filenames, so a cached pixmap would be
-        the previous run's picture.
+        selected and back (FIB-1111). A cached image goes when its file has
+        changed: a re-run writes its reference images to the same filenames, so
+        its pixmap would be the previous run's picture. The others stay, so a
+        refresh after each task reads only the images that task wrote.
         """
         if self._lamella is None:
             return
         self._cancel_worker()
-        self._pixmap_cache.clear()
+        for path in list(self._pixmap_cache):
+            if _stamp(path) != self._stamps.get(path):
+                self._forget_image(path)
         self._rebuild()
+
+    def _forget_image(self, path: str) -> None:
+        self._pixmap_cache.pop(path, None)
+        self._stamps.pop(path, None)
+        self._captions.pop(path, None)
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
     def _cancel_worker(self) -> None:
+        """Stop the loader without waiting for it: it finishes the image it is on
+        in the background, and nothing it loads reaches the panel. Waiting held
+        the GUI for up to two seconds, as a large image takes that to resize."""
         if self._worker is not None:
             self._worker.image_loaded.disconnect(self._on_image_loaded)
             self._worker.cancel()
-            self._worker.quit()
-            self._worker.wait(2000)
             self._worker = None
 
     def _clear_layout(self) -> None:
-        """Remove all widgets from the content layout."""
+        """Remove all widgets from the content layout, keeping the filter button.
+
+        The button lives in the header row, which is deleted here: it is taken out
+        first, or Qt deletes it and its menu with the header. A rebuild usually
+        moves it into the new header before that happens, but clearing the
+        selection makes no new header, and the next rebuild then used a deleted
+        QMenu and aborted the app.
+        """
+        self._filter_button.hide()
+        self._filter_button.setParent(self)
         while self._content_layout.count():
             item = self._content_layout.takeAt(0)
             w = item.widget()
             if w is not None:
                 w.deleteLater()
 
+    def _fitted_thumb_width(self) -> int:
+        """Two thumbnails to a line in the panel's width, within the bounds."""
+        available = min(self._scroll.viewport().width(), _MAX_CONTENT_WIDTH)
+        width = (available - 2 * _MARGIN - _SPACING) // 2
+        return max(_MIN_THUMB_WIDTH, min(_MAX_THUMB_WIDTH, width))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._lamella is not None:
+            self._refit.start()
+
+    def _refit_thumbnails(self) -> None:
+        """Rebuild at the new size when the thumbnails would change by more than a
+        little: the cached pixmaps are the old size, so they go too."""
+        if self._lamella is None:
+            return
+        if abs(self._fitted_thumb_width() - self._thumb_width) < 16:
+            return
+        self._cancel_worker()
+        self._pixmap_cache.clear()
+        self._stamps.clear()
+        self._captions.clear()
+        self._rebuild()
+
+    def _on_filter_changed(self) -> None:
+        flt = self._filter_button.filter
+        update_user_preferences(
+            lambda prefs: setattr(prefs.display, "history_filter", flt.to_dict())
+        )
+        self._cancel_worker()
+        self._rebuild()
+
+    def _events(self) -> List[Dict[str, Any]]:
+        """The experiment's recorded events, or none: an experiment from before
+        the event stream has no file, and still shows its runs and images."""
+        if self._lamella is None:
+            return []
+        path = Path(self._lamella.path).parent / EVENTS_FILENAME
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = None
+        self._has_events = size is not None
+        if size is None:
+            return []
+        if path != self._events_path or size < self._events_offset:
+            # another experiment, or a file that was started again
+            self._events_path = path
+            self._events_offset = 0
+            self._operation_events = []
+        try:
+            new, self._events_offset = read_new_events(
+                path, self._events_offset, OPERATION_KINDS
+            )
+        except OSError as e:
+            logging.warning(f"Could not read {path}: {e}")
+            return self._operation_events
+        self._operation_events.extend(new)
+        return self._operation_events
+
     def _rebuild(self) -> None:
-        """Build layout with placeholders, then kick off background image loading."""
+        """Build the rows with placeholders, then load the images in the background."""
         self._clear_layout()
         self._placeholder_labels.clear()
+        self._caption_labels.clear()
+        self._task_names.clear()
 
         if self._lamella is None:
+            self._filter_button.hide()
             label = QLabel("Select a lamella card to view task images.")
             label.setStyleSheet(f"color: {NEUTRAL_550}; font-size: 12px;")
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -323,138 +687,390 @@ class LamellaTaskImageWidget(QWidget):
             return
 
         lamella = self._lamella
+        self._thumb_width = self._fitted_thumb_width()
+        self._runs = history_rows(lamella, self._events())
+        flt = self._filter_button.filter
+        self._filter_button.set_tasks([run.task_name for run in self._runs])
+        runs = filter_runs(self._runs, flt)
 
-        # Header: lamella name
-        name_label = QLabel(lamella.name)
-        name_label.setStyleSheet(
-            f"font-size: 14px; font-weight: bold; color: {NEUTRAL_200}; background: transparent;"
-        )
-        self._content_layout.addWidget(name_label)
+        self._content_layout.addWidget(self._header(lamella.name, runs, flt))
 
-        # Subtitle: last completed task + timestamp
-        last_task = lamella.last_completed_task
-        if last_task is not None:
-            subtitle = f"{last_task.name}, completed at {last_task.completed_at}"
-        else:
-            subtitle = "No completed tasks"
-        subtitle_label = QLabel(subtitle)
-        subtitle_label.setStyleSheet(
-            f"font-size: 11px; color: {NEUTRAL_550}; background: transparent;"
-        )
-        self._content_layout.addWidget(subtitle_label)
-
-        # One row per task, accumulating every run of it. Discovery returns the union
-        # of what those runs produced, which needs no special-casing: reference images
-        # are written to the same filename each run so repeated runs collapse to one
-        # set, while fluorescence stacks are uniquely named so every acquisition is
-        # kept. Showing only the last run would silently hide earlier FM images.
-        runs: Dict[str, List[AutoLamellaTaskState]] = {}
-        for t in lamella.task_history:
-            runs.setdefault(t.name, []).append(t)
+        if not self._runs:
+            self._content_layout.addWidget(
+                _text("No task runs yet.", f"color: {NEUTRAL_550}; font-size: 11px;")
+            )
+            self._content_layout.addStretch(1)
+            return
         if not runs:
-            no_images = QLabel("No task images available.")
-            no_images.setStyleSheet(f"color: {NEUTRAL_550}; font-size: 11px;")
-            self._content_layout.addWidget(no_images)
+            self._content_layout.addWidget(self._nothing_matches(flt))
             self._content_layout.addStretch(1)
             return
 
-        # Collect all filepaths to load and build placeholder rows
         all_filepaths: List[str] = []
-        for task_name, task_runs in runs.items():
+        for run in runs:
             # cap the reference images *before* appending fluorescence: the cap picks
             # the highest-magnification SEM/FIB pair out of a multi-FOV set, and
             # applying it to a merged list would let a z-stack displace the FIB image.
-            filenames = final_reference_images(lamella, *task_runs)[
-                -_MAX_IMAGES_PER_TASK:
-            ]
-            filenames += fluorescence_images(lamella, *task_runs)
-            # a task that produced nothing still gets a row saying so: silently
-            # omitting it is indistinguishable from the task never having run,
-            # which is the confusion this whole feature exists to remove.
-            row = self._build_task_row_with_placeholders(task_name, filenames)
-            self._content_layout.addWidget(row)
+            finals = [p for p in run.images if not is_fluorescence_image(p)]
+            stacks = [p for p in run.images if is_fluorescence_image(p)]
+            filenames = finals[-_MAX_IMAGES_PER_TASK:] + stacks
+            if flt.show == "operations":
+                filenames = []
+            self._content_layout.addWidget(self._run_row(run, filenames, flt))
             all_filepaths.extend(filenames)
+            self._task_names.update(dict.fromkeys(filenames, run.task_name))
 
         self._content_layout.addStretch(1)
 
-        # Filter out already-cached images (set pixmap immediately)
         to_load = []
         for fpath in all_filepaths:
             if fpath in self._pixmap_cache:
                 label = self._placeholder_labels.get(fpath)
                 if label is not None:
                     label.setPixmap(self._pixmap_cache[fpath])
+                self._show_caption(fpath)
             else:
                 to_load.append(fpath)
+                self._stamps[fpath] = _stamp(fpath)
 
-        # Start background loader for remaining images
         if to_load:
-            self._worker = _ImageLoaderWorker(to_load, _TARGET_WIDTH, parent=self)
+            self._worker = _ImageLoaderWorker(to_load, self._thumb_width)
             self._worker.image_loaded.connect(self._on_image_loaded)
             self._worker.start()
 
-    def _build_task_row_with_placeholders(
-        self, task_name: str, filenames: List[str]
+    def _header(self, name: str, runs: List[HistoryRun], flt: HistoryFilter) -> QWidget:
+        """The lamella's name, a line about its runs, and the filter at the right."""
+        header = QWidget()
+        header.setStyleSheet("background: transparent;")
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        text.addWidget(
+            _text(name, f"font-size: 14px; font-weight: bold; color: {NEUTRAL_200};")
+        )
+        if flt.active:
+            line = f"Filtered · {len(runs)} of {len(self._runs)} runs"
+            color = ACCENT_COLOR
+        else:
+            total = sum(run.duration or 0.0 for run in self._runs)
+            count = len(self._runs)
+            line = f"{count} run{'' if count == 1 else 's'}"
+            if total:
+                line += f" · {_duration(total)}"
+            color = NEUTRAL_550
+        self._subtitle = _text(line, f"font-size: 11px; color: {color};")
+        text.addWidget(self._subtitle)
+        layout.addLayout(text, 1)
+        layout.addWidget(self._filter_button, 0, Qt.AlignmentFlag.AlignTop)
+        self._filter_button.show()
+        return header
+
+    def _nothing_matches(self, flt: HistoryFilter) -> QWidget:
+        box = QWidget()
+        box.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 8, 0, 0)
+        which = "" if flt.status == "all" else f"{flt.status} "
+        of = "" if flt.task is None else f" of {flt.task}"
+        layout.addWidget(
+            _text(
+                f"No {which}runs{of} to show on this lamella.",
+                f"color: {NEUTRAL_400}; font-size: 12px;",
+            )
+        )
+        reset = QPushButton("Show all runs")
+        reset.setFlat(True)
+        reset.setCursor(Qt.CursorShape.PointingHandCursor)
+        reset.setStyleSheet(
+            f"QPushButton {{ color: {ACCENT_COLOR}; background: transparent;"
+            " border: none; padding: 0; text-align: left; font-size: 11px; }"
+        )
+        reset.clicked.connect(lambda: self._filter_button._pick(HistoryFilter()))
+        layout.addWidget(reset, 0, Qt.AlignmentFlag.AlignLeft)
+        return box
+
+    def _run_row(
+        self, run: HistoryRun, filenames: List[str], flt: HistoryFilter
     ) -> QWidget:
-        """Build a task row with gray placeholder labels for each image."""
+        """One run: name and how it ended, when and how long, its operations, its
+        images."""
         container = QWidget()
         container.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 4, 0, 4)
-        layout.setSpacing(4)
+        layout.setSpacing(6)
 
-        # Separator
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
-        # Task label
-        task_label = QLabel(task_name)
-        task_label.setStyleSheet(
-            f"font-size: 12px; font-weight: 600; color: {NEUTRAL_400}; background: transparent;"
+        word, icon, badge = _RUN_STATUS.get(
+            run.status, (run.status.name, "mdi:circle-outline", "Skipped")
         )
-        layout.addWidget(task_label)
-
-        # Say so explicitly rather than rendering an empty row: a task with a bare
-        # heading reads as "still loading", not "produced nothing".
-        if not filenames:
-            note = QLabel("No images recorded for this task.")
-            note.setStyleSheet(
-                "font-size: 11px; color: #808080; background: transparent;"
+        colour = STATUS_BADGE_COLORS.get(badge, (NEUTRAL_550, NEUTRAL_550))[1]
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        top.addWidget(
+            _text(
+                run.task_name,
+                f"font-size: 12px; font-weight: 600; color: {NEUTRAL_400};",
             )
-            layout.addWidget(note)
-            return container
+        )
+        when = " · ".join(
+            part for part in (_clock(run.started_at), _duration(run.duration)) if part
+        )
+        if when:
+            top.addWidget(_text(when, _CAPTION_STYLE))
+        top.addStretch(1)
+        top.addWidget(_icon_label(icon, colour, 12))
+        top.addWidget(_text(word, f"font-size: 11px; color: {colour};"))
+        layout.addLayout(top)
+        if run.status_message and run.status in (
+            AutoLamellaTaskStatus.Failed,
+            AutoLamellaTaskStatus.Cancelled,
+        ):
+            message = _text(run.status_message, f"font-size: 11px; color: {colour};")
+            message.setWordWrap(True)
+            layout.addWidget(message)
 
-        # Images wrap onto further lines rather than running off the edge: a task can
-        # now produce more than the SEM/FIB pair (a fluorescence stack as well), and
-        # the panel scrolls vertically only, so anything past the width is unreachable.
+        if flt.show != "images":
+            for index, operation in enumerate(run.operations):
+                layout.addWidget(self._operation(run.task_id, index, operation))
+            if not run.operations and flt.show == "all" and self._has_events:
+                layout.addWidget(
+                    _text(
+                        "No operations recorded",
+                        f"font-size: 11px; color: {NEUTRAL_550};",
+                    )
+                )
+
+        if flt.show != "operations":
+            if filenames:
+                layout.addWidget(self._image_grid(filenames))
+            elif run.images_replaced_by is not None:
+                later = next(
+                    (r for r in self._runs if r.task_id == run.images_replaced_by), None
+                )
+                at = f" {_clock(later.started_at)}" if later is not None else " later"
+                layout.addWidget(
+                    _text(
+                        f"Images replaced by the{at} run.",
+                        f"font-size: 11px; color: {NEUTRAL_550};",
+                    )
+                )
+            else:
+                layout.addWidget(
+                    _text(
+                        "No images recorded.",
+                        "font-size: 11px; color: #808080;",
+                    )
+                )
+        return container
+
+    def _operation(
+        self, task_id: str, index: int, operation: HistoryOperation
+    ) -> QWidget:
+        """The operation's line, and under it, once clicked, what it ran with and
+        measured and the figure it saved. Built on first opening: the figure is
+        read from disk."""
+        box = QWidget()
+        box.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        line, chevron = self._operation_line(operation)
+        layout.addWidget(line)
+        key = (task_id, index)
+        details: List[QWidget] = []
+
+        def show(expanded: bool) -> None:
+            if expanded and not details:
+                details.append(self._operation_details(operation))
+                layout.addWidget(details[0])
+            if details:
+                details[0].setVisible(expanded)
+            chevron.setPixmap(
+                fibsem_icon(
+                    "mdi:chevron-down" if expanded else "mdi:chevron-right",
+                    color=NEUTRAL_550,
+                ).pixmap(QSize(14, 14))
+            )
+
+        def toggle() -> None:
+            expanded = key not in self._expanded
+            if expanded:
+                self._expanded.add(key)
+            else:
+                self._expanded.discard(key)
+            show(expanded)
+
+        line.clicked.connect(toggle)
+        show(key in self._expanded)
+        return box
+
+    def _operation_line(
+        self, operation: HistoryOperation
+    ) -> Tuple[_ClickableRow, QLabel]:
+        """``› ✓ Align   1.11 µm · 3 steps   6 s``, and its chevron."""
+        line = _ClickableRow()
+        line.setStyleSheet("background: transparent;")
+        line.setToolTip(f"{operation.detail}\nClick for details")
+        layout = QHBoxLayout(line)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        chevron = _icon_label("mdi:chevron-right", NEUTRAL_550)
+        layout.addWidget(chevron)
+        icon, badge = _OPERATION_ICON.get(operation.status, ("mdi:circle-outline", ""))
+        colour = STATUS_BADGE_COLORS.get(badge, (NEUTRAL_550, NEUTRAL_550))[0]
+        layout.addWidget(_icon_label(icon, colour))
+        layout.addWidget(
+            _text(operation.label, f"font-size: 12px; color: {NEUTRAL_200};")
+        )
+        detail = ElidedLabel(operation.detail)
+        detail.setStyleSheet(_CAPTION_STYLE)
+        detail.setToolTip(line.toolTip())
+        layout.addWidget(detail, 1)
+        layout.addWidget(_text(_duration(operation.duration), _CAPTION_STYLE))
+        return line, chevron
+
+    def _operation_details(self, operation: HistoryOperation) -> QWidget:
+        """What the operation ran with and measured, one fact a line, then links
+        to the figure its run saved and its folder; the figure itself small at
+        the right, full size on hover. Indented under its line."""
+        panel = QFrame()
+        panel.setObjectName("operationDetails")
+        panel.setStyleSheet(
+            f"QFrame#operationDetails {{ background: {PANEL_COLOR}; border-radius: 4px; }}"
+        )
+        columns = QHBoxLayout(panel)
+        columns.setContentsMargins(10, 8, 10, 8)
+        columns.setSpacing(12)
+        layout = QVBoxLayout()
+        layout.setSpacing(6)
+        columns.addLayout(layout, 1)
+
+        facts = QGridLayout()
+        facts.setHorizontalSpacing(12)
+        facts.setVerticalSpacing(2)
+        for row, (name, value) in enumerate(operation_facts(operation)):
+            facts.addWidget(
+                _text(name, f"font-size: 11px; color: {NEUTRAL_550};"),
+                row,
+                0,
+                Qt.AlignmentFlag.AlignTop,
+            )
+            text = _text(
+                value,
+                f"font-family: {NUMBER_FONT}; font-size: 11px; color: {NEUTRAL_400};",
+            )
+            text.setWordWrap(True)
+            text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            facts.addWidget(text, row, 1)
+        facts.setColumnStretch(1, 1)
+        layout.addLayout(facts)
+
+        # The figure small, not full width: a full-width plot under every opened
+        # line drowned the run's own images. Full size on hover, or opened.
+        links = QHBoxLayout()
+        links.setSpacing(16)
+        if operation.plot is not None:
+            figure = _figure_tooltip(operation.plot)
+            link = _link("Open figure", operation.plot)
+            link.setToolTip(figure)
+            links.addWidget(link)
+            mini = self._mini_figure(operation.plot, figure)
+            if mini is not None:
+                columns.addWidget(mini, 0, Qt.AlignmentFlag.AlignTop)
+            else:  # too narrow for it: the hover is the only look
+                panel.setToolTip(figure)
+        if operation.path and os.path.isdir(operation.path):
+            links.addWidget(_link("Open folder", operation.path))
+        elif operation.path:
+            gone = ElidedLabel(
+                f"Saved to {operation.path}, no longer there", mode=Qt.ElideLeft
+            )
+            gone.setStyleSheet(f"font-size: 11px; color: {NEUTRAL_550};")
+            links.addWidget(gone, 1)
+        if links.count():
+            links.addStretch(1)
+            layout.addLayout(links)
+        layout.addStretch(1)
+        # in line with the operation's name, past its chevron
+        holder = QWidget()
+        holder.setStyleSheet("background: transparent;")
+        indent = QHBoxLayout(holder)
+        indent.setContentsMargins(24, 0, 0, 0)
+        indent.addWidget(panel)
+        return holder
+
+    def _mini_figure(self, path: str, tooltip: str) -> Optional[QLabel]:
+        """The figure at the panel's right, or None when the panel is too narrow to
+        give it room beside the facts."""
+        if self._thumb_width < _MIN_WIDTH_FOR_MINI_FIGURE:
+            return None
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            return None
+        mini = ClickableLabel(path)
+        mini.setPixmap(
+            pixmap.scaled(
+                _MINI_FIGURE_SIZE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        mini.setToolTip(tooltip)
+        mini.clicked.connect(_open_path)
+        return mini
+
+    def _image_grid(self, filenames: List[str]) -> QWidget:
+        """The run's images as thumbnails, two to a line, each with its caption."""
         img_row = QWidget()
         img_row.setStyleSheet("background: transparent;")
         img_layout = QGridLayout(img_row)
         img_layout.setContentsMargins(0, 0, 0, 0)
-        img_layout.setSpacing(8)
+        img_layout.setSpacing(_SPACING)
+        height = self._thumb_width * _PLACEHOLDER_HEIGHT // _TARGET_WIDTH
 
         for index, fpath in enumerate(filenames):
             img_label = ClickableLabel(fpath)
-            img_label.setFixedSize(_TARGET_WIDTH, _PLACEHOLDER_HEIGHT)
+            # Connected here, where every thumbnail is made, not when its image
+            # loads: a filter change rebuilds the rows from images already
+            # loaded, and those never load again.
+            img_label.clicked.connect(self._open_expanded)
+            img_label.setFixedSize(self._thumb_width, height)
             img_label.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 4px;")
             img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             img_label.setText("Loading...")
+            caption = QLabel()
+            caption.setStyleSheet(_CAPTION_STYLE)
+            tile = QWidget()
+            tile.setStyleSheet("background: transparent;")
+            tile_layout = QVBoxLayout(tile)
+            tile_layout.setContentsMargins(0, 0, 0, 0)
+            tile_layout.setSpacing(2)
+            tile_layout.addWidget(img_label)
+            tile_layout.addWidget(caption)
             row, column = divmod(index, _IMAGES_PER_LINE)
-            img_layout.addWidget(img_label, row, column)
+            img_layout.addWidget(tile, row, column, Qt.AlignmentFlag.AlignTop)
             self._placeholder_labels[fpath] = img_label
+            self._caption_labels[fpath] = caption
 
-        # trailing stretch column, so tiles stay left-aligned as before
+        # trailing stretch column, so tiles stay left-aligned
         img_layout.setColumnStretch(_IMAGES_PER_LINE, 1)
-        layout.addWidget(img_row)
-
-        return container
+        return img_row
 
     def _on_image_loaded(
-        self, filepath: str, arr: np.ndarray, pixel_size_x: float
+        self, filepath: str, arr: np.ndarray, pixel_size_x: float, info: ImageFields
     ) -> None:
         """Slot called on main thread when a background image finishes loading."""
+        if info.kind != "Image":
+            self._kinds[filepath] = info.kind
+        self._captions[filepath] = (image_caption(info), image_summary(info))
+        self._show_caption(filepath)
         arr = draw_image_overlays(arr, pixel_size_x)
         h, w = arr.shape[:2]
         pixmap = _arr_to_pixmap(arr, w, h)
@@ -465,12 +1081,37 @@ class LamellaTaskImageWidget(QWidget):
             label.setText("")
             label.setFixedSize(pixmap.size())
             label.setPixmap(pixmap)
-            if isinstance(label, ClickableLabel):
-                label.clicked.connect(self._open_expanded)
+
+    def _show_caption(self, filepath: str) -> None:
+        """Put the image's caption under its tile, and everything its bar would say
+        on hover over either."""
+        text, summary = self._captions.get(filepath, ("", ""))
+        caption = self._caption_labels.get(filepath)
+        if caption is not None:
+            caption.setText(text)
+            caption.setToolTip(summary)
+        tile = self._placeholder_labels.get(filepath)
+        if tile is not None:
+            tile.setToolTip(summary)
 
     def _open_expanded(self, filepath: str) -> None:
-        """Open an expanded, zoomable/pannable view of the image."""
-        dlg = ExpandedImageDialog(
-            filepath, title=os.path.basename(filepath), parent=self
+        """Open the image at full resolution in the image viewer (FIB-1189), with all
+        of this lamella's images to step through in task order. Each tile stands in
+        for its image until the file is read."""
+        paths = list(self._task_names) or [filepath]
+        name = self._lamella.name if self._lamella is not None else ""
+        items = []
+        for path in paths:
+            task_name = self._task_names.get(path, "")
+            items.append(
+                ViewerItem(
+                    path=path,
+                    title=" › ".join(t for t in (name, task_name) if t)
+                    or os.path.basename(path),
+                    label=self._kinds.get(path, ""),
+                    thumbnail=self._pixmap_cache.get(path),
+                )
+            )
+        open_image_viewer(
+            self, items, paths.index(filepath) if filepath in paths else 0
         )
-        dlg.exec_()

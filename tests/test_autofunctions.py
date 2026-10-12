@@ -487,11 +487,12 @@ def test_plot_autofocus_single_pass(tmp_path):
 
 
 def test_plot_autofocus_no_save_path(tmp_path, monkeypatch):
-    # plot_autofocus_result(result) with no save_path must not crash
+    # No save_path: the figure comes back and nothing is written, least of all
+    # into the working directory
     monkeypatch.chdir(tmp_path)
     result = make_autofocus_result(n_passes=1)
-    plot_autofocus_result(result)
-    assert list((tmp_path / "autofocus").glob("autofocus_*.png"))
+    assert plot_autofocus_result(result) is not None
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_plot_autofocus_multi_pass(tmp_path):
@@ -555,7 +556,9 @@ def test_run_auto_focus_skips_when_wd_not_settable(caplog):
         result = run_auto_focus(m, beam_type=BeamType.ION)
 
     assert result is None
-    assert m.method_calls == [call.is_working_distance_settable(BeamType.ION)]
+    # recording the skip is not touching the hardware (FIB-1255)
+    hardware = [c for c in m.method_calls if c[0] != "record_event"]
+    assert hardware == [call.is_working_distance_settable(BeamType.ION)]
     assert any("skipped" in r.getMessage().lower() for r in caplog.records)
 
 
@@ -579,9 +582,9 @@ def test_run_auto_focus_queries_capability_for_the_requested_beam():
 def test_wd_settable_capability_matrix():
     """Tescan: preset-driven ion focus, no FIB WD control anywhere in the SDK.
     Everything else inherits the base's True."""
+    from fibsem.drivers.demo.simulator import DemoMicroscope
+    from fibsem.drivers.tescan.microscope import TescanMicroscope
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.microscopes.simulator import DemoMicroscope
-    from fibsem.microscopes.tescan import TescanMicroscope
 
     tescan = object.__new__(TescanMicroscope)
     assert tescan.is_working_distance_settable(BeamType.ELECTRON) is True
@@ -593,3 +596,42 @@ def test_wd_settable_capability_matrix():
         DemoMicroscope.is_working_distance_settable
         is FibsemMicroscope.is_working_distance_settable
     )
+
+
+def test_run_auto_focus_puts_back_only_what_its_probe_images_changed():
+    """Odemis writes an acquire's resolution, dwell time and field of view to the beam,
+    so the sweep left it imaging at the probe's. The Demo's acquire leaves the beam
+    alone, so this one is wrapped to write them the way Odemis does."""
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    beam = BeamType.ELECTRON
+    microscope.set_resolution((1536, 1024), beam)
+    microscope.set_dwell_time(3e-6, beam)
+    microscope.set_field_of_view(150e-6, beam)
+    real_acquire = microscope.acquire_image
+
+    def acquire_writing_the_beam(image_settings=None, **kwargs):
+        if image_settings is not None:
+            microscope.set_resolution(image_settings.resolution, beam)
+            microscope.set_dwell_time(image_settings.dwell_time, beam)
+            microscope.set_field_of_view(image_settings.hfw, beam)
+        return real_acquire(image_settings=image_settings, **kwargs)
+
+    microscope.acquire_image = acquire_writing_the_beam
+    detector_writes = []
+    microscope.set_detector_settings = lambda *a, **k: detector_writes.append(a)
+
+    result = run_auto_focus(
+        microscope, beam_type=beam, hfw=80e-6, settings=AutoFocusSettings()
+    )
+
+    assert tuple(microscope.get_resolution(beam)) == (1536, 1024)
+    assert microscope.get_dwell_time(beam) == pytest.approx(3e-6)
+    assert microscope.get_field_of_view(beam) == pytest.approx(150e-6)
+    # The working distance is the sweep's answer, and its autocontrast stays too:
+    # nothing writes the detector back.
+    assert microscope.get_working_distance(beam) == pytest.approx(
+        result.working_distance
+    )
+    assert detector_writes == []

@@ -34,7 +34,9 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     SKIP_GRID_NOT_LOADED,
     SKIP_NOTHING_TO_RUN,
     SKIP_TASK_REMOVED,
+    UNLOAD_ENTRY_NAME,
     GridTaskManager,
+    grid_has_run,
     plan_grid_run,
     run_grid_tasks,
 )
@@ -91,8 +93,10 @@ def microscope():
         manufacturer="Demo",
         config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
     )
-    assert microscope._stage.loader is not None
-    assert [e.name for e in microscope._stage.grid_inventory() if e.present] == GRIDS
+    assert microscope.sample_handling.magazine is not None
+    assert [
+        e.name for e in microscope.sample_handling.grid_inventory() if e.present
+    ] == GRIDS
     return microscope
 
 
@@ -111,7 +115,7 @@ def experiment(tmp_path, microscope):
             settings=_small_settings(BeamType.ION),
         )
     )
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     assert [g.name for g in exp.grids] == GRIDS
     return exp
 
@@ -198,12 +202,12 @@ class TestOrderAndLoading:
             assert "Slot-01" in entry.status_message
             assert entry.end_timestamp is not None
         # the last grid is left loaded; nothing unloads at the end of a run
-        assert microscope._stage.loaded_grids[0].name == "Grid-02"
+        assert microscope.sample_handling.loaded_grids[0].name == "Grid-02"
 
     def test_a_grid_already_in_the_beam_is_not_loaded_again(
         self, manager, experiment, microscope
     ):
-        microscope._stage.ensure_loaded("Grid-03")
+        microscope.sample_handling.ensure_loaded("Grid-03")
         run_with_stub(manager, ["overview_sem"], ["Grid-03"])
         assert load_entries(experiment.get_grid_by_name("Grid-03")) == []
         # the planned load step still completes: the grid is where it needs to be
@@ -214,7 +218,7 @@ class TestOrderAndLoading:
         self, manager, experiment, microscope
     ):
         def on_task(task_name, grid):
-            assert microscope._stage.loaded_grids[0].name == grid.name
+            assert microscope.sample_handling.loaded_grids[0].name == grid.name
 
         # remove Grid-02's planned load before the run reaches it
         def drop_second_load(task_name, grid):
@@ -240,7 +244,9 @@ class TestFailureIsolation:
     def test_a_failed_load_skips_that_grids_tasks_and_the_run_continues(
         self, manager, experiment, microscope
     ):
-        microscope._stage.loader.fail_next_exchange = True  # Grid-01's exchange
+        microscope.sample_handling.magazine.device.fail_next_exchange = (
+            True  # Grid-01's exchange
+        )
         executed = run_with_stub(
             manager, ["overview_sem", "overview_fib"], ["Grid-01", "Grid-02"]
         )
@@ -278,7 +284,7 @@ class TestFailureIsolation:
 
     def test_a_failed_load_is_not_retried_within_the_run(self, manager, microscope):
         attempts = []
-        stage = microscope._stage
+        stage = microscope.sample_handling
         original = stage.ensure_loaded
 
         def counting(name):
@@ -286,7 +292,7 @@ class TestFailureIsolation:
             return original(name)
 
         stage.ensure_loaded = counting
-        stage.loader.fail_next_exchange = True
+        stage.magazine.device.fail_next_exchange = True
         run_with_stub(manager, ["overview_sem", "overview_fib"], ["Grid-01"])
         assert attempts == ["Grid-01"]
 
@@ -349,7 +355,7 @@ class TestProtocolEditedMidRun:
         self, manager, experiment, microscope
     ):
         attempts = []
-        stage = microscope._stage
+        stage = microscope.sample_handling
         original = stage.ensure_loaded
 
         def counting(name):
@@ -380,7 +386,7 @@ class TestProtocolEditedMidRun:
     def test_a_task_removed_during_the_exchange_is_skipped_once_the_grid_is_in(
         self, manager, experiment, microscope
     ):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         original = stage.ensure_loaded
 
         def removing(name):
@@ -456,7 +462,7 @@ class TestStopAndStatus:
         """An exchange is an unload then a load. A Stop that lands during the
         unload used to be honoured only once the next grid was in; now the run
         ends with the working slot empty, and the load entry says so."""
-        stage = microscope._stage
+        stage = microscope.sample_handling
         stage.ensure_loaded("Grid-01")
         real_unload = stage.unload
 
@@ -468,7 +474,7 @@ class TestStopAndStatus:
         executed = run_with_stub(manager, ["overview_sem"], ["Grid-02"])
 
         assert executed == []
-        assert stage.loader.working_slot.loaded_grid is None
+        assert stage.magazine.working_slot.loaded_grid is None
         assert stage.loaded_grids == []
         (entry,) = load_entries(experiment.get_grid_by_name("Grid-02"))
         assert entry.status is Status.Cancelled
@@ -489,8 +495,8 @@ class TestStopAndStatus:
         """The autoloader's load blocks and cannot be interrupted, so a Stop that
         lands during it is honoured once the grid is in: the load is recorded as
         it happened, and the run ends before any task starts on that grid."""
-        stage = microscope._stage
-        loader = stage.loader
+        stage = microscope.sample_handling
+        loader = stage.magazine
         real_load = loader._do_load
 
         def load_then_stop(slot):
@@ -513,7 +519,7 @@ class TestStopAndStatus:
     def test_stop_before_the_exchange_loads_nothing(
         self, manager, experiment, microscope
     ):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         stage.ensure_loaded("Grid-01")
         manager.stop()
         # The loop would end before the load; go straight at the exchange to
@@ -546,7 +552,7 @@ class TestStopAndStatus:
         ]
 
     def test_run_summary_has_one_row_per_attempt(self, manager, microscope):
-        microscope._stage.loader.fail_next_exchange = True
+        microscope.sample_handling.magazine.device.fail_next_exchange = True
         run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
         df = manager.build_run_summary_dataframe()
         assert list(df.columns) == [
@@ -566,6 +572,166 @@ class TestStopAndStatus:
             "Completed",
         ]
         assert df["loaded"].tolist() == [False, False, True, True]
+
+
+def unload_entries(grid: GridRecord):
+    return [t for t in grid.task_history if t.name == UNLOAD_ENTRY_NAME]
+
+
+class TestEndOfRun:
+    """The options a run is started with for its end: unload the last grid,
+    write the screening report. Both run in the manager, so the app and a
+    headless run behave alike."""
+
+    def test_unload_at_end_empties_the_working_slot_and_records_it(
+        self, manager, experiment, microscope
+    ):
+        manager.unload_at_end = True
+        run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
+
+        assert microscope.sample_handling.loaded_grids == []
+        last = experiment.get_grid_by_name("Grid-02")
+        (entry,) = unload_entries(last)
+        assert entry.status is Status.Completed
+        assert entry.end_timestamp is not None
+        assert unload_entries(experiment.get_grid_by_name("Grid-01")) == []
+        # the queue's last step, so the timeline and the summary show it
+        item = manager.queue.items[-1]
+        assert (item.item_name, item.task_name, item.status) == (
+            "Grid-02",
+            UNLOAD_ENTRY_NAME,
+            Status.Completed,
+        )
+        df = manager.build_run_summary_dataframe()
+        assert df.iloc[-1].task_name == UNLOAD_ENTRY_NAME
+        assert df.iloc[-1].completed_at != ""
+        assert "Grid workflow complete" in manager.parent_ui.workflow_info[-1]
+
+    def test_without_it_the_last_grid_stays_loaded(
+        self, manager, experiment, microscope
+    ):
+        run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
+        assert microscope.sample_handling.loaded_grids[0].name == "Grid-02"
+        assert unload_entries(experiment.get_grid_by_name("Grid-02")) == []
+        assert UNLOAD_ENTRY_NAME not in [i.task_name for i in manager.queue.items]
+
+    def test_a_failed_last_task_still_unloads(self, manager, microscope):
+        manager.unload_at_end = True
+
+        def on_task(task_name, grid):
+            raise RuntimeError("beam blanked")
+
+        run_with_stub(manager, ["overview_sem"], ["Grid-01"], on_task)
+        assert microscope.sample_handling.loaded_grids == []
+
+    def test_stop_leaves_the_grid_loaded(self, manager, experiment, microscope):
+        manager.unload_at_end = True
+
+        def on_task(task_name, grid):
+            manager.stop()
+
+        run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"], on_task)
+        assert microscope.sample_handling.loaded_grids[0].name == "Grid-01"
+        assert unload_entries(experiment.get_grid_by_name("Grid-01")) == []
+
+    def test_a_failed_unload_is_recorded_and_the_run_still_completes(
+        self, manager, experiment, microscope
+    ):
+        manager.unload_at_end = True
+
+        def refuse():
+            raise RuntimeError("magazine door open")
+
+        microscope.sample_handling.unload = refuse
+        run_with_stub(manager, ["overview_sem"], ["Grid-01"])
+
+        (entry,) = unload_entries(experiment.get_grid_by_name("Grid-01"))
+        assert entry.status is Status.Failed
+        assert entry.status_message == "magazine door open"
+        assert manager.queue.items[-1].status is Status.Failed
+        assert not manager.is_stopped and not manager.stalled
+        assert manager.parent_ui.workflow_info[-1].endswith(
+            "Grid-01 could not be unloaded."
+        )
+
+    def test_an_unload_entry_does_not_fix_a_grids_name(self, experiment):
+        from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+        grid = experiment.get_grid_by_name("Grid-01")
+        for name in (LOAD_ENTRY_NAME, UNLOAD_ENTRY_NAME):
+            grid.task_history.append(AutoLamellaTaskState(name=name))
+        assert not grid_has_run(grid)
+
+    def test_the_report_is_written_after_the_unload(
+        self, manager, experiment, microscope, monkeypatch
+    ):
+        from fibsem.applications.autolamella.tools import grid_report_pdf
+
+        seen = []
+
+        def fake_report(exp, inventory=None):
+            seen.append(list(microscope.sample_handling.loaded_grids))
+            return "report.pdf"
+
+        monkeypatch.setattr(grid_report_pdf, "generate_grid_report", fake_report)
+        manager.unload_at_end = True
+        manager.report_at_end = True
+        run_with_stub(manager, ["overview_sem"], ["Grid-01"])
+        assert seen == [[]], "unloaded before the report"
+
+    def test_the_report_is_written_after_a_stop_too(
+        self, manager, microscope, monkeypatch
+    ):
+        from fibsem.applications.autolamella.tools import grid_report_pdf
+
+        seen = []
+        monkeypatch.setattr(
+            grid_report_pdf,
+            "generate_grid_report",
+            lambda exp, inventory=None: seen.append(exp) or "report.pdf",
+        )
+        manager.unload_at_end = True
+        manager.report_at_end = True
+
+        def on_task(task_name, grid):
+            manager.stop()
+
+        run_with_stub(manager, ["overview_sem"], ["Grid-01"], on_task)
+        assert len(seen) == 1
+        assert microscope.sample_handling.loaded_grids[0].name == "Grid-01"
+
+    def test_a_failed_report_is_said_and_the_run_still_completes(
+        self, manager, monkeypatch, caplog
+    ):
+        from fibsem.applications.autolamella.tools import grid_report_pdf
+
+        def broken(exp, inventory=None):
+            raise ImportError("No module named 'reportlab'")
+
+        monkeypatch.setattr(grid_report_pdf, "generate_grid_report", broken)
+        manager.report_at_end = True
+        with caplog.at_level("WARNING"):
+            run_with_stub(manager, ["overview_sem"], ["Grid-01"])
+        assert "The grid screening report was not written" in caplog.text
+        assert "Grid workflow complete" in manager.parent_ui.workflow_info[-1]
+        assert all(i.status is Status.Completed for i in manager.queue.items)
+
+    def test_headless_takes_the_same_options(
+        self, microscope, experiment, monkeypatch, tmp_path
+    ):
+        pytest.importorskip("reportlab")
+        manager = run_grid_tasks(
+            microscope,
+            experiment,
+            task_names=["overview_sem"],
+            grid_names=["Grid-01", "Grid-02"],
+            unload_at_end=True,
+            report_at_end=True,
+        )
+        assert manager.unload_at_end and manager.report_at_end
+        assert microscope.sample_handling.loaded_grids == []
+        assert unload_entries(experiment.get_grid_by_name("Grid-02"))
+        assert (tmp_path / "exp" / "grid-screening-report.pdf").exists()
 
 
 class TestEndToEnd:
@@ -593,7 +759,7 @@ class TestEndToEnd:
         assert path.startswith(
             str(tmp_path / "exp" / "grids" / "Grid-01" / "overview_milling")
         )
-        slot = microscope._stage.holder.find_slot_by_grid_name("Grid-01")
+        slot = microscope.sample_handling.holder.find_slot_by_grid_name("Grid-01")
         expected = microscope.get_target_position(slot.position, "MILLING")
         assert microscope.get_stage_orientation(expected) == "MILLING"
 

@@ -1,5 +1,7 @@
 """Preferences dialog for AutoLamella user preferences."""
 
+import copy
+
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -12,7 +14,6 @@ from PyQt5.QtWidgets import (
     QListWidget,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -65,18 +66,19 @@ _TIP_PROPOSE_REVIEW = (
     "records what it did whether this is on or not; this shows the tab and "
     "allows a task to be set to Review. Early access."
 )
-_LBL_AGENT_SERVER = "Enable Agent Server"
-_LBL_WATCHDOG = "Hand questions to me after"
-_TIP_WATCHDOG = (
-    "If the agent leaves a question unanswered this long, it becomes yours — "
-    "orange border, attention button, sound. Applies only to tasks the agent "
-    "supervises."
+_LBL_APP_SERVER = "Enable App Server"
+_LBL_APP_SERVER_DEVICES = "Serve the microscope's devices"
+_TIP_APP_SERVER_DEVICES = (
+    "Also serve the routes that reach the instrument, local or on a Device "
+    "Server: its devices, stage, beams and milling state, reads included. Off, "
+    "clients see the session but cannot query the microscope. Moving it still "
+    "needs hardware permission. Changing this restarts the App Server."
 )
-_TIP_AGENT_SERVER = (
-    "Host a local, token-protected API over this session when a microscope "
-    "connects, so an AI agent (via the fibsem-mcp sidecar) can observe it. "
-    "Read-only until you grant permissions for the session in Tools → Agent "
-    "Server, which also shows the session token."
+_TIP_APP_SERVER = (
+    "Run the App Server when a microscope connects: a local, token-protected "
+    "API over this session that an AI agent (through the fibsem-mcp sidecar) "
+    "and the dashboard can reach. What the agent may do is its level, set "
+    "from the Agent chip in the status bar; every launch starts at Watch."
 )
 
 # Experiment defaults
@@ -131,7 +133,7 @@ class PreferencesDialog(QDialog):
         self._sidebar = QListWidget()
         self._sidebar.setFixedWidth(120)
         self._sidebar.addItems(
-            ["Display", "Features", "Experiment", "Movement", "Agent"]
+            ["Display", "Features", "Experiment", "Movement", "App Server"]
         )
         self._sidebar.setCurrentRow(0)
 
@@ -207,28 +209,28 @@ class PreferencesDialog(QDialog):
         movement_form.addRow(_LBL_ACQ_FIB, self._chk_acquire_fib)
         self._stack.addWidget(movement_page)
 
-        # --- Agent ---
-        # Durable policy only. Scope ARMING is deliberately absent: arming is
-        # consent, granted per session in Tools -> Agent Server, and must not
-        # survive a restart via this file.
+        # --- App Server ---
+        # Durable policy only. The agent's level is deliberately absent: it is
+        # consent, set per session from the Agent chip, and must not survive a
+        # restart via this file.
         agent_page = QWidget()
         agent_form = QFormLayout(agent_page)
-        self._chk_agent_server = QCheckBox()
-        self._chk_agent_server.setToolTip(_TIP_AGENT_SERVER)
-        self._spin_watchdog = QSpinBox()
-        self._spin_watchdog.setRange(1, 120)
-        self._spin_watchdog.setSuffix(" min")
-        self._spin_watchdog.setToolTip(_TIP_WATCHDOG)
+        self._chk_app_server = QCheckBox()
+        self._chk_app_server.setToolTip(_TIP_APP_SERVER)
+        self._chk_app_server_devices = QCheckBox()
+        self._chk_app_server_devices.setToolTip(_TIP_APP_SERVER_DEVICES)
+        # A service of the App Server: nothing to serve while it is off.
+        self._chk_app_server.toggled.connect(self._chk_app_server_devices.setEnabled)
         agent_intro = QLabel(
-            "Let an AI agent watch this session — and, with permission you "
-            "grant per session in Tools → Agent Server, act on it — over a "
-            "local, token-protected connection."
+            "Let an AI agent and the dashboard reach this session over a "
+            "local, token-protected connection. The agent watches until you "
+            "raise its level from the Agent chip in the status bar."
         )
         agent_intro.setWordWrap(True)
         agent_intro.setStyleSheet("color: #868e93; font-size: 11px;")
         agent_form.addRow(agent_intro)
-        agent_form.addRow(_LBL_AGENT_SERVER, self._chk_agent_server)
-        agent_form.addRow(_LBL_WATCHDOG, self._spin_watchdog)
+        agent_form.addRow(_LBL_APP_SERVER, self._chk_app_server)
+        agent_form.addRow(_LBL_APP_SERVER_DEVICES, self._chk_app_server_devices)
         self._stack.addWidget(agent_page)
 
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
@@ -265,11 +267,12 @@ class PreferencesDialog(QDialog):
 
         f = prefs.features
         self._chk_coincidence_milling.setChecked(f.coincidence_milling_enabled)
-        self._chk_agent_server.setChecked(f.agent_server_enabled)
         self._chk_connection_chip.setChecked(f.connection_chip)
         self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
 
-        self._spin_watchdog.setValue(prefs.agent.watchdog_minutes)
+        self._chk_app_server.setChecked(prefs.app_server.enabled)
+        self._chk_app_server_devices.setChecked(prefs.app_server.devices)
+        self._chk_app_server_devices.setEnabled(prefs.app_server.enabled)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -305,44 +308,44 @@ class PreferencesDialog(QDialog):
         )
 
     def get_preferences(self) -> UserPreferences:
-        """Build a UserPreferences instance from current widget state."""
-        from fibsem.config import (
-            AgentPreferences,
-            DisplayPreferences,
-            ExperimentPreferences,
-            FeatureFlags,
-            MovementPreferences,
-        )
+        """Build a UserPreferences instance from current widget state.
 
-        return UserPreferences(
-            display=DisplayPreferences(
-                sound_enabled=self._chk_sound.isChecked(),
-                border_enabled=self._chk_border.isChecked(),
-                dev_mode=self._chk_dev_mode.isChecked(),
-                lamella_card_mode=self._combo_card_mode.currentData(),
-            ),
-            features=FeatureFlags(
-                coincidence_milling_enabled=self._chk_coincidence_milling.isChecked(),
-                agent_server_enabled=self._chk_agent_server.isChecked(),
-                connection_chip=self._chk_connection_chip.isChecked(),
-                proposer_reviewer_workflow_enabled=self._chk_propose_review.isChecked(),
-            ),
-            movement=MovementPreferences(
-                acquire_sem_after_stage_movement=self._chk_acquire_sem.isChecked(),
-                acquire_fib_after_stage_movement=self._chk_acquire_fib.isChecked(),
-            ),
-            agent=AgentPreferences(
-                watchdog_minutes=self._spin_watchdog.value(),
-            ),
-            experiment=ExperimentPreferences(
-                default_experiment_directory=self._dir_experiment.text(),
-                default_protocol_path=self._dir_protocol.text(),
-                last_experiment_path=self._preferences.experiment.last_experiment_path,
-                recent_experiments=self._preferences.experiment.recent_experiments,
-                user=self._edit_exp_user.text(),
-                project=self._edit_exp_project.text(),
-                organisation=self._edit_exp_organisation.text(),
-            ),
-            # Preserve sections not managed by this dialog.
-            reporting=self._preferences.reporting,
-        )
+        Starts from a copy of the preferences the dialog was opened with and overwrites
+        only the fields it has a widget for. Everything else -- the hooks, whether the
+        guided setup was dismissed, the recent experiments, reporting -- is handed back
+        as it came in, and the caller saves the result to disk. Building a fresh
+        UserPreferences instead reset any field not copied across by hand: hooks came
+        back as None, which means "use the defaults", over a user's [] that means "all
+        off" (FIB-497).
+
+        A copy rather than self._preferences itself, which the caller still holds: a
+        cancelled dialog must leave it untouched.
+        """
+        prefs = copy.deepcopy(self._preferences)
+
+        d = prefs.display
+        d.sound_enabled = self._chk_sound.isChecked()
+        d.border_enabled = self._chk_border.isChecked()
+        d.dev_mode = self._chk_dev_mode.isChecked()
+        d.lamella_card_mode = self._combo_card_mode.currentData()
+
+        f = prefs.features
+        f.coincidence_milling_enabled = self._chk_coincidence_milling.isChecked()
+        f.connection_chip = self._chk_connection_chip.isChecked()
+        f.proposer_reviewer_workflow_enabled = self._chk_propose_review.isChecked()
+
+        m = prefs.movement
+        m.acquire_sem_after_stage_movement = self._chk_acquire_sem.isChecked()
+        m.acquire_fib_after_stage_movement = self._chk_acquire_fib.isChecked()
+
+        prefs.app_server.enabled = self._chk_app_server.isChecked()
+        prefs.app_server.devices = self._chk_app_server_devices.isChecked()
+
+        e = prefs.experiment
+        e.default_experiment_directory = self._dir_experiment.text()
+        e.default_protocol_path = self._dir_protocol.text()
+        e.user = self._edit_exp_user.text()
+        e.project = self._edit_exp_project.text()
+        e.organisation = self._edit_exp_organisation.text()
+
+        return prefs

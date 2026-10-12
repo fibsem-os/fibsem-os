@@ -18,7 +18,6 @@ from fibsem.structures import (
     FibsemImage,
     MicroscopeState,
 )
-from fibsem.ui import tokens
 
 
 def _sem_image() -> FibsemImage:
@@ -45,20 +44,6 @@ def dialog(qapp):
     d = ImageExportDialog(ex.from_fibsem_image(_sem_image(), "/data/ref_image.tif"))
     yield d
     d.deleteLater()
-
-
-def _hex(rgb):
-    return "#{:02x}{:02x}{:02x}".format(*rgb)
-
-
-def test_the_renderers_colours_are_the_palettes():
-    """The renderer copies these rather than importing fibsem.ui, which needs Qt."""
-    assert _hex(ex.BAR_COLOR) == tokens.PANEL_COLOR.lower()
-    assert _hex(ex.BORDER_COLOR) == tokens.BORDER_COLOR.lower()
-    assert _hex(ex.TEXT_COLOR) == tokens.TEXT_COLOR.lower()
-    assert _hex(ex.TEXT_STRONG_COLOR) == tokens.TEXT_STRONG_COLOR.lower()
-    assert _hex(ex.TEXT_MUTED_COLOR) == tokens.TEXT_MUTED_COLOR.lower()
-    assert _hex(ex.CROSSHAIR_COLOR) == tokens.CURRENT_POSITION_COLOUR.lower()
 
 
 def test_starts_from_the_defaults(dialog):

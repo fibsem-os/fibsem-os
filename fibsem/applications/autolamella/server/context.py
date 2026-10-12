@@ -1,4 +1,4 @@
-"""AgentContext: the read-side facade an embedded server sees the app through.
+"""AutoLamellaAppContext: the read-side facade an embedded server sees the app through.
 
 Deliberately not the ``AutoLamellaUI`` object, for the same reasons
 ``ScriptContext`` isn't: the window's ``experiment`` is rebound on load, its
@@ -33,8 +33,14 @@ from typing import Any, Dict, List, Optional
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
+from fibsem.util.timestamps import to_iso, wall_time_of
 
-__all__ = ["AgentContext", "ITEM_PATCH_FIELDS", "config_version", "item_fields_version"]
+__all__ = [
+    "AutoLamellaAppContext",
+    "ITEM_PATCH_FIELDS",
+    "config_version",
+    "item_fields_version",
+]
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
 # verdict, notes. Everything else on the object (poses, ids, paths, history)
@@ -56,7 +62,7 @@ def _content_hash(data) -> str:
 def item_fields_version(lamella) -> str:
     """A content hash naming the state of an item's patchable fields.
 
-    The item document's nonce, hashing exactly the ITEM_PATCH_FIELDS — so a
+    The item document's version, hashing exactly the ITEM_PATCH_FIELDS — so a
     task re-recording geometry rotates it (stales a pending patch, correctly),
     while poses moving or history growing does not (they are not patchable,
     so they cannot invalidate what a patch was written against).
@@ -71,7 +77,7 @@ def item_fields_version(lamella) -> str:
 def config_version(config) -> str:
     """A content hash naming exactly this state of a task config.
 
-    The config's nonce (FIB-864): reads serve it, writes echo it, and a
+    The config's version (FIB-864): reads serve it, writes echo it, and a
     mismatch is refused as stale — a patch can never apply against a state
     its author did not see. Computed from the serialized document so the
     same content hashes identically wherever it is held.
@@ -87,7 +93,8 @@ def config_version(config) -> str:
 def _json_safe(value: Any) -> Any:
     """Coerce one cell of a dataframe/record into something JSON can carry."""
     if isinstance(value, datetime):
-        return value.isoformat()
+        # pandas' NaT is a datetime too: a time not yet known, as NaN is for a number
+        return None if value != value else value.isoformat()
     if isinstance(value, float) and math.isnan(value):
         return None
     if hasattr(value, "item") and not isinstance(value, str):
@@ -248,7 +255,7 @@ def _attendance_line(task_protocol: Any, task_name: str) -> str:
     return att.line if att is not None else ""
 
 
-class AgentContext:
+class AutoLamellaAppContext:
     """Read-only facade over a running (or resting) AutoLamella session."""
 
     def __init__(self, host, event_buffer=None):
@@ -341,10 +348,16 @@ class AgentContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "items": []}
-        return {
-            "available": True,
-            "items": _records(experiment.task_history_dataframe()),
-        }
+        from fibsem.util.timestamps import to_datetime
+
+        def started(record):
+            # Each item's runs in turn is not the order they ran in. Through
+            # POSIX time, so old naive stamps and aware ones still compare.
+            start = to_datetime(record.get("start_timestamp"))
+            return start.timestamp() if start is not None else float("inf")
+
+        items = sorted(_records(experiment.task_history_dataframe()), key=started)
+        return {"available": True, "items": items}
 
     def run_summary(self) -> Dict[str, Any]:
         """The most recent run's outcome table, if a run has happened."""
@@ -358,6 +371,75 @@ class AgentContext:
         if last is not None:
             return {"available": True, "items": _records(last)}
         return {"available": False, "items": []}
+
+    def log(
+        self,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        task_id: Optional[str] = None,
+        level: Optional[str] = None,
+        lines: int = 200,
+    ) -> Dict[str, Any]:
+        """The session's log in a time window: ``since``/``until``, or the run
+        ``task_id`` (from its start to its end, a few seconds either side), or
+        the tail when neither is given. See ``log_tail`` for what is served."""
+        from pathlib import Path
+
+        from fibsem.applications.autolamella.server import log_tail
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "records": []}
+        if level is not None:
+            level = level.upper()
+            if level not in log_tail.LEVELS:
+                return {
+                    "available": True,
+                    "error_type": "invalid",
+                    "error": f"No log level {level!r}.",
+                    "levels": list(log_tail.LEVELS),
+                }
+        window = {}
+        for name, value in (("since", since), ("until", until)):
+            if value is None:
+                continue
+            window[name] = wall_time_of(value)
+            if window[name] is None:
+                return {
+                    "available": True,
+                    "error_type": "invalid",
+                    "error": f"{name}={value!r} is not a time.",
+                }
+        if task_id is not None:
+            if window:
+                return {
+                    "available": True,
+                    "error_type": "invalid",
+                    "error": "Give task_id or since/until, not both.",
+                }
+            found = log_tail.run_window(experiment.path, task_id)
+            if found is None:
+                return {
+                    "available": True,
+                    "error_type": "not_found",
+                    "error": f"No run {task_id!r} in this experiment's record.",
+                }
+            window = {"since": found[0], "until": found[1]}
+            # A run's window at DEBUG is mostly noise, and the cap keeps its
+            # end: the start of the run would be the part dropped.
+            level = level or "INFO"
+        path = Path(experiment.path) / log_tail.LOG_FILENAME
+        if not path.is_file():
+            return {"available": False, "records": []}
+        result = log_tail.read_log(path, level=level, lines=lines, **window)
+        start, end = window.get("since"), window.get("until")
+        return {
+            "available": True,
+            "since": start.isoformat() if start is not None else None,
+            "until": end.isoformat() if end is not None else None,
+            "level": level or "DEBUG",
+            **result,
+        }
 
     def protocol(self) -> Dict[str, Any]:
         """The workflow definition with live supervision flags, schedules and
@@ -393,7 +475,6 @@ class AgentContext:
                     # the boolean the /supervision verb takes, for the agents
                     # that read it back
                     "supervise": task.attention is Attention.supervised,
-                    "supervisor": getattr(task, "supervisor", "human"),
                     "required": task.required,
                     "requires": list(task.requires),
                     "scheduled_at": task.scheduled_at.isoformat()
@@ -436,11 +517,17 @@ class AgentContext:
                 ]
                 if names:
                     files[role] = names
-            tasks.append({"name": state.name, "files": files})
+            tasks.append(
+                {"name": state.name, "status": state.status.name, "files": files}
+            )
         return {
             "available": True,
             "item_name": item_name,
-            "completed_tasks": [state.name for state in history],
+            "completed_tasks": [
+                state.name
+                for state in history
+                if state.status is AutoLamellaTaskStatus.Completed
+            ],
             "tasks": tasks,
             "final_reference_images": [
                 str(p) for p in _task_outputs.final_reference_images(lamella, *history)
@@ -449,6 +536,26 @@ class AgentContext:
                 str(p) for p in _task_outputs.fluorescence_images(lamella, *history)
             ],
         }
+
+    @staticmethod
+    def _recorded_item_paths(lamella) -> List[str]:
+        """Every file :meth:`task_outputs` lists for ``lamella``, as paths."""
+        import os
+
+        history = list(lamella.task_history)
+        paths = [
+            os.path.join(lamella.path, rp)
+            for state in history
+            for relpaths in dict(state.outputs).values()
+            for rp in relpaths
+            if os.path.isfile(os.path.join(lamella.path, rp))
+        ]
+        for path in _task_outputs.final_reference_images(
+            lamella, *history
+        ) + _task_outputs.fluorescence_images(lamella, *history):
+            if str(path) not in paths:
+                paths.append(str(path))
+        return paths
 
     def output_image(
         self, item_name: str, filename: str, max_width: int = 768
@@ -474,10 +581,7 @@ class AgentContext:
                 "jpeg": None,
                 "error": f"No item named {item_name!r} in this experiment.",
             }
-        history = list(lamella.task_history)
-        paths = _task_outputs.final_reference_images(
-            lamella, *history
-        ) + _task_outputs.fluorescence_images(lamella, *history)
+        paths = self._recorded_item_paths(lamella)
         match = next((p for p in paths if os.path.basename(p) == filename), None)
         if match is None:
             return {
@@ -773,7 +877,7 @@ class AgentContext:
             if getattr(lamella, "defect", None) is not None
             else None,
             "poses": poses,
-            # The item document's nonce: patches echo it (see apply_item_patch).
+            # The item document's version: patches echo it (see apply_item_patch).
             "version": item_fields_version(lamella),
         }
 
@@ -1173,7 +1277,7 @@ class AgentContext:
         The full ``to_dict``, not a curated snapshot — the document is the
         contract for editing (you cannot patch what you cannot read). The
         ``version`` hashes the serialized content, so a write names exactly
-        the state it read: the config's nonce, refused as stale on mismatch.
+        the state it read: the config's version, refused as stale on mismatch.
         """
         from fibsem.applications.autolamella.server.events import to_plain
 
@@ -1430,12 +1534,7 @@ class AgentContext:
         result["available"] = True
         return result
 
-    def set_supervision(
-        self,
-        task_name: str,
-        supervise: bool,
-        supervisor: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:
         """Set whether ``task_name`` asks for supervision, in the live protocol.
 
         The workflow reads this at every decision point (never a snapshot), so
@@ -1444,18 +1543,9 @@ class AgentContext:
         GUI's own indicators refresh on the next task transition rather than
         instantly.
 
-        ``supervisor`` optionally sets who the task's questions are addressed
-        to ("human" or "agent") — display and watchdog semantics only; the
-        questions themselves are raised identically, the operator can always
-        answer first, and the designation shows nothing in the GUI unless the
-        agent server is running.
+        A supervised question goes to the operator and the agent alike, and the
+        first answer wins (FIB-1035): there is no saying whose it is.
         """
-        if supervisor not in (None, "human", "agent"):
-            return {
-                "available": True,
-                "applied": False,
-                "error": f"supervisor must be 'human' or 'agent', not {supervisor!r}",
-            }
         experiment = self._experiment
         protocol = getattr(experiment, "task_protocol", None) if experiment else None
         config = getattr(protocol, "workflow_config", None) if protocol else None
@@ -1466,14 +1556,11 @@ class AgentContext:
                 task.attention = (
                     Attention.supervised if supervise else Attention.automated
                 )
-                if supervisor is not None:
-                    task.supervisor = supervisor
                 return {
                     "available": True,
                     "applied": True,
                     "task_name": task_name,
                     "supervise": bool(supervise),
-                    "supervisor": getattr(task, "supervisor", "human"),
                 }
         return {
             "available": True,
@@ -1610,13 +1697,13 @@ class AgentContext:
         responder = self._responder
         if responder is None:
             return {"available": False, "pending": None}
-        request, nonce = responder.pending_question_and_nonce()
+        request, question_id = responder.pending_question_and_id()
         if request is None:
             return {"available": True, "pending": None}
         from fibsem.applications.autolamella.server.prompts import serialize_request
 
         payload = serialize_request(request)
-        payload["nonce"] = nonce
+        payload["question_id"] = question_id
         recorded = responder.recorded_question()
         if recorded is not None:
             # On the item's record as a proposal, and answered there: the same
@@ -1628,7 +1715,7 @@ class AgentContext:
                 "task_name": recorded[1],
                 "proposal_id": recorded[2],
             }
-        current = self._peek_current(responder, payload["type"], nonce)
+        current = self._peek_current(responder, payload["type"], question_id)
         if current is not None:
             payload["current"] = current
         if payload["type"] == "EditAlignmentArea" and payload.get("image") is None:
@@ -1653,7 +1740,7 @@ class AgentContext:
         return entry
 
     def _peek_current(
-        self, responder, request_type: str, nonce: int
+        self, responder, request_type: str, question_id: int
     ) -> Optional[Dict[str, Any]]:
         """The live half of the question — where the marker IS, not where it
         started.
@@ -1670,10 +1757,10 @@ class AgentContext:
         from fibsem.applications.autolamella.server.events import to_plain
 
         try:
-            peeked_nonce, value = responder.peek_live_answer().result(timeout=2.0)
+            peeked_question_id, value = responder.peek_live_answer().result(timeout=2.0)
         except Exception:
             return None
-        if peeked_nonce != nonce or value is None:
+        if peeked_question_id != question_id or value is None:
             return None
         try:
             return to_plain(value.to_dict())
@@ -1683,7 +1770,7 @@ class AgentContext:
     def answer_prompt(
         self,
         response: bool,
-        nonce: int,
+        question_id: int,
         value: Optional[Dict[str, Any]] = None,
         timeout: float = 10.0,
     ) -> Dict[str, Any]:
@@ -1691,7 +1778,7 @@ class AgentContext:
 
         Routed through the responder's own GUI-thread path, so agent and human
         answers share one first-writer-wins mechanism; ``applied`` is False when
-        nothing was pending or a human answered first. The ``nonce`` (from
+        nothing was pending or a human answered first. The ``question_id`` (from
         :meth:`pending_prompt`) names the question being answered: if that
         posting is gone — answered, withdrawn, or replaced — the result is
         ``stale`` and nothing was clicked.
@@ -1715,8 +1802,8 @@ class AgentContext:
         )
 
         recorded = responder.recorded_question()
-        _request, pending_nonce = responder.pending_question_and_nonce()
-        if recorded is not None and pending_nonce == int(nonce):
+        _request, pending_question_id = responder.pending_question_and_id()
+        if recorded is not None and pending_question_id == int(question_id):
             # Nothing was clicked. This question is decided, not answered: see
             # ``answer_via`` on the pending prompt.
             return {
@@ -1731,29 +1818,31 @@ class AgentContext:
 
         parsed = None
         if value is not None:
-            parsed, refusal = self._parse_answer_value(responder, int(nonce), value)
+            parsed, refusal = self._parse_answer_value(
+                responder, int(question_id), value
+            )
             if refusal is not None:
                 return refusal
 
         outcome = responder.submit_answer(
-            bool(response), nonce=int(nonce), value=parsed
+            bool(response), question_id=int(question_id), value=parsed
         )
         try:
             applied = bool(outcome.result(timeout=timeout))
         except StalePromptError:
             return {"available": True, "applied": False, "stale": True}
         result = {"available": True, "applied": applied, "stale": False}
-        if parsed is not None:
+        if getattr(outcome, "adjusted", parsed is not None):
             result["adjusted"] = True
         return result
 
     @staticmethod
-    def _parse_answer_value(responder, nonce: int, value: Any):
+    def _parse_answer_value(responder, question_id: int, value: Any):
         """Turn a wire ``value`` into the domain object for the pending question.
 
         Returns ``(parsed, None)`` on success or ``(None, refusal)`` — the
         refusal already shaped for :meth:`answer_prompt` to return. Validation
-        happens against the frozen pending request; the responder's own nonce
+        happens against the frozen pending request; the responder's own question id
         check on the GUI thread still guards the actual apply, so a question
         swap between here and there is refused as stale, never mis-applied.
         """
@@ -1766,8 +1855,8 @@ class AgentContext:
                 "invalid_value": message,
             }
 
-        request, pending_nonce = responder.pending_question_and_nonce()
-        if request is None or pending_nonce != nonce:
+        request, pending_question_id = responder.pending_question_and_id()
+        if request is None or pending_question_id != question_id:
             return None, {"available": True, "applied": False, "stale": True}
         type_name = type(request).__name__
         if not isinstance(value, dict):
@@ -1846,7 +1935,7 @@ class AgentContext:
             {
                 "name": summary.name,
                 "path": summary.path,
-                "created_at": summary.created_at,
+                "created_at": to_iso(summary.created_at),
                 "num_items": summary.num_lamella,
                 "available": summary.available,
                 "instrument_model": summary.instrument_model,

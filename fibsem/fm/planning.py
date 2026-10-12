@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Sequence, Tuple
+from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple
 
 from fibsem.imaging.tiling.geometry import PlaneRegion, plan_grid_over_regions
 from fibsem.structures import FibsemStagePosition
@@ -93,11 +93,17 @@ def to_fm_pose(
     """Re-pose a stage position for the fluorescence orientation.
 
     On a compustage this is a re-tilt and nothing else: x, y and z name the same ground
-    under the camera as under the beam, so `FibsemMicroscope.get_target_position` keeps
-    them and writes only the target orientation's r and t. Everything here rests on
-    that, which is why the guard is a raise rather than a comment -- on a stage that
-    reaches fluorescence by translating, every position would be wrong by the offset
-    between the two instruments, and wrong in a way that still looks like a grid.
+    at either pose, so the re-posed position keeps them and writes only the target
+    orientation's r and t. Everything here rests on that, which is why the guard is a
+    raise rather than a comment -- on a stage that reaches fluorescence by a long
+    traverse, every position would be wrong by the offset between the two
+    instruments, and wrong in a way that still looks like a grid.
+
+    It is the ground the beams saw, re-posed, and not yet where the stage stands to put
+    that ground under the objective: a compustage FM may have an origin, the offset of
+    the objective from the beams' coincidence point, which the stage travels by after
+    the flip. Relative arithmetic (`project_regions_to_fm_plane`) needs only the pose;
+    a position to drive to adds the origin (`plan_sparse_fm_overview`'s *fm_origin*).
 
     Args:
         position: Stage position at any orientation.
@@ -116,6 +122,20 @@ def to_fm_pose(
     posed.r = fm_orientation.r
     posed.t = fm_orientation.t
     return posed
+
+
+def _travelled(
+    position: FibsemStagePosition, by: Optional[FibsemStagePosition]
+) -> FibsemStagePosition:
+    """*position* moved by *by* along x, y and z; an axis *by* leaves unset stays."""
+    if by is None:
+        return position
+    moved = deepcopy(position)
+    for axis in ("x", "y", "z"):
+        delta = getattr(by, axis)
+        if delta:
+            setattr(moved, axis, getattr(moved, axis) + delta)
+    return moved
 
 
 def project_regions_to_fm_plane(
@@ -189,6 +209,7 @@ def plan_sparse_fm_overview(
     overlap: float,
     *,
     is_compustage: bool,
+    fm_origin: Optional[FibsemStagePosition] = None,
 ) -> SparseOverviewPlan:
     """Turn a selection on a beam overview into an FM overview run.
 
@@ -207,6 +228,10 @@ def plan_sparse_fm_overview(
         fov_y: FM tile height, in metres.
         overlap: Fractional overlap between adjacent tiles, in [0, 1).
         is_compustage: Whether the stage is a compustage.
+        fm_origin: The stage travel from the beams to the FM after the flip -- the
+            objective's offset from the beams' coincidence point, at the FM pose. Added
+            to the centre the stage is driven to; the regions are relative and do not
+            move. None, or an axis left unset, is no travel.
 
     Returns:
         A :class:`SparseOverviewPlan`.
@@ -225,8 +250,8 @@ def plan_sparse_fm_overview(
         is_compustage=is_compustage,
     )
     plan = plan_grid_over_regions(fm_regions, fov_x, fov_y, overlap)
-    centre_position = fm_projection.from_plane(
-        plan.centre_dx, plan.centre_dy, fm_base
+    centre_position = _travelled(
+        fm_projection.from_plane(plan.centre_dx, plan.centre_dy, fm_base), fm_origin
     )
     # Re-expressed against the grid centre rather than the base the caller happened to
     # draw against, so the regions and the tiles are in one frame: the display draws both

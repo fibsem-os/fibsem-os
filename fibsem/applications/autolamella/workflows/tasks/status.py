@@ -153,7 +153,6 @@ class HoldKind(str, Enum):
     """Who is holding the run."""
 
     question = "question"  # a supervised question is up, for the operator
-    agent = "agent"  # the same question, addressed to a connected agent
     # parked: nothing can run until a decision lands in the Review tab
     decision = "decision"
 
@@ -162,13 +161,12 @@ class HoldKind(str, Enum):
 class Hold:
     """The run is active and nothing is executing because someone has to act.
 
-    One value in place of the flags it replaced (``WAITING_FOR_USER_INTERACTION``,
-    ``WAITING_FOR_REVIEW`` and the watchdog's expired bit): who holds the run
-    and what releases it. ``AutoLamellaUI.hold`` carries it; None means the
-    run is not held. Written by whoever takes the hold -- the responder for a
-    question, the task manager for a park, the main window when it hands an
-    agent's question to the operator -- and read by the window chrome: border
-    colour, attention button, status-bar sentence.
+    One value in place of the flags it replaced (``WAITING_FOR_USER_INTERACTION``
+    and ``WAITING_FOR_REVIEW``): who holds the run and what releases it.
+    ``AutoLamellaUI.hold`` carries it; None means the run is not held. Written by
+    whoever takes the hold -- the responder for a question, the task manager for
+    a park -- and read by the window chrome: border colour, attention button,
+    status-bar sentence.
     """
 
     kind: HoldKind

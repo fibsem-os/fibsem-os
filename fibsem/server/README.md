@@ -34,14 +34,15 @@ or supplied with `--token`), sent as an `Authorization: Bearer <token>` header.
 A valid token grants the `read` scope (observation). The `hardware` scope —
 moves, acquisition, milling — must be armed explicitly (`--arm-hardware`);
 unarmed hardware calls are refused with a structured `403 scope_not_armed`.
-Hardware commands are serialized: a second concurrent command gets `409 busy`.
-`POST /stop_milling` is deliberately read-scope and lock-exempt — stopping is
-always allowed. `GET /capabilities` reports the armed scopes.
+A hardware command takes control of the microscope while it runs: when a run, a
+script or another command is in control it gets `409 microscope_busy`, naming who.
+`POST /stop_milling` never takes control — stopping is always allowed.
+`GET /capabilities` reports the armed scopes.
 
 The server binds `127.0.0.1` by default. Exposing it on the LAN
 (`--host 0.0.0.0`) is an explicit choice: the token then travels in cleartext
 HTTP, which keeps strangers out but is not sniff-proof — see the AutoLamella
-Agent Server design doc for the trust model.
+App Server design doc for the trust model.
 
 ### App route naming
 
@@ -109,9 +110,9 @@ pos = microscope.vertical_move(dy=5e-6)
 # Safe move with collision avoidance
 microscope.safe_absolute_stage_movement(FibsemStagePosition(x=0.0, y=0.0, z=0.004))
 
-# Orient sample flat to beam
-microscope.move_flat_to_beam(BeamType.ELECTRON)
-microscope.move_flat_to_beam(BeamType.ION)
+# Move to a named orientation ("SEM", "FIB", "MILLING", or "FM" on a compustage)
+microscope.move_to_orientation("SEM")
+microscope.move_to_orientation("FIB")
 ```
 
 ### Milling
@@ -159,6 +160,29 @@ state   = microscope.get_milling_state()    # MillingState enum
 seconds = microscope.estimate_milling_time() # float
 ```
 
+### Devices and beam settings
+
+Every device the microscope built (`microscope.devices`: `electron`, `ion`,
+`stage`, `chamber`, `manipulator`, FM parts) is served generically, the same
+routes the device server (`fibsem/server/devices.py`) serves:
+
+```python
+microscope.list_devices()                               # parameters + commands per device
+microscope.get_parameter("ion", "current")              # live read
+microscope.set_parameter("electron", "hfw", 150e-6)     # checked server-side, returns the value written
+microscope.parameter_metadata("ion", "current")         # limits, choices, settable
+microscope.call_command("ion", "blank")
+image = microscope.call_command("electron", "acquire")  # a FibsemImage
+
+# FibsemMicroscope's wrappers are kept, over the same routes
+microscope.set_beam_current(1e-9, BeamType.ION)         # PUT /devices/ion/current
+microscope.get_beam_settings(BeamType.ION)              # GET /beams/ion/beam_settings
+```
+
+Reads are `read` scope. Parameter writes and commands are `hardware` scope and
+take control of the microscope, except the `stop` and `stop_live` commands,
+which like `/stop_milling` are always allowed.
+
 ---
 
 ## API Reference
@@ -169,13 +193,24 @@ seconds = microscope.estimate_milling_time() # float
 | `POST` | `/acquire_image` | Acquire a fresh image |
 | `POST` | `/last_image` | Get last acquired image |
 | `POST` | `/acquire_chamber_image` | Chamber overview image |
+| `GET` | `/devices` | Every device: parameters (type, unit, limits, choices, settable) and commands |
+| `GET` | `/devices/{device}` | One device |
+| `GET` | `/devices/{device}/{parameter}` | Live read of a parameter |
+| `PUT` | `/devices/{device}/{parameter}` | Write a parameter (`{"value": ...}`) |
+| `GET` | `/devices/{device}/{parameter}/metadata` | Limits, choices, settable |
+| `POST` | `/devices/{device}/commands/{command}` | Run a command (`{"kwargs": {...}}`) |
+| `GET`/`PUT` | `/beams/{beam}/beam_settings` | A beam's settings as one group (`electron` or `ion`) |
+| `GET`/`PUT` | `/beams/{beam}/imaging_settings` | A beam's imaging settings |
+| `GET`/`PUT` | `/beams/{beam}/detector_settings` | A beam's detector settings |
+| `GET`/`PUT` | `/beams/{beam}/beam_system_settings` | A beam's system settings |
+| `GET`/`PUT` | `/microscope_state` | The whole microscope state |
 | `GET` | `/stage_position` | Current stage position |
 | `POST` | `/move_stage_absolute` | Absolute stage move |
 | `POST` | `/move_stage_relative` | Relative stage move |
 | `POST` | `/stable_move` | Beam-corrected lateral move |
 | `POST` | `/vertical_move` | Vertical stage move |
 | `POST` | `/safe_absolute_stage_movement` | Safe move with collision avoidance |
-| `POST` | `/move_flat_to_beam` | Orient flat to beam |
+| `POST` | `/move_to_orientation` | Move to a named orientation |
 | `POST` | `/setup_milling` | Configure milling settings |
 | `POST` | `/draw_patterns` | Draw milling patterns |
 | `POST` | `/run_milling` | Run milling (blocking) |

@@ -34,7 +34,10 @@ image = acquire.acquire_image(microscope, ImageSettings(hfw=80e-6, beam_type=Bea
 configuration by default) and returns the microscope and its settings. The
 `fibsem.acquire`, `fibsem.imaging` and `fibsem.milling` modules provide the
 higher-level operations, and every `FibsemMicroscope` method is available
-directly. Use `acquire.acquire_image(microscope, settings)` rather than the
+directly. The microscope's beams, stage and other hardware are devices
+(`microscope.devices`), whose parameters describe their own limits and choices;
+[Devices](devices.md) covers them. Do not use the string-key
+`microscope.get("key")` and `microscope.set(...)`: they are deprecated. Use `acquire.acquire_image(microscope, settings)` rather than the
 microscope's own `acquire_image`: the method returns the raw frame and
 ignores `save=True`; the module function applies autocontrast and gamma and
 writes the file.
@@ -76,14 +79,14 @@ the full contract; `examples/scripts/` contains three working examples.
 
 ## Plugins
 
-fibsemOS loads three entry-point groups at start: `fibsem.patterns`,
-`fibsem.strategies` and `fibsem.tasks`. A plugin is a Python package that
+fibsemOS loads four entry-point groups: `fibsem.patterns`,
+`fibsem.strategies`, `fibsem.tasks` and `fibsem.drivers`. A plugin is a Python package that
 declares one or more of these in its `pyproject.toml` and is installed into
 the same environment as fibsemOS. No registration calls or files in the
 fibsem tree are needed; the application discovers it on the next start.
 
 The [fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example)
-repository is a template covering all three groups. It includes tests that
+repository is a template covering the first three groups. It includes tests that
 check the contract, a CI workflow that installs against fibsemOS `main` so
 breaking changes are detected early, and a README describing how to rename
 it. Its "When nothing shows up" section covers the diagnostic steps.
@@ -91,20 +94,32 @@ it. Its "When nothing shows up" section covers the diagnostic steps.
 Each group contributes one kind of object:
 
 - **A pattern** (`fibsem.patterns`): a subclass of `BasePattern` from
-  `fibsem.milling.patterning.patterns2` whose `define()` returns the shapes
+  `fibsem.milling.patterning.base` whose `define()` returns the shapes
   to mill. It appears in the pattern list of every milling stage.
 - **A strategy** (`fibsem.strategies`): how a pattern is milled, for example
   in N passes. It appears in the strategy list of every stage.
 - **A task** (`fibsem.tasks`): an `AutoLamellaTask` with its configuration
   class, as described in the next section. It appears in the Add Task
   dialog.
+- **A microscope driver** (`fibsem.drivers`): a function returning a
+  `DriverEntry` (`fibsem/drivers/registry.py`) that names a
+  `FibsemMicroscope` subclass, its manufacturer, its defaults, and how it
+  builds each type of device. A configuration naming that manufacturer
+  connects through it, and a `hardware.devices` entry naming it as its
+  `driver` is built by it. A driver can also build devices only, with no
+  microscope class, such as a manipulator on its own controller.
+  [Adding a driver](devices.md#adding-a-driver) shows one that adds a device type.
+
+When a built-in, a runtime registration and a plugin claim the same name, the
+built-in is used, then the runtime registration, then the plugin.
 
 Three constraints on loading. Each produces no error when violated, so the
 example's tests check them:
 
 1. **Pattern modules are imported while `fibsem.milling.base` is only
-   partly initialised.** Import `BasePattern` from `patterns2`, not from the
-   `fibsem.milling.patterning` package, and import nothing that depends on
+   partly initialised.** Import `BasePattern` from
+   `fibsem.milling.patterning.base`, not from the `fibsem.milling.patterning`
+   package (the older `patterns2` path still works), and import nothing that depends on
    `fibsem.milling.base`, which includes everything under
    `fibsem.applications`. A pattern and a task defined in the same module
    breaks the pattern. Strategies and tasks have no such restriction.
@@ -162,44 +177,68 @@ types that round-trip through YAML.
 
 ## Supporting a microscope
 
-The interface is `FibsemMicroscope` (`fibsem/microscope.py`), an abstract
-class covering acquisition, movement, milling and state. Once a backend
-implements it and is registered, the workflows, UI and server work
-unchanged.
+A backend is two parts: a `FibsemMicroscope` subclass (`fibsem/microscope.py`),
+the coordinator covering acquisition, movement, milling and state, and the
+devices it builds, one class per device type in
+`fibsem/drivers/<driver>/devices.py` (a `Beam`, a `Stage`, a `Chamber`, ...).
+Once a backend implements both and is registered, the workflows, UI and server
+work unchanged.
+
+- **Devices.** Subclass the vendor-neutral classes in `fibsem/devices/` and
+  implement each parameter as `read_<name>`/`write_<name>`/`metadata_<name>`
+  methods, as [Adding a device type](devices.md#adding-a-device-type)
+  describes. `fibsem/drivers/demo/devices.py` is the reference. The driver's
+  `DriverEntry.devices` maps each device type to its build function, and the
+  microscope class builds its devices from the configuration's
+  `hardware.devices` entries with `fibsem.devices.entries`
+  (`resolve_system_devices`, then `build_device_entries`), as
+  `DemoMicroscope._build_devices` does. A string key the backend's devices
+  cover is routed to them. A new backend needs no `_get`/`_set`: the base
+  class's read a key no device answers as None and do nothing for a write (the
+  Demo has none); do not add keys to them.
 
 - **Reference implementations.** `DemoMicroscope` in
-  `fibsem/microscopes/simulator.py` is the complete, hardware-free
-  reference. `fibsem/microscopes/tescan.py` shows a vendor SDK behind the
-  same interface. `microscopes/zeiss.py` is an empty placeholder awaiting a
+  `fibsem/drivers/demo/microscope.py` is the complete, hardware-free
+  reference. `fibsem/drivers/tescan/microscope.py` shows a vendor SDK behind the
+  same interface. `fibsem/drivers/zeiss/` is an empty placeholder awaiting a
   SerialFIB migration; a Zeiss backend should be built there rather than in
-  a new file.
-- **Registration.** Implementing the class is not sufficient. The
-  manufacturer dispatch is hard-coded in four places, and a missing entry
-  raises `NotImplementedError` at connection time, not at import:
-  `fibsem/manufacturers.py` (the constant and alias), `setup_session()` in
-  `fibsem/utils.py` (the branch that constructs the class),
-  `fibsem/configuration.py` (the accepted manufacturers), and
+  a new package.
+- **Registration.** Implementing the class is not sufficient. A driver is
+  a `DriverEntry` in the registry (`fibsem/drivers/registry.py`): a
+  module-level `DRIVER` record listed in `_BUILT_IN` for a backend in the
+  fibsem tree, or a `fibsem.drivers` entry point for one in its own package.
+  A manufacturer without one raises `NotImplementedError` at connection
+  time, not at import. The first-run wizard is still code:
   `fibsem/guided_setup.py` (`MANUFACTURERS`, and a `MicroscopeModel` per
-  instrument, which is what the first-run wizard offers).
+  instrument), with the constant and alias in `fibsem/manufacturers.py`.
 - **Configuration.** Instruments are described by a YAML file in
-  `fibsem/config/`; `fibsem-generate-config` scaffolds one. For a
-  manufacturer it does not know, scaffold a Demo configuration and edit it.
+  `fibsem/config/`; the setup wizard creates one. For a manufacturer it
+  does not know, start from a Demo configuration and edit it. The devices
+  are listed under `hardware.devices`; see
+  [Configuring devices](devices.md#configuring-devices).
 - **Verification.** Connect with `utils.setup_session()` and run the tests
   that exercise the Demo through the same interface (`tests/test_acquire.py`,
-  `tests/test_movement.py`, `tests/test_microscope.py`), then connect through
+  `tests/test_movement.py`, `tests/test_microscope.py`, and
+  `tests/test_microscope_contract.py`, which writes down what every backend
+  promises), then connect through
   the application. Not every abstract method needs to work at first:
   acquisition and stage movement are the prerequisites for the rest, and
   unimplemented methods can raise until their subsystem is addressed.
 
 ### Fluorescence microscopes
 
-Subclass `FluorescenceMicroscope` (`fibsem/fm/microscope.py`), which covers
-the objective, the filter set, the camera and acquisition.
-`SimulatedFluorescenceMicroscope` in `fibsem/microscopes/simulator.py` is
-the hardware-free reference, and the Thermo Fisher and Odemis backends in
-`fibsem/fm/` are the two hardware implementations. This interface is under
-active development and is expected to change; open an issue before building
-on it.
+An FM is devices too: a `Camera`, a `LightSource`, a `FilterSet` and an
+`Objective` (`fibsem/devices/fm.py`), filling the four roles of an `FM`
+device that acquires channels and z-stacks. Implement the four parts; the
+`FM` device and `microscope.fm` (`FluorescenceMicroscope`,
+`fibsem/fm/microscope.py`) are built on them. The simulated parts in
+`fibsem/drivers/demo/devices.py` are the hardware-free reference, and
+`autoscript_fm.py` and `odemis_fm.py` beside it are the two hardware
+implementations. An FM on its own computer needs no driver on the
+microscope's side: serve its parts with the device server and configure the
+FM as `driver: remote` ([Devices on another computer](devices.md#devices-on-another-computer)).
+This interface is under active development and is expected to change; open
+an issue before building on it.
 
 ## Segmentation models
 

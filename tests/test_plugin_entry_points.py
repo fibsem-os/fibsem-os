@@ -1,14 +1,14 @@
 """The plugin entry point contract.
 
-fibsem exposes three extension points -- ``fibsem.patterns``,
-``fibsem.strategies`` and ``fibsem.tasks`` -- and for patterns and strategies a
+fibsem exposes extension points -- ``fibsem.patterns``, ``fibsem.strategies``,
+``fibsem.tasks`` and ``fibsem.drivers`` -- and for patterns and strategies a
 packaged plugin is the *only* way in. Nothing in the test suite exercised that
 path, so a refactor could break every third-party plugin in existence without a
 single test failing; the breakage would surface months later on a user's
 microscope, as a class that silently fails to appear.
 
 These tests close that gap. ``tests/fixtures/plugin`` is a package that
-declares all three groups the way a real plugin does; CI installs it before
+declares every group the way a real plugin does; CI installs it before
 running the suite, and the tests assert it resolves through fibsem's own
 registries -- not merely that it imports.
 
@@ -35,6 +35,8 @@ STRATEGY_NAME = "Fixture Strategy"
 TASK_TYPE = "FIXTURE_TASK"
 CLASHING_PATTERN_NAME = "Rectangle"  # a built-in name the fixture claims on purpose
 FAILING_ENTRY_POINTS = ("wrong_base_class", "missing_module")  # declared to fail
+DRIVER_MANUFACTURER = "Fixture Microscopes"
+
 
 def _fixture_installed() -> bool:
     """Detect the fixture without importing it.
@@ -44,21 +46,12 @@ def _fixture_installed() -> bool:
     are ``@cache``d, so the empty result is locked in for the rest of the
     process and every assertion below fails for the wrong reason. Asking the
     entry point metadata is both safer and a more direct test of the contract.
-
-    Guard on the version, not on ImportError: ``importlib.metadata`` exists
-    from 3.8, so a try/except import succeeds on 3.8/3.9 and then fails at the
-    call with ``entry_points() got an unexpected keyword argument 'group'`` --
-    the ``group=`` filter only arrived in 3.10. This is the same check the
-    plugin loaders themselves use.
     """
-    import sys
+    from importlib.metadata import entry_points
 
-    if sys.version_info < (3, 10):
-        from importlib_metadata import entry_points
-    else:
-        from importlib.metadata import entry_points
-
-    return any(ep.name == "fixture_pattern" for ep in entry_points(group="fibsem.patterns"))
+    return any(
+        ep.name == "fixture_pattern" for ep in entry_points(group="fibsem.patterns")
+    )
 
 
 _INSTALLED = _fixture_installed()
@@ -202,7 +195,7 @@ def test_shadowed_plugin_is_not_silently_reported_as_the_builtin():
     "Rectangle" keeps meaning the built-in even with the plugin installed.
     """
     from fibsem.milling.patterning import get_pattern
-    from fibsem.milling.patterning.patterns2 import RectanglePattern
+    from fibsem.milling.patterning.patterns import RectanglePattern
 
     assert isinstance(get_pattern(CLASHING_PATTERN_NAME), RectanglePattern)
 
@@ -245,7 +238,9 @@ def test_load_records_carry_the_providing_distribution():
     """Which install a plugin came from, for a machine with several envs."""
     from fibsem.applications.autolamella.workflows.tasks import get_task_plugin_records
 
-    record = next(r for r in get_task_plugin_records() if r.entry_point == "fixture_task")
+    record = next(
+        r for r in get_task_plugin_records() if r.entry_point == "fixture_task"
+    )
     assert record.distribution == "fibsem-test-plugin"
     assert record.version == "0.0.0"
 
@@ -295,7 +290,7 @@ def test_failed_entry_point_becomes_a_row_that_spells_out_the_consequence():
         assert extension.distribution == "fibsem-test-plugin"
 
 
-def test_report_lists_the_fixture_across_all_three_groups():
+def test_report_lists_the_fixture_across_every_group():
     from fibsem.plugins.report import ExtensionSource, collect_extensions, render_report
 
     groups = collect_extensions()
@@ -303,10 +298,11 @@ def test_report_lists_the_fixture_across_all_three_groups():
         "fibsem.patterns",
         "fibsem.strategies",
         "fibsem.tasks",
+        "fibsem.drivers",
     ]
 
     text = render_report(groups)
-    for name in (PATTERN_NAME, STRATEGY_NAME, TASK_TYPE):
+    for name in (PATTERN_NAME, STRATEGY_NAME, TASK_TYPE, DRIVER_MANUFACTURER):
         assert name in text
 
     # Failures are in the text too, which is the difference between this and
@@ -315,8 +311,65 @@ def test_report_lists_the_fixture_across_all_three_groups():
     assert text.count("failed") >= 1
 
     # Built-ins are counted but not listed unless asked for.
-    assert "fibsem.milling.patterning.patterns2.RectanglePattern" not in text
-    assert "fibsem.milling.patterning.patterns2.RectanglePattern" in render_report(
-        groups, show_builtins=True
+    assert "fibsem.milling.patterning.patterns.rectangle.RectanglePattern" not in text
+    assert (
+        "fibsem.milling.patterning.patterns.rectangle.RectanglePattern"
+        in render_report(groups, show_builtins=True)
     )
     assert any(e.source is ExtensionSource.BUILTIN for e in groups[0].extensions)
+
+
+# ---------------------------------------------------------------------------
+# fibsem.drivers
+# ---------------------------------------------------------------------------
+
+
+def test_driver_plugin_resolves_through_the_registry():
+    from fibsem.drivers.demo.microscope import DemoMicroscope
+    from fibsem.drivers.registry import default_configuration_values, get_driver
+
+    entry = get_driver(DRIVER_MANUFACTURER)
+    assert entry.load() is DemoMicroscope
+    assert default_configuration_values()[DRIVER_MANUFACTURER]["ion-column-tilt"] == 54
+
+
+def test_driver_plugin_connects_through_setup_session():
+    """The whole path a plugin driver is for: a configuration naming its manufacturer."""
+    from fibsem import utils
+    from fibsem.drivers.demo.microscope import DemoMicroscope
+
+    microscope, _ = utils.setup_session(
+        manufacturer=DRIVER_MANUFACTURER, setup_logging=False
+    )
+    assert type(microscope) is DemoMicroscope
+
+
+def test_driver_plugins_record_what_they_could_not_register():
+    from fibsem import manufacturers
+    from fibsem.drivers.registry import get_driver, get_driver_plugin_records
+
+    records = {r.entry_point: r for r in get_driver_plugin_records()}
+
+    assert records["fixture_driver"].loaded
+    assert records["fixture_driver"].distribution == "fibsem-test-plugin"
+    # Loads, and the built-in is still the Demo driver.
+    assert records["clashing_driver"].name == manufacturers.DEMO
+    assert records["not_a_record"].error == "returned str, not a DriverEntry"
+    assert get_driver(manufacturers.DEMO).microscope_class == (
+        "fibsem.drivers.demo.microscope:DemoMicroscope"
+    )
+
+
+def test_the_report_says_why_a_driver_plugin_is_inactive():
+    from fibsem.plugins.report import collect_extensions
+
+    drivers = next(g for g in collect_extensions() if g.group == "fibsem.drivers")
+    rows = {e.target: e for e in drivers.extensions}
+
+    fixture = rows["fibsem.drivers.demo.microscope:DemoMicroscope"]
+    assert fixture.name == DRIVER_MANUFACTURER and fixture.problem is None
+    clashing = rows["fibsem_test_plugin.drivers:NotADriver"]
+    assert clashing.problem.startswith("name taken by a built-in")
+    assert rows["fibsem_test_plugin.drivers:not_a_record"].problem == (
+        "returned str, not a DriverEntry - nothing was registered"
+    )

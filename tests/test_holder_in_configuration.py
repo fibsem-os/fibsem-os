@@ -18,8 +18,8 @@ import yaml
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes import _stage as stage_module
-from fibsem.microscopes._stage import _resolve_configured_holder
+from fibsem.services import sample_handling as stage_module
+from fibsem.services.sample_handling import _resolve_configured_holder
 from fibsem.structures import (
     FibsemStagePosition,
     GridSlot,
@@ -324,15 +324,24 @@ def test_a_configuration_that_names_holders_wins_over_the_live_one():
     incoming = SystemSettings.from_dict(utils.load_yaml(path))
     incoming.stage.holders = {chosen.name: chosen}
     incoming.stage.active_holder = chosen.name
+    announced = []
+    microscope.holder_changed.connect(announced.append)
     microscope.apply_configuration(incoming)
+
+    # Said on the microscope, which outlives the `Stage` that was just rebuilt: what
+    # draws the slots has to hear that they are now another holder's.
+    assert announced == [microscope.sample_handling.holder]
 
     assert microscope.system.stage.active_holder == "Flat Shuttle"
     assert set(microscope.system.stage.holders) == {"Flat Shuttle"}
     # And the running Stage moves with it: a configuration record naming one holder
     # while the Stage still drives to another's slots is the disagreement this exists
     # to rule out.
-    assert microscope._stage.holder is microscope.system.stage.holders["Flat Shuttle"]
-    assert microscope._stage.holder._parent is microscope
+    assert (
+        microscope.sample_handling.holder
+        is microscope.system.stage.holders["Flat Shuttle"]
+    )
+    assert microscope.sample_handling.holder._parent is microscope
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +379,7 @@ def test_setting_the_stage_pre_tilt_sets_the_holders():
 
 def test_a_stage_with_no_holder_keeps_its_configured_pre_tilt():
     """Every `StageSystemSettings` built from a configuration is in this state until
-    `_create_sample_stage` resolves a holder. Answering 0.0 here would turn a 35
+    `bind_sample_handling` resolves a holder. Answering 0.0 here would turn a 35
     degree site flat for the whole of that window."""
     stage = _stage_settings(shuttle_pre_tilt=35.0)
     assert stage.shuttle_pre_tilt == 35.0
@@ -535,7 +544,7 @@ def test_the_holder_no_longer_reads_the_stage():
 
 
 def test_the_compustage_holder_states_its_pre_tilt():
-    """It is built in `_create_sample_stage` rather than resolved from the
+    """It is built in `bind_sample_handling` rather than resolved from the
     configuration, so it is the one holder that does not pass through
     `_resolve_configured_holder` and has to be given a pre-tilt explicitly.
 
@@ -544,13 +553,13 @@ def test_the_compustage_holder_states_its_pre_tilt():
     exception inside a slot is `qFatal` -- the whole process aborts on connect. The
     non-UI suite did not see it; `tests/ui` did.
     """
-    from fibsem.microscopes._stage import _create_sample_stage
+    from fibsem.services.sample_handling import bind_sample_handling
 
     path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
     microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
-    assert microscope.stage_is_compustage, "fixture no longer exercises the compustage"
+    assert microscope._fm_is_a_pose(), "fixture no longer exercises the compustage"
 
-    holder = _create_sample_stage(microscope).holder
+    holder = bind_sample_handling(microscope).holder
 
     assert holder.pre_tilt is not None
     assert holder.pre_tilt == microscope.system.stage.shuttle_pre_tilt

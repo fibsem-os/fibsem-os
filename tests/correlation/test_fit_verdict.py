@@ -131,7 +131,7 @@ def test_the_bad_runs_are_ambiguous_in_depth_and_lose_their_worst_pairs():
     rejected = reject_outliers(r["fib"], r["fm"], _prior(r), **_sizes(r))
     assert 5 in rejected  # FM 6, 15 µm off
     assert len(r["fib"]) - len(rejected) >= 4
-    assert v.headline == "Poor fit. Do not continue."
+    assert v.headline == "Poor fit (not recommended to continue)."
     assert "cannot say which way is deeper" in v.reasons[0].text
     assert "depths do not agree" in v.reasons[0].text  # scattered, not coplanar
     assert v.reasons[1].pair == 5 and "was removed" in v.reasons[1].text

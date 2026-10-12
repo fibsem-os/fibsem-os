@@ -22,7 +22,7 @@ from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import AutoFocusResult, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
-from fibsem.structures import field_meta
+from fibsem.structures import InsertableDeviceState, field_meta
 
 
 @dataclass
@@ -260,7 +260,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         try:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             result.save(
-                path=os.path.join(self.lamella.path, "autofunctions"),
+                path=os.path.join(self.output_dir, "autofunctions"),
                 name=f"{self.task_name}_autofocus_{ts}",
             )
         except Exception as e:
@@ -308,7 +308,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
     def _move_to_objective_position(self):
         # move objective to saved position
         self.log_status_message("MOVE_OBJECTIVE", "Moving Objective to position...")
-        if not self.microscope.fm.objective.state == "Inserted":
+        if self.microscope.fm.objective.state is not InsertableDeviceState.INSERTED:
             logging.warning(
                 "Objective is not inserted. Inserting the objective before acquiring fluorescence images."
             )

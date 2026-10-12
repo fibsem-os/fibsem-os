@@ -14,6 +14,13 @@ The entries below were first written into the v0.5.2 section, after v0.5.2rc2 wa
 and so describe work that is not in v0.5.2. Everything else since v0.5.2 still needs
 writing up.
 
+### Requirements
+
+- **Python 3.10 or newer is required.** 0.5.3 is the last release that supports
+  Python 3.8 and 3.9, and pip on those versions keeps installing it. Windows 7
+  cannot run Python 3.10: a Windows 7 support PC can stay on 0.5.3, or fibsemOS can
+  run on a Windows 10 or newer computer on the microscope network.
+
 ### Workflow (early access)
 
 - **Every task records what it did.** A task that proposes something (Setup
@@ -145,6 +152,29 @@ writing up.
   from the canvas, so canvas overlays (milling patterns, points, the ruler) are not in
   it.
 
+### Microscope tab
+
+- **The quad view's fourth cell has pages**, in place of the empty "No Data" panel. The
+  arrows in its title step from one page to the next.
+- **Chamber: a drawing of the stage and the beams.** It is drawn from the stage position
+  the Microscope tab already reads and from the configuration, not from a camera, so it
+  works on every microscope. A side view shows the stage tilt and the two columns, turned
+  round when the stage is a half turn from its reference. A map of the stage from above
+  shows the travel limits, the calibrated holder slots with their grid boundaries, the
+  holder as a square round them, a separate station such as an offset fluorescence
+  microscope, the lamellae and the stage. One fills the cell and the other sits in the
+  corner; click the corner to swap them. The map has three zoom steps (travel, holder,
+  grid), on the − and + buttons or the wheel. At holder zoom it shows the whole holder
+  while the stage is on it, and anything off the map gets an arrow at its edge. The
+  holder's square is drawn from the slots, not measured: a holder file has no outline.
+- **Overview: the newest overviews of the grid the stage is on**, with that grid's
+  lamellae, the stage and the grid's edge marked. It follows the stage from grid to grid,
+  and the grid selector holds it on one. Chips switch between the grid's views. Overviews
+  from grid tasks and from the Overview tab both appear, as soon as they are saved; one
+  from the Overview tab is placed on the grid it was taken over, or listed under "Not on
+  a grid" when no grid can be found for it. Clicking a lamella selects it. Nothing on the
+  page moves the stage. Overviews from the fluorescence Overview tab are not shown yet.
+
 ### Changes to what v0.5.2 shipped
 
 - **Grid boundaries and holder slot markers are drawn when the holder has a calibrated
@@ -154,6 +184,8 @@ writing up.
 - **The "Report an Issue" bug reporter and user scripts are on for everyone**, and their
   flags are gone. In v0.5.2 both were opt-in. A user script still has the application's
   access to the microscope and none of its checks, so read one before running it.
+- **AutoScript 4.9 or later is required**, up from 4.7. With an older AutoScript the
+  ThermoFisher microscope is unavailable, and the connection error names the version found.
 
 ## v0.5.3 (30/09/2026)
 

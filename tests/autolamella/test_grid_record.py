@@ -16,7 +16,9 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
     Lamella,
 )
-from fibsem.microscopes._stage import DemoSampleLoader, SampleGrid, _create_sample_stage
+from fibsem.services.sample_handling import bind_sample_handling
+from fibsem.structures import SampleGrid
+from tests.fixtures.demo_stage import demo_grid_loader
 
 
 def _experiment(tmp_path) -> Experiment:
@@ -162,9 +164,9 @@ class TestLamellaLink:
 class TestSyncFromInventory:
     def _compustage(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = True
-        microscope._stage = _create_sample_stage(microscope)
-        microscope._stage.loader = DemoSampleLoader(
+        microscope.stage_device.compustage = True
+        microscope.sample_handling = bind_sample_handling(microscope)
+        microscope.sample_handling.magazine = demo_grid_loader(
             microscope, occupied=(1, 3), names={3: "grid-cedar"}
         )
         return microscope
@@ -172,44 +174,46 @@ class TestSyncFromInventory:
     def test_creates_a_record_per_present_grid(self, tmp_path):
         microscope = self._compustage()
         exp = _experiment(tmp_path)
-        added = exp.sync_grids_from_inventory(microscope._stage)
+        added = exp.sync_grids_from_inventory(microscope.sample_handling)
         assert [g.name for g in added] == ["Grid-01", "grid-cedar"]
         assert [g.name for g in exp.grids] == ["Grid-01", "grid-cedar"]
 
     def test_is_idempotent_and_keeps_history(self, tmp_path):
         microscope = self._compustage()
         exp = _experiment(tmp_path)
-        exp.sync_grids_from_inventory(microscope._stage)
+        exp.sync_grids_from_inventory(microscope.sample_handling)
         exp.get_grid_by_name("Grid-01").quality.verdict = GridQuality.GOOD
-        assert exp.sync_grids_from_inventory(microscope._stage) == []
+        assert exp.sync_grids_from_inventory(microscope.sample_handling) == []
         assert exp.get_grid_by_name("Grid-01").quality.verdict is GridQuality.GOOD
 
     def test_a_record_exists_before_its_grid_is_in_the_beam(self, tmp_path):
         microscope = self._compustage()
         exp = _experiment(tmp_path)
-        exp.sync_grids_from_inventory(microscope._stage)
-        assert microscope._stage.loaded_grids == []
+        exp.sync_grids_from_inventory(microscope.sample_handling)
+        assert microscope.sample_handling.loaded_grids == []
         assert exp.get_grid_by_name("grid-cedar") is not None
 
     def test_fixed_holder_syncs_named_slots(self, tmp_path):
         microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.stage_is_compustage = False
-        microscope._stage = _create_sample_stage(microscope)
-        microscope._stage.assign_grid(
+        microscope.stage_device.compustage = False
+        microscope.sample_handling = bind_sample_handling(microscope)
+        microscope.sample_handling.assign_grid(
             "Slot-02", SampleGrid(name="grid-birch"), persist=False
         )
         exp = _experiment(tmp_path)
-        exp.sync_grids_from_inventory(microscope._stage)
+        exp.sync_grids_from_inventory(microscope.sample_handling)
         assert [g.name for g in exp.grids] == ["grid-birch"]
 
     def test_a_grid_that_leaves_keeps_its_record(self, tmp_path):
         microscope = self._compustage()
         exp = _experiment(tmp_path)
-        exp.sync_grids_from_inventory(microscope._stage)
-        microscope._stage.loader.assign_grid(
+        exp.sync_grids_from_inventory(microscope.sample_handling)
+        microscope.sample_handling.magazine.assign_grid(
             "Slot-01", None
         )  # taken out of the magazine
-        exp.sync_grids_from_inventory(microscope._stage)
+        exp.sync_grids_from_inventory(microscope.sample_handling)
         assert exp.get_grid_by_name("Grid-01") is not None
-        present = {e.name for e in microscope._stage.grid_inventory() if e.present}
+        present = {
+            e.name for e in microscope.sample_handling.grid_inventory() if e.present
+        }
         assert "Grid-01" not in present

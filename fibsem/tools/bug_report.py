@@ -322,7 +322,7 @@ def build_bug_report_bundle(
                 ext = os.path.splitext(path)[1].lower()
                 try:
                     if ext in _SCRUBBED_EXTENSIONS:
-                        with open(path, "r", encoding="utf-8", errors="replace") as f:
+                        with open(path, encoding="utf-8", errors="replace") as f:
                             zf.writestr(arcname, scrub_text(f.read()))
                     else:
                         zf.write(path, arcname)

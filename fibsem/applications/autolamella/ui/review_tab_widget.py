@@ -15,7 +15,7 @@ no defer button on purpose: items commit independently, so walking away is
 deferral.
 
 Every action here is self-contained and never touches hardware. The one write
-path is ``Experiment.decide``; the agent server's decide endpoint is the same
+path is ``Experiment.decide``; the App Server's decide endpoint is the same
 client of the same function, so the tab owns no state a decision could be
 lost in -- the inbox is re-derived from the experiment on every refresh.
 """
@@ -25,7 +25,6 @@ from __future__ import annotations
 import logging
 import math
 import os
-import time
 from copy import deepcopy
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Type, Union
@@ -98,6 +97,8 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
 )
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE
+from fibsem.util.durations import format_duration_in_words, format_time_ago
+from fibsem.util.timestamps import format_time, from_posix, now, to_aware, to_datetime
 
 __all__ = [
     "REVIEW_RENDERERS",
@@ -166,24 +167,17 @@ def author_label(author: Author, experiment: Optional[Experiment]) -> str:
     return author.label
 
 
-def clock(timestamp: Optional[float]) -> str:
-    if not timestamp:
-        return ""
-    return datetime.fromtimestamp(timestamp).strftime("%H:%M")
+def clock(timestamp) -> str:
+    """A proposal's or decision's time, in the viewer's zone; "" when it has none."""
+    return (format_time(timestamp, "%H:%M") or "") if timestamp else ""
 
 
-def age(timestamp: Optional[float]) -> str:
-    """How long ago, coarsely: "3 min", "2 h", "1 d"."""
-    if not timestamp:
+def age(timestamp) -> str:
+    """How long ago, coarsely: "3 min ago", "2 h ago", "1 d ago"."""
+    when = to_aware(timestamp) if timestamp else None
+    if when is None:
         return ""
-    seconds = max(0.0, time.time() - timestamp)
-    if seconds < 60:
-        return "just now"
-    if seconds < 3600:
-        return f"{int(seconds // 60)} min"
-    if seconds < 86400:
-        return f"{int(seconds // 3600)} h"
-    return f"{int(seconds // 86400)} d"
+    return format_time_ago((now() - when).total_seconds())
 
 
 def delta_label(proposal: Proposal, decision: Optional[Decision] = None) -> str:
@@ -299,7 +293,7 @@ def decided_proposals(experiment: Experiment) -> List[tuple]:
                         decided.append((item, task_name, p, False))
                 else:
                     decided.append((item, task_name, p, True))
-    decided.sort(key=lambda e: e[2].current.timestamp, reverse=True)
+    decided.sort(key=lambda e: e[2].current.timestamp or from_posix(0.0), reverse=True)
     return decided
 
 
@@ -569,10 +563,17 @@ class TaskResultReviewRenderer(ReviewRenderer):
     def _took(self) -> str:
         """How long the run took, or "" when the record does not say."""
         p = self._proposal.provenance if self._proposal else {}
-        started, ended = p.get("started_at"), p.get("ended_at")
-        if isinstance(started, (int, float)) and isinstance(ended, (int, float)):
-            return _duration(ended - started)
-        return ""
+        # ISO with offset, or the POSIX floats older proposals hold (FIB-1197)
+        started, ended = (
+            to_datetime(p.get("started_at")),
+            to_datetime(p.get("ended_at")),
+        )
+        if started is None or ended is None:
+            return ""
+        try:
+            return format_duration_in_words((ended - started).total_seconds())
+        except TypeError:  # one with a zone, one without: not comparable
+            return ""
 
     # -- ReviewRenderer ------------------------------------------------------
 
@@ -1538,15 +1539,6 @@ class OverviewPositionsReviewRenderer(TaskResultReviewRenderer):
                     "Connect a microscope to place positions · "
                     + self.line.text().lower()
                 )
-
-
-def _duration(seconds: float) -> str:
-    seconds = max(0.0, float(seconds))
-    if seconds < 60:
-        return f"{seconds:.0f} s"
-    if seconds < 3600:
-        return f"{seconds / 60:.1f} min"
-    return f"{seconds / 3600:.1f} h"
 
 
 class _UnknownKindRenderer(ReviewRenderer):

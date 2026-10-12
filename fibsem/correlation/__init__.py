@@ -5,8 +5,3 @@ from .correlation_v2 import (
     save_correlation_data,
 )
 from .io import load_and_parse_fib_image, parse_coordinates
-from .util import (
-    multi_channel_get_z_guass,
-    multi_channel_zyx_targeting,
-)
-

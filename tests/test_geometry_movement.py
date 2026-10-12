@@ -10,6 +10,7 @@ The pre-extraction formulae themselves are pinned in test_view_corrected_movemen
 and the vertical-move physics in test_vertical_move.py.
 """
 
+import dataclasses
 import itertools
 import os
 from copy import deepcopy
@@ -19,6 +20,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.drivers.autoscript.microscope import ThermoMicroscope
+from fibsem.drivers.demo.simulator import DemoMicroscope
 from fibsem.geometry.movement import (
     apply_delta,
     fib_offset_after_sem_move,
@@ -27,8 +30,6 @@ from fibsem.geometry.movement import (
     vertical_move_delta,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.microscopes.autoscript import ThermoMicroscope
-from fibsem.microscopes.simulator import DemoMicroscope
 from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
 
 # -128 is the compustage FIB orientation at the default pretilt of 0
@@ -41,19 +42,16 @@ SHARED_MOVES = (
     "stable_move",
     "vertical_move",
     "project_stable_move",
-    "_vertical_move_from_fib",
-    "_vertical_move_from_sem",
     "_y_corrected_stage_movement",
     "_inverse_y_corrected_stage_movement",
     "safe_absolute_stage_movement",
-    "_safe_rotation_movement",
 )
 
 
 @pytest.fixture(params=[False, True], ids=["offset-stage", "compustage"])
 def microscope(request):
     scope, _ = utils.setup_session(manufacturer="Demo")
-    scope.stage_is_compustage = request.param
+    scope.stage_device.compustage = request.param
     scope._update_orientations()
     scope.sent = []
     move_stage_relative = scope.move_stage_relative
@@ -75,16 +73,10 @@ def _pose(microscope, tilt_deg, rotation_deg, scan_rotation):
         t=np.deg2rad(tilt_deg),
         coordinate_system="RAW",
     )
-    microscope.stage_system.position = position
+    microscope.stage_device.sim_position = position
     for beam_type in (BeamType.ELECTRON, BeamType.ION):
         microscope.set("scan_rotation", scan_rotation, beam_type)
     return microscope.get_stage_position()
-
-
-def _is_fib_orientation(microscope):
-    if not microscope.stage_is_compustage:
-        return None
-    return microscope.get_stage_orientation() == "FIB"
 
 
 @pytest.mark.parametrize("tilt_deg, rotation_deg, scan_rotation", POSES)
@@ -101,7 +93,6 @@ def test_stable_move_sends_the_pure_delta(
         geometry=microscope.hardware_geometry(),
         stage_rotation=pose.r,
         stage_tilt=pose.t,
-        is_fib_orientation=_is_fib_orientation(microscope),
     )
 
     microscope.stable_move(12e-6, -7e-6, beam_type)
@@ -135,7 +126,7 @@ def test_vertical_move_from_fib_sends_the_pure_delta(
         scan_rotation=scan_rotation,
         fib_column_tilt=microscope.system.ion.column_tilt,
         stage_tilt=pose.t,
-        is_compustage=microscope.stage_is_compustage,
+        turned_over=microscope._stage_turned_over(pose.t),
         relaxation=relaxation,
     )
 
@@ -169,7 +160,7 @@ def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(
         scan_rotation=scan_rotation,
         fib_column_tilt=microscope.system.ion.column_tilt,
         stage_tilt=pose.t,
-        is_compustage=microscope.stage_is_compustage,
+        turned_over=microscope._stage_turned_over(pose.t),
     )
     # approx: the move reads its dy back off the stage, as position minus position
     assert (vertical.x, vertical.y, vertical.z) == pytest.approx(
@@ -178,34 +169,73 @@ def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(
     assert (vertical.y, vertical.z) != (0.0, 0.0)
 
 
-class TestTheOrientationOverride:
-    """The live move asks the orientation table; the saved-image path derives it."""
+class TestTheBackViewMirror:
+    """A compustage mirrors a view of the back of the grid; the pose decides it."""
 
     GEOMETRY = FibsemHardwareGeometry(is_compustage=True)
-    FIB_TILT = np.deg2rad(-128)
 
-    def _delta(self, rotation, is_fib_orientation, geometry=GEOMETRY):
+    def _delta(self, tilt_deg, view_tilt=0.0, geometry=GEOMETRY):
         return image_to_stage_delta(
             0.0,
             10e-6,
-            view_tilt=0.0,
+            view_tilt=view_tilt,
             geometry=geometry,
-            stage_rotation=rotation,
-            stage_tilt=self.FIB_TILT,
-            is_fib_orientation=is_fib_orientation,
+            stage_rotation=0.0,
+            stage_tilt=np.deg2rad(tilt_deg),
         )
 
-    def test_none_derives_it_from_the_pose(self):
-        assert self._delta(0.0, None) == self._delta(0.0, True)
-        assert self._delta(np.pi / 2, None) == self._delta(np.pi / 2, False)
+    @pytest.mark.parametrize(
+        "tilt_deg, view_tilt_deg, mirrored",
+        [(-10, 0, False), (-170, 0, True), (-30, 52, False), (-128, 52, True)],
+    )
+    def test_only_a_back_view_is_mirrored(self, tilt_deg, view_tilt_deg, mirrored):
+        offset = dataclasses.replace(self.GEOMETRY, is_compustage=False)
+        view_tilt = np.deg2rad(view_tilt_deg)
+        compustage = self._delta(tilt_deg, view_tilt)
+        plain = self._delta(tilt_deg, view_tilt, geometry=offset)
+        expected = -plain.y if mirrored else plain.y
+        assert compustage.y == pytest.approx(expected)
 
-    def test_an_answer_overrides_the_pose(self):
-        assert self._delta(np.pi / 2, True) == self._delta(0.0, True)
-        assert self._delta(0.0, False) != self._delta(0.0, True)
+    def test_the_live_move_does_not_read_the_orientation_table(self, monkeypatch):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.stage_device.compustage = True
 
-    def test_it_is_ignored_off_a_compustage(self):
-        offset = FibsemHardwareGeometry(is_compustage=False)
-        assert self._delta(0.0, True, offset) == self._delta(0.0, None, offset)
+        def unread(*args, **kwargs):
+            raise AssertionError("the live move asked the orientation table")
+
+        monkeypatch.setattr(microscope, "get_stage_orientation", unread)
+        microscope._view_stage_delta(0.0, 10e-6, view_tilt=0.0)
+
+
+def test_a_stage_turns_the_sample_over_past_minus_90_by_default(microscope):
+    turned_over = microscope.stage_device.turned_over
+    assert not turned_over(np.deg2rad(-89.0))
+    assert not turned_over(np.deg2rad(-90.0))
+    assert turned_over(np.deg2rad(-91.0))
+    assert turned_over(np.deg2rad(-180.0))
+
+
+def test_vertical_move_asks_the_stage_device_where_the_sample_is_turned_over(
+    microscope,
+):
+    """Not the stage type: a stage that says it is turned over at 0 gets the
+    reversed move there, and one that never is gets the plain move at -128."""
+    _pose(microscope, 0, 0, 0.0)
+    microscope.vertical_move(dy=1e-6)
+    plain = microscope.sent[-1]
+
+    microscope.stage_device.turned_over = lambda tilt: True
+    microscope.vertical_move(dy=1e-6)
+    reversed_ = microscope.sent[-1]
+    assert (reversed_.y, reversed_.z) == pytest.approx((-plain.y, -plain.z))
+
+    microscope.stage_device.turned_over = lambda tilt: False
+    _pose(microscope, -128, 0, 0.0)
+    microscope.vertical_move(dy=1e-6)
+    tilted = microscope.sent[-1]
+    t = np.deg2rad(-128)
+    chamber_vertical = tilted.y * np.sin(t) + tilted.z * np.cos(t)
+    assert chamber_vertical == pytest.approx(1e-6 / np.sin(np.deg2rad(52)))
 
 
 def test_undo_scan_rotation_inverts_only_a_half_turn():
@@ -235,7 +265,7 @@ def test_the_backends_share_one_implementation(backend, name):
 
 # FIB-1124: the shared moves ask the stage what it can do, not whether it is a
 # compustage. These build real sessions from configuration -- the `microscope` fixture
-# flips `stage_is_compustage` after connect, which no longer selects either behaviour.
+# re-poses after connect, which does not select either behaviour.
 ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 
@@ -244,7 +274,7 @@ def _session(compustage: bool):
         microscope, _ = utils.setup_session(config_path=ARCTIS_CONFIG)
     else:
         microscope, _ = utils.setup_session(manufacturer="Demo")
-    assert microscope.stage_is_compustage is compustage
+    assert microscope._fm_is_a_pose() is compustage
     return microscope
 
 
@@ -260,13 +290,19 @@ def _record(microscope, name):
     return calls
 
 
+def _working_distance_writes(microscope):
+    """The electron working distances written, at the beam device: the stage
+    movement service writes there, not through ``set_working_distance``."""
+    return _record(microscope.beams[BeamType.ELECTRON].working_distance, "_write")
+
+
 class TestStableMoveRestoresTheWorkingDistanceOfALinkedStage:
     @pytest.mark.parametrize("compustage", [False, True])
     def test_as_before_on_each_mount(self, compustage):
         """An offset stage boots linked and a compustage can't link, so each mount
         keeps the answer the compustage branch gave it."""
         microscope = _session(compustage)
-        restored = _record(microscope, "set_working_distance")
+        restored = _working_distance_writes(microscope)
 
         microscope.stable_move(10e-6, 5e-6, BeamType.ELECTRON)
 
@@ -277,8 +313,8 @@ class TestStableMoveRestoresTheWorkingDistanceOfALinkedStage:
         """The one behaviour change: z doesn't carry the working distance, so there is
         nothing to put back."""
         microscope = _session(compustage=False)
-        microscope.stage_system.is_linked = False
-        restored = _record(microscope, "set_working_distance")
+        microscope.stage_device.sim_linked = False
+        restored = _working_distance_writes(microscope)
 
         microscope.stable_move(10e-6, 5e-6, BeamType.ELECTRON, static_wd=True)
 

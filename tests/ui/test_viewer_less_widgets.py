@@ -149,7 +149,7 @@ def test_one_shot_acquisition_rebinds_the_image_references():
     """A workflow one-shot (post-mill inspect, spot burn) emits on the acquisition
     signals with no live stream running. The references must follow the canvas:
     an ``is_acquiring`` gate here left ``ib_image`` at the pre-mill frame, so the
-    agent server's /app/images served a stale image through the inspect prompt."""
+    App Server's /app/images served a stale image through the inspect prompt."""
     microscope, _ = _session()
     host = _CanvasHost()
     widget = _image_widget(host)
@@ -441,9 +441,11 @@ def test_the_stage_position_shows_without_touching_anything():
     host = _CanvasHost()
     _image_widget(host)
     _movement_widget(host)
-    info = host.view_controller._states[host.view_controller.sem_canvas].info
-    assert any(key == "stage" for key, _ in info), (
-        f"no stage readout after construction; info bar holds {info}"
+    bar = host.view_controller.widget.stage_bar
+    bar.resize(2000, bar.height())
+    labels = [f.label for f in bar.visible_fields()]
+    assert "X" in labels, (
+        f"no stage readout after construction; stage bar holds {labels}"
     )
 
 
@@ -534,3 +536,20 @@ def _main() -> int:
 
 if __name__ == "__main__":
     sys.exit(_main())
+
+
+def test_shift_scroll_flashes_the_working_distance_in_the_bar_s_words():
+    """`WD 16.575 mm  +1 µm`: the bar's label and unit, the target to three decimals
+    (a notch is 1 µm, where the bar shows two decimals), then the step (FIB-1188)."""
+    host = _CanvasHost()
+    widget = _image_widget(host)
+    spinbox = _sem_beam_settings(widget).working_distance_spinbox
+    canvas = host.view_controller.sem_canvas
+    before = spinbox.value()
+
+    canvas.canvas_scrolled.emit(0.0, 0.0, 1, {"Shift"})
+
+    assert canvas._flash_text == f"WD {before + 0.001:.3f} mm  +1 µm"
+    canvas.canvas_scrolled.emit(0.0, 0.0, -1, {"Shift"})
+    assert canvas._flash_text.endswith("  -1 µm")
+    widget._teardown_connections()

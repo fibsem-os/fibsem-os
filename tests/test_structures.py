@@ -3,13 +3,12 @@ import os
 
 import pytest
 
-from fibsem.microscopes.autoscript import THERMO_API_AVAILABLE
+from fibsem.drivers.autoscript.microscope import THERMO_API_AVAILABLE
 from fibsem.structures import (
     AutoFocusMode,
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
-    FibsemGasInjectionSettings,
     FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
@@ -39,48 +38,6 @@ def test_microscope_state():
     state.ion_detector = None
 
     state.to_dict()
-
-
-def test_gas_injection_settings():
-
-    # gis
-    gis_settings = FibsemGasInjectionSettings(
-        gas="Pt",
-        port=0,
-        duration=30,
-    )
-
-    # to dict
-    gdict = gis_settings.to_dict()
-    assert gdict["gas"] == gis_settings.gas
-    assert gdict["port"] == gis_settings.port
-    assert gdict["duration"] == gis_settings.duration
-    assert gdict["insert_position"] == gis_settings.insert_position
-
-    # from dict
-    gis_settings2 = FibsemGasInjectionSettings.from_dict(gdict)
-    assert gis_settings2.gas == gis_settings.gas
-    assert gis_settings2.port == gis_settings.port
-    assert gis_settings2.duration == gis_settings.duration
-    assert gis_settings2.insert_position == gis_settings.insert_position
-
-    multichem_settings = FibsemGasInjectionSettings(
-        gas="Pt", port=0, duration=30, insert_position="ELECTRON_DEFAULT"
-    )
-
-    # to dict
-    gdict = multichem_settings.to_dict()
-    assert gdict["gas"] == multichem_settings.gas
-    assert gdict["port"] == multichem_settings.port
-    assert gdict["duration"] == multichem_settings.duration
-    assert gdict["insert_position"] == multichem_settings.insert_position
-
-    # from dict
-    multichem_settings2 = FibsemGasInjectionSettings.from_dict(gdict)
-    assert multichem_settings2.gas == multichem_settings.gas
-    assert multichem_settings2.port == multichem_settings.port
-    assert multichem_settings2.duration == multichem_settings.duration
-    assert multichem_settings2.insert_position == multichem_settings.insert_position
 
 
 def test_fibsem_image_extract_region():
@@ -734,7 +691,7 @@ def test_metadata_from_dict_accepts_pre_change_files():
     # raw dict for a file old enough to lack one. See FIB-448.
     experiment = FibsemExperimentRef.from_dict(legacy_experiment)
     assert experiment.id == "exp-1"
-    assert experiment.date == 1700000000.0
+    assert experiment.date.timestamp() == 1700000000.0
 
     # `application_version` is here because SystemInfo declared it up to v4. It is
     # constructed field by field, so a key it no longer knows is ignored rather than
@@ -758,19 +715,52 @@ def test_metadata_round_trips_fibsem_revision():
     assert SystemInfo.from_dict(info.to_dict()).fibsem_revision == "v0.5.1-48-g4cd11d9c"
 
 
-def test_experiment_date_is_creation_time_not_import_time():
-    """A plain dataclass default would freeze this at module-import time."""
-    import time
+def test_experiment_date_is_creation_time_not_import_time(monkeypatch):
+    """A plain dataclass default would freeze this at module-import time.
 
+    A clock that advances on every read, not sleeps between real reads, as in
+    the state-stamp test below: Windows' clock ticks about every 15 ms.
+    """
+    import fibsem.util.timestamps as timestamps
     from fibsem.structures import FibsemExperimentRef
 
-    before = datetime.datetime.timestamp(datetime.datetime.now())
-    time.sleep(0.01)
-    experiment = FibsemExperimentRef()
-    time.sleep(0.01)
-    after = datetime.datetime.timestamp(datetime.datetime.now())
+    # real times: Windows' C time functions refuse ones near 1970
+    ticks = iter([1789355531.0, 1789355591.0])
 
-    assert before < experiment.date < after
+    class Clock(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.datetime.fromtimestamp(next(ticks), tz)
+
+    monkeypatch.setattr(timestamps, "datetime", Clock)
+
+    assert FibsemExperimentRef().date.timestamp() == 1789355531.0
+    assert FibsemExperimentRef().date.timestamp() == 1789355591.0
+
+
+def test_a_microscope_state_is_stamped_when_built_not_at_import(monkeypatch):
+    """FIB-487: a plain dataclass default froze this at module-import time, so two
+    states built apart claimed the same moment.
+
+    A clock that advances on every read, rather than sleeping between two real
+    reads: Windows' clock ticks about every 15 ms, so two reads 10 ms apart can
+    return the same time.
+    """
+    import fibsem.structures as structures
+    from fibsem.structures import MicroscopeState
+
+    # real times: Windows' C time functions refuse ones near 1970
+    ticks = iter([1789355531.0, 1789355591.0])
+
+    class Clock(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.datetime.fromtimestamp(next(ticks), tz)
+
+    monkeypatch.setattr(structures, "datetime", Clock)
+
+    assert MicroscopeState().timestamp == 1789355531.0
+    assert MicroscopeState().timestamp == 1789355591.0
 
 
 def test_a_chamber_state_reads_any_vendor_name():
@@ -779,3 +769,26 @@ def test_a_chamber_state_reads_any_vendor_name():
     assert ChamberState.from_name("Pumped") is ChamberState.PUMPED
     assert ChamberState.from_name("VENTED") is ChamberState.VENTED
     assert ChamberState.from_name("Somewhere else") is ChamberState.UNKNOWN
+
+
+def test_geometry_holds_plain_numbers_not_numpy_scalars():
+    """Point, FibsemRectangle and the stage and manipulator positions take
+    numpy scalars and keep plain Python numbers, which the YAML writers can
+    represent (FIB-1326). A float stays a float, an integer an int."""
+    import numpy as np
+
+    from fibsem.structures import (
+        FibsemManipulatorPosition,
+        FibsemRectangle,
+        FibsemStagePosition,
+        Point,
+    )
+
+    point = Point(np.float64(1e-6), np.int64(3))
+    assert type(point.x) is float and type(point.y) is int
+    rect = FibsemRectangle(np.float64(0.1), np.float32(0.2), 0.3, 0.4)
+    assert all(type(v) is float for v in (rect.left, rect.top, rect.width, rect.height))
+    stage = FibsemStagePosition(x=np.float64(1e-3), y=None, t=np.float32(0.5))
+    assert type(stage.x) is float and stage.y is None and type(stage.t) is float
+    manipulator = FibsemManipulatorPosition(x=np.float64(1e-3))
+    assert type(manipulator.x) is float

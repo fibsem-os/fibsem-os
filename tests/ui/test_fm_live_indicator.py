@@ -45,6 +45,20 @@ def _badge_on(controller, canvas) -> bool:
     return bool(canvas._live_on)
 
 
+def _stop(fm) -> None:
+    """Stop the stream and wait for its worker to finish announcing it.
+
+    `stop_acquisition` waits only 2 s for the worker, and a simulated frame takes
+    about half a second to render alone -- several under `pytest -n`. A stop that
+    outlasts the wait is announced by the worker when it ends, on its own thread,
+    so the widget hears it through the event loop.
+    """
+    fm.stop_acquisition()
+    if fm._acquisition_thread is not None:
+        fm._acquisition_thread.join(timeout=60)
+    _app.processEvents()
+
+
 class TestTheFMCanvasCanBeMarkedLive:
     def test_the_badge_and_border_reach_the_fm_panel(self, controller):
         controller.set_fm_live(True)
@@ -109,7 +123,7 @@ class TestTheStreamDrivesIt:
         from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 
         # A simulated Arctis: `DemoMicroscope` only builds a
-        # `SimulatedFluorescenceMicroscope` when `sim.is_compustage` is set, and
+        # `DemoFluorescenceMicroscope` when `sim.is_compustage` is set, and
         # `FMControlWidget` refuses a microscope without one -- so on a plain Demo
         # session every test in this class errored in setup rather than running
         # (FIB-734).
@@ -139,14 +153,16 @@ class TestTheStreamDrivesIt:
 
             assert _badge_on(controller, controller.fm_canvas)
         finally:
-            widget.fm.stop_acquisition()
+            _stop(widget.fm)
 
     def test_stopping_it_clears_the_panel(self, widget, controller):
         widget.fm.start_acquisition(channel_settings=widget.channel_settings)
         widget._update_acquisition_button_states()
-        assert _badge_on(controller, controller.fm_canvas), "never lit; nothing to clear"
+        assert _badge_on(controller, controller.fm_canvas), (
+            "never lit; nothing to clear"
+        )
 
-        widget.fm.stop_acquisition()
+        _stop(widget.fm)
         widget._update_acquisition_button_states()
 
         assert not _badge_on(controller, controller.fm_canvas)
@@ -156,7 +172,7 @@ class TestTheStreamDrivesIt:
         is the live view, and the badge means the live view."""
         widget.fm.start_acquisition(channel_settings=widget.channel_settings)
         widget._update_acquisition_button_states()
-        widget.fm.stop_acquisition()
+        _stop(widget.fm)
 
         widget.fm.set_acquiring(True)  # a z-stack, say, on the same instrument
         try:
@@ -178,7 +194,7 @@ class TestTheStreamDrivesIt:
         try:
             assert _badge_on(controller, controller.fm_canvas)
         finally:
-            widget.fm.stop_acquisition()
+            _stop(widget.fm)
 
         assert not _badge_on(controller, controller.fm_canvas)
 

@@ -11,7 +11,7 @@ It subscribes to the same single code path that applies answers, so it can
 never show something that didn't happen; there is no "update the timeline"
 step to forget.
 
-User-facing wording rule: who · what · when. Wire vocabulary (nonces, request
+User-facing wording rule: who · what · when. Wire vocabulary (question ids, request
 type names) stays off the screen.
 """
 
@@ -27,7 +27,7 @@ def _feature_enabled() -> bool:
     import fibsem.config as fibsem_cfg
 
     try:
-        return bool(fibsem_cfg.load_user_preferences().features.agent_server_enabled)
+        return bool(fibsem_cfg.load_user_preferences().app_server.enabled)
     except Exception:
         return False
 

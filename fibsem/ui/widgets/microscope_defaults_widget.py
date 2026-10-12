@@ -32,25 +32,48 @@ from PyQt5.QtWidgets import (
 
 from fibsem import utils
 from fibsem.constants import METRE_TO_MICRON
+from fibsem.devices.beam import STANDARD_RESOLUTIONS, Beam
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSystemSettings, BeamType, ImageSettings
+from fibsem.structures import (
+    BeamSystemSettings,
+    BeamType,
+    ImageSettings,
+    Resolution,
+    get_fields_with_metadata,
+)
 from fibsem.ui import notification_service
 from fibsem.ui.icon import ICON_READ_FROM_ACQUIRE_TAB, ICON_READ_FROM_MICROSCOPE
+from fibsem.ui.utils import beam_choices, beam_field_metadata
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
     ValueComboBox,
     ValueSpinBox,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_field_metadata
 
-# Offered when the instrument cannot list its own; the current value is always
-# added beside them so a file's setting is never silently snapped to a neighbour.
-STANDARD_RESOLUTIONS: List[Tuple[int, int]] = [
-    (768, 512),
-    (1536, 1024),
-    (3072, 2048),
-    (6144, 4096),
-]
+# How the field of view and dwell time are shown: as the Image tab shows them, from
+# ImageSettings' field metadata, which takes the beam's display hint and limits.
+_IMAGE = get_fields_with_metadata(ImageSettings)
+
+
+def _beam_box(name: str) -> ValueSpinBox:
+    """A box for an imaging value, in the range every beam declares until a beam's
+    own is applied (``_apply_beam_limits``)."""
+    spinbox = ValueSpinBox()
+    configure_spinbox(spinbox, beam_field_metadata(_IMAGE[name]))
+    return spinbox
+
+
+def _apply_beam_limits(
+    microscope: FibsemMicroscope,
+    beam: BeamType,
+    hfw: ValueSpinBox,
+    dwell_time: ValueSpinBox,
+) -> None:
+    """Bound the field of view and dwell time to what ``beam`` reports."""
+    for name, spinbox in (("hfw", hfw), ("dwell_time", dwell_time)):
+        configure_spinbox(spinbox, beam_field_metadata(_IMAGE[name], microscope, beam))
 
 
 def _micro(value: float) -> float:
@@ -75,12 +98,11 @@ def _format_current(a) -> str:
 # the QVariant round trip `findData` uses to select an item, so `set_value` fell
 # back to its closest-numeric rule, which cannot compare tuples and picked index 0.
 def _resolution_key(r) -> str:
-    return f"{int(r[0])}x{int(r[1])}"
+    return str(Resolution(int(r[0]), int(r[1])))
 
 
 def _resolution_from_key(key: str) -> Tuple[int, int]:
-    w, h = key.split("x")
-    return int(w), int(h)
+    return tuple(Resolution.parse(key))
 
 
 def _format_resolution(key: str) -> str:
@@ -100,19 +122,16 @@ class BeamDefaultsForm(QWidget):
         self.preset = ValueComboBox()
         self.voltage = ValueComboBox(format_fn=_format_voltage)
         self.current = ValueComboBox(format_fn=_format_current)
-        self.hfw = ValueSpinBox(
-            suffix="µm", minimum=1.0, maximum=5000.0, decimals=1, step=10.0
-        )
+        self.hfw = _beam_box("hfw")
         self.resolution = ValueComboBox(format_fn=_format_resolution)
-        self.dwell_time = ValueSpinBox(
-            suffix="µs", minimum=0.01, maximum=1000.0, decimals=2, step=0.1
-        )
+        self.dwell_time = _beam_box("dwell_time")
         self.detector_type = ValueComboBox()
         self.detector_mode = ValueComboBox()
         # A standing choice some sites make -- a FIB run at 180 degrees -- and Apply
         # sets it like the rest, so it is a default rather than alignment state.
-        self.scan_rotation = ValueSpinBox(
-            suffix="°", minimum=0.0, maximum=360.0, decimals=1, step=90.0
+        self.scan_rotation = ValueSpinBox()
+        configure_spinbox(
+            self.scan_rotation, parameter_field_metadata(Beam.scan_rotation)
         )
 
         self._rows = [
@@ -154,11 +173,7 @@ class BeamDefaultsForm(QWidget):
         beam = self.beam_type
 
         def available(key: str) -> list:
-            try:
-                return list(microscope.get_available_values_cached(key, beam) or [])
-            except Exception as e:  # a backend that cannot list this key
-                logging.debug(f"No available values for {key} ({beam.name}): {e}")
-                return []
+            return beam_choices(microscope, key, beam)
 
         record = getattr(microscope.system, beam.name.lower())
         self._show_rows_for_presets(bool(microscope.beam_uses_presets(beam)))
@@ -168,7 +183,10 @@ class BeamDefaultsForm(QWidget):
         self._set_choices(self.current, available("current"), record.beam.beam_current)
         self._set_choices(
             self.resolution,
-            [_resolution_key(r) for r in STANDARD_RESOLUTIONS],
+            [
+                _resolution_key(r)
+                for r in available("resolution") or STANDARD_RESOLUTIONS
+            ],
             _resolution_key(record.beam.resolution) if record.beam.resolution else None,
         )
         self._set_choices(
@@ -177,6 +195,7 @@ class BeamDefaultsForm(QWidget):
         self._set_choices(
             self.detector_mode, available("detector_mode"), record.detector.mode
         )
+        _apply_beam_limits(microscope, beam, self.hfw, self.dwell_time)
 
     @staticmethod
     def _set_choices(combo: ValueComboBox, choices: list, current) -> None:
@@ -250,14 +269,10 @@ class ImagingDefaultsForm(QWidget):
         super().__init__(parent)
         self.beam_type = ValueComboBox(format_fn=lambda name: str(name).title())
         self.beam_type.set_values([BeamType.ELECTRON.name, BeamType.ION.name])
-        self.hfw = ValueSpinBox(
-            suffix="µm", minimum=1.0, maximum=5000.0, decimals=1, step=10.0
-        )
+        self.hfw = _beam_box("hfw")
         self.resolution = ValueComboBox(format_fn=_format_resolution)
         self.resolution.set_values([_resolution_key(r) for r in STANDARD_RESOLUTIONS])
-        self.dwell_time = ValueSpinBox(
-            suffix="µs", minimum=0.01, maximum=1000.0, decimals=2, step=0.1
-        )
+        self.dwell_time = _beam_box("dwell_time")
         self.autocontrast = QCheckBox()
 
         form = QFormLayout()

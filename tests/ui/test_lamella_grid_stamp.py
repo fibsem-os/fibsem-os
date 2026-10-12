@@ -22,8 +22,7 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.microscopes._stage import SampleGrid, SlotCalibration
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemStagePosition, SampleGrid, SlotCalibration
 
 
 def _ui(monkeypatch, tmp_path, arctis: bool):
@@ -50,7 +49,7 @@ def _ui(monkeypatch, tmp_path, arctis: bool):
 @pytest.fixture
 def arctis(qapp, monkeypatch, tmp_path):
     widget = _ui(monkeypatch, tmp_path, arctis=True)
-    assert widget.microscope._stage.loader is not None
+    assert widget.microscope.sample_handling.magazine is not None
     yield widget
     widget.experiment = None
     widget.microscope.disconnect()
@@ -61,11 +60,11 @@ def arctis(qapp, monkeypatch, tmp_path):
 def fixed(qapp, monkeypatch, tmp_path):
     widget = _ui(monkeypatch, tmp_path, arctis=False)
     microscope = widget.microscope
-    microscope.stage_is_compustage = False
-    from fibsem.microscopes._stage import _create_sample_stage
+    microscope.stage_device.compustage = False
+    from fibsem.services.sample_handling import bind_sample_handling
 
-    microscope._stage = _create_sample_stage(microscope)
-    assert microscope._stage.loader is None
+    microscope.sample_handling = bind_sample_handling(microscope)
+    assert microscope.sample_handling.magazine is None
     yield widget
     widget.experiment = None
     microscope.disconnect()
@@ -75,7 +74,7 @@ def fixed(qapp, monkeypatch, tmp_path):
 class TestWithALoader:
     def test_the_loaded_grid_is_stamped_and_present_on_inserted(self, arctis):
         exp = arctis.experiment
-        stage = arctis.microscope._stage
+        stage = arctis.microscope.sample_handling
         exp.sync_grids_from_inventory(stage)
         stage.ensure_loaded("Grid-02")
         record = exp.get_grid_by_name("Grid-02")
@@ -92,7 +91,7 @@ class TestWithALoader:
         """A lamella marked on a grid's overview belongs to that grid, whether or
         not it is on the stage: the caller's grid is taken as given."""
         exp = arctis.experiment
-        stage = arctis.microscope._stage
+        stage = arctis.microscope.sample_handling
         exp.sync_grids_from_inventory(stage)
         stage.ensure_loaded("Grid-02")
         other = exp.get_grid_by_name("Grid-01")
@@ -100,13 +99,13 @@ class TestWithALoader:
 
     def test_nothing_loaded_leaves_it_none(self, arctis):
         exp = arctis.experiment
-        exp.sync_grids_from_inventory(arctis.microscope._stage)
-        assert arctis.microscope._stage.loaded_grids == []
+        exp.sync_grids_from_inventory(arctis.microscope.sample_handling)
+        assert arctis.microscope.sample_handling.loaded_grids == []
         assert arctis.add_new_lamella().grid_id is None
 
     def test_a_grid_with_no_record_leaves_it_none_and_creates_none(self, arctis):
         exp = arctis.experiment
-        arctis.microscope._stage.ensure_loaded("Grid-01")
+        arctis.microscope.sample_handling.ensure_loaded("Grid-01")
         assert exp.grids == []
         assert arctis.add_new_lamella().grid_id is None
         assert exp.grids == []
@@ -121,7 +120,7 @@ class TestOnAFixedHolder:
         return slot
 
     def test_the_slot_the_position_falls_in_is_stamped(self, fixed):
-        stage = fixed.microscope._stage
+        stage = fixed.microscope.sample_handling
         self._calibrate(stage, "Slot-01", -4e-3, "grid-ash")
         self._calibrate(stage, "Slot-02", 4e-3, "grid-oak")
         exp = fixed.experiment
@@ -133,7 +132,7 @@ class TestOnAFixedHolder:
         assert fixed.add_new_lamella(stage_position=far).grid_id is None
 
     def test_an_uncalibrated_slot_never_matches(self, fixed):
-        stage = fixed.microscope._stage
+        stage = fixed.microscope.sample_handling
         slot = stage.holder.slots["Slot-01"]
         slot.position = None
         slot.loaded_grid = SampleGrid(name="grid-ash")

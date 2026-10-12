@@ -2,7 +2,7 @@
 
 The context an overview is read against: which grid you are on, how far from its centre,
 and how much travel is left. None of it depends on what is imaging the sample -- the
-numbers come from `microscope._stage`, and turning them into canvas coordinates is the
+numbers come from `microscope.sample_handling`, and turning them into canvas coordinates is the
 `StageFrame`'s job, which both overview tabs already have.
 
 They had a copy each, and the copies disagreed (FIB-698). The fluorescence one gated the
@@ -103,6 +103,7 @@ __all__ = [
     "canvas_span",
     "holder_slots",
     "slot_landmark",
+    "nearest_slot_landmark",
     "at_device",
     "limit_shapes",
     "boundary_shapes",
@@ -158,7 +159,7 @@ def canvas_span(frame: StageFrame, length: float) -> Tuple[float, float]:
 def holder_slots(microscope) -> List[object]:
     """The sample holder's slots, or nothing if the stage does not describe one."""
     try:
-        return list(microscope._stage.holder.slots.values())
+        return list(microscope.sample_handling.holder.slots.values())
     except Exception:
         return []
 
@@ -206,6 +207,36 @@ def slot_landmark(microscope, slot: object) -> Optional[FibsemStagePosition]:
     )
 
 
+def nearest_slot_landmark(
+    microscope, frame: StageFrame, device: Optional[str] = None
+) -> Optional[FibsemStagePosition]:
+    """The holder slot drawn nearest the view's origin, placed as `boundary_shapes`
+    places it, or None when the holder names no slot that can be drawn.
+
+    The grid a view is looking at: its origin is the first image placed in it.
+    """
+    try:
+        ox, oy = frame.to_canvas(frame.origin)
+    except Exception as e:
+        logger.debug(f"Could not place the view's origin: {e}")
+        return None
+    best, best_distance = None, None
+    for slot in holder_slots(microscope):
+        place = slot_landmark(microscope, slot)
+        if place is None:
+            continue
+        place = at_device(microscope, device, place)
+        try:
+            cx, cy = frame.to_canvas(place)
+        except Exception as e:
+            logger.debug(f"Could not place a holder slot: {e}")
+            continue
+        distance = (cx - ox) ** 2 + (cy - oy) ** 2
+        if best_distance is None or distance < best_distance:
+            best, best_distance = place, distance
+    return best
+
+
 def at_device(
     microscope, device: Optional[str], place: FibsemStagePosition
 ) -> FibsemStagePosition:
@@ -248,7 +279,8 @@ def limit_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
     the grid circle -- and travel limits have nothing to do with grids. One guard was
     answering two questions.
     """
-    limits = getattr(microscope._stage, "limits", None)
+    stage = microscope.stage
+    limits = stage.position.limits if stage is not None else None
     if not limits:
         return []
     try:

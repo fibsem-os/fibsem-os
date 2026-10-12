@@ -1,8 +1,8 @@
 """A fluorescence microscope on another computer, behind today's FM API.
 
 ``RemoteFluorescenceMicroscope`` is the FM API over devices
-(``fibsem.fm.api.DeviceFluorescenceMicroscope``), here the remote devices of
-``fibsem.devices.drivers.remote``, served by ``fibsem.server.devices`` on the FM's
+(``fibsem.fm.microscope.FluorescenceMicroscope``), here the remote devices of
+``fibsem.drivers.remote.devices``, served by ``fibsem.server.devices`` on the FM's
 computer (the METEOR PC, say). It is the same class a local FM uses; all this adds
 is connecting to the server:
 
@@ -21,14 +21,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
-from fibsem.fm.api import FM_DEVICE_NAMES, DeviceFluorescenceMicroscope
+from fibsem.fm.microscope import FM_DEVICE_NAMES, FluorescenceMicroscope
 
 if TYPE_CHECKING:
-    from fibsem.devices.drivers.remote import DeviceClient
+    from fibsem.drivers.remote.devices import DeviceClient
     from fibsem.microscope import FibsemMicroscope
 
 
-class RemoteFluorescenceMicroscope(DeviceFluorescenceMicroscope):
+class RemoteFluorescenceMicroscope(FluorescenceMicroscope):
     """Today's FM API over an FM served from another computer: the FM API over
     devices, here remote ones."""
 
@@ -47,7 +47,7 @@ class RemoteFluorescenceMicroscope(DeviceFluorescenceMicroscope):
         then the FM is built offline, every read fails closed, and it comes online by
         itself when the server starts (``client.reconnected`` fires).
         """
-        from fibsem.devices.drivers.remote import connect_remote_fm
+        from fibsem.drivers.remote.devices import connect_remote_fm
 
         devices = connect_remote_fm(host, port, client=client, offline=offline)
         missing = set(FM_DEVICE_NAMES) - set(devices)

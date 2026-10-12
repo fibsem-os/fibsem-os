@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning import get_pattern, get_pattern_names
-from fibsem.milling.patterning.patterns2 import BasePattern
+from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures import BeamType
 from fibsem.ui.widgets.custom_widgets import FormGrid, ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
@@ -126,8 +126,15 @@ class FibsemPatternSettingsWidget(QWidget):
         self._update_visibility()
 
     def _dynamic_items(self, parameter: str):
-        """Resolve an `items: "dynamic"` field against the microscope."""
-        return self.microscope.get_available_values_cached(parameter, BeamType.ION)
+        """Resolve an `items: "dynamic"` field: the milling service's choices for the
+        pattern field (named as its microscope parameter), else none: the pattern
+        fields are not beam parameters."""
+        milling = getattr(self.microscope, "milling", None)
+        if milling is not None:
+            supported = milling.supported_pattern_settings().get(parameter)
+            if supported is not None and supported.choices is not None:
+                return list(supported.choices)
+        return []
 
     # ------------------------------------------------------------------
     # Slots

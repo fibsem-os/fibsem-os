@@ -11,7 +11,7 @@ import html
 import io
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -152,10 +152,19 @@ def _run(item, task, start, end, ending="task_completed", error=None, wait=None)
         _record("task_step", start, item, task, run, {"step": "MILL_LAMELLA"}),
     ]
     if wait is not None:  # a prompt raised at wait[0], answered at wait[1]
-        nonce = f"{run}/prompt"
+        question_id = f"{run}/prompt"
         records += [
-            _record("prompt_raised", wait[0], item, task, run, {"nonce": nonce}),
-            _record("prompt_answered", wait[1], item, task, run, {"nonce": nonce}),
+            _record(
+                "prompt_raised", wait[0], item, task, run, {"question_id": question_id}
+            ),
+            _record(
+                "prompt_answered",
+                wait[1],
+                item,
+                task,
+                run,
+                {"question_id": question_id},
+            ),
         ]
     if ending:
         payload = {"error": error} if error else {}
@@ -625,3 +634,22 @@ def test_a_lamella_s_card():
     # B never ran: a card that says so, and no thumbnails without folders
     assert re.search(rf"<b>{B}</b><span class=\"muted\">not run</span>", page)
     assert "<img" not in page
+
+
+def test_the_header_names_the_instruments_clock():
+    """The record's times are on the instrument's clock wherever the report is
+    made; the header says so, with the zone when the experiment recorded it."""
+    records = _run(A, SETUP, 0, 100)
+    _, page = _render(records, items=(A,))
+    assert "times on the instrument's clock ·" in html.unescape(page)
+
+    tables = event_tables(records)
+    page = render_report(
+        tables,
+        name="s",
+        items=(A,),
+        tasks=(SETUP,),
+        generated=T0,
+        zone=timezone(timedelta(hours=-6), "MDT"),
+    )
+    assert "times on the instrument's clock, MDT (UTC-06:00)" in html.unescape(page)

@@ -196,7 +196,7 @@ class FMControlWidget(QWidget):
         # produce a fluorescence pose at all yet (it needs the device leg -- FIB-831),
         # so a choice here would decide nothing. Disabled rather than hidden, with the
         # reason where the user's pointer already is.
-        if not self.microscope.stage_is_compustage:
+        if not self.microscope._fm_is_a_pose():
             self.comboBox_default_orientation.setEnabled(False)
             self.comboBox_default_orientation.setToolTip(
                 "Fluorescence poses cannot yet be derived on an offset-mounted FM; "
@@ -1067,7 +1067,7 @@ class FMControlWidget(QWidget):
                 f"method={autofocus_settings.method.value}"
             )
 
-            from fibsem.fm.calibration import plot_autofocus, run_coarse_fine_autofocus
+            from fibsem.fm.calibration import run_coarse_fine_autofocus
 
             result = run_coarse_fine_autofocus(
                 self.fm,
@@ -1075,9 +1075,6 @@ class FMControlWidget(QWidget):
                 channel_settings=channel_settings,
                 stop_event=self._acquisition_stop_event,
             )
-
-            if result is not None:
-                plot_autofocus(result)
 
             if result is None or self._acquisition_stop_event.is_set():
                 logging.info("Auto-focus was cancelled")
@@ -1295,7 +1292,7 @@ def main():
 
     # Ensure compustage configuration
     assert microscope.system.stage.shuttle_pre_tilt == 0
-    assert microscope.stage_is_compustage is True
+    assert microscope._fm_is_a_pose()
 
     app = QApplication.instance() or QApplication([])
     app.setStyle("Fusion")

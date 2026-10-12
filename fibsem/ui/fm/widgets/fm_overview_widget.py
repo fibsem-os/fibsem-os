@@ -56,7 +56,11 @@ from fibsem.imaging.tiling.progress import (
     TiledStatus,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import DeviceImagingState, FibsemStagePosition
+from fibsem.structures import (
+    DeviceImagingState,
+    FibsemStagePosition,
+    InsertableDeviceState,
+)
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
@@ -360,6 +364,9 @@ class FMOverviewWidget(QWidget):
         # input to every projection this widget draws through, and the projection is kept
         # rather than re-read, so nothing else would notice it moved (FIB-521).
         self.fm.transform_changed.connect(self._on_transform_changed)
+        # Same contract again. The holder's slots are drawn from its calibration, and
+        # a stage move no longer redraws them, so a recalibration has to say so.
+        self.microscope.holder_changed.connect(self._on_holder_changed)
         self._refresh_current_position()
         self._refresh_objective_info()
         self._refresh_orientation_banner()
@@ -761,13 +768,17 @@ class FMOverviewWidget(QWidget):
             return None
         return (there[0] - here[0], there[1] - here[1])
 
-    def _refresh_tile_grid(self) -> None:
+    def _refresh_tile_grid(self, redraw_context: bool = True) -> None:
         """Redraw the planned grid on the canvas.
 
         Needs a tile field of view and the camera geometry. It does *not* need an image:
         the grid is anchored to the canvas origin -- the stage position the tileset is
         planned around -- so it can be drawn before anything is acquired, which is when
         a planned grid is worth the most.
+
+        *redraw_context* False leaves the stage context alone unless the canvas scale
+        changed under it. For a stage move, which redraws the context itself when the
+        pose changes and has nothing to redraw when it does not.
         """
         fov = self.settings_widget._tile_fov
         if fov is None:
@@ -801,7 +812,7 @@ class FMOverviewWidget(QWidget):
         # Give the canvas a scale before the first image, so the grid has a real frame
         # to be drawn in rather than arbitrary units. No-op once an image has landed --
         # by then the image has set it, and changing it would move what is already drawn.
-        self.canvas.canvas.set_reference_pixel_size(pixel_size)
+        rescaled = self.canvas.canvas.set_reference_pixel_size(pixel_size)
         # Centred on the position the run will be centred on -- a dragged target, or
         # the stage itself -- not on whatever happens to be displayed. It used to be
         # pinned to the canvas origin, which is where the stage was the *first* time
@@ -832,7 +843,12 @@ class FMOverviewWidget(QWidget):
         # all fixed to the stage -- so redrawing them on every motion event is wasted,
         # and it is a *full* canvas repaint, which costs far more than the grid it was
         # called alongside. The beam tab skips its equivalent for the same reason.
-        if not self.tile_grid_overlay.is_dragging:
+        #
+        # Nor on a stage move, unless the scale just changed: a translation moves none
+        # of them either, and this runs on every stage update. Redrawing here put four
+        # frame conversions and a full repaint on each one, for shapes that had not
+        # moved -- `_on_stage_moved` redraws them itself when the pose changes.
+        if not self.tile_grid_overlay.is_dragging and (redraw_context or rescaled):
             self._refresh_stage_metadata()
 
         span_x = parameters.cols * fov[0] * (1 - parameters.overlap) + fov[0]
@@ -1443,8 +1459,9 @@ class FMOverviewWidget(QWidget):
         stage was standing the first time anything drew, which on an offset mount is
         almost always the beams: canvas zero then sat 48.8 mm from every marker,
         image and overlay the canvas would ever show, and its red marker pointed at
-        nothing. On a compustage the device origin is the chamber origin, so this is
-        the same picture with a fixed zero.
+        nothing. On a compustage the device origin is the objective's offset from the
+        beams' coincidence point (zero unless configured), so zero is the holder's
+        centre as the objective sees it.
 
         Only a *place*. The configuration declares x, and may declare y and z; an
         axis it leaves out reads as 0. The pose is not part of the anchor at all --
@@ -1515,6 +1532,17 @@ class FMOverviewWidget(QWidget):
             self.microscope
         ):
             self.overlay_controls.set_visible(key, shown)
+
+    @ensure_main_thread
+    def _on_holder_changed(self, _holder) -> None:
+        """Slots calibrated, or another holder fitted: redraw where they are.
+
+        Always, not only when the overlay defaults flip -- recalibrating a slot on a
+        holder that was already calibrated changes nothing `reset_context_overlay_defaults`
+        looks at, and moves the slot all the same.
+        """
+        self.reset_context_overlay_defaults()
+        self._refresh_stage_metadata()
 
     def _refresh_stage_metadata(self) -> None:
         """Draw where the sample and the stage can physically go.
@@ -1591,14 +1619,16 @@ class FMOverviewWidget(QWidget):
 
         self.canvas.canvas.set_info_text("   |   ".join(parts))
 
-    def _set_objective_info(self, position: float, state: str) -> None:
+    def _set_objective_info(
+        self, position: float, state: InsertableDeviceState
+    ) -> None:
         """Render the info bar from values already in hand -- no device read.
 
         The path the signal takes. Split out of `_refresh_objective_info` so a move can
         update the bar from what it announced rather than by asking again.
         """
         self._objective_info = (
-            f"objective {position * constants.SI_TO_MILLI:.3f} mm ({state.lower()})"
+            f"objective {position * constants.SI_TO_MILLI:.3f} mm ({state.value})"
         )
         self._refresh_stage_info()
         self.settings_widget.set_objective_positions(
@@ -1606,7 +1636,9 @@ class FMOverviewWidget(QWidget):
         )
 
     @ensure_main_thread
-    def _on_objective_moved(self, position: float, state: str) -> None:
+    def _on_objective_moved(
+        self, position: float, state: InsertableDeviceState
+    ) -> None:
         """Something moved the objective, and said where it ended up.
 
         Reached from psygnal, which fires on whichever thread did the moving -- a
@@ -1673,7 +1705,7 @@ class FMOverviewWidget(QWidget):
         # connection two reads are two takes of the imaging channel (FIB-517).
         self._set_objective_info(position, state)
 
-    def _objective_state(self) -> Optional[str]:
+    def _objective_state(self) -> Optional[InsertableDeviceState]:
         """Whether the objective is inserted, or None if it cannot be asked.
 
         None rather than a guess: a driver that cannot answer is not the same as one
@@ -1884,7 +1916,7 @@ class FMOverviewWidget(QWidget):
         and naming only `default_orientation` would send the user further than they have
         to go.
         """
-        allowed = self.microscope.system.stage.devices["FM"].acquisition_orientations
+        allowed = self.microscope.system.stage.devices["FM"].available_orientations
         if not allowed:
             # An unconstrained device -- the pose is not what is wrong, so this string
             # is never shown for one; named defensively all the same.
@@ -1973,7 +2005,7 @@ class FMOverviewWidget(QWidget):
         # mid-run. During a run the stage visits every tile in turn, and a grid that
         # followed would crawl across the canvas describing nothing.
         if self._target is None and not self.is_acquiring:
-            self._refresh_tile_grid()
+            self._refresh_tile_grid(redraw_context=False)
 
     def _pose_changed(self, position: FibsemStagePosition) -> bool:
         """Whether *position* is at a different rotation or tilt from the last one.
@@ -2129,7 +2161,8 @@ class FMOverviewWidget(QWidget):
         """
         if not self._may_move():
             return
-        limits = getattr(self.microscope._stage, "limits", None)
+        stage = self.microscope.stage
+        limits = stage.position.limits if stage is not None else None
         if limits and not position.is_within_limits(limits, axes=["x", "y"]):
             notification_service.show_toast(
                 "That position is outside the stage limits.", "warning"
@@ -2229,7 +2262,8 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not resolve the clicked position: {e}")
             return None
 
-        limits = getattr(self.microscope._stage, "limits", None)
+        stage = self.microscope.stage
+        limits = stage.position.limits if stage is not None else None
         if limits and not target.is_within_limits(limits, axes=["x", "y"]):
             notification_service.show_toast(
                 "That position is outside the stage limits.", "warning"
@@ -2500,14 +2534,14 @@ class FMOverviewWidget(QWidget):
         # so the message arrives as a failed run rather than as an answer to the
         # question that was just asked (FIB-417).
         state = self._objective_state()
-        if state is not None and state != "Inserted":
+        if state is not None and state is not InsertableDeviceState.INSERTED:
             message = (
-                f"The objective is {state.lower()}, so an overview cannot be acquired. "
+                f"The objective is {state.value}, so an overview cannot be acquired. "
                 f"Insert it and try again."
             )
             logging.warning(message)
             notification_service.show_toast(message, "warning")
-            self.status.setText(f"Objective is {state.lower()}.")
+            self.status.setText(f"Objective is {state.value}.")
             return
 
         if (
@@ -2617,7 +2651,8 @@ class FMOverviewWidget(QWidget):
             fov = self.settings_widget._tile_fov
             projection = self._projection()
             centre = self._grid_centre()
-            limits = getattr(self.microscope._stage, "limits", None)
+            stage = self.microscope.stage
+            limits = stage.position.limits if stage is not None else None
             if fov is None or projection is None or centre is None or not limits:
                 return []
             height, width = projection.shape
@@ -3069,6 +3104,7 @@ class FMOverviewWidget(QWidget):
             # has always claimed "without exception".
             (self.fm.acquiring_changed, self._on_fm_acquiring_signal),
             (self.fm.transform_changed, self._on_transform_changed),
+            (self.microscope.holder_changed, self._on_holder_changed),
         ):
             try:
                 signal.disconnect(slot)

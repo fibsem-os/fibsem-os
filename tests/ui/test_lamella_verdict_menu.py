@@ -3,7 +3,7 @@
 The lamella's menu offered "No defect", which wrote ``Verdict.NONE`` -- an alias of
 ``UNASSESSED``. So "I looked and it is fine" was stored as "nobody has looked", and
 nothing in the app could record a good lamella. The model had ``GOOD`` all along (and
-the agent server could set it); every display then treated anything but ``NONE`` as a
+the App Server could set it); every display then treated anything but ``NONE`` as a
 defect, so a good lamella would have been drawn with the failure icon.
 
 Run directly (no display needed):

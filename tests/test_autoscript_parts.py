@@ -1,0 +1,128 @@
+"""Thermo's chamber and manipulator as devices make the SDK calls the old code makes.
+
+``AutoscriptChamber`` and ``AutoscriptManipulator`` are ``ThermoMicroscope``'s chamber
+branches and manipulator methods moved onto the devices. Each case runs a call on a
+microscope that built them as connect does, over a fake AutoScript client that records
+every SDK call and write, and requires the result (or error), the calls in order and
+the logged messages the old code gave, recorded over the same fake in
+``tests/fixtures/autoscript_old_calls.json`` before it was deleted.
+
+Cases: the chamber keys, pump and vent; the manipulator keys, insert (each named
+position, and an unknown one), retract, the raw moves, the corrected and offset moves,
+which stay ``ThermoMicroscope``'s and move through the device, and the saved
+positions. The recording runs in its own interpreter
+(``tests/fixtures/autoscript_parts_parity.py``). Nothing here has run on an
+instrument.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from tests.fixtures.autoscript_recording import load
+
+SCRIPT = Path(__file__).parent / "fixtures" / "autoscript_parts_parity.py"
+RECORDED = Path(__file__).parent / "fixtures" / "autoscript_old_calls.json"
+
+
+@pytest.fixture(scope="module")
+def recording(tmp_path_factory):
+    out = tmp_path_factory.mktemp("autoscript_parts") / "recording.json"
+    env = dict(os.environ, FIBSEM_SIM_NO_DELAY="1")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(out)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr[-4000:]
+    recording = load(out.read_text())
+    # the old code's side, recorded before it was deleted
+    old = load(RECORDED.read_text())["parts"]
+    assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
+    for case in recording["cases"]:
+        case["old"] = old[case["key"]]
+    return recording
+
+
+def _case(recording, key):
+    return next(c for c in recording["cases"] if c["key"] == key)
+
+
+def test_the_recording_makes_sdk_calls(recording):
+    cases = recording["cases"]
+    assert len(cases) > 20
+    assert sum(len(c["old"][1]) for c in cases) > 20
+    assert sum(len(c["old"][2]) for c in cases) > 15
+
+
+def test_the_devices_make_the_same_sdk_calls_logs_and_results(recording):
+    different = [
+        c
+        for c in recording["cases"]
+        if c["old"] != c["new"] and c["key"] != "set pump_chamber False"
+    ]
+    assert different == [], json.dumps(different[:3], indent=1)
+
+
+def test_a_false_pump_does_nothing_without_a_warning(recording):
+    """The old ``_set`` warned on a false pump; with no ``_set`` of Thermo's own it
+    is the chamber's key with nothing to do, and logs at debug level."""
+    case = _case(recording, "set pump_chamber False")
+    assert case["old"][2] == [["WARNING", "Invalid value for pump_chamber: False."]]
+    assert case["new"] == [None, [], []]
+
+
+def test_the_old_errors_are_kept(recording):
+    for key in ("insert BAD", "saved BAD"):
+        assert _case(recording, key)["new"][0].startswith("EXC ValueError"), key
+
+
+def test_the_calls_go_through_the_devices(recording):
+    assert recording["facts"]["through_devices"] == [
+        "chamber._pump",
+        "chamber._vent",
+        "manipulator._insert",
+        "manipulator._move_relative",  # the corrected move
+        "manipulator._move_absolute",  # the offset move
+        "manipulator._retract",
+    ]
+
+
+def test_connect_builds_the_chamber_and_the_manipulator(recording):
+    devices = recording["facts"]["devices"]
+    assert devices["chamber"] == "AutoscriptChamber"
+    assert devices["manipulator"] == "AutoscriptManipulator"
+    assert devices["chamber_parameters"] == ["pressure", "state"]
+    assert devices["manipulator_parameters"] == ["position", "state"]
+
+
+def test_nothing_unfitted_is_kept(recording):
+    """The needle says it is not installed, so its device is taken out again and
+    its keys are not routed."""
+    assert recording["facts"]["none_fitted"] == {
+        "manipulator": True,
+        "routed": False,
+    }
+
+
+def test_the_configuration_switches_parts_off(recording):
+    """`hardware.devices` is an overlay on what the instrument has: an entry turns a
+    fitted part off, so it is never built; a device no driver builds is left out with
+    a warning when it says `required: false`."""
+    facts = recording["facts"]["configured"]
+    assert facts["devices"] == ["stage", "chamber"]
+    assert facts["manipulator"] is True
+    assert facts["routed"] is False
+
+
+def test_a_configured_device_that_cannot_be_built_fails_connect(recording):
+    assert recording["facts"]["configured"]["required"] == (
+        "Device 'laser' was not built: driver 'ThermoFisher' has no builder for a "
+        "'laser' device."
+    )

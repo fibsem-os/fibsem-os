@@ -3,12 +3,14 @@ import time
 import warnings
 
 from fibsem import conversions
+from fibsem.structures import InsertableDeviceState
 from fibsem.ui.widgets.custom_widgets import scrollable
 
 try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
     pass
+import functools
 import logging
 import os
 import threading
@@ -38,6 +40,7 @@ from fibsem.applications.autolamella.ui.selected_lamella_widget import (
 )
 from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
+from fibsem.control import WORKFLOW, MicroscopeBusy
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -47,7 +50,6 @@ from fibsem.structures import (
 )
 from fibsem.ui import (
     DETECTION_AVAILABLE,
-    FibsemCryoDepositionWidget,
     FibsemImageSettingsWidget,
     FibsemMovementWidget,
     FibsemSpotBurnWidget,
@@ -103,7 +105,6 @@ from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
-from fibsem.ui.fm.widgets import MinimapPlotWidget
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 
@@ -191,13 +192,10 @@ class AutoLamellaUI(QMainWindow):
     _hook_toast_signal = pyqtSignal(
         str, str
     )  # (message, notification_type) — thread-safe bridge for NotificationHook
-    # A remote (agent) start request, marshalled to the GUI thread the same
-    # way agent answers are: (task_names, item_names, Future[dict]).
-    _agent_start_workflow = pyqtSignal(list, object, object)
-    # The grid twin: (task_names, grid_names, inventory_first, Future[dict]).
-    _agent_start_grid_workflow = pyqtSignal(list, object, bool, object)
-    # (item_name, task_name, patch, version, Future) — the config-patch marshal
-    _agent_config_patch = pyqtSignal(str, str, str, object, str, object)
+    # A remote (agent) request, marshalled to the GUI thread the same way agent
+    # answers are: the work, bound to its arguments and its Future, and marked
+    # as whoever asked (FIB-1276) -- the mark stays on the requesting thread.
+    _agent_call = pyqtSignal(object)
 
     def __init__(
         self,
@@ -214,9 +212,8 @@ class AutoLamellaUI(QMainWindow):
         # The timeline renders the responder's question-lifecycle feed; the
         # widget itself is built in _setup_ui, before the responder exists.
         self.ui_responder.add_question_observer(self.question_timeline.record)
-        self._agent_start_workflow.connect(self._apply_agent_start_workflow)
-        self._agent_start_grid_workflow.connect(self._apply_agent_start_grid_workflow)
-        self._agent_config_patch.connect(self._apply_agent_config_patch)
+        # A bound method, not a lambda: the slot must run on this window's thread.
+        self._agent_call.connect(self._run_agent_call)
 
         self._protocol_lock = threading.RLock()
 
@@ -238,13 +235,6 @@ class AutoLamellaUI(QMainWindow):
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.milling_tab: Optional[QWidget] = None  # the scroll area around it
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
-
-        # minimap plot widget — a floating tool window, shown on demand (was a
-        # napari dock; relocated here so it no longer needs a viewer).
-        self.minimap_plot_widget = MinimapPlotWidget(self)
-        self.minimap_plot_widget.setWindowFlags(Qt.Tool)
-        self.minimap_plot_widget.setWindowTitle("Minimap Plot")
-        self.minimap_plot_widget.hide()
 
         # add widgets to tabs.
         #
@@ -278,9 +268,9 @@ class AutoLamellaUI(QMainWindow):
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
-        # The embedded agent server (FIB-845): built on microscope connect when the
-        # agent_server_enabled preference is on; None means the feature is off.
-        self._agent_server_host = None
+        # The embedded App Server (FIB-845): built on microscope connect when the
+        # App Server preference is on; None means the feature is off.
+        self._app_server_host = None
         # The app's event stream (FIB-1031): built on microscope connect, always,
         # and recorded to events.jsonl in the experiment directory. The agent
         # server reads it when it runs; None only while disconnected.
@@ -384,6 +374,17 @@ class AutoLamellaUI(QMainWindow):
         controller = getattr(self.parent_widget, "script_menu_controller", None)
         return bool(controller is not None and controller.runner.is_running)
 
+    def _someone_else_in_control(self) -> bool:
+        """Whether someone is in control of the microscope (FIB-1270), a command
+        from the App Server say, so a run would be refused. Says so if so."""
+        current = self.microscope.control.current if self.microscope else None
+        if current is None:
+            return False
+        msg = f"Can't start the workflow: {current.describe()}."
+        logging.warning(msg)
+        notification_service.show_toast(msg, "warning")
+        return True
+
     def setup_connections(self):
 
         # lamella controls
@@ -482,8 +483,6 @@ class AutoLamellaUI(QMainWindow):
             # pass the position from the signal; re-querying the microscope here races
             # with the worker thread driving the move (see TescanMicroscope socket lock)
             self.movement_widget.update_ui(stage_position=stage_position)
-
-        self._update_minimap_data(stage_position=stage_position)
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -690,7 +689,7 @@ class AutoLamellaUI(QMainWindow):
             self._disconnect_experiment_events()
             self._setup_experiment_connections()
         self._start_event_recorder()
-        self._start_agent_server()
+        self._start_app_server()
 
     def _start_event_recorder(self) -> None:
         """Start recording events for this microscope connection, whatever else runs.
@@ -702,7 +701,7 @@ class AutoLamellaUI(QMainWindow):
         whenever that widget refreshes while connected -- not once per connection
         -- so it can run again for a microscope that already has a stream, and
         that microscope keeps it. A different microscope (the connection dialog can
-        hand one back) gets a new stream, and a running agent server is stopped so
+        hand one back) gets a new stream, and a running App Server is stopped so
         it restarts on the new buffer: left alone it would serve a closed one.
         """
         recorder = self._event_recorder
@@ -712,7 +711,7 @@ class AutoLamellaUI(QMainWindow):
             self._stop_event_recorder()
             return
         if recorder is not None:
-            host = self._agent_server_host
+            host = self._app_server_host
             if host is not None and host.running:
                 host.stop()
             self._stop_event_recorder()
@@ -745,19 +744,20 @@ class AutoLamellaUI(QMainWindow):
         self._stop_event_recorder()
         super().closeEvent(event)
 
-    def _start_agent_server(self) -> None:
-        """Host the agent server over this session, if the preference asks for it.
+    def _start_app_server(self) -> None:
+        """Host the App Server over this session, if the preference asks for it.
 
         Read-only until scopes are armed; never raises — an optional observer
         must not be able to take the session down (see hosting.py).
         """
-        if fibsem_cfg.load_user_preferences().features.agent_server_enabled:
-            from fibsem.applications.autolamella.server.hosting import AgentServerHost
+        preference = fibsem_cfg.load_user_preferences().app_server
+        if preference.enabled:
+            from fibsem.applications.autolamella.server.hosting import AppServerHost
 
-            if self._agent_server_host is None:
-                self._agent_server_host = AgentServerHost(self)
+            if self._app_server_host is None:
+                self._app_server_host = AppServerHost(self, devices=preference.devices)
             recorder = self._event_recorder
-            self._agent_server_host.start(
+            self._app_server_host.start(
                 self.microscope,
                 event_buffer=recorder.buffer if recorder is not None else None,
                 lifecycle_hook=recorder.lifecycle_hook
@@ -765,24 +765,32 @@ class AutoLamellaUI(QMainWindow):
                 else None,
             )
 
-    def sync_agent_server_with_preference(self) -> None:
+    def sync_app_server_with_preference(self) -> None:
         """Start or stop the embedded server to match the saved preference.
 
         Called after preferences are saved, so ticking the box acts now rather
         than at the next connect. Starting needs a connected microscope (the
         server wraps it); without one this is a no-op and the connect path
         picks the preference up as before.
+
+        The services are fixed when the server starts, so a changed devices
+        setting restarts it. The token is new after that, and a connected agent
+        reconnects as it would after any restart.
         """
-        host = self._agent_server_host
-        if fibsem_cfg.load_user_preferences().features.agent_server_enabled:
+        host = self._app_server_host
+        preference = fibsem_cfg.load_user_preferences().app_server
+        if host is not None and host.devices != preference.devices:
+            host.stop()
+            self._app_server_host = host = None
+        if preference.enabled:
             if self.microscope is not None and (host is None or not host.running):
-                self._start_agent_server()
+                self._start_app_server()
         elif host is not None and host.running:
             host.stop()
 
     def disconnect_from_microscope(self):
-        if self._agent_server_host is not None:
-            self._agent_server_host.stop()
+        if self._app_server_host is not None:
+            self._app_server_host.stop()
         self._stop_event_recorder()
         self.microscope = None
         self.settings = None
@@ -1125,59 +1133,6 @@ class AutoLamellaUI(QMainWindow):
 
     #### MINIMAP
 
-    def _update_minimap_data(
-        self,
-        stage_position: Optional[FibsemStagePosition] = None,
-        selected_name: Optional[str] = None,
-    ) -> None:
-        if self.microscope is None:
-            return
-        if self.experiment is None:
-            return
-
-        if self.minimap_plot_widget is None:
-            return
-
-        if not self.minimap_plot_widget.isVisible():
-            return
-
-        try:
-            image: Optional[FibsemImage] = None
-            if self.minimap_plot_widget.image is None:
-                ms = self.microscope.get_microscope_state(beam_type=BeamType.ELECTRON)
-                image = FibsemImage.generate_blank_image(
-                    resolution=(2048, 2048), hfw=4000e-6
-                )
-                image.metadata.microscope_state = ms  # type: ignore
-                image.metadata.system_info = self.microscope.system.info  # type: ignore
-                image.metadata.hardware_geometry = self.microscope.hardware_geometry()  # type: ignore
-                self.minimap_plot_widget.image = image
-
-            beam_type = self.minimap_plot_widget.image.metadata.beam_type  # type: ignore
-            fov = self.microscope.get_field_of_view(beam_type=beam_type)
-
-            # Set the data (delay redraw until all data updated...)
-            if selected_name is not None:
-                self.minimap_plot_widget.selected_name = selected_name
-            self.minimap_plot_widget.lamella_positions = (
-                self.experiment.get_milling_positions()
-            )
-            if self.minimap_plot_widget.grid_positions is None:
-                self.minimap_plot_widget.grid_positions = [
-                    s.position
-                    for s in self.microscope._stage.holder.slots.values()
-                    if s.position is not None  # uncalibrated slots draw nothing
-                ]
-            self.minimap_plot_widget.fov_width = fov
-            if stage_position is not None:
-                self.minimap_plot_widget.set_current_position(stage_position)
-            else:
-                self.minimap_plot_widget.update_minimap()
-            if image is not None:
-                self.minimap_plot_widget.reset_zoom()
-        except Exception as e:
-            logging.warning(f"Failed to update minimap data: {e}")
-
     #### TASK WORKFLOW
 
     def _start_run_workflow_thread(
@@ -1192,6 +1147,8 @@ class AutoLamellaUI(QMainWindow):
             msg = "A microscope script is running. Stop it before starting a workflow."
             logging.warning(msg)
             notification_service.show_toast(msg, "warning")
+            return
+        if self._someone_else_in_control():
             return
 
         # clear milling task config
@@ -1208,11 +1165,15 @@ class AutoLamellaUI(QMainWindow):
         task_names: List[str],
         grid_names: Optional[List[str]],
         inventory_first: bool = False,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ) -> None:
         """Start a grid run on the workflow thread: the lamella run's twin.
 
         `grid_names` None with `inventory_first` is "Screen all grids": the worker
         runs the inventory, records every present grid, and runs over them all.
+        `unload_at_end` and `report_at_end` are the confirmation's end-of-run
+        options, carried out by the manager.
         Shares the worker slot, the manager slot and the finished signal with the
         lamella run, so Stop, the timeline and the run summary work unchanged and
         the two cannot overlap.
@@ -1222,8 +1183,15 @@ class AutoLamellaUI(QMainWindow):
             logging.warning(msg)
             notification_service.show_toast(msg, "warning")
             return
+        if self._someone_else_in_control():
+            return
         self._task_worker_thread = FunctionWorker(
-            self._run_grid_tasks_worker, task_names, grid_names, inventory_first
+            self._run_grid_tasks_worker,
+            task_names,
+            grid_names,
+            inventory_first,
+            unload_at_end,
+            report_at_end,
         )
         self._task_worker_thread.start()
 
@@ -1232,6 +1200,8 @@ class AutoLamellaUI(QMainWindow):
         task_names: List[str],
         grid_names: Optional[List[str]],
         inventory_first: bool,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
     ) -> None:
         """Worker thread for a grid run."""
         from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
@@ -1246,22 +1216,30 @@ class AutoLamellaUI(QMainWindow):
             if self.microscope is None or self.experiment is None:
                 logging.error("No microscope or experiment loaded.")
                 return
-            if not self.microscope.is_on(BeamType.ELECTRON):
-                self.microscope.turn_on(BeamType.ELECTRON)
-            if not self.microscope.is_on(BeamType.ION):
-                self.microscope.turn_on(BeamType.ION)
-            if inventory_first:
-                grid_names = present_grids(self.microscope, self.experiment)
-            logging.info(f"Starting grid tasks: {task_names}, for grids: {grid_names}")
-            self._task_manager = GridTaskManager(
-                microscope=self.microscope,
-                experiment=self.experiment,
-                parent_ui=self,
-                hook_manager=self.setup_hooks(),
-            )
-            if self._workflow_stop_event.is_set():
-                self._task_manager.stop()
-            self._task_manager.run(task_names, grid_names)
+            # In control for the whole run, the inventory included (FIB-1270).
+            with self.microscope.control.take(WORKFLOW, "a grid run"):
+                if not self.microscope.is_on(BeamType.ELECTRON):
+                    self.microscope.turn_on(BeamType.ELECTRON)
+                if not self.microscope.is_on(BeamType.ION):
+                    self.microscope.turn_on(BeamType.ION)
+                if inventory_first:
+                    grid_names = present_grids(self.microscope, self.experiment)
+                logging.info(
+                    f"Starting grid tasks: {task_names}, for grids: {grid_names}"
+                )
+                self._task_manager = GridTaskManager(
+                    microscope=self.microscope,
+                    experiment=self.experiment,
+                    parent_ui=self,
+                    hook_manager=self.setup_hooks(),
+                    unload_at_end=unload_at_end,
+                    report_at_end=report_at_end,
+                )
+                if self._workflow_stop_event.is_set():
+                    self._task_manager.stop()
+                self._task_manager.run(task_names, grid_names)
+        except MicroscopeBusy as e:
+            logging.warning(f"Grid workflow not started: {e}")
         except (InterruptedError, OperationCancelledError) as e:
             logging.info(f"Grid workflow cancelled: {e}")
         except Exception as e:
@@ -1281,6 +1259,16 @@ class AutoLamellaUI(QMainWindow):
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
 
+    def _marshal(self, apply, *args) -> None:
+        """Run ``apply(*args)`` on the GUI thread as whoever called this."""
+        from fibsem.acting import carried
+
+        self._agent_call.emit(carried(functools.partial(apply, *args)))
+
+    def _run_agent_call(self, call) -> None:
+        """GUI thread. Run a call :meth:`_marshal` sent."""
+        call()
+
     def request_start_workflow(
         self, task_names: List[str], item_names: Optional[List[str]] = None
     ) -> "Future":
@@ -1295,7 +1283,9 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_start_workflow.emit(list(task_names), item_names, outcome)
+        self._marshal(
+            self._apply_agent_start_workflow, list(task_names), item_names, outcome
+        )
         return outcome
 
     def _apply_agent_start_workflow(
@@ -1376,8 +1366,12 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_start_grid_workflow.emit(
-            list(task_names), grid_names, bool(inventory_first), outcome
+        self._marshal(
+            self._apply_agent_start_grid_workflow,
+            list(task_names),
+            grid_names,
+            bool(inventory_first),
+            outcome,
         )
         return outcome
 
@@ -1487,8 +1481,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "item", item_name, task_name, patch, version, outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "item",
+            item_name,
+            task_name,
+            patch,
+            version,
+            outcome,
         )
         return outcome
 
@@ -1503,8 +1503,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "item_fields", item_name, "", patch, version, outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "item_fields",
+            item_name,
+            "",
+            patch,
+            version,
+            outcome,
         )
         return outcome
 
@@ -1526,7 +1532,8 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
+        self._marshal(
+            self._apply_agent_config_patch,
             "reorder_stages",
             item_name,
             task_name,
@@ -1547,8 +1554,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "apply_protocol", item_name, "", {"task_names": task_names}, "", outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "apply_protocol",
+            item_name,
+            "",
+            {"task_names": task_names},
+            "",
+            outcome,
         )
         return outcome
 
@@ -1564,8 +1577,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "protocol", "", task_name, patch, version, outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "protocol",
+            "",
+            task_name,
+            patch,
+            version,
+            outcome,
         )
         return outcome
 
@@ -1724,8 +1743,6 @@ class AutoLamellaUI(QMainWindow):
         per-field; a rectangle is only judgeable whole). A defect edit stamps
         ``updated_at``, so the verdict record carries when it was changed.
         """
-        import time as _time
-
         from fibsem.applications.autolamella.server.context import (
             ITEM_PATCH_FIELDS,
             item_fields_version,
@@ -1772,7 +1789,9 @@ class AutoLamellaUI(QMainWindow):
                 "path": None,
             }
         if any(p.split(".", 1)[0] == "defect" for p, _o, _n in changes):
-            lamella.defect.updated_at = _time.time()
+            from fibsem.util.timestamps import now
+
+            lamella.defect.updated_at = now()
         # Moving the POI moves what is attached to it: the GUI's move path
         # calls sync_tasks_to_poi (patterns with sync_to_poi follow the
         # point); a patch that bypassed it left rough/polishing patterns
@@ -2007,27 +2026,33 @@ class AutoLamellaUI(QMainWindow):
                 logging.error("No microscope or experiment loaded.")
                 return
 
-            # turn beams on if required
-            if not self.microscope.is_on(BeamType.ELECTRON):
-                self.microscope.turn_on(BeamType.ELECTRON)
-            if not self.microscope.is_on(BeamType.ION):
-                self.microscope.turn_on(BeamType.ION)
+            # In control for the whole run, beams on included (FIB-1270).
+            with self.microscope.control.take(WORKFLOW, "a lamella run"):
+                # turn beams on if required
+                if not self.microscope.is_on(BeamType.ELECTRON):
+                    self.microscope.turn_on(BeamType.ELECTRON)
+                if not self.microscope.is_on(BeamType.ION):
+                    self.microscope.turn_on(BeamType.ION)
 
-            logging.info(f"Starting tasks: {task_names}, for lamella: {lamella_names}")
-            self._task_manager = TaskManager(
-                microscope=self.microscope,
-                experiment=self.experiment,
-                parent_ui=self,
-                hook_manager=self.setup_hooks(),
-            )
-            # Honor a stop requested before the manager existed (e.g. clicked
-            # during beam-on, while _task_manager was still None).
-            if self._workflow_stop_event.is_set():
-                self._task_manager.stop()
-            self._task_manager.run(
-                task_names=task_names,
-                required_lamella=lamella_names,
-            )
+                logging.info(
+                    f"Starting tasks: {task_names}, for lamella: {lamella_names}"
+                )
+                self._task_manager = TaskManager(
+                    microscope=self.microscope,
+                    experiment=self.experiment,
+                    parent_ui=self,
+                    hook_manager=self.setup_hooks(),
+                )
+                # Honor a stop requested before the manager existed (e.g. clicked
+                # during beam-on, while _task_manager was still None).
+                if self._workflow_stop_event.is_set():
+                    self._task_manager.stop()
+                self._task_manager.run(
+                    task_names=task_names,
+                    required_lamella=lamella_names,
+                )
+        except MicroscopeBusy as e:
+            logging.warning(f"Workflow not started: {e}")
         except (InterruptedError, OperationCancelledError) as e:
             # A user Stop, not a failure: both cancellation types unwind through
             # here, and anyone scanning the log for problems (or filtering on
@@ -2082,7 +2107,7 @@ class AutoLamellaUI(QMainWindow):
         # server shares the recorder's hook; one of its own (a host started
         # without a recorder) is registered here, per run, as before.
         recorder = self._event_recorder
-        host = self._agent_server_host
+        host = self._app_server_host
         if (
             host is not None
             and host.running
@@ -2226,12 +2251,10 @@ class AutoLamellaUI(QMainWindow):
             return
 
         lamella: Lamella = self.experiment.positions[idx]
-        logging.info(f"Updating Lamella UI for {lamella.status_info}")
+        logging.debug(f"Updating Lamella UI for {lamella.status_info}")
 
         # refresh objective position + pose display for the selected lamella
         self.selected_lamella_widget.set_lamella(lamella)
-
-        self._update_minimap_data(selected_name=lamella.name)
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
@@ -2287,11 +2310,11 @@ class AutoLamellaUI(QMainWindow):
         created as a side effect of marking a lamella.
         """
         experiment = self.experiment
-        stage = getattr(self.microscope, "_stage", None)
+        stage = getattr(self.microscope, "sample_handling", None)
         if experiment is None or stage is None:
             return None
         try:
-            if stage.loader is not None:
+            if stage.magazine is not None:
                 loaded = stage.loaded_grids
                 grid = loaded[0] if len(loaded) == 1 else None
             else:
@@ -2597,7 +2620,7 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("No lamella selected.", "warning")
             return
         obj = self.microscope.fm.objective
-        if obj.state == "Inserted":
+        if obj.state is InsertableDeviceState.INSERTED:
             value_m = obj.position
         else:
             value_m = obj.focus_position
@@ -2634,7 +2657,7 @@ class AutoLamellaUI(QMainWindow):
             )
             return
         obj = self.microscope.fm.objective
-        if obj.state != "Inserted":
+        if obj.state is not InsertableDeviceState.INSERTED:
             notification_service.show_toast(
                 "Insert the objective before moving to a stored position.", "warning"
             )
@@ -2775,13 +2798,6 @@ class AutoLamellaUI(QMainWindow):
         notification_service.show_toast(
             f"Saved Protocol to {os.path.basename(protocol_path)}", "info"
         )
-
-    #########
-    def cryo_deposition(self):
-        if self.microscope is None:
-            return
-        cryo_deposition_widget = FibsemCryoDepositionWidget(self.microscope)
-        cryo_deposition_widget.exec_()
 
     def set_instructions_msg(
         self,
@@ -2987,7 +3003,7 @@ class AutoLamellaUI(QMainWindow):
         """Show a modal summary dialog of the tasks run in the last workflow.
 
         Show-once, but never consume: ``_last_run_summary`` is also the
-        record the agent server's ``run_summary`` endpoint reads after the
+        record the App Server's ``run_summary`` endpoint reads after the
         worker nulls the manager — nulling it here meant the record lived
         only for the milliseconds between the worker's capture and this
         handler, and every remote read found nothing. The record stays until

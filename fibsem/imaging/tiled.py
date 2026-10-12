@@ -39,9 +39,6 @@ from fibsem.imaging.tiling.progress import (
 )
 from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
     _inverse_y_corrected_stage_movement,
-    _inverse_y_corrected_stage_movement_tescan,
-    _to_raw_coordinate_system,
-    _to_specimen_coordinate_system,
     _transform_position,
     calculate_reprojected_stage_position,
     calculate_reprojected_stage_position2,
@@ -341,10 +338,13 @@ class TiledAcquisitionRunner:
             for tile in self._ordered
         ]
         for tile, sp in zip(self._ordered, self._tile_stage_positions):
-            logging.info(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
+            logging.debug(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
 
+        stage = self.microscope.stage
         raise_if_outside_stage_limits(
-            self._ordered, self._tile_stage_positions, self.microscope._stage.limits
+            self._ordered,
+            self._tile_stage_positions,
+            (stage.position.limits if stage is not None else None) or {},
         )
 
         # EACH_ROW is not well-defined for SPIRAL (rows are revisited non-sequentially),
@@ -403,13 +403,22 @@ class TiledAcquisitionRunner:
         return metadata
 
     def _correct_metadata_from(self, image: FibsemImage) -> None:
-        """Take the pixel size the instrument actually delivered, once one exists.
+        """Take what the first tile says that the plan could not: when the mosaic was
+        acquired, and the pixel size the instrument actually delivered.
+
+        The mosaic is built here rather than acquired through `Beam.acquire`, so it
+        has no acquisition time of its own; it was acquired from when its first tile
+        was (FIB-1190).
 
         The planned `hfw / width` is right on every simulator and can be a fraction out
         on a column that quantises the field of view. Everything placed from this
         metadata scales by it, so a fraction out is a fraction of the whole mosaic.
         """
-        actual = getattr(getattr(image, "metadata", None), "pixel_size", None)
+        metadata = getattr(image, "metadata", None)
+        acquired = getattr(metadata, "acquisition_datetime", None)
+        if acquired is not None:
+            self._mosaic_metadata.acquisition_datetime = acquired
+        actual = getattr(metadata, "pixel_size", None)
         if actual is None or not actual.x:
             return
         self._mosaic_metadata.pixel_size = deepcopy(actual)
@@ -473,9 +482,9 @@ class TiledAcquisitionRunner:
 
             image_settings.filename = f"tile_{tile.row}_{tile.col}"
 
-            logging.info(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
+            logging.debug(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
             self.microscope.safe_absolute_stage_movement(stage_pos)
-            logging.info(
+            logging.debug(
                 f"Tile ({tile.row}, {tile.col}) — actual: {self.microscope.get_stage_position().pretty}"
             )
 

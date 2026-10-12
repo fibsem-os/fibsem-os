@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fibsem-test-plugin"
 version = "0.0.0"
-description = "Test fixture: a package declaring all three fibsem entry point groups"
+description = "Test fixture: a package declaring every fibsem entry point group"
 requires-python = ">=3.8"
 
 # The point of the fixture. These three group names are the plugin contract;
@@ -30,6 +30,14 @@ fixture_task = "fibsem_test_plugin.tasks:FixtureTask"
 # listing exists to report exactly these, so they have to be exercised.
 wrong_base_class = "fibsem_test_plugin.tasks:NotATask"
 missing_module = "fibsem_test_plugin.nonexistent:Whatever"
+
+# A driver entry point names a function returning a DriverEntry, not a class.
+[project.entry-points."fibsem.drivers"]
+fixture_driver = "fibsem_test_plugin.drivers:fixture_driver"
+# Claims a built-in driver's manufacturer on purpose; the built-in must still win.
+clashing_driver = "fibsem_test_plugin.drivers:clashing_driver"
+# Returns the class path instead of a record, the likeliest mistake.
+not_a_record = "fibsem_test_plugin.drivers:not_a_record"
 
 [tool.setuptools]
 packages = ["fibsem_test_plugin"]

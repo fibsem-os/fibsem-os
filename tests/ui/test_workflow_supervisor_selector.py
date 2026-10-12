@@ -1,11 +1,8 @@
 """The workflow row's attention chip: one control for when a person is
-involved in a task, cycling Automated → Supervised → (Agent) → (Review).
+involved in a task, toggling Automated ↔ Supervised.
 
-The Agent step exists only while the agent-server preference is on and the
-Review step only while interactive review is on; with neither this is the old
-two-state toggle. A stored ``supervisor: agent`` displays as plain Supervised
-with the feature off, and a stored ``review: true`` as Automated -- the state
-the task will actually run in, not the one in the file."""
+There is no Agent step (FIB-1035): a supervised question goes to the operator
+and any connected agent alike."""
 
 import os
 
@@ -36,61 +33,23 @@ def row(qapp, monkeypatch):
 A = Attention
 
 
-def _fields(task):
-    return (task.attention, task.supervisor)
-
-
-def test_without_either_feature_the_chip_is_two_state(row, monkeypatch):
-    monkeypatch.setattr(module, "_agent_supervision_available", lambda: False)
+def test_the_chip_is_two_state(row):
     assert row.btn_attention.text() == "Automated"
     row._on_attention_clicked()
-    assert _fields(row.task) == (A.supervised, "human")
+    assert row.task.attention is A.supervised
     assert row.btn_attention.text() == "Supervised"
-    row._on_attention_clicked()
-    assert _fields(row.task) == (A.automated, "human")
-    assert row.btn_attention.text() == "Automated"
-
-
-def test_with_the_agent_feature_the_cycle_gains_the_agent_step(row, monkeypatch):
-    monkeypatch.setattr(module, "_agent_supervision_available", lambda: True)
-    row._on_attention_clicked()
-    assert _fields(row.task) == (A.supervised, "human")
     assert row.btn_attention.toolTip().startswith("Supervised")
     row._on_attention_clicked()
-    assert _fields(row.task) == (A.supervised, "agent")
-    assert row.btn_attention.text() == "Agent"
-    row._on_attention_clicked()
-    # Leaving the agent state resets the designation: nothing hidden survives.
-    assert _fields(row.task) == (A.automated, "human")
+    assert row.task.attention is A.automated
     assert row.btn_attention.text() == "Automated"
 
 
-def test_a_designated_task_displays_as_supervised_when_the_feature_is_off(
-    row, monkeypatch
-):
-    monkeypatch.setattr(module, "_agent_supervision_available", lambda: False)
-    row.task.attention = Attention.supervised
-    row.task.supervisor = "agent"
-    row.refresh()
-    assert row.btn_attention.text() == "Supervised"
-    # And the click matches what is displayed: Supervised → Automated.
-    row._on_attention_clicked()
-    assert _fields(row.task) == (A.automated, "human")
-
-
-def test_each_click_announces_only_what_changed(row, monkeypatch):
-    monkeypatch.setattr(module, "_agent_supervision_available", lambda: True)
-    monkeypatch.setattr(module, "_review_available", lambda: True)
+def test_each_click_announces_what_changed(row):
     seen = []
-    row.attention_changed.connect(lambda t: seen.append(_fields(t)))
-    for _ in range(4):
+    row.attention_changed.connect(lambda t: seen.append(t.attention))
+    for _ in range(3):
         row._on_attention_clicked()
-    assert seen == [
-        (A.supervised, "human"),  # Automated -> Supervised
-        (A.supervised, "agent"),  # Supervised -> Agent
-        (A.automated, "human"),  # Agent -> Automated: the designation resets
-        (A.supervised, "human"),  # Automated -> Supervised
-    ]
+    assert seen == [A.supervised, A.automated, A.supervised]
 
 
 def test_a_requirement_on_a_supervised_task_reads_as_the_wait_it_is(qapp, monkeypatch):

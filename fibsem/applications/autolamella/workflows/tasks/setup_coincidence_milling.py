@@ -30,9 +30,12 @@ from dataclasses import dataclass, field
 from typing import ClassVar, Optional, Type
 
 from fibsem import timing
-from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
+from fibsem.applications.autolamella.structures import (
+    Attention,
+    AutoLamellaTaskConfig,
+)
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.structures import FibsemRectangle, Point, field_meta
+from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point, field_meta
 
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
 
@@ -162,6 +165,13 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
     )
 
     def _run(self) -> None:
+        # A person's judgement at the microscope is the whole output; run
+        # automated it would record guesses as a set-up site.
+        if self._protocol_attention() is Attention.automated:
+            raise ValueError(
+                f"{self.task_name} needs an operator at the microscope and cannot "
+                "run Automated. Set it to Supervised in the protocol."
+            )
         if self.microscope.fm is None:
             raise ValueError(
                 "Fluorescence microscope not initialized in the FibsemMicroscope "
@@ -177,7 +187,6 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             )
 
         image_settings = self.config.imaging
-        image_settings.path = self.lamella.path
 
         # 1. the milling pose, stage only. Tilt first: once the objective is in, z and
         # t are unavailable, so the order here is not negotiable.
@@ -245,7 +254,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
     def _move_objective(self, position: Optional[float]) -> None:
         objective = self.microscope.fm.objective
         self.log_status_message("MOVE_OBJECTIVE", "Inserting Objective...")
-        if objective.state != "Inserted":
+        if objective.state is not InsertableDeviceState.INSERTED:
             objective.insert()
         if position is None:
             logging.warning(
@@ -259,7 +268,11 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
     def _current_objective_position(self, fallback: Optional[float]) -> float:
         """Where the objective is now: what the operator left, or what we set."""
         objective = self.microscope.fm.objective
-        position = objective.position if objective.state == "Inserted" else None
+        position = (
+            objective.position
+            if objective.state is InsertableDeviceState.INSERTED
+            else None
+        )
         if position is None:
             position = fallback
         if position is None:
@@ -328,6 +341,25 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
                 f"{self.task_name}: coincidence alignment did not converge for "
                 f"{self.lamella.name}: {result.reason}. Continuing at the milling pose."
             )
+
+    def _protocol_attention(self) -> Optional[Attention]:
+        """The attention the run's workflow lists this task with; None when it
+        does not list it, or there is no protocol.
+
+        Only a listed task: the protocol reads an unlisted task as automated,
+        and running Setup on its own is not asking for that. Read through the
+        task manager, which a headless run and a GUI run share, and through
+        the window only when there is no manager."""
+        for holder in (self.task_manager, self.parent_ui):
+            experiment = getattr(holder, "experiment", None)
+            protocol = getattr(experiment, "task_protocol", None)
+            if protocol is None:
+                continue
+            for task in protocol.workflow_config.tasks:
+                if task.name == self.task_name:
+                    return task.attention
+            return None
+        return None
 
     def _hand_off(self) -> None:
         """Give the operator the viewer to place the boxes. Wired in FIB-911.

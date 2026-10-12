@@ -1,6 +1,7 @@
 """The configuration window: what the connected instrument is, and its defaults."""
 
 import os
+from datetime import datetime, timezone
 
 import pytest
 
@@ -70,23 +71,67 @@ def test_the_geometry_tab_shows_the_configured_numbers(qapp, microscope):
     assert f"{fm_origin * 1e3:.2f} mm" in text  # the plain position, not an offset
 
 
+def test_the_geometry_tab_shows_the_declared_fib_pose_rotation(qapp, microscope):
+    """Read from the pose the stage declares (FIB-1101), not `stage.rotation_180`."""
+    import math
+
+    microscope.get_orientation("FIB").r = math.radians(123.0)
+    window = MicroscopeConfigurationWindow(microscope)
+
+    assert "123°  (derived)" in _texts(window.tabs.widget(1))
+
+
 def test_devices_say_who_reported_them(microscope):
-    """sim-iflm states `has_gis_multichem: false` -- the simulator's stand-in for the
-    instrument answering -- and says nothing about the manipulator, so the backend's
-    default answers for that one."""
+    """sim-iflm says nothing about the manipulator, so the backend's default answers
+    for it."""
     rows = {
         name: (fitted, source) for name, fitted, source, _ in devices_rows(microscope)
     }
 
-    assert rows["Multichem"] == (False, "Instrument")
     assert rows["Manipulator"] == (True, "Backend default")
     assert rows["Fluorescence"] == (True, "Configuration")
+
+
+@pytest.mark.parametrize(
+    "configuration, detail",
+    [
+        ("sim-iflm-configuration.yaml", ""),
+        ("sim-arctis-configuration.yaml", "No rotation"),
+    ],
+    ids=["rotating-stage", "compustage"],
+)
+def test_the_stage_row_says_when_the_stage_does_not_rotate(configuration, detail):
+    """Read from the stage's axes at connect, not from the stage type."""
+    path = os.path.join(cfg.CONFIG_PATH, configuration)
+    microscope, _ = utils.setup_session(
+        config_path=path, manufacturer="Demo", setup_logging=False
+    )
+    try:
+        rows = {row[0]: row[3] for row in devices_rows(microscope)}
+        assert rows["Stage"] == detail
+    finally:
+        microscope.disconnect()
+
+
+def test_a_simulated_probe_is_reported_as_the_instrument(microscope):
+    """`sim.has_manipulator` is the simulator's stand-in for the instrument
+    answering."""
+    microscope.system.sim["has_manipulator"] = False
+    # what connecting with that answer does: the device says so and is not kept
+    microscope._keep_if_fitted("manipulator")
+    microscope._read_hardware_capabilities()
+
+    rows = {
+        name: (fitted, source) for name, fitted, source, _ in devices_rows(microscope)
+    }
+
+    assert rows["Manipulator"] == (False, "Instrument")
 
 
 def _fake_calibrated_slot(microscope):
     from fibsem.structures import FibsemStagePosition, SlotCalibration
 
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     slot = holder.slots["Slot-01"]
     slot.position = FibsemStagePosition(
         name="Slot-01", x=-3.1e-3, y=0.4e-3, z=4e-3, r=0.0, t=0.61
@@ -103,7 +148,7 @@ def _fake_calibrated_slot(microscope):
 def test_the_calibration_tab_shows_each_slot(qapp, microscope):
     _fake_calibrated_slot(microscope)
 
-    rows = slot_rows(microscope._stage.holder)
+    rows = slot_rows(microscope.sample_handling.holder)
 
     assert rows[0] == (
         "Slot-01",
@@ -134,7 +179,7 @@ def test_saving_a_slot_calibration_refreshes_the_tab(qapp, microscope):
     assert "0 of 2 calibrated" in _texts(window.tabs.widget(2))
 
     _fake_calibrated_slot(microscope)
-    window.refresh_calibration(microscope._stage.holder)
+    window.refresh_calibration(microscope.sample_handling.holder)
 
     assert window.tabs.tabText(2) == "Calibration"
     assert "1 of 2 calibrated" in _texts(window.tabs.widget(2))
@@ -150,9 +195,11 @@ def test_a_loader_holder_has_no_slots_to_calibrate(qapp):
     try:
         window = MicroscopeConfigurationWindow(microscope)
         buttons = window.tabs.widget(2).findChildren(QPushButton, "calibrate_slots")
-        assert microscope._stage.loader is not None
+        assert microscope.sample_handling.magazine is not None
         assert buttons == []
-        assert [row[1] for row in slot_rows(microscope._stage.holder)] == ["Built in"]
+        assert [row[1] for row in slot_rows(microscope.sample_handling.holder)] == [
+            "Built in"
+        ]
     finally:
         microscope.disconnect()
 
@@ -211,9 +258,9 @@ def test_an_empty_session_has_nothing_in_each_section():
 def test_the_calibration_tab_shows_the_grid_in_each_slot(qapp, microscope):
     from fibsem.structures import SampleGrid
 
-    microscope._stage.assign_grid("Slot-01", SampleGrid(name="grid-ash"))
+    microscope.sample_handling.assign_grid("Slot-01", SampleGrid(name="grid-ash"))
 
-    assert slot_rows(microscope._stage.holder)[0][2] == "grid-ash"
+    assert slot_rows(microscope.sample_handling.holder)[0][2] == "grid-ash"
     window = MicroscopeConfigurationWindow(microscope)
     assert "grid-ash" in _texts(window.tabs.widget(2))
 
@@ -345,34 +392,12 @@ def test_closing_with_nothing_to_save_does_not_ask(qapp, site, toasts, monkeypat
     assert not window.isVisible()
 
 
-def test_apply_sets_the_microscope_to_what_the_tab_shows(qapp, site, toasts):
-    from fibsem.structures import BeamType
+def test_a_calibration_with_an_offset_shows_in_the_viewers_zone(qapp, microscope):
+    """New records carry their UTC offset (FIB-1190); the fake slot's does not."""
+    _fake_calibrated_slot(microscope)
+    holder = microscope.sample_handling.holder
+    holder.slots["Slot-01"].calibration.captured_at = "2026-09-24T17:51:10+00:00"
+    local = datetime(2026, 9, 24, 17, 51, 10, tzinfo=timezone.utc).astimezone()
 
-    window = MicroscopeConfigurationWindow(site)
-    _edit(window, 123.0)
-
-    window.pushButton_apply.click()
-
-    assert site.get_field_of_view(BeamType.ELECTRON) == pytest.approx(123.0e-6)
-    assert ("info", "Defaults applied to the microscope.") in toasts
-    assert window.has_unsaved_changes()  # applied, not saved
-
-
-def test_an_apply_that_fails_is_reported_not_raised(qapp, site, toasts, monkeypatch):
-    def fail(*args, **kwargs):
-        raise RuntimeError("beam off")
-
-    monkeypatch.setattr(site, "apply_configuration", fail)
-    window = MicroscopeConfigurationWindow(site)
-
-    window.apply_to_microscope()
-
-    assert ("error", "Could not apply the defaults: beam off") in toasts
-
-
-def test_apply_follows_the_application_s_switch(qapp, site, toasts, monkeypatch):
-    monkeypatch.setattr(cfg, "APPLY_CONFIGURATION_ENABLED", False)
-
-    window = MicroscopeConfigurationWindow(site)
-
-    assert not window.pushButton_apply.isEnabled()
+    rows = slot_rows(holder)
+    assert rows[0][4] == f"{local:%Y-%m-%d %H:%M:%S}"

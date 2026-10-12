@@ -1,4 +1,5 @@
 """Diagnostic plotting for autofunctions results."""
+
 from __future__ import annotations
 
 import logging
@@ -11,15 +12,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MAX_THUMBS = 5
-PASS_COLORS = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"]
 
 
 # ── ACB ──────────────────────────────────────────────────────────────────────
 
+
 def _best_thumb_indices(result: "AutoContrastBrightnessResult") -> list[int]:
     """Return up to MAX_THUMBS indices ranked by closeness of mean to 0.5."""
-    ranked = sorted(range(len(result.iterations)),
-                    key=lambda i: abs(result.iterations[i].stats.mean - 0.5))
+    ranked = sorted(
+        range(len(result.iterations)),
+        key=lambda i: abs(result.iterations[i].stats.mean - 0.5),
+    )
     return sorted(ranked[:MAX_THUMBS])
 
 
@@ -33,6 +36,13 @@ def plot_acb_result(
     Bottom row — per-iteration traces for brightness, contrast, mean, saturation,
                  and range utilisation.
     """
+    from fibsem.theme.plots import DARK, plot_theme
+
+    with plot_theme(DARK) as theme:
+        return _plot_acb_result(result, save_path, theme)
+
+
+def _plot_acb_result(result, save_path, theme):
     import matplotlib.gridspec as gridspec
     from matplotlib.figure import Figure
 
@@ -45,8 +55,9 @@ def plot_acb_result(
 
     N_METRICS = 5
     fig = Figure(figsize=(max(10, N_METRICS * 2.2), 7), layout="constrained")
-    gs = gridspec.GridSpec(2, max(n_thumbs, N_METRICS), figure=fig,
-                           height_ratios=[1.4, 1])
+    gs = gridspec.GridSpec(
+        2, max(n_thumbs, N_METRICS), figure=fig, height_ratios=[1.4, 1]
+    )
     fig.get_layout_engine().set(hspace=0.08, wspace=0.1, h_pad=0.2, w_pad=0.05)
 
     final_idx = n - 1
@@ -59,33 +70,46 @@ def plot_acb_result(
         ax.set_title(
             f"{label}\nb={iters[idx].brightness:.2f} c={iters[idx].contrast:.2f}\n"
             f"mean={iters[idx].stats.mean:.3f}",
-            fontsize=6, pad=2,
+            fontsize=6,
+            pad=2,
         )
         ax.set_xticks([])
         ax.set_yticks([])
-        border_color = "limegreen" if is_final else "#444444"
+        border_color = theme.good if is_final else theme.grid
         border_width = 2.5 if is_final else 0.5
         for spine in ax.spines.values():
             spine.set_edgecolor(border_color)
             spine.set_linewidth(border_width)
 
+    # the four on one axis take the theme's first four colours; a metric on an
+    # axis of its own needs no colour to tell it apart, so each takes the first
     combined = [
-        ("brightness", [it.brightness        for it in iters], "tab:blue"),
-        ("contrast",   [it.contrast          for it in iters], "tab:orange"),
-        ("mean",       [it.stats.mean        for it in iters], "tab:green"),
-        ("median",     [it.stats.median      for it in iters], "tab:olive"),
+        ("brightness", [it.brightness for it in iters], theme.series[0]),
+        ("contrast", [it.contrast for it in iters], theme.series[1]),
+        ("mean", [it.stats.mean for it in iters], theme.series[2]),
+        ("median", [it.stats.median for it in iters], theme.series[3]),
     ]
+    solo = theme.series[0]
     solo_metrics = [
-        ("saturation hi",     [it.stats.saturation_hi     for it in iters], "tab:red",    0.005),
-        ("range utilisation", [it.stats.range_utilisation for it in iters], "tab:purple", None),
-        ("SNR",               [it.stats.snr               for it in iters], "tab:cyan",   None),
-        ("entropy (bits)",    [it.stats.entropy           for it in iters], "tab:brown",  None),
+        ("saturation hi", [it.stats.saturation_hi for it in iters], solo, 0.005),
+        (
+            "range utilisation",
+            [it.stats.range_utilisation for it in iters],
+            solo,
+            None,
+        ),
+        ("SNR", [it.stats.snr for it in iters], solo, None),
+        ("entropy (bits)", [it.stats.entropy for it in iters], solo, None),
     ]
 
     ax_combined = fig.add_subplot(gs[1, 0])
     for label, values, color in combined:
-        ax_combined.plot(xs, values, "o-", color=color, markersize=4, linewidth=1.2, label=label)
-    ax_combined.axhline(0.5, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
+        ax_combined.plot(
+            xs, values, "o-", color=color, markersize=4, linewidth=1.2, label=label
+        )
+    ax_combined.axhline(
+        0.5, color=theme.text_muted, linestyle="--", linewidth=0.8, alpha=0.6
+    )
     ax_combined.set_ylim(0, 1)
     ax_combined.set_title("brightness / contrast / mean / median", fontsize=7, pad=2)
     ax_combined.set_xlabel("iteration", fontsize=6)
@@ -99,7 +123,9 @@ def plot_acb_result(
         ax.set_xlabel("iteration", fontsize=6)
         ax.tick_params(labelsize=6)
         if hline is not None:
-            ax.axhline(hline, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
+            ax.axhline(
+                hline, color=theme.text_muted, linestyle="--", linewidth=0.8, alpha=0.6
+            )
 
     status = "converged" if result.converged else "not converged"
     fig.suptitle(f"Auto Contrast/Brightness — {n} iterations, {status}", fontsize=9)
@@ -109,14 +135,22 @@ def plot_acb_result(
 
 # ── Autofocus ─────────────────────────────────────────────────────────────────
 
+
 def plot_autofocus_result(
     result: "AutoFocusResult",
     save_path: Optional[str] = None,
 ) -> None:
     """Diagnostic plot: one row per pass, curve on left, thumbnails on right.
 
-    If ``save_path`` is None, a timestamped file under ``autofocus/`` is used.
+    If ``save_path`` is None, the figure is returned and nothing is written.
     """
+    from fibsem.theme.plots import DARK, plot_theme
+
+    with plot_theme(DARK) as theme:
+        return _plot_autofocus_result(result, save_path, theme)
+
+
+def _plot_autofocus_result(result, save_path, theme):
     import matplotlib.gridspec as gridspec
     import numpy as np
     from matplotlib.figure import Figure
@@ -149,7 +183,10 @@ def plot_autofocus_result(
             sampled = list(global_idx)
         else:
             step = len(global_idx) / MAX_THUMBS
-            sampled = [global_idx[min(round(i * step), len(global_idx) - 1)] for i in range(MAX_THUMBS)]
+            sampled = [
+                global_idx[min(round(i * step), len(global_idx) - 1)]
+                for i in range(MAX_THUMBS)
+            ]
             if best_idx in global_idx and best_idx not in sampled:
                 sampled[-1] = best_idx
             sampled = sorted(set(sampled))
@@ -162,24 +199,32 @@ def plot_autofocus_result(
     fig_h = 2.0 * n_passes
     fig = Figure(figsize=(fig_w, fig_h))
     gs = gridspec.GridSpec(
-        n_passes, 1 + n_thumb_cols,
+        n_passes,
+        1 + n_thumb_cols,
         figure=fig,
         width_ratios=[3.0] + [1.0] * n_thumb_cols,
-        wspace=0.08, hspace=0.25,
+        wspace=0.08,
+        hspace=0.25,
     )
 
     for row, pi in enumerate(pass_indices):
-        color = PASS_COLORS[pi % len(PASS_COLORS)]
+        color = theme.series[pi % len(theme.series)]
         idx = [i for i, it in enumerate(iters) if it.pass_index == pi]
 
         ax = fig.add_subplot(gs[row, 0])
         ax.plot(
-            [z_um[i] for i in idx], [norm_scores[i] for i in idx],
-            "o-", color=color, markersize=3, linewidth=1.2,
+            [z_um[i] for i in idx],
+            [norm_scores[i] for i in idx],
+            "o-",
+            color=color,
+            markersize=3,
+            linewidth=1.2,
         )
-        ax.axvline(0, color="limegreen", linestyle="--", linewidth=0.8)
+        ax.axvline(0, color=theme.good, linestyle="--", linewidth=0.8)
         if initial_z_um is not None:
-            ax.axvline(initial_z_um, color="gray", linestyle=":", linewidth=0.8)
+            ax.axvline(
+                initial_z_um, color=theme.text_muted, linestyle=":", linewidth=0.8
+            )
         ax.set_ylabel(f"pass {pi}", fontsize=7, color=color)
         ax.set_ylim(0, 1.1)
         ax.tick_params(labelsize=6)
@@ -205,7 +250,7 @@ def plot_autofocus_result(
             ax_img.set_yticks([])
             is_best = tidx == best_idx
             for spine in ax_img.spines.values():
-                spine.set_edgecolor("limegreen" if is_best else color)
+                spine.set_edgecolor(theme.good if is_best else color)
                 spine.set_linewidth(2.0 if is_best else 0.5)
 
         for col in range(len(thumb_indices), n_thumb_cols):
@@ -217,11 +262,12 @@ def plot_autofocus_result(
 
 # ── shared ────────────────────────────────────────────────────────────────────
 
+
 def _save_figure(fig, save_path: Optional[str] = None) -> None:
+    # No path means the caller did not say where its run writes, so nothing is
+    # saved: guessing one (it used to be ``autofocus/`` under the working
+    # directory) scattered plots wherever the app was started from.
     if save_path is None:
-        import os
-        from datetime import datetime
-        os.makedirs("autofocus", exist_ok=True)
-        save_path = os.path.join("autofocus", f"autofocus_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+        return
     fig.savefig(save_path, dpi=120, bbox_inches="tight")
-    logger.info("Plot saved to %s", save_path)
+    logger.debug("Plot saved to %s", save_path)

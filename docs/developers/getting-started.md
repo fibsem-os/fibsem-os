@@ -2,7 +2,7 @@
 
 This page covers the repository layout, how to run the application and the
 tests, and which extension point applies to a given goal. Contribution rules
-(pull request size, the Python 3.8 floor, formatting, tests) are in
+(pull request size, the Python 3.10 floor, formatting, tests) are in
 [CONTRIBUTING.md](../../CONTRIBUTING.md) and [AGENTS.md](../../AGENTS.md).
 The supported extension points are described on
 [Extending fibsemOS](extending.md). Other approaches are possible; open an
@@ -13,16 +13,21 @@ issue before relying on internals that are not listed there.
 ```
 fibsem/                     the instrument library (no application logic)
   microscope.py             FibsemMicroscope, the abstract class every backend
-                            implements; also holds ThermoMicroscope, the
-                            Thermo Fisher implementation
-  microscopes/              tescan, odemis, simulator (DemoMicroscope, the
-                            reference implementation); autoscript.py holds
-                            Thermo Fisher helper subsystems, not the class
+                            implements
+  devices/                  the devices: beam, stage, chamber, manipulator,
+                            fm; vendor-neutral, never imports a driver
+  services/                 the services (milling); vendor-neutral
+  drivers/                  one package per driver: autoscript (Thermo),
+                            tescan, odemis, demo (the reference
+                            implementation), remote; registry.py (the drivers)
+  drivers/<driver>/         __init__.py (its DRIVER record), devices.py,
+                            services.py, microscope.py (its FibsemMicroscope)
   structures.py             shared types: FibsemImage, Point, FibsemRectangle,
                             stage positions, settings
   milling/, imaging/        beam operations built on the abstract class
   segmentation/             segmentation models
-  ui/                       shared Qt widgets, the palette (tokens.py), canvases
+  ui/                       shared Qt widgets, stylesheets, canvases
+  theme/                    the palette (tokens.py), importable without Qt
   server/                   the agent/bench HTTP server (build_server)
   mcp/                      the fibsem-mcp sidecar (MCP to HTTP)
   plugins/                  entry-point loading: fibsem.patterns,
@@ -34,7 +39,7 @@ fibsem/applications/autolamella/
                             registration, one module per task
   workflows/interaction.py  how tasks ask questions (ask(), Request types)
   ui/                       the application windows
-  server/                   AgentContext, the view remote agents get
+  server/                   AutoLamellaAppContext, the view remote agents get
   scripting.py              ScriptContext, the view user scripts get
 
 tests/                      mirrors the layout; tests/ui requires
@@ -67,9 +72,15 @@ QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_something.py -q
 
 ## Which extension point
 
-**Supporting a microscope.** Implement `FibsemMicroscope`, using the Demo
-implementation as the reference, and register the manufacturer in the four
-places listed under [Supporting a microscope](extending.md#supporting-a-microscope).
+**Using the hardware from code.** The beams, stage, chamber, manipulator and
+FM are devices in `microscope.devices`, with self-describing parameters,
+commands and change events. [Devices](devices.md) is the guide; the string-key
+`microscope.get`/`set` are deprecated.
+
+**Supporting a microscope.** Implement `FibsemMicroscope` and its devices,
+using the Demo implementation as the reference, and register the
+manufacturer in the four places listed under
+[Supporting a microscope](extending.md#supporting-a-microscope).
 Implementing the class without registering it fails at connection time.
 
 **Automating a procedure.** Three options, in increasing order of
@@ -89,13 +100,13 @@ failure modes, and shipping a task as a plugin are under
 **Using a segmentation model.** Models live under `fibsem/segmentation/`;
 see [Segmentation models](extending.md#segmentation-models).
 
-**Building against the agent server.** The agent server is internal for
-now. `docs/agent-server.md` describes it; the tool catalogue in
+**Building against the App Server.** The App Server is internal for
+now. `docs/app-server.md` describes it; the tool catalogue in
 `fibsem/server/catalog.py` is the contract, and the supervision skill under
 `.claude/skills/` is a reference client.
 
 **Working on the user interface.** Use the palette tokens in
-`fibsem/ui/tokens.py` and the shared stylesheets rather than literal
+`fibsem/theme/tokens.py` and the shared stylesheets rather than literal
 colours. Two rules: UI event handlers do not read from the microscope
 (updates are pushed, or come from cached state), and cross-thread
 communication goes through signals or the responder seam, never through

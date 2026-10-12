@@ -31,7 +31,8 @@ def test_a_nested_update_touches_only_the_keys_it_names(tmp_path):
     utils.write_configuration(path, {"defaults": {"electron": {"voltage": 5000}}})
 
     written = utils.load_yaml(str(path))
-    expected = copy.deepcopy(original)
+    # The file is upgraded on the way (the device list), and otherwise left alone.
+    expected = utils.upgrade_configuration(copy.deepcopy(original))
     expected["defaults"]["electron"]["voltage"] = 5000
     assert written == expected
 
@@ -40,7 +41,11 @@ def test_a_dict_merges_and_a_value_replaces(tmp_path):
     path, original = _site_file(tmp_path)
 
     utils.write_configuration(
-        path, {"calibration": {"objective": {"focus_position": 1.0}}, "version": 1}
+        path,
+        {
+            "calibration": {"objective": {"focus_position": 1.0}},
+            "defaults": {"apply_on_connect": True},
+        },
     )
 
     written = utils.load_yaml(str(path))
@@ -49,7 +54,8 @@ def test_a_dict_merges_and_a_value_replaces(tmp_path):
         written["calibration"]["shuttle_pre_tilt"]
         == original["calibration"]["shuttle_pre_tilt"]
     )
-    assert written["hardware"] == original["hardware"]
+    assert written["defaults"]["apply_on_connect"] is True
+    assert written["defaults"]["electron"] == original["defaults"]["electron"]
 
 
 def test_writing_into_an_old_flat_file_retires_the_old_copy(tmp_path):
@@ -182,3 +188,28 @@ def test_holders_are_replaced_whole_and_an_old_file_is_kept(tmp_path):
     assert written["calibration"]["active_holder"] == "B"
     assert written["stage"]["rotation_reference"] == 0  # the rest is left alone
     assert utils.configuration_backup_path(path).read_text() == original
+
+
+def test_numpy_scalars_round_trip_through_safe_dump():
+    """A numpy scalar that reaches yaml.safe_dump is written as the plain
+    number it is, rather than refusing the whole file (FIB-1326)."""
+    import numpy as np
+
+    data = {
+        "x": np.float64(2.5e-5),
+        "y": np.float32(0.5),
+        "n": np.int64(3),
+        "ok": np.bool_(True),
+        "nested": [{"left": np.float64(0.66)}],
+    }
+
+    loaded = yaml.safe_load(yaml.safe_dump(data))
+
+    assert loaded == {
+        "x": 2.5e-5,
+        "y": 0.5,
+        "n": 3,
+        "ok": True,
+        "nested": [{"left": 0.66}],
+    }
+    assert type(loaded["x"]) is float and type(loaded["n"]) is int

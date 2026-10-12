@@ -7,19 +7,26 @@ those tests skip there and run locally.
 
 import io
 import re
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import Image
 
+from fibsem.applications.autolamella.structures import Verdict
 from fibsem.applications.autolamella.tools.grid_report_pdf import (
     PRINT_MAX_EDGE,
     REPORT_FILENAME,
+    _clock,
+    _when,
     generate_grid_report,
     render_overview,
+    report_unavailable_reason,
     scale_bar_length,
 )
+from fibsem.util.timestamps import from_posix
 
 from .test_grid_report import report, screened  # noqa: F401 - fixtures
 
@@ -154,5 +161,76 @@ class TestPDF:
     def test_the_fm_row_names_its_channels(self, pdf):
         assert b"GFP, mCherry" in pdf
 
+    def test_with_verdicts_the_cover_says_nothing_of_their_absence(self, pdf):
+        assert b"No grid has a verdict yet" not in _shown(pdf)
+
+    def test_before_any_verdict_the_cover_says_so(self, screened, tmp_path):
+        """Written at the end of a run, before anyone has judged a grid: a
+        record of the overviews, not yet the handout for choosing one."""
+        pytest.importorskip("reportlab")
+        verdicts = [g.quality.verdict for g in screened.grids]
+        try:
+            for grid in screened.grids:
+                grid.quality.verdict = Verdict.UNASSESSED
+            path = generate_grid_report(
+                screened, output_path=str(tmp_path / "r.pdf"), compress=False
+            )
+        finally:
+            for grid, verdict in zip(screened.grids, verdicts):
+                grid.quality.verdict = verdict
+        text = _shown(Path(path).read_bytes())
+        assert b"No grid has a verdict yet" in text
+        assert b"0 recommended" in text
+
+    def test_says_when_reportlab_is_missing(self, monkeypatch):
+        from fibsem.applications.autolamella.tools import grid_report_pdf
+
+        monkeypatch.setattr(
+            grid_report_pdf.importlib.util, "find_spec", lambda name: None
+        )
+        assert "fibsem-os[reporting]" in report_unavailable_reason()
+
     def test_every_run_has_a_row(self, pdf):
         assert pdf.count(b"overview_sem") >= 3  # protocol line, aspen row, birch row
+
+
+class TestTimes:
+    """A task's POSIX time reads on the instrument's clock once the experiment has
+    recorded its zone, and on this computer's until then; the cover says which
+    (FIB-1196)."""
+
+    STAMP = 1789355531.0  # 2026-09-14 03:12:11 UTC
+    MDT = timezone(timedelta(hours=-6), "MDT")
+
+    @pytest.fixture(params=["UTC", "Australia/Sydney", "America/Los_Angeles"])
+    def viewer_zone(self, request, monkeypatch):
+        if not hasattr(time, "tzset"):
+            pytest.skip("time.tzset is POSIX-only")
+        monkeypatch.setenv("TZ", request.param)
+        time.tzset()
+        yield request.param
+        monkeypatch.undo()
+        time.tzset()
+
+    def test_the_instruments_clock_from_any_zone(self, viewer_zone):
+        assert _when(self.STAMP, "%d %b %Y %H:%M", self.MDT) == "13 Sep 2026 21:12"
+
+    def test_a_task_time_reads_on_the_instruments_clock_from_any_zone(
+        self, viewer_zone
+    ):
+        """A task's time is aware since FIB-1197: one loaded from an older float
+        carries this machine's offset, one written at the instrument carries its
+        own. Both land on the clock the cover names."""
+        loaded = from_posix(self.STAMP)
+        written = datetime.fromisoformat("2026-09-13T21:12:11-06:00")
+        for when in (loaded, written):
+            assert _when(when, "%d %b %Y %H:%M", self.MDT) == "13 Sep 2026 21:12"
+
+    def test_this_computers_clock_without_a_recorded_zone(self, viewer_zone):
+        expected = time.strftime("%H:%M", time.localtime(self.STAMP))
+        assert _when(self.STAMP) == expected
+
+    def test_the_cover_names_the_clock(self, pdf):
+        assert _clock(self.MDT) == "the instrument's clock, MDT (UTC-06:00)"
+        # the fixture's session is a Demo one, which records no zone
+        assert b"this computer" in pdf

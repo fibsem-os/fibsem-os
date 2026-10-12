@@ -3,8 +3,9 @@
 Runs on the agent host (the machine running Claude Code / Claude Desktop) and
 proxies MCP tool calls to a fibsem server over HTTP with a bearer token. It
 owns no microscope connection and enforces nothing itself — the server is the
-security boundary; the sidecar merely registers the tools the server's
-``/capabilities`` says are available.
+security boundary. It registers every tool the server's mounted routers serve,
+whatever the agent's level: the level changes mid-session, and the server's
+403 says what is needed (FIB-1035).
 
 Connection resolution, in order: ``--url``/``--token`` arguments, the
 ``FIBSEM_SERVER_URL``/``FIBSEM_SERVER_TOKEN`` environment variables, then the
@@ -12,11 +13,14 @@ same-machine discovery file a running server maintains.
 
 Register with Claude Code:
 
-    claude mcp add fibsem -- fibsem-mcp
+    claude mcp add -s user fibsem -- fibsem-mcp
     # or explicitly:
-    claude mcp add fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
+    claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
+
+``fibsem-mcp watch`` prints a line per app event worth waking an agent for,
+and needs nothing beyond fibsem itself (see :mod:`fibsem.mcp.watch`).
 """
 
 import argparse
@@ -24,7 +28,8 @@ import base64
 import json
 import os
 import sys
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
+from urllib.parse import quote, urlencode
 
 from fibsem.server.catalog import CATALOG, tools_for_capabilities
 
@@ -34,7 +39,7 @@ _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
 _NO_SERVER_MSG = (
     "fibsem-mcp: no server found. Pass --url and --token, set "
     "FIBSEM_SERVER_URL/FIBSEM_SERVER_TOKEN, or start a fibsem server on "
-    "this machine (it writes ~/.fibsem/agent-server.json)."
+    "this machine (it writes ~/.fibsem/app-server.json)."
 )
 
 
@@ -53,6 +58,51 @@ def _try_resolve(url, token):
     return None
 
 
+class _ReconnectingClient:
+    """An httpx-style client that follows a restarted server.
+
+    A server restart (a microscope reconnect, a devices toggle) can bring a
+    new address or token; the sidecar would otherwise answer 401 until the MCP
+    client restarted it. On a 401 or a failed connection, re-resolve once --
+    the discovery file names the server now running -- and retry with the
+    fresh client. Explicit ``--url``/``--token`` re-resolve to themselves, so
+    they just fail as before.
+    """
+
+    def __init__(self, client_factory, url, token, client, resolved):
+        self._factory = client_factory
+        self._url = url
+        self._token = token
+        self._client = client
+        self._resolved = resolved
+
+    def request(self, method, path, **kwargs):
+        try:
+            resp = self._client.request(method, path, **kwargs)
+        except Exception:
+            if not self._reresolve():
+                raise
+            return self._client.request(method, path, **kwargs)
+        if resp.status_code == 401 and self._reresolve():
+            return self._client.request(method, path, **kwargs)
+        return resp
+
+    def _reresolve(self) -> bool:
+        fresh = _try_resolve(self._url, self._token)
+        if fresh is None or fresh == self._resolved:
+            return False
+        self._client.close()
+        self._client = self._factory(fresh[0], fresh[1])
+        self._resolved = fresh
+        return True
+
+    def close(self):
+        self._client.close()
+
+    def __getattr__(self, name):  # base_url and the like
+        return getattr(self._client, name)
+
+
 def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
     """Resolve + reach a server, retrying until the deadline.
 
@@ -62,7 +112,8 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
     re-resolving (the discovery file appears when the server starts) and
     re-trying /capabilities until ``wait_s`` runs out.
 
-    Returns (client, capabilities). Exits with guidance on timeout.
+    Returns (client, capabilities), the client a :class:`_ReconnectingClient`.
+    Exits with guidance on timeout.
     """
     import time
 
@@ -78,7 +129,10 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
             except Exception as e:  # connection refused, DNS, ...
                 capabilities, err = None, str(e)
             if err is None:
-                return client, capabilities
+                return (
+                    _ReconnectingClient(client_factory, url, token, client, resolved),
+                    capabilities,
+                )
             client.close()
         if time.monotonic() >= deadline:
             if resolved is None:
@@ -96,6 +150,14 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
         sleep_fn(1.0)
 
 
+def _refusal(resp):
+    try:
+        detail = resp.json().get("detail", resp.text)
+    except ValueError:
+        detail = resp.text
+    return f"refused ({resp.status_code}): {json.dumps(detail)}"
+
+
 def _call(client, method, path, payload=None):
     """Call the server; refusals come back as readable text, not exceptions.
 
@@ -104,20 +166,25 @@ def _call(client, method, path, payload=None):
     """
     resp = client.request(method, path, json=payload)
     if resp.status_code >= 400:
-        try:
-            detail = resp.json().get("detail", resp.text)
-        except ValueError:
-            detail = resp.text
-        return None, f"refused ({resp.status_code}): {json.dumps(detail)}"
-    return resp.json(), None
+        return None, _refusal(resp)
+    try:
+        return resp.json(), None
+    except ValueError:
+        # An image or array from a device command: nothing an agent can read as
+        # text. The preview tools are how an agent looks at an image.
+        return None, (
+            f"answered {len(resp.content)} bytes that are not JSON; "
+            "use acquire_image_preview to see images"
+        )
 
 
 def build_sidecar(client, capabilities):
     """Build the MCP server over an httpx-compatible client.
 
-    ``capabilities`` is the full /capabilities payload; a tool registers only
-    when its scope is armed AND its router is mounted (an app tool exists only
-    when the server hosts an application). The server enforces regardless.
+    ``capabilities`` is the full /capabilities payload; a tool registers when
+    its router is mounted (an app tool exists only when the server hosts an
+    application), whatever the agent's level, and hardware tools only when
+    the hardware scope is armed. The server enforces regardless.
     """
     from mcp.server.mcpserver import Image, MCPServer
 
@@ -146,6 +213,33 @@ def build_sidecar(client, capabilities):
             return [json.dumps(data), Image(data=jpeg, format="jpeg")]
 
         return spec, tool
+
+    def _with_images(data):
+        """Move every base64 preview in *data* out into MCP image content.
+
+        A question's context image as base64 text is unreadable to the agent
+        and can overflow a tool result (a PickPOI prompt ran to 63k
+        characters). Each preview's place in the JSON keeps ``image_index``,
+        its position among the images that follow.
+        """
+        images = []
+
+        def walk(node):
+            if isinstance(node, dict):
+                b64 = node.pop("image_b64_jpeg", None)
+                if isinstance(b64, str):
+                    node["image_index"] = len(images)
+                    images.append(Image(data=base64.b64decode(b64), format="jpeg"))
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(data)
+        if not images:
+            return data
+        return [json.dumps(data), *images]
 
     # Explicit signatures so FastMCP derives a real parameter schema per tool.
     def get_capabilities():
@@ -220,6 +314,44 @@ def build_sidecar(client, capabilities):
         )
         return err if err else data
 
+    def list_devices():
+        return _json_tool("list_devices")[1]()
+
+    def get_parameter(device: str, parameter: str):
+        data, err = _call(client, "GET", f"/devices/{device}/{parameter}")
+        return err if err else data
+
+    def set_parameter(device: str, parameter: str, value: Any):
+        data, err = _call(
+            client, "PUT", f"/devices/{device}/{parameter}", {"value": value}
+        )
+        return err if err else data
+
+    def call_command(device: str, command: str, kwargs: Optional[dict] = None):
+        data, err = _call(
+            client,
+            "POST",
+            f"/devices/{device}/commands/{command}",
+            {"kwargs": dict(kwargs or {})},
+        )
+        return err if err else data
+
+    def list_services():
+        return _json_tool("list_services")[1]()
+
+    def get_service_parameter(service: str, parameter: str):
+        data, err = _call(client, "GET", f"/services/{service}/{parameter}")
+        return err if err else data
+
+    def call_service_command(service: str, command: str, kwargs: Optional[dict] = None):
+        data, err = _call(
+            client,
+            "POST",
+            f"/services/{service}/commands/{command}",
+            {"kwargs": dict(kwargs or {})},
+        )
+        return err if err else data
+
     def autocontrast(beam_type: str = "ELECTRON"):
         data, err = _call(client, "POST", "/autocontrast", {"beam_type": beam_type})
         return err if err else data
@@ -246,8 +378,38 @@ def build_sidecar(client, capabilities):
     def get_protocol():
         return _app_get("/app/protocol")
 
+    def get_log(
+        task_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        level: Optional[str] = None,
+        lines: int = 200,
+    ):
+        query = {
+            "task_id": task_id,
+            "since": since,
+            "until": until,
+            "level": level,
+            "lines": lines,
+        }
+        return _app_get(
+            "/app/log?" + urlencode({k: v for k, v in query.items() if v is not None})
+        )
+
     def get_task_outputs(item_name: str):
         return _app_get(f"/app/task_outputs/{item_name}")
+
+    def get_item_output_image(item_name: str, filename: str):
+        # The route answers image/jpeg for the dashboard's <img>, so this reads
+        # the bytes itself rather than through _call. Basenames carry spaces.
+        path = (
+            f"/app/items/{quote(item_name, safe='')}/outputs/{quote(filename, safe='')}"
+        )
+        resp = client.request("GET", path)
+        if resp.status_code >= 400:
+            return _refusal(resp)
+        meta = {"item_name": item_name, "filename": filename}
+        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_item_detail(item_name: str):
         return _app_get(f"/app/items/{item_name}")
@@ -380,10 +542,8 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/workflow/grids/start", payload)
         return err if err else data
 
-    def set_task_supervision(task_name: str, supervise: bool, supervisor: str = None):  # noqa: RUF013
+    def set_task_supervision(task_name: str, supervise: bool):
         payload = {"task_name": task_name, "supervise": bool(supervise)}
-        if supervisor is not None:
-            payload["supervisor"] = supervisor
         data, err = _call(client, "POST", "/app/supervision", payload)
         return err if err else data
 
@@ -413,10 +573,12 @@ def build_sidecar(client, capabilities):
         return content
 
     def get_pending_prompt():
-        return _app_get("/app/prompt")
+        data, err = _call(client, "GET", "/app/prompt")
+        return err if err else _with_images(data)
 
     def get_pending_reviews():
-        return _app_get("/app/reviews")
+        data, err = _call(client, "GET", "/app/reviews")
+        return err if err else _with_images(data)
 
     def decide_review(
         item_id: str,
@@ -446,8 +608,8 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/decide", body)
         return err if err else data
 
-    def answer_prompt(response: bool, nonce: int, value: Optional[dict] = None):
-        body = {"response": bool(response), "nonce": int(nonce)}
+    def answer_prompt(response: bool, question_id: int, value: Optional[dict] = None):
+        body = {"response": bool(response), "question_id": int(question_id)}
         if value is not None:
             body["value"] = dict(value)
         data, err = _call(client, "POST", "/app/prompt/answer", body)
@@ -470,14 +632,23 @@ def build_sidecar(client, capabilities):
             move_stage_relative,
             move_stage_absolute,
             move_to_milling_angle,
+            list_devices,
+            get_parameter,
+            set_parameter,
+            call_command,
+            list_services,
+            get_service_parameter,
+            call_service_command,
             autocontrast,
             get_app_status,
             get_app_queue,
             get_experiment_summary,
             get_task_history,
             get_run_summary,
+            get_log,
             get_protocol,
             get_task_outputs,
+            get_item_output_image,
             get_item_detail,
             get_grids,
             get_grid_detail,
@@ -514,11 +685,38 @@ def build_sidecar(client, capabilities):
 
     for name, fn in implementations.items():
         if name in armed:
-            mcp.add_tool(fn, name=name, description=by_name[name].description)
+            mcp.add_tool(fn, name=name, description=by_name[name].full_description)
     return mcp
 
 
+def _watch_argv(argv):
+    """``argv`` minus the ``watch`` subcommand, or None when it is not one.
+
+    ``watch`` takes the same --url/--token as the sidecar, so they may come
+    before it (``fibsem-mcp --url ... watch --help``) and still reach it.
+    """
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "watch":
+            return argv[:i] + argv[i + 1 :]
+        if arg in ("--url", "--token"):
+            i += 2
+        elif arg.startswith(("--url=", "--token=")):
+            i += 1
+        else:
+            return None
+    return None
+
+
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    watch_argv = _watch_argv(argv)
+    if watch_argv is not None:
+        # Before the mcp import: watching needs only HTTP (FIB-1269).
+        from fibsem.mcp.watch import main as watch_main
+
+        sys.exit(watch_main(watch_argv))
     try:
         import mcp  # noqa: F401
     except ImportError:
@@ -527,7 +725,11 @@ def main(argv=None):
         )
     import httpx
 
-    parser = argparse.ArgumentParser(description="MCP sidecar for a fibsem server")
+    parser = argparse.ArgumentParser(
+        description="MCP sidecar for a fibsem server",
+        epilog="fibsem-mcp watch: print one line per app event worth waking "
+        "an agent for (fibsem-mcp watch --help).",
+    )
     parser.add_argument(
         "--url", default=None, help="Server URL, e.g. http://127.0.0.1:8001"
     )
@@ -560,7 +762,8 @@ def main(argv=None):
     )
     print(
         f"fibsem-mcp: connected to {client.base_url} "
-        f"({capabilities.get('manufacturer')}, scopes {capabilities.get('scopes')})",
+        f"({capabilities.get('manufacturer')}, agent level "
+        f"{capabilities.get('level')})",
         file=sys.stderr,
     )
     if args.check:

@@ -3,13 +3,15 @@
 Opens :class:`FMOverviewWidget` against a real or simulated microscope, so the
 overview UI can be exercised without launching AutoLamella.
 
-    python -m fibsem.ui.fm.overview_app                 # Demo, compustage at t = -180
-    python -m fibsem.ui.fm.overview_app --manufacturer Thermo --ip 10.0.0.1
+    python -m fibsem.ui.fm.overview_app                 # simulated Arctis, at t = -180
+    python -m fibsem.ui.fm.overview_app --config ~/arctis.yaml --ip 10.0.0.1
     python -m fibsem.ui.fm.overview_app --output ~/fm-overviews    # and save them
 
-The default puts the simulator in the Arctis fluorescence pose -- compustage, no
-pre-tilt, stage tilted to -180 degrees -- because that is the geometry the tile
-projection is built around and the one worth exercising.
+The default is the simulated Arctis (``sim-arctis-configuration.yaml``: compustage, no
+pre-tilt) tilted to -180 degrees, the fluorescence pose, because that is the geometry
+the tile projection is built around and the one worth exercising. The configuration
+says what the microscope is; the app asks nothing about its manufacturer. It moves the
+stage only when given a tilt, which it is by default only on that simulator.
 """
 
 import argparse
@@ -20,50 +22,61 @@ from typing import Optional
 
 import numpy as np
 
+import fibsem.config as cfg
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
 
+SIM_ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+"""The simulated Arctis: a compustage with no pre-tilt, the FM overview's own geometry."""
+
+SIM_ARCTIS_TILT_DEG = -180.0
+"""The fluorescence pose of the simulated Arctis, where it is posed by default."""
+
+
+def default_tilt(
+    config_path: Optional[str], manufacturer: Optional[str]
+) -> Optional[float]:
+    """The tilt an app poses the stage at when none is given: the fluorescence pose on
+    the simulated Arctis, and none on anything else, so an instrument is never moved
+    unasked."""
+    if config_path == SIM_ARCTIS_CONFIG and manufacturer is None:
+        return SIM_ARCTIS_TILT_DEG
+    return None
+
 
 def build_microscope(
-    manufacturer: str = "Demo",
+    config_path: Optional[str] = SIM_ARCTIS_CONFIG,
+    manufacturer: Optional[str] = None,
     ip_address: str = "localhost",
-    compustage: bool = True,
-    tilt_deg: float = -180.0,
+    tilt_deg: Optional[float] = None,
 ) -> FibsemMicroscope:
-    """Connect, attach a fluorescence detector, and pose the stage for FM."""
+    """Connect, attach a fluorescence detector, and pose the stage at a tilt.
+
+    The configuration decides the stage type and the pre-tilt, which the tile projection
+    depends on, so the run exercises the geometry it names. A tilt moves the stage to
+    x = y = z = r = 0 at that tilt first. Without one, the tilt is `default_tilt`: the
+    simulated Arctis is posed for fluorescence, and anything else is left where it is.
+    """
+    if tilt_deg is None:
+        tilt_deg = default_tilt(config_path, manufacturer)
     microscope, _ = utils.setup_session(
-        manufacturer=manufacturer, ip_address=ip_address
+        manufacturer=manufacturer, ip_address=ip_address, config_path=config_path
     )
 
-    if manufacturer == "Demo":
-        # Pose the simulator rather than assuming the ambient configuration: the tile
-        # projection depends on the compustage flag and the pre-tilt, so a run started
-        # from the wrong pose would exercise different geometry than intended.
-        microscope.stage_is_compustage = compustage
-        microscope.system.stage.shuttle_pre_tilt = 0
-        microscope._update_orientations()
-        # Rebuild the sample stage, which was created before the flag above was set.
-        # Two things hang off it. The travel limits: a compustage travels +/-999.9 um
-        # in x and only +/-377.8 um in y, against a grid boundary of 1000 um radius,
-        # so it is the limits rather than the boundary that say how far an overview can
-        # reach; left stale, the simulator reports +/-100 mm and anything drawing them
-        # shows nothing at grid scale. And the holder: a compustage has one working
-        # slot at the origin, calibrated by construction, whereas the ambient
-        # configuration's fixed holder has slots nothing has calibrated -- and the grid
-        # boundary is drawn from the holder's slots.
-        microscope._create_sample_stage()
+    if tilt_deg is not None:
         microscope.move_stage_absolute(
             FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
         )
 
     if microscope.fm is None:
-        from fibsem.fm.microscope import FluorescenceMicroscope
+        from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 
-        microscope.fm = FluorescenceMicroscope(parent=microscope)
+        microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
 
     logging.info(
-        f"FM overview app: {manufacturer}, compustage={microscope.stage_is_compustage}, "
+        f"FM overview app: {microscope.system.info.manufacturer}, "
+        f"compustage={microscope._fm_is_a_pose()}, "
         f"stage={microscope.get_stage_position().pretty}"
     )
     return microscope
@@ -72,20 +85,25 @@ def build_microscope(
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--manufacturer", default="Demo", help="Demo, Thermo, Tescan (default: Demo)"
+        "--config",
+        default=SIM_ARCTIS_CONFIG,
+        dest="config_path",
+        help="Microscope configuration file (default: the simulated Arctis). "
+        "fibsem/config/sim-iflm-configuration.yaml simulates an offset FM mount.",
+    )
+    parser.add_argument(
+        "--manufacturer",
+        default=None,
+        help="Override the configuration's manufacturer (Demo, Thermo, Tescan)",
     )
     parser.add_argument("--ip", default="localhost", dest="ip_address")
     parser.add_argument(
         "--tilt",
         type=float,
-        default=-180.0,
-        help="Stage tilt in degrees for the Demo pose (default: -180)",
-    )
-    parser.add_argument(
-        "--no-compustage",
-        action="store_false",
-        dest="compustage",
-        help="Pose the Demo microscope as an offset FM mount instead",
+        default=None,
+        help="Move the stage to this tilt in degrees, at x = y = z = r = 0, before "
+        f"opening (default: {SIM_ARCTIS_TILT_DEG:.0f} on the simulated Arctis, "
+        "no move otherwise)",
     )
     parser.add_argument(
         "--output",
@@ -110,16 +128,16 @@ def main(argv: Optional[list] = None) -> int:
         logging.debug(f"Could not apply the napari stylesheet: {e}")
 
     microscope = build_microscope(
+        config_path=args.config_path,
         manufacturer=args.manufacturer,
         ip_address=args.ip_address,
-        compustage=args.compustage,
         tilt_deg=args.tilt,
     )
 
     window = QMainWindow()
     window.setWindowTitle(
-        f"FM Overview — {args.manufacturer}"
-        f"{' · compustage' if microscope.stage_is_compustage else ''}"
+        f"FM Overview — {microscope.system.info.manufacturer}"
+        f"{' · compustage' if microscope._fm_is_a_pose() else ''}"
         f" · t = {np.rad2deg(microscope.get_stage_position().t):.0f}°"
     )
     widget = FMOverviewWidget(microscope)

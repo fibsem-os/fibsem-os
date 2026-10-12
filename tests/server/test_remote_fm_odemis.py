@@ -16,8 +16,7 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
-from fibsem.devices.drivers.fm import bind_fm_devices  # noqa: E402
-from fibsem.devices.drivers.remote import DeviceClient  # noqa: E402
+from fibsem.drivers.remote.devices import DeviceClient  # noqa: E402
 from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
 from fibsem.server.devices import DeviceServer  # noqa: E402
@@ -40,9 +39,9 @@ def odemis_fm_module():
         if name in sys.modules:
             saved[name] = sys.modules.pop(name)
     stubs.install_odemis_stubs()
-    import fibsem.fm.odemis as fm_odemis
+    import fibsem.drivers.odemis.devices as drivers
 
-    yield fm_odemis
+    yield drivers
 
     stubs.remove_odemis_stubs()
     sys.modules.update(saved)
@@ -50,9 +49,10 @@ def odemis_fm_module():
 
 @pytest.fixture
 def served(odemis_fm_module):
+    drivers = odemis_fm_module
     stubs.use_components(stubs.default_components())
-    far = odemis_fm_module.OdemisFluorescenceMicroscope(parent=None)
-    devices = bind_fm_devices(far)
+    devices = drivers.bind_odemis_fm()
+    far = drivers.OdemisFluorescenceMicroscope(devices)
     server = DeviceServer(devices.values()).start()
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
     fm = RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port, client=client)

@@ -1,7 +1,9 @@
 """
 Widget for displaying a pandas DataFrame in a sortable table.
 """
-from typing import Any, Callable, Optional
+
+import numbers
+from typing import Any, Callable, Dict, Optional
 
 import pandas as pd
 from PyQt5.QtCore import Qt
@@ -23,12 +25,26 @@ from fibsem.ui.tokens import (
 )
 
 
+class _SortableItem(QTableWidgetItem):
+    """A cell that sorts by the number it holds (``Qt.UserRole``) rather than by its
+    text, so ``10`` sorts after ``9`` and ``12:00`` after ``4:05``."""
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        a, b = self.data(Qt.UserRole), other.data(Qt.UserRole)
+        if a is not None and b is not None:
+            return a < b
+        return super().__lt__(other)
+
+
 class DataFrameTableWidget(QWidget):
     """A widget that displays a pandas DataFrame in a sortable table."""
 
-    def __init__(self, dataframe: Optional[pd.DataFrame] = None,
-                 cell_formatter: Optional[Callable[[int, int, Any], dict]] = None,
-                 parent=None):
+    def __init__(
+        self,
+        dataframe: Optional[pd.DataFrame] = None,
+        cell_formatter: Optional[Callable[[int, int, Any], dict]] = None,
+        parent=None,
+    ):
         """
         Initialize the DataFrameTableWidget.
 
@@ -71,18 +87,25 @@ class DataFrameTableWidget(QWidget):
         if self.dataframe is not None:
             self.update_table()
 
-    def set_dataframe(self, dataframe: pd.DataFrame,
-                      cell_formatter: Optional[Callable[[int, int, Any], dict]] = None):
+    def set_dataframe(
+        self,
+        dataframe: pd.DataFrame,
+        cell_formatter: Optional[Callable[[int, int, Any], dict]] = None,
+        display_formatters: Optional[Dict[str, Callable[[Any], str]]] = None,
+    ):
         """
         Set a new dataframe and update the table.
 
         Args:
             dataframe: The pandas DataFrame to display
             cell_formatter: Optional callback function for custom cell formatting
+            display_formatters: column name -> how its values read, for a column
+                that still sorts by its values: a duration in seconds shown as a clock
         """
         self.dataframe = dataframe
         if cell_formatter is not None:
             self.cell_formatter = cell_formatter
+        self.display_formatters = dict(display_formatters or {})
         self.update_table()
 
     def update_table(self):
@@ -104,32 +127,40 @@ class DataFrameTableWidget(QWidget):
         self.table_widget.setHorizontalHeaderLabels(self.dataframe.columns.tolist())
 
         # Populate table
+        formatters = getattr(self, "display_formatters", {})
         for i in range(num_rows):
             for j in range(num_cols):
                 value = self.dataframe.iloc[i, j]
+                formatter = formatters.get(self.dataframe.columns[j])
 
                 # Convert value to string, handling various types
                 if pd.isna(value):
                     display_value = ""
+                elif formatter is not None:
+                    display_value = formatter(value)
                 else:
                     display_value = str(value)
 
-                item = QTableWidgetItem(display_value)
+                item = _SortableItem(display_value)
 
                 # Store the original value for proper sorting
                 # This ensures numeric sorting works correctly
-                if isinstance(value, (int, float)) and not pd.isna(value):
-                    item.setData(Qt.UserRole, value)
+                if (
+                    isinstance(value, numbers.Real)
+                    and not isinstance(value, bool)
+                    and not pd.isna(value)
+                ):
+                    item.setData(Qt.UserRole, float(value))
 
                 # Apply custom formatting if provided
                 if self.cell_formatter is not None:
                     format_dict = self.cell_formatter(i, j, value)
                     if format_dict:
-                        if 'color' in format_dict:
-                            item.setForeground(QColor(format_dict['color']))
-                        if 'background' in format_dict:
-                            item.setBackground(QColor(format_dict['background']))
-                        if format_dict.get('bold', False):
+                        if "color" in format_dict:
+                            item.setForeground(QColor(format_dict["color"]))
+                        if "background" in format_dict:
+                            item.setBackground(QColor(format_dict["background"]))
+                        if format_dict.get("bold", False):
                             font = item.font()
                             font.setBold(True)
                             item.setFont(font)
@@ -166,10 +197,10 @@ def main():
 
     # Create sample dataframe
     data = {
-        'Name': ['Alice', 'Bob', 'Charlie', 'David', 'Eve'],
-        'Age': [25, 30, 35, 28, 32],
-        'Score': [95.5, 87.3, 92.1, 88.9, 91.0],
-        'City': ['New York', 'London', 'Paris', 'Tokyo', 'Berlin']
+        "Name": ["Alice", "Bob", "Charlie", "David", "Eve"],
+        "Age": [25, 30, 35, 28, 32],
+        "Score": [95.5, 87.3, 92.1, 88.9, 91.0],
+        "City": ["New York", "London", "Paris", "Tokyo", "Berlin"],
     }
     df = pd.DataFrame(data)
 

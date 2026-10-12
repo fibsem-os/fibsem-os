@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QVBoxLayout, QWidget
 from fibsem import conversions
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import LinePattern
+from fibsem.milling.patterning.patterns import LinePattern
 
 # `is_pattern_placement_valid` is pure geometry despite living under `fibsem/ui/napari/`
 # — it validates a pattern against the image bounds and never touches a Viewer or Layer.
@@ -488,6 +488,3 @@ class MillingTaskViewerWidget(QWidget):
     def set_background_milling_stages(self, stages: List[FibsemMillingStage]) -> None:
         self._background_milling_stages = stages
         self._schedule_pattern_update()
-
-    def set_manufacturer(self, manufacturer: Optional[str]) -> None:
-        self.config_widget.milling_stages_widget.set_manufacturer(manufacturer)

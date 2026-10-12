@@ -109,7 +109,8 @@ class TestTheHelpers:
         )
 
     def test_short_status_drops_the_time(self):
-        assert short_status("Rough Milling (02:13PM)") == "Rough Milling"
+        assert short_status("Rough Milling \u00b7 2:13PM") == "Rough Milling"
+        assert short_status("Polishing \u00b7 Sep 14, 9:02AM") == "Polishing"
         assert short_status("Rough Milling") == "Rough Milling"
         assert short_status("") == ""
 
@@ -276,7 +277,7 @@ class TestFromTheWindow:
         self, main_ui, tmp_path
     ):
         ui = main_ui.autolamella_ui
-        stage = ui.microscope._stage
+        stage = ui.microscope.sample_handling
         exp = Experiment(path=tmp_path, name="exp")
         (tmp_path / "exp").mkdir()
         exp.task_protocol = AutoLamellaTaskProtocol()

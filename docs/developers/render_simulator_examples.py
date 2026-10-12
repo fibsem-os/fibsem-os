@@ -27,10 +27,14 @@ import numpy as np
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes._stage import SampleGrid
-from fibsem.microscopes.sim_scene import SampleScene, fm_channel_weights
+from fibsem.drivers.demo.sim_scene import SampleScene, fm_channel_weights
 from fibsem.projection import BeamStageProjection, FMStageProjection
-from fibsem.structures import BeamType, FibsemRectangleSettings, FibsemStagePosition
+from fibsem.structures import (
+    BeamType,
+    FibsemRectangleSettings,
+    FibsemStagePosition,
+    SampleGrid,
+)
 
 OUT = ROOT / "docs" / "img" / "simulator"
 PAGE = ROOT / "docs" / "simulator.md"
@@ -358,7 +362,7 @@ def main():
     arctis.disconnect()
 
     # 6. grids at the holder's slots
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     for slot, (x, name) in zip(
         sorted(holder.slots.values(), key=lambda s: s.index),
         ((-1.5e-3, "Grid-A"), (1.5e-3, "Grid-B")),

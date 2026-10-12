@@ -1,6 +1,6 @@
 ---
 name: supervise-autolamella
-description: Supervise a running AutoLamella workflow through the agent server — watch its events, judge and answer its questions, and escalate to the operator when unsure. Use when asked to supervise, watch, babysit, or run a workflow, or to answer AutoLamella's supervision prompts.
+description: Supervise a running AutoLamella workflow through the App Server — watch its events, judge and answer its questions, and escalate to the operator when unsure. Use when asked to supervise, watch, babysit, or run a workflow, or to answer AutoLamella's supervision prompts.
 argument-hint: [optional mode: collaborative | exemplar | batch-review]
 ---
 
@@ -20,16 +20,16 @@ your session, use them for everything below *except the Watch step* —
 and the rest map one-to-one onto the HTTP surface, and they avoid
 shell-permission friction entirely. (The tools come from the `fibsem-mcp`
 sidecar; if they are missing, the sidecar is not registered in this session's
-MCP config — e.g. `claude mcp add fibsem fibsem-mcp` — and the HTTP fallback
+MCP config — e.g. `claude mcp add -s user fibsem -- fibsem-mcp` — and the HTTP fallback
 below works regardless.) Watching is the exception either way: looping the
-`get_events` tool in the foreground blocks you from acting, so the bundled
-watcher stays the watch mechanism even when MCP is connected.
+`get_events` tool in the foreground blocks you from acting, so
+`fibsem-mcp watch` stays the watch mechanism even when MCP is connected.
 
 Fallback is plain HTTP; the running app advertises itself in a discovery
 file:
 
 ```bash
-TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/agent-server.json'))['token'])")
+TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/app-server.json'))['token'])")
 curl -s "http://127.0.0.1:8001/capabilities" -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -41,35 +41,68 @@ to slip past it.
 
 Check the capabilities response before doing anything else:
 - `routers.app` must be true (an application is hosted, not just a bench server);
-- `scopes.control` true means you may answer and act. If it is false you can
-  only watch — say so, and ask the operator to grant *Act* in
-  Tools → Agent Server. Never treat a 403 as an error to work around.
+- `level` is what the operator lets you do (next section). Tell them, in a
+  sentence, what that level means you can and can't do this session.
 
 No discovery file → no server. Tell the operator to enable it
-(Preferences → Agent) and connect a microscope. Do not go looking for other
-ways in.
+(Preferences → App Server) and connect a microscope. Do not go looking for
+other ways in.
+
+## Your level
+
+The operator sets one level for you from the Agent chip in AutoLamella's
+status bar. Every launch starts at Watch; nothing in a file raises it.
+
+- **Watch** — you see everything and can add notes; you cannot answer,
+  start, stop, re-queue or edit. Watch is a complete job: say what you see,
+  say what you would answer and why, and leave the click to the operator.
+  What you would answer goes on the record too (see *Write down why*).
+- **Drive** — you may answer questions, start and stop workflows, change
+  supervision, re-queue, and edit configuration and schedules.
+- **Assist** is not offered yet. **Off** refuses everything, `/capabilities`
+  included (`403 agent_off`).
+
+Hardware (moving the stage, acquiring, milling directly) is never part of a
+level. Milling happens only inside a workflow's own steps.
+
+A refusal names its reason in `detail.error_type`:
+
+- `scope_not_armed` with `level` — the action needs a higher level. Say what
+  you wanted to do and that it needs Drive; ask once, then carry on watching.
+- `agent_stopped` — the operator pressed *Stop agent* and you are at Watch.
+  Stop acting at once: abandon what you were doing, report where you left
+  it, and keep watching. Do not ask to be raised again unless they ask you
+  to continue.
+- `agent_off` — you are off. Report that once and stop; there is nothing to
+  watch.
+
+If `level` drops from Drive to Watch mid-session for any reason, the rule is
+the same as `agent_stopped`: report and stop acting. Never treat a 403 as an
+error to work around, and never retry it in another form.
 
 ## Watch
 
 Sleep on the events long-poll; never poll `/app/prompt` on a timer. **Run
-the bundled watcher as a background monitor** — do not write your own (the
-first fresh agent to try matched the wrong JSON key and slept through a
-question), and do not run it in the foreground: each line it prints is your
-wake-up call, and a foreground watcher blocks you from acting on what it
-sees.
+the watcher as a background monitor** — do not write your own (the first
+fresh agent to try matched the wrong JSON key and slept through a question),
+and do not run it in the foreground: each line it prints is your wake-up
+call, and a foreground watcher blocks you from acting on what it sees.
 
 ```
-python .claude/skills/supervise-autolamella/watch_events.py
+fibsem-mcp watch
 ```
 
-(`python3` where `python` doesn't exist — stock macOS/Linux; the path is
-relative to the repo root, so run it from there or spell out the full path.)
+It comes with fibsem and finds the app the way the MCP tools do. If
+`fibsem-mcp` is not on your PATH, run `python -m fibsem.mcp.sidecar watch`
+with the Python fibsem is installed in.
 
 Wake and act on its lines: `PROMPT` (a question is standing, with its
-nonce), `QUESTION` (the run is stopped on a recorded question — rule 5),
+`question_id`), `QUESTION` (the run is stopped on a recorded question — rule 5),
 `ANSWERED` (check who — if the operator answered, your read of that
-question is stale), task lifecycle `EVENT` lines, and `RUN ENDED` (report
-and stop watching).
+question is stale), task lifecycle `EVENT` lines, `GAP` (events were lost:
+re-read `/app/prompt` and `/app/status`), and `RUN ENDED` (report and stop
+watching). It exits 1 when the app cannot be watched; say so rather than
+going idle.
 
 If your harness cannot keep a background process alive while you are idle
 (spawned subagents usually cannot — the watcher dies with your turn, and no
@@ -81,11 +114,11 @@ quiet run — when in doubt, read `/app/prompt` directly.
 
 ## Answer — the rules that are never optional
 
-1. **Name the question.** Read `GET /app/prompt`, take its `nonce`, echo it in
-   `POST /app/prompt/answer {"response": ..., "nonce": N}`. A `409
+1. **Name the question.** Read `GET /app/prompt`, take its `question_id`, echo it in
+   `POST /app/prompt/answer {"response": ..., "question_id": N}`. A `409
    stale_prompt` means the question changed under you (usually: the operator
    answered first) — that refusal is correct behaviour; re-read and continue.
-   Never retry the same nonce.
+   Never retry the same `question_id`.
 2. **Separate reading from acting.** Freshness check, *then* look, *then*
    answer — three tool calls, never one chained command. A chained
    guard-and-answer once fired an accept before a stale reading could stop it.
@@ -111,6 +144,25 @@ quiet run — when in doubt, read `/app/prompt` directly.
    the same three fields; `answer_prompt` on it is refused with nothing
    clicked, and `decide_review` is the answer there too.)
 
+## Write down why
+
+Chat is not kept; the experiment folder is. Every time you act (answer,
+decide, start, stop, re-queue, edit) or suggest an action at Watch, call
+`add_note` with the item's name, before the action. The note lands in the
+experiment's `events.jsonl` and `logfile.log`, beside what you did.
+
+A note says what you looked at and what you saw in it, then what you did:
+
+- *"lamella-02 Polishing: ref_polishing_ib.tif (02:14:05, after the last
+  pass). Face clean; curtaining stops below the trench. Answered no: accept."*
+- *"Suggest: lamella-04 Setup, POI 1.5 µm left of the marker. The marker
+  sits on the grid bar edge in ref_setup_eb.tif. Left for the operator."*
+
+Name the image, value or event you judged from. A note you cannot tie to
+something you looked at is not a reason; look first, or escalate instead.
+Laddered repeats get a note too, one line. Notes change nothing, so they
+are allowed at Watch.
+
 ## The prompt playbook
 
 Question types and what a sound answer requires:
@@ -133,7 +185,7 @@ FIB view). Sanity-check against the image: in bounds, non-degenerate size,
 covering the fiducial, consistent with previous items. Yes accepts it as
 shown. In a fiducial task this prompt arrives at the task's *end*, not its
 start. An answer may carry a **corrected rectangle**:
-`{"response": true, "nonce": N, "value": {"left", "top", "width", "height"}}`
+`{"response": true, "question_id": N, "value": {"left", "top", "width", "height"}}`
 (fractions of the frame, origin top-left). The server validates it and
 places it on the operator's screen through the same widget they would drag,
 then accepts it — use this for a small correction you can justify from your
@@ -226,26 +278,24 @@ The argument selects a variation on the same loop:
   One run at a time: it is refused while a lamella run is live, and a
   lamella start is refused while a grid run is.
 
-## Acting beyond answers (control permission)
+## Acting beyond answers (Drive)
 
 - `POST /app/workflow/start {"task_names": [...], "item_names": [...]}` —
   items omitted = all. Say what you are starting before you start it.
-- `POST /app/workflow/stop` — works without the Act permission, deliberately:
-  if you believe the run is doing damage, stop first and explain second.
-- `POST /app/supervision {"task_name", "supervise", "supervisor"}` — takes
-  effect at the next decision point. Designating a task
-  `"supervisor": "agent"` turns the window purple and puts its questions on
-  your clock: the app hands them to the operator if you go silent past the
-  hand-over time, so keep your watch alive for tasks you own.
+- `POST /app/workflow/stop` — if you believe the run is doing damage, stop
+  first and explain second. At Watch you cannot stop it: tell the operator
+  at once, plainly, what you see and that they should press Stop.
+- `POST /app/supervision {"task_name", "supervise"}` — takes effect at the
+  next decision point. A supervised task's questions go to the operator and
+  to you alike; the first answer wins, and the operator can always answer
+  first.
 - `POST /app/queue/requeue {"item_name", "task_name"}` — re-runs a completed
   pair inside a running workflow.
 
-## Editing configuration (configure permission)
+## Editing configuration (Drive)
 
-A separate permission from *Act* — the operator arms **Configure** in
-Tools → Agent Server. With it you can change task parameters; without it
-you can still read them (`get_protocol_task_config`,
-`get_item_task_config`).
+At Drive you can change task parameters. At Watch you can still read them
+(`get_protocol_task_config`, `get_item_task_config`).
 
 Two levels, one dance:
 
@@ -262,7 +312,7 @@ config for the run in progress — patch after it finishes. Values are SI
 (metres, amps); bounds are validated for you and refusals name the
 failing path.
 
-Scheduling rides the same permission: `set_task_schedule` sets or clears
+Scheduling is Drive too: `set_task_schedule` sets or clears
 when a task may start (ISO-8601, instrument-local when naive; null
 clears). The workflow reads it at each task start, so it never interrupts
 anything running.
@@ -282,8 +332,9 @@ Etiquette:
 ## Report
 
 Keep the operator oriented without flooding them: say what you answered and
-why when it was a judgment call; stay quiet for laddered repeats; always
-report task completions/failures, escalations, and the end-of-run summary
-(items, durations, outcomes — `/app/run_summary` survives the run's end).
+why when it was a judgment call (the note already records it); stay quiet
+for laddered repeats; always report task completions/failures, escalations,
+and the end-of-run summary (items, durations, outcomes — `/app/run_summary`
+survives the run's end).
 Every answer you give is attributed on the timeline in the app; write nothing
 the timeline would contradict.

@@ -271,7 +271,8 @@ class _DirtyBanner(QWidget):
             )
             self.apply_button.setVisible(True)
             self.setStyleSheet(
-                "#dirtyBanner { background: rgba(%d, %d, %d, 0.12);"
+                # Not an f-string: every literal brace would need doubling.
+                "#dirtyBanner { background: rgba(%d, %d, %d, 0.12);"  # noqa: UP031
                 " border-top: 1px solid rgba(%d, %d, %d, 0.5); }"
                 % (
                     rgb.red(),
@@ -982,6 +983,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             msg = f"Successfully updated reference imaging for {selected_count} task(s) and milling FoV for {updated_count} task(s) with milling."
             if update_lamella:
                 msg += "\nExisting lamella configurations were also updated."
+            skipped = getattr(dialog, "skipped_running", [])
+            if skipped:
+                names = ", ".join(f"{lamella} ({task})" for lamella, task in skipped)
+                msg += f"\nNot changed, because the task is running: {names}."
             QMessageBox.information(
                 self,
                 "Global Edit Applied",

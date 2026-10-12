@@ -19,7 +19,7 @@ The two are not the same problem, and the issue's list conflates them:
   z-stack left the spinbox showing the position from before it.
 
 The reads that stay are pinned in `tests/fm/test_objective_signal.py`: guards read the
-device every time, because a stale "Retracted" moves the stage with the objective in the
+device every time, because a stale RETRACTED moves the stage with the objective in the
 chamber.
 """
 
@@ -28,15 +28,18 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sys
+from contextlib import nullcontext
 
 import pytest
+
+from fibsem.structures import InsertableDeviceState
 
 pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.constants import METRE_TO_MICRON
-from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -57,7 +60,7 @@ def _nearby_um(fm) -> float:
 
 @pytest.fixture
 def fm():
-    return FluorescenceMicroscope()
+    return DemoFluorescenceMicroscope()
 
 
 @pytest.fixture
@@ -118,7 +121,7 @@ class TestTheLoopThatWouldNotWarn:
         )
 
         echoed = fm.objective.position + 5e-6
-        widget._on_objective_moved(echoed, "Inserted")
+        widget._on_objective_moved(echoed, InsertableDeviceState.INSERTED)
 
         assert moves == [], "handling a move emitted another one"
         assert widget.doubleSpinBox_objective_position.value() == pytest.approx(
@@ -199,8 +202,11 @@ class TestTheLabelStillExistsBeforeTheFirstMove:
 
         controller.update_info(microscope)  # a stage update, carrying no objective
 
+        # On the FM bar now (FIB-1186), and no longer in the canvas's info text.
+        shown = {f.label: f.value for f in controller.widget.fm_bar.visible_fields()}
+        assert shown.get("OBJ") == "200.0 µm"
         info = dict(controller._states[controller._widget.fm_canvas].info)
-        assert info.get("objective") == "OBJECTIVE: 200.0 µm"
+        assert "objective" not in info
 
     def test_the_seeding_read_happens_once_and_only_once(self):
         """The point of the exercise. One read to have something to show is not the
@@ -257,7 +263,7 @@ class TestTheLabelStillExistsBeforeTheFirstMove:
 
 
 class _StubObjective:
-    pass
+    state = InsertableDeviceState.RETRACTED
 
 
 class _StubFM:
@@ -267,12 +273,16 @@ class _StubFM:
         # counter -- or its raising getter -- into the next.
         self.objective = type("_StubObjective", (_StubObjective,), {})()
 
+    def active_channel(self):
+        return nullcontext()
+
 
 class _StubMicroscope:
     """Only what `update_info` touches before reaching the objective branch."""
 
     def __init__(self):
         self.fm = _StubFM()
+        self.stage = object()  # a stage is fitted, so the info bar shows it
         self._stage_position = _StubStagePosition()
         self.current_grid = "grid-1"
 

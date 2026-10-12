@@ -49,7 +49,7 @@ def overview_slots(microscope: "FibsemMicroscope") -> List["GridSlot"]:
     """The slots a grid overview would be centred on. With a loader, its working
     slot. On a fixed holder, the occupied calibrated slots, or every calibrated
     one when none is occupied."""
-    stage = getattr(microscope, "_stage", None)
+    stage = getattr(microscope, "sample_handling", None)
     holder = getattr(stage, "holder", None)
     if holder is None:
         return []
@@ -58,7 +58,7 @@ def overview_slots(microscope: "FibsemMicroscope") -> List["GridSlot"]:
         for s in sorted(holder.slots.values(), key=lambda s: s.index)
         if s.position is not None
     ]
-    if getattr(stage, "loader", None) is not None:
+    if getattr(stage, "magazine", None) is not None:
         return calibrated[:1]
     occupied = [s for s in calibrated if s.loaded_grid is not None]
     return occupied or calibrated

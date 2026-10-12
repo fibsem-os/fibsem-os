@@ -6,22 +6,20 @@ pin the members promoted into the ABCs and the per-instance acquisition
 state, using the simulated implementations directly.
 
 TFS-driver conformance can only run on machines with the autoscript SDK;
-odemis-driver conformance is covered in test_odemis_driver.py.
+odemis-driver conformance is covered in test_odemis_fm_devices.py.
 """
 
 import numpy as np
 import pytest
 
-from fibsem.fm.microscope import (
-    BINNING_VALUES,
-    SIM_CAMERA_EXPOSURE_LIMITS,
-    FluorescenceMicroscope,
-)
+from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
+from fibsem.drivers.demo.simulator import BINNING_VALUES, SIM_CAMERA_EXPOSURE_LIMITS
+from fibsem.structures import InsertableDeviceState
 
 
 @pytest.fixture()
 def fm():
-    return FluorescenceMicroscope()
+    return DemoFluorescenceMicroscope()
 
 
 class TestPromotedContract:
@@ -44,24 +42,23 @@ class TestPromotedContract:
         fm.camera.binning = 2
         assert fm.camera.binning == 2
 
-    def test_objective_state_is_a_string_property(self, fm):
-        assert isinstance(fm.objective.state, str)
-        assert fm.objective.state in ("Inserted", "Retracted", "Busy", "Error", "Other")
+    def test_objective_state_is_the_device_enum(self, fm):
+        assert isinstance(fm.objective.state, InsertableDeviceState)
 
 
 class TestPerInstanceAcquisitionState:
     """The stop event and thread handle must not be shared between instances."""
 
     def test_stop_events_are_independent(self):
-        fm_a = FluorescenceMicroscope()
-        fm_b = FluorescenceMicroscope()
+        fm_a = DemoFluorescenceMicroscope()
+        fm_b = DemoFluorescenceMicroscope()
         assert fm_a._stop_acquisition_event is not fm_b._stop_acquisition_event
         fm_a._stop_acquisition_event.set()
         assert not fm_b._stop_acquisition_event.is_set()
 
     def test_thread_handles_are_independent(self):
-        fm_a = FluorescenceMicroscope()
-        fm_b = FluorescenceMicroscope()
+        fm_a = DemoFluorescenceMicroscope()
+        fm_b = DemoFluorescenceMicroscope()
         fm_a._acquisition_thread = object()
         assert fm_b._acquisition_thread is None
 
@@ -70,8 +67,9 @@ class TestTheImagingChannelIsPartOfTheContract:
     """Both forms exist on every FM, so callers need not ask what they are talking to.
 
     A no-op on a system whose FM has a connection of its own, and overridden by the two
-    that share one with the beams: `ThermoFisherFluorescenceMicroscope` and, so the
-    sharing can be tested without hardware, `SimulatedFluorescenceMicroscope` (FIB-518).
+    that share one with the beams: Thermo's (`ThermoFisherFluorescenceMicroscope`)
+    and, so the sharing can be tested without hardware, the Demo's
+    (`DemoFluorescenceMicroscope`, FIB-518).
     """
 
     def test_both_forms_exist_and_are_harmless(self, fm):

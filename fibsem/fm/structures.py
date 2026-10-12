@@ -78,6 +78,13 @@ from fibsem.structures import (  # noqa: F401
     InsertableDeviceState,
     TileOrderStrategy,
     _parse_image_transform,
+    field_meta,
+)
+from fibsem.util.timestamps import (
+    acquisition_datetime_of,
+    now,
+    now_iso,
+    to_aware,
 )
 
 
@@ -230,33 +237,6 @@ class FMStagePosition:
             stage_position=stage_position,
             objective_position=objective_position,
         )
-
-
-# The objective's states as today's FM API names them (AutoScript's
-# RetractableDeviceState), and the device state each one is.
-ObjectiveStateName = Literal["Inserted", "Retracted", "Busy", "Error", "Other"]
-OBJECTIVE_STATES: Tuple[str, ...] = get_args(ObjectiveStateName)
-OBJECTIVE_INSERTED = "Inserted"
-_OBJECTIVE_DEVICE_STATES = {
-    "Inserted": InsertableDeviceState.INSERTED,
-    "Retracted": InsertableDeviceState.RETRACTED,
-    "Busy": InsertableDeviceState.MOVING,
-    "Error": InsertableDeviceState.ERROR,
-    "Other": InsertableDeviceState.UNKNOWN,
-}
-
-
-def objective_device_state(name: str) -> InsertableDeviceState:
-    """The device state for an objective state name; an unknown name is UNKNOWN."""
-    return _OBJECTIVE_DEVICE_STATES.get(name, InsertableDeviceState.UNKNOWN)
-
-
-def objective_state_name(state: InsertableDeviceState) -> str:
-    """The objective state name today's FM API uses for a device state."""
-    for name, device_state in _OBJECTIVE_DEVICE_STATES.items():
-        if device_state is state:
-            return name
-    return "Other"
 
 
 Band = Tuple[float, Optional[float]]  # edges in nm; the top may be unknown
@@ -416,11 +396,42 @@ class ChannelSettings:
         return self.pretty_name
 
 
+Z_DISTANCE_METADATA = field_meta(type=float, unit="m", scale=1e6, step=0.1, decimals=2)
+
+
 @dataclass
 class ZParameters:
-    zmin: float = -10e-6
-    zmax: float = 10e-6
-    zstep: float = 1e-6
+    # Relative to the objective's position when the stack starts. Bounds in µm.
+    zmin: float = field(
+        default=-10e-6,
+        metadata=field_meta(
+            Z_DISTANCE_METADATA,
+            label="Z Min",
+            minimum=-100.0,
+            maximum=-0.25,
+            tooltip="Minimum Z position relative to current position",
+        ),
+    )
+    zmax: float = field(
+        default=10e-6,
+        metadata=field_meta(
+            Z_DISTANCE_METADATA,
+            label="Z Max",
+            minimum=0.25,
+            maximum=100.0,
+            tooltip="Maximum Z position relative to current position",
+        ),
+    )
+    zstep: float = field(
+        default=1e-6,
+        metadata=field_meta(
+            Z_DISTANCE_METADATA,
+            label="Z Step",
+            minimum=0.1,
+            maximum=10.0,
+            tooltip="Step size between Z positions",
+        ),
+    )
     order: ZStackOrder = ZStackOrder.CHANNEL
 
     def to_dict(self) -> dict:
@@ -790,11 +801,9 @@ class FluorescenceImage:
             objectives=objectives if objectives else [],
         )
 
-        # Parse acquisition date
-        try:
-            acquisition_date = datetime.fromisoformat(self.metadata.acquisition_date)
-        except (ValueError, AttributeError):
-            acquisition_date = datetime.now()
+        # OME's AcquisitionDate: aware when the image says which zone, naive (the
+        # acquiring machine's clock) when it is from before that was recorded.
+        acquisition_date = acquisition_datetime_of(self.metadata) or now()
 
         # Use filename and description from metadata if available
         image_name = self.metadata.filename or "Fluorescence Image"
@@ -914,7 +923,7 @@ class FluorescenceImage:
             channels.append(channel)
 
         return FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_date=now_iso(),
             pixel_size_x=1e-6,  # default 1 micron
             pixel_size_y=1e-6,  # default 1 micron
             resolution=(nx, ny),
@@ -1081,6 +1090,7 @@ class FluorescenceImage:
         # Create new metadata for the projected image
         projected_metadata = FluorescenceImageMetadata(
             acquisition_date=self.metadata.acquisition_date,
+            acquisition_datetime=self.metadata.acquisition_datetime,
             pixel_size_x=self.metadata.pixel_size_x,
             pixel_size_y=self.metadata.pixel_size_y,
             pixel_size_z=None,  # No z-dimension after projection
@@ -1222,6 +1232,7 @@ class FluorescenceImage:
         # Create new metadata for the stacked image
         stacked_metadata = FluorescenceImageMetadata(
             acquisition_date=self.metadata.acquisition_date,
+            acquisition_datetime=self.metadata.acquisition_datetime,
             pixel_size_x=self.metadata.pixel_size_x,
             pixel_size_y=self.metadata.pixel_size_y,
             pixel_size_z=None,  # No z-dimension after stacking
@@ -1374,7 +1385,7 @@ class FluorescenceImage:
         ]
 
         metadata = FluorescenceImageMetadata(
-            acquisition_date=datetime.now().isoformat(),
+            acquisition_date=now_iso(),
             pixel_size_x=pixel_size,
             pixel_size_y=pixel_size,
             resolution=resolution,
@@ -1495,6 +1506,15 @@ class FluorescenceImageMetadata:
     system_info: Optional[dict] = None
     dimension_order: str = "CZYX"  # default dimension order for OME-TIFF
 
+    # When the image was acquired: an aware datetime, written as ISO 8601 with its
+    # UTC offset -- the same field the beam images carry (FIB-1190). `FM.acquire_frame`
+    # stamps it as the acquisition starts. `acquisition_date` is still written, with
+    # the same value as a string, for OME and odemis; before this it held the
+    # acquiring machine's clock time with no offset, which is all an older image has.
+    # None on those, and on images built rather than acquired -- read the time
+    # through `acquisition_datetime_of`, which falls back.
+    acquisition_datetime: Optional[datetime] = None
+
     def __post_init__(self):
         """Validate metadata consistency."""
         if not self.channels:
@@ -1532,6 +1552,11 @@ class FluorescenceImageMetadata:
         """Convert to dictionary format for UI/viewer compatibility."""
         return {
             "acquisition_date": self.acquisition_date,
+            "acquisition_datetime": (
+                self.acquisition_datetime.isoformat()
+                if self.acquisition_datetime is not None
+                else None
+            ),
             "pixel_size_x": self.pixel_size_x,
             "pixel_size_y": self.pixel_size_y,
             "pixel_size_z": self.pixel_size_z,
@@ -1605,6 +1630,7 @@ class FluorescenceImageMetadata:
 
         return cls(
             acquisition_date=metadata_dict["acquisition_date"],
+            acquisition_datetime=to_aware(metadata_dict.get("acquisition_datetime")),
             pixel_size_x=metadata_dict["pixel_size_x"],
             pixel_size_y=metadata_dict["pixel_size_y"],
             pixel_size_z=metadata_dict.get("pixel_size_z"),
@@ -1742,14 +1768,14 @@ class FluorescenceImageMetadata:
         if not channels_md:
             raise ValueError("OME metadata contains no channel information")
 
-        acquisition_date = (
-            image_md.acquisition_date.isoformat()
-            if getattr(image_md, "acquisition_date", None)
-            else datetime.now().isoformat()
-        )
+        acquired = getattr(image_md, "acquisition_date", None)
+        acquisition_date = acquired.isoformat() if acquired else now_iso()
 
         return cls(
             acquisition_date=acquisition_date,
+            # Only when the file says which zone: a naive one is another machine's
+            # clock time, and stays in acquisition_date alone.
+            acquisition_datetime=to_aware(acquired),
             pixel_size_x=pixel_size_x,
             pixel_size_y=pixel_size_y,
             pixel_size_z=pixel_size_z,
@@ -1984,7 +2010,7 @@ class FluorescenceConfiguration:
             >>> config = FluorescenceConfiguration.load("config.yaml")
             >>> print(f"Loaded {len(config.channel_settings)} channels")
         """
-        with open(filename, "r") as f:
+        with open(filename) as f:
             config_dict = yaml.safe_load(f)
 
         config = cls.from_dict(config_dict)

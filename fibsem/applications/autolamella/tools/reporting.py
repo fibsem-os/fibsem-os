@@ -39,6 +39,7 @@ from fibsem.constants import DATE_LONG
 from fibsem.imaging.tiled import plot_stage_positions_on_image
 from fibsem.milling import plot_milling_patterns
 from fibsem.structures import FibsemImage
+from fibsem.theme.plots import DARK, LIGHT, plot_theme
 
 if TYPE_CHECKING:
     import plotly.graph_objects as go
@@ -239,8 +240,10 @@ def _add_overview_section(pdf: PDFReportGenerator, experiment: Experiment) -> No
     for filename in filenames:
         try:
             image = FibsemImage.load(filename)
-            fig = generate_final_overview_image(exp=experiment, image=image)
-            pdf.add_mpl_figure(fig, width=4.5 * inch, height=4.5 * inch)
+            # paper: built and saved in the light plot theme
+            with plot_theme(LIGHT):
+                fig = generate_final_overview_image(exp=experiment, image=image)
+                pdf.add_mpl_figure(fig, width=4.5 * inch, height=4.5 * inch)
         except Exception as e:
             logging.warning(f"Could not draw the overview {filename}: {e}")
             pdf.add_paragraph(
@@ -277,11 +280,12 @@ def _add_lamella_section(
         if not df.empty:
             pdf.add_dataframe(df, "Workflow")
 
-    # Workflow images
+    # Workflow images; paper, so the light plot theme
     if include_images:
-        fig = plot_lamella_task_workflow_summary(lamella)
-        if fig is not None:
-            pdf.add_mpl_figure(fig, width=6 * inch, height=4 * inch)
+        with plot_theme(LIGHT):
+            fig = plot_lamella_task_workflow_summary(lamella)
+            if fig is not None:
+                pdf.add_mpl_figure(fig, width=6 * inch, height=4 * inch)
 
     # Milling data and patterns
     if include_milling:
@@ -289,9 +293,9 @@ def _add_lamella_section(
         if not df.empty:
             pdf.add_dataframe(df, "Milling Data")
 
-        figs = plot_task_milling_summary(lamella)
-        if figs:
-            for fig in figs:
+        with plot_theme(LIGHT):
+            figs = plot_task_milling_summary(lamella)
+            for fig in figs or []:
                 pdf.add_mpl_figure(fig, width=6 * inch, height=4 * inch)
 
 
@@ -465,8 +469,8 @@ def plot_lamella_task_workflow_summary(
         Matplotlib Figure object if images are found, None otherwise
     """
 
-    # Determine text color based on mode
-    text_color = "white" if mode == "dark" else "black"
+    # the theme's title colour for the mode
+    text_color = DARK.text_strong if mode == "dark" else LIGHT.text_strong
 
     # get completed tasks
     completed_tasks = [t.name for t in p.task_history]
@@ -691,9 +695,8 @@ def save_final_overview_image(
     Note: The figure is saved with a dpi of 300.
     """
 
-    fig = generate_final_overview_image(exp, image)
-
-    # save the figure with dpi=300
-    fig.savefig(output_path, dpi=300)
+    with plot_theme(LIGHT):
+        fig = generate_final_overview_image(exp, image)
+        fig.savefig(output_path, dpi=300)
 
     return fig

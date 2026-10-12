@@ -8,6 +8,7 @@ the failures are the entries the task manager writes.
 """
 
 import os
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -37,13 +38,13 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
 )
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
-from fibsem.microscopes._stage import SampleGrid
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
     OverviewAcquisitionSettings,
+    SampleGrid,
 )
 
 
@@ -59,7 +60,7 @@ def _entry(name, status, message="", outputs=None) -> AutoLamellaTaskState:
     state = AutoLamellaTaskState(
         name=name, status=status, status_message=message, outputs=outputs or {}
     )
-    state.end_timestamp = state.start_timestamp + 1
+    state.end_timestamp = state.start_timestamp + timedelta(seconds=1)
     return state
 
 
@@ -103,7 +104,7 @@ def screened(tmp_path_factory):
             overview=OverviewParameters(rows=1, cols=2),
         )
     )
-    slot = microscope._stage.holder.slots["Slot-01"]
+    slot = microscope.sample_handling.holder.slots["Slot-01"]
 
     # grid-aspen: loaded, screened in full, two lamellae, judged good
     aspen = exp.add_grid(GridRecord(name="grid-aspen"))

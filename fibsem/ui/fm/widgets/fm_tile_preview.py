@@ -29,9 +29,14 @@ from fibsem.imaging.tiling.geometry import (
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.projection import FMStageProjection, StageProjection
-from fibsem.structures import FibsemStagePosition, TileOrderStrategy
-from fibsem.ui.tokens import GRID_BOUNDARY_COLOUR, STAGE_LIMITS_COLOUR
+from fibsem.structures import (
+    BEAMS_STAGE_DEVICE,
+    FibsemStagePosition,
+    TileOrderStrategy,
+)
+from fibsem.ui.tokens import GRID_BOUNDARY_COLOUR
 from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
+from fibsem.ui.widgets.canvas.overlays import stage_context
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
     GRID_BOUNDARY_RADIUS_M,
     MinimapShapesOverlay,
@@ -44,8 +49,9 @@ from fibsem.ui.widgets.canvas.stage_frame import StageFrame
 # image and does not read over nothing. This pane is nothing but the grid.
 _SELECTED_FILL_ALPHA = 0.30
 
-# The centre of the sample holder, and so of the travel limits, the grid boundary and
-# the framing. Distinct from the frame origin, which is wherever the stage is standing.
+# The centre of the sample holder, and so of the travel limits. The grid boundary and
+# the framing are about the same ground under the objective, which is this plus the
+# FM's origin. Distinct from the frame origin, which is wherever the stage is standing.
 STAGE_ORIGIN = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
 
 
@@ -106,7 +112,18 @@ class FMTilePreviewWidget(QWidget):
         self._origin = to_fm_pose(
             microscope.get_stage_position(),
             self._fm_orientation,
-            is_compustage=microscope.stage_is_compustage,
+            is_compustage=microscope._fm_is_a_pose(),
+        )
+
+        # Where the stage travels after the flip to put the beams' ground under the
+        # objective, and so where the grid sits in the stage positions this pane draws.
+        self._fm_origin = self._read_fm_origin()
+        self._grid_centre = FibsemStagePosition(
+            x=STAGE_ORIGIN.x + (self._fm_origin.x or 0.0),
+            y=STAGE_ORIGIN.y + (self._fm_origin.y or 0.0),
+            z=STAGE_ORIGIN.z + (self._fm_origin.z or 0.0),
+            r=STAGE_ORIGIN.r,
+            t=STAGE_ORIGIN.t,
         )
 
         self._plan: Optional[SparseOverviewPlan] = None
@@ -153,11 +170,23 @@ class FMTilePreviewWidget(QWidget):
         )
         self._draw_stage_context()
 
-    def _stage_origin_offset(self) -> Tuple[float, float]:
-        """Where stage (0, 0) sits in this canvas's metres, or the frame origin if the
-        projection cannot answer."""
+    def _read_fm_origin(self) -> FibsemStagePosition:
+        """The FM's origin: the stage travel from the beams to the FM, at the FM pose.
+
+        Zero where the objective's centre is the beams' coincidence point, which is
+        every compustage configured so far.
+        """
         try:
-            return self._frame().offset(STAGE_ORIGIN)
+            return self.microscope._device_translation(BEAMS_STAGE_DEVICE, "FM")
+        except Exception as e:  # a microscope with no FM device declared
+            logging.debug(f"No FM origin to plan against; taking none: {e}")
+            return FibsemStagePosition()
+
+    def _stage_origin_offset(self) -> Tuple[float, float]:
+        """Where the grid's centre sits in this canvas's metres, or the frame origin if
+        the projection cannot answer."""
+        try:
+            return self._frame().offset(self._grid_centre)
         except Exception as e:  # pragma: no cover - geometry the projection rejects
             logging.debug(f"Cannot place the stage origin; framing on the pose: {e}")
             return (0.0, 0.0)
@@ -199,7 +228,8 @@ class FMTilePreviewWidget(QWidget):
                 fov_x=self._fov[0],
                 fov_y=self._fov[1],
                 overlap=overlap,
-                is_compustage=self.microscope.stage_is_compustage,
+                is_compustage=self.microscope._fm_is_a_pose(),
+                fm_origin=self._fm_origin,
             )
         except ValueError as e:
             # Selecting nothing is a state, not a failure -- a region dragged to zero
@@ -301,6 +331,7 @@ class FMTilePreviewWidget(QWidget):
         Any strategy: `order_tiles` changes the sequence and drops the disabled ones,
         and only the second half bears on whether a tile is reachable.
         """
+        stage = self.microscope.stage
         # Qualified: this class has a property of the same name, and a bare call would
         # read as though it returned that.
         return tiling_geometry.unreachable_tiles(
@@ -309,7 +340,7 @@ class FMTilePreviewWidget(QWidget):
             lambda dx, dy: self._projection.from_plane(
                 dx, dy, self._plan.centre_position
             ),
-            getattr(self.microscope._stage, "limits", None),
+            stage.position.limits if stage is not None else None,
         )
 
     def _draw_stage_context(self) -> None:
@@ -321,30 +352,31 @@ class FMTilePreviewWidget(QWidget):
         """
         frame = self._frame()
         try:
-            centre = frame.to_canvas(STAGE_ORIGIN)
+            centre = frame.to_canvas(self._grid_centre)
         except Exception as e:
             logging.debug(f"Cannot place the grid centre: {e}")
             return
 
-        limits = getattr(self.microscope._stage, "limits", None)
-        if not limits or not self.microscope.stage_is_compustage:
-            return
-
-        # No `surface_foreshortening` term: these lie on the sample, and the sample is
-        # square-on to the camera at the fluorescence pose. The beam pane, drawn from a
-        # tilted view, does need it.
-        self.stage_overlay.set_shapes([
-            ShapeSpec(
-                kind="rect", cx=centre[0], cy=centre[1], color=STAGE_LIMITS_COLOUR,
-                width=frame.length(limits["x"].max - limits["x"].min),
-                height=frame.length(limits["y"].max - limits["y"].min),
-                label="Stage limits",
-            ),
-            ShapeSpec(
-                kind="circle", cx=centre[0], cy=centre[1], color=GRID_BOUNDARY_COLOUR,
-                radius=frame.length(GRID_BOUNDARY_RADIUS_M), label="Grid boundary",
-            ),
-        ])
+        # The travel box on every stage: where it is far outside the grid it is simply
+        # off the edge of the view, which is fixed to the grid. One implementation with
+        # the overview tabs, which draw it on every stage too.
+        #
+        # The boundary has no `surface_foreshortening` term: it lies on the sample, and
+        # the sample is square-on to the camera at the fluorescence pose. The beam pane,
+        # drawn from a tilted view, does need it.
+        self.stage_overlay.set_shapes(
+            stage_context.limit_shapes(self.microscope, frame)
+            + [
+                ShapeSpec(
+                    kind="circle",
+                    cx=centre[0],
+                    cy=centre[1],
+                    color=GRID_BOUNDARY_COLOUR,
+                    radius=frame.length(GRID_BOUNDARY_RADIUS_M),
+                    label="Grid boundary",
+                ),
+            ]
+        )
 
     # ── edits ────────────────────────────────────────────────────────────
 

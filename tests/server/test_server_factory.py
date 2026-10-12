@@ -1,5 +1,5 @@
-"""Tests for the fibsem server factory: auth, scopes, the command lock, and the
-degree-normalized milling-angle boundary (FIB-852).
+"""Tests for the fibsem server factory: auth, scopes, control of the microscope
+(FIB-1270), and the degree-normalized milling-angle boundary (FIB-852).
 
 Skipped when the [server] extra is not installed (CI installs [test] only until
 the FIB-849 leg lands).
@@ -92,7 +92,7 @@ def test_capabilities_reports_scopes_and_routers(read_client):
     resp = read_client.get("/capabilities", headers=AUTH)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["routers"] == {"microscope": True, "app": False}
+    assert body["routers"] == {"microscope": True, "devices": True, "app": False}
     assert body["scopes"] == {
         "read": True,
         "control": False,
@@ -125,10 +125,10 @@ def test_last_image_is_hardware_scope(read_client):
     assert resp.status_code == 403
 
 
-def test_stop_milling_allowed_with_read_scope(read_client):
-    # Emergency stop is deliberately never gated behind arming.
+def test_stop_milling_needs_a_scope_that_acts(read_client):
+    # Read alone is watching, and a watching agent stops nothing (FIB-1035).
     resp = read_client.post("/stop_milling", headers=AUTH)
-    assert resp.status_code == 200
+    assert resp.status_code == 403
 
 
 def test_valid_requests_stamp_last_seen(microscope):
@@ -166,28 +166,51 @@ def test_hardware_route_works_when_armed(armed_client):
     assert resp.json()["position"]["x"] == pytest.approx(start["x"] + 10e-6, abs=1e-9)
 
 
-def test_concurrent_hardware_command_is_409(armed_client):
-    lock = armed_client.app.state.command_lock
-    assert lock.acquire(blocking=False)
+def test_hardware_command_while_someone_is_in_control_is_409(armed_client, microscope):
+    # FIB-1270: a run (or a script, or another command) in control refuses the
+    # command at once, naming who, rather than interleaving with it.
+    with microscope.control.take("workflow", "a lamellae run"):
+        resp = armed_client.post(
+            "/move_stage_relative", headers=AUTH, json={"position": _pos(x=1e-6)}
+        )
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "microscope_busy"
+    assert detail["in_control"] == {"by": "workflow", "action": "a lamellae run"}
+    assert "workflow" in detail["message"]
+
+
+def test_hardware_command_takes_control_as_the_agent(armed_client, microscope):
+    seen = []
+    microscope.control.changed.connect(seen.append)
     try:
         resp = armed_client.post(
             "/move_stage_relative", headers=AUTH, json={"position": _pos(x=1e-6)}
         )
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error_type"] == "busy"
     finally:
-        lock.release()
+        microscope.control.changed.disconnect(seen.append)
+    assert resp.status_code == 200
+    assert seen[0].by == "agent"
+    assert seen[0].action == "POST /move_stage_relative"
+    assert seen[-1] is None  # released when the command ended
+    assert microscope.control.current is None
 
 
-def test_stop_milling_bypasses_command_lock(armed_client):
-    # The stop must interrupt an in-flight command, so it cannot wait on the slot.
-    lock = armed_client.app.state.command_lock
-    assert lock.acquire(blocking=False)
-    try:
+def test_hardware_command_borrows_control_a_run_has_lent(armed_client, microscope):
+    # A run waiting on a question lends control: the command goes through.
+    with microscope.control.take("workflow", "a lamellae run"):
+        with microscope.control.lend():
+            resp = armed_client.post(
+                "/move_stage_relative", headers=AUTH, json={"position": _pos(x=1e-6)}
+            )
+    assert resp.status_code == 200
+
+
+def test_stop_milling_is_allowed_whoever_is_in_control(armed_client, microscope):
+    # The stop must interrupt an in-flight command, so it never takes control.
+    with microscope.control.take("workflow", "a lamellae run"):
         resp = armed_client.post("/stop_milling", headers=AUTH)
-        assert resp.status_code == 200
-    finally:
-        lock.release()
+    assert resp.status_code == 200
 
 
 def test_microscope_exception_becomes_structured_500(microscope, monkeypatch):
@@ -253,3 +276,19 @@ def test_arming_mid_session_takes_effect_without_a_new_token(microscope):
             "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
         )
         assert refused_again.status_code == 403
+
+
+def test_move_to_orientation_over_http(armed_client, microscope):
+    """The remote replacement for the removed `/move_flat_to_beam`."""
+    resp = armed_client.post(
+        "/move_to_orientation", headers=AUTH, json={"orientation": "FIB"}
+    )
+    assert resp.status_code == 200
+    assert microscope.get_stage_orientation() == "FIB"
+
+    resp = armed_client.post(
+        "/move_to_orientation", headers=AUTH, json={"orientation": "SEM"}
+    )
+    assert resp.status_code == 200
+    assert microscope.get_stage_orientation() == "SEM"
+    assert "r" in resp.json()["position"]

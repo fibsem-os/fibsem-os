@@ -95,7 +95,7 @@ def experiment(tmp_path, microscope):
     exp.grid_protocol.add(
         BeamOverviewGridTaskConfig(task_name=OVERVIEW, settings=_small_settings())
     )
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     return exp
 
 
@@ -364,6 +364,20 @@ class TestTheGridRunWaitsOnADecision:
         assert fired[-1].event == "workflow_stalled"
         assert fired[-1].decisions_pending == 1
 
+    def test_a_stalled_run_leaves_its_grid_loaded_for_the_review(
+        self, microscope, experiment
+    ):
+        """Asked to unload at the end, a run that gave up waiting on a
+        decision does not: the grid is still wanted for the task behind it."""
+        _with_later_task(experiment, review_wait=0)
+        manager = _manager(microscope, experiment)
+        manager.unload_at_end = True
+
+        manager.run([OVERVIEW, LATER], [GRID])
+
+        assert manager.stalled is True
+        assert [g.name for g in microscope.sample_handling.loaded_grids] == [GRID]
+
     def test_a_confirm_wakes_the_run_and_the_later_task_runs(
         self, microscope, experiment
     ):
@@ -597,7 +611,7 @@ class TestTheLatestRunOfARequirementCounts:
 
 
 def _loaded(microscope, name):
-    return microscope._stage.holder.find_slot_by_grid_name(name) is not None
+    return microscope.sample_handling.holder.find_slot_by_grid_name(name) is not None
 
 
 class TestAGridIsLoadedForWorkThatCanRun:

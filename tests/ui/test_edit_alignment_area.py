@@ -136,19 +136,19 @@ def test_the_rect_survives_the_overlay_coming_down(ui, qapp):
     assert outcome["area"].width == pytest.approx(first.width)
 
 
-def _answer_with_value_on_worker(ui, qapp, response, nonce, value):
-    """Call AgentContext.answer_prompt from a worker thread, as the server does.
+def _answer_with_value_on_worker(ui, qapp, response, question_id, value):
+    """Call AutoLamellaAppContext.answer_prompt from a worker thread, as the server does.
 
     The answer marshals to the GUI thread and blocks on the outcome — calling
     it from the test (GUI) thread would deadlock into the timeout.
     """
-    from fibsem.applications.autolamella.server import AgentContext
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ctx = AgentContext(ui)
+    ctx = AutoLamellaAppContext(ui)
     outcome = {}
 
     def target():
-        outcome["result"] = ctx.answer_prompt(response, nonce, value=value)
+        outcome["result"] = ctx.answer_prompt(response, question_id, value=value)
 
     thread = threading.Thread(target=target, daemon=True)
     thread.start()
@@ -162,7 +162,7 @@ def _answer_with_value_on_worker(ui, qapp, response, nonce, value):
 
 def test_a_value_answer_moves_the_area_and_answers_with_it(ui, qapp):
     thread, outcome = _edit_on_worker_thread(ui, qapp)
-    _, nonce = ui.ui_responder.pending_question_and_nonce()
+    _, question_id = ui.ui_responder.pending_question_and_id()
 
     events = []
     dispose = ui.ui_responder.add_question_observer(
@@ -170,7 +170,7 @@ def test_a_value_answer_moves_the_area_and_answers_with_it(ui, qapp):
     )
     proposed = {"left": 0.1, "top": 0.2, "width": 0.3, "height": 0.25}
     try:
-        result = _answer_with_value_on_worker(ui, qapp, True, nonce, proposed)
+        result = _answer_with_value_on_worker(ui, qapp, True, question_id, proposed)
     finally:
         dispose()
     _finish(thread, qapp)
@@ -189,19 +189,45 @@ def test_a_value_answer_moves_the_area_and_answers_with_it(ui, qapp):
     assert answered["adjusted"] is True
 
 
-def test_an_invalid_value_is_refused_and_the_prompt_stands(ui, qapp):
+def test_echoing_the_area_is_not_an_adjustment(ui, qapp):
+    # FIB-1330: sending back `current` accepts the area, it adjusts nothing.
     thread, outcome = _edit_on_worker_thread(ui, qapp)
     _, nonce = ui.ui_responder.pending_question_and_nonce()
+    current = ui.image_widget.get_alignment_area().to_dict()
+
+    events = []
+    dispose = ui.ui_responder.add_question_observer(
+        lambda kind, payload: events.append((kind, payload))
+    )
+    try:
+        result = _answer_with_value_on_worker(ui, qapp, True, nonce, current)
+    finally:
+        dispose()
+    _finish(thread, qapp)
+
+    assert result["applied"] is True
+    assert "adjusted" not in result
+    answered = [p for k, p in events if k == "prompt_answered"][-1]
+    assert "adjusted" not in answered
+
+
+def test_an_invalid_value_is_refused_and_the_prompt_stands(ui, qapp):
+    thread, outcome = _edit_on_worker_thread(ui, qapp)
+    _, question_id = ui.ui_responder.pending_question_and_id()
     before = ui.image_widget.get_alignment_area()
 
     result = _answer_with_value_on_worker(
-        ui, qapp, True, nonce, {"left": 0.9, "top": 0.9, "width": 0.5, "height": 0.5}
+        ui,
+        qapp,
+        True,
+        question_id,
+        {"left": 0.9, "top": 0.9, "width": 0.5, "height": 0.5},
     )
 
     assert result["applied"] is False
     assert "invalid_value" in result
     # Nothing was clicked and nothing moved: the question still stands.
-    assert ui.ui_responder.pending_question_and_nonce()[1] == nonce
+    assert ui.ui_responder.pending_question_and_id()[1] == question_id
     after = ui.image_widget.get_alignment_area()
     assert after.left == pytest.approx(before.left)
     assert after.width == pytest.approx(before.width)

@@ -196,4 +196,4 @@ def get_version_string() -> str:
     except Exception:
         revision = None
 
-    return "{} ({})".format(version, revision) if revision else version
+    return f"{version} ({revision})" if revision else version

@@ -10,23 +10,26 @@ The far side of a remote device (the METEOR PC, say). It wraps any
     PUT  /devices/{device}/{parameter}         {"value": ...}    -> {"value": written}
     GET  /devices/{device}/{parameter}/metadata                  -> limits, choices, settable
     POST /devices/{device}/commands/{command}  {"kwargs": {...}} -> {"result": ...},
-                                               or np.save bytes for an image, with a
+                                               TIFF for a beam's FibsemImage,
+                                               or np.save bytes for an array, with a
                                                frame's metadata as JSON in the
                                                X-Frame-Metadata header
     WS   /events                               {"device", "parameter", "kind", "value"},
                                                with pings as a heartbeat
 
-The coordinator side is ``fibsem.devices.drivers.remote``. A write runs the device's
+The coordinator side is ``fibsem.drivers.remote.devices``. A write runs the device's
 ``set_value``, so the server checks every value itself, whatever the client did.
 Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
 
-Not yet: authentication (``fibsem.server`` has bearer tokens; this
-would be mounted there), the one-commander lease.
+The same ``/devices`` routes are mounted in the App Server (``fibsem.server.server``)
+over ``microscope.devices``, behind its bearer token and scopes. Served here on their
+own, they have no authentication yet, nor a one-commander lease.
 
 Try it on one computer:
 
     python -m fibsem.server.devices --port 8765        # terminal 1: Demo beams
+    python -m fibsem.server.devices --serve stage chamber manipulator  # or the rest
     python -m fibsem.server.devices --serve fm         # or a simulated FM's parts
 
 On a METEOR's Linux PC, serving its real FM to the PC that drives the beams (see
@@ -34,7 +37,7 @@ INSTALLATION.md, "Delmic METEOR"):
 
     python -m fibsem.server.devices --serve odemis-fm --host 0.0.0.0
 
-    from fibsem.devices.drivers.remote import connect_remote_beams   # terminal 2
+    from fibsem.drivers.remote.devices import connect_remote_beams   # terminal 2
     beams = connect_remote_beams("127.0.0.1", 8765)
 """
 
@@ -42,15 +45,27 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import io
 import json
 import logging
+import math
 import threading
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Set
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+)
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
@@ -63,12 +78,21 @@ from fibsem.devices.core import (
 )
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
+    FRAMES_MEDIA_TYPE,
     NPY_MEDIA_TYPE,
     Frame,
     decode_kwargs,
+    frames_to_bytes,
     from_wire,
     to_wire,
 )
+from fibsem.server.images import TIFF_MEDIA_TYPE, tiff_bytes
+from fibsem.structures import FibsemImage
+
+# Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
+# which websockets 14+ deprecates on import; under the test suite's warnings-as-errors
+# that kills the server thread. The sans-I/O one serves /events without it.
+WS_PROTOCOL = "websockets-sansio"
 
 """A command that returns an array (an image) answers with ``np.save`` bytes."""
 
@@ -78,6 +102,7 @@ ERROR_STATUS = {
     ParameterReadOnly: 409,
     TypeError: 422,
     ValueError: 422,
+    NotImplementedError: 501,  # a command this driver has no hook for (a needle's stop)
 }
 
 
@@ -85,26 +110,59 @@ def _choices_to_wire(choices: Any) -> Any:
     return None if choices is None else [to_wire(choice) for choice in choices]
 
 
+def _bound(value: Any) -> Any:
+    """JSON has no infinity: an unbounded end of a limit (a Tescan stage axis) goes
+    as None, and the remote driver reads None back as unbounded."""
+    return None if isinstance(value, float) and math.isinf(value) else value
+
+
+def _limits_to_wire(limits: Any) -> Any:
+    """``_limits_to_dict``'s output with each infinite end as None."""
+    if limits is None:
+        return None
+    if set(limits) == {"min", "max"}:
+        return {end: _bound(value) for end, value in limits.items()}
+    return {name: _limits_to_wire(limit) for name, limit in limits.items()}
+
+
+def _facts(device: Device) -> Dict[str, Any]:
+    facts = getattr(device, "facts", None)  # a service has none
+    if facts is None:
+        return {}
+    try:
+        return jsonable_encoder(facts())
+    except Exception as error:  # a description without facts beats none at all
+        logging.warning(f"{device.name}: facts: {type(error).__name__}: {error}")
+        return {}
+
+
 def describe_device(device: Device) -> Dict[str, Any]:
     return {
         "name": device.name,
         "class": type(device).__name__,
         "parameters": {
-            name: {**info, "choices": _choices_to_wire(info["choices"])}
+            name: {
+                **info,
+                "limits": _limits_to_wire(info["limits"]),
+                "choices": _choices_to_wire(info["choices"]),
+            }
             for name, info in device.describe().items()
         },
         "commands": {
             name: {"signature": info.signature, "available": info.available}
             for name, info in device.commands.items()
         },
+        "facts": _facts(device),
     }
 
 
 def metadata_payload(metadata: ParameterMetadata) -> Dict[str, Any]:
     return {
-        "limits": _limits_to_dict(metadata.limits),
+        "limits": _limits_to_wire(_limits_to_dict(metadata.limits)),
         "choices": _choices_to_wire(metadata.choices),
         "settable": metadata.settable,
+        "native_max": metadata.native_max,
+        "native_unit": metadata.native_unit,
     }
 
 
@@ -183,18 +241,30 @@ class _EventHub:
             return
 
 
-def build_device_app(devices: Iterable[Device]) -> FastAPI:
-    """The server's routes over these devices, looked up by ``device.name``."""
-    by_name: Dict[str, Device] = {device.name: device for device in devices}
-    hub = _EventHub()
-    hub.attach(by_name.values())
-    app = FastAPI(title="fibsem devices")
+def build_device_router(
+    devices: Callable[[], Mapping[str, Device]],
+    read: Sequence[Any] = (),
+    write: Sequence[Any] = (),
+    command: Sequence[Any] = (),
+    prefix: str = "/devices",
+    noun: str = "device",
+) -> APIRouter:
+    """The ``/devices`` routes over whatever *devices* returns, by name.
+
+    *devices* is called per request, so a map that changes (an FM reconnecting) is
+    served as it is now. A service has the device shape, so the App Server serves
+    the microscope's services with the same routes under ``prefix="/services"``
+    (*noun* names them in a 404). *read*, *write* and *command* are FastAPI
+    dependencies for the reads, the parameter writes and the commands: the device
+    server passes none, the App Server its token, scopes and hardware lock.
+    """
+    router = APIRouter()
 
     def lookup(name: str) -> Device:
         try:
-            return by_name[name]
+            return devices()[name]
         except KeyError:
-            raise HTTPException(404, f"no device '{name}'") from None
+            raise HTTPException(404, f"no {noun} '{name}'") from None
 
     def parameter_of(device: str, name: str) -> Any:
         d = lookup(device)
@@ -213,36 +283,32 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
                 status, {"error": type(error).__name__, "detail": str(error)}
             ) from None
 
-    @app.get("/health")
-    def health() -> Dict[str, Any]:
-        """Up, and for each device whether its driver can reach the hardware."""
-        devices = {name: device_health(d) for name, d in by_name.items()}
-        return {"ok": all(d["ok"] for d in devices.values()), "devices": devices}
-
-    @app.get("/devices")
+    @router.get(prefix, dependencies=list(read))
     def list_devices() -> Dict[str, Any]:
-        return {name: describe_device(d) for name, d in by_name.items()}
+        return {name: describe_device(d) for name, d in devices().items()}
 
-    @app.get("/devices/{device}")
+    @router.get(prefix + "/{device}", dependencies=list(read))
     def get_device(device: str) -> Dict[str, Any]:
         return describe_device(lookup(device))
 
-    @app.get("/devices/{device}/{parameter}")
-    def read(device: str, parameter: str) -> Dict[str, Any]:
+    @router.get(prefix + "/{device}/{parameter}", dependencies=list(read))
+    def read_parameter(device: str, parameter: str) -> Dict[str, Any]:
         value = run(lambda: parameter_of(device, parameter).get_value())
         return {"value": to_wire(value)}
 
-    @app.put("/devices/{device}/{parameter}")
-    def write(device: str, parameter: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    @router.put(prefix + "/{device}/{parameter}", dependencies=list(write))
+    def write_parameter(
+        device: str, parameter: str, body: Dict[str, Any]
+    ) -> Dict[str, Any]:
         param = run(lambda: parameter_of(device, parameter))
         value = from_wire(param.type, body["value"])
         return {"value": to_wire(run(lambda: param.set_value(value)))}
 
-    @app.get("/devices/{device}/{parameter}/metadata")
+    @router.get(prefix + "/{device}/{parameter}/metadata", dependencies=list(read))
     def metadata(device: str, parameter: str) -> Dict[str, Any]:
         return metadata_payload(run(lambda: parameter_of(device, parameter).metadata))
 
-    @app.post("/devices/{device}/commands/{command}")
+    @router.post(prefix + "/{device}/commands/{command}", dependencies=list(command))
     def call(device: str, command: str, body: Dict[str, Any]) -> Any:
         d = lookup(device)
         if command not in d.commands:
@@ -251,6 +317,14 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
         kwargs = decode_kwargs(method, body.get("kwargs", {}))
         result = run(lambda: method(**kwargs))
         headers = {}
+        if isinstance(result, FibsemImage):  # a beam's image: TIFF, as /acquire_image
+            return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
+        if (
+            isinstance(result, list)
+            and result
+            and all(isinstance(item, Frame) for item in result)
+        ):  # several images, a z-stack: one archive
+            return Response(frames_to_bytes(result), media_type=FRAMES_MEDIA_TYPE)
         if isinstance(result, Frame):  # the image, its metadata in a header
             headers[FRAME_METADATA_HEADER] = json.dumps(
                 jsonable_encoder(result.metadata)
@@ -262,7 +336,26 @@ def build_device_app(devices: Iterable[Device]) -> FastAPI:
             return Response(
                 buffer.getvalue(), media_type=NPY_MEDIA_TYPE, headers=headers
             )
-        return {"result": jsonable_encoder(result)}
+        # A structure with to_dict answers that (an autofocus result, its summary).
+        return {"result": jsonable_encoder(to_wire(result))}
+
+    return router
+
+
+def build_device_app(devices: Iterable[Device]) -> FastAPI:
+    """The server's routes over these devices, looked up by ``device.name``."""
+    by_name: Dict[str, Device] = {device.name: device for device in devices}
+    hub = _EventHub()
+    hub.attach(by_name.values())
+    app = FastAPI(title="fibsem devices")
+
+    @app.get("/health")
+    def health() -> Dict[str, Any]:
+        """Up, and for each device whether its driver can reach the hardware."""
+        devices = {name: device_health(d) for name, d in by_name.items()}
+        return {"ok": all(d["ok"] for d in devices.values()), "devices": devices}
+
+    app.include_router(build_device_router(lambda: by_name))
 
     @app.websocket("/events")
     async def events(websocket: WebSocket) -> None:
@@ -283,6 +376,7 @@ class DeviceServer:
             port=port,
             log_level="warning",
             timeout_graceful_shutdown=1,
+            ws=WS_PROTOCOL,
         )
         self.app = config.app
         self._server = uvicorn.Server(config)
@@ -308,51 +402,64 @@ class DeviceServer:
             self._thread.join(timeout=5)
 
 
-def demo_devices() -> List[Device]:
-    """The Demo microscope's beams, standing in for real hardware."""
+DEMO_PARTS = ("beams", "stage", "chamber", "manipulator")
+"""What of the Demo microscope a device server can serve."""
+
+
+def demo_devices(parts: Sequence[str] = ("beams",)) -> List[Device]:
+    """The Demo microscope's beams, standing in for real hardware, and its stage,
+    chamber and manipulator when *parts* names them."""
     from fibsem import utils
-    from fibsem.devices.drivers.demo import bind_demo_beams
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
-    return list(bind_demo_beams(microscope).values())
+    devices: List[Device] = []
+    for part in parts:
+        if part == "beams":
+            devices += microscope.beams.values()
+        else:
+            devices.append(microscope.devices[part])
+    return devices
 
 
-def demo_fm_devices() -> List[Device]:
-    """The simulated FM's parts and group, as a METEOR PC would serve its FM."""
-    from fibsem.devices.drivers.fm import bind_fm_devices
-    from fibsem.fm.microscope import FluorescenceMicroscope
+def demo_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
+    """The Demo FM's parts and group, on their own, as a METEOR PC would serve its
+    FM. *config* is the FM's configuration keys, as an fm entry states them."""
+    from fibsem.drivers.demo.devices import bind_demo_fm
 
-    return list(bind_fm_devices(FluorescenceMicroscope()).values())
+    return list(bind_demo_fm(config=config).values())
 
 
-def odemis_fm_devices() -> List[Device]:
+def odemis_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
     """The METEOR's FM, through the odemis backend on this computer (FIB-1095).
 
     odemis is reachable only from the computer running it, over unix sockets, which
     is why the FM is served from there rather than driven from the beams' PC.
+    *config* is the FM's configuration keys, as an fm entry states them: its
+    ``mount_transform``, which the camera reports so every client sees the frames
+    the same way round.
 
     Raises:
         RuntimeError: odemis is not installed here, or its backend did not answer;
             the message says which, and what to check.
     """
-    from fibsem.devices.drivers.fm import bind_fm_devices
-
     try:
-        from fibsem.fm.odemis import OdemisFluorescenceMicroscope
+        from fibsem.drivers.odemis.devices import bind_odemis_fm
+
+        # The FM's odemis modules, on the path importing the driver added.
+        importlib.import_module("odemis.acq.stream")
     except ImportError as e:
         raise RuntimeError(
             f"odemis cannot be imported here ({e}). Serve the odemis FM from the "
             "METEOR PC that runs odemis."
         ) from e
     try:
-        fm = OdemisFluorescenceMicroscope(parent=None)
+        return list(bind_odemis_fm(parent=None, config=config).values())
     except Exception as e:
         raise RuntimeError(
             f"The odemis backend did not answer ({type(e).__name__}: {e}). Check "
             "that odemis is running (odemis-start) and that this user is in the "
             "'odemis' group."
         ) from e
-    return list(bind_fm_devices(fm).values())
 
 
 def main(argv: Optional[List[str]] = None) -> None:
@@ -362,26 +469,43 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser.add_argument(
         "--serve",
         nargs="+",
-        choices=("beams", "fm", "odemis-fm"),
+        choices=(*DEMO_PARTS, "fm", "odemis-fm"),
         default=["beams"],
-        help="beams: the Demo microscope's beams; fm: a simulated FM's parts; "
-        "odemis-fm: the FM of the METEOR this computer runs odemis for",
+        help="beams, stage, chamber, manipulator: the Demo microscope's; fm: a "
+        "simulated FM's parts; odemis-fm: the FM of the METEOR this computer runs "
+        "odemis for",
+    )
+    parser.add_argument(
+        "--mount-transform",
+        choices=("none", "flip-x", "flip-y", "flip-xy"),
+        default="none",
+        help="fm, odemis-fm: the flip that puts the camera's frames into the "
+        "stage's axes, from how it is mounted",
     )
     args = parser.parse_args(argv)
     served: List[Device] = []
-    if "beams" in args.serve:
-        served += demo_devices()
+    demo_parts = [part for part in DEMO_PARTS if part in args.serve]
+    if demo_parts:
+        served += demo_devices(demo_parts)
+    # The FM's configuration keys, as an fm entry in a microscope configuration
+    # states them.
+    fm_config = {"mount_transform": args.mount_transform}
     if "fm" in args.serve:
-        served += demo_fm_devices()
+        served += demo_fm_devices(fm_config)
     if "odemis-fm" in args.serve:
         try:
-            served += odemis_fm_devices()
+            served += odemis_fm_devices(fm_config)
         except RuntimeError as e:
             logging.error(e)
             raise SystemExit(1) from e
     devices: Mapping[str, Device] = {d.name: d for d in served}
     logging.info(f"serving {sorted(devices)} on http://{args.host}:{args.port}")
-    uvicorn.run(build_device_app(devices.values()), host=args.host, port=args.port)
+    uvicorn.run(
+        build_device_app(devices.values()),
+        host=args.host,
+        port=args.port,
+        ws=WS_PROTOCOL,
+    )
 
 
 if __name__ == "__main__":

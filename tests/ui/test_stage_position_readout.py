@@ -19,7 +19,7 @@ those are gone.
 **The default microscope configuration is user state and is not the same on every
 machine**, and it reaches these tests twice over.
 
-Once through ``stage_is_compustage``: two tests branch on it rather than assuming an
+Once through the stage type (``_fm_is_a_pose``): two tests branch on it rather than assuming an
 answer, and the branch not taken is covered directly in
 ``tests/ui/test_stage_position_widget.py``, where the form is cheap enough to build
 against a chosen configuration.
@@ -61,6 +61,7 @@ from test_viewer_less_widgets import (  # noqa: E402
 )
 
 from fibsem import constants  # noqa: E402
+from fibsem.devices.stage import axis_limits_to_degrees
 from fibsem.structures import FibsemStagePosition  # noqa: E402
 
 # Off-origin on every axis, and asymmetric, so a transposed pair or a dropped
@@ -123,7 +124,7 @@ def test_the_sample_is_inside_this_stages_limits(movement):
     It bites because the shipped configurations disagree: tilt reaches -195 degrees on
     sim-arctis and only -10 on the default, and z starts at 0 there.
     """
-    limits = movement.microscope._stage.limits
+    limits = axis_limits_to_degrees(movement.microscope.stage.position.limits)
 
     for axis, value_mm in (
         ("x", SAMPLE.x * constants.SI_TO_MILLI),
@@ -197,7 +198,7 @@ def test_translation_is_shown_to_ten_nanometres(movement):
 
 
 def test_translation_ranges_are_the_stage_limits_in_millimetres(movement):
-    limits = movement.microscope._stage.limits
+    limits = axis_limits_to_degrees(movement.microscope.stage.position.limits)
     boxes = _boxes(movement)
 
     for axis in ("x", "y", "z"):
@@ -212,7 +213,7 @@ def test_translation_ranges_are_the_stage_limits_in_millimetres(movement):
 def test_the_tilt_range_is_taken_in_degrees_already(movement):
     """The stage reports x/y/z in metres but t in degrees, and the form must not
     convert the one that needs no converting."""
-    tilt = movement.microscope._stage.limits["t"]
+    tilt = axis_limits_to_degrees(movement.microscope.stage.position.limits)["t"]
     box = _boxes(movement)["t"]
 
     assert box.minimum() == pytest.approx(tilt.min)
@@ -227,9 +228,7 @@ def test_the_step_size_suits_the_stage(movement):
     times a thousand. Everything else keeps the default."""
     boxes = _boxes(movement)
     expected = (
-        1e-6 * constants.SI_TO_MILLI
-        if movement.microscope.stage_is_compustage
-        else 0.001
+        1e-6 * constants.SI_TO_MILLI if movement.microscope._fm_is_a_pose() else 0.001
     )
 
     for axis in ("x", "y", "z"):
@@ -239,7 +238,7 @@ def test_the_step_size_suits_the_stage(movement):
 def test_rotation_is_offered_only_where_it_exists(movement):
     """A compustage does not rotate, so both the label and the box go -- not just the
     box, which would leave a stranded caption."""
-    shown = not movement.microscope.stage_is_compustage
+    shown = not movement.microscope._fm_is_a_pose()
 
     form = movement.position_widget
     assert form.spinbox_rotation.isVisibleTo(form) is shown

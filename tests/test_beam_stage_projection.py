@@ -30,7 +30,6 @@ from fibsem import config as cfg
 from fibsem import utils
 from fibsem.imaging.tiling.reprojection import (
     reproject_stage_positions_onto_image2,
-    y_corrected_stage_movement_tescan_from_geometry,
 )
 from fibsem.projection import BeamStageProjection, surface_foreshortening
 from fibsem.structures import (
@@ -75,7 +74,7 @@ def microscope():
 
 def _pose(microscope, *, compustage, pretilt_deg, rotation_deg, tilt_deg):
     """Pin the microscope into a known geometry without moving the stage."""
-    microscope.stage_is_compustage = compustage
+    microscope.stage_device.compustage = compustage
     microscope.system.stage.shuttle_pre_tilt = pretilt_deg
     microscope._update_orientations()
     position = FibsemStagePosition(
@@ -105,21 +104,6 @@ POSES = [
 BEAMS = [BeamType.ELECTRON, BeamType.ION]
 SCAN_ROTATIONS = [0.0, np.pi]
 
-# A Tescan-shaped instrument, stated rather than read off the shared fixture — see
-# `test_tescan_survives_a_round_trip_too`.
-_TESCAN_GEOMETRY = FibsemHardwareGeometry(
-    column_tilt=0.0,
-    fib_column_tilt=55.0,
-    shuttle_pre_tilt=0.0,
-    rotation_reference=0.0,
-    rotation_180=180.0,
-    is_compustage=False,
-)
-# Chosen to straddle 45 degrees of sample inclination, which is where the Tescan
-# inverse switches from reading dy to reading dz — and so where a round trip stops
-# being able to see the stage-y sign at all.
-TESCAN_TILTS = [0, 15, 40, 50, 75]
-
 
 def _geometry(microscope, compustage: bool) -> FibsemHardwareGeometry:
     return FibsemHardwareGeometry.from_system_settings(
@@ -146,7 +130,6 @@ class TestParityWithTheLiveMicroscope:
         tilt,
         beam_type,
         scan_rotation,
-        monkeypatch,
     ):
         base = _pose(
             microscope,
@@ -155,9 +138,7 @@ class TestParityWithTheLiveMicroscope:
             rotation_deg=rot,
             tilt_deg=tilt,
         )
-        monkeypatch.setattr(
-            microscope, "get_scan_rotation", lambda beam_type: scan_rotation
-        )
+        microscope.set_scan_rotation(scan_rotation, beam_type)
 
         dx, dy_up = 31e-6, -17e-6  # dy_up is the microscope's image y, pointing up
         live = microscope.project_stable_move(
@@ -351,7 +332,7 @@ class TestEveryOrientationPair:
         self, config, compustage, overview_at, marker_at, beam_type
     ):
         scope = self._configured(config)
-        assert scope.stage_is_compustage is compustage, "config assumption drifted"
+        assert scope._fm_is_a_pose() is compustage, "config assumption drifted"
 
         overview_pose = scope.get_orientation(overview_at)
         marker_pose = scope.get_orientation(marker_at)
@@ -434,84 +415,6 @@ class TestRoundTrip:
             assert back[0] == pytest.approx(dx, abs=1e-12), f"x drifted at {(dx, dy)}"
             assert back[1] == pytest.approx(dy, abs=1e-12), f"y drifted at {(dx, dy)}"
 
-    @pytest.mark.parametrize("beam_type", BEAMS)
-    @pytest.mark.parametrize("tilt_deg", TESCAN_TILTS)
-    def test_tescan_survives_a_round_trip_too(self, beam_type, tilt_deg):
-        """Tescan gets its own case because it is a genuinely different derivation --
-        the y-axis rides the tilt module while z stays chamber-vertical, and stage x
-        is inverted against image x -- so it shares none of the arithmetic the cases
-        above exercise.
-
-        Built from an explicit geometry rather than the shared microscope fixture. That
-        fixture is module-scoped and every pose test mutates its pre-tilt and
-        orientations, so a Tescan case reading it was really testing whatever the
-        previous parameter left behind -- which is how it ended up at a pose where the
-        inverse's z branch made the round trip blind to the y sign
-        (`test_the_chamber_frame_inversion_is_pinned` explains).
-        """
-        projection = BeamStageProjection(
-            geometry=_TESCAN_GEOMETRY,
-            beam_type=beam_type,
-            scan_rotation=0.0,
-            is_tescan=True,
-        )
-        base = FibsemStagePosition(
-            x=1e-3, y=-2e-3, z=5e-3, r=0.0, t=np.deg2rad(tilt_deg)
-        )
-
-        for dx, dy in itertools.product((-250e-6, 90e-6), (-40e-6, 310e-6)):
-            back = projection.to_plane(projection.from_plane(dx, dy, base), base)
-            assert back[0] == pytest.approx(dx, abs=1e-12)
-            assert back[1] == pytest.approx(dy, abs=1e-12)
-
-    @pytest.mark.parametrize("tilt_deg", TESCAN_TILTS)
-    def test_the_chamber_frame_inversion_is_pinned(self, tilt_deg):
-        """`stable_move` inverts stage y against the stage frame; assert it directly.
-
-        A round trip cannot be trusted to catch this. The Tescan inverse recovers the
-        sample-plane move from whichever forward component is better conditioned (y
-        carries cos(inclination), z carries sin(pretilt)); whenever the z branch is
-        selected it never looks at dy -- at which point flipping the y sign changes
-        nothing that comes back, and the round-trip test passes over a projection
-        that would drive the stage the wrong way. Pinning the inversion directly is
-        immune to the branch choice.
-        """
-        projection = BeamStageProjection(
-            geometry=_TESCAN_GEOMETRY,
-            beam_type=BeamType.ELECTRON,
-            scan_rotation=0.0,
-            is_tescan=True,
-        )
-        base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
-        # The canvas plane's y runs down, so this is +30 um in the microscope's image y.
-        y_chamber, z_chamber = y_corrected_stage_movement_tescan_from_geometry(
-            geometry=_TESCAN_GEOMETRY,
-            stage_position=base,
-            expected_y=30e-6,
-            beam_type=BeamType.ELECTRON,
-        )
-
-        got = projection.from_plane(0.0, -30e-6, base)
-
-        assert got.y == pytest.approx(-y_chamber, abs=1e-15), "stage y is not inverted"
-        assert got.z == pytest.approx(z_chamber, abs=1e-15), "stage z should not invert"
-
-    def test_tescan_inverts_stage_x_where_thermo_does_not(self):
-        """The one Tescan difference visible without doing the trig, kept as its own
-        assertion so a lost `is_tescan` branch fails loudly rather than shifting every
-        marker to the opposite side of the image (the FIB-300 symptom)."""
-        base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0)
-        target = FibsemStagePosition(x=75e-6, y=0.0, z=0.0, r=0.0, t=0.0)
-        kw = dict(
-            geometry=_TESCAN_GEOMETRY, beam_type=BeamType.ELECTRON, scan_rotation=0.0
-        )
-
-        thermo = BeamStageProjection(**kw, is_tescan=False).to_plane(target, base)[0]
-        tescan = BeamStageProjection(**kw, is_tescan=True).to_plane(target, base)[0]
-
-        assert thermo == pytest.approx(75e-6)
-        assert tescan == pytest.approx(-75e-6)
-
 
 class TestRefusesRatherThanGuesses:
     """An image that cannot be projected has to say so.
@@ -573,7 +476,6 @@ class TestSurfaceForeshortening:
             geometry=scope.hardware_geometry(),
             beam_type=beam_type,
             scan_rotation=0.0,
-            is_tescan=False,
         )
 
     @pytest.mark.parametrize("orientation, beam_type, theta_deg", VIEWS)
@@ -613,6 +515,5 @@ class TestSurfaceForeshortening:
             geometry=_geometry(microscope, compustage=False),
             beam_type=BeamType.ELECTRON,
             scan_rotation=0.0,
-            is_tescan=False,
         )
         assert surface_foreshortening(projection, base) == pytest.approx(1.0, abs=1e-6)

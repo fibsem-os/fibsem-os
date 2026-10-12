@@ -36,7 +36,10 @@ def test_the_sample_tab_lives_for_the_connection(main_ui):
     ui.system_widget.connect_to_microscope()
     labels = _tab_labels(ui)
     assert labels[labels.index("Milling") + 1] == "Sample"
-    assert ui.sample_widget.holder_widget.current_holder is ui.microscope._stage.holder
+    assert (
+        ui.sample_widget.holder_widget.current_holder
+        is ui.microscope.sample_handling.holder
+    )
     # the holder panel left the Movement sub-tab for good
     assert not hasattr(ui.movement_widget, "sample_holder_widget")
 

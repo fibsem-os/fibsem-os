@@ -16,10 +16,8 @@ from skimage.transform import resize
 
 from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.milling import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import (
-    BasePattern,
-    FiducialPattern,
-)
+from fibsem.milling.patterning.base import BasePattern
+from fibsem.milling.patterning.patterns import FiducialPattern
 from fibsem.milling.patterning.shapes import (  # noqa: F401
     COLOURS,
     IMAGE_PATTERN_TYPES,

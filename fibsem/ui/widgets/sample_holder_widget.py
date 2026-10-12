@@ -29,8 +29,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemStagePosition, GridSlot, SampleGrid, SampleHolder
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, fibsem_icon
 from fibsem.ui.tokens import (
@@ -42,6 +41,7 @@ from fibsem.ui.tokens import (
     TEXT_STRONG_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel, style_with_tooltip
+from fibsem.util.timestamps import to_datetime
 
 _ROW_HEIGHT = 40
 _SLOT_LABEL_WIDTH = 64
@@ -70,15 +70,15 @@ def _captured_when(slot: GridSlot) -> str:
     record = slot.calibration
     if record is None:
         return ""
-    when = record.captured_at
-    if len(when) >= 16 and when[10] == "T":
-        # 2026-09-02T11:24:09 -> 2 Sep 2026 11:24, without a datetime round trip
-        months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
-        try:
-            when = f"{int(when[8:10])} {months[int(when[5:7]) - 1]} {when[:4]} {when[11:16]}"
-        except (ValueError, IndexError):
-            pass
-    return when
+    # In the viewer's zone when the record has an offset (FIB-1190); as written when
+    # it has none, as records from before that do.
+    when = to_datetime(record.captured_at)
+    if when is None:
+        return ""
+    if when.tzinfo is not None:
+        when = when.astimezone()  # displayed in the viewer's zone, as format_time does
+    months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+    return f"{when.day} {months[when.month - 1]} {when:%Y %H:%M}"
 
 
 def slot_status(slot: GridSlot) -> str:
@@ -258,8 +258,8 @@ class SampleHolderWidget(QWidget):
         super().__init__(parent)
         self._microscope = microscope
         self._move_directly = move_directly
-        stage = getattr(microscope, "_stage", None)
-        self._has_loader = getattr(stage, "loader", None) is not None
+        stage = getattr(microscope, "sample_handling", None)
+        self._has_loader = getattr(stage, "magazine", None) is not None
         self._holder: Optional[SampleHolder] = None
         self._calibration_dialog = None
         self._rows: List[_SlotRow] = []
@@ -412,7 +412,9 @@ class SampleHolderWidget(QWidget):
             grid = SampleGrid(name=name)
         if self._microscope is not None:
             try:
-                self._microscope._stage.assign_grid(slot.name, grid, persist=True)
+                self._microscope.sample_handling.assign_grid(
+                    slot.name, grid, persist=True
+                )
             except Exception as e:  # noqa: BLE001 - keep the in-memory change, say so
                 logging.warning(f"Could not record the grid in {slot.name}: {e}")
                 slot.loaded_grid = grid
@@ -440,7 +442,7 @@ class SampleHolderWidget(QWidget):
         position: FibsemStagePosition = slot.position
         if self._move_directly:
             try:
-                self._microscope._stage.move_to_slot(slot.name)
+                self._microscope.sample_handling.move_to_slot(slot.name)
             except Exception as e:  # noqa: BLE001 - a refused or failed move is reported
                 logging.warning(f"Failed to move to slot '{slot.name}': {e}")
             return
@@ -479,7 +481,7 @@ if __name__ == "__main__":
     app.setStyle("Fusion")
 
     microscope, settings = utils.setup_session(config_path=None)
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
 
     widget = SampleHolderWidget(microscope=microscope, move_directly=True)
     widget.setStyleSheet(f"background: {SURFACE_COLOR}; color: #d1d2d4;")

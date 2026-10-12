@@ -50,6 +50,7 @@ from fibsem.applications.autolamella.proposals import (
     STATE,
 )
 from fibsem.applications.autolamella.tools.replay import changed_values
+from fibsem.util.timestamps import wall_time_of
 
 RUN_COLUMNS = [
     "item",
@@ -192,7 +193,7 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
     acted: "Counter[Tuple[Any, Any]]" = Counter()  # (actor, kind) -> records
 
     for record in records:
-        time = _time(record)
+        time = wall_time_of(record.get("t"))
         if time is None:
             continue
         kind = record.get("kind")
@@ -254,10 +255,12 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
             if row is not None:
                 row.update(end=time, finished=True)
         elif kind == "prompt_raised":
-            key = (record.get("session"), payload.get("nonce"))
+            key = (record.get("session"), payload.get("question_id"))
             raised[key] = (time, run_id, item.get("name"), task.get("name"))
         elif kind in ("prompt_answered", "prompt_cancelled"):
-            prompt = raised.pop((record.get("session"), payload.get("nonce")), None)
+            prompt = raised.pop(
+                (record.get("session"), payload.get("question_id")), None
+            )
             if prompt is not None:
                 _waited(prompt, time, "prompt", waits, wait_rows)
         elif kind == "proposal_asked":
@@ -309,15 +312,6 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
     )
 
 
-def _time(record: Dict[str, Any]) -> Optional[datetime]:
-    """When an event happened, on the instrument's wall clock: ``t`` with its
-    UTC offset dropped, as the replay and the log read theirs."""
-    try:
-        return datetime.fromisoformat(record["t"]).replace(tzinfo=None)
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
 def _run(
     item: Dict[str, Any],
     task: Dict[str, Any],
@@ -348,7 +342,7 @@ def _fm(time: datetime, record: Dict[str, Any], payload: Dict[str, Any]):
     metadata says, and ended when it was recorded."""
     item = record.get("item") or {}
     task = record.get("task") or {}
-    start = _acquired_at(payload.get("acquired_at"))
+    start = wall_time_of(payload.get("acquired_at"))
     if start is None or start > time:
         start = time
     overview = payload.get("overview")
@@ -371,19 +365,6 @@ def _fm(time: datetime, record: Dict[str, Any], payload: Dict[str, Any]):
         ),
         "path": payload.get("path"),
     }
-
-
-def _acquired_at(value: Any) -> Optional[datetime]:
-    """An FM acquisition's start, as its metadata records it: the instrument's
-    local time, converted to it when the value carries an offset (as the
-    replay reads it)."""
-    try:
-        started = datetime.fromisoformat(str(value))
-    except (TypeError, ValueError):
-        return None
-    if started.tzinfo is not None:
-        started = started.astimezone().replace(tzinfo=None)
-    return started
 
 
 def _waited(

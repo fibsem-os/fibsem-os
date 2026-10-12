@@ -30,7 +30,7 @@ microscope connects, attaching the taps, and re-registering the lifecycle hook
 inside ``setup_hooks()`` — the app rebuilds its hook set every run, so a
 once-at-startup registration silently goes deaf after the first run. That is
 ``event_recording.EventRecorder`` (FIB-1031), which also records the stream to
-disk; the agent server reads the same buffer when it runs.
+disk; the App Server reads the same buffer when it runs.
 """
 
 import dataclasses
@@ -38,9 +38,11 @@ import logging
 import threading
 import time
 from collections import deque
-from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
+
+from fibsem.structures import InsertableDeviceState
+from fibsem.util.timestamps import iso_from_posix
 
 __all__ = [
     "EventBuffer",
@@ -88,11 +90,7 @@ def iso_time(timestamp: float) -> str:
     The offset is the point: the log and the image files record naive local
     time, which a reader on another machine has to guess the zone of.
     """
-    return (
-        datetime.fromtimestamp(timestamp)
-        .astimezone()
-        .isoformat(timespec="milliseconds")
-    )
+    return iso_from_posix(timestamp)
 
 
 class EventBuffer:
@@ -258,9 +256,9 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
             # wants the insert and the retract, so only a change of state. The
             # state is not read on attach -- that would be a hardware read -- so
             # the first move records the state it found.
-            last_state: List[Optional[str]] = [None]
+            last_state: List[Optional[InsertableDeviceState]] = [None]
 
-            def on_objective(position: float, state: str) -> None:
+            def on_objective(position: float, state: InsertableDeviceState) -> None:
                 if state == last_state[0]:
                     return
                 last_state[0] = state
@@ -316,8 +314,14 @@ def make_lifecycle_hook(buffer: EventBuffer):
 def buffer_or_unavailable(
     buffer: Optional[EventBuffer], since: int, timeout: float
 ) -> Dict[str, Any]:
-    """The facade-facing read: tolerate a hosting that wired no buffer."""
+    """The facade-facing read: tolerate a hosting that wired no buffer.
+
+    With no buffer the answer is ``available: false``, still after ``timeout``:
+    a long-poll that answers at once turns a client that misses the flag into
+    a busy loop (FIB-870).
+    """
     if buffer is None:
+        time.sleep(max(0.0, timeout))
         return {
             "available": False,
             "events": [],

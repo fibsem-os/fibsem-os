@@ -13,9 +13,13 @@ https://www.fibsemos.org/docs/installation/. Change both when you change one.
 - A computer running Windows, Linux or macOS. On a microscope, this is
   usually the support PC on the same network as the instrument, not the
   microscope's own PC.
-- Python 3.8 or newer. If you do not have Python, install
+- Python 3.10 or newer. If you do not have Python, install
   [Miniforge](https://conda-forge.org/download/): it gives you `conda` from
   the community-maintained conda-forge channel with no licensing conditions.
+  Windows 7 cannot run Python 3.10. On a Windows 7 support PC, either install
+  fibsemOS on a Windows 10 or newer computer on the microscope network, or
+  install 0.5.3 (`pip install "fibsem[ui]==0.5.3"`), the last release that
+  supports Python 3.8.
 - No microscope is needed. Everything here also runs against the built-in
   simulator, so you can install and try fibsemOS on a laptop first.
 
@@ -104,7 +108,7 @@ skip it entirely for the simulator.
 
 fibsemOS controls Thermo Fisher instruments through AutoScript, Thermo
 Fisher's scripting interface. It is a licensed product; contact Thermo Fisher
-for pricing and installation. fibsemOS works with AutoScript 4.7 and later.
+for pricing and installation. fibsemOS works with AutoScript 4.9 and later.
 
 If AutoScript is already installed on this computer, fibsemOS will most likely
 find it on its own: the first step of Guided Setup reports whether it was
@@ -159,7 +163,7 @@ environment (`where python` with the environment active shows its path).
 
 If the `fibsem` interpreter is not offered in the installer's dropdown,
 proceed with whichever interpreter it offers and note its path. (If it offers
-none, install Python 3.8 or newer separately and run the installer again.)
+none, install Python 3.10 or newer separately and run the installer again.)
 Then copy every folder beginning with `tescan`, `PySide6` and `shiboken` from
 that interpreter's `site-packages` (`...\python\lib\site-packages`) into
 the `fibsem` environment's.
@@ -225,16 +229,23 @@ To start the server with the computer rather than by hand, run step 4 as a
 service, for example with a systemd unit. It must run as a user in the `odemis`
 group, and after odemis has started.
 
-On the support PC, the microscope configuration names the FM as remote:
+On the support PC, the microscope configuration names the FM as remote, with an
+entry in its device list:
 
 ```yaml
 hardware:
-    fm:
+    devices:
+      # ... the beams and the stage ...
+      - name:       fm
         enabled:    true
         driver:     remote
         address:    192.168.0.20    # the METEOR PC
         port:       8765
 ```
+
+A configuration from before the device list, with an `fm:` block under
+`hardware:`, still loads and is saved in this form. See
+[Devices](docs/developers/devices.md#configuring-devices) for the other keys.
 
 Two things to know:
 
@@ -248,7 +259,7 @@ Two things to know:
 
 ### venv instead of conda
 
-Python's own virtual environments work too. With Python 3.8 or newer
+Python's own virtual environments work too. With Python 3.10 or newer
 installed, in the directory where the environment should live:
 
 ```bash

@@ -1,51 +1,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import numpy as np
 from scipy import ndimage
-from scipy.optimize import curve_fit, leastsq
+from scipy.optimize import curve_fit
 
 from fibsem.correlation.fit_diagnostics import FitDiagnostic
 
 # migrated from tdct.beadPos and refactored
-
-
-### GAUSSIAN FITTING ###
-def get_z_gauss(
-    image: np.ndarray, x: int, y: int, show: bool = False
-) -> Tuple[float, int, float]:
-    """Get the best fitting z-value for a 2D point in an ZYX image using a 1D Gaussian fit:
-    Args:
-        x: x coordinate
-        y: y coordinate
-        image: 3D numpy array (Z,Y,X)
-        show: show the plot of the fit (for debugging)
-    Returns:
-        z: z coordinate (index)
-    """
-
-    # check that img is ndim=3
-    if image.ndim != 3:
-        raise ValueError(f"img must be a ZYX array, got {image.ndim}")
-
-    # check that x, y are inside the image shape
-    if x >= image.shape[-1] or y >= image.shape[-2]:
-        raise ValueError(
-            f"x and y must be within the image shape, x: {x}, y: {y}, {image.shape}"
-        )
-
-    # NOTE: round is important, don't directly cast to int
-    if not isinstance(x, int):
-        x = round(x)
-    if not isinstance(y, int):
-        y = round(y)
-
-    # fit the z data for the given x,y
-    poptZ, pcov = fit_guass1d(image[:, y, x], show=show)
-
-    return np.array(poptZ)  # zval, zidx, zsigma
 
 
 def fit_guass1d(
@@ -81,43 +45,6 @@ def fit_guass1d(
         plt.show()
 
     return popt, pcov
-
-
-def fit_gauss1d_mod(
-    data: np.ndarray, show: bool = False, ax=None
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Fit a 1D Gaussian to the data. Modified for negative hole images
-    Args:
-        data: 1D numpy array
-        show: show the plot of the fit (for debugging)
-        ax: optional matplotlib axes to plot on
-    Returns:
-        popt: optimal parameters
-        pcov: covariance matrix
-    """
-
-    z = data.copy()
-    offset = np.max(z)
-    z -= offset  # shift data to 0
-
-    popt, pcov = fit_guass1d(z, show=show, ax=ax)
-
-    # popt, pcov = curve_fit(gauss1d_offset, xz, z, p0, maxfev=10000)
-
-    # plot the data and the fit
-    # if show:
-    #     import matplotlib.pyplot as plt
-    #     plt.title("1D Gaussian fit")
-    #     plt.plot(data, label="Data")
-    #     plt.plot(gauss1d_offset(xz, *popt), label="Gaussian 1D fit")
-    #     plt.legend()
-    #     plt.show()
-
-    return popt, pcov
-
-
-def gauss1d_offset(x, a, x0, sigma, offset):
-    return a * np.exp(-((x - x0) ** 2) / (2 * sigma**2)) + offset
 
 
 def gauss1d(x: np.ndarray, A: float, mu: float, sigma: float) -> float:
@@ -192,91 +119,6 @@ def gaussian(height, center_x, center_y, width_x, width_y):
             -(((center_x - x) / width_x) ** 2 + ((center_y - y) / width_y) ** 2) / 2
         )
     )
-
-
-def moments(data):
-    """Returns (height, x, y, width_x, width_y)
-    the Gaussian parameters of a 2D distribution by calculating its
-    moments"""
-    total = data.sum()
-    X, Y = np.indices(data.shape)
-    x = (X * data).sum() / total
-    y = (Y * data).sum() / total
-    col = data[:, int(y)]
-    width_x = np.sqrt(abs((np.arange(col.size) - y) ** 2 * col).sum() / col.sum())
-    row = data[int(x), :]
-    width_y = np.sqrt(abs((np.arange(row.size) - x) ** 2 * row).sum() / row.sum())
-    height = data.max()
-    return height, x, y, width_x, width_y
-
-
-def fitgaussian(data: np.ndarray) -> Tuple[float, float, float, float, float]:
-    """Returns (height, x, y, width_x, width_y)
-    the Gaussian parameters of a 2D distribution found by a fit"""
-
-    def errorfunction(p):
-        return np.ravel(gaussian(*p)(*np.indices(data.shape)) - data)
-
-    try:
-        params = moments(data)
-    except ValueError:
-        return None
-    p, success = leastsq(errorfunction, params)
-    if np.isnan(p).any():
-        return None
-
-    return p
-
-
-def extract_image_patch(
-    img: np.ndarray, x: int, y: int, z: int, cutout: int
-) -> np.ndarray:
-    # Get image dimensions
-    z_max, height, width = img.shape
-
-    # Calculate patch bounds
-    x_min = int(x - cutout)
-    x_max = int(x + cutout)
-    y_min = int(y - cutout)
-    y_max = int(y + cutout)
-    z = int(round(z))
-
-    # Check if patch is within bounds
-    is_valid = (
-        x_min >= cutout
-        and x_max < width
-        and y_min >= cutout
-        and y_max < height
-        and 0 <= z < z_max
-    )
-
-    if not is_valid:
-        logging.warning("Point(s) too close to edge or out of bounds.")
-        return None
-
-    # Extract and return the patch
-    return np.copy(img[z, y_min:y_max, x_min:x_max])
-
-
-def threshold_image(data: np.ndarray, threshold_val: float):
-    """
-    Zero out values below a threshold relative to the data range.
-
-    Args:
-        data: numpy array of image data
-        threshold_percent: float between 0-1, normalized threshold value
-    """
-    data_min = data.min()
-    data_max = data.max()
-    data_range = data_max - data_min
-
-    # Calculate threshold value
-    threshold_value = data_max - (data_range * threshold_val)
-
-    # Zero out values below threshold
-    data[data < threshold_value] = 0
-
-    return data
 
 
 #### INTERPOLATION ####
@@ -371,6 +213,20 @@ def _zoom_grid(nz: int, new_nz: int) -> np.ndarray:
     """Where scipy's ``zoom`` samples the source for each output slice:
     ``k * (nz - 1) / (new_nz - 1)``, the end slices landing on the end slices."""
     return np.linspace(0.0, nz - 1, new_nz)
+
+
+def z_resample_scale(nz: int, new_nz: int) -> float:
+    """The factor that moves a slice index of an ``nz``-slice volume onto its
+    ``new_nz``-slice resampling: source slice ``s`` lands at ``s * scale``.
+
+    The inverse of :func:`_zoom_grid`, whose end slices land on the end slices,
+    so the factor is ``(new_nz - 1) / (nz - 1)``, not ``new_nz / nz`` (FIB-1238).
+    """
+    if nz < 2 or new_nz < 2:
+        raise ValueError(
+            f"a z resampling needs at least two slices each side, got {nz} -> {new_nz}"
+        )
+    return (new_nz - 1) / (nz - 1)
 
 
 def _store_slice(out: np.ndarray, k: int, blend: np.ndarray) -> None:
@@ -546,12 +402,13 @@ def interpolate_fm_volume(
     metadata consistent with the resampled data: ``pixel_size_z`` and
     ``z_positions`` are recomputed for the new slice count.
 
-    scipy's ``zoom`` rounds the output slice count to an integer, so the achieved
-    z-scale is ``new_nz / old_nz`` — not the nominal ``pixel_size_z / target``.
-    The effective z pixel size is derived from that actual ratio, keeping data,
+    The output slice count is rounded to an integer, and the end slices land on
+    the end slices, so the achieved z-scale is :func:`z_resample_scale` —
+    ``(new_nz - 1) / (old_nz - 1)`` — not the nominal ``pixel_size_z / target``.
+    The effective z pixel size is derived from that actual scale, keeping data,
     metadata, and any caller-side coordinate rescale exactly consistent. Callers
-    that must move z-bearing coordinates should scale by ``new_nz / old_nz``,
-    read from the returned image's shape versus the input's.
+    that must move z-bearing coordinates should scale by
+    ``z_resample_scale(old_nz, new_nz)``.
 
     Args:
         fm_image: source ``FluorescenceImage`` (CZYX, with ``pixel_size_z`` set)
@@ -562,7 +419,8 @@ def interpolate_fm_volume(
 
     Raises:
         ValueError: for a single-plane volume (no ``pixel_size_z``), a
-            non-positive target, or a non-CZYX array.
+            non-positive target, a non-CZYX array, or a target so coarse the
+            volume would resample to fewer than two slices.
     """
     import copy
 
@@ -588,14 +446,12 @@ def interpolate_fm_volume(
         progress_callback=progress_callback,
     )
     new_nz = interpolated.shape[1]
-    if new_nz < 1:
-        raise ValueError("interpolation produced an empty volume")
 
-    # Effective z pixel size from the ACTUAL resampled slice count, not the
-    # nominal target — so physical depth (z_index * pixel_size_z) is preserved
-    # when the caller rescales coordinates by new_nz / old_nz.
+    # Effective z pixel size from the ACTUAL resampled grid, not the nominal
+    # target — so physical depth (z_index * pixel_size_z) is preserved when the
+    # caller rescales coordinates by the same scale.
     new_meta = copy.deepcopy(meta)
-    new_meta.pixel_size_z = z_in * old_nz / new_nz
+    new_meta.pixel_size_z = z_in / z_resample_scale(old_nz, new_nz)
 
     # z_positions is a per-plane objective ramp; resample it to the new count so
     # its length scales with the volume (convention-agnostic — np.interp on the
@@ -622,163 +478,24 @@ def interpolate_fm_volume(
     )
 
 
-def multi_channel_get_z_guass(
-    image: np.ndarray, x: int, y: int, show: bool = False
-) -> List[float]:
-    """Get the best fitting z-value for a 2D point in an multi-channel ZYX image using a 1D Gaussian fit:
-    Args:
-        x: x coordinate
-        y: y coordinate
-        image: 4D numpy array (CZYX)
-        show: show the plot of the fit (for debugging)
-    Returns:
-        z: z coordinate (index)
-    """
-    # shortcut for single channel images
-    if image.ndim == 3:
-        return get_z_gauss(image, x, y, show=show)
-
-    z_values = []
-    for channel in image:
-        try:
-            # optimisation can fail, fallback to nothing
-            zvals = get_z_gauss(channel, x, y, show=show)
-        except Exception as e:
-            logging.warning(f"Error in channel: {e}")
-            zvals = [0, 0, 0]
-        z_values.append(zvals)
-
-    # get the channel with the maximum z-value (zval, zidx, zsigma)
-    vals = np.array(z_values)
-    ch_idx = np.argmax(vals[:, 0])
-
-    return vals[ch_idx]  # zval, zidx, zsigma
+# A spot burn in the FIB image is a dark spot a few pixels across. A fitted
+# Gaussian outside these widths, or bright, is a fit to something else: the
+# trench, the bright halo, a gradient (FIB-1216).
+_BURN_SIGMA_PX = (0.5, 12.0)
 
 
-def hole_fitting_RL(
-    img: np.ndarray,
-    x: int,
-    y: int,
-    z: int,
-    cutout: int = 15,
-    small_cutout: int = 5,
-    apply_threshold: bool = False,
-    threshold_val: float = 0,
-    iterations: int = 5,
-    show: bool = False,
-):
-    """Refine selection of hole in reflected light image.
-    Args:
-        img: 3D numpy array (Z,Y,X), interpolated to isotropic pixel size
-        x,y,z initial coordinates from the user click
-        cutout: size of the cutout around the point in x,y. z uses 3x this value
-        small_cutout: size of the cutout for the refined fit. z uses 3x this value
-        apply_threshold: apply thresholding to the image
-        threshold_val: does nothing
-        iterations: does nothing
-        show: show the diagnostic figure
-    Returns:
-        xr, yr, zr: refined x, y, z coordinates
-        fig: matplotlib figure with diagnostic plots (or None if show=False)
-    """
-    import matplotlib.pyplot as plt
-
-    # --- Diagnostic figure ---
-    fig, axes = plt.subplots(1, 2)
-    fig.suptitle("Hole Fitting RL")
-
-    # --- Initial Z fit ---
-    roi = img[z - 3 : z + 4, y - cutout : y + cutout + 1, x - cutout : x + cutout + 1]
-    intensity = np.mean(roi, axis=(1, 2))
-    err = None
-    try:
-        popt_z, _ = fit_gauss1d_mod(intensity, ax=axes[0])
-        popt_z, pcov = fit_guass1d(intensity, show=True, ax=axes[0])
-
-        zi = popt_z[1]
-    except Exception as e:
-        logging.warning(f"Error in initial Z fit: {e}")
-        zi = z  # fallback to input z if fit fails
-        err = e
-
-    if err:
-        axes[0].set_title("Initial Z fit failed")
-    else:
-        axes[0].set_title("Initial Z fit")
-        axes[0].axvline(popt_z[1], color="r", label="Fit")
-    axes[0].axvline(z, color="k", linestyle="--", label=f"Input Z: {z}")
-    axes[0].legend()
-
-    # --- Initial XY fit ---
-    slc_init = img[int(zi), y - cutout : y + cutout + 1, x - cutout : x + cutout + 1]
-    err = None
-    try:
-        popt_xy, _ = fit_gauss_2d_mod(slc_init, show=False)
-        xopt, yopt = popt_xy[1], popt_xy[2]
-    except Exception as e:
-        logging.warning(f"Error in initial XY fit: {e}")
-        xopt, yopt = cutout, cutout  # fallback to center of cutout if fit fails
-        err = e
-
-    # check if xopt, yopt are within the cutout bounds, if not return the original x, y
-    if not (0 <= xopt < 2 * cutout and 0 <= yopt < 2 * cutout):
-        logging.warning(
-            f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}"
-        )
-        xopt, yopt = cutout, cutout
-
-    # convert back to original image coordinates
-    xi = xopt + x - cutout
-    yi = yopt + y - cutout
-
-    im = axes[1].imshow(slc_init, cmap="gray")
-    axes[1].scatter(cutout, cutout, color="yellow", label="Input")
-    if err:
-        axes[1].set_title("Initial XY fit failed")
-    else:
-        axes[1].set_title(f"Initial XY fit (z={zi:.2f})")
-        axes[1].scatter(xopt, yopt, color="r", label="Fit")
-    fig.colorbar(im, ax=axes[1], label="Intensity")
-    axes[1].legend()
-    return xi, yi, zi, fig
-
-    # --- Refined Z fit ---
-    zmax = img.shape[0]
-    z0 = max(z - small_cutout * 6, 0)
-    z1 = min(z + small_cutout * 6, zmax)
-    ROI_ref = img[
-        z0:z1,
-        yi - small_cutout : yi + small_cutout,
-        xi - small_cutout : xi + small_cutout,
-    ]
-    I_ref = np.mean(ROI_ref, axis=(1, 2))
-    popt_zr, _ = fit_gauss1d_mod(I_ref, ax=axes[1, 0])
-    zr = popt_zr[1] + z0
-    axes[1, 0].set_title("Refined Z fit")
-    axes[1, 0].axvline(popt_zr[1], color="r", label="Refined Fit")
-    axes[1, 0].axvline(z - z0, color="k", linestyle="--", label="Input Z")
-    axes[1, 0].legend()
-
-    # --- Refined XY fit ---
-    slc_ref = img[
-        int(zr),
-        yi - small_cutout : yi + small_cutout,
-        xi - small_cutout : xi + small_cutout,
-    ]
-    popt_xyr, _ = fit_gauss_2d_mod(slc_ref, show=False)
-    xr = popt_xyr[1] + xi - small_cutout
-    yr = popt_xyr[2] + yi - small_cutout
-    axes[1, 1].set_title(f"Refined XY fit (z={int(zr)})")
-    axes[1, 1].imshow(slc_ref)
-    axes[1, 1].scatter(popt_xyr[1], popt_xyr[2], color="r", label="Fit")
-    axes[1, 1].legend()
-
-    plt.tight_layout()
-
-    if show:
-        plt.show()
-
-    return xr, yr, zr, fig
+def _burn_shaped(popt: np.ndarray, shape: Tuple[int, int]) -> bool:
+    """Whether a dark-Gaussian fit landed on something burn-like in its window."""
+    amplitude, xo, yo, sx, sy = popt[:5]
+    lo, hi = _BURN_SIGMA_PX
+    return bool(
+        np.all(np.isfinite(popt[:5]))
+        and amplitude < 0
+        and 0 <= xo < shape[1]
+        and 0 <= yo < shape[0]
+        and lo <= abs(sx) <= hi
+        and lo <= abs(sy) <= hi
+    )
 
 
 def hole_fitting_FIB(
@@ -788,6 +505,15 @@ def hole_fitting_FIB(
     cutout: int = 15,
 ):
     """Refine selection of hole in FIB image.
+
+    The fit starts at the click, as it always has, and that answer stands when
+    it is burn-shaped (:func:`_burn_shaped`). From a click more than ~4 px off
+    the burn it is not -- the Gaussian starts 1 px wide at the click and has
+    nothing to pull on -- so the fit starts again at the window's darkest point
+    after smoothing, which finds a burn up to the window's edge. When neither
+    finds a burn the fit fails (:class:`FitOutsideWindow`) rather than handing
+    back the click as an unchanged fit (FIB-1216).
+
     Args:
         img: 2D numpy array (Y,X)
         x,y initial coordinates from the user click (may be sub-pixel)
@@ -795,45 +521,56 @@ def hole_fitting_FIB(
     Returns:
         xr, yr: refined x, y coordinates
         diagnostic: FitDiagnostic for the (XY-only) diagnostic figure
+    Raises:
+        FitOutsideWindow: no burn-shaped dark spot in the region searched.
     """
     # The click may be sub-pixel; round for integer slicing but keep the
     # fraction so the input marker is drawn exactly where the user clicked
     # (otherwise a no-change fit shows the markers up to ~1px apart).
     xi, yi = int(round(x)), int(round(y))
-    # cut out a box around the point
-    roi = img[yi - cutout : yi + cutout, xi - cutout : xi + cutout]
-    # fit a 2D gaussian to estimate the hole position
-    err = None
-    try:
-        popt, _ = fit_gauss_2d_mod(roi, show=False)
-        xopt, yopt = popt[1], popt[2]
-    except Exception as e:
-        logging.warning(f"Error in XY fit: {e}")
-        xopt, yopt = cutout, cutout  # fallback to center of cutout if fit fails
-        err = e
+    # Cut out a box around the point, clamped to the image. A plain slice with
+    # a negative start wraps to the far end of the array: a click within the
+    # cutout of the top or left edge gave an empty window or one from the wrong
+    # side of the image. The offsets are kept so the fit comes back absolute.
+    height, width = img.shape
+    y0, y1 = max(0, yi - cutout), min(height, yi + cutout)
+    x0, x1 = max(0, xi - cutout), min(width, xi + cutout)
+    roi = img[y0:y1, x0:x1]
 
-    if not (0 <= xopt < 2 * cutout and 0 <= yopt < 2 * cutout):
-        logging.warning(
-            f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}"
+    def _fit(center):
+        try:
+            popt, _ = fit_gauss_2d_mod(roi, show=False, center=center)
+        except Exception as e:  # maxfev, an empty or flat window
+            logging.debug(f"FIB hole fit from {center}: {e}")
+            return None
+        return popt if _burn_shaped(popt, roi.shape) else None
+
+    # the click, in the clamped window's frame (the window's middle when the
+    # window is not clipped)
+    popt = _fit(center=(xi - x0, yi - y0))
+    if popt is None and roi.size:
+        smooth = ndimage.gaussian_filter(np.asarray(roi, dtype=float), sigma=2)
+        dark_y, dark_x = np.unravel_index(np.argmin(smooth), smooth.shape)
+        popt = _fit(center=(float(dark_x), float(dark_y)))
+    if popt is None:
+        raise FitOutsideWindow(
+            f"no burn-shaped dark spot in the region searched: x {x0}-{x1 - 1}, "
+            f"y {y0}-{y1 - 1}"
         )
-        xopt, yopt = cutout, cutout
+    xopt, yopt = popt[1], popt[2]
 
-    # get the refined positions in the coordinates of the original image
-    xr = xopt + xi - cutout
-    yr = yopt + yi - cutout
-
-    # clip the coordinates to the image bounds
-    xr = np.clip(xr, cutout, img.shape[1] - cutout)
-    yr = np.clip(yr, cutout, img.shape[0] - cutout)
+    # back to the coordinates of the original image; _burn_shaped kept the fit
+    # inside the window, so it is inside the image
+    xr = xopt + x0
+    yr = yopt + y0
 
     # --- Diagnostic (XY only — no z for the FIB image) ---
     diagnostic = FitDiagnostic(
         title="FIB hole fit",
         roi_xy=roi,
-        input_xy=(cutout + (x - xi), cutout + (y - yi)),
-        fitted_xy=None if err is not None else (xopt, yopt),
+        input_xy=(x - x0, y - y0),  # the sub-pixel click, in the window's frame
+        fitted_xy=(xopt, yopt),
         xy_title="XY",
-        xy_message=None if err is None else "fit failed — using input",
     )
     return xr, yr, diagnostic
 
@@ -859,12 +596,21 @@ def target_fitting_fluorescence(
     # round the (possibly sub-pixel) click for slicing; keep the fraction for
     # the input marker so it lands exactly where the user clicked (FIB-282).
     xc, yc = int(round(x)), int(round(y))
-    roi = img[:, yc - cutout : yc + cutout, xc - cutout : xc + cutout]
+    # Clamped to the image: a plain slice with a negative start wraps to the
+    # far edge, so a click near the top or left edge gave an empty window and
+    # the fit raised on it (FIB-1220, as FIB-980 for the reflection fit). The
+    # offsets keep the fitted x, y absolute.
+    height, width = img.shape[1:]
+    y0, y1 = max(0, yc - cutout), min(height, yc + cutout)
+    x0, x1 = max(0, xc - cutout), min(width, xc + cutout)
+    if y1 <= y0 or x1 <= x0:
+        raise ValueError(f"({x:.0f}, {y:.0f}) is outside the image")
+    roi = img[:, y0:y1, x0:x1]
     intensity = np.mean(roi, axis=(1, 2))
     popt_z, _ = fit_guass1d(intensity)
     zi = popt_z[1]
 
-    slc_init = img[int(zi), yc - cutout : yc + cutout, xc - cutout : xc + cutout]
+    slc_init = img[int(zi), y0:y1, x0:x1]
     err = None
     if use_xy_fitting:
         try:
@@ -872,27 +618,27 @@ def target_fitting_fluorescence(
             xopt, yopt = popt_xy[1], popt_xy[2]
         except Exception as e:
             logging.warning(f"Error in initial XY fit: {e}")
-            xopt, yopt = cutout, cutout  # fallback to center of cutout if fit fails
+            xopt, yopt = xc - x0, yc - y0  # fallback to the click if fit fails
             err = e
 
-        if not (0 <= xopt < 2 * cutout and 0 <= yopt < 2 * cutout):
+        if not (0 <= xopt < x1 - x0 and 0 <= yopt < y1 - y0):
             logging.warning(
                 f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}"
             )
-            xopt, yopt = cutout, cutout
+            xopt, yopt = xc - x0, yc - y0
 
-        xi = xopt + xc - cutout
-        yi = yopt + yc - cutout
+        xi = xopt + x0
+        yi = yopt + y0
     else:
         xi, yi = x, y
-        xopt, yopt = cutout, cutout  # fit result is the cutout centre for plotting
+        xopt, yopt = xc - x0, yc - y0  # fit result is the click for plotting
 
     # --- confirmation-friendly diagnostic: z (left) + XY hero (right) ---
     z_axis = np.arange(len(intensity))
     diagnostic = FitDiagnostic(
         title="Fluorescence target fit",
         roi_xy=slc_init,
-        input_xy=(cutout + (x - xc), cutout + (y - yc)),
+        input_xy=(x - x0, y - y0),
         fitted_xy=(xopt, yopt) if (use_xy_fitting and err is None) else None,
         xy_title=f"XY  @ z = {zi:.1f}",
         xy_message="XY fit failed" if err is not None else None,
@@ -903,151 +649,6 @@ def target_fitting_fluorescence(
         z_fitted=zi,
     )
     return xi, yi, zi, diagnostic
-
-
-def zyx_targeting(
-    img: np.ndarray,
-    x: int,
-    y: int,
-    cutout: int = 15,
-    apply_threshold: bool = False,
-    threshold_val: float = 0.1,
-    iterations: int = 5,
-):
-    """Automated ZYX targeting for a 3D image stack. Optimizes the selection of x,y,z coordinates
-    for a given 2D point in a 3D image stack using an iterative gaussian fitting approach.
-    Args:
-
-        img: 3D numpy array (Z,Y,X)
-        x: initial x coordinate
-        y: initial y coordinate
-        cutout: size of the cutout around the point
-        apply_threshold: apply thresholding to the image
-        threshold_val: threshold value for thresholding
-        iterations: number of iterations
-    Returns:
-        x, y, (zval, zidx, zsigma): optimized x, y, z coordinates and z-value (max, index, sigma)
-    """
-    logging.info(f"Starting zyx targeting for {img.shape}, Initial x: {x}, y: {y}")
-
-    # get the initial z position (Note: this can fail, returns None)
-    zval, zidx, zsigma = multi_channel_get_z_guass(image=img, x=x, y=y)
-
-    assert img.ndim == 3, "Image must be 3D"
-
-    logging.info(f"Initial z: {zidx}, zval: {zval}, zsigma: {zsigma} for {x}, {y}")
-
-    for i in range(iterations):
-        data = extract_image_patch(img, x, y, zidx, cutout)
-        if data is None:
-            break  # Or handle error case differently
-
-        if apply_threshold:  # apply threshold on normalized data
-            data = threshold_image(data, threshold_val)
-
-        # fit a 2d guassian to the 3d cutout
-        poptXY = fitgaussian(data)
-        if poptXY is None:
-            break
-
-        (height, xopt, yopt, width_x, width_y) = poptXY
-
-        # x and y are switched when applying the offset
-        x = x - cutout + yopt
-        y = y - cutout + xopt
-        width, height = img.shape[-1], img.shape[-2]
-        if not (0 <= x < width and 0 <= y < height):
-            break
-
-        # fit a 1d guassian to the z stack
-        zval, zidx, zsigma = get_z_gauss(img, x=x, y=y)
-        logging.debug(
-            f"iteration: {i}, x: {x}, y: {y}, z: {zidx}, zval: {zval}, zsigma: {zsigma}"
-        )
-
-    # TODO: check that xyz are in image bounds, if not return original x, y, z
-
-    return x, y, (zval, zidx, zsigma)
-
-
-def multi_channel_zyx_targeting(
-    image: np.ndarray,
-    xinit: int,
-    yinit: int,
-    zinit: int,
-    apply_threshold: bool = False,
-    threshold_val: float = 0.1,
-    cutout: int = 15,
-    iterations: int = 5,
-    method: str = "gaussian",
-) -> Tuple[int, Tuple[int, int, int]]:
-    """ZYX targeting for multi-channel images
-    Args:
-        image: 4D numpy array (CZYX)
-        xinit: initial x coordinate
-        yinit: initial y coordinate
-        apply_threshold: apply thresholding to the image
-        threshold_val: threshold value for thresholding
-        cutout: size of the cutout around the point
-        iterations: number of iterations
-    Returns:
-        ch_idx: channel index with the best z-value
-        x, y, z: x, y, z coordinates of the best z-value in the best channel
-    """
-
-    # shortcut for single channel images
-    if image.ndim == 3:
-        x1, y1, (zv, z1, zs) = zyx_targeting(
-            image,
-            xinit,
-            yinit,
-            cutout=cutout,
-            apply_threshold=apply_threshold,
-            threshold_val=threshold_val,
-            iterations=iterations,
-        )
-        return 0, (x1, y1, z1)
-
-    if image.ndim != 4:
-        raise ValueError(f"image must be a 4D array (CZYX), got {image.ndim}")
-
-    zvalues = []
-    xyz_vals = []
-
-    for i in range(image.shape[0]):
-        ch_image = image[i]
-        try:
-            if method not in ["gaussian", "hole"]:
-                raise ValueError(f"method must be 'gaussian' or 'hole', got {method}")
-            if method == "gaussian":
-                x1, y1, (zv, z1, zs) = zyx_targeting(
-                    ch_image,
-                    xinit,
-                    yinit,
-                    cutout=cutout,
-                    apply_threshold=apply_threshold,
-                    threshold_val=threshold_val,
-                    iterations=iterations,
-                )
-            elif method == "hole":
-                x1, y1, zv, _ = hole_fitting_RL(
-                    ch_image,
-                    xinit,
-                    yinit,
-                    zinit,
-                    cutout=cutout,
-                    apply_threshold=apply_threshold,
-                    threshold_val=threshold_val,
-                    iterations=iterations,
-                )
-        except Exception as e:
-            logging.error(f"an error occured during channel {i}: {e}")
-            x1, y1, zv, z1, zs = xinit, yinit, 0, None, None
-        # zvalues.append((zv, z1, zs))
-        # xyz_vals.append((x1, y1, z1))
-        break
-
-    return 0, (x1, y1, zv)
 
     # vals = np.array(zvalues).astype(np.float32)
     # ch_idx = np.argmax(vals[:, 0])
@@ -1083,137 +684,20 @@ def apply_refractive_index_correction(
     return (initial_poi[0], corrected_y)
 
 
-def hole_fitting_RL_old(
-    img: np.ndarray,
-    x: int,
-    y: int,
-    z: int,
-    cutout: int = 11,
-    small_cutout: int = 5,
-    apply_threshold: bool = False,
-    threshold_val: float = 0,
-    iterations: int = 5,
-    show: bool = False,
-):
-    import matplotlib.pyplot as plt
-
-    """refine selection of hole in reflected light image
-    Args:
-        img: 3D numpy array (Z,Y,X), interpolated to isotropic pixel size
-        x,y,z initial coordinates from the user click
-        cutout: size of the cutout around the point in x,y. z uses 3x this value
-        small_cutout: size of the cutout for the refined fit. z uses 3x this value
-        apply_threshold: apply thresholding to the image
-        threshold_val: does nothing
-        iterations: does nothing
-    Returns:
-        xr, yr, zr: refined x, y, z coordinates
-    """
-    # cut out the box
-    ROI = img[
-        z - cutout * 3 : z + cutout * 3,
-        y - cutout : y + cutout,
-        x - cutout : x + cutout,
-    ]
-    # # fit a gaussian to estimate the in focus plane
-    # I=np.mean(ROI,axis=(1,2))
-    # popt,popcov=fit_gauss1d_mod(I,show=False)
-    # zi=int(popt[1])+z-cutout*3
-    # if show:
-    #     plt.figure()
-    #     plt.plot(I)
-    #     plt.scatter(popt[1],popt[2],color='r')
-    #     plt.show()
-
-    # fit a 2D gaussian to the in focus plane to get rough poition
-    # slc=img[zi,y-cutout:y+cutout,x-cutout:x+cutout]
-    slc = img[z, y - cutout : y + cutout, x - cutout : x + cutout]
-    popt, popcov = fit_gauss_2d_mod(slc, show=False)
-    # get the rough position in the coordinates of the original image
-    xi = int(popt[1]) + x - cutout
-    yi = int(popt[2]) + y - cutout
-    if show:
-        plt.figure()
-        plt.imshow(slc)
-        plt.scatter(popt[1], popt[2], color="r")
-        plt.show()
-    zi = z
-    # refine the estimates
-    # cut out a smaller box
-    ROI = img[
-        zi - small_cutout * 3 : zi + small_cutout * 3,
-        yi - small_cutout : yi + small_cutout,
-        xi - small_cutout : xi + small_cutout,
-    ]
-
-    # fit a gaussian to estimate the in focus plane
-    I = np.mean(ROI, axis=(1, 2))
-    print(ROI.shape, I.shape)
-    popt, popcov = fit_gauss1d_mod_old(I, show=False)
-    zr = popt[1] + zi - small_cutout * 3
-    if show:
-        plt.figure()
-        plt.plot(I)
-        plt.axvline(popt[1], color="r")
-        plt.show()
-
-    # fit a 2D gaussian to the in focus plane to get rough poition
-    slc = img[
-        int(zr),
-        yi - small_cutout : yi + small_cutout,
-        xi - small_cutout : xi + small_cutout,
-    ]
-    popt, popcov = fit_gauss_2d_mod(slc, show=False)
-    # get the refined positions in the coordinates of the original image
-    xr = popt[1] + xi - small_cutout
-    yr = popt[2] + yi - small_cutout
-
-    if show:
-        plt.figure()
-        plt.imshow(slc)
-        plt.scatter(popt[1], popt[2], color="r")
-        plt.show()
-
-    return xr, yr, zr
-
-
-def fit_gauss1d_mod_old(
-    data: np.ndarray, show: bool = False
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Fit a 1D Gaussian to the data. Modified for negative hole images
-    Args:
-        data: 1D numpy array
-        show: show the plot of the fit (for debugging)
-    Returns:
-        popt: optimal parameters
-        pcov: covariance matrix
-    """
-
-    z = data.copy()
-    print(z.shape)
-    xz = np.arange(z.shape[0])
-    offset = np.max(z)
-    z -= offset  # shift data to 0
-
-    p0 = [np.min(z) - offset, np.argmin(z), 5, offset]
-
-    popt, pcov = curve_fit(gauss1d_offset, xz, z, p0, maxfev=10000)
-
-    # plot the data and the fit
-    # if show:
-    #     import matplotlib.pyplot as plt
-    #     plt.title("1D Gaussian fit")
-    #     plt.plot(data, label="Data")
-    #     # plt.plot(gauss1d(x, *popt), label="Gaussian 1D fit")
-    #     plt.legend()
-    #     plt.show()
-
-    return popt, pcov
-
-
 # Fewer planes than this around the click and the z fit is a line through two
 # points; the fit refuses and says so rather than returning a number.
 _MIN_Z_PLANES = 3
+
+
+class FitOutsideWindow(ValueError):
+    """A fit whose answer lies outside the region it searched.
+
+    A Gaussian fitted to a profile with no clear feature can put its centre
+    anywhere -- measured: 980 px away in xy, 2.5 mm deep in z -- and that
+    number used to come back as the fit, so the confirmation offered it as a
+    success (FIB-1219). Raised instead; the caller keeps the point where it
+    was and reports the fit as failed.
+    """
 
 
 def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
@@ -1248,6 +732,13 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     popt, _ = fit_guass1d(intensity)
     zopt = popt[1]
     zreal = zopt + zmin1  # back to absolute z
+    # The planes searched span zmin1 - 0.5 .. zmax1 - 0.5; a peak beyond them
+    # is an extrapolation from a profile with no dip in it, not a fit.
+    if not np.isfinite(zreal) or not (zmin1 - 0.5 <= zreal <= zmax1 - 0.5):
+        raise FitOutsideWindow(
+            f"z fit fell outside the planes searched: {zreal:.1f}, "
+            f"searched {zmin1}-{zmax1 - 1}"
+        )
 
     # xy fitting on the fitted z-slice
     xy_cutout = 15
@@ -1257,6 +748,17 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     roi_fitted = da[z_fitted, fy0:fy1, fx0:fx1]
     popt_xy, _ = fit_gauss_2d_mod(roi_fitted, center=(xi - fx0, yi - fy0))
     xopt, yopt = popt_xy[1], popt_xy[2]
+    if not (
+        np.isfinite(xopt)
+        and np.isfinite(yopt)
+        and 0 <= xopt < roi_fitted.shape[1]
+        and 0 <= yopt < roi_fitted.shape[0]
+    ):
+        raise FitOutsideWindow(
+            f"xy fit fell outside the region searched: "
+            f"({xopt + fx0:.0f}, {yopt + fy0:.0f}), searched x {fx0}-{fx1 - 1}, "
+            f"y {fy0}-{fy1 - 1}"
+        )
     xopt_real = xopt + fx0
     yopt_real = yopt + fy0
 
@@ -1265,8 +767,6 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     # markers); a compact z panel answers "did z land right?". The old figure
     # had a raw-profile panel with six reference lines and a second z panel in a
     # different (cutout-relative) frame with the same labels — dropped.
-    # the window is only square away from the image's edges
-    fit_in_roi = 0 <= xopt < roi_fitted.shape[1] and 0 <= yopt < roi_fitted.shape[0]
 
     # z: signal + gaussian fit (grey). The hole is dark, so the signal is
     # inverted (z_inverted) — the peak is the hole.
@@ -1277,10 +777,9 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
         title="Reflection hole fit",
         roi_xy=gaussian_filter(roi_fitted, sigma=1),
         input_xy=(x - fx0, y - fy0),  # the sub-pixel click, in the window's frame
-        # A failed 2D fit lands outside the ROI — say so instead of a marker.
-        fitted_xy=(xopt, yopt) if fit_in_roi else None,
+        # A 2D fit outside the window raised above (FIB-1219), so this is in it.
+        fitted_xy=(xopt, yopt),
         xy_title=f"XY  @ z = {zreal:.1f}",
-        xy_message=None if fit_in_roi else "fit fell outside\nthe search region",
         z_axis=z_axis,
         z_signal=intensity,
         z_fit=gauss_curve,
