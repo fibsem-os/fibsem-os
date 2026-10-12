@@ -31,23 +31,29 @@ from fibsem.fm.preview import is_fluorescence_image, projection_layers
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.imaging.drawing import _get_font, draw_crosshair, draw_scalebar
 from fibsem.structures import BeamType, FibsemImage
+from fibsem.theme import tokens
 from fibsem.util.timestamps import acquisition_datetime_of, format_time
 
 RGB = Tuple[int, int, int]
 
-# The values of PANEL_COLOR, BORDER_COLOR, TEXT_COLOR, TEXT_STRONG_COLOR and
-# TEXT_MUTED_COLOR in fibsem/ui/tokens.py, and of the canvas overlays' _TEXT_BG plate.
-# Copied rather than imported: importing anything under fibsem.ui imports the widget
-# layer, and with it PyQt5, which this module must not need. tests/ui checks they agree.
-BAR_COLOR: RGB = (0x1E, 0x20, 0x27)
-BORDER_COLOR: RGB = (0x3D, 0x42, 0x51)
-TEXT_COLOR: RGB = (0xD6, 0xD6, 0xD6)
-TEXT_STRONG_COLOR: RGB = (0xF0, 0xF1, 0xF2)
-TEXT_MUTED_COLOR: RGB = (0x86, 0x8E, 0x93)
+
+def _rgb(hex_colour: str) -> RGB:
+    """A ``#rrggbb`` token as the (r, g, b) PIL draws with."""
+    return tuple(int(hex_colour[i : i + 2], 16) for i in (1, 3, 5))
+
+
+# The palette's, as PIL wants them. fibsem.theme.tokens imports without Qt, which
+# this module must not need.
+BAR_COLOR: RGB = _rgb(tokens.PANEL_COLOR)
+BORDER_COLOR: RGB = _rgb(tokens.BORDER_COLOR)
+TEXT_COLOR: RGB = _rgb(tokens.TEXT_COLOR)
+TEXT_STRONG_COLOR: RGB = _rgb(tokens.TEXT_STRONG_COLOR)
+TEXT_MUTED_COLOR: RGB = _rgb(tokens.TEXT_MUTED_COLOR)
+# The canvas overlays' _TEXT_BG plate, which has no token.
 PLATE_COLOR: RGB = (20, 20, 20)
 PLATE_ALPHA = 0.7
-# tokens.CURRENT_POSITION_COLOUR: the canvas's "the stage is here" yellow.
-CROSSHAIR_COLOR: RGB = (0xFF, 0xEE, 0x58)
+# The canvas's "the stage is here" yellow.
+CROSSHAIR_COLOR: RGB = _rgb(tokens.CURRENT_POSITION_COLOUR)
 
 # Labelled values on the bar's first row. The detector or objective sits unlabelled
 # before them and does not count: past five the row wraps at normal export widths.

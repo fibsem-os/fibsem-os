@@ -595,8 +595,10 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
 
+        from fibsem.theme.tokens import SURFACE_COLOR
+
         TARGET_W = 256
-        _BG = "#262930"
+        _BG = SURFACE_COLOR
         _FG = "white"
 
         def _to_display(arr: np.ndarray) -> np.ndarray:

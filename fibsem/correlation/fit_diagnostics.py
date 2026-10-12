@@ -18,6 +18,8 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from fibsem.theme.tokens import CANVAS_BG, NEUTRAL_200, NEUTRAL_300, SURFACE_COLOR
+
 # input (red) / fitted (green) are the only saturated colours in every panel;
 # everything else is greyscale so the eye goes to the two markers.
 _C_IN = "#e53935"
@@ -125,11 +127,11 @@ def _draw_xy_panel(ax, d: FitDiagnostic) -> None:
 # it now lives here so the dialog just passes dark=True. Only theme-agnostic
 # chrome is touched — the saturated input/fitted markers and the grayscale image
 # are left as authored (they read correctly on dark).
-_FIG_BG = "#1e2124"    # == the dialog background: figure margins blend in
-_AXES_BG = "#262930"   # a subtle lift so the z line-plot reads as a panel
-_FG = "#d0d0d0"        # labels, ticks, legend text
-_FG_TITLE = "#e0e0e0"  # titles / suptitle, a touch brighter
-_SPINE = "#4a4d53"
+_FIG_BG = CANVAS_BG  # == the dialog background: figure margins blend in
+_AXES_BG = SURFACE_COLOR  # a subtle lift so the z line-plot reads as a panel
+_FG = NEUTRAL_300  # labels, ticks, legend text
+_FG_TITLE = NEUTRAL_200  # titles / suptitle, a touch brighter
+_SPINE = "#4a4d53"  # no token; the shared plot theme (FIB-1285) replaces it
 # A line darker than this is invisible on the dark panel; the only such artist
 # is the gaussian-fit overlay (drawn at 0.15 grey). Lift it to a light grey.
 _DARK_LINE_LUM = 0.25
