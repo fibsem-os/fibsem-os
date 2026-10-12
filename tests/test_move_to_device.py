@@ -18,7 +18,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemStagePosition, InsertableDeviceState
 
 IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
 ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
@@ -41,7 +41,7 @@ def test_to_the_fm_from_sem_re_poses_then_travels():
 
     assert microscope.get_current_device() == "FM"
     assert microscope.get_stage_orientation() == "FIB"
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
 
 def test_the_re_pose_happens_at_the_beams_not_at_the_fm():
@@ -202,7 +202,7 @@ def test_a_compustage_stays_in_a_pose_its_objective_images_from(orientation):
     assert arrived.t == pytest.approx(expected.t)
     assert arrived.t == pytest.approx(start.t)
     assert arrived.x == pytest.approx(start.x)
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
 
 def test_a_compustage_still_flips_from_a_pose_its_objective_cannot_use():
@@ -212,7 +212,7 @@ def test_a_compustage_still_flips_from_a_pose_its_objective_cannot_use():
     microscope.move_to_device("FM")
 
     assert microscope.get_stage_orientation() == "FM"
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
 
 def test_a_compustage_that_declares_only_the_flip_is_unchanged():
@@ -265,7 +265,7 @@ def test_asking_for_the_device_it_is_at_does_not_move():
     microscope.move_to_device("FM")
 
     assert microscope.get_stage_position().is_close(before, tol=1e-9)
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
 
 def test_arriving_outside_the_target_is_still_refused():
@@ -300,7 +300,7 @@ def test_a_compustage_keeps_its_default_landing_poses():
 
     microscope.move_to_device("FM")
     assert microscope.get_stage_orientation() == "FM"
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
     microscope.move_to_device("FIBSEM")
     assert microscope.get_stage_orientation() == "SEM"

@@ -41,6 +41,7 @@ from collections import deque
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
+from fibsem.structures import InsertableDeviceState
 from fibsem.util.timestamps import iso_from_posix
 
 __all__ = [
@@ -255,9 +256,9 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
             # wants the insert and the retract, so only a change of state. The
             # state is not read on attach -- that would be a hardware read -- so
             # the first move records the state it found.
-            last_state: List[Optional[str]] = [None]
+            last_state: List[Optional[InsertableDeviceState]] = [None]
 
-            def on_objective(position: float, state: str) -> None:
+            def on_objective(position: float, state: InsertableDeviceState) -> None:
                 if state == last_state[0]:
                     return
                 last_state[0] = state

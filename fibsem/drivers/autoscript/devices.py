@@ -102,7 +102,6 @@ from fibsem.fm.structures import (
     ChannelSettings,
     EmissionFilter,
     emission_filter_for,
-    objective_device_state,
 )
 from fibsem.structures import (
     BeamType,
@@ -1554,6 +1553,16 @@ class AutoscriptFMLightSource(_OnTheFMChannel, LightSource):
             self._channel.connection.detector.camera_settings.emission.stop()
 
 
+# The objective's states as AutoScript names them (RetractableDeviceState). A name
+# not here reads as UNKNOWN.
+_OBJECTIVE_STATES = {
+    "Inserted": InsertableDeviceState.INSERTED,
+    "Retracted": InsertableDeviceState.RETRACTED,
+    "Busy": InsertableDeviceState.MOVING,
+    "Error": InsertableDeviceState.ERROR,
+}
+
+
 class AutoscriptFMObjective(_OnTheFMChannel, Objective):
     """The objective: its focus is the camera's focus setting, and inserting or
     retracting it is the detector's. Magnification and numerical aperture are the
@@ -1582,7 +1591,9 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
         return ParameterMetadata(limits=RangeLimit(min=low, max=high))
 
     def read_state(self) -> InsertableDeviceState:
-        return objective_device_state(self._channel.connection.detector.state)
+        return _OBJECTIVE_STATES.get(
+            self._channel.connection.detector.state, InsertableDeviceState.UNKNOWN
+        )
 
     def read_magnification(self) -> float:
         return self._magnification

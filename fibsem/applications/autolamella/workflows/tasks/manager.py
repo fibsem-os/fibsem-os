@@ -23,6 +23,7 @@ from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import InsertableDeviceState
 from fibsem.util.durations import format_duration_precise, format_duration_rounded
 
 if TYPE_CHECKING:
@@ -765,7 +766,7 @@ class TaskManager(BaseTaskManager):
         # if the objective is inserted, retract for safety
         if (
             self.microscope.fm is not None
-            and self.microscope.fm.objective.state == "Inserted"
+            and self.microscope.fm.objective.state is InsertableDeviceState.INSERTED
         ):
             self.microscope.fm.objective.retract()
 

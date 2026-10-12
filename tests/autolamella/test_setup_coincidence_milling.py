@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     SetupCoincidenceMillingTaskConfig,
 )
 from fibsem.fm.structures import ChannelSettings
-from fibsem.structures import FibsemRectangle, Point
+from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
     fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml"
@@ -155,7 +155,7 @@ def test_headless_run_records_the_objective_and_the_reference(microscope, tmp_pa
     recorded = lamella.task_state.outputs.get("other_fib", [])
     assert COINCIDENCE_SETUP_REFERENCE_FILENAME in recorded
     # the objective is retracted on the way out
-    assert microscope.fm.objective.state != "Inserted"
+    assert microscope.fm.objective.state is not InsertableDeviceState.INSERTED
     # the stage was left at the milling pose
     assert microscope.get_stage_position().t == pytest.approx(
         lamella.milling_pose.stage_position.t
@@ -191,7 +191,7 @@ def test_no_objective_position_anywhere_records_where_insertion_put_it(
     config = lamella.task_config["Setup Coincidence Milling"]
     assert config.is_set_up
     assert "no objective position known" in caplog.text
-    assert microscope.fm.objective.state != "Inserted"
+    assert microscope.fm.objective.state is not InsertableDeviceState.INSERTED
 
 
 def test_requires_a_milling_pose(microscope, tmp_path):

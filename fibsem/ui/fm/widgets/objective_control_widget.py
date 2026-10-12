@@ -20,6 +20,7 @@ from superqt.utils import qdebounced
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.devices.fm import Objective
 from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.structures import InsertableDeviceState
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 from fibsem.ui.stylesheets import (
@@ -397,7 +398,7 @@ class ObjectiveControlWidget(QWidget):
         """Insert the objective. The hardware move runs on a worker thread."""
         if self._refuse_if_objective_busy("Objective insertion"):
             return
-        if self.fm.objective.state == "Inserted":
+        if self.fm.objective.state is InsertableDeviceState.INSERTED:
             message_box_ui(
                 title="Objective Already Inserted",
                 text="The objective is already inserted.",
@@ -452,7 +453,7 @@ class ObjectiveControlWidget(QWidget):
         """Retract the objective. The hardware move runs on a worker thread."""
         if self._refuse_if_objective_busy("Objective retraction"):
             return
-        if self.fm.objective.state == "Retracted":
+        if self.fm.objective.state is InsertableDeviceState.RETRACTED:
             message_box_ui(
                 title="Objective Already Retracted",
                 text="The objective is already retracted.",
@@ -487,7 +488,7 @@ class ObjectiveControlWidget(QWidget):
     def update_objective_position_labels(
         self,
         objective_position: Optional[float] = None,
-        objective_state: Optional[str] = None,
+        objective_state: Optional[InsertableDeviceState] = None,
     ):
         """Update the objective position input and label, and the quad view's
         chamber drawing with *objective_state* when the caller knows it."""
@@ -520,7 +521,9 @@ class ObjectiveControlWidget(QWidget):
                 )
 
     @ensure_main_thread
-    def _on_objective_moved(self, position: float, state: str) -> None:
+    def _on_objective_moved(
+        self, position: float, state: InsertableDeviceState
+    ) -> None:
         """Something moved the objective, and said where it ended up.
 
         The position comes from the signal rather than a fresh read, so this costs

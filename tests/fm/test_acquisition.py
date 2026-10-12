@@ -34,7 +34,11 @@ from fibsem.fm.structures import (
 )
 from fibsem.imaging.reduce import PREVIEW_MAX_DIMENSION
 from fibsem.imaging.tiling.progress import TiledStatus
-from fibsem.structures import FibsemStagePosition, TileOrderStrategy
+from fibsem.structures import (
+    FibsemStagePosition,
+    InsertableDeviceState,
+    TileOrderStrategy,
+)
 
 
 @pytest.fixture
@@ -2359,7 +2363,9 @@ def test_the_retracted_objective_is_caught_before_anything_moves(
     assert fm_microscope.fm.objective.position == pytest.approx(retracted_at), (
         "the objective was driven somewhere before the run was refused"
     )
-    assert fm_microscope.fm.objective.state == "Retracted", "the run inserted it"
+    assert fm_microscope.fm.objective.state is InsertableDeviceState.RETRACTED, (
+        "the run inserted it"
+    )
 
 
 def test_the_stitch_is_announced_between_the_last_tile_and_the_mosaic(fm_microscope):

@@ -56,7 +56,11 @@ from fibsem.imaging.tiling.progress import (
     TiledStatus,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import DeviceImagingState, FibsemStagePosition
+from fibsem.structures import (
+    DeviceImagingState,
+    FibsemStagePosition,
+    InsertableDeviceState,
+)
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui import utils as ui_utils
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
@@ -1615,14 +1619,16 @@ class FMOverviewWidget(QWidget):
 
         self.canvas.canvas.set_info_text("   |   ".join(parts))
 
-    def _set_objective_info(self, position: float, state: str) -> None:
+    def _set_objective_info(
+        self, position: float, state: InsertableDeviceState
+    ) -> None:
         """Render the info bar from values already in hand -- no device read.
 
         The path the signal takes. Split out of `_refresh_objective_info` so a move can
         update the bar from what it announced rather than by asking again.
         """
         self._objective_info = (
-            f"objective {position * constants.SI_TO_MILLI:.3f} mm ({state.lower()})"
+            f"objective {position * constants.SI_TO_MILLI:.3f} mm ({state.value})"
         )
         self._refresh_stage_info()
         self.settings_widget.set_objective_positions(
@@ -1630,7 +1636,9 @@ class FMOverviewWidget(QWidget):
         )
 
     @ensure_main_thread
-    def _on_objective_moved(self, position: float, state: str) -> None:
+    def _on_objective_moved(
+        self, position: float, state: InsertableDeviceState
+    ) -> None:
         """Something moved the objective, and said where it ended up.
 
         Reached from psygnal, which fires on whichever thread did the moving -- a
@@ -1697,7 +1705,7 @@ class FMOverviewWidget(QWidget):
         # connection two reads are two takes of the imaging channel (FIB-517).
         self._set_objective_info(position, state)
 
-    def _objective_state(self) -> Optional[str]:
+    def _objective_state(self) -> Optional[InsertableDeviceState]:
         """Whether the objective is inserted, or None if it cannot be asked.
 
         None rather than a guess: a driver that cannot answer is not the same as one
@@ -2526,14 +2534,14 @@ class FMOverviewWidget(QWidget):
         # so the message arrives as a failed run rather than as an answer to the
         # question that was just asked (FIB-417).
         state = self._objective_state()
-        if state is not None and state != "Inserted":
+        if state is not None and state is not InsertableDeviceState.INSERTED:
             message = (
-                f"The objective is {state.lower()}, so an overview cannot be acquired. "
+                f"The objective is {state.value}, so an overview cannot be acquired. "
                 f"Insert it and try again."
             )
             logging.warning(message)
             notification_service.show_toast(message, "warning")
-            self.status.setText(f"Objective is {state.lower()}.")
+            self.status.setText(f"Objective is {state.value}.")
             return
 
         if (

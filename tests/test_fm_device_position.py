@@ -27,6 +27,7 @@ from fibsem.structures import (
     DEFAULT_STAGE_DEVICES,
     VERSION_1_DEVICE_RANGE,
     FibsemStagePosition,
+    InsertableDeviceState,
     StageDeviceSettings,
 )
 
@@ -558,7 +559,7 @@ def test_the_objective_is_retracted_before_the_stage_travels():
     microscope.move_stage_relative = record
     microscope.move_to_microscope("FM")
 
-    assert moved_at == ["Retracted"]
+    assert moved_at == [InsertableDeviceState.RETRACTED]
 
 
 def test_no_move_means_no_retraction():
@@ -573,7 +574,7 @@ def test_no_move_means_no_retraction():
 
     microscope.move_to_microscope("FIBSEM")  # already there
 
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
 
 def test_arriving_at_the_fm_leaves_the_objective_inserted_either_way():
@@ -584,7 +585,7 @@ def test_arriving_at_the_fm_leaves_the_objective_inserted_either_way():
 
     microscope.move_to_microscope("FM")
 
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
 
 def test_a_refused_traverse_leaves_the_objective_alone():
@@ -597,7 +598,7 @@ def test_a_refused_traverse_leaves_the_objective_alone():
     """
     microscope = _at_beam_x(_microscope(), 0.0)
     microscope.move_to_microscope("FM")
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
     # Out of the FM's window, so back at the beams; going to the FM from there would
     # arrive outside its window.
@@ -608,7 +609,7 @@ def test_a_refused_traverse_leaves_the_objective_alone():
     with pytest.raises(ValueError, match="outside its range"):
         microscope.move_to_microscope("FM")
 
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
 
 # ── a range per device ───────────────────────────────────────────────

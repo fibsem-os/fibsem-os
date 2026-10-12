@@ -4,6 +4,7 @@ The objective is inserted by the fluorescence tasks and, before this, was only
 retracted once at the very end of a whole workflow run — so it stayed inserted
 across every task in between.
 """
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,6 +13,7 @@ from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import
     AcquireFluorescenceImageConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+from fibsem.structures import InsertableDeviceState
 
 
 class _StubTask(AutoLamellaTask):
@@ -37,26 +39,26 @@ def _task_with_objective(state: str) -> AutoLamellaTask:
 
 
 def test_retract_objective_when_inserted():
-    task = _task_with_objective("Inserted")
+    task = _task_with_objective(InsertableDeviceState.INSERTED)
     task._retract_objective()
     assert task.microscope.fm.objective.retract.called
 
 
 def test_no_retract_when_already_retracted():
-    task = _task_with_objective("Retracted")
+    task = _task_with_objective(InsertableDeviceState.RETRACTED)
     task._retract_objective()
     assert not task.microscope.fm.objective.retract.called
 
 
 def test_no_retract_without_an_fm():
-    task = _task_with_objective("Inserted")
+    task = _task_with_objective(InsertableDeviceState.INSERTED)
     task.microscope.fm = None
     task._retract_objective()  # must not raise
 
 
 def test_retract_failure_does_not_fail_the_task():
     """A task that otherwise completed shouldn't be reported failed by the retract."""
-    task = _task_with_objective("Inserted")
+    task = _task_with_objective(InsertableDeviceState.INSERTED)
     task.microscope.fm.objective.retract.side_effect = RuntimeError("stuck")
     task._retract_objective()  # swallowed and logged
 
@@ -68,8 +70,14 @@ def test_retract_failure_does_not_fail_the_task():
 def test_retract_objective_survives_a_config_round_trip(value):
     """to_dict/from_dict are hand-written here — a new field is easy to drop."""
     config = AcquireFluorescenceImageConfig(task_name="FM", retract_objective=value)
-    assert AcquireFluorescenceImageConfig.from_dict(config.to_dict()).retract_objective is value
+    assert (
+        AcquireFluorescenceImageConfig.from_dict(config.to_dict()).retract_objective
+        is value
+    )
 
 
 def test_retract_objective_defaults_true_for_older_protocols():
-    assert AcquireFluorescenceImageConfig.from_dict({"task_name": "FM"}).retract_objective is True
+    assert (
+        AcquireFluorescenceImageConfig.from_dict({"task_name": "FM"}).retract_objective
+        is True
+    )

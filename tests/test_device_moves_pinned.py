@@ -150,7 +150,8 @@ def _state(microscope) -> Dict[str, Any]:
         "device": microscope.get_current_device(),
     }
     if microscope.fm is not None:
-        state["objective"] = microscope.fm.objective.state
+        # Pinned as AutoScript's names, which the API answered then.
+        state["objective"] = microscope.fm.objective.state.value.capitalize()
     return state
 
 

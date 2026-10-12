@@ -32,7 +32,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
     acquire_fluorescence_overview,
 )
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
-from fibsem.structures import SampleGrid
+from fibsem.structures import InsertableDeviceState, SampleGrid
 
 
 @pytest.fixture
@@ -118,15 +118,17 @@ class TestRun:
         self, microscope, experiment
     ):
         grid = experiment.get_grid_by_name("grid-aspen")
-        assert microscope.fm.objective.state != "Inserted"
+        assert microscope.fm.objective.state is not InsertableDeviceState.INSERTED
         run_grid_task(microscope, "overview_fm", experiment, grid)
-        assert microscope.fm.objective.state != "Inserted"  # put back how it was found
+        assert (
+            microscope.fm.objective.state is not InsertableDeviceState.INSERTED
+        )  # put back how it was found
 
     def test_an_already_inserted_objective_is_left_in(self, microscope, experiment):
         microscope.fm.objective.insert()
         grid = experiment.get_grid_by_name("grid-aspen")
         run_grid_task(microscope, "overview_fm", experiment, grid)
-        assert microscope.fm.objective.state == "Inserted"
+        assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
     def test_centre_is_the_slot_at_the_fm(self, microscope, experiment):
         grid = experiment.get_grid_by_name("grid-aspen")

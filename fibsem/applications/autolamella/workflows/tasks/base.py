@@ -115,6 +115,7 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
+    InsertableDeviceState,
     Point,
 )
 from fibsem.util.timestamps import now, now_iso
@@ -1079,7 +1080,7 @@ class AutoLamellaTask(ABC):
         if self.microscope.fm is None:
             return
         try:
-            if self.microscope.fm.objective.state != "Inserted":
+            if self.microscope.fm.objective.state is not InsertableDeviceState.INSERTED:
                 return
             self.log_status_message("RETRACT_OBJECTIVE", "Retracting Objective...")
             self.microscope.fm.objective.retract()

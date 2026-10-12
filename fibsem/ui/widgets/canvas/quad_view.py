@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem import constants
 from fibsem.imaging.export import image_fields, z_stack
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures import BeamType, FibsemImage, InsertableDeviceState
 from fibsem.ui.stylesheets import (
     CANVAS_BG as _BG,
 )
@@ -603,9 +603,9 @@ class MicroscopeViewController(QObject):
         # Last objective position anyone told us about, in metres. Remembered so
         # `update_info` can label the FM canvas without asking the device -- see there.
         self._objective_position: Optional[float] = None
-        # And its state ('Inserted', 'Retracted', ...), for the chamber drawing. Told
+        # And its state (an InsertableDeviceState), for the chamber drawing. Told
         # alongside the position, never read on its own.
-        self._objective_state: Optional[str] = None
+        self._objective_state: Optional[InsertableDeviceState] = None
         # Whether the one starting read has been attempted. Separate from the position
         # itself so a read that *fails* is not retried on every stage update, which is
         # the poll this replaced.
@@ -1186,7 +1186,8 @@ class MicroscopeViewController(QObject):
                 column_tilt=microscope.system.ion.column_tilt,
                 rotation_reference=stage.rotation_reference,
                 objective_below=objective_below,
-                objective_inserted=self._objective_state == "Inserted",
+                objective_inserted=self._objective_state
+                is InsertableDeviceState.INSERTED,
             )
         except Exception:
             _logger.debug("The chamber view could not be drawn", exc_info=True)

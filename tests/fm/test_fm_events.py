@@ -145,7 +145,7 @@ def test_the_objective_records_its_insert_and_retract_not_every_move(
     states = [
         r["payload"]["state"] for r in _recorded(tmp_path, "objective_state_changed")
     ]
-    assert states == ["Retracted", "Inserted", "Retracted"]
+    assert states == ["retracted", "inserted", "retracted"]
 
 
 def test_report_v2_reads_each_acquisition_once(microscope, tmp_path):

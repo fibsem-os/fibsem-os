@@ -861,7 +861,13 @@ def _api_cases():
             fm.filter_set.emission_bands.items()
         ),
         "objective position": lambda fm: fm.objective.position,
-        "objective state": lambda fm: fm.objective.state,
+        # Pinned when the API answered AutoScript's names; it answers the enum now.
+        "objective state": lambda fm: {
+            "INSERTED": "Inserted",
+            "RETRACTED": "Retracted",
+            "UNKNOWN": "Other",
+            "ERROR": "Error",
+        }[fm.objective.state.name],
         "objective magnification": lambda fm: fm.objective.magnification,
         "objective numerical_aperture": lambda fm: fm.objective.numerical_aperture,
         "objective limits": lambda fm: fm.objective.limits,

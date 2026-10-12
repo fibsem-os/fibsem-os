@@ -15,6 +15,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 
+from fibsem.structures import InsertableDeviceState
+
 pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -2720,7 +2722,7 @@ def test_a_move_updates_the_info_bar_without_reading_the_device(
     original = widget.fm.objective
     widget.fm.objective = _Counting(original)
     try:
-        widget._on_objective_moved(1.2345e-2, "Inserted")
+        widget._on_objective_moved(1.2345e-2, InsertableDeviceState.INSERTED)
         info = widget.canvas.canvas._info_text
     finally:
         widget.fm.objective = original
@@ -3443,7 +3445,7 @@ def test_adding_records_where_the_objective_actually_is(qapp, tmp_path):
     objective.focus_position = 1.0e-3
     objective.insert()
     objective.move_absolute(objective.position + 50e-6)  # focused by hand
-    assert objective.state == "Inserted"
+    assert objective.state is InsertableDeviceState.INSERTED
 
     host.fm_overview_tab._on_add_requested(_named("wherever", 0.0, 0.0))
 
@@ -3460,7 +3462,7 @@ def test_a_retracted_objective_is_not_recorded_as_a_focus(qapp, tmp_path):
     host = _wired_host(qapp, tmp_path)
     objective = host.autolamella_ui.microscope.fm.objective
     objective.retract()
-    assert objective.state == "Retracted"
+    assert objective.state is InsertableDeviceState.RETRACTED
 
     host.fm_overview_tab._on_add_requested(_named("wherever", 0.0, 0.0))
 
@@ -5115,7 +5117,9 @@ def test_starting_from_an_unsaved_focus_is_refused_before_the_dialog(
     widget.status.setText("")
     widget.fm.objective.insert()
     assert widget.at_acquisition_orientation(), "the stage is not where a run needs it"
-    assert widget.fm.objective.state == "Inserted", "a different guard would fire first"
+    assert widget.fm.objective.state is InsertableDeviceState.INSERTED, (
+        "a different guard would fire first"
+    )
 
     widget.fm.objective._focus_position = None
     widget.settings_widget.combo_objective_start.set_value(ObjectiveStartPosition.FOCUS)
@@ -5141,7 +5145,9 @@ def test_acquiring_with_the_objective_retracted_is_refused_before_the_dialog(
     widget.status.setText("")
     assert widget.at_acquisition_orientation()
     monkeypatch.setattr(
-        type(widget.fm.objective), "state", property(lambda self: "Retracted")
+        type(widget.fm.objective),
+        "state",
+        property(lambda self: InsertableDeviceState.RETRACTED),
     )
     shown = []
     monkeypatch.setattr(

@@ -31,6 +31,7 @@ from fibsem.applications.autolamella.poses import (
 from fibsem.applications.autolamella.ui.overview_tab_base import (
     AutoLamellaOverviewTabBase,
 )
+from fibsem.structures import InsertableDeviceState
 from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 from fibsem.ui.utils import message_box_ui
@@ -111,9 +112,9 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             return None
         try:
             objective = microscope.fm.objective
-            if objective.state != "Inserted":
+            if objective.state is not InsertableDeviceState.INSERTED:
                 logger.debug(
-                    f"Objective is {objective.state}; falling back to its focus position."
+                    f"Objective is {objective.state.value}; falling back to its focus position."
                 )
                 return None
             return objective.position
@@ -167,8 +168,7 @@ class AutoLamellaFluorescenceOverviewTab(AutoLamellaOverviewTabBase):
             return
 
         history = (
-            f"\n\n{name} has already completed "
-            f"{', '.join(lamella.completed_tasks)}."
+            f"\n\n{name} has already completed {', '.join(lamella.completed_tasks)}."
             if lamella.completed_tasks
             else ""
         )

@@ -957,7 +957,10 @@ class FibsemMicroscope(ABC):
         if self.get_stage_orientation(destination) == "FM":
             blocked += ["z", "r"]
 
-        if self.fm is not None and self.fm.objective.state == "Inserted":
+        if (
+            self.fm is not None
+            and self.fm.objective.state is InsertableDeviceState.INSERTED
+        ):
             blocked += [a for a in self.fm.objective.blocked_axes if a not in blocked]
         return tuple(blocked)
 
