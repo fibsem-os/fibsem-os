@@ -89,8 +89,8 @@ def test_answers_land_as_rows_with_who_and_what(ui, qapp):
 
     # Agent answers via the marshalled path.
     thread, _ = _ask_on_worker(ui, qapp, Confirm("Again?"))
-    _, nonce = ui.ui_responder.pending_question_and_nonce()
-    answered = ui.ui_responder.submit_answer(False, nonce=nonce)
+    _, question_id = ui.ui_responder.pending_question_and_id()
+    answered = ui.ui_responder.submit_answer(False, question_id=question_id)
     _spin_until(qapp, answered.done)
     thread.join(timeout=5)
 
@@ -100,7 +100,7 @@ def test_answers_land_as_rows_with_who_and_what(ui, qapp):
     assert len(rows) == 2
     assert rows[0].startswith("agent · declined confirmation · ")
     assert rows[1].startswith("you · answered confirmation · ")
-    assert "nonce" not in rows[0]
+    assert "question_id" not in rows[0]
     assert not timeline.isHidden()
     assert rows[1] in timeline._label.toolTip()
 

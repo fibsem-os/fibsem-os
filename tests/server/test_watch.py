@@ -131,13 +131,15 @@ def _watch(steps, sleeps=None):
 def test_seeds_at_the_tail_and_ends_with_the_run(app):
     # History from before the watch: replaying it would raise a stale PROMPT
     # and end the watch on the earlier run's completion.
-    app.buffer.append("prompt_raised", {"nonce": 1, "type": "Confirm"})
+    app.buffer.append("prompt_raised", {"question_id": 1, "type": "Confirm"})
     app.buffer.append("workflow_completed", {})
 
     def run():
         app.buffer.append("task_started", {"item_name": "lamella-01"})
-        app.buffer.append("prompt_raised", {"nonce": 2, "type": "Confirm"})
-        app.buffer.append("prompt_answered", {"nonce": 2, "answered_by": "operator"})
+        app.buffer.append("prompt_raised", {"question_id": 2, "type": "Confirm"})
+        app.buffer.append(
+            "prompt_answered", {"question_id": 2, "answered_by": "operator"}
+        )
         app.buffer.append("milling_progress", {})  # not worth a wake-up
         app.buffer.append("workflow_completed", {})
 
@@ -146,8 +148,8 @@ def test_seeds_at_the_tail_and_ends_with_the_run(app):
     assert code == 0
     assert lines == [
         "EVENT task_started lamella-01",
-        "PROMPT nonce=2 type=Confirm",
-        "ANSWERED nonce=2 by=operator response=None",
+        "PROMPT question=2 type=Confirm",
+        "ANSWERED question=2 by=operator response=None",
         "RUN ENDED (workflow_completed)",
     ]
 

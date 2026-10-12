@@ -592,8 +592,8 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/decide", body)
         return err if err else data
 
-    def answer_prompt(response: bool, nonce: int, value: Optional[dict] = None):
-        body = {"response": bool(response), "nonce": int(nonce)}
+    def answer_prompt(response: bool, question_id: int, value: Optional[dict] = None):
+        body = {"response": bool(response), "question_id": int(question_id)}
         if value is not None:
             body["value"] = dict(value)
         data, err = _call(client, "POST", "/app/prompt/answer", body)
