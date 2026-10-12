@@ -100,12 +100,14 @@ On the microscope PC, `read_record.py --preview` on the TIFF works too.
 
 ### Following a run
 
-To follow a run without asking every few minutes, run the supervision
-watcher as a background monitor; each line it prints is a wake-up:
+To follow a run without asking every few minutes, run the watcher as a
+background monitor; each line it prints is a wake-up:
 
 ```
-python .claude/skills/supervise-autolamella/watch_events.py
+fibsem-mcp watch
 ```
+
+(`python -m fibsem.mcp.sidecar watch` where `fibsem-mcp` is not on PATH.)
 
 Its `PROMPT` and `QUESTION` lines mean the run is waiting on a person. You
 don't answer them. Read the question, say what it is asking and what you'd

@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.cancellation import OperationCancelledError
+from fibsem.control import SCRIPT, MicroscopeBusy
 from fibsem.scripting import (
     DiscoveredScript,
     ScriptResult,
@@ -53,6 +54,20 @@ ContextFactory = Callable[[], Tuple[Optional[Any], str]]
 Notifier = Callable[[str, str], None]
 # (question, detail) -> True to go ahead. Injectable so the gate can be driven in tests.
 Confirmer = Callable[[str, str], bool]
+
+
+def _run_in_control(script: DiscoveredScript, context: Any) -> ScriptResult:
+    """Run a microscope script in control of the microscope (FIB-1270), so a
+    command from the App Server never moves the stage under it. Refused, it is a
+    result like any other failure: it names who is in control."""
+    control = getattr(getattr(context, "microscope", None), "control", None)
+    if control is None:
+        return run_script(script, context)
+    try:
+        with control.take(SCRIPT, script.name):
+            return run_script(script, context)
+    except MicroscopeBusy as busy:
+        return ScriptResult(script=script, error=busy)
 
 
 class ScriptRunner:
@@ -134,7 +149,10 @@ class ScriptRunner:
         layout = box.layout()
         layout.addItem(
             QSpacerItem(400, 0, QSizePolicy.Minimum, QSizePolicy.Fixed),
-            layout.rowCount(), 0, 1, layout.columnCount(),
+            layout.rowCount(),
+            0,
+            1,
+            layout.columnCount(),
         )
 
         box.exec_()
@@ -198,7 +216,8 @@ class ScriptRunner:
 
         if script.background and not script.uses_microscope:
             logging.warning(
-                "Script %s declares background=True; running inline for now.", script.name
+                "Script %s declares background=True; running inline for now.",
+                script.name,
             )
 
         # Last gate before running. A writes script saves the moment it finishes and a
@@ -269,7 +288,7 @@ class ScriptRunner:
         if hasattr(context, "stop_event"):
             context.stop_event = self._stop_event
 
-        worker = self._worker = FunctionWorker(run_script, script, context)
+        worker = self._worker = FunctionWorker(_run_in_control, script, context)
 
         def _done(result: object) -> None:
             # FunctionWorker delivers this on the GUI thread, so touching widgets

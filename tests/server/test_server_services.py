@@ -1,5 +1,5 @@
 """The App Server's /services routes (FIB-1280): the microscope's services, served by
-the device routes, behind the same token, scopes and command slot.
+the device routes, behind the same token, scopes and control.
 
 Skipped when the [server] extra is not installed.
 """
@@ -99,25 +99,17 @@ def test_command_when_armed_reaches_the_service(armed_client, microscope):
     assert resp.json()["result"] == microscope.milling.estimate()
 
 
-def test_command_takes_the_command_slot(armed_client):
-    lock = armed_client.app.state.command_lock
-    assert lock.acquire(blocking=False)
-    try:
+def test_command_takes_control(armed_client, microscope):
+    with microscope.control.take("workflow", "a lamellae run"):
         resp = armed_client.post("/services/milling/commands/estimate", json={})
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error_type"] == "busy"
-    finally:
-        lock.release()
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["error_type"] == "microscope_busy"
 
 
-def test_stop_needs_only_the_token_and_never_waits(read_client):
-    lock = read_client.app.state.command_lock
-    assert lock.acquire(blocking=False)
-    try:
+def test_stop_needs_only_the_token_and_is_never_refused(read_client, microscope):
+    with microscope.control.take("workflow", "a lamellae run"):
         resp = read_client.post("/services/milling/commands/stop", json={})
-        assert resp.status_code == 200
-    finally:
-        lock.release()
+    assert resp.status_code == 200
 
 
 def test_unknown_service_parameter_or_command_is_404(read_client, armed_client):

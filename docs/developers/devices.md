@@ -360,8 +360,8 @@ build is left out. The App Server serves them as it serves devices, under `/serv
 /services` describes each one's parameters and commands, `GET
 /services/{service}/{parameter}` reads one, and `POST
 /services/{service}/commands/{command}` runs one, behind the same token, scopes and
-command slot. A service's `stop` needs only the token and never waits for the slot,
-like a device's.
+control of the microscope. A service's `stop` needs only the token and is never
+refused by whoever is in control, like a device's.
 
 ### Imaging
 

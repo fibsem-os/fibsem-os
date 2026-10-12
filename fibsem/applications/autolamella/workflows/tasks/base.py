@@ -95,6 +95,7 @@ from fibsem.applications.autolamella.workflows.ui import (
     update_alignment_area_ui,
 )
 from fibsem.cancellation import SKIPPED, OperationCancelledError
+from fibsem.control import lending
 from fibsem.detection import detection as detection_module
 from fibsem.detection.detection import (
     DetectedFeatures,
@@ -602,17 +603,21 @@ class AutoLamellaTask(ABC):
 
         experiment.decided.connect(_on_decided)
         try:
-            if not experiment.ask_proposal(item.id, self.task_name, proposal):
-                raise RuntimeError(f"could not record the {kind} question")
-            with manager.holding_a_question(item.name, self.task_name):
-                while not answered.wait(0.1):
-                    if self._stop_event is not None and self._stop_event.is_set():
-                        experiment.withdraw_proposal(
-                            item.id,
-                            self.task_name,
-                            "the run stopped before it was answered",
-                        )
-                        raise InterruptedError(f"{kind} question cancelled")
+            # While the question stands, the run lends its control of the
+            # microscope: whoever answers may act first (FIB-1270). Lent before
+            # the question is put, so nobody who sees it is refused.
+            with lending():
+                if not experiment.ask_proposal(item.id, self.task_name, proposal):
+                    raise RuntimeError(f"could not record the {kind} question")
+                with manager.holding_a_question(item.name, self.task_name):
+                    while not answered.wait(0.1):
+                        if self._stop_event is not None and self._stop_event.is_set():
+                            experiment.withdraw_proposal(
+                                item.id,
+                                self.task_name,
+                                "the run stopped before it was answered",
+                            )
+                            raise InterruptedError(f"{kind} question cancelled")
         finally:
             experiment.decided.disconnect(_on_decided)
         decision = proposal.current
