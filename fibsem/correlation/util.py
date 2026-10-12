@@ -658,7 +658,13 @@ class FitOutsideWindow(ValueError):
 
 
 def hole_fitting_reflection(
-    da, x, y, z, cutout, polarity: Polarity = Polarity.DARK
+    da,
+    x,
+    y,
+    z,
+    cutout,
+    polarity: Polarity = Polarity.DARK,
+    planes: Tuple[int, int] = (10, 4),
 ) -> tuple:
     """Refine an FM fiducial: a burn in the reflection channel.
 
@@ -666,7 +672,8 @@ def hole_fitting_reflection(
     and what this fit always assumed) or bright on METEOR reflection. The fit
     finds a dark burn, so a bright one is fitted in the stack with its
     brightness flipped; the diagnostic still shows the stack as it is
-    (FIB-1218).
+    (FIB-1218). ``planes`` is how many planes below and above the clicked one
+    the z fit searches.
     """
     from scipy.ndimage import gaussian_filter
 
@@ -677,8 +684,8 @@ def hole_fitting_reflection(
     # round the (possibly sub-pixel) click for slicing; keep the fraction for
     # the input marker so a no-change fit shows the markers coincident.
     xi, yi = int(round(x)), int(round(y))
-    zmin = 10
-    zmax = 5
+    zmin = planes[0]
+    zmax = planes[1] + 1  # an exclusive end
     nz, height, width = da.shape
 
     # Both windows are clamped to the stack and the image. A plain slice with

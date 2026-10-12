@@ -307,3 +307,145 @@ def test_closing_the_panel_stops_the_run(qapp, monkeypatch):
     w._on_refit_requested(coords[0])
     assert len(seen) == 1
     assert [c.point.x for c in coords] == [20.0, 50.0, 80.0]
+
+
+# --- z: planes searched, browsing planes, z by hand (FIB-1218 6c) -----------------
+
+
+def _hole_stack(cx=30.0, cy=30.0, cz=10, nz=21, size=60):
+    """A dark reflection hole at (cx, cy), deepest at plane cz."""
+    yy, xx = np.indices((size, size), dtype=float)
+    blob = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * 3.0**2))
+    vol = np.full((nz, size, size), 200.0, dtype=np.float32)
+    for zi in range(nz):
+        vol[zi] -= 160.0 * np.exp(-((zi - cz) ** 2) / (2 * 2.0**2)) * blob
+    return vol
+
+
+def test_planes_searched_reach_the_reflection_fit():
+    from fibsem.correlation.util import hole_fitting_reflection
+
+    vol = _hole_stack(cz=10)
+    *_, d = hole_fitting_reflection(vol, 30, 30, 10, 2)
+    assert (d.z_axis[0], d.z_axis[-1]) == (0, 14)  # today's 10 below, 4 above
+    *_, d = hole_fitting_reflection(vol, 30, 30, 10, 2, planes=(3, 5))
+    assert (d.z_axis[0], d.z_axis[-1]) == (7, 15)
+
+
+def _fm_panel(result, stack, refit=None):
+    return FitPanelDialog(
+        result,
+        FitInputs(window=2, channel=0, looks="dark", planes=(10, 4)),
+        refit or (lambda i: result),
+        channel_names=["reflection"],
+        stack=lambda ch: stack,
+    )
+
+
+def _fm_result(z=10.0, fitted=True, status=FitStatus.OK):
+    initial = PointXYZ(30.0, 30.0, 8.0)
+    return PointFitResult(
+        coordinate=_coord(30.0, 30.0, 8.0, PointType.FM),
+        method="Hole",
+        channel=0,
+        initial=initial,
+        fitted=PointXYZ(30.4, 29.8, z) if fitted else None,
+        status=status,
+        message=None if fitted else "No clear burn here.",
+    )
+
+
+def test_the_planes_slider_follows_the_fit_and_sets_z_by_hand(qapp):
+    panel = _fm_panel(_fm_result(z=10.2), _hole_stack())
+    assert panel._plane_slider.value() == 10  # the plane the fit landed on
+    assert panel._plane_slider.maximum() == 20
+    panel._plane_slider.setValue(13)
+    assert panel._use_plane_btn.text() == "Use plane 13 as z"
+    panel._use_plane_btn.click()
+    r = panel.result
+    assert (r.fitted.x, r.fitted.y, r.fitted.z) == (30.4, 29.8, 13.0)  # xy of the fit
+    assert r.method.endswith("z by hand")
+    assert panel._status.text() == "z set by hand"
+    assert panel._accept_btn.isEnabled()
+
+
+def test_z_by_hand_after_a_failed_fit_keeps_the_click_xy(qapp):
+    failed = _fm_result(fitted=False, status=FitStatus.ERROR)
+    panel = _fm_panel(failed, _hole_stack())
+    assert not panel._accept_btn.isEnabled()
+    assert panel._plane_slider.value() == 8  # the clicked plane
+    panel._plane_slider.setValue(10)
+    panel._use_plane_btn.click()
+    assert (panel.result.fitted.x, panel.result.fitted.y) == (30.0, 30.0)
+    assert panel.result.fitted.z == 10.0
+    assert panel._accept_btn.isEnabled()
+
+
+def test_a_refit_replaces_z_by_hand(qapp):
+    panel = _fm_panel(
+        _fm_result(z=10.2), _hole_stack(), refit=lambda i: _fm_result(z=11.0)
+    )
+    panel._plane_slider.setValue(15)
+    panel._use_plane_btn.click()
+    panel._window_spin.setValue(3)  # an input change fits again
+    assert panel.result.fitted.z == 11.0
+    assert not panel.result.method.endswith("z by hand")
+    assert panel._plane_slider.value() == 11
+
+
+def test_fib_fits_have_no_plane_controls(qapp):
+    panel = FitPanelDialog(_result(), FitInputs(window=15), lambda i: _result())
+    assert panel._plane_slider is None and panel._planes_spins is None
+
+
+def test_accepting_z_by_hand_moves_the_fm_point(qapp, monkeypatch):
+    """End to end in the widget: open the panel on an FM fiducial, take plane 12
+    as z, accept."""
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
+    from fibsem.correlation.config import CorrelationConfig, FitSettings
+
+    w = _widget(qapp)
+    w.set_correlation_config(
+        CorrelationConfig(fit=FitSettings(fm_fiducial_method="Hole"))
+    )
+    from datetime import datetime
+
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    stack = _hole_stack(cz=10)
+    meta = FluorescenceImageMetadata(
+        acquisition_date=datetime(2026, 7, 24).isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        pixel_size_z=300e-9,
+        resolution=(60, 60),
+        channels=[
+            FluorescenceChannelMetadata(
+                name="reflection",
+                excitation_wavelength=488.0,
+                emission_wavelength=None,
+                power=0.3,
+                exposure_time=0.05,
+                gain=1.5,
+                offset=50.0,
+            )
+        ],
+    )
+    w.set_fm_image(FluorescenceImage(data=stack[None], metadata=meta))
+    coord = _coord(30.0, 30.0, 10.0, PointType.FM)
+    w._coords_tab.fm_list.add_coordinate(coord)
+
+    def take_plane_12(panel):
+        assert panel.result.status is not FitStatus.ERROR
+        panel._plane_slider.setValue(12)
+        panel._use_plane_btn.click()
+        return QDialog.Accepted
+
+    monkeypatch.setattr(ctw.FitPanelDialog, "exec_", take_plane_12)
+    w._on_refit_requested(coord)
+    assert coord.point.z == 12.0
+    assert (coord.point.x, coord.point.y) == pytest.approx((30.0, 30.0), abs=0.5)
