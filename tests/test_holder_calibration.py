@@ -9,13 +9,13 @@ is the only thing that writes a trusted position.
 import pytest
 
 from fibsem import utils
-from fibsem.microscopes._stage import (
+from fibsem.microscopes._stage import _create_sample_stage
+from fibsem.structures import (
+    FibsemStagePosition,
     GridSlot,
     SampleHolder,
     SlotCalibration,
-    _create_sample_stage,
 )
-from fibsem.structures import FibsemStagePosition
 from tests.fixtures.demo_stage import demo_session
 
 

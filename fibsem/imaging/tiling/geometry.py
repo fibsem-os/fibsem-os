@@ -245,7 +245,7 @@ def validate_tile_stage_positions(
     Args:
         ordered: Tile grid positions in acquisition order.
         tile_stage_positions: Projected stage position for each tile (same order).
-        limits: Dict[str, RangeLimit] from microscope._stage.limits.
+        limits: Dict[str, RangeLimit] from the stage device, `stage.position.limits`.
     Returns:
         List of (row, col) tuples for out-of-bounds tiles (empty if all OK).
     """
@@ -304,7 +304,7 @@ def unreachable_tiles(
             offsets handed over are negated in y. A cached projection rather than
             `microscope.project_*_stable_move`: the two agree exactly, but the
             microscope's re-reads the instrument on every call.
-        limits: `microscope._stage.limits`. Falsy means unknown, which reads as "no
+        limits: the stage device's `stage.position.limits`. Falsy means unknown, which reads as "no
             answer" rather than "all fine" -- an empty result either way, but the
             caller should say nothing rather than say it is reachable.
 

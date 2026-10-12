@@ -11,21 +11,23 @@ import logging
 import pytest
 
 from fibsem import utils
+from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.drivers.demo import devices as demo_devices
 from fibsem.microscopes import _stage as stage_module
 from fibsem.microscopes._stage import (
     COMPUSTAGE_HOLDER_NAME,
     DeviceSampleLoader,
-    GridExchangeError,
-    GridSlot,
     GridSlotState,
-    SampleGrid,
     SampleGridLoader,
-    SampleHolder,
-    SlotCalibration,
     _create_sample_stage,
 )
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import (
+    FibsemStagePosition,
+    GridSlot,
+    SampleGrid,
+    SampleHolder,
+    SlotCalibration,
+)
 from tests.fixtures.demo_stage import demo_grid_loader, demo_session
 
 # ---------------------------------------------------------------------------
@@ -617,7 +619,7 @@ def test_current_grid_is_none_before_the_first_position_read():
     assert stage.current_slot is None
     assert stage.current_grid is None
 
-    stage.position  # the first read fills the cache
+    microscope.get_stage_position()  # the first read fills the cache
     stage.move_to_slot("Slot-01")
     assert stage.current_grid is not None
     assert stage.current_grid.name == "Grid-01"

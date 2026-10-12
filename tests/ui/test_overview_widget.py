@@ -1517,7 +1517,7 @@ class TestOverlaysAreDrawnInTheView:
         under it. Checked in the foreshortened view, where the two used to differ."""
         assert microscope._fm_is_a_pose(), "the limits only draw on a compustage"
         frame = self._show(widget, self.FORESHORTENED)
-        limits = microscope._stage.limits
+        limits = microscope.stage.position.limits
 
         box = self._spec(widget, "rect", "Stage Limits")
         assert box is not None, "the stage limits were not drawn"
@@ -1534,7 +1534,7 @@ class TestOverlaysAreDrawnInTheView:
         """The bug, pinned. The box was `frame.length(ymax - ymin)` in every view, so
         it was the same height at the milling pose as at the SEM one -- nearly four
         times too tall in the view you mill in."""
-        limits = microscope._stage.limits
+        limits = microscope.stage.position.limits
         span_y = limits["y"].max - limits["y"].min
         span_x = limits["x"].max - limits["x"].min
 
@@ -1640,7 +1640,7 @@ class TestTheHolderIsDrawnOnEveryStage:
 
     @staticmethod
     def _slot(name, x, y=0.0):
-        from fibsem.microscopes._stage import GridSlot
+        from fibsem.structures import GridSlot
 
         return GridSlot(
             name=name,
@@ -3029,7 +3029,7 @@ class TestTheFramingFindsThePlan:
     ):
         """A shuttle with grids at +/-5 mm: the one the stage is on is framed whole, the
         other is left a pan away rather than shrinking the plan into a 12 mm view."""
-        from fibsem.microscopes._stage import GridSlot
+        from fibsem.structures import GridSlot
 
         holder = widget.microscope._stage.holder
         monkeypatch.setattr(
@@ -3909,7 +3909,7 @@ class TestTheGridSaysWhereItCannotGo:
         +/-377.8 um in y, so y is where a central-looking grid runs out first.
         """
         frame = widget._frame()
-        limits = microscope._stage.limits
+        limits = microscope.stage.position.limits
         origin = frame.origin
         beyond = FibsemStagePosition(
             x=0.0, y=limits["y"].max * 0.9, z=origin.z, r=origin.r, t=origin.t
@@ -5125,8 +5125,8 @@ def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
     slot they draw where the grid is, and that is worth having on by default.
     A slot calibrated mid-session turns them on in the tab already built, and a
     holder change that leaves calibration as it was leaves the switches alone."""
-    from fibsem.microscopes._stage import SlotCalibration, _create_sample_stage
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.microscopes._stage import _create_sample_stage
+    from fibsem.structures import FibsemStagePosition, SlotCalibration
     from fibsem.ui.widgets.canvas.overlays import stage_context
 
     microscope, _ = utils.setup_session(manufacturer="Demo")

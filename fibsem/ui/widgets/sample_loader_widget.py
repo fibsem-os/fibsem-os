@@ -30,7 +30,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleGridLoader
+from fibsem.microscopes._stage import SampleGridLoader
+from fibsem.structures import GridSlot, SampleGrid
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker

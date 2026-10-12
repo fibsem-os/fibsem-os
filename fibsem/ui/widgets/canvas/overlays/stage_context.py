@@ -279,7 +279,8 @@ def limit_shapes(microscope, frame: StageFrame) -> List[ShapeSpec]:
     the grid circle -- and travel limits have nothing to do with grids. One guard was
     answering two questions.
     """
-    limits = getattr(microscope._stage, "limits", None)
+    stage = microscope.stage
+    limits = stage.position.limits if stage is not None else None
     if not limits:
         return []
     try:

@@ -36,6 +36,7 @@ from PyQt5.QtGui import QWheelEvent  # noqa: E402
 
 from fibsem import config as cfg  # noqa: E402
 from fibsem import constants, utils  # noqa: E402
+from fibsem.devices.stage import axis_limits_to_degrees
 from fibsem.structures import FibsemStagePosition  # noqa: E402
 from fibsem.ui.widgets.stage_position_widget import StagePositionWidget  # noqa: E402
 
@@ -153,7 +154,7 @@ def test_translation_is_shown_to_ten_nanometres(widget):
 
 
 def test_translation_ranges_are_the_stage_limits_in_millimetres(widget):
-    limits = widget.microscope._stage.limits
+    limits = axis_limits_to_degrees(widget.microscope.stage.position.limits)
 
     for axis, spinbox in (
         ("x", widget.spinbox_x),
@@ -171,7 +172,7 @@ def test_translation_ranges_are_the_stage_limits_in_millimetres(widget):
 def test_the_tilt_range_is_taken_in_degrees_already(widget):
     """The stage reports x/y/z in metres but t in degrees, and the form must not
     convert the one that needs no converting."""
-    tilt = widget.microscope._stage.limits["t"]
+    tilt = axis_limits_to_degrees(widget.microscope.stage.position.limits)["t"]
 
     assert widget.spinbox_tilt.minimum() == pytest.approx(tilt.min)
     assert widget.spinbox_tilt.maximum() == pytest.approx(tilt.max)
@@ -181,8 +182,8 @@ def test_the_two_stages_really_do_disagree_about_tilt():
     """Guards the two tests above from being run twice against the same numbers -- if
     the fixtures ever resolved to one configuration, the range tests would still pass
     and prove nothing."""
-    flat = _microscope(FLAT_STAGE)._stage.limits["t"]
-    compu = _microscope(COMPUSTAGE)._stage.limits["t"]
+    flat = axis_limits_to_degrees(_microscope(FLAT_STAGE).stage.position.limits)["t"]
+    compu = axis_limits_to_degrees(_microscope(COMPUSTAGE).stage.position.limits)["t"]
 
     assert (flat.min, flat.max) != (compu.min, compu.max)
 

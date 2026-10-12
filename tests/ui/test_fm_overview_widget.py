@@ -1255,7 +1255,7 @@ def test_the_stage_and_grid_limits_are_drawn_in_the_canvas_frame(qapp, overview_
 
     by_label = {s.label: s for s in widget.stage_overlay._specs}
     reference = widget.canvas.canvas.reference_pixel_size
-    limits = widget.microscope._stage.limits
+    limits = widget.microscope.stage.position.limits
 
     stage = by_label["Stage Limits"]
     assert stage.width == pytest.approx((limits["x"].max - limits["x"].min) / reference)
@@ -1528,7 +1528,7 @@ def test_a_point_outside_the_stage_limits_is_refused(
     widget = interactive_widget
     monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
     before = widget.microscope.get_stage_position()
-    limits = getattr(widget.microscope._stage, "limits", None)
+    limits = widget.microscope.stage.position.limits
     if not limits:
         pytest.skip("this stage declares no limits")
 
@@ -3292,7 +3292,7 @@ def test_nothing_is_offered_outside_the_stage_limits(qapp, interactive_widget):
     """The stage cannot go there, so it is neither somewhere to move nor somewhere to
     put a lamella."""
     widget = interactive_widget
-    limits = widget.microscope._stage.limits
+    limits = widget.microscope.stage.position.limits
     frame = widget._frame()
     # A point comfortably past the x limit, in canvas units.
     beyond = frame.length((limits["x"].max - limits["x"].min) * 2)
@@ -5651,7 +5651,7 @@ def _runners_verdict(widget, parameters):
     ]
     return sorted(
         validate_tile_stage_positions(
-            ordered, positions, widget.microscope._stage.limits
+            ordered, positions, widget.microscope.stage.position.limits
         )
     )
 

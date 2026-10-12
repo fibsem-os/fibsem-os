@@ -26,16 +26,14 @@ from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
     screen_grids,
     screening_plan,
 )
-from fibsem.microscopes._stage import (
-    SampleGrid,
-    SlotCalibration,
-    _create_sample_stage,
-)
+from fibsem.microscopes._stage import _create_sample_stage
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,
     OverviewAcquisitionSettings,
+    SampleGrid,
+    SlotCalibration,
 )
 
 

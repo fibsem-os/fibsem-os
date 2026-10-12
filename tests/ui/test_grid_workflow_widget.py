@@ -35,12 +35,14 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
 )
-from fibsem.microscopes._stage import SampleGrid, SlotCalibration, _create_sample_stage
+from fibsem.microscopes._stage import _create_sample_stage
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,
     OverviewAcquisitionSettings,
+    SampleGrid,
+    SlotCalibration,
 )
 
 

@@ -24,18 +24,13 @@ from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
+from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
     _records_beam_shift,
 )
-from fibsem.microscopes._stage import (
-    GridExchangeError,
-    GridSlot,
-    SampleGrid,
-    SampleGridLoader,
-    _slot_name,
-)
+from fibsem.microscopes._stage import SampleGridLoader, _slot_name
 from fibsem.structures import (
     BeamType,
     DeviceEntry,
@@ -46,10 +41,12 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     FibsemUser,
+    GridSlot,
     ImageSettings,
     MicroscopeState,
     Point,
     RangeLimit,
+    SampleGrid,
     SystemSettings,
 )
 from fibsem.util.timestamps import to_datetime

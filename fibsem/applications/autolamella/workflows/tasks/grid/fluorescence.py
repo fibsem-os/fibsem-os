@@ -81,7 +81,8 @@ def reachable_fluorescence_overview(
     page, on every edit). It carries the camera's pixel size and shape, so the
     camera is not read again; building one reads it, which is slow on hardware.
     """
-    limits = getattr(microscope._stage, "limits", None)
+    stage = microscope.stage
+    limits = stage.position.limits if stage is not None else None
     if projection is None:
         projection = FMStageProjection.from_microscope(microscope)
     if not limits or projection is None:
