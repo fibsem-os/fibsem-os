@@ -61,7 +61,7 @@ def test_read_only_sidecar_registers_read_tools_only():
     assert names == {
         t.name for t in CATALOG if t.scope == "read" and t.router == "microscope"
     }
-    assert "stop_milling" in names
+    assert "stop_milling" not in names  # read only is watching (FIB-1035)
     assert "acquire_image_preview" not in names
 
 

@@ -62,6 +62,7 @@ def test_start_serves_read_only_with_the_app_router(host, microscope):
         "configure": False,
         "hardware": False,
     }
+    assert body["level"] == "watch"  # every launch starts watching (FIB-1035)
     # idempotent: a second start is a no-op, not a second server
     assert host.start(microscope) is True
 
@@ -143,8 +144,10 @@ def test_env_override_arms_control_scope(microscope, tmp_path, monkeypatch):
     )
     try:
         assert server_host.start(microscope) is True
-        scopes = _get(server_host, "/capabilities").json()["scopes"]
-        assert scopes["control"] is True
-        assert scopes["hardware"] is False  # the override never arms hardware
+        body = _get(server_host, "/capabilities").json()
+        assert body["level"] == "drive"
+        assert body["scopes"]["control"] is True
+        assert body["scopes"]["configure"] is True
+        assert body["scopes"]["hardware"] is False  # never hardware
     finally:
         server_host.stop()

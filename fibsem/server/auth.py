@@ -40,6 +40,36 @@ class Scope(str, Enum):
     HARDWARE = "hardware"
 
 
+class AgentLevel(str, Enum):
+    """How far the agent may act in the App Server (FIB-1035): the one knob the
+    operator sees. Scopes stay the server's mechanism underneath; each level
+    arms a set of them (``LEVEL_SCOPES``).
+
+    - ``off``: every agent-token request is refused, reads included.
+    - ``watch``: reads everything and adds notes; acts on nothing, stops nothing.
+    - ``assist``: as Drive, but each action is a request the operator approves
+      (FIB-1283). Defined, not offered yet.
+    - ``drive``: acts on the session: starts, stops, schedules, answers, edits.
+
+    Hardware joins Assist and Drive in FIB-1267.
+    """
+
+    OFF = "off"
+    WATCH = "watch"
+    ASSIST = "assist"
+    DRIVE = "drive"
+
+
+LEVEL_SCOPES = {
+    AgentLevel.OFF: frozenset(),
+    AgentLevel.WATCH: frozenset(),
+    # Until FIB-1283's approvals exist, Assist arms nothing: it must never act
+    # unasked, and there is nothing yet to ask through.
+    AgentLevel.ASSIST: frozenset(),
+    AgentLevel.DRIVE: frozenset({Scope.CONTROL, Scope.CONFIGURE}),
+}
+
+
 @dataclass
 class AuthConfig:
     """Token + armed scopes for one server instance.
@@ -60,6 +90,10 @@ class AuthConfig:
     # None means no dashboard access, which is what a bare AuthConfig(token=...)
     # gets; generate() always makes one.
     dashboard_token: Optional[str] = None
+    # The agent level (FIB-1035), set by the App Server through set_level. None
+    # is a server with no level model -- the bench and headless hostings --
+    # where the armed scopes alone decide.
+    level: Optional[AgentLevel] = None
     # Monotonic time of the last request that presented the valid token; None
     # until one arrives. The connected agent's proof of life: its event
     # long-poll alone touches the server every half-minute, so staleness here
@@ -78,6 +112,17 @@ class AuthConfig:
         if seen is None:
             return None
         return max(0.0, time.monotonic() - seen)
+
+    def set_level(self, level: AgentLevel) -> None:
+        """Set the agent level, effective for the next request.
+
+        Rewrites the armed scopes to the level's, keeping hardware as it was:
+        no level arms or disarms it until FIB-1267."""
+        level = AgentLevel(level)
+        keep = self.armed & {Scope.HARDWARE}
+        # Two atomic rebinds, read independently by requests.
+        self.armed = frozenset(LEVEL_SCOPES[level] | keep)
+        self.level = level
 
     def set_armed(self, scope: Scope, armed: bool) -> None:
         """Arm or disarm one scope, effective for the next request."""
@@ -154,8 +199,23 @@ def _dashboard_refused() -> HTTPException:
     )
 
 
-def require_scope(scope: Scope):
-    """Build a FastAPI dependency enforcing a valid token + an armed scope.
+def _not_armed_detail(auth: AuthConfig, scope: Scope) -> dict:
+    detail = {"error_type": "scope_not_armed", "scope": scope.value}
+    if auth.level is None:
+        detail["message"] = f"The '{scope.value}' scope is not armed on this server."
+    else:
+        detail["level"] = auth.level.value
+        detail["message"] = (
+            f"Not allowed while the agent level is {auth.level.value.title()}: "
+            "the operator sets the level from the Agent chip in AutoLamella."
+        )
+    return detail
+
+
+def require_scope(scope: Scope, *alternatives: Scope):
+    """Build a FastAPI dependency enforcing a valid token + an armed scope (any
+    one of ``scope`` and ``alternatives``), and refusing everything while the
+    agent level is Off.
 
     The agent token only: the dashboard token is refused here (403), so it
     reaches nothing beyond the routes guarded by :func:`require_monitoring`.
@@ -171,14 +231,20 @@ def require_scope(scope: Scope):
         # A valid token is proof of life whatever happens next — a scope
         # refusal below is still the agent talking.
         auth.mark_seen()
-        if not auth.is_armed(scope):
+        if auth.level is AgentLevel.OFF:
             raise HTTPException(
                 status_code=403,
                 detail={
-                    "error_type": "scope_not_armed",
-                    "scope": scope.value,
-                    "message": f"The '{scope.value}' scope is not armed on this server.",
+                    "error_type": "agent_off",
+                    "level": AgentLevel.OFF.value,
+                    "message": "The agent is off: the operator has set the "
+                    "agent level to Off in AutoLamella.",
                 },
+            )
+        if not any(auth.is_armed(s) for s in (scope, *alternatives)):
+            raise HTTPException(
+                status_code=403,
+                detail=_not_armed_detail(auth, scope),
             )
 
     return dependency
