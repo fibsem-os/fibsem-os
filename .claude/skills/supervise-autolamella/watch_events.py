@@ -25,7 +25,10 @@ import urllib.request
 from http.client import HTTPException
 from pathlib import Path
 
-DISCOVERY = Path.home() / ".fibsem" / "agent-server.json"
+# The App Server's discovery file, then its name before the rename (FIB-1035),
+# read for one release.
+DISCOVERY = Path.home() / ".fibsem" / "app-server.json"
+LEGACY_DISCOVERY = Path.home() / ".fibsem" / "agent-server.json"
 # Kinds that end the watch: the run is over, report and stop.
 TERMINAL = {"workflow_completed", "workflow_cancelled"}
 # Kinds worth a wake-up line of their own (prompts are handled separately).
@@ -40,7 +43,8 @@ INTERESTING = TERMINAL | {
 
 
 def _connection():
-    info = json.loads(DISCOVERY.read_text())
+    path = DISCOVERY if DISCOVERY.exists() else LEGACY_DISCOVERY
+    info = json.loads(path.read_text())
     return info["url"], {"Authorization": "Bearer " + info["token"]}
 
 
@@ -103,8 +107,8 @@ def main():
         base, headers = _connection()
     except (OSError, KeyError, ValueError):
         print(
-            "NO SERVER: no discovery file — start AutoLamella with the agent "
-            "feature enabled and a microscope connected, then rerun."
+            "NO SERVER: no discovery file — start AutoLamella with the App "
+            "Server enabled and a microscope connected, then rerun."
         )
         return 1
 

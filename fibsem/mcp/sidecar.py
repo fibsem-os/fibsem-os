@@ -34,7 +34,7 @@ _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
 _NO_SERVER_MSG = (
     "fibsem-mcp: no server found. Pass --url and --token, set "
     "FIBSEM_SERVER_URL/FIBSEM_SERVER_TOKEN, or start a fibsem server on "
-    "this machine (it writes ~/.fibsem/agent-server.json)."
+    "this machine (it writes ~/.fibsem/app-server.json)."
 )
 
 

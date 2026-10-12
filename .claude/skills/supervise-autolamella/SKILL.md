@@ -29,7 +29,7 @@ Fallback is plain HTTP; the running app advertises itself in a discovery
 file:
 
 ```bash
-TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/agent-server.json'))['token'])")
+TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/app-server.json'))['token'])")
 curl -s "http://127.0.0.1:8001/capabilities" -H "Authorization: Bearer $TOKEN"
 ```
 
