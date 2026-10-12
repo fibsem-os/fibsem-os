@@ -86,7 +86,7 @@ def test_discovery_round_trip(tmp_path):
     assert data is not None
     assert data["url"] == "http://127.0.0.1:8001"  # 0.0.0.0 is not connectable
     assert data["token"] == "secret"
-    assert data["scopes"]["hardware"] is True
+    assert "scopes" not in data  # live in /capabilities, never stale here
     if os.name != "nt":
         assert (path.stat().st_mode & 0o777) == 0o600
     remove_discovery_file(path)

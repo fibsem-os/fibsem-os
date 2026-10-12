@@ -196,8 +196,10 @@ bearer token — the sidecar is convenience, not a requirement.
 - **Access fails closed.** Reading needs a valid token and a level above Off;
   acting needs Drive; hardware is on no level at all.
 - **The level lasts one session** — set by whoever is at the microscope,
-  back to Watch when the app restarts. There is nothing in any config file
-  that raises it.
+  back to Watch when the app restarts. A microscope reconnect or a services
+  change restarts the server but not the session: the level and the agent's
+  token stand, so a connected agent carries on. There is nothing in any
+  config file that raises it.
 - **Localhost by default.** Out of the box, only processes on the same
   machine — running as someone who can read your files anyway — can even
   attempt to connect.

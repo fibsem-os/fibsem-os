@@ -67,6 +67,15 @@ def test_the_agent_is_offered_no_instrument_tool_with_devices_off(microscope):
     ]
 
 
+def test_get_capabilities_is_offered_with_devices_off(microscope):
+    """The agent's first read is its level, so it must exist whatever the
+    services (FIB-1035 app test #1)."""
+    client = _client(microscope, devices=False)
+    capabilities = client.get("/capabilities", headers=AUTH).json()
+    names = {t.name for t in tools_for_capabilities(capabilities)}
+    assert "get_capabilities" in names
+
+
 def test_the_bench_server_serves_the_instrument_by_default(microscope):
     client = _client(microscope)
     assert client.get("/stage_position", headers=AUTH).status_code == 200

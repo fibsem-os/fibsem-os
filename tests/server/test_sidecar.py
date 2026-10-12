@@ -50,19 +50,31 @@ def _tool_names(sidecar):
 
 def test_armed_sidecar_registers_the_full_microscope_catalog(armed_sidecar):
     # No app_context on this server, so app tools must not register even armed.
-    expected = {t.name for t in CATALOG if t.router == "microscope"}
+    expected = {t.name for t in CATALOG if t.router in ("microscope", "base")}
     assert _tool_names(armed_sidecar) == expected
 
 
-def test_read_only_sidecar_registers_read_tools_only():
+def test_without_hardware_every_tool_but_the_hardware_ones_registers():
+    """Tools don't follow the scopes a level arms (FIB-1035): the server's 403
+    is the gate. Only hardware, which no level grants, is left out."""
     client = _make_client(arm_hardware=False)
     sidecar = build_sidecar(client, _capabilities(client))
     names = _tool_names(sidecar)
     assert names == {
-        t.name for t in CATALOG if t.scope == "read" and t.router == "microscope"
+        t.name
+        for t in CATALOG
+        if t.router in ("microscope", "base") and not t.hardware_only
     }
-    assert "stop_milling" not in names  # read only is watching (FIB-1035)
+    assert "stop_milling" in names  # refused by the server, not hidden
     assert "acquire_image_preview" not in names
+
+
+def test_each_description_names_the_level_it_needs(armed_sidecar):
+    listed = asyncio.run(armed_sidecar.list_tools())
+    described = {t.name: t.description for t in getattr(listed, "tools", listed)}
+    assert described["get_stage_position"].endswith("Works at Watch and Drive.")
+    assert "Needs the agent at Drive" in described["stop_milling"]
+    assert "no agent level grants" in described["move_stage_relative"]
 
 
 def test_read_tool_round_trip(armed_sidecar):

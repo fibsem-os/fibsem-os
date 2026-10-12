@@ -151,3 +151,48 @@ def test_env_override_arms_control_scope(microscope, tmp_path, monkeypatch):
         assert body["scopes"]["hardware"] is False  # never hardware
     finally:
         server_host.stop()
+
+
+def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
+    """A microscope reconnect or devices toggle restarts the server; the
+    agent's token and the level the operator set survive it, for the app
+    session only (FIB-1035 app test #5 and the reconnect question)."""
+    from fibsem.server.auth import AgentLevel
+
+    ui = Host()
+    first = AppServerHost(
+        ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+    )
+    assert first.start(microscope)
+    first.auth.set_level(AgentLevel.DRIVE)
+    token = first.auth.token
+    first.stop()
+    second = AppServerHost(
+        ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+    )
+    try:
+        assert second.start(microscope)
+        body = _get(second, "/capabilities").json()
+        assert second.auth.token == token
+        assert body["level"] == "drive"
+    finally:
+        second.stop()
+    # A new app session -- a new window -- starts at Watch with a new token.
+    fresh = AppServerHost(
+        Host(), port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+    )
+    try:
+        assert fresh.start(microscope)
+        assert fresh.auth.token != token
+        assert _get(fresh, "/capabilities").json()["level"] == "watch"
+    finally:
+        fresh.stop()
+
+
+def test_the_token_is_never_logged(host, microscope, caplog):
+    import logging
+
+    with caplog.at_level(logging.DEBUG):
+        assert host.start(microscope)
+    assert host.auth.token not in caplog.text
+    assert host.auth.dashboard_token not in caplog.text
