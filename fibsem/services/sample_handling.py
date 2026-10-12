@@ -121,11 +121,6 @@ class GridMagazine:
             raise GridExchangeError("The sample holder has no working slot.")
         return slots[0]
 
-    @property
-    def loaded_slots(self) -> List[GridSlot]:
-        """The holder slots that hold a grid. Kept for callers of the old loader."""
-        return self.holder.occupied_slots
-
     # -- the magazine side -------------------------------------------------
 
     @property
