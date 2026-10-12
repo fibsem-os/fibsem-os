@@ -152,10 +152,19 @@ def _run(item, task, start, end, ending="task_completed", error=None, wait=None)
         _record("task_step", start, item, task, run, {"step": "MILL_LAMELLA"}),
     ]
     if wait is not None:  # a prompt raised at wait[0], answered at wait[1]
-        nonce = f"{run}/prompt"
+        question_id = f"{run}/prompt"
         records += [
-            _record("prompt_raised", wait[0], item, task, run, {"nonce": nonce}),
-            _record("prompt_answered", wait[1], item, task, run, {"nonce": nonce}),
+            _record(
+                "prompt_raised", wait[0], item, task, run, {"question_id": question_id}
+            ),
+            _record(
+                "prompt_answered",
+                wait[1],
+                item,
+                task,
+                run,
+                {"question_id": question_id},
+            ),
         ]
     if ending:
         payload = {"error": error} if error else {}

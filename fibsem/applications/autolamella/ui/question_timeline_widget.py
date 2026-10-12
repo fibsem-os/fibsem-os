@@ -11,7 +11,7 @@ It subscribes to the same single code path that applies answers, so it can
 never show something that didn't happen; there is no "update the timeline"
 step to forget.
 
-User-facing wording rule: who · what · when. Wire vocabulary (nonces, request
+User-facing wording rule: who · what · when. Wire vocabulary (question ids, request
 type names) stays off the screen.
 """
 

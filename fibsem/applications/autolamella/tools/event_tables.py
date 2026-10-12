@@ -255,10 +255,12 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
             if row is not None:
                 row.update(end=time, finished=True)
         elif kind == "prompt_raised":
-            key = (record.get("session"), payload.get("nonce"))
+            key = (record.get("session"), payload.get("question_id"))
             raised[key] = (time, run_id, item.get("name"), task.get("name"))
         elif kind in ("prompt_answered", "prompt_cancelled"):
-            prompt = raised.pop((record.get("session"), payload.get("nonce")), None)
+            prompt = raised.pop(
+                (record.get("session"), payload.get("question_id")), None
+            )
             if prompt is not None:
                 _waited(prompt, time, "prompt", waits, wait_rows)
         elif kind == "proposal_asked":
