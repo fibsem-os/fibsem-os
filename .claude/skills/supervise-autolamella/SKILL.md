@@ -22,8 +22,8 @@ shell-permission friction entirely. (The tools come from the `fibsem-mcp`
 sidecar; if they are missing, the sidecar is not registered in this session's
 MCP config — e.g. `claude mcp add -s user fibsem -- fibsem-mcp` — and the HTTP fallback
 below works regardless.) Watching is the exception either way: looping the
-`get_events` tool in the foreground blocks you from acting, so the bundled
-watcher stays the watch mechanism even when MCP is connected.
+`get_events` tool in the foreground blocks you from acting, so
+`fibsem-mcp watch` stays the watch mechanism even when MCP is connected.
 
 Fallback is plain HTTP; the running app advertises itself in a discovery
 file:
@@ -82,24 +82,26 @@ error to work around, and never retry it in another form.
 ## Watch
 
 Sleep on the events long-poll; never poll `/app/prompt` on a timer. **Run
-the bundled watcher as a background monitor** — do not write your own (the
-first fresh agent to try matched the wrong JSON key and slept through a
-question), and do not run it in the foreground: each line it prints is your
-wake-up call, and a foreground watcher blocks you from acting on what it
-sees.
+the watcher as a background monitor** — do not write your own (the first
+fresh agent to try matched the wrong JSON key and slept through a question),
+and do not run it in the foreground: each line it prints is your wake-up
+call, and a foreground watcher blocks you from acting on what it sees.
 
 ```
-python .claude/skills/supervise-autolamella/watch_events.py
+fibsem-mcp watch
 ```
 
-(`python3` where `python` doesn't exist — stock macOS/Linux; the path is
-relative to the repo root, so run it from there or spell out the full path.)
+It comes with fibsem and finds the app the way the MCP tools do. If
+`fibsem-mcp` is not on your PATH, run `python -m fibsem.mcp.sidecar watch`
+with the Python fibsem is installed in.
 
 Wake and act on its lines: `PROMPT` (a question is standing, with its
 nonce), `QUESTION` (the run is stopped on a recorded question — rule 5),
 `ANSWERED` (check who — if the operator answered, your read of that
-question is stale), task lifecycle `EVENT` lines, and `RUN ENDED` (report
-and stop watching).
+question is stale), task lifecycle `EVENT` lines, `GAP` (events were lost:
+re-read `/app/prompt` and `/app/status`), and `RUN ENDED` (report and stop
+watching). It exits 1 when the app cannot be watched; say so rather than
+going idle.
 
 If your harness cannot keep a background process alive while you are idle
 (spawned subagents usually cannot — the watcher dies with your turn, and no
