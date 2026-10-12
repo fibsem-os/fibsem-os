@@ -107,8 +107,8 @@ class ObjectiveLens:
     # State travels with position because every display that wants one wants both: the
     # overview info bar renders "objective 10.061 mm (inserted)" from a single line.
     #
-    # On the objective rather than the microscope, following `Stage.position_changed`
-    # (`fibsem/microscopes/_stage.py`). It also keeps the name unambiguous --
+    # On the objective rather than the microscope, as a device reports its own
+    # moves. It also keeps the name unambiguous --
     # `objective_position_changed` already means something else on the lamella widget --
     # and lets an objective built without a parent announce its own moves.
     #

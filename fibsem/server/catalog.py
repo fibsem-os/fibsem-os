@@ -141,7 +141,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_milling",
-        description="Emergency stop for an in-progress mill. Allowed whenever the agent can act (Drive; on a bench server, hardware too), and never waits on the command lock. Not at Watch: a watching agent stops nothing.",
+        description="Emergency stop for an in-progress mill. Allowed whenever the agent can act (Drive; on a bench server, hardware too), and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/stop_milling",
         scope="control",
@@ -278,6 +278,21 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
     ),
     ToolSpec(
+        name="get_log",
+        description="The session's log (logfile.log), raw: one record per logged line, with any traceback after it. Read a window: a run's own with task_id (the id on its task events; a few seconds either side), or since/until; with none, the latest records. Times are the instrument's wall clock. level=WARNING keeps warnings and errors, which is usually what explains a failure. truncated says older records in the window were dropped: narrow it.",
+        method="GET",
+        path="/app/log",
+        scope="read",
+        router="app",
+        params={
+            "task_id": "a run's task id: read the log while that run was going",
+            "since": "ISO time: records at or after it (instead of task_id)",
+            "until": "ISO time: records at or before it (instead of task_id)",
+            "level": "the lowest level to keep: DEBUG, INFO, WARNING, ERROR",
+            "lines": "the most records to return, the latest kept (default 200, max 2000)",
+        },
+    ),
+    ToolSpec(
         name="get_protocol",
         description="The workflow definition with live supervision flags and schedules. Each task carries `attendance`: whether a person must be at the microscope while it runs and what waits for their decision afterwards, under its current attention.",
         method="GET",
@@ -302,6 +317,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         scope="read",
         router="app",
         params={"item_name": "the item (lamella) name"},
+    ),
+    ToolSpec(
+        name="get_item_output_image",
+        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file get_task_outputs lists (stacks and channels max-projected). A preview, not the data. An unlisted name is refused with the valid ones.",
+        method="GET",
+        path="/app/items/{item_name}/outputs/{filename}",
+        scope="read",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "filename": "a basename from get_task_outputs",
+        },
     ),
     ToolSpec(
         name="get_grids",
@@ -472,7 +499,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_workflow",
-        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed whenever the agent can act (Drive), and never waits on the command lock. Not at Watch: a watching agent stops nothing.",
+        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed whenever the agent can act (Drive), and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/app/workflow/stop",
         scope="control",

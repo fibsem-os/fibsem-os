@@ -52,7 +52,7 @@ def _slot_position(microscope, x: float) -> FibsemStagePosition:
 
 def _calibrate(microscope, grids):
     """Put a grid (or None) in each holder slot, at x positions."""
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     for slot, (x, grid) in zip(
         sorted(holder.slots.values(), key=lambda s: s.index), grids
     ):
@@ -150,7 +150,10 @@ GRID_POSITION = (200e-6, 100e-6, 0.0)  # m: where the loader puts a grid
 def _arctis(grid_position=GRID_POSITION, captured=None):
     """The Arctis simulator with its loader putting grids at *grid_position*
     and, if given, a captured working-slot position in its configuration."""
-    from fibsem.microscopes._stage import COMPUSTAGE_HOLDER_NAME, _create_sample_stage
+    from fibsem.services.sample_handling import (
+        COMPUSTAGE_HOLDER_NAME,
+        bind_sample_handling,
+    )
     from fibsem.structures import GridSlot, SampleHolder, SlotCalibration
 
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=ARCTIS_CONFIG)
@@ -178,7 +181,7 @@ def _arctis(grid_position=GRID_POSITION, captured=None):
                 slots={"Slot-01": slot},
             )
         }
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     microscope._setup_sample_scene()
     scene = microscope._sample_scene
     scene.fiducial = True
@@ -191,13 +194,13 @@ def _arctis(grid_position=GRID_POSITION, captured=None):
     scene.features = []
     scene.__post_init__()
     scene.grids_from_holder = True
-    microscope._stage.get_inventory()
-    microscope._stage.ensure_loaded("Grid-01")
+    microscope.sample_handling.get_inventory()
+    microscope.sample_handling.ensure_loaded("Grid-01")
     return microscope
 
 
 def _image_at(microscope, orientation: str, beam: BeamType) -> np.ndarray:
-    slot = microscope._stage.holder.slots["Slot-01"]
+    slot = microscope.sample_handling.holder.slots["Slot-01"]
     target = microscope.get_target_position(slot.position, orientation)
     microscope.safe_absolute_stage_movement(target)
     settings = _settings()
@@ -248,7 +251,7 @@ def test_a_working_slot_off_the_grid_misses_it_and_a_captured_one_finds_it():
     assert reference["SEM"] is not None and reference["FIB"] is not None
 
     missed = _arctis()
-    assert missed._stage.holder.slots["Slot-01"].calibration.is_builtin
+    assert missed.sample_handling.holder.slots["Slot-01"].calibration.is_builtin
     assert not _close(_fiducials(missed)["SEM"], reference["SEM"])
 
     at = _sem_pose()
@@ -256,7 +259,7 @@ def test_a_working_slot_off_the_grid_misses_it_and_a_captured_one_finds_it():
     captured = _arctis(
         captured=FibsemStagePosition(name="Slot-01", x=x, y=y, z=z, r=at.r, t=at.t)
     )
-    slot = captured._stage.holder.slots["Slot-01"]
+    slot = captured.sample_handling.holder.slots["Slot-01"]
     assert not slot.calibration.is_builtin
     found = _fiducials(captured)
     assert _close(found["SEM"], reference["SEM"])

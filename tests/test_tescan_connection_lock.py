@@ -1,4 +1,4 @@
-"""Every SharkSEM call in the Tescan driver is serialised on _connection_lock (FIB-786).
+"""Every SharkSEM call in the Tescan driver is serialised on the connection's lock (FIB-786).
 
 SharkSEM is one socket. A long call (a frame transfer) running while another thread
 issues any other call interleaves request/response bytes on the shared stream, and
@@ -8,8 +8,8 @@ was added while reference images were being acquired.
 
 Two guards here:
 
-* an AST rule: every SDK call site in the driver and its milling service must sit
-  lexically inside a ``with self._connection_lock:`` block, so a new unlocked call
+* an AST rule: every SDK call site in the driver's connection, devices and services must
+  sit lexically inside a ``with`` block on the connection's lock, so a new unlocked call
   site fails this test rather than shipping as a latent race. There are no exceptions.
 * a behavioural check: real driver methods hammered from two threads against a fake
   connection that detects overlapping SDK entry.
@@ -22,8 +22,11 @@ import time
 
 import pytest
 
+from fibsem.drivers.tescan import connection as tescan_connection
+from fibsem.drivers.tescan import devices as tescan_devices
 from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.drivers.tescan import services as tescan_services
+from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.drivers.tescan.services import TescanMilling
 from fibsem.structures import BeamType, MillingState
@@ -45,28 +48,23 @@ def _is_sdk_call(func_node) -> bool:
     """A Call whose func is an attribute chain reaching the SharkSEM connection."""
     root, chain = _chain_of(func_node)
     if isinstance(root, ast.Name):
-        # self.connection.X.Y(...) has root `self` and chain starting "connection"
-        if root.id == "self" and chain and chain[0] == "connection":
+        # connection.sdk.X(...), self.connection.sdk.X(...), or the connection's own
+        # self.sdk.X(...)
+        if "sdk" in chain[:2]:
             return True
-        # the milling service's: self.parent.connection.X(...), or the parent as
-        # `microscope`
-        if root.id == "self" and chain[:2] == ["parent", "connection"]:
+        # a device's vendor beam: self._beam.X.Y(...)
+        if root.id == "self" and chain[:1] == ["_beam"] and len(chain) > 1:
             return True
-        if root.id == "microscope" and chain and chain[0] == "connection":
-            return True
-        # beam = self._get_beam(...); beam.X.Y(...)
+        # beam = connection.beam(...); beam.X.Y(...)
         if root.id in ("beam", "sem", "fib") and chain:
             return True
-    if isinstance(root, ast.Call):
-        # inline chains: self._get_beam(...).Preset.Enum(...)
-        inner_root, inner_chain = _chain_of(root.func)
-        if (
-            isinstance(inner_root, ast.Name)
-            and inner_root.id == "self"
-            and inner_chain == ["_get_beam"]
-        ):
-            return True
     return False
+
+
+def _is_lock(node) -> bool:
+    """``self.lock``, ``self._lock``, ``connection.lock``, ``self.connection.lock``."""
+    root, chain = _chain_of(node)
+    return isinstance(root, ast.Name) and chain[-1:] in (["lock"], ["_lock"])
 
 
 class _LockAudit(ast.NodeVisitor):
@@ -83,9 +81,7 @@ class _LockAudit(ast.NodeVisitor):
     visit_AsyncFunctionDef = visit_FunctionDef
 
     def visit_With(self, node):
-        is_lock = any(
-            "_connection_lock" in ast.dump(item.context_expr) for item in node.items
-        )
+        is_lock = any(_is_lock(item.context_expr) for item in node.items)
         if is_lock:
             self._lock_depth += 1
         self.generic_visit(node)
@@ -101,14 +97,16 @@ class _LockAudit(ast.NodeVisitor):
 
 
 @pytest.mark.parametrize(
-    "module", [tescan_module, tescan_services], ids=lambda m: m.__name__
+    "module",
+    [tescan_module, tescan_connection, tescan_devices, tescan_services],
+    ids=lambda m: m.__name__,
 )
 def test_every_sdk_call_site_is_under_the_connection_lock(module):
     tree = ast.parse(inspect.getsource(module))
     audit = _LockAudit()
     audit.visit(tree)
     assert audit.violations == [], (
-        "SharkSEM call sites outside `with self._connection_lock:` "
+        "SharkSEM call sites outside `with connection.lock:` "
         "(one socket -- unlocked calls tear the protocol):\n  "
         + "\n  ".join(audit.violations)
     )
@@ -159,13 +157,12 @@ class RacingDrawBeam:
 
 def make_microscope(monkeypatch):
     m = object.__new__(TescanMicroscope)
-    m._connection_lock = threading.RLock()
     detector = OverlapDetector()
 
     class Conn:
         DrawBeam = RacingDrawBeam(detector)
 
-    m.connection = Conn()
+    m._connection = TescanConnection(Conn(), "localhost", 8300)
     # the status mapping is defined inside the SDK-gated import block, absent
     # without tescanautomation installed (same pattern as the spot-burn tests)
     monkeypatch.setattr(
@@ -174,7 +171,7 @@ def make_microscope(monkeypatch):
         {"IDLE": MillingState.IDLE},
         raising=False,
     )
-    m.milling = TescanMilling(parent=m)
+    m.milling = TescanMilling(parent=m, connection=m._connection)
     return m, detector
 
 

@@ -18,6 +18,9 @@ Register with Claude Code:
     claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
+
+``fibsem-mcp watch`` prints a line per app event worth waking an agent for,
+and needs nothing beyond fibsem itself (see :mod:`fibsem.mcp.watch`).
 """
 
 import argparse
@@ -26,6 +29,7 @@ import json
 import os
 import sys
 from typing import Any, Optional, Tuple
+from urllib.parse import quote, urlencode
 
 from fibsem.server.catalog import CATALOG, tools_for_capabilities
 
@@ -146,6 +150,14 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
         sleep_fn(1.0)
 
 
+def _refusal(resp):
+    try:
+        detail = resp.json().get("detail", resp.text)
+    except ValueError:
+        detail = resp.text
+    return f"refused ({resp.status_code}): {json.dumps(detail)}"
+
+
 def _call(client, method, path, payload=None):
     """Call the server; refusals come back as readable text, not exceptions.
 
@@ -154,11 +166,7 @@ def _call(client, method, path, payload=None):
     """
     resp = client.request(method, path, json=payload)
     if resp.status_code >= 400:
-        try:
-            detail = resp.json().get("detail", resp.text)
-        except ValueError:
-            detail = resp.text
-        return None, f"refused ({resp.status_code}): {json.dumps(detail)}"
+        return None, _refusal(resp)
     try:
         return resp.json(), None
     except ValueError:
@@ -354,8 +362,38 @@ def build_sidecar(client, capabilities):
     def get_protocol():
         return _app_get("/app/protocol")
 
+    def get_log(
+        task_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        level: Optional[str] = None,
+        lines: int = 200,
+    ):
+        query = {
+            "task_id": task_id,
+            "since": since,
+            "until": until,
+            "level": level,
+            "lines": lines,
+        }
+        return _app_get(
+            "/app/log?" + urlencode({k: v for k, v in query.items() if v is not None})
+        )
+
     def get_task_outputs(item_name: str):
         return _app_get(f"/app/task_outputs/{item_name}")
+
+    def get_item_output_image(item_name: str, filename: str):
+        # The route answers image/jpeg for the dashboard's <img>, so this reads
+        # the bytes itself rather than through _call. Basenames carry spaces.
+        path = (
+            f"/app/items/{quote(item_name, safe='')}/outputs/{quote(filename, safe='')}"
+        )
+        resp = client.request("GET", path)
+        if resp.status_code >= 400:
+            return _refusal(resp)
+        meta = {"item_name": item_name, "filename": filename}
+        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_item_detail(item_name: str):
         return _app_get(f"/app/items/{item_name}")
@@ -588,8 +626,10 @@ def build_sidecar(client, capabilities):
             get_experiment_summary,
             get_task_history,
             get_run_summary,
+            get_log,
             get_protocol,
             get_task_outputs,
+            get_item_output_image,
             get_item_detail,
             get_grids,
             get_grid_detail,
@@ -631,6 +671,12 @@ def build_sidecar(client, capabilities):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["watch"]:
+        # Before the mcp import: watching needs only HTTP (FIB-1269).
+        from fibsem.mcp.watch import main as watch_main
+
+        sys.exit(watch_main(argv[1:]))
     try:
         import mcp  # noqa: F401
     except ImportError:

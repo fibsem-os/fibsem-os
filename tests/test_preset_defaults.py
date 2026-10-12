@@ -16,7 +16,6 @@ from fibsem.structures import BeamType
 
 def test_only_the_tescan_ion_column_is_set_by_preset():
     tescan = object.__new__(TescanMicroscope)
-    tescan._connection_lock = threading.RLock()
 
     assert tescan.beam_uses_presets(BeamType.ION)
     assert not tescan.beam_uses_presets(BeamType.ELECTRON)

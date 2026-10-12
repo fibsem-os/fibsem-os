@@ -11,7 +11,7 @@ from fibsem.structures import InsertableDeviceState
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem import utils
-from fibsem.microscopes._stage import _create_sample_stage
+from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui.widgets.canvas.chamber_view import is_half_turn
 from fibsem.ui.widgets.canvas.quad_view import (
@@ -23,7 +23,7 @@ from fibsem.ui.widgets.canvas.quad_view import (
 def _microscope(compustage: bool):
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = compustage
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     if compustage:
         microscope.system.stage.shuttle_pre_tilt = 0
     return microscope

@@ -24,6 +24,7 @@ from typing import List, Optional, Sequence
 import numpy as np
 
 from fibsem.drivers.tescan import microscope as tescan_module
+from fibsem.drivers.tescan.images import image_from_tescan
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import BeamType, FibsemImage, ImageSettings, SystemSettings
 
@@ -326,7 +327,7 @@ def connect(monkeypatch, system: SystemSettings, fake: Optional[FakeTescan] = No
     )
     microscope = TescanMicroscope(copy.deepcopy(system))
     microscope.connect_to_microscope(ip_address="localhost", port=8300)
-    fake.lock = microscope._connection_lock
+    fake.lock = microscope._connection.lock
     fake.log.clear()
     return microscope, fake
 
@@ -348,9 +349,10 @@ def image_at(
     document = _Document(
         np.zeros(shape, dtype=np.uint8), header_at(fake, beam_type, pixel_size)
     )
-    image = microscope._image_from_tescan(
+    image = image_from_tescan(
         document,
         ImageSettings(resolution=(shape[1], shape[0]), beam_type=beam_type),
+        microscope.stage,
     )
     image.metadata.image_settings.beam_type = beam_type
     microscope._set_additional_metadata(image)

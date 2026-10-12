@@ -21,6 +21,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.devices import bind_tescan_stage
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import FibsemStagePosition
@@ -46,13 +47,14 @@ class _TescanStage:
 
 def _tescan():
     microscope = object.__new__(TescanMicroscope)  # skip __init__ (requires the SDK)
-    microscope._connection_lock = threading.RLock()
     microscope.system = utils.load_microscope_configuration(
         os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     microscope.fm = None
     stage = _TescanStage()
-    microscope.connection = SimpleNamespace(Stage=stage)
+    microscope._connection = TescanConnection(
+        SimpleNamespace(Stage=stage), "localhost", 8300
+    )
     microscope.stage = bind_tescan_stage(microscope)
     microscope._build_stage_movement()
     return microscope, stage

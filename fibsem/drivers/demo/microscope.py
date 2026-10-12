@@ -73,7 +73,6 @@ from fibsem.drivers.demo.simulator import (
 )
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope, _records_beam_shift
-from fibsem.microscopes._stage import SampleGridLoader
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -153,12 +152,12 @@ class DemoMicroscope(
     # The needle moves as the Demo's did before devices, with no correction on a corrected
     # move (``move_manipulator_corrected``); its named positions are the device's.
     manipulator_move_types = ("relative", "corrected")
+    # The simulated sample loader's magazine is free to read, so the sample handling
+    # service reads it when it is built.
+    _read_magazine_at_connect = True
 
     def __init__(self, system_settings: SystemSettings):
         self._start_session(system_settings)
-        # The ion beam's plasma gas is read before its device is built, which only
-        # offers a gas on a plasma column, so it is read at connect.
-        self._read_plasma_source()
         self._build_devices(initial_demo_parts(self.system))
         self._setup_fluorescence()
         self._finish_session()
@@ -172,10 +171,6 @@ class DemoMicroscope(
         ``_setup_fluorescence``.
         """
         defaults = DEMO_DEVICES
-        # A simulated instrument with no manipulator has no manipulator device, so
-        # `is_available("manipulator")` says so (`sim.has_manipulator`).
-        if not self._is_fitted("manipulator"):
-            defaults = tuple(d for d in defaults if d.name != "manipulator")
         if sim_is_compustage(self.system):
             defaults = (*defaults, DEMO_SAMPLE_LOADER)
         resolved = [
@@ -191,6 +186,9 @@ class DemoMicroscope(
         built = build_device_entries(resolved, self, shared=shared)
         for name, device in built.items():
             self._set_device(name, device)
+        # A simulated instrument with no manipulator keeps no manipulator device, so
+        # `is_available("manipulator")` says so (`sim.has_manipulator`).
+        self._keep_if_fitted("manipulator")
         self._bind_device_roles()
         self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
         self._device_routes = MappingProxyType(
@@ -209,17 +207,6 @@ class DemoMicroscope(
         self.milling = bind_demo_milling(self)
         self._build_stage_movement()
         self.spot_burn = bind_demo_spot_burn(self)
-
-    def _create_grid_loader(self) -> Optional[SampleGridLoader]:
-        """The grid model over the ``sample_loader`` device, or None when there is
-        none (``enabled: false``): grids are then exchanged by hand."""
-        from fibsem.microscopes._stage import DeviceSampleLoader
-
-        device = self.devices.get("sample_loader")
-        if device is None:
-            logging.info("No sample loader: grids are exchanged by hand.")
-            return None
-        return DeviceSampleLoader(self, device, read_at_connect=True)
 
     # The beam methods the shared demo code leaves to each demo, on the beam devices.
 

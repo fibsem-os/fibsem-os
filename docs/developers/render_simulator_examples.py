@@ -362,7 +362,7 @@ def main():
     arctis.disconnect()
 
     # 6. grids at the holder's slots
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     for slot, (x, name) in zip(
         sorted(holder.slots.values(), key=lambda s: s.index),
         ((-1.5e-3, "Grid-A"), (1.5e-3, "Grid-B")),

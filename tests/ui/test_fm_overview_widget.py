@@ -4357,7 +4357,7 @@ def test_recalibrating_a_slot_moves_its_marker_without_a_stage_move(qapp):
     _show_holder_overlays(widget)
     qapp.processEvents()
 
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     slot = next(s for s in holder.slots.values() if s.position is not None)
 
     def marker():

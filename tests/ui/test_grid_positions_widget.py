@@ -302,7 +302,7 @@ class TestFromTheGridsTab:
     def test_the_load_button_asks_the_tab_for_the_grid(self, tab, ui):
         """A grid the loader holds can be brought onto the stage from here; the
         banner follows the inventory."""
-        experiment, stage = ui.experiment, ui.microscope._stage
+        experiment, stage = ui.experiment, ui.microscope.sample_handling
         experiment.sync_grids_from_inventory(stage)
         record = experiment.get_grid_by_name("Grid-02")
         tab.refresh()

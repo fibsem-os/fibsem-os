@@ -1,6 +1,6 @@
 """Today's grid model, pinned before it moves into a service.
 
-`fibsem.microscopes._stage` holds the sample holder, the grid model over the sample
+`fibsem.services.sample_handling` holds the sample holder, the grid model over the sample
 loader device, and the commands that make a grid reachable. It is about to become the
 `SampleHandling` service (`microscope.sample_handling`). This file pins what it does on
 the three kinds of system it serves, so the move can show it changed nothing:
@@ -53,12 +53,12 @@ CASES = ("flat", "flat-calibrated", "arctis", "arctis-no-loader")
 
 def _handling(microscope):
     """The grid model under test."""
-    return microscope._stage
+    return microscope.sample_handling
 
 
 def _rebuild(microscope) -> None:
     """Build the grid model again, as a configuration change or a new session does."""
-    microscope._create_sample_stage()
+    microscope._build_sample_handling()
 
 
 # ---- connecting each case ------------------------------------------------------------
@@ -68,7 +68,7 @@ def _isolate_holder_files() -> None:
     """As tests/conftest.py does, but for every case, here and under --write: a fresh
     copy of the shipped default holder, never this machine's, no old occupancy file
     to import, and an empty session state."""
-    import fibsem.microscopes._stage as stage_module
+    import fibsem.services.sample_handling as stage_module
     import fibsem.session_state as session_state
     from fibsem.structures import default_sample_holder
 
@@ -239,7 +239,7 @@ def _measure(case: str) -> Dict[str, Any]:
     calls: List[Any] = []
     _record_drivers(microscope, calls)
     result: Dict[str, Any] = {
-        "has_loader": handling.loader is not None,
+        "has_loader": handling.magazine is not None,
         "holder": _holder(handling.holder),
         "inventory": _inventory(handling.grid_inventory()),
     }

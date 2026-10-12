@@ -164,7 +164,7 @@ def grid_of_root_overview(
     if microscope is None or experiment is None:
         return None
     position = getattr(metadata, "stage_position", None)
-    stage = getattr(microscope, "_stage", None)
+    stage = getattr(microscope, "sample_handling", None)
     if position is None or stage is None:
         return None
     try:
@@ -339,7 +339,7 @@ class QuadOverviewPage(QWidget):
         if not self._has_grids() or self._stage is None:
             return None
         try:
-            grid = self._microscope._stage.grid_at_position(self._stage)
+            grid = self._microscope.sample_handling.grid_at_position(self._stage)
         except Exception:
             return None
         if grid is None:

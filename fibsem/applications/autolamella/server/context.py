@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.structures import Attention, AutoLamellaTaskStatus
-from fibsem.util.timestamps import to_iso
+from fibsem.util.timestamps import to_iso, wall_time_of
 
 __all__ = [
     "AutoLamellaAppContext",
@@ -365,6 +365,71 @@ class AutoLamellaAppContext:
         if last is not None:
             return {"available": True, "items": _records(last)}
         return {"available": False, "items": []}
+
+    def log(
+        self,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        task_id: Optional[str] = None,
+        level: Optional[str] = None,
+        lines: int = 200,
+    ) -> Dict[str, Any]:
+        """The session's log in a time window: ``since``/``until``, or the run
+        ``task_id`` (from its start to its end, a few seconds either side), or
+        the tail when neither is given. See ``log_tail`` for what is served."""
+        from pathlib import Path
+
+        from fibsem.applications.autolamella.server import log_tail
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"available": False, "records": []}
+        if level is not None:
+            level = level.upper()
+            if level not in log_tail.LEVELS:
+                return {
+                    "available": True,
+                    "error_type": "invalid",
+                    "error": f"No log level {level!r}.",
+                    "levels": list(log_tail.LEVELS),
+                }
+        window = {}
+        for name, value in (("since", since), ("until", until)):
+            if value is None:
+                continue
+            window[name] = wall_time_of(value)
+            if window[name] is None:
+                return {
+                    "available": True,
+                    "error_type": "invalid",
+                    "error": f"{name}={value!r} is not a time.",
+                }
+        if task_id is not None:
+            if window:
+                return {
+                    "available": True,
+                    "error_type": "invalid",
+                    "error": "Give task_id or since/until, not both.",
+                }
+            found = log_tail.run_window(experiment.path, task_id)
+            if found is None:
+                return {
+                    "available": True,
+                    "error_type": "not_found",
+                    "error": f"No run {task_id!r} in this experiment's record.",
+                }
+            window = {"since": found[0], "until": found[1]}
+        path = Path(experiment.path) / log_tail.LOG_FILENAME
+        if not path.is_file():
+            return {"available": False, "records": []}
+        result = log_tail.read_log(path, level=level, lines=lines, **window)
+        start, end = window.get("since"), window.get("until")
+        return {
+            "available": True,
+            "since": start.isoformat() if start is not None else None,
+            "until": end.isoformat() if end is not None else None,
+            **result,
+        }
 
     def protocol(self) -> Dict[str, Any]:
         """The workflow definition with live supervision flags, schedules and

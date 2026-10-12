@@ -3,15 +3,16 @@
 The pause used to live in the shared `acquire.take_reference_images` behind a manufacturer
 check (FIB-1118). It is now the driver's, keyed on the previous requested acquisition.
 
-No hardware or Tescan SDK required: the microscope is created without __init__.
+The pause is on the connection, which every beam of one microscope shares. No hardware
+or Tescan SDK required.
 """
 
 from typing import List
 
 import pytest
 
-from fibsem.drivers.tescan import microscope as tescan
-from fibsem.drivers.tescan.microscope import TescanMicroscope
+from fibsem.drivers.tescan import connection as tescan
+from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.structures import BeamType
 
 
@@ -22,14 +23,14 @@ def sleeps(monkeypatch) -> List[float]:
     return recorded
 
 
-def make_microscope() -> TescanMicroscope:
-    return object.__new__(TescanMicroscope)
+def make_connection() -> TescanConnection:
+    return TescanConnection(sdk=None, ip_address="localhost", port=8300)
 
 
 def test_an_ion_image_after_an_electron_image_waits(sleeps):
-    m = make_microscope()
-    m._settle_after_electron_image(BeamType.ELECTRON)
-    m._settle_after_electron_image(BeamType.ION)
+    m = make_connection()
+    m.settle_after_electron_image(BeamType.ELECTRON)
+    m.settle_after_electron_image(BeamType.ION)
     assert sleeps == [tescan.TESCAN_ELECTRON_TO_ION_SETTLE_TIME]
 
 
@@ -44,14 +45,14 @@ def test_an_ion_image_after_an_electron_image_waits(sleeps):
     ],
 )
 def test_no_other_sequence_waits(sleeps, sequence):
-    m = make_microscope()
+    m = make_connection()
     for beam_type in sequence:
-        m._settle_after_electron_image(beam_type)
+        m.settle_after_electron_image(beam_type)
     assert sleeps == []
 
 
-def test_each_microscope_tracks_its_own_last_beam(sleeps):
-    a, b = make_microscope(), make_microscope()
-    a._settle_after_electron_image(BeamType.ELECTRON)
-    b._settle_after_electron_image(BeamType.ION)
+def test_each_connection_tracks_its_own_last_beam(sleeps):
+    a, b = make_connection(), make_connection()
+    a.settle_after_electron_image(BeamType.ELECTRON)
+    b.settle_after_electron_image(BeamType.ION)
     assert sleeps == []

@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 import yaml
 
 import fibsem
+import fibsem.util.numpy_yaml  # noqa: F401  numpy scalars dump as numbers
 from fibsem import manufacturers
 from fibsem.drivers import registry
 from fibsem.util.timestamps import to_datetime

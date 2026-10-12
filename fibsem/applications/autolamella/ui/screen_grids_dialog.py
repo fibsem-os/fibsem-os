@@ -54,8 +54,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
 from fibsem.applications.autolamella.workflows.workflow_estimate import (
     WorkflowEstimate,
 )
-from fibsem.microscopes._stage import GridInventoryEntry, GridSlotState
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.tokens import (
@@ -252,7 +251,7 @@ class ScreenGridsDialog(QDialog):
 
     @property
     def has_loader(self) -> bool:
-        return self.stage.loader is not None
+        return self.stage.magazine is not None
 
     def names(self) -> Dict[str, str]:
         """The name typed for each slot, as held: nothing is written until Screen."""

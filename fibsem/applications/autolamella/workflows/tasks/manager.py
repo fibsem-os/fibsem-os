@@ -21,6 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.status import (
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.constants import DATETIME_DISPLAY_AMPM
+from fibsem.control import WORKFLOW
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import InsertableDeviceState
@@ -1106,6 +1107,9 @@ def run_tasks(
 ) -> None:
     """Run the specified tasks for all lamellas in the experiment.
     Thin wrapper around TaskManager for backward compatibility and headless usage.
+    In control of the microscope for the run (FIB-1270): refused with
+    ``MicroscopeBusy`` if someone else is.
     """
     manager = TaskManager(microscope, experiment, parent_ui, hook_manager=hook_manager)
-    manager.run(task_names, required_lamella)
+    with microscope.control.take(WORKFLOW, "a lamella run"):
+        manager.run(task_names, required_lamella)

@@ -79,6 +79,24 @@ tools) and ask:
 - "Tilt to a 15 degree milling angle and confirm the readback."
 - "Does the last electron image look focused?"
 
+## 4. Watch a run
+
+MCP cannot wake an idle agent, so an agent that supervises or observes a run
+keeps a watcher running in the background and wakes on each line it prints:
+
+```bash
+fibsem-mcp watch
+```
+
+It finds the server as the sidecar does (`--url`/`--token`, the environment
+variables, the discovery file) and follows a restarted app the same way. It
+prints `PROMPT`, `ANSWERED`, `PROMPT WITHDRAWN`, `QUESTION`,
+`QUESTION RELEASED`, task `EVENT` lines, `GAP` (events were lost; re-read the
+prompt and status) and `RUN ENDED`, and exits 0 when the run ends or 1 when
+the app cannot be watched. It needs only fibsem, not the `[mcp]` extra; where
+`fibsem-mcp` is not on the PATH, `python -m fibsem.mcp.sidecar watch` is the
+same thing.
+
 ## Order and troubleshooting
 
 - **Order barely matters**: the sidecar waits up to 30 s for a server to
@@ -100,7 +118,7 @@ tools) and ask:
 Loopback bind keeps everything off the network by default; the per-session
 bearer token keeps other users on the same machine out; the `hardware` scope
 must be armed before anything moves or images; one hardware command runs at a
-time (a second gets `409 busy`); `stop_milling` needs `control` or
+time (a second gets `409 microscope_busy`); `stop_milling` needs `control` or
 `hardware` and never waits. **Never run this beside a running AutoLamella
 session** — one commander per microscope; agent access to a live AutoLamella
 session goes *through* the app (its App Server, where the operator sets the

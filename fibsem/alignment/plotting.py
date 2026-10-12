@@ -20,12 +20,14 @@ if TYPE_CHECKING:
     from fibsem.structures import FibsemImage
 
 
-def _plot_image_with_crosshair(ax: Axes, data: np.ndarray, title: str) -> None:
-    """Plot an image with a yellow crosshair at the centre."""
+def _plot_image_with_crosshair(
+    ax: Axes, data: np.ndarray, title: str, crosshair: str
+) -> None:
+    """Plot an image with a crosshair at the centre, in the theme's ``crosshair``."""
     ax.imshow(data, cmap="gray")
     cy, cx = data.shape[0] // 2, data.shape[1] // 2
-    ax.axhline(cy, color="yellow", linewidth=2, alpha=0.7)
-    ax.axvline(cx, color="yellow", linewidth=2, alpha=0.7)
+    ax.axhline(cy, color=crosshair, linewidth=1, alpha=0.7)
+    ax.axvline(cx, color=crosshair, linewidth=1, alpha=0.7)
     ax.set_title(title)
     ax.axis("off")
 
@@ -72,6 +74,24 @@ def plot_multi_step_alignment(
     Returns:
         matplotlib.figure.Figure
     """
+    from fibsem.theme.plots import DARK, plot_theme
+
+    with plot_theme(DARK) as theme:
+        return _plot_multi_step_alignment(
+            ref_image,
+            alignment_results,
+            title,
+            save,
+            final_image,
+            path,
+            validation,
+            theme,
+        )
+
+
+def _plot_multi_step_alignment(
+    ref_image, alignment_results, title, save, final_image, path, validation, theme
+):
     from datetime import datetime
 
     from matplotlib.figure import Figure
@@ -98,13 +118,15 @@ def plot_multi_step_alignment(
     fig.suptitle(title)
 
     # row 0: reference + each alignment step image
-    _plot_image_with_crosshair(axes[0, 0], ref_image.data, "Reference")
+    _plot_image_with_crosshair(axes[0, 0], ref_image.data, "Reference", theme.crosshair)
     for i, r in enumerate(alignment_results):
-        _plot_image_with_crosshair(axes[0, 1 + i], r.image.data, f"Step {i + 1}")
+        _plot_image_with_crosshair(
+            axes[0, 1 + i], r.image.data, f"Step {i + 1}", theme.crosshair
+        )
         pixel_size = r.image.metadata.pixel_size.x if r.image.metadata else 1.0
         dx_px = r.shift.x / pixel_size
         dy_px = r.shift.y / pixel_size
-        colour = "lime" if r.score >= 0.7 else ("orange" if r.score >= 0.5 else "red")
+        colour = theme.score(r.score)
         axes[0, 1 + i].text(
             0.04,
             0.04,
@@ -114,9 +136,7 @@ def plot_multi_step_alignment(
             fontsize=7,
             va="bottom",
             fontfamily="monospace",
-            bbox=dict(
-                boxstyle="round,pad=0.2", facecolor="black", alpha=0.6, edgecolor="none"
-            ),
+            bbox=theme.label_box(),
         )
         cx, cy = r.image.data.shape[1] // 2, r.image.data.shape[0] // 2
         axes[0, 1 + i].annotate(
@@ -150,9 +170,20 @@ def plot_multi_step_alignment(
 
     for i, r in enumerate(alignment_results):
         col = 1 + i
-        colour = "lime" if r.score >= 0.7 else ("orange" if r.score >= 0.5 else "red")
+        colour = theme.score(r.score)
         if r.xcorr is not None:
             axes[1, col].imshow(r.xcorr, cmap="inferno")
+        else:  # not saved with the run, so not there when it is reloaded
+            axes[1, col].text(
+                0.5,
+                0.5,
+                "map not saved",
+                ha="center",
+                va="center",
+                color=theme.text_muted,
+                fontsize=8,
+                transform=axes[1, col].transAxes,
+            )
         axes[1, col].set_title(
             f"XCorr {i + 1}\ndx={r.shift.x * 1e9:.1f}nm, dy={r.shift.y * 1e9:.1f}nm\nscore={r.score:.2f}",
             fontsize="small",
@@ -164,10 +195,14 @@ def plot_multi_step_alignment(
     if final_image is not None:
         for c in range(n_cols):
             axes[2, c].axis("off")
-        _plot_image_with_crosshair(axes[2, 0], ref_image.data, "Reference")
-        _plot_image_with_crosshair(axes[2, n_cols - 1], final_image.data, "Final")
+        _plot_image_with_crosshair(
+            axes[2, 0], ref_image.data, "Reference", theme.crosshair
+        )
+        _plot_image_with_crosshair(
+            axes[2, n_cols - 1], final_image.data, "Final", theme.crosshair
+        )
         if validation is not None:
-            colour = "lime" if validation.agreement else "orange"
+            colour = theme.good if validation.agreement else theme.warn
             lines = []
             for method_name, shift_pt in validation.shifts_px.items():
                 mag = np.hypot(shift_pt.x, shift_pt.y)
@@ -183,12 +218,7 @@ def plot_multi_step_alignment(
                 fontsize=7,
                 va="bottom",
                 fontfamily="monospace",
-                bbox=dict(
-                    boxstyle="round,pad=0.3",
-                    facecolor="black",
-                    alpha=0.6,
-                    edgecolor="none",
-                ),
+                bbox=theme.label_box(),
             )
 
     fig.tight_layout()
@@ -216,6 +246,17 @@ def plot_coincidence_measurement(
     Returns:
         matplotlib.figure.Figure
     """
+    from fibsem.theme.plots import DARK, plot_theme
+
+    with plot_theme(DARK) as theme:
+        return _plot_coincidence_measurement(
+            sem_image, fib_image, measurement, title, save, path, theme
+        )
+
+
+def _plot_coincidence_measurement(
+    sem_image, fib_image, measurement, title, save, path, theme
+):
     from datetime import datetime
 
     from matplotlib.figure import Figure
@@ -249,8 +290,8 @@ def plot_coincidence_measurement(
     fig = Figure(figsize=(12, 4.2))
     axes = fig.subplots(1, 3)
     fig.suptitle(title)
-    _plot_image_with_crosshair(axes[0], sem_image.data, "SEM")
-    _plot_image_with_crosshair(axes[1], fib_image.data, "FIB")
+    _plot_image_with_crosshair(axes[0], sem_image.data, "SEM", theme.crosshair)
+    _plot_image_with_crosshair(axes[1], fib_image.data, "FIB", theme.crosshair)
     axes[2].imshow(overlay)
     axes[2].set_title("Overlay (SEM green, aligned FIB red)")
     axes[2].axis("off")
@@ -260,7 +301,7 @@ def plot_coincidence_measurement(
         if measurement.is_reliable
         else (f"REFUSED ({measurement.refusal_reason})")
     )
-    colour = "lime" if measurement.is_reliable else "red"
+    colour = theme.good if measurement.is_reliable else theme.bad
     axes[2].text(
         0.04,
         0.04,
@@ -273,9 +314,7 @@ def plot_coincidence_measurement(
         fontsize=7,
         va="bottom",
         fontfamily="monospace",
-        bbox=dict(
-            boxstyle="round,pad=0.2", facecolor="black", alpha=0.6, edgecolor="none"
-        ),
+        bbox=theme.label_box(),
     )
 
     fig.tight_layout()
@@ -306,6 +345,13 @@ def plot_coincidence_alignment(
     Returns:
         matplotlib.figure.Figure
     """
+    from fibsem.theme.plots import DARK, plot_theme
+
+    with plot_theme(DARK) as theme:
+        return _plot_coincidence_alignment(result, title, theme)
+
+
+def _plot_coincidence_alignment(result, title, theme):
     from datetime import datetime
 
     from matplotlib.figure import Figure
@@ -346,7 +392,9 @@ def plot_coincidence_alignment(
         f"{', coarse pass used' if result.coarse_used else ''} — "
         f"{datetime.now().strftime(DATETIME_DISPLAY)}"
     )
-    fig.suptitle(header, fontsize=12, color="lime" if result.converged else "orange")
+    fig.suptitle(
+        header, fontsize=12, color=theme.good if result.converged else theme.warn
+    )
 
     s1, s2 = AGREEMENT_BANDS[0]
     for i, m in enumerate(rows):
@@ -360,10 +408,10 @@ def plot_coincidence_alignment(
 
         ax = fig.add_subplot(grid[i, 0])
         _plot_image_with_crosshair(
-            ax, sem, f"{i + 1}. SEM ({pass_name}, {hfw_um:.0f} um)"
+            ax, sem, f"{i + 1}. SEM ({pass_name}, {hfw_um:.0f} um)", theme.crosshair
         )
         ax = fig.add_subplot(grid[i, 1])
-        _plot_image_with_crosshair(ax, fib, f"{i + 1}. FIB")
+        _plot_image_with_crosshair(ax, fib, f"{i + 1}. FIB", theme.crosshair)
 
         # the correlator's view, FIB shifted by the measured residual
         ref = _preprocess(sem, s1, s2)
@@ -380,7 +428,7 @@ def plot_coincidence_alignment(
         ax.imshow(board, cmap="gray", vmin=lo, vmax=hi)
         ax.set_title("Correlator: SEM / aligned FIB checkerboard", fontsize=8)
         ax.axis("off")
-        colour = "lime" if m.is_reliable else "red"
+        colour = theme.good if m.is_reliable else theme.bad
         ax.text(
             0.03,
             0.04,
@@ -392,9 +440,7 @@ def plot_coincidence_alignment(
             fontsize=6.5,
             va="bottom",
             fontfamily="monospace",
-            bbox=dict(
-                boxstyle="round,pad=0.2", facecolor="black", alpha=0.6, edgecolor="none"
-            ),
+            bbox=theme.label_box(),
         )
 
     # a short strip along the bottom, not a column-high panel
@@ -403,19 +449,19 @@ def plot_coincidence_alignment(
     dz = np.array([m.dz for m in result.measurements]) * 1e6
     dx = np.array([m.dx for m in result.measurements]) * 1e6
     reliable = np.array([m.is_reliable for m in result.measurements])
-    ax.plot(idx, dz, "o-", color="tab:blue", label="dz (height)")
-    ax.plot(idx, dx, "s--", color="tab:gray", label="dx (lateral)")
+    ax.plot(idx, dz, "o-", color=theme.series[0], label="dz (height)")
+    ax.plot(idx, dx, "s--", color=theme.text_muted, label="dx (lateral)")
     if (~reliable).any():
         ax.plot(
             idx[~reliable],
             dz[~reliable],
             "x",
-            color="red",
+            color=theme.bad,
             ms=12,
             mew=2,
             label="refused",
         )
-    ax.axhline(0, color="k", lw=0.8)
+    ax.axhline(0, color=theme.text_muted, lw=0.8)
     ax.set_xticks(idx)
     ax.set_xlabel("measurement")
     ax.set_ylabel("um")

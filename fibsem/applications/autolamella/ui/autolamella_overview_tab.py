@@ -131,7 +131,7 @@ class AutoLamellaOverviewTab(AutoLamellaOverviewTabBase):
         of the grid that is.
         """
         experiment = self.experiment
-        stage = getattr(self.microscope, "_stage", None)
+        stage = getattr(self.microscope, "sample_handling", None)
         if experiment is None or stage is None:
             return None
         try:

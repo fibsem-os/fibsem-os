@@ -16,9 +16,12 @@ A figure takes a theme by being built and saved inside ``plot_theme``::
 
 matplotlib reads its defaults when an artist is made, so the figure has to be
 built inside the block; saving inside it too keeps the saved background the
-theme's. A colour that means something -- a score that is good, the image
-centre -- comes from the theme by name, never as a literal, so it stays
-readable in both themes.
+theme's. A Qt widget that clears and redraws its axes on every update calls
+``style_axes`` (and ``style_legend``) after each clear instead.
+
+A colour that means something -- a score that is good, the image centre --
+comes from the theme by name, never as a literal, so it stays readable in both
+themes.
 
 Qt-free, like ``fibsem.theme.tokens``: the figures are saved by code that runs
 without the ``[ui]`` extra.
@@ -153,6 +156,28 @@ LIGHT = PlotTheme(
     bad="#c62828",
     crosshair=CURRENT_POSITION_COLOUR,
 )
+
+
+def style_axes(ax: Any, theme: PlotTheme = DARK) -> None:
+    """Colour an axes in ``theme`` after it was made: for a widget that clears and
+    redraws its axes on every update, where defaults set by ``plot_theme`` at
+    construction would be gone by the next redraw."""
+    ax.set_facecolor(theme.background)
+    ax.tick_params(colors=theme.text_muted, which="both")
+    for spine in ax.spines.values():
+        spine.set_color(theme.grid)
+    ax.xaxis.label.set_color(theme.text)
+    ax.yaxis.label.set_color(theme.text)
+    ax.title.set_color(theme.text_strong)
+
+
+def style_legend(legend: Any, theme: PlotTheme = DARK) -> None:
+    """Colour a legend made outside ``plot_theme``; see ``style_axes``."""
+    frame = legend.get_frame()
+    frame.set_facecolor(theme.background)
+    frame.set_edgecolor(theme.grid)
+    for text in legend.get_texts():
+        text.set_color(theme.text)
 
 
 @contextmanager

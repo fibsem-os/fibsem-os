@@ -42,8 +42,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import TiledAcquisitionRunner, stamped_overview_name
 from fibsem.imaging.tiling.geometry import compute_tile_grid, unreachable_tiles
-from fibsem.microscopes._stage import uncalibrated_message
 from fibsem.projection import BeamStageProjection
+from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import (
     BeamType,
     FibsemImage,

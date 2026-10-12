@@ -22,7 +22,7 @@ implements ``_stop``; ``axes()`` defaults to x, y and z.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fibsem.devices.core import Device, Parameter, command
 from fibsem.structures import FibsemManipulatorPosition, InsertableDeviceState
@@ -108,9 +108,28 @@ class Manipulator(Device):
             "axes": list(self.axes()),
             "named_positions": self.named_positions(),
             "saved_positions": saved,
+            "is_installed": self._installed_or_none(),
         }
 
+    def _installed_or_none(self) -> Optional[bool]:
+        # A raising answer is "cannot say": a missing arm and a sick connection
+        # look the same.
+        try:
+            return self.is_installed()
+        except Exception as error:
+            logging.debug(f"{self.name}: is_installed: {error}")
+            return None
+
     # -- what a backend implements -------------------------------------------------
+
+    def is_installed(self) -> Optional[bool]:
+        """Whether the instrument reports this arm fitted, or None if it cannot say.
+
+        A backend builds its own manipulator and then asks this; one the instrument
+        says is not fitted is taken out of the device map
+        (`FibsemMicroscope._keep_if_fitted`).
+        """
+        return None
 
     def named_positions(self) -> List[str]:
         """The names `saved_position` answers, if the instrument has any."""

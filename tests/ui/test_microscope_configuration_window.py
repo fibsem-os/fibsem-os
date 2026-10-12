@@ -117,8 +117,8 @@ def test_a_simulated_probe_is_reported_as_the_instrument(microscope):
     """`sim.has_manipulator` is the simulator's stand-in for the instrument
     answering."""
     microscope.system.sim["has_manipulator"] = False
-    # what connecting with that answer builds: no manipulator device
-    microscope.manipulator_device = None
+    # what connecting with that answer does: the device says so and is not kept
+    microscope._keep_if_fitted("manipulator")
     microscope._read_hardware_capabilities()
 
     rows = {
@@ -131,7 +131,7 @@ def test_a_simulated_probe_is_reported_as_the_instrument(microscope):
 def _fake_calibrated_slot(microscope):
     from fibsem.structures import FibsemStagePosition, SlotCalibration
 
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     slot = holder.slots["Slot-01"]
     slot.position = FibsemStagePosition(
         name="Slot-01", x=-3.1e-3, y=0.4e-3, z=4e-3, r=0.0, t=0.61
@@ -148,7 +148,7 @@ def _fake_calibrated_slot(microscope):
 def test_the_calibration_tab_shows_each_slot(qapp, microscope):
     _fake_calibrated_slot(microscope)
 
-    rows = slot_rows(microscope._stage.holder)
+    rows = slot_rows(microscope.sample_handling.holder)
 
     assert rows[0] == (
         "Slot-01",
@@ -179,7 +179,7 @@ def test_saving_a_slot_calibration_refreshes_the_tab(qapp, microscope):
     assert "0 of 2 calibrated" in _texts(window.tabs.widget(2))
 
     _fake_calibrated_slot(microscope)
-    window.refresh_calibration(microscope._stage.holder)
+    window.refresh_calibration(microscope.sample_handling.holder)
 
     assert window.tabs.tabText(2) == "Calibration"
     assert "1 of 2 calibrated" in _texts(window.tabs.widget(2))
@@ -195,9 +195,11 @@ def test_a_loader_holder_has_no_slots_to_calibrate(qapp):
     try:
         window = MicroscopeConfigurationWindow(microscope)
         buttons = window.tabs.widget(2).findChildren(QPushButton, "calibrate_slots")
-        assert microscope._stage.loader is not None
+        assert microscope.sample_handling.magazine is not None
         assert buttons == []
-        assert [row[1] for row in slot_rows(microscope._stage.holder)] == ["Built in"]
+        assert [row[1] for row in slot_rows(microscope.sample_handling.holder)] == [
+            "Built in"
+        ]
     finally:
         microscope.disconnect()
 
@@ -256,9 +258,9 @@ def test_an_empty_session_has_nothing_in_each_section():
 def test_the_calibration_tab_shows_the_grid_in_each_slot(qapp, microscope):
     from fibsem.structures import SampleGrid
 
-    microscope._stage.assign_grid("Slot-01", SampleGrid(name="grid-ash"))
+    microscope.sample_handling.assign_grid("Slot-01", SampleGrid(name="grid-ash"))
 
-    assert slot_rows(microscope._stage.holder)[0][2] == "grid-ash"
+    assert slot_rows(microscope.sample_handling.holder)[0][2] == "grid-ash"
     window = MicroscopeConfigurationWindow(microscope)
     assert "grid-ash" in _texts(window.tabs.widget(2))
 
@@ -393,7 +395,7 @@ def test_closing_with_nothing_to_save_does_not_ask(qapp, site, toasts, monkeypat
 def test_a_calibration_with_an_offset_shows_in_the_viewers_zone(qapp, microscope):
     """New records carry their UTC offset (FIB-1190); the fake slot's does not."""
     _fake_calibrated_slot(microscope)
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     holder.slots["Slot-01"].calibration.captured_at = "2026-09-24T17:51:10+00:00"
     local = datetime(2026, 9, 24, 17, 51, 10, tzinfo=timezone.utc).astimezone()
 

@@ -638,7 +638,7 @@ class TestItMarksOnlyWhatIsOnTheStage:
     unlinked lamella is drawn as ever; the list still names them all."""
 
     def test_a_lamella_on_a_grid_in_the_magazine_is_not_marked(self, tab, microscope):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         experiment = tab.experiment
         experiment.sync_grids_from_inventory(stage)
         two = experiment.get_grid_by_name("Grid-02")
@@ -673,13 +673,13 @@ class TestTheGridBarPlacementIsKeptOnTheGrid:
 
     @staticmethod
     def _load_a_grid(tab, microscope):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         tab.experiment.sync_grids_from_inventory(stage)
         stage.ensure_loaded("Grid-02")
         return tab.experiment.get_grid_by_name("Grid-02")
 
     def test_the_tab_knows_the_grid_under_the_stage(self, tab, microscope):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         assert tab.current_grid is None, "nothing is loaded yet"
         grid = self._load_a_grid(tab, microscope)
         try:
@@ -690,7 +690,7 @@ class TestTheGridBarPlacementIsKeptOnTheGrid:
     def test_a_drag_writes_the_placement_to_the_grid_and_to_disk(self, tab, microscope):
         import yaml
 
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         try:
             tab.overview.overlay_controls.set_visible("gridbars", True)
@@ -714,7 +714,7 @@ class TestTheGridBarPlacementIsKeptOnTheGrid:
             stage.unload()
 
     def test_reset_and_an_edited_pitch_are_kept_too(self, tab, microscope):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         try:
             tab.overview.overlay_controls.set_visible("gridbars", True)
@@ -732,7 +732,7 @@ class TestTheGridBarPlacementIsKeptOnTheGrid:
     def test_opening_the_experiment_again_puts_the_bars_back(
         self, tab, microscope, tmp_path
     ):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         self._load_a_grid(tab, microscope)
         try:
             tab.overview.overlay_controls.set_visible("gridbars", True)
@@ -760,7 +760,7 @@ class TestTheGridBarPlacementIsKeptOnTheGrid:
     def test_restoring_does_not_write_back(self, tab, microscope):
         """The widget's setters do not announce, so a restore is a read: an
         experiment opened and closed is byte-for-byte what it was."""
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         try:
             grid.set_overlay(
@@ -784,7 +784,7 @@ class TestTheGridBarPlacementIsKeptOnTheGrid:
         """The slot is empty when the experiment is opened -- a relaunch, or a
         loader that brings the grid in afterwards -- and the window refreshes
         the tab's positions on every load. That refresh restores."""
-        stage = microscope._stage
+        stage = microscope.sample_handling
         tab.experiment.sync_grids_from_inventory(stage)
         grid = tab.experiment.get_grid_by_name("Grid-02")
         grid.set_overlay(OverlayRecord(kind="gridbar", dx=1e-6, dy=2e-6, rotation=3.0))
@@ -804,7 +804,7 @@ class TestTheGridBarPlacementIsKeptOnTheGrid:
     ):
         """Positions refresh on every lamella change; that must not put bars being
         dragged back to what was saved."""
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         grid.set_overlay(OverlayRecord(kind="gridbar", dx=1e-6, dy=2e-6, rotation=3.0))
         try:
@@ -818,7 +818,7 @@ class TestTheGridBarPlacementIsKeptOnTheGrid:
             stage.unload()
 
     def test_with_no_grid_under_the_stage_a_drag_is_not_kept(self, tab, microscope):
-        assert microscope._stage.loaded_grids == []
+        assert microscope.sample_handling.loaded_grids == []
         tab.overview.set_gridbar_placement(3e-6, -4e-6, 12.0)
         tab.overview.gridbar_overlay.drag_finished.emit()  # must not raise
         assert all(not g.overlays for g in tab.experiment.grids)
@@ -831,7 +831,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
 
     @staticmethod
     def _load_a_grid(tab, microscope):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         tab.experiment.sync_grids_from_inventory(stage)
         stage.ensure_loaded("Grid-02")
         return tab.experiment.get_grid_by_name("Grid-02")
@@ -894,7 +894,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
     def test_a_drag_copies_the_file_in_and_records_the_placement(
         self, tab, microscope, tmp_path
     ):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
         try:
@@ -924,7 +924,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
     def test_opening_the_experiment_again_lays_the_image_back(
         self, tab, microscope, tmp_path
     ):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
         try:
@@ -953,7 +953,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
     def test_a_fit_is_kept_on_the_record(self, tab, microscope, tmp_path):
         """How the image was placed is part of the record: the pairs and the RMS
         go with the placement, and a later hand drag clears them."""
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
         try:
@@ -983,7 +983,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
             stage.unload()
 
     def test_removing_the_image_forgets_its_record(self, tab, microscope, tmp_path):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
         try:
@@ -999,7 +999,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
             stage.unload()
 
     def test_restoring_does_not_write_back(self, tab, microscope, tmp_path):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
         try:
@@ -1021,7 +1021,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
     def test_how_it_is_shown_is_kept_and_laid_back(self, tab, microscope, tmp_path):
         """Opacity, signal only and a channel's colour go on the record once an
         edit settles, and come back with the image -- without being written back."""
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
         try:
@@ -1071,7 +1071,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
             stage.unload()
 
     def test_a_mirror_is_kept_and_laid_back(self, tab, microscope, tmp_path):
-        stage = microscope._stage
+        stage = microscope.sample_handling
         grid = self._load_a_grid(tab, microscope)
         elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
         try:

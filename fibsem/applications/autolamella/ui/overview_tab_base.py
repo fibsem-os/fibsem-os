@@ -347,7 +347,7 @@ class AutoLamellaOverviewTabBase(QWidget):
         """The names of the grids on the stage, from what the stage already
         knows (no hardware call), or None when there is no stage to ask -- in
         which case nothing is withheld."""
-        stage = getattr(self.microscope, "_stage", None)
+        stage = getattr(self.microscope, "sample_handling", None)
         if stage is None:
             return None
         try:

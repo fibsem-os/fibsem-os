@@ -47,6 +47,17 @@ def test_each_level_has_its_word_and_tooltip(qapp, level, text):
     chip.deleteLater()
 
 
+def test_the_chip_keeps_one_width_at_every_level(qapp):
+    chip = AgentLevelChip()
+    widths = set()
+    for level in (AgentLevel.OFF, AgentLevel.WATCH, AgentLevel.DRIVE):
+        chip.set_level(level)
+        widths.add(chip.width())
+    assert len(widths) == 1
+    assert chip.minimumWidth() == chip.maximumWidth()
+    chip.deleteLater()
+
+
 def test_choosing_a_level_says_so_and_choosing_the_current_one_does_not(qapp):
     chip = AgentLevelChip()
     chosen = []
