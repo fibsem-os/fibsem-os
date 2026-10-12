@@ -29,13 +29,6 @@ from fibsem.structures import FibsemManipulatorPosition, InsertableDeviceState
 
 MANIPULATOR_RESOURCE = "manipulator"
 
-# Today's manipulator keys, for a backend that routes them to its manipulator
-# device. Both are reads; the old API moves the needle with methods, not keys.
-MANIPULATOR_ROUTES: Dict[str, str] = {
-    "manipulator_position": "position",
-    "manipulator_state": "state",
-}
-
 
 class Manipulator(Device):
     position = Parameter(FibsemManipulatorPosition, doc="Raw needle coordinates.")

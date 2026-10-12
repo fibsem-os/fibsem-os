@@ -153,7 +153,7 @@ def test_the_stage_has_position_and_linked_and_every_axis_unlimited(monkeypatch)
     microscope, _ = _connected(monkeypatch)
     stage = microscope.stage
     assert sorted(stage.parameters) == ["linked", "position"]
-    assert microscope.get("stage_linked") is False
+    assert stage.linked.get_value() is False
     assert list(stage.axes) == ["x", "y", "z", "r", "t"]
     assert all(stage.axes[a].limits == UNLIMITED for a in stage.axes)
 
@@ -161,6 +161,5 @@ def test_the_stage_has_position_and_linked_and_every_axis_unlimited(monkeypatch)
 def test_a_disabled_stage_gets_no_device(monkeypatch):
     microscope, _ = connect(monkeypatch, _system(stage=False))
     assert microscope.stage is None and bind_tescan_stage(microscope) is None
-    assert microscope.get("stage_position") is None
     with pytest.raises(NotImplementedError, match="get_stage_position"):
         microscope.get_stage_position()

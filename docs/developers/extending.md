@@ -36,8 +36,8 @@ configuration by default) and returns the microscope and its settings. The
 higher-level operations, and every `FibsemMicroscope` method is available
 directly. The microscope's beams, stage and other hardware are devices
 (`microscope.devices`), whose parameters describe their own limits and choices;
-[Devices](devices.md) covers them. Do not use the string-key
-`microscope.get("key")` and `microscope.set(...)`: they are deprecated. Use `acquire.acquire_image(microscope, settings)` rather than the
+[Devices](devices.md) covers them (the string-key `microscope.get("key")` and
+`microscope.set(...)` were removed in 0.6.0). Use `acquire.acquire_image(microscope, settings)` rather than the
 microscope's own `acquire_image`: the method returns the raw frame and
 ignores `save=True`; the module function applies autocontrast and gamma and
 writes the file.
@@ -191,10 +191,8 @@ work unchanged.
   microscope class builds its devices from the configuration's
   `hardware.devices` entries with `fibsem.devices.entries`
   (`resolve_system_devices`, then `build_device_entries`), as
-  `DemoMicroscope._build_devices` does. A string key the backend's devices
-  cover is routed to them. A new backend needs no `_get`/`_set`: the base
-  class's read a key no device answers as None and do nothing for a write (the
-  Demo has none); do not add keys to them.
+  `DemoMicroscope._build_devices` does. The named methods read and write the
+  devices; a parameter a device lacks reads None and a write to it does nothing.
 
 - **Reference implementations.** `DemoMicroscope` in
   `fibsem/drivers/demo/microscope.py` is the complete, hardware-free

@@ -1,8 +1,7 @@
-"""get_available_values gives the answers it gave before it read the device choices.
+"""The beam parameters' choices are the answers ``get_available_values`` gave.
 
-Each backend that builds beam devices answers a beam key's values from the beam
-parameter's choices; any other key has none (the backends' ``_get_available_values``
-is gone). The answers the backends gave before, for every key on no beam type and on
+``get_available_values`` is gone (0.6.0); a beam parameter's choices replace it, and any
+other key has none (``choices`` below is what it answered). The answers the backends gave before, for every key on no beam type and on
 each beam, over the fake SDKs, are pinned in ``tests/fixtures/available_values_pins.json``;
 each must still be the same, except the ones in ``CHANGED``, which say what they answer
 now and why, and the keys in ``MOVED``, which now answer nothing. Thermo runs in its
@@ -48,6 +47,16 @@ KEYS = [
 BEAM_TYPES = (None, BeamType.ELECTRON, BeamType.ION)
 
 
+def choices(microscope, key, beam_type):
+    """What ``get_available_values`` answered: the beam parameter's choices, or
+    nothing for a key no beam has (or no beam type)."""
+    beam = microscope.beams.get(beam_type)
+    param = None if beam is None else beam.parameters.get(key)
+    if param is None or param.choices is None:
+        return []
+    return list(param.choices)
+
+
 def _plain(value):
     if isinstance(value, (np.floating, float)):
         return float(value)
@@ -66,7 +75,7 @@ def _answers(prefix, microscope):
         name = "None" if beam_type is None else beam_type.name
         for key in KEYS:
             try:
-                answer = _plain(microscope.get_available_values(key, beam_type))
+                answer = _plain(choices(microscope, key, beam_type))
             except Exception as e:  # a raise is an answer too
                 answer = f"EXC {type(e).__name__}: {e}"
             out[f"{prefix} {name} {key}"] = answer
@@ -227,9 +236,7 @@ def test_a_beam_key_is_answered_without_an_sdk_call(monkeypatch):
     microscope, fake = connect(monkeypatch, system)
     param = microscope.beams[BeamType.ION].parameters["detector_type"]
     fake.log.clear()
-    assert microscope.get_available_values("detector_type", BeamType.ION) == list(
-        param.choices
-    )
+    assert choices(microscope, "detector_type", BeamType.ION) == list(param.choices)
     assert fake.log == []
     param.metadata = ParameterMetadata(choices=["SE"])
-    assert microscope.get_available_values("detector_type", BeamType.ION) == ["SE"]
+    assert choices(microscope, "detector_type", BeamType.ION) == ["SE"]

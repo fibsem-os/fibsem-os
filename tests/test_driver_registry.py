@@ -518,27 +518,3 @@ def test_a_device_only_driver_builds_an_added_entry(restore_registry):
     )
     built = build_device_entries(resolved[1:], microscope=None)
     assert built["needle"][0] == "needle"
-
-
-@pytest.mark.parametrize(
-    "old, new",
-    [
-        ("fibsem.microscopes.registry", "fibsem.drivers.registry"),
-        ("fibsem.microscopes.autoscript", "fibsem.drivers.autoscript.microscope"),
-        ("fibsem.microscopes.tescan", "fibsem.drivers.tescan.microscope"),
-        ("fibsem.microscopes.odemis_microscope", "fibsem.drivers.odemis.microscope"),
-        ("fibsem.microscopes.device_demo", "fibsem.drivers.demo.microscope"),
-        ("fibsem.microscopes.simulator", "fibsem.drivers.demo.simulator"),
-        ("fibsem.microscopes.sim_scene", "fibsem.drivers.demo.sim_scene"),
-    ],
-)
-def test_the_old_module_names_warn_and_give_the_moved_module(old, new):
-    """Scripts that import a driver by its old name keep working, with a warning;
-    ``OdemisTescanMicroscope`` in particular has an external consumer."""
-    import importlib
-    import sys
-
-    sys.modules.pop(old, None)
-    with pytest.warns(DeprecationWarning, match="has moved to"):
-        module = importlib.import_module(old)
-    assert module is importlib.import_module(new)

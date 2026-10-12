@@ -5,8 +5,7 @@ parameter and command what the matching branch of its ``_get`` and ``_set`` (or
 method) did, and each FM device what the matching part of the simulated FM did
 before devices.
 Each keeps its own simulated part, copied when it is built from the starting parts
-it is given (``start``, a ``DemoParts``), and never touches the microscope's again;
-``DemoMicroscope`` routes the old keys to them.
+it is given (``start``, a ``DemoParts``), and never touches the microscope's again.
 """
 
 from __future__ import annotations
@@ -149,7 +148,8 @@ class DemoBeam(Beam):
         self.sim_scanning_mode_value = deepcopy(start.scanning_mode_value)
 
     def _choices(self, key: str) -> ParameterMetadata:
-        """The simulator's values for a key: Demo's ``get_available_values``."""
+        """The simulator's values for a parameter, as Demo's old
+        ``get_available_values`` listed them."""
         from fibsem.drivers.demo import simulator as sim
 
         if key == "current":

@@ -75,7 +75,7 @@ QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_something.py -q
 **Using the hardware from code.** The beams, stage, chamber, manipulator and
 FM are devices in `microscope.devices`, with self-describing parameters,
 commands and change events. [Devices](devices.md) is the guide; the string-key
-`microscope.get`/`set` are deprecated.
+`microscope.get`/`set` were removed in 0.6.0.
 
 **Supporting a microscope.** Implement `FibsemMicroscope` and its devices,
 using the Demo implementation as the reference, and register the

@@ -1,14 +1,12 @@
 import logging
 import re
 import sys
-from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 import fibsem.constants as constants
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.microscope import (
@@ -388,11 +386,11 @@ class TescanMicroscope(FibsemMicroscope):
         return built
 
     def _build_beams(self) -> None:
-        """Build the beam devices and route the beam keys to them.
+        """Build the beam devices.
 
-        A key a beam does not have (the ion column's working distance,
-        ``detector_mode``) is unknown; their wrappers answer for themselves. A disabled
-        column gets no device, and its keys are unsupported (they read None).
+        A parameter a beam does not have (the ion column's working distance,
+        ``detector_mode``) is unsupported; their wrappers answer for themselves. A
+        disabled column gets no device, and its wrappers read None.
         """
         self._build_devices(
             [
@@ -401,7 +399,6 @@ class TescanMicroscope(FibsemMicroscope):
             ],
             _BEAM_TYPES,
         )
-        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
 
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
@@ -425,7 +422,7 @@ class TescanMicroscope(FibsemMicroscope):
         self.spot_burn = bind_tescan_spot_burn(self)
 
     def _build_stage(self) -> None:
-        """Build the stage device and route the stage keys to it.
+        """Build the stage device.
 
         The absolute and relative moves then go through the device, and so do the
         view-corrected moves, which end in them. The device has no ``homed``, so it
@@ -433,10 +430,6 @@ class TescanMicroscope(FibsemMicroscope):
         the stage cannot be read or moved.
         """
         self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
-        if self.stage is not None:
-            self._device_routes = MappingProxyType(
-                {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
-            )
 
     @property
     def manufacturer(self) -> str:
