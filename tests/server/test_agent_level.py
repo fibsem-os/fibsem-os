@@ -137,3 +137,21 @@ def test_a_server_without_a_level_reports_none(microscope):
     app = build_server(microscope, auth=AuthConfig(token="agent"))
     with TestClient(app) as bare:
         assert bare.get("/capabilities", headers=AGENT).json()["level"] is None
+
+
+def test_stop_agent_drops_to_watch_and_says_so(client, auth):
+    auth.set_level(AgentLevel.DRIVE)
+    auth.stop_agent()
+    assert auth.level is AgentLevel.WATCH
+    # It still sees, so it can report what happened.
+    assert client.get("/app/status", headers=AGENT).status_code == 200
+    refused = client.post("/app/workflow/stop", headers=AGENT)
+    assert refused.status_code == 403
+    assert _error(refused) == "agent_stopped"
+
+    # Raising the level again is the operator's say-so: no longer "stopped".
+    auth.set_level(AgentLevel.DRIVE)
+    assert client.post("/app/workflow/stop", headers=AGENT).status_code == 200
+    auth.set_level(AgentLevel.WATCH)
+    refused = client.post("/app/workflow/stop", headers=AGENT)
+    assert _error(refused) == "scope_not_armed"

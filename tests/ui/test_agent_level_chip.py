@@ -61,6 +61,23 @@ def test_choosing_a_level_says_so_and_choosing_the_current_one_does_not(qapp):
     chip.deleteLater()
 
 
+def test_stop_agent_is_first_whenever_the_agent_can_act(qapp):
+    chip = AgentLevelChip()
+    stopped = []
+    chip.stop_clicked.connect(lambda: stopped.append(True))
+    assert chip.menu_.actions()[0] is chip.stop_action
+    for level, visible in (
+        (AgentLevel.OFF, False),
+        (AgentLevel.WATCH, False),
+        (AgentLevel.DRIVE, True),
+    ):
+        chip.set_level(level)
+        assert chip.stop_action.isVisible() is visible, level
+    chip.stop_action.trigger()
+    assert stopped == [True]
+    chip.deleteLater()
+
+
 def test_the_menu_offers_to_connect_an_agent(qapp):
     chip = AgentLevelChip()
     clicked = []
@@ -147,3 +164,32 @@ def test_the_chip_shows_the_running_server_s_level_and_sets_it(main_ui, host):
     host.running = False
     main_ui._refresh_agent_chip()
     assert main_ui.agent_chip.isHidden()
+
+
+def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, host):
+    from fibsem import utils
+    from fibsem.applications.autolamella.event_recording import EventRecorder
+
+    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
+    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    ui = main_ui.autolamella_ui
+    previous = ui._event_recorder
+    recorder = EventRecorder(microscope, default_actor="operator")
+    ui._event_recorder = recorder
+    try:
+        main_ui.agent_chip.level_chosen.emit(AgentLevel.DRIVE)
+        main_ui.agent_chip.stop_clicked.emit()
+        assert host.auth.level is AgentLevel.WATCH and host.auth.stopped
+        assert main_ui.agent_chip.text() == "Agent: Watching"
+
+        events = recorder.buffer.events_since(0)["events"]
+        kinds = [(e["kind"], e["payload"]) for e in events]
+        assert kinds == [
+            ("agent_level_set", {"previous": "watch", "level": "drive"}),
+            ("agent_stopped", {"previous": "drive", "level": "watch"}),
+        ]
+        assert all(e["actor"] == "operator" for e in events)
+    finally:
+        ui._event_recorder = previous
+        recorder.close()
+        microscope.disconnect()
