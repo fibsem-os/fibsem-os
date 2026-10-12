@@ -148,7 +148,7 @@ def test_env_override_arms_control_scope(microscope, tmp_path, monkeypatch):
         assert body["level"] == "drive"
         assert body["scopes"]["control"] is True
         assert body["scopes"]["configure"] is True
-        assert body["scopes"]["hardware"] is False  # never hardware
+        assert body["scopes"]["hardware"] is True  # Drive arms it (FIB-1267)
     finally:
         server_host.stop()
 

@@ -183,8 +183,9 @@ def build_sidecar(client, capabilities):
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
     its router is mounted (an app tool exists only when the server hosts an
-    application), whatever the agent's level, and hardware tools only when
-    the hardware scope is armed. The server enforces regardless.
+    application), whatever the agent's level; on a bench server, which has no
+    level, hardware tools only when the hardware scope is armed. The server
+    enforces regardless.
     """
     from mcp.server.mcpserver import Image, MCPServer
 
