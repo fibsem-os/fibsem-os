@@ -2,7 +2,7 @@
 
 The Arctis user's real ask is "inventory all my grids and acquire the overviews".
 Nothing here is new; it is the order in which the pieces that exist get called,
-written once so the button, a script and the agent server run the same thing.
+written once so the button, a script and the App Server run the same thing.
 On a fixed holder every present grid is already loaded, so the same call
 is a run with zero exchanges.
 """

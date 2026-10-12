@@ -92,7 +92,7 @@ class _DraggableTaskList(QListWidget):
 
 
 def _agent_supervision_available() -> bool:
-    """Whether the Agent option exists at all: the agent-server preference is on.
+    """Whether the Agent option exists at all: the App Server preference is on.
 
     The preference rather than server-running — protocols are configured before
     a microscope connects. Without it, the selector is exactly the old
@@ -130,7 +130,7 @@ def attention_state(
     has about a task, *when am I involved?*, read from the task's attention.
 
     A stored ``supervisor: agent`` shows as plain Supervised while the
-    agent-server preference is off -- the state it will actually run in, not
+    App Server preference is off -- the state it will actually run in, not
     the one in the file. ``review_available`` is accepted and unused: the
     preference no longer changes what a task's attention reads as.
     """
@@ -370,7 +370,7 @@ class WorkflowTaskRowWidget(QWidget):
         """Cycle Supervised → Agent → Review later → Automated → Supervised:
         down the ladder of trust a step at a time, and back to the top.
 
-        The Agent step exists only while the agent-server preference is on,
+        The Agent step exists only while the App Server preference is on,
         the Review later step only while interactive review is on; with
         neither this is the old two-state toggle. Leaving Agent resets ``supervisor`` to
         human, so nothing hidden survives a click.

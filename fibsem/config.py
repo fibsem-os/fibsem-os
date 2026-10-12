@@ -481,7 +481,7 @@ class AppServerPreferences:
 class AgentPreferences:
     """Durable agent-supervision policy (the session-scoped half — scope
     arming — deliberately does NOT live here: arming is consent, dies with
-    the session, and is granted in the Tools → Agent Server dialog)."""
+    the session, and is granted in the Tools → App Server dialog)."""
 
     # How long a question addressed to the agent may stand unanswered before
     # the watchdog hands it to the operator.

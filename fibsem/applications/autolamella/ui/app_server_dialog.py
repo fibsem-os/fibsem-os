@@ -1,4 +1,4 @@
-"""Tools → Agent Server: session status, token, and scope arming.
+"""Tools → App Server: session status, token, and scope arming.
 
 The durable policy (enable flag, watchdog minutes) lives in Preferences; this
 dialog holds only what belongs to the running session. Arming is consent and
@@ -44,7 +44,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
-__all__ = ["AgentServerDialog"]
+__all__ = ["AppServerDialog"]
 
 _AGENT_COLOR = BORDER_STATE_COLOURS["agent"]
 
@@ -99,12 +99,12 @@ class _ScopeRow(QFrame):
         row.addWidget(self.toggle, alignment=Qt.AlignVCenter)
 
 
-class AgentServerDialog(QDialog):
-    """Live view and arming controls for the embedded agent server."""
+class AppServerDialog(QDialog):
+    """Live view and arming controls for the embedded App Server."""
 
     def __init__(self, host_provider: Callable[[], Optional[object]], parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Agent Server")
+        self.setWindowTitle("App Server")
         self.setMinimumWidth(440)
         self._host_provider = host_provider
 
@@ -205,7 +205,7 @@ class AgentServerDialog(QDialog):
         # --- footer ---------------------------------------------------------
         note = QLabel(
             "Permissions last this session only — they never persist. "
-            "Everything else lives in Preferences → Agent."
+            "Everything else lives in Preferences → App Server."
         )
         note.setWordWrap(True)
         note.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 11px;")
@@ -286,7 +286,7 @@ class AgentServerDialog(QDialog):
         if not running:
             self._status_dot.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._status_label.setText(
-                "Not running — enable it in Preferences → Agent and connect "
+                "Not running — enable it in Preferences → App Server and connect "
                 "a microscope."
             )
             self._status_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
@@ -354,7 +354,7 @@ class AgentServerDialog(QDialog):
 
         host.auth.set_armed(Scope.CONTROL, checked)
         logging.warning(
-            "agent server: control scope %s via the Agent Server dialog",
+            "App Server: control scope %s via the App Server dialog",
             "ARMED" if checked else "disarmed",
         )
 
@@ -366,6 +366,6 @@ class AgentServerDialog(QDialog):
 
         host.auth.set_armed(Scope.CONFIGURE, checked)
         logging.warning(
-            "agent server: configure scope %s via the Agent Server dialog",
+            "App Server: configure scope %s via the App Server dialog",
             "ARMED" if checked else "disarmed",
         )

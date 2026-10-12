@@ -1922,7 +1922,7 @@ class GridRecord:
 
 # One process, one open experiment: a single lock serialises the writers that
 # can run on different threads at once -- the workflow thread saving after a
-# task, and a review confirming from the GUI thread or the agent server. Held
+# task, and a review confirming from the GUI thread or the App Server. Held
 # briefly by both, so neither serialises a half-applied write of the other.
 EXPERIMENT_WRITE_LOCK = threading.RLock()
 
@@ -2194,7 +2194,7 @@ class Experiment:
         """The one way a decision reaches the experiment.
 
         Runs on the Qt main thread when there is one and blocks the caller until
-        it has: the Review tab and the agent server are the same client of this
+        it has: the Review tab and the App Server are the same client of this
         function, and a confirm can end in Qt work (a generative review adds
         lamellae, whose list rebuild must not fire off the GUI thread). Takes
         the same lock as ``save`` so a save never serialises a half-applied

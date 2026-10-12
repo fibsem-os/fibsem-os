@@ -1,4 +1,4 @@
-"""Embedded hosting: the agent server running inside the AutoLamella process.
+"""Embedded hosting: the App Server running inside the AutoLamella process.
 
 This is the piece that turns the factory into the app's public interface: when
 a microscope connects (and the App Server preference, ``app_server.enabled``, is on), the
@@ -39,12 +39,12 @@ from fibsem.applications.autolamella.server.events import (
     make_lifecycle_hook,
 )
 
-__all__ = ["AgentServerHost"]
+__all__ = ["AppServerHost"]
 
 _START_TIMEOUT_S = 10.0
 
 
-class AgentServerHost:
+class AppServerHost:
     """Owns the embedded server's lifecycle: buffer, taps, thread, discovery."""
 
     def __init__(
@@ -98,7 +98,7 @@ class AgentServerHost:
         try:
             return self._start(microscope, event_buffer, lifecycle_hook)
         except Exception:
-            logging.exception("agent server failed to start; continuing without it")
+            logging.exception("App Server failed to start; continuing without it")
             self.stop()
             return False
 
@@ -119,7 +119,7 @@ class AgentServerHost:
         existing = read_discovery_file(self._discovery_path)
         if existing is not None:
             logging.error(
-                "agent server not started: another fibsem server is running "
+                "App Server not started: another fibsem server is running "
                 f"(pid {existing.get('pid')}, {existing.get('url')})"
             )
             return False
@@ -131,7 +131,7 @@ class AgentServerHost:
         arm_control = os.environ.get("FIBSEM_AGENT_ARM_CONTROL") == "1"
         if arm_control:
             logging.warning(
-                "agent server: control scope ARMED via FIBSEM_AGENT_ARM_CONTROL "
+                "App Server: control scope ARMED via FIBSEM_AGENT_ARM_CONTROL "
                 "(developer override; the arming dialog replaces this)"
             )
         self.auth = AuthConfig.generate(arm_control=arm_control)
@@ -181,19 +181,19 @@ class AgentServerHost:
             try:
                 server.run()
             except SystemExit:
-                logging.error("agent server exited at startup (port in use?)")
+                logging.error("App Server exited at startup (port in use?)")
             except Exception:
-                logging.exception("agent server crashed")
+                logging.exception("App Server crashed")
 
         self._thread = threading.Thread(
-            target=run_server, name="fibsem-agent-server", daemon=True
+            target=run_server, name="fibsem-app-server", daemon=True
         )
         self._thread.start()
 
         deadline = time.monotonic() + _START_TIMEOUT_S
         while not self._server.started:
             if not self._thread.is_alive() or time.monotonic() > deadline:
-                logging.error("agent server did not start (port in use?)")
+                logging.error("App Server did not start (port in use?)")
                 self.stop()
                 return False
             time.sleep(0.05)
@@ -204,8 +204,8 @@ class AgentServerHost:
         self._wrote_discovery = True
         atexit.register(self._remove_discovery)
         armed = ", ".join(s.value for s in self.auth.armed_scopes())
-        logging.info("agent server on %s — scopes: %s", self.url, armed)
-        logging.info("agent server token: %s", self.auth.token)
+        logging.info("App Server on %s — scopes: %s", self.url, armed)
+        logging.info("App Server token: %s", self.auth.token)
         return True
 
     def stop(self) -> None:

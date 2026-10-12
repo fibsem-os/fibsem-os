@@ -54,7 +54,7 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
-# The output roles a results card, the Overview tab and the agent server read
+# The output roles a results card, the Overview tab and the App Server read
 # (FIB-876). One per beam, plus the thumbnail beside it.
 ROLE_BY_BEAM = {BeamType.ELECTRON: "overview_sem", BeamType.ION: "overview_fib"}
 

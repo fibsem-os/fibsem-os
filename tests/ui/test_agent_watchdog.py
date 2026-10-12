@@ -46,7 +46,7 @@ def main_ui(qapp):
 
 class _RunningHost:
     """Running, with a live agent: heard from a second ago (the shape
-    AgentServerHost.agent_seconds_since_seen returns while a watcher polls)."""
+    AppServerHost.agent_seconds_since_seen returns while a watcher polls)."""
 
     running = True
     seconds_since_seen = 1.0
@@ -72,12 +72,12 @@ def agent_question_standing(main_ui, tmp_path):
     experiment.add_new_lamella(MicroscopeState(), EventedDict())
     previous = (
         ui.experiment,
-        ui._agent_server_host,
+        ui._app_server_host,
         main_ui._current_task_name,
         ui.hold,
     )
     ui.experiment = experiment
-    ui._agent_server_host = _RunningHost()
+    ui._app_server_host = _RunningHost()
     main_ui._current_task_name = "Mill Fiducial"
     ui.hold = Hold(HoldKind.question, "answer the question on the Microscope tab")
     yield experiment
@@ -85,7 +85,7 @@ def agent_question_standing(main_ui, tmp_path):
     main_ui._agent_liveness_check.stop()
     (
         ui.experiment,
-        ui._agent_server_host,
+        ui._app_server_host,
         main_ui._current_task_name,
         ui.hold,
     ) = previous
@@ -152,7 +152,7 @@ def test_a_question_for_an_absent_agent_is_yours_immediately(
     """No one has connected (or the server can't say): don't park the question
     on the agent's clock at all — straight to the ordinary waiting chrome."""
     ui = main_ui.autolamella_ui
-    ui._agent_server_host.agent_seconds_since_seen = lambda: None
+    ui._app_server_host.agent_seconds_since_seen = lambda: None
     main_ui._on_question_event("prompt_raised", {})
 
     assert ui.hold.kind is HoldKind.question
@@ -176,7 +176,7 @@ def test_an_agent_that_dies_mid_question_hands_over_early(
         AGENT_PRESUMED_GONE_S,
     )
 
-    ui._agent_server_host.seconds_since_seen = AGENT_PRESUMED_GONE_S + 1.0
+    ui._app_server_host.seconds_since_seen = AGENT_PRESUMED_GONE_S + 1.0
     main_ui._on_agent_liveness_check()
 
     assert ui.hold.kind is HoldKind.question

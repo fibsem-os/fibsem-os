@@ -121,7 +121,7 @@ class QtResponder(QObject):
         self._active_spot_burn: Optional[Tuple[RunSpotBurn, "Future"]] = None
         self._spot_burn_finished_wired: Optional[object] = None
         # Question-lifecycle observers (prompt_raised / prompt_answered /
-        # prompt_cancelled): the agent server's hosting feeds the event buffer,
+        # prompt_cancelled): the App Server's hosting feeds the event buffer,
         # the GUI timeline records who answered. A plain list rather than a Qt
         # signal so each observer is exception-isolated — a failing observer
         # must never break the click (or the other observers) it is watching.

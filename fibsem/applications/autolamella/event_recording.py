@@ -1,6 +1,6 @@
 """The app's event stream for a microscope session, and its record on disk.
 
-The event buffer (``server/events.py``) began as the agent server's: built when
+The event buffer (``server/events.py``) began as the App Server's: built when
 the server started, gone when it stopped, so with the server off nothing -- the
 dashboard, a monitor, a replay -- had a stream to read. It is the app's now.
 An :class:`EventRecorder` is created when a microscope connects, whether or not
@@ -17,7 +17,7 @@ A workflow run records through the same recorder: the task manager finds the
 microscope's with :func:`recorder_for`, or makes one for the run when nothing
 keeps one -- a run without the GUI (FIB-1044).
 
-The agent server, when it runs, reads the same buffer.
+The App Server, when it runs, reads the same buffer.
 
 Events while no experiment is loaded stay in the buffer but are not written:
 the file belongs to an experiment, and there is none yet.
@@ -325,7 +325,7 @@ class EventRecorder:
         nothing.
 
         ``actor`` is who marked the thread the event was emitted on: a task, for
-        everything it does, or the agent, for every request to the agent server.
+        everything it does, or the agent, for every request to the App Server.
         Not whatever task happens to be running -- ``microscope.experiment`` is
         the app's, not the thread's, so reading it would make a move the operator
         made during a run the task's. Unmarked, it is ``default_actor``. A task's
