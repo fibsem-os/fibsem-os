@@ -15,6 +15,7 @@ from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.services.milling import report_progress
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -252,23 +253,14 @@ class FibsemMillingTask:
         return self.config.enabled_stages
 
     def _emit(self, status: MillingProgressStatus, **fields) -> None:
-        """Report where this task has got to.
-
-        Replaces `_handle_progress`, which was a pass-through: it emitted whatever it
-        was handed, handled nothing, and described the traffic backwards -- the updates
-        go *to* the microscope's signal rather than from it. Residue of an unfinished
-        migration.
-
-        Its one real effect was hiding two emit sites from any scan keyed on the signal
-        name, which is a blind spot rather than a feature. This version earns the
-        indirection instead: the task-identity stamp lives here rather than being
-        repeated at every call site, and the guard in
-        tests/milling/test_progress_producers.py knows to follow it.
+        """Report where this task has got to, stamped with the task, on the milling
+        service's ``progress``, which the microscope's milling progress signal sends on.
         """
-        self.microscope.milling_progress_signal.emit(
+        report_progress(
+            self.microscope,
             MillingProgress(
                 status=status, task_id=self.task_id, task_name=self.name, **fields
-            )
+            ),
         )
 
     def _imaging_conditions(self) -> Tuple[float, float]:

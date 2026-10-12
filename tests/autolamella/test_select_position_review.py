@@ -7,6 +7,7 @@ application reads it. No Qt: parent_ui is None throughout, which is also
 what makes the non-review path a silent no-op today.
 """
 
+import contextvars
 import os
 from pathlib import Path
 
@@ -330,6 +331,39 @@ def test_supervised_the_inline_answer_is_the_decision(
     assert d.author.kind is not AuthorKind.automated, "a person decided it"
     assert lamella.poi == Point(2e-6, -1e-6), "applied inline, once"
     assert task.task_manager._defer_reason(lamella, ROUGH) is None
+
+
+def test_supervised_an_agent_s_inline_answer_is_the_agent_s_decision(
+    microscope, tmp_path, monkeypatch
+):
+    """The agent answered the workflow's point question over the App Server:
+    the decision is the agent's, not the operator at the window (FIB-1328)."""
+    from fibsem.applications.autolamella.workflows.interaction import (
+        PickPOI,
+        ask,
+        mark_answered_by,
+    )
+    from fibsem.applications.autolamella.workflows.tasks import select_position as S
+
+    class AgentAnswers:
+        def submit(self, request, future):
+            mark_answered_by(future, "agent")
+            future.set_result(Point(2e-6, -1e-6))
+
+    monkeypatch.setattr(
+        S,
+        "select_poi_ui",
+        lambda **kwargs: ask(AgentAnswers(), PickPOI(image=None)),
+    )
+    exp = _experiment(tmp_path, microscope)
+    # In a context of its own, as a task runs on its own thread: who answered
+    # must not stay behind on the test's.
+    contextvars.copy_context().run(_task(microscope, exp, flag=True).run)
+
+    d = exp.positions[0].proposal(SETUP).current
+    assert d.outcome is DecisionOutcome.Confirmed and d.via == "workflow"
+    assert str(d.author) == "agent:remote"
+    assert d.values == {"poi": Point(2e-6, -1e-6)}
 
 
 def test_a_value_exists_because_something_consumes_it(tmp_path, microscope):

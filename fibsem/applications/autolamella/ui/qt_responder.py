@@ -47,6 +47,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     SetImages,
     SetMillingConfig,
     StalePromptError,
+    mark_answered_by,
 )
 from fibsem.applications.autolamella.workflows.question_adapters import (
     answer_from,
@@ -1077,6 +1078,8 @@ class QtResponder(QObject):
         if adjusted:
             answered_payload["adjusted"] = True
         self._emit_question_event("prompt_answered", answered_payload)
+        # And to the asker, which records the decision the answer makes.
+        mark_answered_by(future, source)
         if isinstance(request, RunMillingTask) and clicked_yes and request.enabled:
             # Run Milling: the prompt comes down but the question stays open —
             # the finished signal re-asks or completes. (No {"msg": ""} clear;
