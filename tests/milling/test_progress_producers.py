@@ -1,13 +1,10 @@
 """What the backends and strategies put on ``milling_progress_signal`` (FIB-797).
 
-Every producer emits a ``MillingProgress``: the three backend poll loops, both
-built-in strategies, and the task layer.
+Every producer reports a ``MillingProgress``: the backends' run loop, both built-in
+strategies, and the task layer. All of them report on the milling service's
+``progress`` parameter, and the signal sends on what it reports.
 
-The guard at the bottom is the part worth keeping after the migration. On FIB-402 the
-equivalent test was keyed on the signal name alone, and two emit sites hiding behind a
-relay method slipped through it -- so this one is keyed on the payload's *shape* at every
-emit site, and it names the files that have not been flipped yet rather than ignoring
-them.
+The guard at the bottom keeps it that way: nothing emits on a progress signal itself.
 """
 
 import ast
@@ -147,96 +144,70 @@ class TestTheCoincidenceStrategy:
 
 
 # --------------------------------------------------------------------------------------
-# The guard
+# The guard: one source
 # --------------------------------------------------------------------------------------
 
-# Every module that emits on `milling_progress_signal`. All flipped as of FIB-797; the
-# mapping stays rather than collapsing to a list, so a new producer added mid-migration
-# has somewhere honest to sit.
-EMITTERS = {
-    "microscope.py": True,
-    "drivers/demo/simulator.py": True,
-    "drivers/tescan/microscope.py": True,
-    "milling/strategy/standard.py": True,
-    "milling/strategy/coincidence.py": True,
-    "milling/tasks.py": True,
-}
+# The microscope's progress signals send on what the services' `progress` parameters
+# report (`bind_milling`, `bind_spot_burn`). A producer that emits on a signal itself
+# is a second source: the parameter, which the device API and the agent server read,
+# would not see its report.
+_SIGNALS = ("milling_progress_signal", "spot_burn_progress_signal")
 
 
-# Names that put a payload on the signal. `_handle_progress` is `MillingTask`'s relay --
-# a pass-through that emits whatever it is handed -- and it is why this scan cannot be
-# keyed on the signal name alone.
-#
-# This is not hypothetical. Written the obvious way, keyed on
-# `milling_progress_signal.emit`, this scan reported `milling/tasks.py` as already
-# flipped while both of its emit sites were still building dicts, because neither
-# mentions the signal. That is precisely the blind spot that let two `_stitch` emits
-# through the equivalent guard on FIB-402.
-_PAYLOAD_SINKS = ("milling_progress_signal", "_handle_progress")
-
-
-def _dict_emits(path: Path):
-    """Every line in *path* that hands a dict literal to the milling progress signal,
-    directly or through a relay."""
+def _direct_emits(path: Path):
+    """Every line in *path* that emits on a progress signal itself."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    hits = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if not (node.args and isinstance(node.args[0], ast.Dict)):
-            continue
-        func = node.func
-        if not isinstance(func, ast.Attribute):
-            continue
-        # `<...>.milling_progress_signal.emit({...})`
-        direct = (
-            func.attr == "emit"
-            and isinstance(func.value, ast.Attribute)
-            and (func.value.attr in _PAYLOAD_SINKS)
-        )
-        # `self._handle_progress({...})`
-        via_relay = func.attr in _PAYLOAD_SINKS
-        if direct or via_relay:
-            hits.append(node.lineno)
-    return hits
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "emit"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr in _SIGNALS
+    ]
 
 
-@pytest.mark.parametrize("relative,flipped", sorted(EMITTERS.items()))
-def test_the_flipped_producers_no_longer_emit_dicts(relative, flipped):
-    path = Path(fibsem.__file__).parent / relative
-    assert path.exists(), f"{relative} moved; update EMITTERS"
-    hits = _dict_emits(path)
-    if flipped:
-        assert hits == [], (
-            f"{relative} still emits a dict literal on milling_progress_signal at "
-            f"line(s) {hits}"
-        )
-    else:
-        assert hits, (
-            f"{relative} no longer emits any dict, so it has been flipped -- set its "
-            "entry in EMITTERS to True."
-        )
+def test_nothing_emits_on_the_progress_signals_itself():
+    root = Path(fibsem.__file__).parent
+    hits = {
+        str(path.relative_to(root)): lines
+        for path in sorted(root.rglob("*.py"))
+        if (lines := _direct_emits(path))
+    }
+    assert hits == {}, f"report through the service's progress instead: {hits}"
 
 
-def test_the_scan_sees_through_the_relay(tmp_path):
-    """Shown rather than asserted, because the obvious version of this scan does not.
-
-    Keyed on `milling_progress_signal.emit` alone it reads line 3 and misses line 5 --
-    which is exactly what happened when this file was first written, and what let two
-    `_stitch` emits through the equivalent guard on FIB-402.
-    """
+def test_the_scan_sees_a_direct_emit(tmp_path):
     probe = tmp_path / "probe.py"
     probe.write_text(
         "class X:\n"
         "    def direct(self):\n"
-        "        self.microscope.milling_progress_signal.emit({'progress': {}})\n"
-        "    def relayed(self):\n"
-        "        self._handle_progress({'progress': {}})\n"
-        "    def typed(self):\n"
-        "        self._handle_progress(MillingProgress(MillingProgressStatus.TASK_FINISHED))\n",
+        "        self.microscope.milling_progress_signal.emit(None)\n"
+        "    def burn(self):\n"
+        "        self.microscope.spot_burn_progress_signal.emit(None)\n"
+        "    def other(self):\n"
+        "        self.microscope.tiled_acquisition_signal.emit(None)\n",
         encoding="utf-8",
     )
-    assert _dict_emits(probe) == [3, 5]
+    assert _direct_emits(probe) == [3, 5]
+
+
+def test_a_strategy_report_is_the_service_progress(microscope):
+    """What the signal sends is what `microscope.milling.progress` reads."""
+    emitted = _collect(microscope)
+    StandardMillingStrategy().run(microscope, FibsemMillingStage(name="Rough Mill"))
+    assert emitted[0].message == "Running Rough Mill..."
+    assert microscope.milling.progress.get_value() == emitted[-1]
+
+
+def test_without_milling_a_report_goes_nowhere(microscope):
+    from fibsem.services.milling import report_progress
+
+    emitted = _collect(microscope)
+    microscope.milling = None
+    report_progress(microscope, MillingProgress(MillingProgressStatus.TASK_FINISHED))
+    assert emitted == []
 
 
 def test_a_stage_run_end_to_end_emits_no_dict(microscope):

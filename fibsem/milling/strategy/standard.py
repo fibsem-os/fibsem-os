@@ -13,6 +13,7 @@ from fibsem.milling.base import (
     MillingStrategyConfig,
 )
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.services.milling import report_progress
 
 
 @dataclass
@@ -49,14 +50,15 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
         # keeps it standing across the messageless ticks that follow, which is what a
         # *delegating* strategy needs: `run_milling` below hands the loop to a backend
         # that has no idea what this strategy calls itself.
-        microscope.milling_progress_signal.emit(
+        report_progress(
+            microscope,
             MillingProgress(
                 status=MillingProgressStatus.STAGE_UPDATE,
                 message=f"Running {stage.name}...",
                 stage_name=stage.name,
                 start_time=time.time(),
                 estimated_time=estimated_time,
-            )
+            ),
         )
 
         raise_if_cancelled(stop_event)  # last chance before the beam starts

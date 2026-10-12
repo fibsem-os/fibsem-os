@@ -21,6 +21,7 @@ from fibsem.milling import (
     setup_milling,
 )
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.services.milling import report_progress
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -400,7 +401,8 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
             # update milling progress via signal
             remaining_time = max(0.0, max_end_time - time.time())
-            self.microscope.milling_progress_signal.emit(
+            report_progress(
+                self.microscope,
                 MillingProgress(
                     status=MillingProgressStatus.STAGE_UPDATE,
                     message=f"Coincidence milling: {self.stage.name}",
@@ -415,7 +417,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                     milling_state=MillingState.UNKNOWN,
                     estimated_time=estimated_time,
                     remaining_time=remaining_time,
-                )
+                ),
             )
             # timeout
             if time.time() >= max_end_time:
