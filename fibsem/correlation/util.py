@@ -913,12 +913,21 @@ def target_fitting_fluorescence(
     # round the (possibly sub-pixel) click for slicing; keep the fraction for
     # the input marker so it lands exactly where the user clicked (FIB-282).
     xc, yc = int(round(x)), int(round(y))
-    roi = img[:, yc - cutout : yc + cutout, xc - cutout : xc + cutout]
+    # Clamped to the image: a plain slice with a negative start wraps to the
+    # far edge, so a click near the top or left edge gave an empty window and
+    # the fit raised on it (FIB-1220, as FIB-980 for the reflection fit). The
+    # offsets keep the fitted x, y absolute.
+    height, width = img.shape[1:]
+    y0, y1 = max(0, yc - cutout), min(height, yc + cutout)
+    x0, x1 = max(0, xc - cutout), min(width, xc + cutout)
+    if y1 <= y0 or x1 <= x0:
+        raise ValueError(f"({x:.0f}, {y:.0f}) is outside the image")
+    roi = img[:, y0:y1, x0:x1]
     intensity = np.mean(roi, axis=(1, 2))
     popt_z, _ = fit_guass1d(intensity)
     zi = popt_z[1]
 
-    slc_init = img[int(zi), yc - cutout : yc + cutout, xc - cutout : xc + cutout]
+    slc_init = img[int(zi), y0:y1, x0:x1]
     err = None
     if use_xy_fitting:
         try:
@@ -926,27 +935,27 @@ def target_fitting_fluorescence(
             xopt, yopt = popt_xy[1], popt_xy[2]
         except Exception as e:
             logging.warning(f"Error in initial XY fit: {e}")
-            xopt, yopt = cutout, cutout  # fallback to center of cutout if fit fails
+            xopt, yopt = xc - x0, yc - y0  # fallback to the click if fit fails
             err = e
 
-        if not (0 <= xopt < 2 * cutout and 0 <= yopt < 2 * cutout):
+        if not (0 <= xopt < x1 - x0 and 0 <= yopt < y1 - y0):
             logging.warning(
                 f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}"
             )
-            xopt, yopt = cutout, cutout
+            xopt, yopt = xc - x0, yc - y0
 
-        xi = xopt + xc - cutout
-        yi = yopt + yc - cutout
+        xi = xopt + x0
+        yi = yopt + y0
     else:
         xi, yi = x, y
-        xopt, yopt = cutout, cutout  # fit result is the cutout centre for plotting
+        xopt, yopt = xc - x0, yc - y0  # fit result is the click for plotting
 
     # --- confirmation-friendly diagnostic: z (left) + XY hero (right) ---
     z_axis = np.arange(len(intensity))
     diagnostic = FitDiagnostic(
         title="Fluorescence target fit",
         roi_xy=slc_init,
-        input_xy=(cutout + (x - xc), cutout + (y - yc)),
+        input_xy=(x - x0, y - y0),
         fitted_xy=(xopt, yopt) if (use_xy_fitting and err is None) else None,
         xy_title=f"XY  @ z = {zi:.1f}",
         xy_message="XY fit failed" if err is not None else None,
