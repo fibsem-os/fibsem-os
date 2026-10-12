@@ -23,9 +23,9 @@ from fibsem.server.discovery import (  # noqa: E402
 def app():
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    # Mounted with a real (empty-host) AgentContext so the contract test can
+    # Mounted with a real (empty-host) AutoLamellaAppContext so the contract test can
     # prove the app-router catalog entries dispatch too.
-    from fibsem.applications.autolamella.server import AgentContext
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
     class _Host:
         experiment = None
@@ -34,7 +34,9 @@ def app():
         is_workflow_running = False
 
     return build_server(
-        microscope, app_context=AgentContext(_Host()), auth=AuthConfig(token="t")
+        microscope,
+        app_context=AutoLamellaAppContext(_Host()),
+        auth=AuthConfig(token="t"),
     )
 
 

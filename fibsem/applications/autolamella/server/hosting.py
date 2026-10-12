@@ -2,7 +2,7 @@
 
 This is the piece that turns the factory into the app's public interface: when
 a microscope connects (and the App Server preference, ``app_server.enabled``, is on), the
-app builds ``build_server(microscope, app_context=AgentContext(ui, buffer))``
+app builds ``build_server(microscope, app_context=AutoLamellaAppContext(ui, buffer))``
 and runs it on a daemon thread. One process, one microscope connection, one
 commander — the whole reason embedded hosting exists. The buffer is the
 app's event stream (``event_recording.EventRecorder``), which exists
@@ -14,7 +14,7 @@ Threading notes, because this file is where the server meets Qt:
   handling disabled — ``uvicorn.run()`` wants the main thread, which belongs
   to Qt. The thread owns no Qt objects (main-thread-only GC: off-thread Qt
   finalization is the Windows crash class).
-* Request handlers only ever touch the app through the ``AgentContext``
+* Request handlers only ever touch the app through the ``AutoLamellaAppContext``
   facade, which returns plain-data snapshots — nothing here adds a new way
   for a server thread to reach into widgets.
 * ``stop()`` asks uvicorn to exit (``should_exit``) and joins briefly; the
@@ -32,7 +32,7 @@ import threading
 import time
 from typing import Callable, List, Optional
 
-from fibsem.applications.autolamella.server.context import AgentContext
+from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 from fibsem.applications.autolamella.server.events import (
     EventBuffer,
     attach_microscope_taps,
@@ -156,7 +156,7 @@ class AgentServerHost:
 
         app = build_server(
             microscope,
-            app_context=AgentContext(self._ui, event_buffer=self.event_buffer),
+            app_context=AutoLamellaAppContext(self._ui, event_buffer=self.event_buffer),
             auth=self.auth,
             devices=self.devices,
         )

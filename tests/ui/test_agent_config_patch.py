@@ -20,7 +20,7 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient
 from psygnal.containers import EventedDict
 
-from fibsem.applications.autolamella.server import AgentContext
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.server.events import EventBuffer
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -73,7 +73,7 @@ def ui(qapp, monkeypatch, tmp_path):
 def _client(ui, buffer=None, arm_configure=True):
     app = build_server(
         ui.microscope,
-        app_context=AgentContext(ui, event_buffer=buffer),
+        app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
         auth=AuthConfig.generate(arm_configure=arm_configure, token=TOKEN),
     )
     return TestClient(app, raise_server_exceptions=False)

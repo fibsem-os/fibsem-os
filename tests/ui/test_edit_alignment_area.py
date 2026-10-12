@@ -137,14 +137,14 @@ def test_the_rect_survives_the_overlay_coming_down(ui, qapp):
 
 
 def _answer_with_value_on_worker(ui, qapp, response, nonce, value):
-    """Call AgentContext.answer_prompt from a worker thread, as the server does.
+    """Call AutoLamellaAppContext.answer_prompt from a worker thread, as the server does.
 
     The answer marshals to the GUI thread and blocks on the outcome — calling
     it from the test (GUI) thread would deadlock into the timeout.
     """
-    from fibsem.applications.autolamella.server import AgentContext
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ctx = AgentContext(ui)
+    ctx = AutoLamellaAppContext(ui)
     outcome = {}
 
     def target():

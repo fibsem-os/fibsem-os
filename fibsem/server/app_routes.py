@@ -2,7 +2,7 @@
 
 Dependency direction is one-way — autolamella imports fibsem.server, never the
 reverse — so this module never imports the application. It defines the
-:class:`AppContext` protocol structurally; the application's ``AgentContext``
+:class:`AppContext` protocol structurally; the application's ``AutoLamellaAppContext``
 (fibsem.applications.autolamella.server) satisfies it and is passed into
 ``build_server(app_context=...)`` by whoever hosts the server inside the app.
 

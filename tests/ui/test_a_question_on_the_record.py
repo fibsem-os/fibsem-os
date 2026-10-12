@@ -513,11 +513,11 @@ def test_an_agent_answering_the_prompt_is_told_to_decide_instead(window, qapp):
 def test_the_agent_server_says_how_it_is_answered(window, qapp):
     """The pending prompt names the decision to make, and answering the prompt
     anyway is refused without a click -- not reported as applied."""
-    from fibsem.applications.autolamella.server.context import AgentContext
+    from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 
     ui = window.autolamella_ui
     lamella = ui.experiment.positions[0]
-    context = AgentContext(ui)
+    context = AutoLamellaAppContext(ui)
     thread, outcome = _ask(window, qapp, _request(window))
 
     pending = context.pending_prompt()["pending"]

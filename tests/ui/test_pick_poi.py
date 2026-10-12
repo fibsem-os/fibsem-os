@@ -150,9 +150,9 @@ def _pending_prompt_on_worker(ui, qapp):
     The live-answer peek marshals to the GUI thread, so a read from the test
     (GUI) thread would deadlock — same shape as the HTTP answer tests.
     """
-    from fibsem.applications.autolamella.server import AgentContext
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ctx = AgentContext(ui)
+    ctx = AutoLamellaAppContext(ui)
     outcome = {}
 
     def target():
@@ -198,10 +198,10 @@ def test_the_prompt_mirrors_the_live_marker_not_the_frozen_request(window, ui, q
 
 
 def _answer_with_value_on_worker(ui, qapp, response, nonce, value):
-    """Call AgentContext.answer_prompt from a worker thread, as the server does."""
-    from fibsem.applications.autolamella.server import AgentContext
+    """Call AutoLamellaAppContext.answer_prompt from a worker thread, as the server does."""
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
-    ctx = AgentContext(ui)
+    ctx = AutoLamellaAppContext(ui)
     outcome = {}
 
     def target():
