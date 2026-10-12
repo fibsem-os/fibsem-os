@@ -1507,6 +1507,19 @@ class FibsemMicroscope(ABC):
         """
         return MappingProxyType(self._devices)
 
+    # The service attributes, in the order `services` lists them.
+    _SERVICE_ATTRIBUTES = ("milling", "stage_movement", "spot_burn", "sample_handling")
+
+    @property
+    def services(self) -> Mapping[str, Any]:
+        """Every service this microscope built, by name (``services["milling"] is
+        microscope.milling``). Read-only. A service the backend didn't build (None)
+        is left out. The App Server serves them under ``/services``."""
+        services = (getattr(self, name, None) for name in self._SERVICE_ATTRIBUTES)
+        return MappingProxyType(
+            {service.name: service for service in services if service is not None}
+        )
+
     def _set_device(self, name: str, device: Optional[Any]) -> None:
         """Put *device* in the map as *name*, or take *name* out when it is None."""
         if device is None:

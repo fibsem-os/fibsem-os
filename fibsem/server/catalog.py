@@ -226,6 +226,48 @@ CATALOG: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="list_services",
+        description=(
+            "Every service on the microscope (milling, stage_movement, spot_burn, "
+            "sample_handling, ...): what the instrument does with its devices over "
+            "time. Each lists its parameters (e.g. milling progress) and its commands "
+            "with their signatures and whether this microscope has them."
+        ),
+        method="GET",
+        path="/services",
+        scope="read",
+    ),
+    ToolSpec(
+        name="get_service_parameter",
+        description=(
+            "Read one service parameter live, e.g. service=milling parameter=progress."
+        ),
+        method="GET",
+        path="/services/{service}/{parameter}",
+        scope="read",
+        params={
+            "service": "service name from list_services",
+            "parameter": "parameter name",
+        },
+    ),
+    ToolSpec(
+        name="call_service_command",
+        description=(
+            "Run a service command listed by list_services, e.g. service=stage_movement "
+            "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
+            "(milling run, spot burn run) answers when it ends; command=stop from "
+            "another call stops it."
+        ),
+        method="POST",
+        path="/services/{service}/commands/{command}",
+        scope="hardware",
+        params={
+            "service": "service name from list_services",
+            "command": "command name",
+            "kwargs": "the command's arguments, by name",
+        },
+    ),
+    ToolSpec(
         name="autocontrast",
         description="Run autocontrast for a beam (changes detector settings).",
         method="POST",

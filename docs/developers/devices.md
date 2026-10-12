@@ -354,6 +354,15 @@ operation is a command on the beam (imaging, the scan modes); anything that
 coordinates devices or runs steps over time is a service. The base class is
 `fibsem.services.Service`.
 
+`microscope.services` maps each service the microscope built to its name (`milling`,
+`stage_movement`, `spot_burn`, `sample_handling`); one the backend didn't build is left
+out. The App Server serves them as it serves devices, under `/services`: `GET
+/services` describes each one's parameters and commands, `GET
+/services/{service}/{parameter}` reads one, and `POST
+/services/{service}/commands/{command}` runs one, behind the same token, scopes and
+command slot. A service's `stop` needs only the token and never waits for the slot,
+like a device's.
+
 ### Milling
 
 `microscope.milling` is the milling service. It reaches the beams through its roles,

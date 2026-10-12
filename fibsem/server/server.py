@@ -133,8 +133,9 @@ def _beam_type(value: str) -> BeamType:
         )
 
 
-# Device commands that stop something. Like POST /stop_milling, stopping is always
-# allowed: read scope, and no wait for the command slot the running move holds.
+# Device and service commands that stop something. Like POST /stop_milling,
+# stopping is always allowed: read scope, and no wait for the command slot the
+# running move holds.
 STOP_COMMANDS = frozenset(("stop", "stop_live"))
 
 _read_scope = require_scope(Scope.READ)
@@ -589,6 +590,19 @@ def build_server(
                 read=[Depends(require_scope(Scope.READ))],
                 write=[Depends(require_scope(Scope.HARDWARE)), Depends(command_slot)],
                 command=[Depends(_device_command_slot)],
+            )
+        )
+        # The microscope's services (milling, stage movement, ...) have the
+        # device shape, so the same routes serve them, under /services, with the
+        # same gates: a service's stop is a stop like a device's.
+        app.include_router(
+            build_device_router(
+                lambda: microscope.services,
+                read=[Depends(require_scope(Scope.READ))],
+                write=[Depends(require_scope(Scope.HARDWARE)), Depends(command_slot)],
+                command=[Depends(_device_command_slot)],
+                prefix="/services",
+                noun="service",
             )
         )
     if app_context is not None:
