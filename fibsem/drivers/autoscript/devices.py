@@ -619,10 +619,6 @@ class AutoscriptBeam(Beam):
     # (claim_channel), which is the old `_threading_lock` + `set_channel` pair, and the
     # FibsemImage is built from get_microscope_state as before.
 
-    def _acquire_resolution(self, requested: Tuple[int, int]) -> Tuple[int, int]:
-        # GrabFrameSettings takes only a resolution the scan lists
-        return nearest_resolution(requested, self.resolution.choices)
-
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
         from fibsem.drivers.autoscript import microscope as thermo
 
@@ -637,6 +633,16 @@ class AutoscriptBeam(Beam):
             logging.debug(f"acquiring new {name} image.")
         else:
             settings = image_settings
+            # GrabFrameSettings takes only a listed resolution: snap to the nearest
+            resolution = nearest_resolution(
+                settings.resolution, self.resolution.choices
+            )
+            if resolution != tuple(settings.resolution):
+                logging.warning(
+                    f"Resolution {settings.resolution} not available, using {resolution}"
+                )
+                settings = copy.deepcopy(settings)
+                settings.resolution = resolution
             if settings.reduced_area is not None:
                 rect = settings.reduced_area
                 reduced_area = thermo.Rectangle(

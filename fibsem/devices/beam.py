@@ -44,17 +44,15 @@ STANDARD_RESOLUTIONS: Tuple[Tuple[int, int], ...] = (
 
 
 def nearest_resolution(
-    requested: Tuple[int, int], choices: Sequence[Tuple[int, int]]
+    resolution: Tuple[int, int], choices: Optional[Sequence[Tuple[int, int]]]
 ) -> Tuple[int, int]:
-    """The listed resolution closest to ``requested`` (least total difference in width
-    and height; the first listed wins a tie), or ``requested`` itself when it is listed
-    or nothing is."""
-    requested = tuple(requested)
-    listed = [tuple(c) for c in choices or ()]
-    if not listed or requested in listed:
-        return requested
+    """The listed resolution nearest ``resolution`` (least width plus height
+    difference), for a driver that can only scan the ones it lists."""
+    if not choices:
+        return tuple(resolution)
     return min(
-        listed, key=lambda c: abs(c[0] - requested[0]) + abs(c[1] - requested[1])
+        (tuple(c) for c in choices),
+        key=lambda c: abs(c[0] - resolution[0]) + abs(c[1] - resolution[1]),
     )
 
 
@@ -256,7 +254,7 @@ class Beam(Device):
         if "scanner" in self.roles:
             image = self._acquire_with_scanner(image_settings)
         else:
-            image = self._acquire(self._snap_resolution(image_settings))
+            image = self._acquire(image_settings)
         metadata = getattr(image, "metadata", None)
         if (
             hasattr(metadata, "acquisition_datetime")
@@ -285,34 +283,6 @@ class Beam(Device):
         """Run the instrument's autofocus routine, optionally on a rectangle of the
         frame (0 to 1); the beam scans the full frame after."""
         self._auto_focus(reduced_area)
-
-    # The resolution an acquire asks for is fixed in a few places (defaults, tiling,
-    # strategies), so a beam that can only scan some resolutions takes the nearest one
-    # it can rather than fail: the image and its metadata carry what was scanned, and
-    # the caller's settings are left as they were. A driver says what it can scan with
-    # _acquire_resolution; the default scans whatever is asked. A bound scanner scans
-    # what it is given, so it isn't held to the driver's list.
-
-    def _acquire_resolution(self, requested: Tuple[int, int]) -> Tuple[int, int]:
-        """The resolution this beam scans when asked for ``requested``."""
-        return requested
-
-    def _snap_resolution(
-        self, image_settings: Optional[ImageSettings]
-    ) -> Optional[ImageSettings]:
-        if image_settings is None or image_settings.resolution is None:
-            return image_settings
-        requested = tuple(image_settings.resolution)
-        resolution = tuple(self._acquire_resolution(requested))
-        if resolution == requested:
-            return image_settings
-        logging.warning(
-            f"{self.name} can't scan {requested[0]}x{requested[1]}: acquiring at "
-            f"{resolution[0]}x{resolution[1]}, the nearest it can"
-        )
-        image_settings = copy.deepcopy(image_settings)
-        image_settings.resolution = resolution
-        return image_settings
 
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
         # Not the microscope's acquire_image: that goes through this beam, so it
