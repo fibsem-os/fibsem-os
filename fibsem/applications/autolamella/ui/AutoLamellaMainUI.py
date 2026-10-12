@@ -78,7 +78,6 @@ from fibsem.applications.autolamella.ui.review_tab_widget import (
     review_tab_icon,
 )
 from fibsem.applications.autolamella.ui.workflow_controls import (
-    AGENT,
     AUTOMATED,
     SUPERVISED,
     WorkflowControls,
@@ -233,18 +232,6 @@ def set_menu_icon(action: QAction, key: str) -> None:
     """
     action.setIcon(fibsem_icon(key, color=GRAY_ICON_COLOR))
     action.setIconVisibleInMenu(True)
-
-
-# How long a question addressed to the agent may stand unanswered before it
-# escalates to the operator. A preference later; a constant until the arming
-# dialog gives it a home.
-AGENT_WATCHDOG_MS = 5 * 60 * 1000
-# A live supervising agent long-polls the event stream every ~25 s, so its
-# token is heard from continuously. Silence this long means nobody is on the
-# other end — a parked question is handed to the operator immediately instead
-# of waiting out the full hand-over time above.
-AGENT_PRESUMED_GONE_S = 90
-AGENT_LIVENESS_CHECK_MS = 15 * 1000
 
 
 def play_notification_sound():
@@ -933,10 +920,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_border_idle.triggered.connect(
             lambda: self._set_border_state("idle")
         )
-        self.action_border_agent = QAction("Agent (electric purple)", self)
-        self.action_border_agent.triggered.connect(
-            lambda: self._set_border_state("agent")
-        )
 
         # add to menu bar
         menu_bar = self.menuBar()
@@ -957,7 +940,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         border_menu.addAction(self.action_border_pending)  # type: ignore
         border_menu.addAction(self.action_border_stopping)  # type: ignore
         border_menu.addAction(self.action_border_idle)  # type: ignore
-        border_menu.addAction(self.action_border_agent)  # type: ignore
 
         test_menu.addSeparator()  # type: ignore
         test_menu.addAction(self.action_beep)  # type: ignore
@@ -1590,21 +1572,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.status_bar.failure_details_requested.connect(self._show_run_failures)
 
         self._current_task_name = None  # Track current task for supervision toggle
-        # The agent watchdog: a question addressed to the agent that goes
-        # unanswered this long stops being the agent's and becomes yours —
-        # the ordinary waiting chrome (orange border, attention button, sound)
-        # takes over, with a toast saying why. Lives in the app, so it
-        # survives the agent's own loop dying — the whole point.
-        self._agent_watchdog = QTimer(self)
-        self._agent_watchdog.setSingleShot(True)
-        self._agent_watchdog.timeout.connect(self._on_agent_watchdog_expired)
-        # The companion check: while a question parks on the agent's clock,
-        # confirm someone is actually on the other end (the agent's token is
-        # heard from continuously while it watches). An agent that dies
-        # mid-question hands over in seconds, not the full deadline above.
-        self._agent_liveness_check = QTimer(self)
-        self._agent_liveness_check.setInterval(AGENT_LIVENESS_CHECK_MS)
-        self._agent_liveness_check.timeout.connect(self._on_agent_liveness_check)
         # The agent chip (FIB-1035): the agent's level, beside the workflow buttons,
         # shown whenever the App Server runs. Polled rather than signalled: the
         # server starts and stops with the microscope connection, from the other
@@ -2092,32 +2059,12 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             style.polish(self._border_frame)
         self._border_frame.update()
 
-    def _agent_supervision_active(self, task_name: str) -> bool:
-        """Whether ``task_name``'s questions are addressed to a connected agent.
-
-        Gated on the App Server actually running — with no server there is
-        nobody the designation could refer to, so all the agent chrome stays
-        invisible and a designated task behaves as plain supervised.
-        """
-        ui = self.autolamella_ui
-        if ui is None or task_name is None:
-            return False
-        host = getattr(ui, "_app_server_host", None)
-        if host is None or not getattr(host, "running", False):
-            return False
-        protocol = ui.protocol
-        if protocol is None:
-            return False
-        return protocol.get_supervisor(task_name) == "agent"
-
     def _running_border_state(self, task_name: Optional[str]) -> str:
-        """The border for a running workflow: automated, supervised, or agent."""
+        """The border for a running workflow: automated or supervised."""
         if task_name is None or not get_task_supervision(
             task_name, self.autolamella_ui
         ):
             return "automated"
-        if self._agent_supervision_active(task_name):
-            return "agent"
         return "supervised"
 
     def _update_supervised_status(self) -> bool:
@@ -2126,9 +2073,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if task_name is None or self.autolamella_ui is None:
             return False
         supervised = get_task_supervision(task_name, self.autolamella_ui)
-        if supervised and self._agent_supervision_active(task_name):
-            mode = AGENT
-        elif supervised:
+        if supervised:
             mode = SUPERVISED
         else:
             mode = AUTOMATED
@@ -2249,8 +2194,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             self._refresh_quad_overviews
         )
         self.autolamella_ui._hook_toast_signal.connect(self.show_toast)
-        # Question lifecycle drives the agent watchdog (armed per prompt on
-        # agent-designated tasks, disarmed by any answer). GUI thread: the
+        # Question lifecycle refreshes the waiting chrome. GUI thread: the
         # responder emits these where the lifecycle already runs.
         self.autolamella_ui.ui_responder.add_question_observer(self._on_question_event)
         notification_service._get_service().toast.connect(self._on_notification_service)
@@ -3695,14 +3639,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         dialog.exec_()
 
-    def _watchdog_ms(self) -> int:
-        """The watchdog deadline, from Preferences → App Server (constant fallback)."""
-        try:
-            minutes = fibsem_cfg.load_user_preferences().agent.watchdog_minutes
-            return max(1, int(minutes)) * 60 * 1000
-        except Exception:
-            return AGENT_WATCHDOG_MS
-
     def _running_app_server(self):
         """The App Server's host while it runs, else None."""
         host = getattr(self.autolamella_ui, "_app_server_host", None)
@@ -3772,75 +3708,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         except Exception:
             return None
 
-    def _agent_presumed_gone(self) -> bool:
-        """Nobody is on the other end: never connected, or silent too long."""
-        age = self._agent_seconds_since_seen()
-        return age is None or age > AGENT_PRESUMED_GONE_S
-
     def _on_question_event(self, kind: str, payload: dict) -> None:
-        """GUI thread, from the responder: arm/disarm the agent watchdog."""
-        ui = self.autolamella_ui
-        if kind == "prompt_raised":
-            hold = ui.hold
-            if hold is not None and self._agent_supervision_active(
-                self._current_task_name
-            ):
-                # The question is the agent's: re-address the hold, and start
-                # the clock that hands it to the operator if the agent goes
-                # quiet. Not for an agent that isn't there.
-                if self._agent_presumed_gone():
-                    self._hand_question_to_operator(
-                        "The agent hasn't been in touch — this question is yours."
-                    )
-                    return
-                ui.hold = replace(
-                    hold,
-                    kind=HoldKind.agent,
-                    releases="the agent answers the question, or it comes to you",
-                )
-                self._agent_watchdog.start(self._watchdog_ms())
-                self._agent_liveness_check.start()
-            else:
-                self._agent_watchdog.stop()
-                self._agent_liveness_check.stop()
-        elif kind in ("prompt_answered", "prompt_cancelled"):
-            self._agent_watchdog.stop()
-            self._agent_liveness_check.stop()
-        self._refresh_workflow_indicators()
-
-    def _on_agent_watchdog_expired(self) -> None:
-        """The agent went quiet: the standing question becomes the operator's."""
-        minutes = max(1, self._watchdog_ms() // 60000)
-        self._hand_question_to_operator(
-            f"The agent hasn't answered in {minutes} minutes — "
-            "this question is now yours."
-        )
-
-    def _on_agent_liveness_check(self) -> None:
-        """Periodic while a question parks on the agent's clock: hand over the
-        moment the agent stops being heard from, not at the full deadline."""
-        if self._agent_presumed_gone():
-            self._hand_question_to_operator(
-                "The agent hasn't been in touch — this question is yours."
-            )
-
-    def _hand_question_to_operator(self, message: str) -> None:
-        """Escalate the standing question: ordinary waiting chrome + a toast
-        saying why. Informs, never revokes — a late agent answer still applies,
-        and the first writer still wins."""
-        self._agent_watchdog.stop()
-        self._agent_liveness_check.stop()
-        hold = self.autolamella_ui.hold
-        if hold is None:
-            return  # the answer raced the escalation; nothing is standing
-        self.autolamella_ui.hold = replace(
-            hold,
-            kind=HoldKind.question,
-            releases="answer the question on the Microscope tab",
-        )
-        notification_service.show_toast(message, "warning")
-        # The ordinary waiting chrome (orange border, attention button, sound)
-        # takes over below, now that the hold is the operator's.
+        """GUI thread, from the responder: a question was raised, answered or
+        cancelled, so the waiting chrome follows."""
         self._refresh_workflow_indicators()
 
     def _refresh_workflow_indicators(self) -> None:
@@ -3853,20 +3723,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # a decision is not machine time whoever is giving it, and left running
         # it would spend the estimate while nothing is happening.
         self.workflow_timeline.set_waiting_for_user(hold is not None)
-        # A question addressed to a running agent is not (yet) a wait for the
-        # operator: the chrome stays agent-purple and quiet while the watchdog
-        # counts down. Expiry -- or a human-designated question -- is what
-        # turns it into the ordinary waiting state. A run parked on review
-        # decisions is a wait for the operator too, just not at the beam: same
-        # chrome, but the button leads to the Review tab.
+        # A question is a wait for the operator, whether or not an agent is
+        # connected and may answer first. A run parked on review decisions is a
+        # wait for the operator too, just not at the beam: same chrome, but the
+        # button leads to the Review tab.
         # The line says what releases a hold the operator can release, and counts
         # the wait; Attention Required stays the way there.
-        self.status_bar.set_waiting(
-            hold.releases
-            if hold is not None and hold.kind is not HoldKind.agent
-            else None
-        )
-        if hold is not None and hold.kind is not HoldKind.agent:
+        self.status_bar.set_waiting(hold.releases if hold is not None else None)
+        if hold is not None:
             self.workflow_controls.set_attention(
                 _attention_label(hold), f"The run is waiting on you: {hold.releases}."
             )
@@ -3883,9 +3747,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if self._border_state == "stopping":
             pass  # Keep the red border until the workflow finishes unwinding
         elif hold is not None:
-            self._set_border_state(
-                "agent" if hold.kind is HoldKind.agent else "waiting"
-            )
+            self._set_border_state("waiting")
         elif self.autolamella_ui.WORKFLOW_PENDING:
             self._set_border_state("pending")
         elif self.autolamella_ui.is_workflow_running:
