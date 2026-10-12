@@ -35,8 +35,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import constants
-from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.structures import (
     AutoContrastMode,
     AutoFocusMode,
@@ -46,15 +44,11 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
     Resolution,
     TileOrderStrategy,
+    get_fields_with_metadata,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import NEUTRAL_400, TEXT_MUTED_COLOR
-from fibsem.ui.utils import (
-    beam_choices,
-    beam_limits,
-    install_wheel_blocker,
-    set_range_from_limits,
-)
+from fibsem.ui.utils import beam_field_metadata, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     QDirectoryLineEdit,
@@ -62,10 +56,20 @@ from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
     ValueSpinBox,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox, effective_scale
 from fibsem.ui.widgets.overview_acquisition_settings_widget import (
     default_overview_acquisition_settings,
 )
 from fibsem.ui.widgets.overview_grid_settings_widget import OverviewGridSettingsWidget
+
+# How a tile's imaging controls are shown: ImageSettings' field metadata, as the
+# Image tab shows them, with the selected beam's limits and resolutions laid over.
+_META = get_fields_with_metadata(ImageSettings)
+
+
+def _scale(name: str) -> float:
+    return effective_scale(_META[name]) or 1.0
+
 
 _MUTED = f"color: {TEXT_MUTED_COLOR}; font-size: 11px;"
 _FIELD_MIN_WIDTH = 90
@@ -104,23 +108,19 @@ class FibsemOverviewSettingsWidget(QWidget):
         range every beam declares."""
         for name, spinbox in (("hfw", self.spin_hfw), ("dwell_time", self.spin_dwell)):
             blocked = spinbox.blockSignals(True)
-            set_range_from_limits(
-                spinbox,
-                beam_limits(self._microscope, name, self.combo_beam.value()),
-                constants.SI_TO_MICRO,
-            )
+            configure_spinbox(spinbox, self._beam_field(name))
             spinbox.blockSignals(blocked)
+
+    def _beam_field(self, name: str) -> dict:
+        return beam_field_metadata(
+            _META[name], self._microscope, self.combo_beam.value()
+        )
 
     def _populate_resolutions(self, saved: Optional[tuple] = None) -> None:
         """List the selected beam's resolutions. A ``saved`` overview's size is
         shown as it is, not snapped; otherwise a size the beam doesn't list moves to
         the nearest one it does."""
-        choices = []
-        if self._microscope is not None:
-            choices = beam_choices(
-                self._microscope, "resolution", self.combo_beam.value()
-            )
-        items = list(choices or STANDARD_RESOLUTIONS)
+        items = [tuple(r) for r in self._beam_field("resolution")["items"]]
         selected = saved if saved is not None else self.combo_resolution.value()
         if selected is not None and selected not in items:
             if saved is not None:
@@ -161,6 +161,13 @@ class FibsemOverviewSettingsWidget(QWidget):
         install_wheel_blocker(widget)
         return widget
 
+    @classmethod
+    def _integration_box(cls, name: str) -> ValueSpinBox:
+        """An integration count, within the bounds ImageSettings declares."""
+        spinbox = ValueSpinBox(step=1, decimals=0)
+        configure_spinbox(spinbox, _META[name])
+        return cls._field(spinbox)
+
     @staticmethod
     def _panel(title: str, layout, header=None, collapsed: bool = False) -> TitledPanel:
         content = QWidget()
@@ -179,24 +186,14 @@ class FibsemOverviewSettingsWidget(QWidget):
         )
         self.combo_resolution = self._field(
             ValueComboBox(
-                items=list(STANDARD_RESOLUTIONS),
+                items=[
+                    tuple(r) for r in beam_field_metadata(_META["resolution"])["items"]
+                ],
                 format_fn=lambda r: str(Resolution(*r)),
             )
         )
-        self.spin_dwell = self._field(
-            ValueSpinBox(
-                suffix=f" {constants.MICROSECOND_SYMBOL}",
-                step=0.5,
-                decimals=2,
-            )
-        )
-        self.spin_hfw = self._field(
-            ValueSpinBox(
-                suffix=f" {constants.MICRON_SYMBOL}",
-                step=50.0,
-                decimals=1,
-            )
-        )
+        self.spin_dwell = self._field(ValueSpinBox())
+        self.spin_hfw = self._field(ValueSpinBox())
         # Once: one contrast for the whole mosaic, set at the grid centre before
         # the first tile, so the tiles stitch without seams. Each tile: what the
         # flag means for any image, before every tile, which flattens a gradient
@@ -235,22 +232,16 @@ class FibsemOverviewSettingsWidget(QWidget):
             checked_tooltip="Hide advanced settings",
             checkable=True,
         )
-        self.spin_line_integration = self._field(
-            ValueSpinBox(minimum=1, maximum=255, step=1, decimals=0)
-        )
-        self.spin_scan_interlacing = self._field(
-            ValueSpinBox(minimum=1, maximum=8, step=1, decimals=0)
-        )
-        self.spin_frame_integration = self._field(
-            ValueSpinBox(minimum=1, maximum=512, step=1, decimals=0)
-        )
+        self.spin_line_integration = self._integration_box("line_integration")
+        self.spin_scan_interlacing = self._integration_box("scan_interlacing")
+        self.spin_frame_integration = self._integration_box("frame_integration")
         self.check_drift_correction = QCheckBox()
 
         form = self._form()
         form.addRow("Beam", self.combo_beam)
-        form.addRow("Resolution", self.combo_resolution)
-        form.addRow("Dwell time", self.spin_dwell)
-        form.addRow("Field of view", self.spin_hfw)
+        form.addRow(_META["resolution"]["label"], self.combo_resolution)
+        form.addRow(_META["dwell_time"]["label"], self.spin_dwell)
+        form.addRow(_META["hfw"]["label"], self.spin_hfw)
         form.addRow("Auto contrast", self.combo_autocontrast)
         form.addRow("Scan time", self.label_scan_time)
         # The advanced rows go in and out of the form rather than hiding in
@@ -258,9 +249,9 @@ class FibsemOverviewSettingsWidget(QWidget):
         # of them left a blank band above Scan time. Labels are kept here, so
         # they survive being taken out.
         self._advanced_rows = [
-            (QLabel("Line integration"), self.spin_line_integration),
-            (QLabel("Scan interlacing"), self.spin_scan_interlacing),
-            (QLabel("Frame integration"), self.spin_frame_integration),
+            (QLabel(_META["line_integration"]["label"]), self.spin_line_integration),
+            (QLabel(_META["scan_interlacing"]["label"]), self.spin_scan_interlacing),
+            (QLabel(_META["frame_integration"]["label"]), self.spin_frame_integration),
             (QLabel("Drift correction"), self.check_drift_correction),
         ]
         self._advanced_fields = [field for _, field in self._advanced_rows]
@@ -489,8 +480,8 @@ class FibsemOverviewSettingsWidget(QWidget):
         return OverviewAcquisitionSettings(
             image_settings=ImageSettings(
                 resolution=tuple(self.combo_resolution.value()),
-                dwell_time=self.spin_dwell.value() * constants.MICRO_TO_SI,
-                hfw=self.spin_hfw.value() * constants.MICRO_TO_SI,
+                dwell_time=self.spin_dwell.value() / _scale("dwell_time"),
+                hfw=self.spin_hfw.value() / _scale("hfw"),
                 # The per-image flag follows the mode; the runner sets it the
                 # same way, so a file written here reads back as the same choice.
                 autocontrast=autocontrast_mode is AutoContrastMode.EACH_TILE,
@@ -546,8 +537,8 @@ class FibsemOverviewSettingsWidget(QWidget):
             self.combo_beam.set_value(image.beam_type)
             self._populate_resolutions(tuple(image.resolution))
             self._apply_limits()
-            self.spin_dwell.setValue(image.dwell_time * constants.SI_TO_MICRO)
-            self.spin_hfw.setValue(image.hfw * constants.SI_TO_MICRO)
+            self.spin_dwell.setValue(image.dwell_time * _scale("dwell_time"))
+            self.spin_hfw.setValue(image.hfw * _scale("hfw"))
             self.combo_autocontrast.set_value(settings.autocontrast_mode)
             self.spin_line_integration.setValue(image.line_integration or 1)
             self.spin_scan_interlacing.setValue(image.scan_interlacing or 1)

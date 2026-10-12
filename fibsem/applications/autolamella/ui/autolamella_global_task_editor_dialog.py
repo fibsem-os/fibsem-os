@@ -23,13 +23,19 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
-from fibsem.structures import BeamType, ReferenceImageParameters
+from fibsem.structures import (
+    BeamType,
+    FibsemMillingSettings,
+    ReferenceImageParameters,
+    get_fields_with_metadata,
+)
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
-from fibsem.ui.utils import beam_limits, set_range_from_limits
+from fibsem.ui.utils import beam_field_metadata
 from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueSpinBox,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
 )
@@ -66,16 +72,13 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
             "Field of view for all milling tasks (in microns)"
         )
 
+        # shown as the milling field of view is, in the range every beam declares
         self.spinbox_milling_fov = ValueSpinBox()
-        self.spinbox_milling_fov.setDecimals(1)
-        set_range_from_limits(
+        configure_spinbox(
             self.spinbox_milling_fov,
-            beam_limits(None, "hfw", BeamType.ION),
-            SI_TO_MICRO,
+            beam_field_metadata(get_fields_with_metadata(FibsemMillingSettings)["hfw"]),
         )
-        self.spinbox_milling_fov.setSingleStep(5.0)
         self.spinbox_milling_fov.setValue(150.0)
-        self.spinbox_milling_fov.setSuffix(" μm")
         self.spinbox_milling_fov.setToolTip(
             "Field of view for all milling tasks (in microns)"
         )
