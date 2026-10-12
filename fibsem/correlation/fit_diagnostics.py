@@ -19,7 +19,13 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from fibsem.theme.tokens import CANVAS_BG, NEUTRAL_200, NEUTRAL_300, SURFACE_COLOR
+from fibsem.theme.tokens import (
+    ACCENT_COLOR,
+    CANVAS_BG,
+    NEUTRAL_200,
+    NEUTRAL_300,
+    SURFACE_COLOR,
+)
 
 # input (red) / fitted (green) are the only saturated colours in every panel;
 # everything else is greyscale so the eye goes to the two markers.
@@ -50,6 +56,7 @@ class FitDiagnostic:
     z_input: Optional[float] = None
     z_fitted: Optional[float] = None
     z_inverted: bool = False  # reflection: signal is inverted
+    z_by_hand: Optional[float] = None  # the plane the user chose over the fit
 
     @property
     def has_z(self) -> bool:
@@ -93,9 +100,26 @@ def _draw_z_panel(ax, d: FitDiagnostic) -> None:
     if d.z_fit is not None:
         ax.plot(d.z_axis, d.z_fit, color="0.15", ls="--", lw=1.2)
     ax.axvline(d.z_input, color=_C_IN, ls="--", lw=1.6, label=f"input {d.z_input:.1f}")
-    ax.axvline(
-        d.z_fitted, color=_C_FIT, ls="--", lw=1.6, label=f"fitted {d.z_fitted:.1f}"
-    )
+    if d.z_by_hand is None:
+        ax.axvline(
+            d.z_fitted, color=_C_FIT, ls="--", lw=1.6, label=f"fitted {d.z_fitted:.1f}"
+        )
+    else:
+        # the fit stays on show, faded, so the plane chosen over it reads as such
+        ax.axvline(
+            d.z_fitted,
+            color=_C_FIT,
+            ls="--",
+            lw=1.2,
+            alpha=0.4,
+            label=f"fit {d.z_fitted:.1f}, not used",
+        )
+        ax.axvline(
+            d.z_by_hand, color=ACCENT_COLOR, lw=1.8, label=f"by hand {d.z_by_hand:.0f}"
+        )
+        # the plane can lie outside the planes searched: widen the axis to it
+        lo, hi = ax.get_xlim()
+        ax.set_xlim(min(lo, d.z_by_hand - 1), max(hi, d.z_by_hand + 1))
     ax.set_title("z", fontsize=10)
     ax.set_xlabel("z slice", fontsize=8)
     if d.z_inverted:
