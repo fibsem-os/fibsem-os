@@ -657,8 +657,22 @@ class FitOutsideWindow(ValueError):
     """
 
 
-def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
+def hole_fitting_reflection(
+    da, x, y, z, cutout, polarity: Polarity = Polarity.DARK
+) -> tuple:
+    """Refine an FM fiducial: a burn in the reflection channel.
+
+    ``polarity`` is how the burn looks: dark on Arctis reflection (the default,
+    and what this fit always assumed) or bright on METEOR reflection. The fit
+    finds a dark burn, so a bright one is fitted in the stack with its
+    brightness flipped; the diagnostic still shows the stack as it is
+    (FIB-1218).
+    """
     from scipy.ndimage import gaussian_filter
+
+    shown = da
+    if polarity is Polarity.BRIGHT:
+        da = np.max(da) - np.asarray(da, dtype=float)
 
     # round the (possibly sub-pixel) click for slicing; keep the fraction for
     # the input marker so a no-change fit shows the markers coincident.
@@ -704,6 +718,7 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     fx0, fx1 = max(0, xi - xy_cutout), min(width, xi + xy_cutout + 1)
     roi_fitted = da[z_fitted, fy0:fy1, fx0:fx1]
     popt_xy, _ = fit_gauss_2d_mod(roi_fitted, center=(xi - fx0, yi - fy0))
+    roi_shown = shown[z_fitted, fy0:fy1, fx0:fx1]
     xopt, yopt = popt_xy[1], popt_xy[2]
     if not (
         np.isfinite(xopt)
@@ -725,14 +740,15 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
     # had a raw-profile panel with six reference lines and a second z panel in a
     # different (cutout-relative) frame with the same labels — dropped.
 
-    # z: signal + gaussian fit (grey). The hole is dark, so the signal is
-    # inverted (z_inverted) — the peak is the hole.
+    # z: signal + gaussian fit (grey). A dark hole's signal is inverted
+    # (z_inverted), so the peak is the hole; a bright burn's, fitted flipped,
+    # comes out as its own brightness.
     z_axis = np.arange(zmin1, zmin1 + len(intensity))
     gauss_curve = gauss1d(np.arange(len(intensity)), *popt) + intensity.min()
 
     diagnostic = FitDiagnostic(
         title="Reflection hole fit",
-        roi_xy=gaussian_filter(roi_fitted, sigma=1),
+        roi_xy=gaussian_filter(roi_shown, sigma=1),
         input_xy=(x - fx0, y - fy0),  # the sub-pixel click, in the window's frame
         # A 2D fit outside the window raised above (FIB-1219), so this is in it.
         fitted_xy=(xopt, yopt),
@@ -742,6 +758,6 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
         z_fit=gauss_curve,
         z_input=z,
         z_fitted=zreal,
-        z_inverted=True,
+        z_inverted=polarity is Polarity.DARK,
     )
     return xopt_real, yopt_real, zreal, diagnostic
