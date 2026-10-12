@@ -61,6 +61,23 @@ def test_choosing_a_level_says_so_and_choosing_the_current_one_does_not(qapp):
     chip.deleteLater()
 
 
+def test_each_level_row_has_its_line_and_a_click_chooses_it(qapp):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    from PyQt5.QtWidgets import QLabel
+
+    chip = AgentLevelChip()
+    chosen = []
+    chip.level_chosen.connect(chosen.append)
+    by_name = {a.text(): a for a in chip.menu_.actions()}
+    row = by_name["Drive"].defaultWidget()
+    labels = [label.text() for label in row.findChildren(QLabel)]
+    assert "Drive" in labels and "Full control" in labels
+    QTest.mouseClick(row, Qt.LeftButton)
+    assert chosen == [AgentLevel.DRIVE]
+    chip.deleteLater()
+
+
 def test_stop_agent_is_first_whenever_the_agent_can_act(qapp):
     chip = AgentLevelChip()
     stopped = []

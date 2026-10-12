@@ -15,14 +15,30 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QAction, QActionGroup, QMenu, QPushButton, QWidget
+from PyQt5.QtGui import QMouseEvent
+from PyQt5.QtWidgets import (
+    QAction,
+    QActionGroup,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+    QWidgetAction,
+)
 
 from fibsem.server.levels import AgentLevel
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
+    BORDER_COLOR,
+    GRAY_ICON_COLOR,
     GRAY_SECONDARY_COLOR,
     PURPLE_COLOR,
+    RED_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
 )
 
 _CHIP = """
@@ -42,7 +58,7 @@ _LEVELS = {
     AgentLevel.OFF: (
         "Agent: Off",
         _CHIP.format(color=TEXT_MUTED_COLOR, background="transparent", border="none"),
-        "The agent can't reach the app.",
+        "No access",
     ),
     AgentLevel.WATCH: (
         "Agent: Watching",
@@ -51,7 +67,7 @@ _LEVELS = {
             background="transparent",
             border=f"1px solid {GRAY_SECONDARY_COLOR}",
         ),
-        "Sees everything; never acts.",
+        "Read only",
     ),
     AgentLevel.ASSIST: (
         "Agent: Assisting",
@@ -60,16 +76,16 @@ _LEVELS = {
             background="transparent",
             border=f"1px solid {PURPLE_COLOR}",
         ),
-        "Asks before every action.",
+        "Asks first",
     ),
     AgentLevel.DRIVE: (
         "Agent: Driving",
         _CHIP.format(
-            color="white",
+            color=TEXT_STRONG_COLOR,
             background=PURPLE_COLOR,
             border=f"1px solid {PURPLE_COLOR}",
         ),
-        "Acts on its own.",
+        "Full control",
     ),
 }
 
@@ -87,9 +103,70 @@ _MENU_NAMES = {
 }
 
 _HELP = (
-    "\n\nClick to change. “Agent” is any client holding the App Server's "
+    ".\n\nClick to change. “Agent” is any client holding the App Server's "
     "agent token: the fibsem-mcp sidecar, FibsemClient or a script."
 )
+
+
+# The menu has more room than the app's default, and the level rows paint their own
+# hover: a QWidgetAction's row gets none from QMenu::item:selected.
+_MENU = f"""
+    QMenu {{ padding: 4px 0px; }}
+    QMenu::item {{ padding: 6px 20px 6px 12px; }}
+    QMenu::icon {{ padding-left: 12px; }}
+    QMenu::separator {{ height: 1px; background: {BORDER_COLOR}; margin: 4px 0px; }}
+    #levelRow {{ background: transparent; }}
+    #levelRow:hover {{ background: {BORDER_COLOR}; }}
+    #levelRow QLabel {{ background: transparent; }}
+"""
+
+
+class _LevelRow(QWidget):
+    """One level in the menu: a dot, the level's name, and its line under it.
+
+    Shows its action's checked state, and triggers it on click.
+    """
+
+    def __init__(self, action: QAction, menu: QMenu, line: str) -> None:
+        super().__init__()
+        self._action = action
+        self._menu = menu
+        self.setObjectName("levelRow")
+        self.setAttribute(Qt.WA_Hover)  # type: ignore
+        self.setAttribute(Qt.WA_StyledBackground)  # type: ignore
+        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(9, 6, 20, 6)
+        layout.setSpacing(10)
+        self._dot = QLabel()
+        self._dot.setAlignment(Qt.AlignTop)  # type: ignore
+        layout.addWidget(self._dot)
+        text = QVBoxLayout()
+        text.setSpacing(1)
+        name = QLabel(action.text())
+        name.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
+        sub = QLabel(line)
+        font = sub.font()
+        font.setPointSizeF(font.pointSizeF() - 1)
+        sub.setFont(font)
+        sub.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
+        text.addWidget(name)
+        text.addWidget(sub)
+        layout.addLayout(text, 1)
+
+        action.toggled.connect(self._paint)
+        self._paint(action.isChecked())
+
+    def _paint(self, checked: bool) -> None:
+        self._dot.setText("●" if checked else "○")
+        colour = PURPLE_COLOR if checked else TEXT_MUTED_COLOR
+        self._dot.setStyleSheet(f"color: {colour};")
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton:  # type: ignore
+            self._menu.close()
+            self._action.trigger()
 
 
 def last_heard_text(seconds: Optional[float]) -> str:
@@ -119,8 +196,12 @@ class AgentLevelChip(QPushButton):
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
 
         self.menu_ = QMenu(self)
-        # The brake, first whenever the agent can act: no confirmation.
-        self.stop_action = QAction("Stop agent", self)
+        self.menu_.setStyleSheet(_MENU)
+        # The brake, first whenever the agent can act: no confirmation. Red, as
+        # the queue's Stop Task: it interrupts something.
+        self.stop_action = QAction(
+            fibsem_icon("mdi:stop-circle-outline", color=RED_COLOR), "Stop agent", self
+        )
         self.stop_action.setToolTip(
             "Stop the agent acting: down to Watch at once. A running workflow "
             "keeps running; its own Stop is beside this."
@@ -132,9 +213,10 @@ class AgentLevelChip(QPushButton):
         self._group.setExclusive(True)
         self._actions = {}
         for level in OFFERED_LEVELS:
-            action = QAction(_MENU_NAMES[level], self)
+            action = QWidgetAction(self)
+            action.setText(_MENU_NAMES[level])
             action.setCheckable(True)
-            action.setToolTip(_LEVELS[level][2])
+            action.setDefaultWidget(_LevelRow(action, self.menu_, _LEVELS[level][2]))
             action.triggered.connect(
                 lambda _checked=False, chosen=level: self._on_chosen(chosen)
             )
@@ -145,7 +227,13 @@ class AgentLevelChip(QPushButton):
         self.last_heard_action = QAction(last_heard_text(None), self)
         self.last_heard_action.setEnabled(False)
         self.menu_.addAction(self.last_heard_action)
-        self.connect_action = QAction("Connect an agent…", self)
+        # An icon here keeps the menu's icon column when Stop is hidden, so every
+        # line's text starts where the level names do.
+        self.connect_action = QAction(
+            fibsem_icon("mdi:link-variant", color=GRAY_ICON_COLOR),
+            "Connect an agent…",
+            self,
+        )
         self.connect_action.triggered.connect(self.connect_clicked)
         self.menu_.addAction(self.connect_action)
         # Read when the menu opens, so it is never a stale number.
