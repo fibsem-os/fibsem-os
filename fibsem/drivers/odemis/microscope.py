@@ -296,9 +296,9 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self._apply_fluorescence_calibration()
 
         try:
-            self._create_sample_stage()
+            self._build_sample_handling()
         except Exception as e:
-            logging.warning(f"Could not create sample stage: {e}")
+            logging.warning(f"Could not build the sample handling: {e}")
 
     def _build_devices(self) -> None:
         """Build the beam, stage and chamber devices from the configuration's

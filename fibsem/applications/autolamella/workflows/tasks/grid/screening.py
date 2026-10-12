@@ -30,7 +30,7 @@ def present_grids(
 ) -> List[str]:
     """Refresh the inventory, record every present grid, and return their names
     in slot order. The selection "Screen all grids" runs over."""
-    stage = microscope._stage
+    stage = microscope.sample_handling
     # A read, not a scan: the operator will have inventoried the magazine (in
     # xT or from the Sample view), and a physical scan in front of every
     # screening run is the wait this call exists to avoid.

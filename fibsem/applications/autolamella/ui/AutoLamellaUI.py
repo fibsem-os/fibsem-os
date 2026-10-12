@@ -1174,7 +1174,7 @@ class AutoLamellaUI(QMainWindow):
             if self.minimap_plot_widget.grid_positions is None:
                 self.minimap_plot_widget.grid_positions = [
                     s.position
-                    for s in self.microscope._stage.holder.slots.values()
+                    for s in self.microscope.sample_handling.holder.slots.values()
                     if s.position is not None  # uncalibrated slots draw nothing
                 ]
             self.minimap_plot_widget.fov_width = fov
@@ -2309,11 +2309,11 @@ class AutoLamellaUI(QMainWindow):
         created as a side effect of marking a lamella.
         """
         experiment = self.experiment
-        stage = getattr(self.microscope, "_stage", None)
+        stage = getattr(self.microscope, "sample_handling", None)
         if experiment is None or stage is None:
             return None
         try:
-            if stage.loader is not None:
+            if stage.magazine is not None:
                 loaded = stage.loaded_grids
                 grid = loaded[0] if len(loaded) == 1 else None
             else:

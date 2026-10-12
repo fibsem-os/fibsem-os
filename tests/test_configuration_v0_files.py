@@ -129,10 +129,12 @@ def test_an_old_file_saved_by_this_version_still_reads_the_same(filename, tmp_pa
 @pytest.mark.parametrize("filename", sorted(ORIENTATIONS))
 def test_an_old_file_gives_the_same_orientations(filename, tmp_path, monkeypatch):
     """On the simulator: no real instrument, and no site holder file."""
-    from fibsem.microscopes import _stage
+    from fibsem.services import sample_handling
 
     monkeypatch.setattr(
-        _stage, "SAMPLE_HOLDER_CONFIGURATION_PATH", str(tmp_path / "absent.yaml")
+        sample_handling,
+        "SAMPLE_HOLDER_CONFIGURATION_PATH",
+        str(tmp_path / "absent.yaml"),
     )
     config = utils.load_yaml(os.path.join(FIXTURES, filename))
     config["info"] = dict(config["info"], manufacturer="Demo", ip_address="localhost")

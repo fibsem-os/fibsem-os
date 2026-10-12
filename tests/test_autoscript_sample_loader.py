@@ -2,7 +2,7 @@
 
 Every case runs twice: on the old grid loader (``AutoscriptSampleLoader`` in
 ``fibsem.drivers.autoscript.microscope``) and on what ``ThermoMicroscope`` builds now, the
-grid model (``DeviceSampleLoader``) over the ``sample_loader`` device
+grid model (``DeviceGridMagazine``) over the ``sample_loader`` device
 (``fibsem.drivers.autoscript.devices``), and needs the same answer from both.
 
 The fake mirrors what operator code confirmed on an Arctis: ``get_slots(run_inventory)``
@@ -20,7 +20,7 @@ from fibsem import utils
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.drivers.autoscript import devices as autoscript_devices
 from fibsem.drivers.autoscript.microscope import AutoscriptSampleLoader
-from fibsem.microscopes._stage import DeviceSampleLoader, _create_sample_stage
+from fibsem.services.sample_handling import DeviceGridMagazine, bind_sample_handling
 from fibsem.structures import DeviceEntry, SampleGrid
 
 _KIND = "old"
@@ -125,14 +125,14 @@ class FakeConnection:
 def _microscope_with(autoloader: FakeAutoloader):
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = True
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     microscope.connection = FakeConnection(autoloader)
     if _KIND == "old":
         loader = AutoscriptSampleLoader(parent=microscope)
     else:
         device = autoscript_devices.AutoscriptSampleLoader(microscope).connect()
-        loader = DeviceSampleLoader(microscope, device)
-    microscope._stage.loader = loader
+        loader = DeviceGridMagazine(microscope, device)
+    microscope.sample_handling.magazine = loader
     return microscope, loader
 
 
@@ -159,13 +159,13 @@ class TestInventory:
     def test_get_inventory_reads_what_the_autoloader_knows(self):
         """A read is `get_slots(False)` and nothing else: instant, and only as
         fresh as the autoloader's own last scan -- unscanned slots stay UNKNOWN."""
-        from fibsem.microscopes._stage import GridSlotState
+        from fibsem.services.sample_handling import GridSlotState
 
         hw = FakeAutoloader(occupied={2: "g"}, scanned=False)
         microscope, loader = _microscope_with(hw)
         assert loader.get_inventory() == []
         assert hw.calls == [("get_slots", False)]
-        rows = microscope._stage.grid_inventory()
+        rows = microscope.sample_handling.grid_inventory()
         assert {r.state for r in rows} == {GridSlotState.UNKNOWN}
 
     def test_run_inventory_scans_the_magazine(self):
@@ -189,23 +189,25 @@ class TestInventory:
         hw.load(4)  # someone loaded it from the vendor UI before we connected
         microscope, loader = _microscope_with(hw)
         loader.run_inventory()
-        assert [g.name for g in microscope._stage.loaded_grids] == ["grid-birch"]
+        assert [g.name for g in microscope.sample_handling.loaded_grids] == [
+            "grid-birch"
+        ]
 
     def test_slots_are_unknown_until_the_hardware_has_answered(self):
         """Before any inventory every magazine slot is UNKNOWN, and nothing is
         present: the UI says "run an inventory" rather than "empty". After a
         scan, a slot the autoloader still could not read stays UNKNOWN."""
-        from fibsem.microscopes._stage import GridSlotState
+        from fibsem.services.sample_handling import GridSlotState
 
         hw = FakeAutoloader(occupied={1: "a", 2: "b"})
         microscope, loader = _microscope_with(hw)
-        rows = microscope._stage.grid_inventory()
+        rows = microscope.sample_handling.grid_inventory()
         assert {r.state for r in rows} == {GridSlotState.UNKNOWN}
         assert not any(r.present for r in rows)
 
         hw._slots[4].state = "Unknown"  # one slot the autoloader has not read
         loader.get_inventory()  # a read keeps it that way; a scan would resolve it
-        rows = {r.slot_name: r for r in microscope._stage.grid_inventory()}
+        rows = {r.slot_name: r for r in microscope.sample_handling.grid_inventory()}
         assert rows["Slot-01"].state is GridSlotState.OCCUPIED
         assert rows["Slot-03"].state is GridSlotState.EMPTY
         assert rows["Slot-05"].state is GridSlotState.UNKNOWN
@@ -216,7 +218,7 @@ class TestInventory:
         LOADED. On a fresh connect, with no memory of any exchange, that grid is
         present in its slot, loaded, and in our working slot, named from the slot
         description. States are matched case-blind, as the enum names arrive."""
-        from fibsem.microscopes._stage import GridSlotState
+        from fibsem.services.sample_handling import GridSlotState
 
         hw = FakeAutoloader(
             occupied={2: "grid-elm", 4: "grid-birch"}, reports_loaded=True
@@ -227,15 +229,19 @@ class TestInventory:
         hw.stage.state = "OCCUPIED"
         microscope, loader = _microscope_with(hw)
         loader.get_inventory()
-        rows = {r.name: r for r in microscope._stage.grid_inventory() if r.present}
+        rows = {
+            r.name: r for r in microscope.sample_handling.grid_inventory() if r.present
+        }
         assert set(rows) == {"grid-elm", "grid-birch"}
         assert rows["grid-birch"].state is GridSlotState.LOADED
         assert rows["grid-elm"].state is GridSlotState.OCCUPIED
-        assert [g.name for g in microscope._stage.loaded_grids] == ["grid-birch"]
+        assert [g.name for g in microscope.sample_handling.loaded_grids] == [
+            "grid-birch"
+        ]
         assert loader.working_slot.loaded_grid is loader.slots["Slot-04"].loaded_grid
         # Already the loaded grid: no exchange.
         before = len(hw.calls)
-        microscope._stage.ensure_loaded("grid-birch")
+        microscope.sample_handling.ensure_loaded("grid-birch")
         assert hw.calls[before:] == []
 
     def test_the_4_13_home_slot_reads_empty_and_memory_still_keeps_the_grid(self):
@@ -244,11 +250,13 @@ class TestInventory:
         hw = FakeAutoloader(occupied={4: "grid-birch"})
         microscope, loader = _microscope_with(hw)
         loader.get_inventory()
-        microscope._stage.ensure_loaded("grid-birch")
+        microscope.sample_handling.ensure_loaded("grid-birch")
         assert hw._slots[3].state == "Empty"
         loader.get_inventory()
         assert loader.slots["Slot-04"].loaded_grid is not None
-        assert [g.name for g in microscope._stage.loaded_grids] == ["grid-birch"]
+        assert [g.name for g in microscope.sample_handling.loaded_grids] == [
+            "grid-birch"
+        ]
 
     def test_the_raw_rows_are_logged_on_every_read(self, caplog):
         """A bench session run from the GUI still gets the hardware's own words
@@ -272,7 +280,7 @@ class TestInventory:
         hw = FakeAutoloader(occupied={1: "a", 2: "b"})
         microscope, loader = _microscope_with(hw)
         loader.run_inventory()
-        rows = microscope._stage.grid_inventory()
+        rows = microscope.sample_handling.grid_inventory()
         assert [r.name for r in rows if r.present] == ["a", "b"]
         assert all(r.source == "magazine" for r in rows)
 
@@ -287,19 +295,19 @@ class TestExchange:
         hw = FakeAutoloader(occupied={3: "grid-cedar"})
         microscope, loader = _microscope_with(hw)
         loader.run_inventory()
-        microscope._stage.ensure_loaded("grid-cedar")
+        microscope.sample_handling.ensure_loaded("grid-cedar")
         assert ("load", 3) in hw.calls
-        assert microscope._stage.loaded_grids[0].name == "grid-cedar"
+        assert microscope.sample_handling.loaded_grids[0].name == "grid-cedar"
         # the magazine slot stays the grid's home, whatever the hardware reads
         assert loader.slots["Slot-03"].loaded_grid.name == "grid-cedar"
 
     def test_an_exchange_on_4_14_reads_loaded_then_occupied_again(self):
-        from fibsem.microscopes._stage import GridSlotState
+        from fibsem.services.sample_handling import GridSlotState
 
         hw = FakeAutoloader(occupied={1: "a", 2: "b"}, reports_loaded=True)
         microscope, loader = _microscope_with(hw)
         loader.get_inventory()
-        stage = microscope._stage
+        stage = microscope.sample_handling
         stage.ensure_loaded("a")
         loader.get_inventory()
         rows = {r.name: r.state for r in stage.grid_inventory() if r.present}
@@ -317,28 +325,28 @@ class TestExchange:
         hw = FakeAutoloader(occupied={3: "grid-cedar", 4: "grid-elm"})
         microscope, loader = _microscope_with(hw)
         loader.run_inventory()
-        microscope._stage.ensure_loaded("grid-cedar")
+        microscope.sample_handling.ensure_loaded("grid-cedar")
         loader.run_inventory()  # hardware now reads slot 3 as Empty
         assert loader.slots["Slot-03"].loaded_grid.name == "grid-cedar"
-        assert microscope._stage.grid_inventory()[2].loaded is True
+        assert microscope.sample_handling.grid_inventory()[2].loaded is True
 
     def test_exchange_unloads_then_loads(self):
         hw = FakeAutoloader(occupied={1: "a", 2: "b"})
         microscope, loader = _microscope_with(hw)
         loader.run_inventory()
-        microscope._stage.ensure_loaded("a")
-        microscope._stage.ensure_loaded("b")
+        microscope.sample_handling.ensure_loaded("a")
+        microscope.sample_handling.ensure_loaded("b")
         assert hw.calls[-2:] == [("unload",), ("load", 2)]
-        assert microscope._stage.loaded_grids[0].name == "b"
+        assert microscope.sample_handling.loaded_grids[0].name == "b"
 
     def test_unload_calls_the_hardware(self):
         hw = FakeAutoloader(occupied={1: "a"})
         microscope, loader = _microscope_with(hw)
         loader.run_inventory()
-        microscope._stage.ensure_loaded("a")
-        microscope._stage.unload()
+        microscope.sample_handling.ensure_loaded("a")
+        microscope.sample_handling.unload()
         assert hw.calls[-1] == ("unload",)
-        assert microscope._stage.loaded_grids == []
+        assert microscope.sample_handling.loaded_grids == []
 
     def test_hardware_failure_becomes_a_grid_exchange_error(self):
         hw = FakeAutoloader(occupied={1: "a"})
@@ -346,8 +354,8 @@ class TestExchange:
         loader.run_inventory()
         hw.fail_load = True
         with pytest.raises(GridExchangeError, match="gripper fault"):
-            microscope._stage.ensure_loaded("a")
-        assert microscope._stage.loaded_grids == []
+            microscope.sample_handling.ensure_loaded("a")
+        assert microscope.sample_handling.loaded_grids == []
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +368,7 @@ class TestNaming:
         hw = FakeAutoloader(occupied={2: "Grid-02"})
         microscope, loader = _microscope_with(hw)
         loader.run_inventory()
-        microscope._stage.assign_grid("Slot-02", SampleGrid(name="grid-birch"))
+        microscope.sample_handling.assign_grid("Slot-02", SampleGrid(name="grid-birch"))
         assert hw._slots[1].sample_description == "grid-birch"
         assert loader.find_grid("grid-birch") is loader.slots["Slot-02"]
 
@@ -368,7 +376,7 @@ class TestNaming:
         hw = FakeAutoloader(occupied={2: "grid-birch"})
         microscope, loader = _microscope_with(hw)
         loader.run_inventory()
-        microscope._stage.assign_grid("Slot-02", None)
+        microscope.sample_handling.assign_grid("Slot-02", None)
         assert hw._slots[1].sample_description == ""
 
     def test_a_name_that_does_not_stick_is_an_error(self):
@@ -387,7 +395,9 @@ class TestNaming:
 
         hw.get_slots = fresh_copies
         with pytest.raises(GridExchangeError, match="did not stick"):
-            microscope._stage.assign_grid("Slot-02", SampleGrid(name="grid-birch"))
+            microscope.sample_handling.assign_grid(
+                "Slot-02", SampleGrid(name="grid-birch")
+            )
         assert hw._slots[1].sample_description == "Grid-02"
 
     def test_a_refused_write_is_an_error(self):
@@ -403,7 +413,9 @@ class TestNaming:
 
         hw._slots[1] = ReadOnlySlot(2, "Occupied", "Grid-02")
         with pytest.raises(GridExchangeError, match="read-only"):
-            microscope._stage.assign_grid("Slot-02", SampleGrid(name="grid-birch"))
+            microscope.sample_handling.assign_grid(
+                "Slot-02", SampleGrid(name="grid-birch")
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +444,7 @@ class TestIsInstalled:
 
 
 def _thermo(autoloader: FakeAutoloader, devices=None):
-    """A ThermoMicroscope with just what `_create_grid_loader` reads: the
+    """A ThermoMicroscope with just what `_build_sample_loader` reads: the
     configuration, the connection and the devices map."""
     from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 
@@ -455,28 +467,26 @@ class TestThermoBuildsTheDevice:
 
     def test_an_installed_autoloader_is_a_sample_loader_device(self):
         microscope = _thermo(FakeAutoloader(occupied={1: "a"}))
-        loader = microscope._create_grid_loader()
-        assert isinstance(loader, DeviceSampleLoader)
-        device = microscope.devices["sample_loader"]
+        device = microscope._build_sample_loader()
         assert isinstance(device, autoscript_devices.AutoscriptSampleLoader)
-        assert loader.device is device
+        assert microscope.devices["sample_loader"] is device
         # nothing is read at connect
         assert microscope.connection.specimen.autoloader.calls == []
 
     def test_a_rebuilt_sample_stage_keeps_the_device(self):
         microscope = _thermo(FakeAutoloader())
-        first = microscope._create_grid_loader().device
-        assert microscope._create_grid_loader().device is first
+        first = microscope._build_sample_loader()
+        assert microscope._build_sample_loader() is first
 
     def test_no_autoloader_no_loader(self):
         hw = FakeAutoloader()
         hw.is_installed = False
         microscope = _thermo(hw)
-        assert microscope._create_grid_loader() is None
+        assert microscope._build_sample_loader() is None
         assert "sample_loader" not in microscope.devices
 
     def test_switched_off_in_the_configuration_no_loader(self):
         hw = FakeAutoloader()
         microscope = _thermo(hw, devices=[{"name": "sample_loader", "enabled": False}])
-        assert microscope._create_grid_loader() is None
+        assert microscope._build_sample_loader() is None
         assert "sample_loader" not in microscope.devices

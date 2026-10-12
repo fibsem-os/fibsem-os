@@ -258,8 +258,8 @@ class SampleHolderWidget(QWidget):
         super().__init__(parent)
         self._microscope = microscope
         self._move_directly = move_directly
-        stage = getattr(microscope, "_stage", None)
-        self._has_loader = getattr(stage, "loader", None) is not None
+        stage = getattr(microscope, "sample_handling", None)
+        self._has_loader = getattr(stage, "magazine", None) is not None
         self._holder: Optional[SampleHolder] = None
         self._calibration_dialog = None
         self._rows: List[_SlotRow] = []
@@ -412,7 +412,9 @@ class SampleHolderWidget(QWidget):
             grid = SampleGrid(name=name)
         if self._microscope is not None:
             try:
-                self._microscope._stage.assign_grid(slot.name, grid, persist=True)
+                self._microscope.sample_handling.assign_grid(
+                    slot.name, grid, persist=True
+                )
             except Exception as e:  # noqa: BLE001 - keep the in-memory change, say so
                 logging.warning(f"Could not record the grid in {slot.name}: {e}")
                 slot.loaded_grid = grid
@@ -440,7 +442,7 @@ class SampleHolderWidget(QWidget):
         position: FibsemStagePosition = slot.position
         if self._move_directly:
             try:
-                self._microscope._stage.move_to_slot(slot.name)
+                self._microscope.sample_handling.move_to_slot(slot.name)
             except Exception as e:  # noqa: BLE001 - a refused or failed move is reported
                 logging.warning(f"Failed to move to slot '{slot.name}': {e}")
             return
@@ -479,7 +481,7 @@ if __name__ == "__main__":
     app.setStyle("Fusion")
 
     microscope, settings = utils.setup_session(config_path=None)
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
 
     widget = SampleHolderWidget(microscope=microscope, move_directly=True)
     widget.setStyleSheet(f"background: {SURFACE_COLOR}; color: #d1d2d4;")

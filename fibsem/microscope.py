@@ -83,9 +83,9 @@ from fibsem.transformations import (
 if TYPE_CHECKING:
     from fibsem.cancellation import AnyStopEvent
     from fibsem.imaging.spot import SpotBurnSettings
-    from fibsem.microscopes._stage import SampleGridLoader
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.services.milling import Milling
+    from fibsem.services.sample_handling import SampleHandling
     from fibsem.services.spot_burn import SpotBurn
     from fibsem.services.stage_movement import StageMovement
 
@@ -342,6 +342,13 @@ class FibsemMicroscope(ABC):
     #: `run_spot_burn` goes to it. None when the ion beam can't burn (not built,
     #: or it can't blank and park): the method raises then.
     spot_burn: Optional[SpotBurn] = None
+    #: The sample handling service over the stage and the sample loader
+    #: (`fibsem.services.sample_handling.SampleHandling`): the holder, the grids and
+    #: the commands that make a grid reachable. None without a stage device.
+    sample_handling: Optional[SampleHandling] = None
+    #: Whether this driver's sample loader reads its magazine when the sample
+    #: handling service is built: only where that read is free (the simulator).
+    _read_magazine_at_connect: bool = False
     #: The file `system` was loaded from, when it was loaded from one. Set by
     #: `utils.setup_session`; what a calibration action writes back to.
     configuration_path: Optional[str] = None
@@ -551,11 +558,12 @@ class FibsemMicroscope(ABC):
         if self.stage is not None:
             self.system.stage.rotation = "r" in self.stage.axes
 
-    def _create_sample_stage(self) -> None:
-        """Create the sample stage and holder based on the system settings."""
-        from fibsem.microscopes._stage import _create_sample_stage
+    def _build_sample_handling(self) -> None:
+        """Build the sample handling service (the holder, and the grid model over the
+        sample loader if there is one) from the system settings."""
+        from fibsem.services.sample_handling import bind_sample_handling
 
-        # Before the stage object, not after. Every backend wraps this call in a
+        # Before the service, not after. Every backend wraps this call in a
         # try/except that logs and carries on, so a failure below leaves the
         # capability at its field default -- `True`, which on a compustage is the
         # wrong answer and a silent one. Reading it first cannot fail: it asks the
@@ -563,8 +571,9 @@ class FibsemMicroscope(ABC):
         self._read_stage_capabilities()
         self._read_hardware_capabilities()
 
-        self._stage = _create_sample_stage(self)
-        self.holder_changed.emit(self._stage.holder)
+        self.sample_handling = bind_sample_handling(self)
+        if self.sample_handling is not None:
+            self.holder_changed.emit(self.sample_handling.holder)
 
     # ---- fitted subsystems ---------------------------------------------------
     #
@@ -799,15 +808,6 @@ class FibsemMicroscope(ABC):
             if detector is not None:
                 record.detector.type = detector.type
                 record.detector.mode = detector.mode
-
-    def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
-        """The grid loader for a compustage system, or None when it has no autoloader.
-
-        Backends wrap their own hardware; this default is the in-memory model.
-        """
-        from fibsem.microscopes._stage import SampleGridLoader
-
-        return SampleGridLoader(parent=self)
 
     # The raw moves go through the stage device when the backend builds one, without
     # its limit check (the old API never had one); a backend without one overrides
@@ -2174,17 +2174,18 @@ class FibsemMicroscope(ABC):
             # The same replacement empties the holder map, for the same reason: a
             # configuration written before the holder moved into it has no `holders:`.
             # But which holder is in the shuttle is a physical fact, and pressing Apply
-            # did not change it -- so it is carried across, and the running `Stage`
+            # did not change it -- so it is carried across, and the running service
             # keeps agreeing with the configuration it came from. A file that *does*
             # name holders wins, because then the user is choosing one.
             if not self.system.stage.holders:
                 self.system.stage.holders = previous_stage.holders
                 self.system.stage.active_holder = previous_stage.active_holder
             else:
-                # The file chose a holder, so the running `Stage` -- built once at
-                # connect -- has to be rebuilt around it, or `system.stage` says one
-                # holder while `_stage.holder` still moves to the slots of another.
-                self._create_sample_stage()
+                # The file chose a holder, so the sample handling service -- built
+                # once at connect -- has to be rebuilt around it, or `system.stage`
+                # says one holder while `sample_handling.holder` still moves to the
+                # slots of another.
+                self._build_sample_handling()
 
         # `system_settings.manipulator` is not taken from the incoming settings:
         # what is fitted is not in the file, so the incoming record only carries
@@ -3756,7 +3757,7 @@ class FibsemMicroscope(ABC):
     @property
     def current_grid(self) -> str:
         try:
-            grid = self._stage.current_grid
+            grid = self.sample_handling.current_grid
             if grid is None:
                 return "NONE"
             return grid.name

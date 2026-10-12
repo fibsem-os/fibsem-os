@@ -2,7 +2,7 @@
 
 The context an overview is read against: which grid you are on, how far from its centre,
 and how much travel is left. None of it depends on what is imaging the sample -- the
-numbers come from `microscope._stage`, and turning them into canvas coordinates is the
+numbers come from `microscope.sample_handling`, and turning them into canvas coordinates is the
 `StageFrame`'s job, which both overview tabs already have.
 
 They had a copy each, and the copies disagreed (FIB-698). The fluorescence one gated the
@@ -159,7 +159,7 @@ def canvas_span(frame: StageFrame, length: float) -> Tuple[float, float]:
 def holder_slots(microscope) -> List[object]:
     """The sample holder's slots, or nothing if the stage does not describe one."""
     try:
-        return list(microscope._stage.holder.slots.values())
+        return list(microscope.sample_handling.holder.slots.values())
     except Exception:
         return []
 

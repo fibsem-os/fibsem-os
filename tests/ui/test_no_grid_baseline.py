@@ -35,8 +35,8 @@ def main_ui(qapp):
     window = module.AutoLamellaSingleWindowUI()
     ui = window.autolamella_ui
     ui.system_widget.connect_to_microscope()
-    stage = ui.microscope._stage
-    assert stage.loader is None, "the default Demo grew a loader"
+    stage = ui.microscope.sample_handling
+    assert stage.magazine is None, "the default Demo grew a loader"
     yield window
     ui.microscope.disconnect()
     original_quit = qapp.quit

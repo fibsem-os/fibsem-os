@@ -1746,7 +1746,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Why these lamellae cannot run now, or "": a lamella linked to a grid
         that is not on the stage. Reads the inventory first; see `grid_gate`."""
         ui = self.autolamella_ui
-        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        stage = getattr(getattr(ui, "microscope", None), "sample_handling", None)
         if ui is None or ui.experiment is None or stage is None:
             return ""
         return run_refusal(ui.experiment, stage, lamellae)
@@ -1837,7 +1837,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         last inventory knows: present, and nothing run on them yet. Read off
         the stage's cached inventory; nothing here asks the hardware."""
         ui = self.autolamella_ui
-        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        stage = getattr(getattr(ui, "microscope", None), "sample_handling", None)
         if ui is None or ui.experiment is None or stage is None:
             return []
         present = {e.name for e in stage.grid_inventory() if e.present}
@@ -2810,7 +2810,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         own refresh was pressed. Reads the stage's cached inventory: no hardware.
         """
         ui = self.autolamella_ui
-        stage = getattr(getattr(ui, "microscope", None), "_stage", None)
+        stage = getattr(getattr(ui, "microscope", None), "sample_handling", None)
         if ui is None or ui.experiment is None or stage is None:
             return
         try:
@@ -2902,7 +2902,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         if experiment is None or not experiment.grids:
             return None
         loaded = set()
-        stage = getattr(self.autolamella_ui.microscope, "_stage", None)
+        stage = getattr(self.autolamella_ui.microscope, "sample_handling", None)
         if stage is not None:
             try:
                 loaded = {e.name for e in stage.grid_inventory() if e.loaded}

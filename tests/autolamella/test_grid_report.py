@@ -104,7 +104,7 @@ def screened(tmp_path_factory):
             overview=OverviewParameters(rows=1, cols=2),
         )
     )
-    slot = microscope._stage.holder.slots["Slot-01"]
+    slot = microscope.sample_handling.holder.slots["Slot-01"]
 
     # grid-aspen: loaded, screened in full, two lamellae, judged good
     aspen = exp.add_grid(GridRecord(name="grid-aspen"))

@@ -1,6 +1,6 @@
 """The stage device says whether it carries its own one-grid shuttle.
 
-`_create_sample_stage` used to ask `stage_is_compustage`; it asks the stage device now,
+`bind_sample_handling` used to ask `stage_is_compustage`; it asks the stage device now,
 so each driver answers for its own stage type.
 """
 

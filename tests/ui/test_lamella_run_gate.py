@@ -55,7 +55,7 @@ def test_run_is_refused_by_name_until_the_grid_is_loaded(
     main_ui, tmp_path, monkeypatch
 ):
     ui = main_ui.autolamella_ui
-    stage = ui.microscope._stage
+    stage = ui.microscope.sample_handling
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol(

@@ -37,7 +37,7 @@ def connected(request):
 
 def test_the_sample_stage_has_no_limits_of_its_own(connected):
     microscope, _ = connected
-    assert not hasattr(microscope._stage, "limits")
+    assert not hasattr(microscope.sample_handling, "limits")
 
 
 def test_the_stage_device_reports_the_simulator_table(connected):

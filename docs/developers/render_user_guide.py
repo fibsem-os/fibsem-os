@@ -171,7 +171,7 @@ class Harness:
         session_state.SESSION_STATE_DIRECTORY = str(tmp / "session")
         # the stage module imports the holder paths by name, so rebinding
         # cfg's is not enough: a calibration would land in the real file
-        from fibsem.microscopes import _stage as stage_module
+        from fibsem.services import sample_handling as stage_module
 
         holder_path = str(tmp / "sample-holder.yaml")
         occupancy_path = str(tmp / "sample-holder-occupancy.yaml")

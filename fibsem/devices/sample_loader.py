@@ -4,7 +4,7 @@ It reports hardware facts only. The magazine is a row per slot, numbered from 1 
 the magazine and in the vendor API, each with a state and the description the
 hardware keeps for it. ``on_stage`` is what the loader says sits on the stage. Grid
 names, which grid is which across scans and the holder's working slot are the grid
-model's (``fibsem.microscopes._stage``), not the device's.
+model's (``fibsem.services.sample_handling``), not the device's.
 
 All parameters are read-only; what moves is a command. ``load`` and ``unload`` move
 the stage, so they claim the ``stage`` resource as well as ``sample_loader``. ``scan``
