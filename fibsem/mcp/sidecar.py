@@ -26,6 +26,7 @@ import json
 import os
 import sys
 from typing import Any, Optional, Tuple
+from urllib.parse import urlencode
 
 from fibsem.server.catalog import CATALOG, tools_for_capabilities
 
@@ -354,6 +355,24 @@ def build_sidecar(client, capabilities):
     def get_protocol():
         return _app_get("/app/protocol")
 
+    def get_log(
+        task_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        level: Optional[str] = None,
+        lines: int = 200,
+    ):
+        query = {
+            "task_id": task_id,
+            "since": since,
+            "until": until,
+            "level": level,
+            "lines": lines,
+        }
+        return _app_get(
+            "/app/log?" + urlencode({k: v for k, v in query.items() if v is not None})
+        )
+
     def get_task_outputs(item_name: str):
         return _app_get(f"/app/task_outputs/{item_name}")
 
@@ -588,6 +607,7 @@ def build_sidecar(client, capabilities):
             get_experiment_summary,
             get_task_history,
             get_run_summary,
+            get_log,
             get_protocol,
             get_task_outputs,
             get_item_detail,
