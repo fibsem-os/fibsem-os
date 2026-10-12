@@ -328,6 +328,7 @@ class TescanMicroscope(FibsemMicroscope):
         self._build_milling()
         self._build_stage_movement()
         self._build_spot_burn()
+        self._build_imaging()
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
         # Tescan's own driver has no FM; one on its own PC is built from its entry.
@@ -534,17 +535,6 @@ class TescanMicroscope(FibsemMicroscope):
     def set_detector_mode(self, mode: str, beam_type: BeamType) -> Optional[str]:
         logging.debug("The Tescan API has no detector mode; not set.")
         return None
-
-    def auto_focus(
-        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
-    ) -> None:
-        device = self._beam_device(beam_type)
-        if not device.commands["auto_focus"].available:
-            logging.warning(
-                f"Auto focus is not supported for {beam_type.name} in Tescan API"
-            )
-            return
-        device.auto_focus(reduced_area)
 
     @_records_beam_shift
     def beam_shift(
