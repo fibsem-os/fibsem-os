@@ -189,6 +189,28 @@ def test_a_value_answer_moves_the_area_and_answers_with_it(ui, qapp):
     assert answered["adjusted"] is True
 
 
+def test_echoing_the_area_is_not_an_adjustment(ui, qapp):
+    # FIB-1330: sending back `current` accepts the area, it adjusts nothing.
+    thread, outcome = _edit_on_worker_thread(ui, qapp)
+    _, nonce = ui.ui_responder.pending_question_and_nonce()
+    current = ui.image_widget.get_alignment_area().to_dict()
+
+    events = []
+    dispose = ui.ui_responder.add_question_observer(
+        lambda kind, payload: events.append((kind, payload))
+    )
+    try:
+        result = _answer_with_value_on_worker(ui, qapp, True, nonce, current)
+    finally:
+        dispose()
+    _finish(thread, qapp)
+
+    assert result["applied"] is True
+    assert "adjusted" not in result
+    answered = [p for k, p in events if k == "prompt_answered"][-1]
+    assert "adjusted" not in answered
+
+
 def test_an_invalid_value_is_refused_and_the_prompt_stands(ui, qapp):
     thread, outcome = _edit_on_worker_thread(ui, qapp)
     _, nonce = ui.ui_responder.pending_question_and_nonce()

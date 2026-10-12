@@ -201,6 +201,22 @@ def test_a_failed_runs_errors_over_http(client):
     assert body["since"] == (T0 + timedelta(seconds=2990)).isoformat()
 
 
+def test_a_runs_log_defaults_to_info(client, host):
+    # FIB-1330: at DEBUG a run's window is mostly noise, and the cap keeps
+    # its end. Given a level, the agent gets what it asked for.
+    log = host.experiment.path / "logfile.log"
+    with open(log, "a", encoding="utf-8") as f:
+        f.write(_line(T0 + timedelta(seconds=2996), "DEBUG", "noise"))
+    get = lambda **q: client.get("/app/log", params=q, headers=AUTH).json()  # noqa: E731
+
+    body = get(task_id="run-1")
+    assert body["level"] == "INFO"
+    assert not [r for r in body["records"] if r["level"] == "DEBUG"]
+    debug = get(task_id="run-1", level="debug")
+    assert debug["level"] == "DEBUG"
+    assert [r for r in debug["records"] if r["level"] == "DEBUG"]
+
+
 def test_refusals_over_http(client):
     get = lambda **q: client.get("/app/log", params=q, headers=AUTH)  # noqa: E731
     assert get(task_id="missing").status_code == 404
