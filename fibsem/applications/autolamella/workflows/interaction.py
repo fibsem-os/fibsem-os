@@ -74,6 +74,7 @@ __all__ = [
     "EditAlignmentArea",
     "PickPOI",
     "RunMillingTask",
+    "MillingSkipped",
     "RunSpotBurn",
     "SetImages",
     "SetMillingConfig",
@@ -215,6 +216,13 @@ class RunMillingTask(Request["FibsemMillingTaskConfig"]):
     ``output_dir`` is the asking task's folder, which every run of the mill
     writes under -- the operator's re-runs included. None for a mill nobody
     gave one, which falls back to the config's imaging path.
+
+    ``passes`` is how many times the mill has run for this question, failed
+    runs included. The asker always sends 0; the responder re-asks with the
+    count after each run. It is what tells the first ask from a re-ask, for
+    whoever answers: at 0 the negative answer is Skip (nothing milled, the
+    task is Skipped: :class:`MillingSkipped`), after a pass it is Continue,
+    which accepts what was milled (FIB-1329).
     """
 
     config: "FibsemMillingTaskConfig"
@@ -222,6 +230,13 @@ class RunMillingTask(Request["FibsemMillingTaskConfig"]):
     confirm: Callable[[], bool] = _always_confirm
     message: str = "Run Milling"
     output_dir: Optional[str] = None
+    passes: int = 0
+
+
+class MillingSkipped(Exception):
+    """A mill was skipped at its first ask, before anything ran. Raised to the
+    asker in place of an answer: the task ends Skipped, with this as the
+    reason, never Completed with nothing milled (FIB-1329)."""
 
 
 @dataclass(frozen=True)

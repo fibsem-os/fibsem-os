@@ -27,6 +27,7 @@ pytest.importorskip("PyQt5")
 from fibsem.acting import TASK, current_actor
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem.applications.autolamella.workflows.interaction import (
+    MillingSkipped,
     RunMillingTask,
     ask,
 )
@@ -111,14 +112,19 @@ def test_run_then_continue_runs_once_and_answers_the_editor_config(ui, qapp):
     request = RunMillingTask(config=_config("rough-mill"), message=MSG)
     thread, outcome = _ask_on_worker_thread(ui, qapp, request)
 
+    # Before any pass the negative is Skip, not Continue (FIB-1329).
     assert ui.pushButton_yes.text() == "Run Milling"
-    assert ui.pushButton_no.text() == "Continue"
+    assert ui.pushButton_no.text() == "Skip"
+    assert ui.ui_responder.pending_question().passes == 0
     assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()  # run
-    # The prompt is down while the mill runs, and comes back when it finishes.
+    # The prompt is down while the mill runs, and comes back when it finishes,
+    # as a re-ask: Continue now accepts what was milled.
     _wait_for_prompt(ui, qapp, MSG)
     assert len(ui._mill_runs) == 1
+    assert ui.pushButton_no.text() == "Continue"
+    assert ui.ui_responder.pending_question().passes == 1
 
     ui.pushButton_no.click()  # continue
     _finish(thread, qapp)
@@ -185,16 +191,20 @@ def test_unsupervised_a_failed_mill_fails_the_ask(ui, qapp):
     assert ui.hold is None
 
 
-def test_continue_without_running_answers_without_a_mill(ui, qapp):
+def test_skip_at_the_first_ask_skips_the_mill(ui, qapp):
+    """Nothing was milled, so the asker gets MillingSkipped, not a config it
+    would record as Completed (FIB-1329). The editor is cleared all the same."""
     request = RunMillingTask(config=_config("skip"), message=MSG)
     thread, outcome = _ask_on_worker_thread(ui, qapp, request)
 
-    ui.pushButton_no.click()
+    ui.pushButton_no.click()  # Skip
     _finish(thread, qapp)
 
-    assert "error" not in outcome
-    assert outcome["config"].name == "skip"
+    assert isinstance(outcome.get("error"), MillingSkipped)
+    assert "skip" in str(outcome["error"])
+    assert "config" not in outcome
     assert ui._mill_runs == []
+    assert ui.hold is None
 
 
 def test_unsupervised_runs_once_without_a_prompt(ui, qapp):
@@ -228,9 +238,11 @@ def test_the_answer_is_the_editors_config_not_the_requests(ui, qapp):
     request = RunMillingTask(config=_config("sent"), message=MSG)
     thread, outcome = _ask_on_worker_thread(ui, qapp, request)
 
+    ui.pushButton_yes.click()  # run
+    _wait_for_prompt(ui, qapp, MSG)
     # The operator edits while the prompt is up; the answer must be the editor's.
     ui.milling_task_config_widget.update_from_settings(_config("edited-by-operator"))
-    ui.pushButton_no.click()
+    ui.pushButton_no.click()  # continue
     _finish(thread, qapp)
 
     assert outcome["config"].name == "edited-by-operator"
@@ -437,7 +449,7 @@ def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_
     try:
         request = RunMillingTask(config=_config("asked"), message=MSG)
         thread, _ = _ask_on_worker_thread(ui, qapp, request)
-        ui.pushButton_no.click()  # continue, without running
+        ui.pushButton_no.click()  # skip, without running
         _finish(thread, qapp)
     finally:
         recorder.close()

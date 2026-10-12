@@ -72,6 +72,7 @@ from fibsem.applications.autolamella.workflows.core import (
 )
 from fibsem.applications.autolamella.workflows.interaction import (
     ClearMillingConfig,
+    MillingSkipped,
     RunMillingTask,
     SetFluorescenceChannels,
     SetMillingConfig,
@@ -275,6 +276,15 @@ class AutoLamellaTask(ABC):
         self._fire_hook("task_started")
         try:
             self._run()
+        except MillingSkipped as e:
+            # Skipped at a mill's first ask: nothing milled, so the record says
+            # Skipped, not Completed, and what requires this task does not run
+            # on it (FIB-1329). Not a failure, and nothing to propose.
+            self.lamella.task_state.status = AutoLamellaTaskStatus.Skipped
+            self.lamella.task_state.status_message = str(e)
+            self._record_outcome()
+            self._fire_hook("task_skipped", skip_reason=str(e))
+            return
         except Exception as e:
             # A user Stop is a cancellation, not a failure — fire the distinct hook so it
             # notifies as "cancelled" (warning) rather than "FAILED" (error).
@@ -339,7 +349,7 @@ class AutoLamellaTask(ABC):
             return True
         return bool(getattr(getattr(self, "task_manager", None), "should_abort", False))
 
-    def _fire_hook(self, event: str, error: Optional[str] = None) -> None:
+    def _fire_hook(self, event: str, error: Optional[str] = None, **extra: Any) -> None:
         from fibsem.hooks import fire_event
 
         # Which experiment, and how much of the queue is left. Only the manager knows
@@ -358,6 +368,7 @@ class AutoLamellaTask(ABC):
             task_id=self.task_id,
             task_state=self.lamella.task_state,
             error=error,
+            **extra,
             **run_context,
         )
 

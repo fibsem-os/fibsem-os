@@ -210,7 +210,11 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
             if run is None:  # skipped, or started before the file did
                 run = runs[run_id] = _run(item, task, payload, start=None)
             if kind == "task_skipped":
-                run.update(start=time, outcome=SKIPPED)
+                # A run skipped from inside (a mill skipped at its first ask,
+                # FIB-1329) keeps the start it had.
+                if run["start"] is None:
+                    run["start"] = time
+                run["outcome"] = SKIPPED
                 reason = payload.get("skip_reason")
             else:
                 run["outcome"] = _RUN_ENDS[kind]

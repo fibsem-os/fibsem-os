@@ -17,6 +17,7 @@ from fibsem.applications.autolamella.server.prompts import serialize_request
 from fibsem.applications.autolamella.workflows.interaction import (
     EditAlignmentArea,
     PickPOI,
+    RunMillingTask,
 )
 from fibsem.structures import FibsemImage, FibsemRectangle, Point
 
@@ -78,3 +79,21 @@ def test_confirm_detection_bare_array_reports_source_dimensions():
     )
     assert "source-image pixels" in payload["coordinates"]
     json.dumps(payload)
+
+
+def test_run_milling_payload_tells_the_first_ask_from_a_re_ask():
+    """At the first ask no skips the mill; after a pass no accepts it. The
+    payload says which, so an agent need not infer it from history (FIB-1329)."""
+    from fibsem.milling import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig(name="Rough Mill", stages=[FibsemMillingStage()])
+    first = serialize_request(RunMillingTask(config=config))
+    again = serialize_request(RunMillingTask(config=config, passes=1))
+
+    assert first["passes"] == 0
+    assert "skips it" in first["message"]
+    assert again["passes"] == 1
+    assert "accepts what was milled" in again["message"]
+    json.dumps(first)
+    json.dumps(again)

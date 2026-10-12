@@ -172,12 +172,15 @@ message; it may be a position instruction ("double click to move… press
 Continue") — for an already-placed item, Continue is safe; for a *new*
 placement, that is the operator's decision (see the ladder).
 
-**`RunMillingTask`** — two distinct moments share this type:
-- *Start* (first appearance for an item): yes runs the mill with the config
-  as shown; check `task_name` and `num_stages` look right first.
-- *Inspect re-ask* (after a mill pass): **yes mills AGAIN, no accepts.** Pull
-  the fresh post-mill image (rules 2–3), judge it, and answer no to accept.
-  Do not re-mill without a reason you can state.
+**`RunMillingTask`** — two distinct moments share this type; `passes` in
+the payload tells them apart:
+- *Start* (`passes: 0`): yes runs the mill with the config as shown; check
+  `task_name` and `num_stages` look right first. **No skips the mill**:
+  nothing is milled and the task is recorded Skipped. Skipping is the
+  operator's call; escalate rather than answer no here.
+- *Inspect re-ask* (`passes` ≥ 1, after a mill pass): **yes mills AGAIN, no
+  accepts.** Pull the fresh post-mill image (rules 2–3), judge it, and answer
+  no to accept. Do not re-mill without a reason you can state.
 
 **`EditAlignmentArea`** — the payload's `current` is the live rectangle
 (fractions of the frame), and `image` is the frame it sits on (the post-mill

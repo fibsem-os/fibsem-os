@@ -748,8 +748,14 @@ class TaskManager(BaseTaskManager):
             final_status = lamella.task_state.status
             self.queue.mark_done(item, final_status)
 
-            # Emit Completed/Failed status
-            if err is None:
+            # Emit Completed/Skipped/Failed status
+            skip_reason = None
+            if final_status is AutoLamellaTaskStatus.Skipped:
+                # Skipped from inside the run: a mill skipped at its first
+                # ask (FIB-1329). The task fired its own task_skipped.
+                skip_reason = lamella.task_state.status_message
+                msg = f"Skipping {lamella.name} for {item.task_name}: {skip_reason}"
+            elif err is None:
                 msg = f"Completed task {item.task_name} for Lamella {lamella.name}."
             else:
                 msg = f"Error in task {item.task_name} for Lamella {lamella.name}."
@@ -757,9 +763,12 @@ class TaskManager(BaseTaskManager):
                 item=item,
                 lamella=lamella,
                 status=final_status,
-                error_message=lamella.task_state.status_message,
+                error_message=None
+                if skip_reason is not None
+                else lamella.task_state.status_message,
                 task_duration=lamella.task_state.duration,
                 msg=msg,
+                skip_reason=skip_reason,
             )
 
             self._maybe_fire_lamella_completed(lamella, item.task_name)
