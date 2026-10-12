@@ -178,6 +178,29 @@ class Beam(Device):
         self._live_stop = threading.Event()
         self._live_thread: Optional[threading.Thread] = None
 
+    def facts(self) -> Dict[str, Any]:
+        """The gas the column's source reports running, if any."""
+        return {"installed_plasma_gas": self._installed_gas_or_none()}
+
+    def _installed_gas_or_none(self) -> Optional[str]:
+        # A Ga column refuses the question the same way a sick connection does.
+        try:
+            return self.installed_plasma_gas() or None
+        except Exception as error:
+            logging.debug(f"{self.name}: installed_plasma_gas: {error}")
+            return None
+
+    def installed_plasma_gas(self) -> Optional[str]:
+        """The gas the column's source reports running, read from the instrument
+        whatever the configuration says, or None if it cannot say (a Ga column, an
+        electron beam, a backend that cannot ask).
+
+        It is how connect finds the gas when the configuration names none
+        (`FibsemMicroscope._read_plasma_source`), which then binds the ``plasma_gas``
+        parameter the column did not have.
+        """
+        return None
+
     @command(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:
         """Blank the beam."""
