@@ -585,7 +585,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
     def save_run_summary_figure(self) -> Optional[str]:
         """Save a 2x2 PNG of pre/post FIB and first/last FM images plus an
-        intensity line plot styled to match LinePlotWidget (dark theme).
+        intensity line plot, in the shared dark plot theme.
 
         Each image panel is resized to ~512 px wide (aspect ratio preserved).
         Returns the saved file path, or None if saving failed.
@@ -595,11 +595,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
 
-        from fibsem.theme.tokens import SURFACE_COLOR
+        from fibsem.theme.plots import DARK, plot_theme
 
         TARGET_W = 256
-        _BG = SURFACE_COLOR
-        _FG = "white"
 
         def _to_display(arr: np.ndarray) -> np.ndarray:
             """Squeeze to 2-D YX, normalise to uint8, resize to TARGET_W wide."""
@@ -613,16 +611,6 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             h, w = arr.shape
             new_h = max(1, int(h * TARGET_W / w))
             return cv2.resize(arr, (TARGET_W, new_h), interpolation=cv2.INTER_AREA)
-
-        def _style_ax(ax) -> None:
-            """Apply LinePlotWidget dark theme to an axes."""
-            ax.set_facecolor(_BG)
-            ax.tick_params(colors=_FG, which="both", labelsize=8)
-            for spine in ax.spines.values():
-                spine.set_color(_FG)
-            ax.xaxis.label.set_color(_FG)
-            ax.yaxis.label.set_color(_FG)
-            ax.title.set_color(_FG)
 
         panels = [
             (
@@ -644,106 +632,103 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         ]
 
         try:
-            fig = Figure(figsize=(11, 14))
-            fig.patch.set_facecolor(_BG)
-            FigureCanvasAgg(fig)
-            gs = fig.add_gridspec(
-                3, 2, height_ratios=[1, 1, 0.6], hspace=0.05, wspace=0.05
-            )
+            with plot_theme(DARK) as theme:
+                fig = Figure(figsize=(11, 14))
+                FigureCanvasAgg(fig)
+                gs = fig.add_gridspec(
+                    3, 2, height_ratios=[1, 1, 0.6], hspace=0.05, wspace=0.05
+                )
 
-            # ── 2×2 image panels ──────────────────────────────────────
-            for idx, (data, title) in enumerate(panels):
-                ax = fig.add_subplot(gs[idx // 2, idx % 2])
-                ax.set_facecolor(_BG)
-                ax.set_title(title, fontsize=10, color=_FG)
-                ax.axis("off")
-                if data is not None:
-                    try:
-                        ax.imshow(_to_display(data), cmap="gray", aspect="equal")
-                    except Exception:
-                        logging.exception(
-                            "save_run_summary_figure: failed to render panel '%s'",
-                            title,
-                        )
+                # ── 2×2 image panels ──────────────────────────────────────
+                for idx, (data, title) in enumerate(panels):
+                    ax = fig.add_subplot(gs[idx // 2, idx % 2])
+                    ax.set_title(title, fontsize=10)
+                    ax.axis("off")
+                    if data is not None:
+                        try:
+                            ax.imshow(_to_display(data), cmap="gray", aspect="equal")
+                        except Exception:
+                            logging.exception(
+                                "save_run_summary_figure: failed to render panel '%s'",
+                                title,
+                            )
+                            ax.text(
+                                0.5,
+                                0.5,
+                                "error",
+                                ha="center",
+                                va="center",
+                                color=theme.text,
+                                transform=ax.transAxes,
+                            )
+                    else:
                         ax.text(
                             0.5,
                             0.5,
-                            "error",
+                            "N/A",
                             ha="center",
                             va="center",
-                            color=_FG,
+                            fontsize=12,
+                            color=theme.text_muted,
                             transform=ax.transAxes,
                         )
+
+                # ── Intensity line plot (full width) ──────────────────────
+                ax_plot = fig.add_subplot(gs[2, :])
+                if self.intensities and self.timestamps:
+                    dt_times = [
+                        datetime.datetime.fromtimestamp(t) for t in self.timestamps
+                    ]
+
+                    ax_plot.plot(
+                        dt_times,
+                        self.intensities,
+                        color=theme.series[0],
+                        linewidth=1.0,
+                        alpha=0.8,
+                        label="Mean intensity",
+                    )
+
+                    # rolling mean overlay
+                    n = int(self.config.rolling_window)
+                    if len(self.intensities) >= n:
+                        rolling = [
+                            float(np.mean(self.intensities[max(0, i - n) : i + 1]))
+                            for i in range(len(self.intensities))
+                        ]
+                        ax_plot.plot(
+                            dt_times,
+                            rolling,
+                            color=theme.series[1],
+                            linewidth=1.5,
+                            linestyle=":",
+                            alpha=0.9,
+                            label=f"Rolling mean (n={n})",
+                        )
+
+                    ax_plot.xaxis.set_major_formatter(
+                        mdates.DateFormatter("%I:%M:%S %p")
+                    )
+                    ax_plot.tick_params(axis="x", rotation=30)
+                    ax_plot.set_xlabel("Time", fontsize=9)
+                    ax_plot.set_ylabel("Mean intensity", fontsize=9)
+                    ax_plot.set_title("FM Intensity over Time", fontsize=10)
+                    ax_plot.legend(fontsize=8, loc="upper right")
                 else:
-                    ax.text(
+                    ax_plot.text(
                         0.5,
                         0.5,
-                        "N/A",
+                        "No intensity data",
                         ha="center",
                         va="center",
                         fontsize=12,
-                        color="gray",
-                        transform=ax.transAxes,
+                        color=theme.text_muted,
+                        transform=ax_plot.transAxes,
                     )
+                    ax_plot.axis("off")
 
-            # ── Intensity line plot (full width) ──────────────────────
-            ax_plot = fig.add_subplot(gs[2, :])
-            _style_ax(ax_plot)
-            if self.intensities and self.timestamps:
-                dt_times = [datetime.datetime.fromtimestamp(t) for t in self.timestamps]
-
-                ax_plot.plot(
-                    dt_times,
-                    self.intensities,
-                    color="#0f7aad",
-                    linewidth=1.0,
-                    alpha=0.8,
-                    label="Mean intensity",
-                )
-
-                # rolling mean overlay
-                n = int(self.config.rolling_window)
-                if len(self.intensities) >= n:
-                    rolling = [
-                        float(np.mean(self.intensities[max(0, i - n) : i + 1]))
-                        for i in range(len(self.intensities))
-                    ]
-                    ax_plot.plot(
-                        dt_times,
-                        rolling,
-                        color="#00ff66",
-                        linewidth=1.5,
-                        linestyle=":",
-                        alpha=0.9,
-                        label=f"Rolling mean (n={n})",
-                    )
-
-                ax_plot.xaxis.set_major_formatter(mdates.DateFormatter("%I:%M:%S %p"))
-                ax_plot.tick_params(axis="x", rotation=30)
-                ax_plot.set_xlabel("Time", fontsize=9, color=_FG)
-                ax_plot.set_ylabel("Mean intensity", fontsize=9, color=_FG)
-                ax_plot.set_title("FM Intensity over Time", fontsize=10, color=_FG)
-
-                legend = ax_plot.legend(fontsize=8, loc="upper right")
-                legend.get_frame().set_facecolor(_BG)
-                legend.get_frame().set_edgecolor(_FG)
-                for text in legend.get_texts():
-                    text.set_color(_FG)
-            else:
-                ax_plot.text(
-                    0.5,
-                    0.5,
-                    "No intensity data",
-                    ha="center",
-                    va="center",
-                    fontsize=12,
-                    color="gray",
-                    transform=ax_plot.transAxes,
-                )
-                ax_plot.axis("off")
-
-            out_path = os.path.join(self.path, "run_summary.png")
-            fig.savefig(out_path, dpi=100, bbox_inches="tight", facecolor=_BG)
+                out_path = os.path.join(self.path, "run_summary.png")
+                fig.savefig(out_path, dpi=100, bbox_inches="tight")
             logging.info("Saved run summary figure to %s", out_path)
             return out_path
 
