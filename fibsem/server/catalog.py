@@ -551,7 +551,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_pending_prompt",
-        description='The supervision question awaiting an answer, if any — message, options, and context images. A question that is also on the item\'s record says answer_via: "decide" and gives the item_id, task_name and proposal_id: it is decided with decide_review, like any other review, and answer_prompt will refuse it.',
+        description="The supervision question awaiting an answer, if any — message, options, and context images. positive and negative are the button labels: true is positive. A RunMillingTask carries its patterns drawn on the FIB frame (the image), each stage's geometry (stages, by index), and runs: 0 on the first ask, where true mills; after a mill it is asked again, and there true mills AGAIN while false (Continue) accepts what was milled. A question that is also on the item's record says answer_via: \"decide\" and gives the item_id, task_name and proposal_id: it is decided with decide_review, like any other review, and answer_prompt will refuse it.",
         method="GET",
         path="/app/prompt",
         scope="read",
@@ -585,7 +585,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="answer_prompt",
-        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the nonce from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea and PickPOI the answer may carry a value: adjusted geometry that is placed into the widget (the operator sees it land) and then accepted through the same click path. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
+        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the nonce from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea, PickPOI and RunMillingTask the answer may carry a value: adjusted geometry that is placed into the widget (the operator sees it land) and then accepted through the same click path. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything. On a RunMillingTask that has already milled (runs > 0), true mills again and is refused (422) unless the value carries run_again: true.',
         method="POST",
         path="/app/prompt/answer",
         scope="control",
@@ -593,7 +593,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "response": "true for the positive option, false for the negative",
             "nonce": "the nonce from get_pending_prompt, naming the question being answered",
-            "value": "optional adjusted geometry: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea, or {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI",
+            "value": "optional adjusted geometry: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea; {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI; for RunMillingTask, {stages: {index: {point: {x, y}}}} to move patterns (same coordinates) and run_again: true to mill again after a mill",
         },
     ),
     ToolSpec(

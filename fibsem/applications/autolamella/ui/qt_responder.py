@@ -114,6 +114,15 @@ class QtResponder(QObject):
         # A RunMillingTask whose mill is currently running: the prompt is down,
         # the future is pending, and finished_milling_signal decides what next.
         self._active_milling: Optional[Tuple[RunMillingTask, "Future"]] = None
+        # (request, runs, last error) for the RunMillingTask that last finished
+        # a mill: what makes its re-ask a different question from the first
+        # ask. Matched by identity, so a new question starts again at none.
+        self._milling_runs: Optional[Tuple[RunMillingTask, int, Optional[str]]] = None
+        # What the prompt now up says, as the operator reads it: (nonce,
+        # message, positive, negative). The request alone doesn't say it -- a
+        # re-ask relabels it -- and an agent answering True needs to know
+        # which button that is.
+        self._posted: Optional[Tuple[int, str, str, Optional[str]]] = None
         # Which milling widget's finished signal is wired to _on_milling_finished
         # (by identity — the widget is rebuilt on reconnect, taking the wire with it).
         self._milling_finished_wired: Optional[object] = None
@@ -188,6 +197,29 @@ class QtResponder(QObject):
             return None, None
         return pending[0], pending[2]
 
+    def posted_prompt(self) -> Optional[Dict[str, object]]:
+        """What the pending question's prompt says, for the question with that
+        nonce: the message and both button labels as the operator sees them,
+        and for a milling question how many times it has milled already and
+        how the last run ended. None when nothing is pending. Any thread."""
+        request, nonce = self.pending_question_and_nonce()
+        posted = self._posted
+        if request is None or posted is None or posted[0] != nonce:
+            return None
+        _nonce, message, positive, negative = posted
+        prompt: Dict[str, object] = {
+            "message": message,
+            "positive": positive,
+            "negative": negative,
+        }
+        if isinstance(request, RunMillingTask):
+            runs = self._milling_runs
+            if runs is not None and runs[0] is request:
+                prompt["runs"], prompt["last_error"] = runs[1], runs[2]
+            else:
+                prompt["runs"], prompt["last_error"] = 0, None
+        return prompt
+
     def recorded_question(self) -> Optional[Tuple[str, str, str]]:
         """``(item_id, task_name, proposal_id)`` when the pending question is on
         the record and is answered by deciding that proposal, else None. What a
@@ -222,9 +254,10 @@ class QtResponder(QObject):
         ``value`` optionally carries an adjusted answer for the questions read
         from live widget state — a :class:`FibsemRectangle` for
         ``EditAlignmentArea``, a :class:`Point` (microscope image coordinates)
-        for ``PickPOI``. It is applied to the widget first, exactly as if the
-        operator had dragged it there, and then the ordinary click path reads
-        it back — so the proposed geometry lands on screen, and attribution,
+        for ``PickPOI``, ``{stage index: Point}`` for ``RunMillingTask``. It
+        is applied to the widget first, exactly as if the operator had dragged
+        it there, and then the ordinary click path reads it back — so the
+        proposed geometry lands on screen, and attribution,
         the nonce, and first-writer-wins all hold unchanged. A value on any
         other question type fails the future without clicking anything.
         """
@@ -316,9 +349,25 @@ class QtResponder(QObject):
             )
             controller.set_points(BeamType.ION, "poi", [(px.x, px.y)])
             return
+        if isinstance(request, RunMillingTask):
+            if not isinstance(value, dict):
+                raise ValueError("a RunMillingTask value must map stages to points")
+            from fibsem.applications.autolamella.server.prompts import (
+                apply_stage_points,
+            )
+
+            widget = self._milling_widget()
+            image_widget = self._ui.image_widget
+            image = getattr(image_widget, "ib_image", None)
+            # The editor's config, as the operator may have left it, with the
+            # named stages moved; checked against the frame the widget draws on.
+            widget.update_from_settings(
+                apply_stage_points(widget.get_config(), value, image)
+            )
+            return
         raise ValueError(
             f"{type(request).__name__} answers cannot carry a value; "
-            "only EditAlignmentArea and PickPOI can."
+            "only EditAlignmentArea, PickPOI and RunMillingTask can."
         )
 
     def peek_live_answer(self) -> "Future":
@@ -376,6 +425,9 @@ class QtResponder(QObject):
             if image_widget is None:
                 return nonce, None
             return nonce, deepcopy(image_widget.get_alignment_area())
+        if isinstance(request, RunMillingTask):
+            # The patterns as they stand in the editor -- what Run Milling runs.
+            return nonce, deepcopy(self._milling_widget().get_config())
         return nonce, None
 
     def _dispatch(self, request: "Request", future: "Future") -> None:
@@ -496,6 +548,7 @@ class QtResponder(QObject):
             # trips over the corpse.
             self._pending_question[1].cancel()
         self._question_seq += 1
+        self._posted = (self._question_seq, msg, pos, neg)
         self._pending_question = (request, future, self._question_seq)
         self._emit_question_event(
             "prompt_raised",
@@ -707,6 +760,9 @@ class QtResponder(QObject):
             )
         else:
             status = f"Milling {request.config.name} Failed: {error}"
+        runs = self._milling_runs
+        done = runs[1] if runs is not None and runs[0] is request else 0
+        self._milling_runs = (request, done + 1, None if error is None else str(error))
         self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=status))
         if request.confirm():
             # Same prompt again: Run Milling reruns (after edits), Continue ends —

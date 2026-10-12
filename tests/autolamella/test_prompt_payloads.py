@@ -78,3 +78,46 @@ def test_confirm_detection_bare_array_reports_source_dimensions():
     )
     assert "source-image pixels" in payload["coordinates"]
     json.dumps(payload)
+
+
+def test_milling_preview_draws_on_the_frame_with_its_scale():
+    from fibsem.applications.autolamella.server.prompts import (
+        milling_preview,
+        milling_stages,
+    )
+    from fibsem.milling import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig(
+        stages=[FibsemMillingStage(name="a"), FibsemMillingStage(name="b")]
+    )
+    config.stages[1].enabled = False
+    entry = milling_preview(_image(hfw=80e-6), config)
+
+    assert entry["image_b64_jpeg"]
+    assert entry["full_width"] == 1536
+    assert entry["hfw"] == pytest.approx(80e-6)
+    # Disabled stages are listed, so the indices answers name stay put.
+    assert [(s["index"], s["enabled"]) for s in milling_stages(config)] == [
+        (0, True),
+        (1, False),
+    ]
+    json.dumps(milling_stages(config))
+
+
+def test_apply_stage_points_moves_a_copy_inside_the_frame_only():
+    from fibsem.applications.autolamella.server.prompts import apply_stage_points
+    from fibsem.milling import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig(stages=[FibsemMillingStage()])
+    image = _image(hfw=80e-6)
+
+    moved = apply_stage_points(config, {0: Point(-10e-6, 5e-6)}, image)
+    assert moved.stages[0].pattern.point.x == pytest.approx(-10e-6)
+    assert config.stages[0].pattern.point.x == 0  # the original is untouched
+
+    with pytest.raises(ValueError, match="outside the FIB image"):
+        apply_stage_points(config, {0: Point(39e-6, 0)}, image)
+    with pytest.raises(ValueError, match="does not exist"):
+        apply_stage_points(config, {1: Point(0, 0)}, image)

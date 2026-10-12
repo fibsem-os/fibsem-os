@@ -150,12 +150,21 @@ message; it may be a position instruction ("double click to move… press
 Continue") — for an already-placed item, Continue is safe; for a *new*
 placement, that is the operator's decision (see the ladder).
 
-**`RunMillingTask`** — two distinct moments share this type:
-- *Start* (first appearance for an item): yes runs the mill with the config
-  as shown; check `task_name` and `num_stages` look right first.
-- *Inspect re-ask* (after a mill pass): **yes mills AGAIN, no accepts.** Pull
-  the fresh post-mill image (rules 2–3), judge it, and answer no to accept.
-  Do not re-mill without a reason you can state.
+**`RunMillingTask`** — two distinct moments share this type, told apart by
+`runs`. The payload's `image` is the FIB frame with each enabled stage's
+patterns drawn on it, as the milling widget shows them, and `stages` gives
+each stage's geometry by index (pattern point, size, depth, current).
+- *Start* (`runs: 0`): yes (Run Milling) mills the patterns as drawn; no
+  (Continue) moves on without milling. Look at the image first: is every
+  pattern where it should be, clear of the others? To move one, answer yes
+  with `"value": {"stages": {"0": {"point": {"x", "y"}}}}` (metres, microscope
+  image coordinates, +y up, origin centre). The edit lands in the operator's
+  editor, is checked against the frame, then runs.
+- *Inspect re-ask* (`runs` ≥ 1, after a mill pass): **yes mills AGAIN, no
+  accepts.** Pull the fresh post-mill image (rules 2–3), judge it, and answer
+  no to accept. A yes here is refused unless the value says
+  `"run_again": true`; do not re-mill without a reason you can state.
+  `last_error` says whether the last run failed.
 
 **`EditAlignmentArea`** — the payload's `current` is the live rectangle
 (fractions of the frame), and `image` is the frame it sits on (the post-mill

@@ -1617,6 +1617,15 @@ class AutoLamellaAppContext:
                 "task_name": recorded[1],
                 "proposal_id": recorded[2],
             }
+        posted = responder.posted_prompt()
+        if posted is not None:
+            # The buttons as the operator sees them, so True and False have
+            # names: a re-ask's True is "Run Milling" again, not "yes, done".
+            payload["positive"] = posted["positive"]
+            payload["negative"] = posted["negative"]
+        if payload["type"] == "RunMillingTask":
+            self._milling_prompt(responder, request, nonce, payload, posted)
+            return {"available": True, "pending": payload}
         current = self._peek_current(responder, payload["type"], nonce)
         if current is not None:
             payload["current"] = current
@@ -1641,6 +1650,71 @@ class AutoLamellaAppContext:
             entry["acquired_at"] = self._acquired_at(image)
         return entry
 
+    def _milling_prompt(
+        self, responder, request, nonce: int, payload: Dict[str, Any], posted
+    ) -> None:
+        """Fill a run-milling question with what the operator sees and knows.
+
+        The patterns are the editor's, as they stand now (the operator may
+        have moved them, or a mill's re-ask may follow edits), drawn on the
+        FIB frame the milling widget draws them on. ``runs`` says whether this
+        is the first ask or the re-ask after a mill, which the request can't:
+        the same request is asked again, and its True then mills again.
+        """
+        from fibsem.applications.autolamella.server.prompts import (
+            milling_preview,
+            milling_stages,
+        )
+
+        config = self._peek_live(responder, nonce)
+        if config is None:
+            config = request.config
+        payload["stages"] = milling_stages(config)
+        payload["num_stages"] = len(payload["stages"])
+        widget = getattr(self._host, "image_widget", None)
+        frame = getattr(widget, "ib_image", None)
+        payload["image"] = milling_preview(frame, config)
+        if payload["image"] is not None:
+            payload["image"]["acquired_at"] = self._acquired_at(frame)
+
+        runs = posted.get("runs", 0) if posted is not None else 0
+        last_error = posted.get("last_error") if posted is not None else None
+        payload["runs"] = runs
+        payload["last_error"] = last_error
+        if not request.enabled:
+            payload["message"] = (
+                "Check this milling task. It doesn't mill here: answering "
+                "true continues with the patterns as shown."
+            )
+        elif runs == 0:
+            payload["message"] = (
+                "Confirm and run this milling task. true (Run Milling) mills "
+                "the patterns as shown in the image; false (Continue) moves on "
+                "without milling. To move a pattern first, answer true with "
+                "value {stages: {index: {point: {x, y}}}}."
+            )
+        else:
+            outcome = (
+                "the last run completed"
+                if last_error is None
+                else f"the last run failed: {last_error}"
+            )
+            payload["message"] = (
+                f"This mill has already run ({runs} time{'s' if runs > 1 else ''}; "
+                f"{outcome}). false (Continue) accepts what was milled and "
+                "moves on. true (Run Milling) mills AGAIN, so it is refused "
+                "unless the value says run_again: true."
+            )
+
+    def _peek_live(self, responder, nonce: int):
+        """The live half of the pending question, or None: the GUI peek,
+        bounded at 2 s and paired to ``nonce``, never an error."""
+        try:
+            peeked_nonce, value = responder.peek_live_answer().result(timeout=2.0)
+        except Exception:
+            return None
+        return value if peeked_nonce == nonce else None
+
     def _peek_current(
         self, responder, request_type: str, nonce: int
     ) -> Optional[Dict[str, Any]]:
@@ -1658,11 +1732,8 @@ class AutoLamellaAppContext:
             return None
         from fibsem.applications.autolamella.server.events import to_plain
 
-        try:
-            peeked_nonce, value = responder.peek_live_answer().result(timeout=2.0)
-        except Exception:
-            return None
-        if peeked_nonce != nonce or value is None:
+        value = self._peek_live(responder, nonce)
+        if value is None:
             return None
         try:
             return to_plain(value.to_dict())
@@ -1719,7 +1790,13 @@ class AutoLamellaAppContext:
             }
 
         parsed = None
-        if value is not None:
+        if type(_request).__name__ == "RunMillingTask" and pending_nonce == int(nonce):
+            parsed, refusal = self._parse_milling_answer(
+                responder, _request, int(nonce), bool(response), value
+            )
+            if refusal is not None:
+                return refusal
+        elif value is not None:
             parsed, refusal = self._parse_answer_value(responder, int(nonce), value)
             if refusal is not None:
                 return refusal
@@ -1731,10 +1808,97 @@ class AutoLamellaAppContext:
             applied = bool(outcome.result(timeout=timeout))
         except StalePromptError:
             return {"available": True, "applied": False, "stale": True}
+        except ValueError as exc:
+            if parsed is None:
+                raise
+            # The value failed on the GUI thread, against the editor as it
+            # stood there (the operator moved something since the check
+            # here). Refused before the click, so nothing was clicked.
+            return {
+                "available": True,
+                "applied": False,
+                "stale": False,
+                "invalid_value": str(exc),
+            }
         result = {"available": True, "applied": applied, "stale": False}
         if parsed is not None:
             result["adjusted"] = True
         return result
+
+    def _parse_milling_answer(
+        self, responder, request, nonce: int, response: bool, value: Any
+    ):
+        """Check an answer to a run-milling question; return ``(points, None)``
+        or ``(None, refusal)``, shaped as :meth:`_parse_answer_value`'s.
+
+        Two things are refused here, with nothing clicked. True on the re-ask
+        after a mill without ``run_again: true``: that True mills again, and
+        an agent reading it as "yes, done" would mill twice. And pattern
+        edits (``stages``) that name no stage or leave the FIB frame, checked
+        against the editor's patterns as they stand, as the widget's own Move
+        checks them. Valid edits come back as ``{stage index: Point}``.
+        """
+
+        def _refuse(message: str) -> Dict[str, Any]:
+            return {
+                "available": True,
+                "applied": False,
+                "stale": False,
+                "invalid_value": message,
+            }
+
+        if value is not None and not isinstance(value, dict):
+            return None, _refuse("value must be a JSON object.")
+        value = value or {}
+        unknown = set(value) - {"stages", "run_again"}
+        if unknown:
+            return None, _refuse(
+                f"unknown keys {sorted(unknown)}: a RunMillingTask value takes "
+                "stages ({index: {point: {x, y}}}) and run_again."
+            )
+
+        posted = responder.posted_prompt()
+        runs = posted.get("runs", 0) if posted is not None else 0
+        if response and request.enabled and runs and value.get("run_again") is not True:
+            return None, _refuse(
+                f"this mill has already run ({runs}x), so true would mill "
+                "again. Answer false (Continue) to accept what was milled, or "
+                "answer true with value {run_again: true} to mill again."
+            )
+
+        stages = value.get("stages")
+        if not stages:
+            return None, None
+        from fibsem.structures import Point
+
+        if not isinstance(stages, dict):
+            return None, _refuse("stages must map a stage index to {point: {x, y}}.")
+        points = {}
+        for key, edit in stages.items():
+            try:
+                index = int(key)
+                point = Point.from_dict(edit["point"])
+                float(point.x), float(point.y)
+            except Exception:
+                return None, _refuse(
+                    f"stage {key!r}: an edit is {{point: {{x, y}}}}, metres in "
+                    "microscope image coordinates, origin centre, +y up."
+                )
+            points[index] = Point(x=float(point.x), y=float(point.y))
+
+        from fibsem.applications.autolamella.server.prompts import (
+            apply_stage_points,
+        )
+
+        config = self._peek_live(responder, nonce)
+        if config is None:
+            config = request.config
+        widget = getattr(self._host, "image_widget", None)
+        try:
+            apply_stage_points(config, points, getattr(widget, "ib_image", None))
+        except ValueError as exc:
+            return None, _refuse(str(exc))
+        return points, None
 
     @staticmethod
     def _parse_answer_value(responder, nonce: int, value: Any):
