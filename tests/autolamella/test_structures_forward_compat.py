@@ -23,7 +23,7 @@ def test_unknown_fields_from_the_future_are_ignored():
             "supervise": True,
             "required": True,
             "requires": [],
-            "supervisor": "agent",  # a retired field (FIB-1035)
+            "from_a_newer_build": "value",
             "entirely_new_thing": {"nested": 1},
         }
     )

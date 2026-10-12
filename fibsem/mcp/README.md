@@ -40,19 +40,23 @@ python -m fibsem.server.server --manufacturer Demo --arm-hardware
 ## 2. Register the sidecar
 
 ```bash
-claude mcp add fibsem -- fibsem-mcp
+claude mcp add -s user fibsem -- fibsem-mcp
 ```
 
-Same-machine setups need nothing more: the sidecar autodiscovers the running
+`-s user` registers it for all your projects. In AutoLamella, *Copy for your
+agent* in the Agent chip's *Connect an agent…* gives the same setup with the
+absolute path filled in, for the agent to run itself. Same-machine setups need
+nothing more: the sidecar autodiscovers the running
 server. For a server on another machine (or a non-default setup):
 
 ```bash
-claude mcp add fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
+claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
 ```
 
 (`FIBSEM_SERVER_URL` / `FIBSEM_SERVER_TOKEN` environment variables also work.)
 
-For Claude Desktop, add to `claude_desktop_config.json`:
+For Claude Desktop, merge this into the `mcpServers` already in
+`claude_desktop_config.json` (don't replace the file):
 
 ```json
 {

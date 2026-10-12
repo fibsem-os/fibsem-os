@@ -2,8 +2,8 @@
 
 Opened from the agent chip's menu (FIB-1035): the agent's page, separate from
 Tools → App Server, which is about the server. It holds the agent token, the
-sidecar's absolute path and ready-to-paste registrations for Claude Code and
-Claude Desktop. The level is shown, not set: the chip is the one place it
+sidecar's absolute path and one "Copy for your agent" text: pasted into an
+agent, it registers the sidecar, checks the connection and reports its level. The level is shown, not set: the chip is the one place it
 changes.
 
 The absolute path matters: a GUI app such as Claude Desktop does not inherit
@@ -42,7 +42,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
-__all__ = ["ConnectAgentDialog", "sidecar_path"]
+__all__ = ["ConnectAgentDialog", "agent_setup_text", "sidecar_path"]
 
 _FIELD_STYLE = (
     f"QLineEdit {{ background: {PANEL_COLOR}; color: {TEXT_COLOR}; "
@@ -67,12 +67,45 @@ def sidecar_path(executable: Optional[str] = None) -> Optional[Path]:
     return None
 
 
-def claude_code_command(path: Path) -> str:
-    return f'claude mcp add fibsem -- "{path}"'
+DEFAULT_URL = "http://127.0.0.1:8001"
 
 
-def claude_desktop_config(path: Path) -> str:
-    return json.dumps({"mcpServers": {"fibsem": {"command": str(path)}}}, indent=2)
+def desktop_config_path(platform: Optional[str] = None) -> str:
+    """Where Claude Desktop keeps its config on this platform."""
+    platform = platform or sys.platform
+    if platform.startswith("win"):
+        return r"%APPDATA%\Claude\claude_desktop_config.json"
+    if platform == "darwin":
+        return "~/Library/Application Support/Claude/claude_desktop_config.json"
+    return "~/.config/Claude/claude_desktop_config.json"
+
+
+def agent_setup_text(
+    path: Path, url: Optional[str] = None, platform: Optional[str] = None
+) -> str:
+    """Setup the agent runs itself: register the sidecar, check it, report the level.
+
+    ``-s user`` registers it for every project; without it ``claude mcp add``
+    covers only the current directory's. Claude Desktop can't edit its own
+    config, so its line is for the person, and says to merge, not replace.
+    """
+    url = url or DEFAULT_URL
+    entry = json.dumps({"command": str(path)})
+    return (
+        "Connect to my AutoLamella App Server (same machine).\n"
+        "1. Register the fibsem MCP server for all my projects:\n"
+        f'   claude mcp add -s user fibsem -- "{path}"\n'
+        "   (If you're Claude Desktop instead: add "
+        f'"fibsem": {entry} under "mcpServers" in '
+        f"{desktop_config_path(platform)}. Merge it into the servers already "
+        "there; don't replace the file.)\n"
+        f'2. Check the connection: "{path}" --check should print '
+        f'"connected to {url}".\n'
+        "3. Tell me to start a new session, or reconnect fibsem in /mcp, so the "
+        "tools load.\n"
+        "4. Then call get_capabilities and tell me your agent level. I set it "
+        "from the Agent chip in AutoLamella.\n"
+    )
 
 
 def _field(text: str = "", secret: bool = False) -> QLineEdit:
@@ -124,27 +157,23 @@ class ConnectAgentDialog(QDialog):
         self._path_edit = _field(str(self._sidecar) if self._sidecar else "")
         layout.addWidget(self._path_edit)
         buttons = QHBoxLayout()
-        self._btn_copy_code = QPushButton("Copy Claude Code command")
-        self._btn_copy_code.clicked.connect(self._on_copy_code)
-        self._btn_copy_desktop = QPushButton("Copy Claude Desktop config")
-        self._btn_copy_desktop.clicked.connect(self._on_copy_desktop)
-        buttons.addWidget(self._btn_copy_code)
-        buttons.addWidget(self._btn_copy_desktop)
+        self._btn_copy_setup = QPushButton("Copy for your agent")
+        self._btn_copy_setup.clicked.connect(self._on_copy_setup)
+        buttons.addWidget(self._btn_copy_setup)
         buttons.addStretch(1)
         layout.addLayout(buttons)
         if self._sidecar is None:
             self._path_edit.setPlaceholderText("fibsem-mcp is not installed here")
-            self._btn_copy_code.setEnabled(False)
-            self._btn_copy_desktop.setEnabled(False)
+            self._btn_copy_setup.setEnabled(False)
             layout.addWidget(
                 note("Install it into this environment with: pip install fibsem[mcp]")
             )
         layout.addWidget(
             note(
-                "On this machine the sidecar finds the App Server by itself, through "
-                "~/.fibsem/app-server.json. It registers its tools when it starts: "
-                "after the App Server restarts, reconnect the agent (/mcp in Claude "
-                "Code) or start a new session."
+                "Paste it into Claude Code: the agent registers the sidecar, checks "
+                "the connection and tells you its level. On this machine the "
+                "sidecar finds the App Server by itself, through "
+                "~/.fibsem/app-server.json, and finds it again after a restart."
             )
         )
 
@@ -174,7 +203,7 @@ class ConnectAgentDialog(QDialog):
         layout.addLayout(token_row)
         layout.addWidget(
             note(
-                "New each time the App Server starts. Copy it only to connect an "
+                "New each time AutoLamella starts. Copy it only to connect an "
                 "agent from another machine: fibsem-mcp --url <url> --token <token>."
             )
         )
@@ -223,13 +252,11 @@ class ConnectAgentDialog(QDialog):
         clipboard.setText(text)
         return True
 
-    def _on_copy_code(self) -> None:
-        if self._sidecar is not None:
-            self._copy(claude_code_command(self._sidecar))
-
-    def _on_copy_desktop(self) -> None:
-        if self._sidecar is not None:
-            self._copy(claude_desktop_config(self._sidecar))
+    def _on_copy_setup(self) -> None:
+        if self._sidecar is None:
+            return
+        host = self._host()
+        self._copy(agent_setup_text(self._sidecar, getattr(host, "url", None)))
 
     def _on_reveal_toggled(self, show: bool) -> None:
         self._token_edit.setEchoMode(QLineEdit.Normal if show else QLineEdit.Password)

@@ -13,9 +13,9 @@ same-machine discovery file a running server maintains.
 
 Register with Claude Code:
 
-    claude mcp add fibsem -- fibsem-mcp
+    claude mcp add -s user fibsem -- fibsem-mcp
     # or explicitly:
-    claude mcp add fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
+    claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 """

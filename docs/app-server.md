@@ -163,21 +163,27 @@ another browser. The agent's level doesn't affect the dashboard.
 
 ## Connecting an agent
 
-*Connect an agent…* in the Agent chip's menu has these commands ready to copy.
-
-**On the same machine** — nothing to copy. The running server writes a
-discovery file (`~/.fibsem/app-server.json`; `agent-server.json` before v0.6.0, still read) that the `fibsem-mcp` sidecar
-finds by itself:
+**On the same machine**, use *Copy for your agent* in *Connect an agent…*
+(the Agent chip's menu) and paste the text into Claude Code. The agent
+registers the sidecar by its absolute path, checks the connection with
+`fibsem-mcp --check`, and reports its level. For Claude Desktop the text says
+which entry to merge into `mcpServers` in its config file. The token isn't
+in the text: the running server writes a discovery file
+(`~/.fibsem/app-server.json`; `agent-server.json` before v0.6.0, still read)
+that the `fibsem-mcp` sidecar finds by itself. By hand, that's:
 
 ```bash
-claude mcp add fibsem -- fibsem-mcp
+claude mcp add -s user fibsem -- fibsem-mcp
 ```
+
+`-s user` registers it for all your projects; without it, `claude mcp add`
+covers only the current directory's project.
 
 **From another machine** — copy the agent token from *Connect an agent…* and
 point the sidecar at the microscope PC:
 
 ```bash
-claude mcp add fibsem -- fibsem-mcp --url http://<microscope-pc>:8001 --token <token>
+claude mcp add -s user fibsem -- fibsem-mcp --url http://<microscope-pc>:8001 --token <token>
 ```
 
 (Or set `FIBSEM_SERVER_URL` and `FIBSEM_SERVER_TOKEN`.) The server binds to

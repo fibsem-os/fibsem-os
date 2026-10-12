@@ -2,8 +2,7 @@
 involved in a task, toggling Automated ↔ Supervised.
 
 There is no Agent step (FIB-1035): a supervised question goes to the operator
-and any connected agent alike. A stored ``supervisor`` key loads and is
-dropped."""
+and any connected agent alike."""
 
 import os
 
@@ -43,16 +42,6 @@ def test_the_chip_is_two_state(row):
     row._on_attention_clicked()
     assert row.task.attention is A.automated
     assert row.btn_attention.text() == "Automated"
-
-
-def test_a_stored_supervisor_loads_and_is_dropped():
-    task = AutoLamellaTaskDescription.from_dict(
-        {"name": "Rough", "attention": "supervised", "supervisor": "agent"}
-    )
-    assert task.attention is A.supervised
-    assert module.attention_state(task) == "supervised"
-    assert not hasattr(task, "supervisor")
-    assert "supervisor" not in task.to_dict()
 
 
 def test_each_click_announces_what_changed(row):

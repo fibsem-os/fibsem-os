@@ -88,17 +88,6 @@ def test_the_exemption_list_only_names_flags_that_exist(qapp):
     assert NOT_IN_DIALOG <= known, f"stale exemptions: {NOT_IN_DIALOG - known}"
 
 
-def test_a_retired_agent_section_loads_and_is_dropped():
-    """The watchdog preference is gone (FIB-1035); a file that still has it loads."""
-    from fibsem.config import UserPreferences
-
-    prefs = UserPreferences.from_dict(
-        {"agent": {"watchdog_minutes": 12}, "app_server": {"enabled": True}}
-    )
-    assert prefs.app_server.enabled is True
-    assert "agent" not in prefs.to_dict()
-
-
 def test_app_server_section_round_trips(qapp):
     prefs = UserPreferences()
     prefs.app_server.enabled = True

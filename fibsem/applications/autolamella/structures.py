@@ -414,9 +414,6 @@ class AutoLamellaTaskDescription:
     attention: Attention = Attention.automated
     requires: List[str] = field(default_factory=list)
     scheduled_at: Optional[datetime] = None
-    # `supervisor` (human / agent) retired 2026-10-11 (FIB-1035): a supervised
-    # question goes to the operator and any connected agent, first answer wins.
-    # A file that still carries it loads; from_dict drops unknown keys.
 
     def __post_init__(self) -> None:
         self.attention = Attention(self.attention)

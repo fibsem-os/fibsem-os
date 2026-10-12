@@ -511,7 +511,6 @@ class UserPreferences:
                 "movement",
                 "experiment",
                 "reporting",
-                "agent",  # retired (FIB-1035): read so old files stay nested
                 "app_server",
                 "hooks",
             )

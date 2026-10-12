@@ -20,7 +20,7 @@ your session, use them for everything below *except the Watch step* —
 and the rest map one-to-one onto the HTTP surface, and they avoid
 shell-permission friction entirely. (The tools come from the `fibsem-mcp`
 sidecar; if they are missing, the sidecar is not registered in this session's
-MCP config — e.g. `claude mcp add fibsem fibsem-mcp` — and the HTTP fallback
+MCP config — e.g. `claude mcp add -s user fibsem -- fibsem-mcp` — and the HTTP fallback
 below works regardless.) Watching is the exception either way: looping the
 `get_events` tool in the foreground blocks you from acting, so the bundled
 watcher stays the watch mechanism even when MCP is connected.
