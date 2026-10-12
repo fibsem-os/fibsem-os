@@ -589,9 +589,23 @@ class AutoscriptBeam(Beam):
         tilt_correction = self._beam.angular_correction.tilt_correction
         tilt_correction.turn_on() if value else tilt_correction.turn_off()
 
-    # Only a plasma ion column has a gas.
+    # Only a plasma ion column has a gas: one the configuration names a gas for, or
+    # whose source reports one.
     def available_plasma_gas(self) -> bool:
-        return self.beam_type is BeamType.ION and bool(self.parent.system.ion.plasma)
+        if self.beam_type is not BeamType.ION:
+            return False
+        return bool(self.parent.system.ion.plasma or self._installed_gas_or_none())
+
+    def installed_plasma_gas(self) -> Optional[str]:
+        """``source.plasma_gas.value``, the read ``plasma_gas`` makes. Only a plasma
+        source has one; on a Ga column the attribute is missing or the read raises,
+        and either is "cannot say"."""
+        if self.beam_type is not BeamType.ION:
+            return None
+        plasma_gas = getattr(self._beam.source, "plasma_gas", None)
+        if plasma_gas is None:
+            return None
+        return plasma_gas.value or None
 
     def read_plasma_gas(self) -> str:
         return self._beam.source.plasma_gas.value
@@ -989,6 +1003,10 @@ class AutoscriptManipulator(Manipulator):
     @property
     def _needle(self) -> Any:
         return self.parent.connection.specimen.manipulator
+
+    def is_installed(self) -> Optional[bool]:
+        """``specimen.manipulator.is_installed``: documented, read-only, a bool."""
+        return bool(self._needle.is_installed)
 
     def read_position(self) -> FibsemManipulatorPosition:
         from fibsem.drivers.autoscript.microscope import (

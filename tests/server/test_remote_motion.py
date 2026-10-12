@@ -239,3 +239,15 @@ def test_the_demo_takes_its_stage_chamber_and_needle_from_a_server(tmp_path):
     finally:
         microscope.stage.client.close()
         server.stop()
+
+
+def test_a_remote_needle_says_whether_it_is_installed(served, monkeypatch):
+    """`is_installed` is a fact, so a needle served from another computer answers
+    what its own driver does."""
+    local, remote = served
+    needle = remote["manipulator"]
+    assert needle.is_installed() is local["manipulator"].is_installed() is None
+
+    monkeypatch.setattr(local["manipulator"], "is_installed", lambda: False)
+    needle.connect(needle.client.describe()["manipulator"])
+    assert needle.is_installed() is False

@@ -305,9 +305,18 @@ class DemoBeam(Beam):
         self.sim_scanning_mode = "full_frame"
         self.sim_scanning_mode_value = None
 
-    # Only a plasma ion column has a gas.
+    # Only a plasma ion column has a gas: one the configuration names a gas for, or
+    # whose (simulated) source reports one.
     def available_plasma_gas(self) -> bool:
-        return self.beam_type is BeamType.ION and self.parent.system.ion.plasma
+        if self.beam_type is not BeamType.ION:
+            return False
+        return bool(self.parent.system.ion.plasma or self._installed_gas_or_none())
+
+    def installed_plasma_gas(self) -> Optional[str]:
+        """The ``sim:`` block's ``plasma_gas``, standing in for the instrument's."""
+        if self.beam_type is not BeamType.ION:
+            return None
+        return self.parent.system.sim.get("plasma_gas")
 
     def read_plasma_gas(self) -> str:
         return self.parent.system.ion.plasma_gas
@@ -551,6 +560,11 @@ class DemoManipulator(Manipulator):
         start = start.manipulator_system
         self.sim_position: FibsemManipulatorPosition = deepcopy(start.position)
         self.sim_inserted: bool = start.inserted
+
+    def is_installed(self) -> Optional[bool]:
+        """The ``sim:`` block's ``has_manipulator``, standing in for the instrument's
+        answer; absent is "cannot say", which is the Demo default: fitted."""
+        return self.parent.system.sim.get("has_manipulator")
 
     def read_position(self) -> FibsemManipulatorPosition:
         return deepcopy(self.sim_position)

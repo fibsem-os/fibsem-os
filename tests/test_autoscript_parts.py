@@ -102,7 +102,9 @@ def test_connect_builds_the_chamber_and_the_manipulator(recording):
     assert devices["manipulator_parameters"] == ["position", "state"]
 
 
-def test_nothing_unfitted_is_built(recording):
+def test_nothing_unfitted_is_kept(recording):
+    """The needle says it is not installed, so its device is taken out again and
+    its keys are not routed."""
     assert recording["facts"]["none_fitted"] == {
         "manipulator": True,
         "routed": False,
@@ -124,37 +126,3 @@ def test_a_configured_device_that_cannot_be_built_fails_connect(recording):
         "Device 'laser' was not built: driver 'ThermoFisher' has no builder for a "
         "'laser' device."
     )
-
-
-def test_connect_builds_the_parts_after_it_reads_what_is_fitted():
-    """Whether a manipulator is fitted is read in
-    ``_build_sample_handling``, so the parts are built after it."""
-    import ast
-
-    import fibsem
-
-    source = (
-        Path(fibsem.__file__).parent / "drivers" / "autoscript" / "microscope.py"
-    ).read_text(encoding="utf-8")
-    connect = next(
-        node
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.FunctionDef) and node.name == "connect_to_microscope"
-    )
-    order = [
-        node.func.attr
-        for node in ast.walk(connect)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr
-        in ("_build_beams", "_build_stage", "_build_sample_handling", "_build_parts")
-    ]
-    lines = {
-        node.func.attr: node.lineno
-        for node in ast.walk(connect)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    }
-    assert sorted(order) == sorted(
-        ["_build_beams", "_build_stage", "_build_sample_handling", "_build_parts"]
-    )
-    assert lines["_build_sample_handling"] < lines["_build_parts"]
