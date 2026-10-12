@@ -188,3 +188,28 @@ def test_holders_are_replaced_whole_and_an_old_file_is_kept(tmp_path):
     assert written["calibration"]["active_holder"] == "B"
     assert written["stage"]["rotation_reference"] == 0  # the rest is left alone
     assert utils.configuration_backup_path(path).read_text() == original
+
+
+def test_numpy_scalars_round_trip_through_safe_dump():
+    """A numpy scalar that reaches yaml.safe_dump is written as the plain
+    number it is, rather than refusing the whole file (FIB-1326)."""
+    import numpy as np
+
+    data = {
+        "x": np.float64(2.5e-5),
+        "y": np.float32(0.5),
+        "n": np.int64(3),
+        "ok": np.bool_(True),
+        "nested": [{"left": np.float64(0.66)}],
+    }
+
+    loaded = yaml.safe_load(yaml.safe_dump(data))
+
+    assert loaded == {
+        "x": 2.5e-5,
+        "y": 0.5,
+        "n": 3,
+        "ok": True,
+        "nested": [{"left": 0.66}],
+    }
+    assert type(loaded["x"]) is float and type(loaded["n"]) is int
