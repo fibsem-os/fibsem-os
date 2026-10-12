@@ -8,6 +8,7 @@ changed, since _fit_view previously read the image artist's extent directly.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_canvas_base.py
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -109,6 +110,21 @@ def test_setting_crosshair_visibility_syncs_its_button():
     assert c._crosshair_artists == []
     assert c.btn_toggle_crosshair.isChecked() is False
     assert c.btn_toggle_crosshair.toolTip() == "Show crosshair"
+
+
+def test_the_crosshair_is_the_themes_current_position_yellow():
+    """The same yellow as the image export and the saved figures, not pure
+    yellow (FIB-1303)."""
+    from matplotlib.colors import to_hex
+
+    from fibsem.theme.plots import DARK
+
+    c = FibsemImageCanvas()
+    c.set_array(_img(32, 32))
+    c.set_crosshair_visible(True)
+
+    assert c._crosshair_artists
+    assert {to_hex(a.get_color()) for a in c._crosshair_artists} == {DARK.crosshair}
 
 
 def test_setting_scalebar_visibility_syncs_its_button():
@@ -296,7 +312,8 @@ class TestTheLiveChipClearsTheToolbar:
 
         chip = c._live_badge.geometry()
         clashes = [
-            b for b in c._overlay_buttons
+            b
+            for b in c._overlay_buttons
             if not b.isHidden() and chip.intersects(b.geometry())
         ]
 

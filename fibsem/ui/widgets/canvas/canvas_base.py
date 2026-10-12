@@ -43,6 +43,7 @@ from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy
 
+from fibsem.theme.plots import DARK
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import CANVAS_BG as _BG
 from fibsem.ui.stylesheets import PRIMARY_ACCENT as _ACCENT
@@ -831,8 +832,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             loc=self._legend_loc,
             fontsize=7,
             facecolor=_BG,
-            edgecolor="#555555",
-            labelcolor="#d1d2d4",
+            edgecolor=DARK.grid,
+            labelcolor=DARK.text,
             framealpha=0.85,
         )
         leg.set_zorder(10)
@@ -1357,7 +1358,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         # Size both arms from the longest dimension so the crosshair stays square
         # (axes use aspect="equal", so equal data-unit arms are equal on screen).
         half = max(rect.width, rect.height) * 0.05 / 2
-        kw = dict(color="yellow", linewidth=1, alpha=0.8, zorder=7)
+        # the current-position yellow, as on the image export and saved figures
+        kw = dict(color=DARK.crosshair, linewidth=1, alpha=0.8, zorder=7)
         (h_line,) = self._ax.plot([cx - half, cx + half], [cy, cy], **kw)
         (v_line,) = self._ax.plot([cx, cx], [cy - half, cy + half], **kw)
         self._crosshair_artists = [h_line, v_line]
