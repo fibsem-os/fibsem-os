@@ -1,4 +1,5 @@
 """Utility functions for pattern analysis and coordinate conversion."""
+
 from __future__ import annotations
 
 import logging
@@ -15,7 +16,12 @@ if TYPE_CHECKING:
     from fibsem.structures import FibsemImage
 
 
-def create_pattern_mask(pattern: "BasePattern", image_shape: Tuple[int, int], pixelsize: float, include_exclusions: bool = False) -> np.ndarray:
+def create_pattern_mask(
+    pattern: "BasePattern",
+    image_shape: Tuple[int, int],
+    pixelsize: float,
+    include_exclusions: bool = False,
+) -> np.ndarray:
     """Create a binary mask for a single milling pattern.
 
     Args:
@@ -33,15 +39,20 @@ def create_pattern_mask(pattern: "BasePattern", image_shape: Tuple[int, int], pi
         shapes = pattern.define()
 
         # Sort shapes so exclusions are processed last (exclusions take precedence)
-        shapes.sort(key=lambda s: hasattr(s, 'is_exclusion') and s.is_exclusion)
+        shapes.sort(key=lambda s: hasattr(s, "is_exclusion") and s.is_exclusion)
 
         for shape in shapes:
             # Skip exclusion patterns unless explicitly requested
-            if hasattr(shape, 'is_exclusion') and shape.is_exclusion and not include_exclusions:
+            if (
+                hasattr(shape, "is_exclusion")
+                and shape.is_exclusion
+                and not include_exclusions
+            ):
                 continue
 
             # Import here to avoid circular import
             from .plotting import draw_pattern_shape
+
             drawn_pattern = draw_pattern_shape(shape, image_shape, pixelsize)
             shape_mask = np.zeros(image_shape, dtype=bool)
 
@@ -54,13 +65,14 @@ def create_pattern_mask(pattern: "BasePattern", image_shape: Tuple[int, int], pi
             ymin, ymax = max(0, pos.y - h), min(image_shape[0], pos.y + h)
 
             if xmax > xmin and ymax > ymin:
-                pattern_h = min(2*h, ymax-ymin)
-                pattern_w = min(2*w, xmax-xmin)
-                shape_mask[ymin:ymin+pattern_h, xmin:xmin+pattern_w] = \
+                pattern_h = min(2 * h, ymax - ymin)
+                pattern_w = min(2 * w, xmax - xmin)
+                shape_mask[ymin : ymin + pattern_h, xmin : xmin + pattern_w] = (
                     drawn_pattern.pattern[:pattern_h, :pattern_w].astype(bool)
+                )
 
             # If this is an exclusion shape, zero out the region instead of adding it
-            if hasattr(shape, 'is_exclusion') and shape.is_exclusion:
+            if hasattr(shape, "is_exclusion") and shape.is_exclusion:
                 pattern_mask &= ~shape_mask
             else:
                 pattern_mask |= shape_mask
@@ -71,7 +83,9 @@ def create_pattern_mask(pattern: "BasePattern", image_shape: Tuple[int, int], pi
     return pattern_mask
 
 
-def get_pattern_bounding_box(pattern: "BasePattern", image: FibsemImage, expand_percent: float = 0.0) -> Tuple[int, int, int, int]:
+def get_pattern_bounding_box(
+    pattern: "BasePattern", image: FibsemImage, expand_percent: float = 0.0
+) -> Tuple[int, int, int, int]:
     """Get the bounding box of a pattern in image pixel coordinates.
 
     Args:
@@ -85,7 +99,12 @@ def get_pattern_bounding_box(pattern: "BasePattern", image: FibsemImage, expand_
     """
     try:
         # Create mask for the pattern
-        mask = create_pattern_mask(pattern, image.data.shape, pixelsize=image.metadata.pixel_size.x, include_exclusions=False)
+        mask = create_pattern_mask(
+            pattern,
+            image.data.shape,
+            pixelsize=image.metadata.pixel_size.x,
+            include_exclusions=False,
+        )
 
         # Find coordinates where mask is True
         coords = np.nonzero(mask)
@@ -117,11 +136,15 @@ def get_pattern_bounding_box(pattern: "BasePattern", image: FibsemImage, expand_
         return (x_min, y_min, x_max, y_max)
 
     except Exception as e:
-        logging.debug(f"Failed to calculate bounding box for pattern {pattern.name}: {e}")
+        logging.debug(
+            f"Failed to calculate bounding box for pattern {pattern.name}: {e}"
+        )
         return (0, 0, 0, 0)
 
 
-def get_patterns_bounding_box(patterns: List["BasePattern"], image: FibsemImage, expand_percent: float = 0.0) -> Tuple[int, int, int, int]:
+def get_patterns_bounding_box(
+    patterns: List["BasePattern"], image: FibsemImage, expand_percent: float = 0.0
+) -> Tuple[int, int, int, int]:
     """Get the combined bounding box of multiple patterns in image pixel coordinates.
 
     Args:
@@ -137,7 +160,9 @@ def get_patterns_bounding_box(patterns: List["BasePattern"], image: FibsemImage,
         return (0, 0, 0, 0)
 
     # Get bounding boxes for all patterns
-    all_boxes = [get_pattern_bounding_box(pattern, image, expand_percent) for pattern in patterns]
+    all_boxes = [
+        get_pattern_bounding_box(pattern, image, expand_percent) for pattern in patterns
+    ]
 
     # Filter out empty boxes
     valid_boxes = [box for box in all_boxes if box != (0, 0, 0, 0)]
@@ -151,70 +176,77 @@ def get_patterns_bounding_box(patterns: List["BasePattern"], image: FibsemImage,
     return (min(x_mins), min(y_mins), max(x_maxs), max(y_maxs))
 
 
-def bbox_to_normalized_coords(bbox: Tuple[int, int, int, int], image: FibsemImage) -> Tuple[float, float, float, float]:
+def bbox_to_normalized_coords(
+    bbox: Tuple[int, int, int, int], image: FibsemImage
+) -> Tuple[float, float, float, float]:
     """Convert bounding box from pixel coordinates to normalized coordinates (0-1).
-    
+
     Args:
         bbox: Tuple of (x_min, y_min, x_max, y_max) in pixel coordinates.
         image: FibsemImage to get dimensions from.
-    
+
     Returns:
         Tuple of (x_min, y_min, x_max, y_max) in normalized coordinates (0.0-1.0).
         Returns (0.0, 0.0, 0.0, 0.0) if bbox is empty.
     """
     x_min, y_min, x_max, y_max = bbox
-    
+
     # Check for empty bounding box
     if bbox == (0, 0, 0, 0):
         return (0.0, 0.0, 0.0, 0.0)
-    
+
     # Get image dimensions
     image_height, image_width = image.data.shape
-    
+
     # Normalize coordinates (0=0.0, shape=1.0)
     x_min_norm = x_min / image_width
     y_min_norm = y_min / image_height
     x_max_norm = x_max / image_width
     y_max_norm = y_max / image_height
-    
+
     return (x_min_norm, y_min_norm, x_max_norm, y_max_norm)
 
 
-def normalized_coords_to_bbox(norm_bbox: Tuple[float, float, float, float], image: FibsemImage) -> Tuple[int, int, int, int]:
+def normalized_coords_to_bbox(
+    norm_bbox: Tuple[float, float, float, float], image: FibsemImage
+) -> Tuple[int, int, int, int]:
     """Convert normalized coordinates (0-1) to pixel bounding box coordinates.
-    
+
     Args:
         norm_bbox: Tuple of (x_min, y_min, x_max, y_max) in normalized coordinates (0.0-1.0).
         image: FibsemImage to get dimensions from.
-    
+
     Returns:
         Tuple of (x_min, y_min, x_max, y_max) in pixel coordinates.
         Returns (0, 0, 0, 0) if norm_bbox is empty.
     """
     x_min_norm, y_min_norm, x_max_norm, y_max_norm = norm_bbox
-    
+
     # Check for empty normalized bounding box
     if norm_bbox == (0.0, 0.0, 0.0, 0.0):
         return (0, 0, 0, 0)
-    
+
     # Get image dimensions
     image_height, image_width = image.data.shape
-    
+
     # Convert to pixel coordinates
     x_min = int(x_min_norm * image_width)
     y_min = int(y_min_norm * image_height)
     x_max = int(x_max_norm * image_width)
     y_max = int(y_max_norm * image_height)
-    
+
     # Ensure coordinates are within bounds
     x_min = max(0, min(x_min, image_width - 1))
     y_min = max(0, min(y_min, image_height - 1))
     x_max = max(0, min(x_max, image_width - 1))
     y_max = max(0, min(y_max, image_height - 1))
-    
+
     return (x_min, y_min, x_max, y_max)
 
-def get_pattern_reduced_area(pattern: "BasePattern", image: FibsemImage, expand_percent: int = 20) -> FibsemRectangle:
+
+def get_pattern_reduced_area(
+    pattern: "BasePattern", image: FibsemImage, expand_percent: int = 20
+) -> FibsemRectangle:
     """Get the bounding box of the pattern in the image, expanded by a percentage.
 
     Args:
@@ -225,14 +257,16 @@ def get_pattern_reduced_area(pattern: "BasePattern", image: FibsemImage, expand_
     Returns:
         FibsemRectangle with normalized coordinates (0.0-1.0).
     """
-    bbox = get_pattern_bounding_box(pattern=pattern, image=image, expand_percent=expand_percent)
+    bbox = get_pattern_bounding_box(
+        pattern=pattern, image=image, expand_percent=expand_percent
+    )
     xmin, ymin, xmax, ymax = bbox_to_normalized_coords(bbox, image)
-    return FibsemRectangle(left=xmin, top=ymin, width=xmax-xmin, height=ymax-ymin)
+    return FibsemRectangle(left=xmin, top=ymin, width=xmax - xmin, height=ymax - ymin)
 
 
 def bitmap_image_to_points(bitmap_image: NDArray[np.uint8]) -> NDArray[Any]:
     """Convert from a bitmap image to bitmap points.
-    
+
     Bitmap points have the advantage of higher bit depth and more direct scaling.
 
     - Bitmap image:
