@@ -573,17 +573,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         edit_menu.addAction(self.action_preferences)
 
         # View menu
-        self.action_show_minimap = QAction("Show Minimap Widget", self)
-        self.action_show_minimap.setCheckable(True)
-        self.action_show_minimap.setChecked(False)
-        self.action_show_minimap.triggered.connect(self._on_toggle_minimap_widget)
-        # `MinimapPlotWidget` -- a matplotlib window, and nothing to do with the napari
-        # Minimap tab that used to sit beside the Overview one. That tab is gone; this
-        # stays, hidden pending a rework of the plot widget itself.
-        self.action_show_minimap.setVisible(False)
-
-        view_menu.addAction(self.action_show_minimap)
-
         # Quad-view display controls. The F5/Esc shortcuts live on these QActions — one
         # source of truth for the menu item and its keybinding (Qt renders the shortcut
         # text in the menu automatically). They are scoped to the Microscope tab via
@@ -1199,14 +1188,6 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             "Create Desktop Shortcut",
             f"Could not create the desktop shortcut:\n{exc}",
         )
-
-    def _on_toggle_minimap_widget(self, checked: bool):
-        """Toggle the minimap plot widget visibility."""
-        if self.autolamella_ui is not None and hasattr(
-            self.autolamella_ui, "minimap_plot_widget"
-        ):
-            self.autolamella_ui.minimap_plot_widget.setVisible(checked)
-            self.autolamella_ui.minimap_plot_widget.activateWindow()
 
     def _sync_view_menu(self) -> None:
         """Refresh the View menu's dynamic state right before it opens: reflect whether a
