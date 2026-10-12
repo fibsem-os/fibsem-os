@@ -767,6 +767,82 @@ class Device(_Controllable):
         return {}
 
 
+class Axis:
+    """One axis of a device's position parameter: a view, with no read of its own.
+
+    The parameter's value has the axis as an attribute (``position.t``) and its limits
+    are per axis (``position.limits["t"]``). The parameter is looked up on the device
+    at each use, so an axis outlives a reconnect that binds the parameter again.
+    """
+
+    changed = Signal(float)
+    """The axis's new value, when a position read found it moved."""
+
+    def __init__(
+        self, device: Device, name: str, unit: str = "", parameter: str = "position"
+    ):
+        self.device = device
+        self.name = name
+        self.unit = unit
+        self.parameter = parameter
+
+    @property
+    def _position(self) -> BoundParameter:
+        return getattr(self.device, self.parameter)
+
+    @property
+    def limits(self) -> RangeLimit:
+        """In SI units, from the position metadata cached at connect."""
+        return self._position.limits[self.name]
+
+    @property
+    def value(self) -> float:
+        """A live read: reads the whole position and returns this axis."""
+        return getattr(self._position.get_value(), self.name)
+
+    @property
+    def cached(self) -> float:
+        """The last known value, with no instrument call."""
+        return getattr(self._position.cached, self.name)
+
+    def _position_changed(self, position: Any) -> None:
+        value = getattr(position, self.name, None)
+        previous = getattr(self._position.previous, self.name, None)
+        if value is not None and value != previous:
+            self.changed.emit(value)
+
+    def __repr__(self) -> str:
+        return f"<Axis {self.name} [{self.unit}] {self.limits}>"
+
+
+class Axes:
+    """A device's axes by name: ``stage.axes.t``, ``stage.axes["t"]``, ``"r" in``."""
+
+    def __init__(self, axes: Dict[str, Axis]):
+        self._axes = axes
+
+    def __getattr__(self, name: str) -> Axis:
+        try:
+            return self.__dict__["_axes"][name]
+        except KeyError:
+            raise AttributeError(f"there is no '{name}' axis") from None
+
+    def __getitem__(self, name: str) -> Axis:
+        return self._axes[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._axes)
+
+    def __contains__(self, name: object) -> bool:
+        return name in self._axes
+
+    def __len__(self) -> int:
+        return len(self._axes)
+
+    def __repr__(self) -> str:
+        return f"<Axes {list(self._axes)}>"
+
+
 def _describe(p: BoundParameter) -> Dict[str, Any]:
     described = {
         "type": p.type.__name__,
