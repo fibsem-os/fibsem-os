@@ -141,7 +141,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_milling",
-        description="Emergency stop for an in-progress mill. Allowed whenever the agent can act (Drive; on a bench server, hardware too), and never waits on the command lock. Not at Watch: a watching agent stops nothing.",
+        description="Emergency stop for an in-progress mill. Allowed whenever the agent can act (Drive; on a bench server, hardware too), and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/stop_milling",
         scope="control",
@@ -319,6 +319,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={"item_name": "the item (lamella) name"},
     ),
     ToolSpec(
+        name="get_item_output_image",
+        description="One saved image of an item, as an image you can look at: a 768 px JPEG preview of a file get_task_outputs lists (stacks and channels max-projected). A preview, not the data. An unlisted name is refused with the valid ones.",
+        method="GET",
+        path="/app/items/{item_name}/outputs/{filename}",
+        scope="read",
+        router="app",
+        params={
+            "item_name": "the item (lamella) name",
+            "filename": "a basename from get_task_outputs",
+        },
+    ),
+    ToolSpec(
         name="get_grids",
         description="Every grid the experiment records: quality verdict, task status, completed tasks, linked item count, and the basename of its latest SEM/FIB/FM overview by role. Records only — not the live slot inventory.",
         method="GET",
@@ -487,7 +499,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_workflow",
-        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed whenever the agent can act (Drive), and never waits on the command lock. Not at Watch: a watching agent stops nothing.",
+        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed whenever the agent can act (Drive), and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/app/workflow/stop",
         scope="control",

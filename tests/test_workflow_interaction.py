@@ -137,3 +137,64 @@ def test_a_timed_out_wait_cancels_its_future():
         wait_for(future, timeout=0.05)
 
     assert future.cancelled()
+
+
+# --- control during a question (FIB-1270) ------------------------------------
+
+
+class _TryToActResponder:
+    """While the request stands, tries to take control from another thread, as
+    an App Server command would, then answers."""
+
+    def __init__(self, control, answer=None):
+        self.control = control
+        self.answer = answer
+        self.outcome = None
+
+    def submit(self, request, future):
+        from fibsem.control import MicroscopeBusy
+
+        def act_then_answer():
+            try:
+                with self.control.take("agent", "move"):
+                    self.outcome = "acted"
+            except MicroscopeBusy:
+                self.outcome = "refused"
+            future.set_result(self.answer)
+
+        threading.Thread(target=act_then_answer, daemon=True).start()
+
+
+def test_a_question_lends_the_runs_control():
+    from fibsem.control import Control
+
+    control = Control()
+    responder = _TryToActResponder(control, answer=True)
+    with control.take("workflow", "a lamella run"):
+        assert ask(responder, Confirm("Continue?"), timeout=5) is True
+        # The question is over: control is the run's again.
+        assert control.current.by == "workflow"
+    assert responder.outcome == "acted"
+
+
+def test_an_instruction_does_not_lend_the_runs_control():
+    from fibsem.control import Control
+
+    control = Control()
+    responder = _TryToActResponder(control)
+    with control.take("workflow", "a lamella run"):
+        ask(responder, SetImages(), timeout=5)
+    assert responder.outcome == "refused"
+
+
+def test_the_mill_does_not_lend_the_runs_control():
+    # The responder runs the mill itself, and the mill takes no control of its
+    # own yet: lending would let a command in beside it.
+    from fibsem.applications.autolamella.workflows.interaction import RunMillingTask
+    from fibsem.control import Control
+
+    control = Control()
+    responder = _TryToActResponder(control)
+    with control.take("workflow", "a lamella run"):
+        ask(responder, RunMillingTask(config=None), timeout=5)
+    assert responder.outcome == "refused"

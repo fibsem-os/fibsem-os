@@ -30,6 +30,7 @@ import numpy as np
 from psygnal import Signal
 
 from fibsem import manufacturers
+from fibsem.control import Control
 from fibsem.devices.beam import (
     BEAM_COMMAND_ROUTES,
     BEAM_ROUTES,
@@ -383,6 +384,10 @@ class FibsemMicroscope(ABC):
             locks={IMAGING_CHANNEL: m._threading_lock},
         )
     )
+
+    # Who is in control of this microscope (FIB-1270): one action at a time,
+    # taken at entry points (a run, a script, a server route); see fibsem.control.
+    control = _PerInstance(lambda _: Control())
 
     # fluorescence: none until a backend builds one on connect
     fm: Optional[FluorescenceMicroscope] = None

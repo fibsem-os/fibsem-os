@@ -11,9 +11,10 @@
 
 Every route requires a bearer token. Routes are split into two scopes: ``read``
 (observation; granted to any valid token) and ``hardware`` (commands and
-mutations; armed explicitly by the hosting). Hardware commands are additionally
-serialized by a per-microscope lock — a second concurrent command is refused
-with a structured ``409 busy`` rather than interleaved or queued.
+mutations; armed explicitly by the hosting). A hardware command also takes
+control of the microscope (FIB-1270) for as long as it runs; when a run, a
+script or another command is in control it is refused with a structured
+``409 microscope_busy`` naming who, rather than interleaved or queued.
 
 Usage:
 
@@ -30,7 +31,6 @@ import atexit
 import logging
 import math
 import os
-import threading
 from typing import Optional
 
 import uvicorn
@@ -48,9 +48,9 @@ from fibsem.server.app_routes import (
 from fibsem.server.auth import (
     AuthConfig,
     Scope,
-    command_slot,
     require_monitoring,
     require_scope,
+    take_control,
 )
 from fibsem.server.devices import build_device_router
 from fibsem.server.discovery import (
@@ -134,22 +134,22 @@ def _beam_type(value: str) -> BeamType:
 
 
 # Device commands that stop something. Like POST /stop_milling, stopping is always
-# allowed: read scope, and no wait for the command slot the running move holds.
+# allowed: read scope, and no control taken, so never refused by the running move.
 STOP_COMMANDS = frozenset(("stop", "stop_live"))
 
 _read_scope = require_scope(Scope.READ)
 _hardware_scope = require_scope(Scope.HARDWARE)
 
 
-def _device_command_slot(request: Request, command: str):
+def _device_command_gate(request: Request, command: str):
     """A device command's gate: a stop needs only a token, anything else the
-    hardware scope and the command slot."""
+    hardware scope and control of the microscope."""
     if command in STOP_COMMANDS:
         _read_scope(request)
         yield
         return
     _hardware_scope(request)
-    yield from command_slot(request)
+    yield from take_control(request)
 
 
 class _AgentActs:
@@ -198,8 +198,6 @@ def build_server(
     app.add_middleware(_AgentActs)
     app.state.auth = auth
     app.state.microscope = microscope
-    # One hardware command in flight per microscope; see auth.command_slot.
-    app.state.command_lock = threading.Lock()
 
     @app.exception_handler(Exception)
     def _unhandled(request: Request, exc: Exception) -> JSONResponse:
@@ -215,14 +213,15 @@ def build_server(
     base = APIRouter(dependencies=[Depends(require_monitoring())])
     read = APIRouter(dependencies=[Depends(require_scope(Scope.READ))])
     # The always-allowed stop, for whoever can act: control (the App Server at
-    # Drive) or hardware (the bench). Never the command slot: a stop must not
-    # wait behind the mill it stops.
+    # Drive) or hardware (the bench). Never takes control: a stop must not be
+    # refused by the mill it stops.
     stop = APIRouter(
         dependencies=[Depends(require_scope(Scope.CONTROL, Scope.HARDWARE))]
     )
-    # Hardware routes also take the command slot, so two commands never interleave.
+    # Hardware routes also take control, so a command never interleaves with a
+    # run, a script or another command.
     hw = APIRouter(
-        dependencies=[Depends(require_scope(Scope.HARDWARE)), Depends(command_slot)]
+        dependencies=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)]
     )
 
     # --- Health / capabilities ---
@@ -537,8 +536,8 @@ def build_server(
         microscope.start_milling()
         return {"status": "ok"}
 
-    # Whoever can act (control or hardware), and no command slot: a stop must
-    # never wait behind the in-flight command it exists to interrupt.
+    # Whoever can act (control or hardware), and no control taken: a stop must
+    # never be refused by the in-flight command it exists to interrupt.
     @stop.post("/stop_milling")
     def stop_milling():
         microscope.stop_milling()
@@ -581,14 +580,14 @@ def build_server(
         app.include_router(stop)
         app.include_router(hw)
         # Every device's parameters and commands, as the device server serves
-        # them: reads are read scope, writes and commands hardware scope and the
-        # command slot.
+        # them: reads are read scope, writes and commands hardware scope and
+        # control of the microscope.
         app.include_router(
             build_device_router(
                 lambda: microscope.devices,
                 read=[Depends(require_scope(Scope.READ))],
-                write=[Depends(require_scope(Scope.HARDWARE)), Depends(command_slot)],
-                command=[Depends(_device_command_slot)],
+                write=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)],
+                command=[Depends(_device_command_gate)],
             )
         )
     if app_context is not None:
