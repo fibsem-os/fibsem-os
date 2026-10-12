@@ -508,7 +508,6 @@ class TescanMicroscope(FibsemMicroscope):
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
 
-
     def beam_uses_presets(self, beam_type: BeamType) -> bool:
         """The ion column is set by preset: setting its voltage or current directly
         is refused by the Tescan API."""
