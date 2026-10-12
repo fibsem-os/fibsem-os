@@ -364,6 +364,20 @@ class TestTheGridRunWaitsOnADecision:
         assert fired[-1].event == "workflow_stalled"
         assert fired[-1].decisions_pending == 1
 
+    def test_a_stalled_run_leaves_its_grid_loaded_for_the_review(
+        self, microscope, experiment
+    ):
+        """Asked to unload at the end, a run that gave up waiting on a
+        decision does not: the grid is still wanted for the task behind it."""
+        _with_later_task(experiment, review_wait=0)
+        manager = _manager(microscope, experiment)
+        manager.unload_at_end = True
+
+        manager.run([OVERVIEW, LATER], [GRID])
+
+        assert manager.stalled is True
+        assert [g.name for g in microscope._stage.loaded_grids] == [GRID]
+
     def test_a_confirm_wakes_the_run_and_the_later_task_runs(
         self, microscope, experiment
     ):

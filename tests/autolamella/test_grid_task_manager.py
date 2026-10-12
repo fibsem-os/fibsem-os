@@ -34,7 +34,9 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     SKIP_GRID_NOT_LOADED,
     SKIP_NOTHING_TO_RUN,
     SKIP_TASK_REMOVED,
+    UNLOAD_ENTRY_NAME,
     GridTaskManager,
+    grid_has_run,
     plan_grid_run,
     run_grid_tasks,
 )
@@ -566,6 +568,166 @@ class TestStopAndStatus:
             "Completed",
         ]
         assert df["loaded"].tolist() == [False, False, True, True]
+
+
+def unload_entries(grid: GridRecord):
+    return [t for t in grid.task_history if t.name == UNLOAD_ENTRY_NAME]
+
+
+class TestEndOfRun:
+    """The options a run is started with for its end: unload the last grid,
+    write the screening report. Both run in the manager, so the app and a
+    headless run behave alike."""
+
+    def test_unload_at_end_empties_the_working_slot_and_records_it(
+        self, manager, experiment, microscope
+    ):
+        manager.unload_at_end = True
+        run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
+
+        assert microscope._stage.loaded_grids == []
+        last = experiment.get_grid_by_name("Grid-02")
+        (entry,) = unload_entries(last)
+        assert entry.status is Status.Completed
+        assert entry.end_timestamp is not None
+        assert unload_entries(experiment.get_grid_by_name("Grid-01")) == []
+        # the queue's last step, so the timeline and the summary show it
+        item = manager.queue.items[-1]
+        assert (item.item_name, item.task_name, item.status) == (
+            "Grid-02",
+            UNLOAD_ENTRY_NAME,
+            Status.Completed,
+        )
+        df = manager.build_run_summary_dataframe()
+        assert df.iloc[-1].task_name == UNLOAD_ENTRY_NAME
+        assert df.iloc[-1].completed_at != ""
+        assert "Grid workflow complete" in manager.parent_ui.workflow_info[-1]
+
+    def test_without_it_the_last_grid_stays_loaded(
+        self, manager, experiment, microscope
+    ):
+        run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"])
+        assert microscope._stage.loaded_grids[0].name == "Grid-02"
+        assert unload_entries(experiment.get_grid_by_name("Grid-02")) == []
+        assert UNLOAD_ENTRY_NAME not in [i.task_name for i in manager.queue.items]
+
+    def test_a_failed_last_task_still_unloads(self, manager, microscope):
+        manager.unload_at_end = True
+
+        def on_task(task_name, grid):
+            raise RuntimeError("beam blanked")
+
+        run_with_stub(manager, ["overview_sem"], ["Grid-01"], on_task)
+        assert microscope._stage.loaded_grids == []
+
+    def test_stop_leaves_the_grid_loaded(self, manager, experiment, microscope):
+        manager.unload_at_end = True
+
+        def on_task(task_name, grid):
+            manager.stop()
+
+        run_with_stub(manager, ["overview_sem"], ["Grid-01", "Grid-02"], on_task)
+        assert microscope._stage.loaded_grids[0].name == "Grid-01"
+        assert unload_entries(experiment.get_grid_by_name("Grid-01")) == []
+
+    def test_a_failed_unload_is_recorded_and_the_run_still_completes(
+        self, manager, experiment, microscope
+    ):
+        manager.unload_at_end = True
+
+        def refuse():
+            raise RuntimeError("magazine door open")
+
+        microscope._stage.unload = refuse
+        run_with_stub(manager, ["overview_sem"], ["Grid-01"])
+
+        (entry,) = unload_entries(experiment.get_grid_by_name("Grid-01"))
+        assert entry.status is Status.Failed
+        assert entry.status_message == "magazine door open"
+        assert manager.queue.items[-1].status is Status.Failed
+        assert not manager.is_stopped and not manager.stalled
+        assert manager.parent_ui.workflow_info[-1].endswith(
+            "Grid-01 could not be unloaded."
+        )
+
+    def test_an_unload_entry_does_not_fix_a_grids_name(self, experiment):
+        from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+        grid = experiment.get_grid_by_name("Grid-01")
+        for name in (LOAD_ENTRY_NAME, UNLOAD_ENTRY_NAME):
+            grid.task_history.append(AutoLamellaTaskState(name=name))
+        assert not grid_has_run(grid)
+
+    def test_the_report_is_written_after_the_unload(
+        self, manager, experiment, microscope, monkeypatch
+    ):
+        from fibsem.applications.autolamella.tools import grid_report_pdf
+
+        seen = []
+
+        def fake_report(exp, inventory=None):
+            seen.append(list(microscope._stage.loaded_grids))
+            return "report.pdf"
+
+        monkeypatch.setattr(grid_report_pdf, "generate_grid_report", fake_report)
+        manager.unload_at_end = True
+        manager.report_at_end = True
+        run_with_stub(manager, ["overview_sem"], ["Grid-01"])
+        assert seen == [[]], "unloaded before the report"
+
+    def test_the_report_is_written_after_a_stop_too(
+        self, manager, microscope, monkeypatch
+    ):
+        from fibsem.applications.autolamella.tools import grid_report_pdf
+
+        seen = []
+        monkeypatch.setattr(
+            grid_report_pdf,
+            "generate_grid_report",
+            lambda exp, inventory=None: seen.append(exp) or "report.pdf",
+        )
+        manager.unload_at_end = True
+        manager.report_at_end = True
+
+        def on_task(task_name, grid):
+            manager.stop()
+
+        run_with_stub(manager, ["overview_sem"], ["Grid-01"], on_task)
+        assert len(seen) == 1
+        assert microscope._stage.loaded_grids[0].name == "Grid-01"
+
+    def test_a_failed_report_is_said_and_the_run_still_completes(
+        self, manager, monkeypatch, caplog
+    ):
+        from fibsem.applications.autolamella.tools import grid_report_pdf
+
+        def broken(exp, inventory=None):
+            raise ImportError("No module named 'reportlab'")
+
+        monkeypatch.setattr(grid_report_pdf, "generate_grid_report", broken)
+        manager.report_at_end = True
+        with caplog.at_level("WARNING"):
+            run_with_stub(manager, ["overview_sem"], ["Grid-01"])
+        assert "The grid screening report was not written" in caplog.text
+        assert "Grid workflow complete" in manager.parent_ui.workflow_info[-1]
+        assert all(i.status is Status.Completed for i in manager.queue.items)
+
+    def test_headless_takes_the_same_options(
+        self, microscope, experiment, monkeypatch, tmp_path
+    ):
+        pytest.importorskip("reportlab")
+        manager = run_grid_tasks(
+            microscope,
+            experiment,
+            task_names=["overview_sem"],
+            grid_names=["Grid-01", "Grid-02"],
+            unload_at_end=True,
+            report_at_end=True,
+        )
+        assert manager.unload_at_end and manager.report_at_end
+        assert microscope._stage.loaded_grids == []
+        assert unload_entries(experiment.get_grid_by_name("Grid-02"))
+        assert (tmp_path / "exp" / "grid-screening-report.pdf").exists()
 
 
 class TestEndToEnd:

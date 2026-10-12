@@ -62,9 +62,12 @@ def screen_grids(
     task_names: Optional[List[str]] = None,
     parent_ui: Optional["AutoLamellaUI"] = None,
     hook_manager: Optional[HookManager] = None,
+    unload_at_end: bool = False,
+    report_at_end: bool = False,
 ) -> GridTaskManager:
     """Inventory, then the protocol's tasks (in its order, unless given) on every
-    present grid. Returns the manager, for its queue and run summary."""
+    present grid. Returns the manager, for its queue and run summary. The
+    end-of-run options are `run_grid_tasks`'s."""
     return run_grid_tasks(
         microscope,
         experiment,
@@ -72,4 +75,6 @@ def screen_grids(
         grid_names=present_grids(microscope, experiment),
         parent_ui=parent_ui,
         hook_manager=hook_manager,
+        unload_at_end=unload_at_end,
+        report_at_end=report_at_end,
     )
