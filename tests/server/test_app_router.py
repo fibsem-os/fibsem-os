@@ -1,4 +1,4 @@
-"""The app router end to end: a real AgentContext over a real experiment,
+"""The app router end to end: a real AutoLamellaAppContext over a real experiment,
 mounted into the server, reached over HTTP and through MCP tools."""
 
 import asyncio
@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem import utils  # noqa: E402
-from fibsem.applications.autolamella.server import AgentContext  # noqa: E402
+from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
@@ -62,7 +62,7 @@ def event_buffer():
 def client(microscope, host, event_buffer):
     app = build_server(
         microscope,
-        app_context=AgentContext(host, event_buffer=event_buffer),
+        app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
         auth=AuthConfig(token=TOKEN),
     )
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -175,10 +175,14 @@ def test_sidecar_grows_the_app_tools_from_capabilities(client):
     sidecar = build_sidecar(client, capabilities)
     listed = asyncio.run(sidecar.list_tools())
     names = {t.name for t in getattr(listed, "tools", listed)}
-    # Control-scope app tools (answer_prompt) need arming; this server is
-    # read-only, so only the read-scope app tools must appear.
-    assert {t.name for t in CATALOG if t.router == "app" and t.scope == "read"} <= names
-    assert "answer_prompt" not in names
+    # Every app tool registers whatever the level; the server's 403 is the
+    # gate, so the read-only server still lists answer_prompt.
+    assert {t.name for t in CATALOG if t.router == "app"} <= names
+    assert "Needs the agent at Drive" in next(
+        t.description
+        for t in getattr(listed, "tools", listed)
+        if t.name == "answer_prompt"
+    )
 
     result = asyncio.run(sidecar.call_tool("get_app_status", {}))
     if isinstance(result, tuple):
@@ -204,7 +208,9 @@ def test_events_long_poll_over_http(client, event_buffer):
 
 def test_events_unavailable_without_a_buffer(microscope, host):
     app = build_server(
-        microscope, app_context=AgentContext(host), auth=AuthConfig(token=TOKEN)
+        microscope,
+        app_context=AutoLamellaAppContext(host),
+        auth=AuthConfig(token=TOKEN),
     )
     with TestClient(app, raise_server_exceptions=False) as bare:
         body = bare.get("/app/events", headers=AUTH).json()
@@ -233,7 +239,7 @@ def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buff
 
     armed = build_server(
         microscope,
-        app_context=AgentContext(host, event_buffer=event_buffer),
+        app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
         auth=AuthConfig.generate(arm_configure=True, token=TOKEN),
     )
     with TestClient(armed, raise_server_exceptions=False) as client:
@@ -293,7 +299,7 @@ def test_task_schedule_needs_the_configure_scope(client):
 def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
     armed = build_server(
         microscope,
-        app_context=AgentContext(host, event_buffer=event_buffer),
+        app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
         auth=AuthConfig.generate(arm_control=True, token=TOKEN),
     )
     with TestClient(armed, raise_server_exceptions=False) as client:
@@ -318,9 +324,10 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         assert empty.status_code == 422
 
 
-def test_agent_notes_need_the_control_scope(client):
+def test_agent_notes_need_only_the_read_scope(client):
+    # A watching agent notes what it sees (FIB-1035); a note changes nothing.
     resp = client.post("/app/agent/notes", headers=AUTH, json={"text": "x"})
-    assert resp.status_code == 403
+    assert resp.status_code == 200
 
 
 # --- grids: the screening read model (FIB-876) -------------------------------

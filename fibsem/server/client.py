@@ -214,7 +214,7 @@ class FibsemClient:
         server, and a command runs on the server; writes and commands need the
         hardware scope armed.
 
-        The agent server has no event stream, so no change made elsewhere (the
+        The App Server has no event stream, so no change made elsewhere (the
         microscope's own UI, another client) is signalled: ``changed`` fires only
         for this client's own reads and writes, ``cached`` is as current as the
         last of them, and limits and choices as current as the last

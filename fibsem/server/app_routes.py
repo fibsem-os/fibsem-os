@@ -2,7 +2,7 @@
 
 Dependency direction is one-way — autolamella imports fibsem.server, never the
 reverse — so this module never imports the application. It defines the
-:class:`AppContext` protocol structurally; the application's ``AgentContext``
+:class:`AppContext` protocol structurally; the application's ``AutoLamellaAppContext``
 (fibsem.applications.autolamella.server) satisfies it and is passed into
 ``build_server(app_context=...)`` by whoever hosts the server inside the app.
 
@@ -142,12 +142,7 @@ class AppContext(Protocol):
         screen_all: bool = False,
     ) -> Dict[str, Any]: ...
 
-    def set_supervision(
-        self,
-        task_name: str,
-        supervise: bool,
-        supervisor: Optional[str] = None,
-    ) -> Dict[str, Any]: ...
+    def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]: ...
 
     def requeue_task(
         self, item_name: str, task_name: str, front: bool = False
@@ -292,12 +287,38 @@ def build_app_router(context: AppContext) -> APIRouter:
         task_names, grid_names, screen_all = _grid_run_body(body)
         return context.grid_workflow_plan(task_names, grid_names, screen_all)
 
-    @router.post("/workflow/stop")
-    def stop_workflow():
-        # Deliberately on the read router, like the core server's stop_milling:
-        # stopping is the safety action, and must never be gated behind the
-        # arming the dangerous actions need, nor wait on the command lock.
-        return context.stop_workflow()
+    @router.post("/agent/notes")
+    def add_note(body: Dict[str, Any]):
+        # Observations for the record — event stream + experiment log. On the
+        # read router, a POST the dashboard token is refused: a watching agent
+        # notes what it sees (FIB-1035), and a note changes nothing.
+        text = body.get("text")
+        item_name = body.get("item_name")
+        if (
+            not isinstance(text, str)
+            or not text.strip()
+            or len(text) > 4000
+            or (item_name is not None and not isinstance(item_name, str))
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass text (a non-empty string, at most 4000 "
+                    "characters); item_name (string) is optional.",
+                },
+            )
+        result = context.add_note(text, item_name)
+        if not result.get("recorded") and result.get("error"):
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error_type": "not_found",
+                    "message": result["error"],
+                    "item_names": result.get("item_names", []),
+                },
+            )
+        return result
 
     @router.get("/events")
     def events(since: int = 0, timeout: float = 0.0):
@@ -312,9 +333,8 @@ def build_app_router(context: AppContext) -> APIRouter:
 def build_app_control_router(context: AppContext) -> APIRouter:
     """Routes that act on the session rather than observe it.
 
-    Mounted (by build_server) behind the ``control`` scope, which embedded
-    hosting does not arm yet — so today these exist only where a hosting
-    explicitly arms control (tests; later, the arming dialog).
+    Mounted (by build_server) behind the ``control`` scope, which the agent
+    holds at Drive: the operator raises it from the Agent chip (FIB-1035).
     """
     router = APIRouter(prefix="/app")
 
@@ -478,56 +498,25 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         task_names, grid_names, screen_all = _grid_run_body(body)
         return context.start_grid_workflow(task_names, grid_names, screen_all)
 
-    @router.post("/agent/notes")
-    def add_note(body: Dict[str, Any]):
-        # Observations for the record — event stream + experiment log. On the
-        # control scope: an agent trusted to answer is trusted to annotate.
-        text = body.get("text")
-        item_name = body.get("item_name")
-        if (
-            not isinstance(text, str)
-            or not text.strip()
-            or len(text) > 4000
-            or (item_name is not None and not isinstance(item_name, str))
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "missing_field",
-                    "message": "Pass text (a non-empty string, at most 4000 "
-                    "characters); item_name (string) is optional.",
-                },
-            )
-        result = context.add_note(text, item_name)
-        if not result.get("recorded") and result.get("error"):
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error_type": "not_found",
-                    "message": result["error"],
-                    "item_names": result.get("item_names", []),
-                },
-            )
-        return result
+    @router.post("/workflow/stop")
+    def stop_workflow():
+        # The same path as the GUI's Stop button. On the control router since
+        # FIB-1035 -- a watching agent stops nothing -- and still never waits
+        # on the command lock. The operator's own Stop is never gated.
+        return context.stop_workflow()
 
     @router.post("/supervision")
     def set_supervision(body: Dict[str, Any]):
         task_name = body.get("task_name")
-        supervisor = body.get("supervisor")
-        if (
-            not isinstance(task_name, str)
-            or "supervise" not in body
-            or supervisor not in (None, "human", "agent")
-        ):
+        if not isinstance(task_name, str) or "supervise" not in body:
             raise HTTPException(
                 status_code=422,
                 detail={
                     "error_type": "missing_field",
-                    "message": "Pass task_name (string) and supervise (boolean); "
-                    "supervisor is optional, 'human' or 'agent'.",
+                    "message": "Pass task_name (string) and supervise (boolean).",
                 },
             )
-        return context.set_supervision(task_name, bool(body["supervise"]), supervisor)
+        return context.set_supervision(task_name, bool(body["supervise"]))
 
     @router.post("/queue/requeue")
     def requeue_task(body: Dict[str, Any]):

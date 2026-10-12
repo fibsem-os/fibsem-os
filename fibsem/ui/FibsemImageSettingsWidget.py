@@ -361,7 +361,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             # stream: workflow one-shots (post-mill inspect, spot burn,
             # coincidence) also emit on these signals, and eb_image/ib_image
             # must match what the canvas below shows — click-to-move and the
-            # agent server's /app/images read these references.
+            # App Server's /app/images read these references.
             if image.metadata.beam_type is BeamType.ELECTRON:
                 self.eb_image = image
             elif image.metadata.beam_type is BeamType.ION:

@@ -1,6 +1,6 @@
 """Experiment.decide runs on the Qt main thread and blocks its caller.
 
-The Review tab calls it from the GUI thread and the agent server from a
+The Review tab calls it from the GUI thread and the App Server from a
 worker; both must land on the main thread because a confirm can end in Qt
 work (a generative review adds lamellae, whose list rebuild is not safe off
 the GUI thread). Without a QApplication it is a plain call -- covered in

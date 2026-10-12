@@ -1,4 +1,4 @@
-"""FibsemClient.devices: the remote driver's devices over a running agent server,
+"""FibsemClient.devices: the remote driver's devices over a running App Server,
 with the client's token.
 
 Skipped when the [server] extra is not installed.
@@ -40,7 +40,7 @@ def microscope():
 
 @pytest.fixture(scope="module")
 def port(microscope):
-    """The agent server over the Demo microscope, hardware armed, on a free port."""
+    """The App Server over the Demo microscope, hardware armed, on a free port."""
     app = build_server(
         microscope, auth=AuthConfig.generate(arm_hardware=True, token=TOKEN)
     )
@@ -50,7 +50,7 @@ def port(microscope):
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     while not server.started:
-        assert thread.is_alive(), "agent server failed to start"
+        assert thread.is_alive(), "App Server failed to start"
         threading.Event().wait(0.01)
     yield server.servers[0].sockets[0].getsockname()[1]
     server.should_exit = True

@@ -22,7 +22,7 @@ The coordinator side is ``fibsem.drivers.remote.devices``. A write runs the devi
 Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
 
-The same ``/devices`` routes are mounted in the agent server (``fibsem.server.server``)
+The same ``/devices`` routes are mounted in the App Server (``fibsem.server.server``)
 over ``microscope.devices``, behind its bearer token and scopes. Served here on their
 own, they have no authentication yet, nor a one-commander lease.
 
@@ -249,7 +249,7 @@ def build_device_router(
     *devices* is called per request, so a map that changes (an FM reconnecting) is
     served as it is now. *read*, *write* and *command* are FastAPI dependencies for
     the reads, the parameter writes and the commands: the device server passes none,
-    the agent server its token, scopes and hardware lock.
+    the App Server its token, scopes and hardware lock.
     """
     router = APIRouter()
 

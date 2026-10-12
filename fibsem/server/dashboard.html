@@ -37,7 +37,7 @@
     overflow:hidden; text-overflow:ellipsis; }
   .rung.done .rung-name, .rung.active .rung-name { color:var(--text); }
   .rung-time { font-size:10.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
-  .sup-agent { color:var(--agent); } .sup-human { color:var(--muted); }
+  .sup-human { color:var(--muted); }
 
   .main { display:grid; grid-template-columns:1fr 300px; gap:10px; margin-top:10px; }
   @media (max-width:900px) { .main { grid-template-columns:1fr; } }
@@ -129,7 +129,7 @@
 <div id="app"></div>
 <script>
 "use strict";
-/* Read-only monitor over the agent-server API. The token arrives in the URL
+/* Read-only monitor over the App Server API. The token arrives in the URL
    fragment (never sent to the server or its logs), is stashed for the tab's
    session, and stripped from the address bar. */
 
@@ -208,9 +208,7 @@ function renderLadder(protocol, runSummary, status) {
   const current = status.workflow.current_task;
   document.getElementById("ladder").innerHTML = (protocol.tasks || []).map(t => {
     const cls = t.name === current ? "active" : (ran[t.name] ? "done" : "");
-    const sup = t.supervisor === "agent"
-      ? `<span class="sup-agent">&#10022;</span>`
-      : (t.supervise ? `<span class="sup-human">&#8857;</span>` : "");
+    const sup = t.supervise ? `<span class="sup-human">&#8857;</span>` : "";
     const dur = ran[t.name] ? `${Math.round(ran[t.name].duration)} s`
       : (t.name === current ? "running" : "&mdash;");
     return `<div class="rung ${cls}"><div class="rung-bar"></div>
@@ -503,10 +501,10 @@ async function liveLoop() {
 /* ── boot ──────────────────────────────────────────────────────────── */
 
 async function boot() {
-  if (!TOKEN) { gate("Paste the session token from Tools → Agent Server."); return; }
+  if (!TOKEN) { gate("Open the dashboard from Tools → App Server, or paste its link from Copy link there."); return; }
   let caps;
   try { caps = await api("/capabilities"); }
-  catch (e) { gate("That token was refused — copy a fresh one from Tools → Agent Server."); return; }
+  catch (e) { gate("That token was refused — copy a fresh link from Tools → App Server."); return; }
   if (!caps.routers || !caps.routers.app) {
     $app.innerHTML = `<div class="gate panel"><h1>AutoLamella Dashboard</h1>
       <p>This server hosts no application (bench mode) — there is no session to show.</p></div>`;

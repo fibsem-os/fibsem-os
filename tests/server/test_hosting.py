@@ -1,4 +1,4 @@
-"""AgentServerHost over a real socket: lifecycle, discovery, events, refusal."""
+"""AppServerHost over a real socket: lifecycle, discovery, events, refusal."""
 
 import os
 import socket
@@ -9,7 +9,7 @@ fastapi = pytest.importorskip("fastapi")
 httpx = pytest.importorskip("httpx")
 
 from fibsem import utils  # noqa: E402
-from fibsem.applications.autolamella.server.hosting import AgentServerHost  # noqa: E402
+from fibsem.applications.autolamella.server.hosting import AppServerHost  # noqa: E402
 
 
 class Host:
@@ -36,7 +36,7 @@ def microscope():
 def host(tmp_path, microscope):
     ui = Host()
     ui.microscope = microscope
-    server_host = AgentServerHost(
+    server_host = AppServerHost(
         ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
     )
     yield server_host
@@ -62,6 +62,7 @@ def test_start_serves_read_only_with_the_app_router(host, microscope):
         "configure": False,
         "hardware": False,
     }
+    assert body["level"] == "watch"  # every launch starts watching (FIB-1035)
     # idempotent: a second start is a no-op, not a second server
     assert host.start(microscope) is True
 
@@ -128,7 +129,7 @@ def test_microscope_taps_are_live_and_detach_on_stop(host, microscope):
 def test_start_failure_is_contained_not_raised(microscope, tmp_path):
     ui = Host()
     # Port 1 is unbindable without privileges — start must fail closed.
-    server_host = AgentServerHost(
+    server_host = AppServerHost(
         ui, port=1, discovery_path=tmp_path / "agent-server.json"
     )
     assert server_host.start(microscope) is False
@@ -138,13 +139,60 @@ def test_start_failure_is_contained_not_raised(microscope, tmp_path):
 def test_env_override_arms_control_scope(microscope, tmp_path, monkeypatch):
     monkeypatch.setenv("FIBSEM_AGENT_ARM_CONTROL", "1")
     ui = Host()
-    server_host = AgentServerHost(
+    server_host = AppServerHost(
         ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
     )
     try:
         assert server_host.start(microscope) is True
-        scopes = _get(server_host, "/capabilities").json()["scopes"]
-        assert scopes["control"] is True
-        assert scopes["hardware"] is False  # the override never arms hardware
+        body = _get(server_host, "/capabilities").json()
+        assert body["level"] == "drive"
+        assert body["scopes"]["control"] is True
+        assert body["scopes"]["configure"] is True
+        assert body["scopes"]["hardware"] is False  # never hardware
     finally:
         server_host.stop()
+
+
+def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
+    """A microscope reconnect or devices toggle restarts the server; the
+    agent's token and the level the operator set survive it, for the app
+    session only (FIB-1035 app test #5 and the reconnect question)."""
+    from fibsem.server.auth import AgentLevel
+
+    ui = Host()
+    first = AppServerHost(
+        ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+    )
+    assert first.start(microscope)
+    first.auth.set_level(AgentLevel.DRIVE)
+    token = first.auth.token
+    first.stop()
+    second = AppServerHost(
+        ui, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+    )
+    try:
+        assert second.start(microscope)
+        body = _get(second, "/capabilities").json()
+        assert second.auth.token == token
+        assert body["level"] == "drive"
+    finally:
+        second.stop()
+    # A new app session -- a new window -- starts at Watch with a new token.
+    fresh = AppServerHost(
+        Host(), port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+    )
+    try:
+        assert fresh.start(microscope)
+        assert fresh.auth.token != token
+        assert _get(fresh, "/capabilities").json()["level"] == "watch"
+    finally:
+        fresh.stop()
+
+
+def test_the_token_is_never_logged(host, microscope, caplog):
+    import logging
+
+    with caplog.at_level(logging.DEBUG):
+        assert host.start(microscope)
+    assert host.auth.token not in caplog.text
+    assert host.auth.dashboard_token not in caplog.text

@@ -125,10 +125,10 @@ def test_last_image_is_hardware_scope(read_client):
     assert resp.status_code == 403
 
 
-def test_stop_milling_allowed_with_read_scope(read_client):
-    # Emergency stop is deliberately never gated behind arming.
+def test_stop_milling_needs_a_scope_that_acts(read_client):
+    # Read alone is watching, and a watching agent stops nothing (FIB-1035).
     resp = read_client.post("/stop_milling", headers=AUTH)
-    assert resp.status_code == 200
+    assert resp.status_code == 403
 
 
 def test_valid_requests_stamp_last_seen(microscope):

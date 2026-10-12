@@ -243,7 +243,7 @@ def test_reject_needs_a_reason_and_fails_the_task(tab, experiment, monkeypatch):
 
 
 def test_a_decision_made_elsewhere_refreshes_the_inbox(tab, experiment):
-    """The agent server decides through the same function; the tab follows."""
+    """The App Server decides through the same function; the tab follows."""
     lamella = experiment.positions[0]
     assert tab.pending_count == 1
     experiment.decide(
@@ -595,7 +595,6 @@ def test_author_labels_and_row_details():
 def test_the_row_chip_offers_review_only_with_the_flag(qapp, monkeypatch):
     from fibsem.applications.autolamella.ui import workflow_config_widget as W
 
-    monkeypatch.setattr(W, "_agent_supervision_available", lambda: False)
     monkeypatch.setattr(W, "_review_available", lambda: True)
     task = AutoLamellaTaskDescription(
         name=SETUP, attention=Attention.supervised, required=True

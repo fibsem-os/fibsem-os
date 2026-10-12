@@ -471,17 +471,10 @@ class AppServerPreferences:
     """
 
     enabled: bool = False
-
-
-@dataclass
-class AgentPreferences:
-    """Durable agent-supervision policy (the session-scoped half — scope
-    arming — deliberately does NOT live here: arming is consent, dies with
-    the session, and is granted in the Tools → Agent Server dialog)."""
-
-    # How long a question addressed to the agent may stand unanswered before
-    # the watchdog hands it to the operator.
-    watchdog_minutes: int = 5
+    # The devices service: the routes that reach the instrument, local or on a
+    # Device Server -- /devices/... and the microscope routes, reads included.
+    # Off by default: a read of the instrument is hardware access, not monitoring.
+    devices: bool = False
 
 
 @dataclass
@@ -491,7 +484,6 @@ class UserPreferences:
     movement: MovementPreferences = field(default_factory=MovementPreferences)
     experiment: ExperimentPreferences = field(default_factory=ExperimentPreferences)
     reporting: ReportingPreferences = field(default_factory=ReportingPreferences)
-    agent: AgentPreferences = field(default_factory=AgentPreferences)
     app_server: AppServerPreferences = field(default_factory=AppServerPreferences)
     # Serialized hooks, as HookManager.to_dict()["hooks"] produces them. Held as plain
     # dicts rather than Hook objects on purpose: to_dict() below is dataclasses.asdict,
@@ -519,7 +511,6 @@ class UserPreferences:
                 "movement",
                 "experiment",
                 "reporting",
-                "agent",
                 "app_server",
                 "hooks",
             )
@@ -532,7 +523,6 @@ class UserPreferences:
                     ExperimentPreferences, d.get("experiment", {})
                 ),
                 reporting=_sub_from_dict(ReportingPreferences, d.get("reporting", {})),
-                agent=_sub_from_dict(AgentPreferences, d.get("agent", {})),
                 app_server=_sub_from_dict(
                     AppServerPreferences, d.get("app_server", {})
                 ),

@@ -4,7 +4,7 @@ A microscope in fibsemOS is a coordinator that holds devices: the electron and i
 beams, the stage, the chamber, the manipulator and, where there is one, the
 fluorescence microscope and its parts. Each device describes itself. Its parameters
 carry a type, a unit, and the limits and choices the instrument reports; its commands
-are plain methods that a UI, the agent server or a remote client can list; and both
+are plain methods that a UI, the App Server or a remote client can list; and both
 emit events when something changes.
 
 This page covers using devices and services from a script or from the application,

@@ -88,24 +88,6 @@ def test_the_exemption_list_only_names_flags_that_exist(qapp):
     assert NOT_IN_DIALOG <= known, f"stale exemptions: {NOT_IN_DIALOG - known}"
 
 
-def test_agent_section_round_trips(qapp):
-    from fibsem.config import UserPreferences
-    from fibsem.ui.widgets.preferences_dialog import PreferencesDialog
-
-    prefs = UserPreferences()
-    prefs.agent.watchdog_minutes = 12
-    dialog = PreferencesDialog(prefs)
-    assert dialog._spin_watchdog.value() == 12
-    dialog._spin_watchdog.setValue(7)
-    rebuilt = dialog.get_preferences()
-    assert rebuilt.agent.watchdog_minutes == 7
-    # And the section survives serialization (absent key -> defaults).
-    again = UserPreferences.from_dict(rebuilt.to_dict())
-    assert again.agent.watchdog_minutes == 7
-    assert UserPreferences.from_dict({"features": {}}).agent.watchdog_minutes == 5
-    dialog.deleteLater()
-
-
 def test_app_server_section_round_trips(qapp):
     prefs = UserPreferences()
     prefs.app_server.enabled = True
@@ -120,11 +102,24 @@ def test_app_server_section_round_trips(qapp):
     dialog.deleteLater()
 
 
+def test_the_devices_service_is_offered_only_with_the_app_server_on(qapp):
+    prefs = UserPreferences()
+    dialog = PreferencesDialog(prefs)
+    assert not dialog._chk_app_server_devices.isEnabled()
+    dialog._chk_app_server.setChecked(True)
+    assert dialog._chk_app_server_devices.isEnabled()
+    dialog._chk_app_server_devices.setChecked(True)
+    rebuilt = dialog.get_preferences()
+    assert rebuilt.app_server.enabled and rebuilt.app_server.devices
+    dialog.deleteLater()
+
+
 def test_the_app_server_fails_closed():
     # Absent section, empty section and the retired flag all read as off (FIB-1035):
     # `agent_server_enabled` was never in a release, so it is not migrated.
     assert UserPreferences.from_dict({"features": {}}).app_server.enabled is False
     assert UserPreferences.from_dict({"app_server": {}}).app_server.enabled is False
+    assert UserPreferences.from_dict({"app_server": {}}).app_server.devices is False
     retired = {"features": {"agent_server_enabled": True}}
     assert UserPreferences.from_dict(retired).app_server.enabled is False
 
@@ -165,9 +160,8 @@ def _every_field_changed() -> UserPreferences:
     prefs.reporting.sentry_dsn = "https://dsn.example.com/1"
     prefs.reporting.update_check_enabled = True
 
-    prefs.agent.watchdog_minutes = 12
-
     prefs.app_server.enabled = True
+    prefs.app_server.devices = True
 
     prefs.hooks = [{"type": "notification", "name": "custom"}]
     return prefs

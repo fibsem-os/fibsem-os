@@ -277,9 +277,9 @@ class AutoLamellaUI(QMainWindow):
         self._workflow_stop_event: threading.Event = threading.Event()
         self._task_worker_thread: Optional[FunctionWorker] = None
         self._task_manager: Optional[TaskManager] = None
-        # The embedded agent server (FIB-845): built on microscope connect when the
+        # The embedded App Server (FIB-845): built on microscope connect when the
         # App Server preference is on; None means the feature is off.
-        self._agent_server_host = None
+        self._app_server_host = None
         # The app's event stream (FIB-1031): built on microscope connect, always,
         # and recorded to events.jsonl in the experiment directory. The agent
         # server reads it when it runs; None only while disconnected.
@@ -689,7 +689,7 @@ class AutoLamellaUI(QMainWindow):
             self._disconnect_experiment_events()
             self._setup_experiment_connections()
         self._start_event_recorder()
-        self._start_agent_server()
+        self._start_app_server()
 
     def _start_event_recorder(self) -> None:
         """Start recording events for this microscope connection, whatever else runs.
@@ -701,7 +701,7 @@ class AutoLamellaUI(QMainWindow):
         whenever that widget refreshes while connected -- not once per connection
         -- so it can run again for a microscope that already has a stream, and
         that microscope keeps it. A different microscope (the connection dialog can
-        hand one back) gets a new stream, and a running agent server is stopped so
+        hand one back) gets a new stream, and a running App Server is stopped so
         it restarts on the new buffer: left alone it would serve a closed one.
         """
         recorder = self._event_recorder
@@ -711,7 +711,7 @@ class AutoLamellaUI(QMainWindow):
             self._stop_event_recorder()
             return
         if recorder is not None:
-            host = self._agent_server_host
+            host = self._app_server_host
             if host is not None and host.running:
                 host.stop()
             self._stop_event_recorder()
@@ -744,19 +744,20 @@ class AutoLamellaUI(QMainWindow):
         self._stop_event_recorder()
         super().closeEvent(event)
 
-    def _start_agent_server(self) -> None:
-        """Host the agent server over this session, if the preference asks for it.
+    def _start_app_server(self) -> None:
+        """Host the App Server over this session, if the preference asks for it.
 
         Read-only until scopes are armed; never raises — an optional observer
         must not be able to take the session down (see hosting.py).
         """
-        if fibsem_cfg.load_user_preferences().app_server.enabled:
-            from fibsem.applications.autolamella.server.hosting import AgentServerHost
+        preference = fibsem_cfg.load_user_preferences().app_server
+        if preference.enabled:
+            from fibsem.applications.autolamella.server.hosting import AppServerHost
 
-            if self._agent_server_host is None:
-                self._agent_server_host = AgentServerHost(self)
+            if self._app_server_host is None:
+                self._app_server_host = AppServerHost(self, devices=preference.devices)
             recorder = self._event_recorder
-            self._agent_server_host.start(
+            self._app_server_host.start(
                 self.microscope,
                 event_buffer=recorder.buffer if recorder is not None else None,
                 lifecycle_hook=recorder.lifecycle_hook
@@ -764,24 +765,32 @@ class AutoLamellaUI(QMainWindow):
                 else None,
             )
 
-    def sync_agent_server_with_preference(self) -> None:
+    def sync_app_server_with_preference(self) -> None:
         """Start or stop the embedded server to match the saved preference.
 
         Called after preferences are saved, so ticking the box acts now rather
         than at the next connect. Starting needs a connected microscope (the
         server wraps it); without one this is a no-op and the connect path
         picks the preference up as before.
+
+        The services are fixed when the server starts, so a changed devices
+        setting restarts it. The token is new after that, and a connected agent
+        reconnects as it would after any restart.
         """
-        host = self._agent_server_host
-        if fibsem_cfg.load_user_preferences().app_server.enabled:
+        host = self._app_server_host
+        preference = fibsem_cfg.load_user_preferences().app_server
+        if host is not None and host.devices != preference.devices:
+            host.stop()
+            self._app_server_host = host = None
+        if preference.enabled:
             if self.microscope is not None and (host is None or not host.running):
-                self._start_agent_server()
+                self._start_app_server()
         elif host is not None and host.running:
             host.stop()
 
     def disconnect_from_microscope(self):
-        if self._agent_server_host is not None:
-            self._agent_server_host.stop()
+        if self._app_server_host is not None:
+            self._app_server_host.stop()
         self._stop_event_recorder()
         self.microscope = None
         self.settings = None
@@ -2094,7 +2103,7 @@ class AutoLamellaUI(QMainWindow):
         # server shares the recorder's hook; one of its own (a host started
         # without a recorder) is registered here, per run, as before.
         recorder = self._event_recorder
-        host = self._agent_server_host
+        host = self._app_server_host
         if (
             host is not None
             and host.running
@@ -2992,7 +3001,7 @@ class AutoLamellaUI(QMainWindow):
         """Show a modal summary dialog of the tasks run in the last workflow.
 
         Show-once, but never consume: ``_last_run_summary`` is also the
-        record the agent server's ``run_summary`` endpoint reads after the
+        record the App Server's ``run_summary`` endpoint reads after the
         worker nulls the manager — nulling it here meant the record lived
         only for the milliseconds between the worker's capture and this
         handler, and every remote read found nothing. The record stays until

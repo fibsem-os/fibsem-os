@@ -41,7 +41,7 @@ always allowed. `GET /capabilities` reports the armed scopes.
 The server binds `127.0.0.1` by default. Exposing it on the LAN
 (`--host 0.0.0.0`) is an explicit choice: the token then travels in cleartext
 HTTP, which keeps strangers out but is not sniff-proof — see the AutoLamella
-Agent Server design doc for the trust model.
+App Server design doc for the trust model.
 
 ### App route naming
 

@@ -1,6 +1,6 @@
 """Same-machine discovery of a running fibsem server.
 
-The server writes ``~/.fibsem/agent-server.json`` while it runs so local
+The server writes ``~/.fibsem/app-server.json`` while it runs so local
 clients (the ``fibsem-mcp`` sidecar in particular) can connect without the
 user copying a token. The file is written ``0600``; on Windows the mode is
 advisory and the real protection is the user-profile directory's ACLs — do
@@ -16,10 +16,14 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fibsem.server.auth import AuthConfig, Scope
+from fibsem.server.auth import AuthConfig
 
 DISCOVERY_DIR = Path.home() / ".fibsem"
-DISCOVERY_FILE = DISCOVERY_DIR / "agent-server.json"
+DISCOVERY_FILE = DISCOVERY_DIR / "app-server.json"
+# The file's name before the App Server rename (FIB-1035). Read, never written,
+# for one release, so a sidecar finds an App Server that predates the rename;
+# delete after v0.6.x.
+LEGACY_DISCOVERY_FILE = DISCOVERY_DIR / "agent-server.json"
 
 
 def _client_host(bind_host: str) -> str:
@@ -36,7 +40,8 @@ def write_discovery_file(
         "url": f"http://{_client_host(host)}:{port}",
         "token": auth.token,
         "pid": os.getpid(),
-        "scopes": {s.value: auth.is_armed(s) for s in Scope},
+        # No scopes or level: they change while the server runs and a file
+        # would go stale. /capabilities is the live answer (FIB-1035).
     }
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)
@@ -45,8 +50,22 @@ def write_discovery_file(
 
 
 def read_discovery_file(path: Optional[Path] = None) -> Optional[dict]:
-    """The running server's connection info, or None if absent/stale/unreadable."""
-    path = Path(path) if path is not None else DISCOVERY_FILE
+    """The running server's connection info, or None if absent/stale/unreadable.
+
+    With no ``path``, the current name is tried first, then the legacy one, so
+    a live server under either name is found -- by clients, and by the
+    one-server-per-machine guard.
+    """
+    if path is not None:
+        return _read(Path(path))
+    for candidate in (DISCOVERY_FILE, LEGACY_DISCOVERY_FILE):
+        found = _read(candidate)
+        if found is not None:
+            return found
+    return None
+
+
+def _read(path: Path) -> Optional[dict]:
     try:
         with open(path) as f:
             data = json.load(f)

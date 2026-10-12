@@ -414,11 +414,6 @@ class AutoLamellaTaskDescription:
     attention: Attention = Attention.automated
     requires: List[str] = field(default_factory=list)
     scheduled_at: Optional[datetime] = None
-    # Who a supervised task's questions are addressed to: "human" (the
-    # operator, today's behaviour and the default) or "agent" (a connected
-    # agent answers; the operator can still answer first). Display-and-watchdog
-    # semantics only — prompts are raised identically either way.
-    supervisor: str = "human"
 
     def __post_init__(self) -> None:
         self.attention = Attention(self.attention)
@@ -537,13 +532,6 @@ class AutoLamellaWorkflowConfig:
             if task.name == task_name:
                 return task.attention
         return Attention.automated
-
-    def get_supervisor(self, task_name: str) -> str:
-        """Who a supervised task's questions are addressed to: human or agent."""
-        for task in self.tasks:
-            if task.name == task_name:
-                return getattr(task, "supervisor", "human") or "human"
-        return "human"
 
     def get_scheduled_at(self, task_name: str) -> Optional[datetime]:
         """Get the scheduled start time for a task, or None if not scheduled."""
@@ -788,10 +776,6 @@ class AutoLamellaTaskProtocol:
 
     def get_attention(self, task_name: str) -> Attention:
         return self.workflow_config.get_attention(task_name)
-
-    def get_supervisor(self, task_name: str) -> str:
-        """Who a supervised task's questions are addressed to: human or agent."""
-        return self.workflow_config.get_supervisor(task_name)
 
     @classmethod
     def load_from_old_protocol(cls, path: Path) -> "AutoLamellaTaskProtocol":
@@ -1922,7 +1906,7 @@ class GridRecord:
 
 # One process, one open experiment: a single lock serialises the writers that
 # can run on different threads at once -- the workflow thread saving after a
-# task, and a review confirming from the GUI thread or the agent server. Held
+# task, and a review confirming from the GUI thread or the App Server. Held
 # briefly by both, so neither serialises a half-applied write of the other.
 EXPERIMENT_WRITE_LOCK = threading.RLock()
 
@@ -2194,7 +2178,7 @@ class Experiment:
         """The one way a decision reaches the experiment.
 
         Runs on the Qt main thread when there is one and blocks the caller until
-        it has: the Review tab and the agent server are the same client of this
+        it has: the Review tab and the App Server are the same client of this
         function, and a confirm can end in Qt work (a generative review adds
         lamellae, whose list rebuild must not fire off the GUI thread). Takes
         the same lock as ``save`` so a save never serialises a half-applied

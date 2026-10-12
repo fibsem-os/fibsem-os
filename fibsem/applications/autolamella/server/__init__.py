@@ -1,3 +1,3 @@
-from fibsem.applications.autolamella.server.context import AgentContext
+from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 
-__all__ = ["AgentContext"]
+__all__ = ["AutoLamellaAppContext"]

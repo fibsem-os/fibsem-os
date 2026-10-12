@@ -45,7 +45,13 @@ from fibsem.server.app_routes import (
     build_app_control_router,
     build_app_router,
 )
-from fibsem.server.auth import AuthConfig, Scope, command_slot, require_scope
+from fibsem.server.auth import (
+    AuthConfig,
+    Scope,
+    command_slot,
+    require_monitoring,
+    require_scope,
+)
 from fibsem.server.devices import build_device_router
 from fibsem.server.discovery import (
     DISCOVERY_FILE,
@@ -169,13 +175,21 @@ def build_server(
     microscope: FibsemMicroscope,
     app_context=None,
     auth: Optional[AuthConfig] = None,
+    devices: bool = True,
 ) -> FastAPI:
     """Build the server app around an already-connected microscope.
 
     ``auth`` defaults to a generated token with only the ``read`` scope armed.
     ``app_context`` is anything satisfying app_routes.AppContext (structurally
-    -- the application's AgentContext in practice); passing one mounts the
+    -- the application's AutoLamellaAppContext in practice); passing one mounts the
     app-level router and flips ``routers.app`` in /capabilities.
+
+    ``devices`` is the App Server's devices service (FIB-1035): every route
+    that reaches the instrument -- the microscope routes here and the
+    ``/devices/...`` router, reads included, since a read can reach the
+    instrument too. False leaves them unregistered (404), and /capabilities
+    reports both routers off. The bench server keeps the default; the App
+    Server passes its preference, which is off by default.
     """
     if auth is None:
         auth = AuthConfig.generate()
@@ -196,7 +210,16 @@ def build_server(
             content={"detail": {"error_type": type(exc).__name__, "message": str(exc)}},
         )
 
+    # /capabilities, which every client reads first, whatever is mounted, the
+    # dashboard included.
+    base = APIRouter(dependencies=[Depends(require_monitoring())])
     read = APIRouter(dependencies=[Depends(require_scope(Scope.READ))])
+    # The always-allowed stop, for whoever can act: control (the App Server at
+    # Drive) or hardware (the bench). Never the command slot: a stop must not
+    # wait behind the mill it stops.
+    stop = APIRouter(
+        dependencies=[Depends(require_scope(Scope.CONTROL, Scope.HARDWARE))]
+    )
     # Hardware routes also take the command slot, so two commands never interleave.
     hw = APIRouter(
         dependencies=[Depends(require_scope(Scope.HARDWARE)), Depends(command_slot)]
@@ -225,17 +248,19 @@ def build_server(
             raise HTTPException(status_code=404, detail="dashboard.html not packaged")
         return HTMLResponse(page.decode("utf-8"))
 
-    @read.get("/capabilities")
+    @base.get("/capabilities")
     def capabilities():
         return {
             "api_version": API_VERSION,
             "manufacturer": type(microscope).__name__,
             "routers": {
-                "microscope": True,
-                "devices": True,
+                "microscope": devices,
+                "devices": devices,
                 "app": app_context is not None,
             },
             "scopes": {s.value: auth.is_armed(s) for s in Scope},
+            # The agent level (FIB-1035); None on a server without one.
+            "level": auth.level.value if auth.level is not None else None,
         }
 
     @read.get("/system")
@@ -514,7 +539,7 @@ def build_server(
 
     # read scope, and no command slot: an emergency stop must never be blocked
     # by arming or by the in-flight command it exists to interrupt.
-    @read.post("/stop_milling")
+    @stop.post("/stop_milling")
     def stop_milling():
         microscope.stop_milling()
         return {"status": "ok"}
@@ -550,24 +575,29 @@ def build_server(
     def estimate_milling_time():
         return {"seconds": microscope.estimate_milling_time()}
 
-    app.include_router(read)
-    app.include_router(hw)
-    # Every device's parameters and commands, as the device server serves them:
-    # reads are read scope, writes and commands hardware scope and the command slot.
-    app.include_router(
-        build_device_router(
-            lambda: microscope.devices,
-            read=[Depends(require_scope(Scope.READ))],
-            write=[Depends(require_scope(Scope.HARDWARE)), Depends(command_slot)],
-            command=[Depends(_device_command_slot)],
+    app.include_router(base)
+    if devices:
+        app.include_router(read)
+        app.include_router(stop)
+        app.include_router(hw)
+        # Every device's parameters and commands, as the device server serves
+        # them: reads are read scope, writes and commands hardware scope and the
+        # command slot.
+        app.include_router(
+            build_device_router(
+                lambda: microscope.devices,
+                read=[Depends(require_scope(Scope.READ))],
+                write=[Depends(require_scope(Scope.HARDWARE)), Depends(command_slot)],
+                command=[Depends(_device_command_slot)],
+            )
         )
-    )
     if app_context is not None:
         # Read scope applied here so auth stays in one place; the router itself
-        # is a thin pass-through over the context's JSON-able snapshots.
+        # is a thin pass-through over the context's JSON-able snapshots. These
+        # are the monitoring routes, so the dashboard token may GET them too.
         app.include_router(
             build_app_router(app_context),
-            dependencies=[Depends(require_scope(Scope.READ))],
+            dependencies=[Depends(require_monitoring())],
         )
         # Acting on the session (answering prompts) is control scope — armed by
         # the hosting, never by default; unarmed callers get 403 scope_not_armed.

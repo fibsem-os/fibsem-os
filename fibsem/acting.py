@@ -1,7 +1,7 @@
 """Who is acting on the microscope: a task, the agent, or the operator (FIB-1062).
 
 The code that makes a call marks it, for the thread of control it runs on: a
-task for the length of its run, the agent server for each request. The
+task for the length of its run, the App Server for each request. The
 experiment's record reads the mark when an event is emitted, which is on the
 thread that caused it.
 

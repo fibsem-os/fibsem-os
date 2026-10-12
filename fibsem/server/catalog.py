@@ -5,10 +5,12 @@ contract test asserts every entry maps onto a real route on the server app —
 so the two surfaces cannot drift apart. Pure data, no dependencies beyond the
 standard library: importable everywhere, including the py3.8 floor.
 
-Scopes mirror the server's enforcement (fibsem/server/auth.py): the sidecar
-registers ``read`` tools for any valid token and ``hardware`` tools only when
-``/capabilities`` reports that scope armed — but the server enforces either
-way; the catalog filter is a courtesy, not the security boundary.
+Scopes mirror the server's enforcement (fibsem/server/auth.py). The sidecar
+registers every tool the server's mounted routers serve, whatever the agent's
+level (FIB-1035): the level changes mid-session, and an MCP client may never
+re-read its tool list, so the server's 403 is the gate and each description
+names the level it needs. Only ``hardware`` tools are still filtered, by the
+armed scope, which no level grants and which changes only with a restart.
 """
 
 from dataclasses import dataclass, field
@@ -21,21 +23,50 @@ class ToolSpec:
     description: str
     method: str  # "GET" | "POST" | "PUT"
     path: str
-    scope: str  # "read" | "hardware"
+    scope: str  # "read" | "control" | "configure" | "hardware"
     params: Dict[str, str] = field(default_factory=dict)  # name -> description
-    # Which router serves it: "microscope" is always mounted; "app" only when
-    # the server was built with an app_context (/capabilities reports which).
+    # Which router serves it: "microscope" unless the App Server's devices
+    # service is off (FIB-1035); "app" only when the server was built with an
+    # app_context; "base" always. /capabilities reports which.
     router: str = "microscope"
+    # Further scopes, any of which also allows it (stop_milling: control or
+    # hardware), matching the route's require_scope.
+    also: Tuple[str, ...] = ()
+
+    def allowed(self, armed: Dict[str, bool]) -> bool:
+        return any(armed.get(s, False) for s in (self.scope, *self.also))
+
+    @property
+    def hardware_only(self) -> bool:
+        """Needs the hardware scope and nothing a level grants."""
+        return {self.scope, *self.also} == {"hardware"}
+
+    @property
+    def level_note(self) -> str:
+        """What the tool needs, in the agent's terms (FIB-1035)."""
+        if self.hardware_only:
+            return "Needs the hardware scope, which no agent level grants."
+        if self.scope == "read":
+            return "Works at Watch and Drive."
+        return (
+            "Needs the agent at Drive: refused (403) at Watch; the operator "
+            "sets the level from the Agent chip in AutoLamella."
+        )
+
+    @property
+    def full_description(self) -> str:
+        return f"{self.description} {self.level_note}"
 
 
 CATALOG: Tuple[ToolSpec, ...] = (
     # --- read ---
     ToolSpec(
         name="get_capabilities",
-        description="Server capabilities: API version, manufacturer, mounted routers, armed scopes.",
+        description="Server capabilities: API version, manufacturer, mounted routers, armed scopes, and the agent's level (off / watch / drive). Read it first: the level says what the other tools will do.",
         method="GET",
         path="/capabilities",
         scope="read",
+        router="base",
     ),
     ToolSpec(
         name="get_system_info",
@@ -110,10 +141,11 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_milling",
-        description="Emergency stop for an in-progress mill. Always allowed with a valid token.",
+        description="Emergency stop for an in-progress mill. Allowed whenever the agent can act (Drive; on a bench server, hardware too), and never waits on the command lock. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/stop_milling",
-        scope="read",  # deliberate: stopping is never gated behind arming
+        scope="control",
+        also=("hardware",),
     ),
     # --- hardware ---
     ToolSpec(
@@ -326,7 +358,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         description="Put an observation on the record — the event stream and the experiment log. Use it for judgments worth keeping ('curtaining on 02's face, accepted anyway'); notes change nothing. Optionally name the item it concerns.",
         method="POST",
         path="/app/agent/notes",
-        scope="control",
+        scope="read",  # Watch adds notes: they change nothing
         router="app",
         params={
             "text": "the note, at most 4000 characters",
@@ -335,7 +367,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="apply_protocol_to_item",
-        description="Re-copy protocol task configs onto an existing item (protocol-level edits only reach items created after them; this brings an existing item up to date). Wholesale replace of that item's copies for the named tasks — omit task_names for all. Running tasks are refused. Needs the configure permission.",
+        description="Re-copy protocol task configs onto an existing item (protocol-level edits only reach items created after them; this brings an existing item up to date). Wholesale replace of that item's copies for the named tasks — omit task_names for all. Running tasks are refused.",
         method="POST",
         path="/app/items/{item_name}/apply_protocol",
         scope="configure",
@@ -347,7 +379,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="reorder_item_milling_stages",
-        description="Reorder the milling stages inside one of an item's task configs ('run the stress relief first'). order must be exactly the current stage names in their new sequence — this can never add, drop, or duplicate a stage. Echo the version from get_item_task_config; stale is refused. Needs the configure permission.",
+        description="Reorder the milling stages inside one of an item's task configs ('run the stress relief first'). order must be exactly the current stage names in their new sequence — this can never add, drop, or duplicate a stage. Echo the version from get_item_task_config; stale is refused.",
         method="POST",
         path="/app/items/{item_name}/task_config/{task_name}/stages/reorder",
         scope="configure",
@@ -362,7 +394,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="reorder_protocol_milling_stages",
-        description="Reorder the milling stages inside a protocol-level task config. Same rules as the item form; reaches items created (or re-applied) after. Needs the configure permission.",
+        description="Reorder the milling stages inside a protocol-level task config. Same rules as the item form; reaches items created (or re-applied) after.",
         method="POST",
         path="/app/protocol/task_config/{task_name}/stages/reorder",
         scope="configure",
@@ -376,7 +408,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="set_task_schedule",
-        description="Set (or clear) when a task may start: ISO-8601 timestamp (naive = instrument-local time), or null to clear. The workflow reads schedules at each task start, so a change takes effect at the next start; the schedule persists with the protocol. Needs the configure permission.",
+        description="Set (or clear) when a task may start: ISO-8601 timestamp (naive = instrument-local time), or null to clear. The workflow reads schedules at each task start, so a change takes effect at the next start; the schedule persists with the protocol.",
         method="POST",
         path="/app/workflow/schedule",
         scope="configure",
@@ -388,7 +420,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="update_item_detail",
-        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description, defect.verdict (UNASSESSED/GOOD/REWORK/FAILED) and defect.reason. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from get_item_detail — a mismatch is refused (409 stale_config). Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override. Needs the configure permission.",
+        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description, defect.verdict (UNASSESSED/GOOD/REWORK/FAILED) and defect.reason. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from get_item_detail — a mismatch is refused (409 stale_config). Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override.",
         method="POST",
         path="/app/items/{item_name}",
         scope="configure",
@@ -401,7 +433,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="update_protocol_task_config",
-        description="Patch a task's protocol-level defaults (what new items copy) with dotted-path edits. Echo the version from get_protocol_task_config — a mismatch is refused (409 stale_config). Running tasks are never affected: they hold their item's copy; the edit reaches items created after. Needs the configure permission.",
+        description="Patch a task's protocol-level defaults (what new items copy) with dotted-path edits. Echo the version from get_protocol_task_config — a mismatch is refused (409 stale_config). Running tasks are never affected: they hold their item's copy; the edit reaches items created after.",
         method="POST",
         path="/app/protocol/task_config/{task_name}",
         scope="configure",
@@ -414,7 +446,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="update_item_task_config",
-        description="Patch an item's task config with dotted-path edits (e.g. {'milling.mill_rough.stages.0.pattern.depth': 2e-6}). Echo the version from get_item_task_config — a mismatch is refused (409 stale_config): re-read and re-patch. A task currently running for that item is refused (it already copied its config); pending tasks pick the change up at start. Values are validated against the live field's type and declared bounds; the response echoes every change old -> new. Needs the configure permission.",
+        description="Patch an item's task config with dotted-path edits (e.g. {'milling.mill_rough.stages.0.pattern.depth': 2e-6}). Echo the version from get_item_task_config — a mismatch is refused (409 stale_config): re-read and re-patch. A task currently running for that item is refused (it already copied its config); pending tasks pick the change up at start. Values are validated against the live field's type and declared bounds; the response echoes every change old -> new.",
         method="POST",
         path="/app/items/{item_name}/task_config/{task_name}",
         scope="configure",
@@ -440,10 +472,10 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_workflow",
-        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. The safety action: available on the read scope, never waits on the command lock.",
+        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed whenever the agent can act (Drive), and never waits on the command lock. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/app/workflow/stop",
-        scope="read",
+        scope="control",
         router="app",
     ),
     ToolSpec(
@@ -494,7 +526,6 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "task_name": "the task to change, e.g. 'Rough Milling'",
             "supervise": "true to ask before acting, false to run automatically",
-            "supervisor": "optional: who supervised questions are addressed to — 'human' (default) or 'agent'; the operator can always answer first",
         },
     ),
     ToolSpec(
@@ -536,7 +567,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="decide_review",
-        description="Confirm or reject a proposal, exactly as the Review tab would. Pass the proposal_id get_pending_reviews gave for it: the decision is on that proposal, and is refused (409 stale_review) if it is no longer the one on the record -- the task re-ran, or asked again in the same run -- so re-read and decide the current one. (task_id, the run, is accepted in its place but cannot tell two questions from one run apart.) Confirming a pending proposal needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; they are written through, the consumer becomes runnable, and the delta against the proposal is computed, so pass the values you actually judge right. Confirming a to_check proposal (already applied) acknowledges it and must carry no values; to change an applied value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- unless that task is the one stopped on this very proposal (holding_the_run), which a decision releases: Confirmed hands the values back and the task carries on, Rejected fails it. Also refused when there is no proposal for that item and task. The decision is recorded with the agent as author. Needs the control permission.",
+        description="Confirm or reject a proposal, exactly as the Review tab would. Pass the proposal_id get_pending_reviews gave for it: the decision is on that proposal, and is refused (409 stale_review) if it is no longer the one on the record -- the task re-ran, or asked again in the same run -- so re-read and decide the current one. (task_id, the run, is accepted in its place but cannot tell two questions from one run apart.) Confirming a pending proposal needs all its values (e.g. {'poi': {'x','y'}} metres, milling frame), as proposed or adjusted; they are written through, the consumer becomes runnable, and the delta against the proposal is computed, so pass the values you actually judge right. Confirming a to_check proposal (already applied) acknowledges it and must carry no values; to change an applied value, re-run the task. A wrong, missing or foreign value is refused (422 invalid_value) with nothing written. Rejected needs a reason and fails the task that was waiting on the decision, so nothing that requires it runs; the lamella itself is not marked defective. Refused (409) when the item has a task running -- stop it instead -- unless that task is the one stopped on this very proposal (holding_the_run), which a decision releases: Confirmed hands the values back and the task carries on, Rejected fails it. Also refused when there is no proposal for that item and task. The decision is recorded with the agent as author.",
         method="POST",
         path="/app/decide",
         scope="control",
@@ -580,20 +611,22 @@ CATALOG = CATALOG + APP_TOOLS
 
 def tools_for_scopes(armed: Dict[str, bool]) -> Tuple[ToolSpec, ...]:
     """Catalog entries usable given armed scopes alone (router-blind)."""
-    return tuple(t for t in CATALOG if armed.get(t.scope, False))
+    return tuple(t for t in CATALOG if t.allowed(armed))
 
 
 def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
-    """Catalog entries usable given a full /capabilities payload.
+    """Catalog entries to offer given a full /capabilities payload.
 
-    Filters on both dimensions: the tool's scope must be armed AND the router
-    serving it must be mounted. The server enforces either way -- this filter
-    only keeps the agent's tool list honest about what can succeed.
+    Every tool whose router is mounted, whatever the agent's level: the level
+    changes mid-session and the server's 403 is the gate (FIB-1035). Hardware
+    tools are left out unless the hardware scope is armed, which no level
+    does and only a restart changes.
     """
     scopes = capabilities.get("scopes", {})
-    routers = capabilities.get("routers", {})
+    routers = dict(capabilities.get("routers", {}), base=True)
     return tuple(
         t
         for t in CATALOG
-        if scopes.get(t.scope, False) and routers.get(t.router, False)
+        if routers.get(t.router, False)
+        and (not t.hardware_only or scopes.get("hardware", False))
     )

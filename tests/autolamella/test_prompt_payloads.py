@@ -42,7 +42,7 @@ def test_pick_poi_payload_carries_scale_and_convention():
 
 def test_edit_alignment_area_payload_declares_the_frame_slot():
     # The frame is display state the request doesn't carry: the serializer
-    # declares the slot, AgentContext.pending_prompt fills it from the FIB
+    # declares the slot, AutoLamellaAppContext.pending_prompt fills it from the FIB
     # display cache (pinned over HTTP in test_agent_prompt_surface.py).
     area = FibsemRectangle(left=0.4, top=0.4, width=0.2, height=0.2)
     payload = serialize_request(EditAlignmentArea(initial=area))

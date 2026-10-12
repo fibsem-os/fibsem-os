@@ -10,7 +10,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.workflow_controls import (  # noqa: E402
-    AGENT,
     AUTOMATED,
     SUPERVISED,
     WorkflowControls,
@@ -50,7 +49,7 @@ def test_running_swaps_run_for_stop_and_back(controls):
 
 @pytest.mark.parametrize(
     "mode, text",
-    [(SUPERVISED, "Supervised"), (AUTOMATED, "Automated"), (AGENT, "Agent")],
+    [(SUPERVISED, "Supervised"), (AUTOMATED, "Automated")],
 )
 def test_the_chip_names_the_mode_and_the_task(controls, mode, text):
     controls.set_supervision(mode, "Polishing")
