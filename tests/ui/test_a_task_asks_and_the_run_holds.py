@@ -112,8 +112,7 @@ def _pump(qapp, predicate, timeout_s=10.0) -> bool:
     return predicate()
 
 
-def _start(window):
-    """Run a real task on a worker thread whose body asks and keeps the answer."""
+def _task(window):
     ui = window.autolamella_ui
     experiment = ui.experiment
     manager = TaskManager(microscope=ui.microscope, experiment=experiment, parent_ui=ui)
@@ -126,6 +125,12 @@ def _start(window):
         parent_ui=ui,
         task_manager=manager,
     )
+    return task, manager
+
+
+def _start(window):
+    """Run a real task on a worker thread whose body asks and keeps the answer."""
+    task, manager = _task(window)
     seen = {}
 
     def _run():
@@ -225,3 +230,97 @@ def test_every_declared_question_has_a_renderer_to_answer_it_in():
             assert kind in REVIEW_RENDERERS, (
                 f"{name} asks {kind!r}, which nothing renders"
             )
+
+
+def test_the_run_lends_control_while_the_question_stands(window, qapp):
+    """FIB-1270, supervised: the run is in control, and while its question
+    stands whoever answers may act on the microscope first -- a server command
+    here. After the decision, control is the run's again."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+
+    from fibsem.server import AuthConfig, build_server
+
+    ui = window.autolamella_ui
+    lamella = ui.experiment.positions[0]
+    control = ui.microscope.control
+    client = TestClient(
+        build_server(
+            ui.microscope, auth=AuthConfig.generate(arm_hardware=True, token="t")
+        ),
+        raise_server_exceptions=False,
+    )
+
+    def _move():
+        # Off this thread, which keeps pumping, as the GUI thread does.
+        out = {}
+
+        def _post():
+            out["response"] = client.post(
+                "/move_stage_relative",
+                headers={"Authorization": "Bearer t"},
+                json={
+                    "position": {
+                        "name": None,
+                        "x": 1e-6,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "r": 0.0,
+                        "t": 0.0,
+                        "coordinate_system": "RAW",
+                    }
+                },
+            )
+
+        threading.Thread(target=_post, daemon=True).start()
+        assert _pump(qapp, lambda: "response" in out)
+        return out["response"]
+
+    # The run's thread takes control at its entry point, as the app's worker
+    # does, and keeps it until told to finish.
+    task, manager = _task(window)
+    seen = {}
+    finish = threading.Event()
+
+    def _run_in_control():
+        with control.take("workflow", "a lamella run"):
+            try:
+                seen["decision"] = task.ask(DETECTION, PROPOSED, image="ml-1_ib.tif")
+            except Exception as exc:  # noqa: BLE001
+                seen["error"] = exc
+            seen["asked"] = True
+            finish.wait(10)
+
+    thread = threading.Thread(target=_run_in_control, daemon=True)
+    thread.start()
+    window._started.append((manager, thread))
+    try:
+        assert _pump(qapp, lambda: ui.hold is not None), "the run is held"
+
+        moved = _move()
+        assert moved.status_code == 200, moved.text
+        assert control.current.by == "workflow"
+
+        proposal = lamella.proposal(ROUGH)
+        result = ui.experiment.decide(
+            lamella.id,
+            ROUGH,
+            Decision(
+                outcome=DecisionOutcome.Confirmed,
+                author="human:op",
+                values=PROPOSED,
+                proposal_id=proposal.id,
+            ),
+        )
+        assert result.applied, result.reason
+        assert _pump(qapp, lambda: "asked" in seen), "released"
+        assert "error" not in seen
+
+        refused = _move()
+        assert refused.status_code == 409
+        assert refused.json()["detail"]["in_control"]["by"] == "workflow"
+    finally:
+        finish.set()
+        thread.join(timeout=10)
+    assert control.current is None

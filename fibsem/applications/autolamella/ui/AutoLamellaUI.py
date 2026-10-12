@@ -39,6 +39,7 @@ from fibsem.applications.autolamella.ui.selected_lamella_widget import (
 )
 from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
+from fibsem.control import WORKFLOW, MicroscopeBusy
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -383,6 +384,17 @@ class AutoLamellaUI(QMainWindow):
         """
         controller = getattr(self.parent_widget, "script_menu_controller", None)
         return bool(controller is not None and controller.runner.is_running)
+
+    def _someone_else_in_control(self) -> bool:
+        """Whether someone is in control of the microscope (FIB-1270), a command
+        from the App Server say, so a run would be refused. Says so if so."""
+        current = self.microscope.control.current if self.microscope else None
+        if current is None:
+            return False
+        msg = f"Can't start the workflow: {current.describe()}."
+        logging.warning(msg)
+        notification_service.show_toast(msg, "warning")
+        return True
 
     def setup_connections(self):
 
@@ -1202,6 +1214,8 @@ class AutoLamellaUI(QMainWindow):
             logging.warning(msg)
             notification_service.show_toast(msg, "warning")
             return
+        if self._someone_else_in_control():
+            return
 
         # clear milling task config
         self.milling_task_config_widget.clear()  # type: ignore
@@ -1235,6 +1249,8 @@ class AutoLamellaUI(QMainWindow):
             logging.warning(msg)
             notification_service.show_toast(msg, "warning")
             return
+        if self._someone_else_in_control():
+            return
         self._task_worker_thread = FunctionWorker(
             self._run_grid_tasks_worker,
             task_names,
@@ -1266,24 +1282,30 @@ class AutoLamellaUI(QMainWindow):
             if self.microscope is None or self.experiment is None:
                 logging.error("No microscope or experiment loaded.")
                 return
-            if not self.microscope.is_on(BeamType.ELECTRON):
-                self.microscope.turn_on(BeamType.ELECTRON)
-            if not self.microscope.is_on(BeamType.ION):
-                self.microscope.turn_on(BeamType.ION)
-            if inventory_first:
-                grid_names = present_grids(self.microscope, self.experiment)
-            logging.info(f"Starting grid tasks: {task_names}, for grids: {grid_names}")
-            self._task_manager = GridTaskManager(
-                microscope=self.microscope,
-                experiment=self.experiment,
-                parent_ui=self,
-                hook_manager=self.setup_hooks(),
-                unload_at_end=unload_at_end,
-                report_at_end=report_at_end,
-            )
-            if self._workflow_stop_event.is_set():
-                self._task_manager.stop()
-            self._task_manager.run(task_names, grid_names)
+            # In control for the whole run, the inventory included (FIB-1270).
+            with self.microscope.control.take(WORKFLOW, "a grid run"):
+                if not self.microscope.is_on(BeamType.ELECTRON):
+                    self.microscope.turn_on(BeamType.ELECTRON)
+                if not self.microscope.is_on(BeamType.ION):
+                    self.microscope.turn_on(BeamType.ION)
+                if inventory_first:
+                    grid_names = present_grids(self.microscope, self.experiment)
+                logging.info(
+                    f"Starting grid tasks: {task_names}, for grids: {grid_names}"
+                )
+                self._task_manager = GridTaskManager(
+                    microscope=self.microscope,
+                    experiment=self.experiment,
+                    parent_ui=self,
+                    hook_manager=self.setup_hooks(),
+                    unload_at_end=unload_at_end,
+                    report_at_end=report_at_end,
+                )
+                if self._workflow_stop_event.is_set():
+                    self._task_manager.stop()
+                self._task_manager.run(task_names, grid_names)
+        except MicroscopeBusy as e:
+            logging.warning(f"Grid workflow not started: {e}")
         except (InterruptedError, OperationCancelledError) as e:
             logging.info(f"Grid workflow cancelled: {e}")
         except Exception as e:
@@ -2029,27 +2051,33 @@ class AutoLamellaUI(QMainWindow):
                 logging.error("No microscope or experiment loaded.")
                 return
 
-            # turn beams on if required
-            if not self.microscope.is_on(BeamType.ELECTRON):
-                self.microscope.turn_on(BeamType.ELECTRON)
-            if not self.microscope.is_on(BeamType.ION):
-                self.microscope.turn_on(BeamType.ION)
+            # In control for the whole run, beams on included (FIB-1270).
+            with self.microscope.control.take(WORKFLOW, "a lamella run"):
+                # turn beams on if required
+                if not self.microscope.is_on(BeamType.ELECTRON):
+                    self.microscope.turn_on(BeamType.ELECTRON)
+                if not self.microscope.is_on(BeamType.ION):
+                    self.microscope.turn_on(BeamType.ION)
 
-            logging.info(f"Starting tasks: {task_names}, for lamella: {lamella_names}")
-            self._task_manager = TaskManager(
-                microscope=self.microscope,
-                experiment=self.experiment,
-                parent_ui=self,
-                hook_manager=self.setup_hooks(),
-            )
-            # Honor a stop requested before the manager existed (e.g. clicked
-            # during beam-on, while _task_manager was still None).
-            if self._workflow_stop_event.is_set():
-                self._task_manager.stop()
-            self._task_manager.run(
-                task_names=task_names,
-                required_lamella=lamella_names,
-            )
+                logging.info(
+                    f"Starting tasks: {task_names}, for lamella: {lamella_names}"
+                )
+                self._task_manager = TaskManager(
+                    microscope=self.microscope,
+                    experiment=self.experiment,
+                    parent_ui=self,
+                    hook_manager=self.setup_hooks(),
+                )
+                # Honor a stop requested before the manager existed (e.g. clicked
+                # during beam-on, while _task_manager was still None).
+                if self._workflow_stop_event.is_set():
+                    self._task_manager.stop()
+                self._task_manager.run(
+                    task_names=task_names,
+                    required_lamella=lamella_names,
+                )
+        except MicroscopeBusy as e:
+            logging.warning(f"Workflow not started: {e}")
         except (InterruptedError, OperationCancelledError) as e:
             # A user Stop, not a failure: both cancellation types unwind through
             # here, and anyone scanning the log for problems (or filtering on
