@@ -49,6 +49,7 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
     Lamella,
 )
+from fibsem.applications.autolamella.ui.agent_level_chip import AgentLevelChip
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -112,6 +113,7 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
     estimate_workflow,
     grid_item_seconds,
 )
+from fibsem.server.levels import AgentLevel
 from fibsem.structures import BeamType
 from fibsem.ui import notification_service
 from fibsem.ui.icon import fibsem_icon
@@ -1603,6 +1605,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._agent_liveness_check = QTimer(self)
         self._agent_liveness_check.setInterval(AGENT_LIVENESS_CHECK_MS)
         self._agent_liveness_check.timeout.connect(self._on_agent_liveness_check)
+        # The agent chip (FIB-1035): the agent's level, beside the workflow buttons,
+        # shown whenever the App Server runs. Polled rather than signalled: the
+        # server starts and stops with the microscope connection, from the other
+        # window, and a poll a second is cheaper than threading that through.
+        self.agent_chip = AgentLevelChip(
+            last_heard=self._agent_seconds_since_seen, parent=self.status_bar
+        )
+        self.agent_chip.hide()
+        self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
+        self.status_bar.add_action(self.agent_chip)
+        self._agent_chip_timer = QTimer(self)
+        self._agent_chip_timer.setInterval(1000)
+        self._agent_chip_timer.timeout.connect(self._refresh_agent_chip)
+        self._agent_chip_timer.start()
+
         # Attention Required, the supervision chip, Run and Stop: one component on the
         # right of the bar, which shows what it is told; what a click does is here.
         self.workflow_controls = WorkflowControls(self.status_bar)
@@ -3671,6 +3688,35 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return max(1, int(minutes)) * 60 * 1000
         except Exception:
             return AGENT_WATCHDOG_MS
+
+    def _running_app_server(self):
+        """The App Server's host while it runs, else None."""
+        host = getattr(self.autolamella_ui, "_app_server_host", None)
+        if host is None or not getattr(host, "running", False):
+            return None
+        if getattr(host, "auth", None) is None:
+            return None
+        return host
+
+    def _refresh_agent_chip(self) -> None:
+        """Show the chip while the App Server runs, at the level its auth holds."""
+        host = self._running_app_server()
+        if host is None:
+            self.agent_chip.hide()
+            return
+        level = host.auth.level or AgentLevel.WATCH
+        if self.agent_chip.level is not level:
+            self.agent_chip.set_level(level)
+        self.agent_chip.show()
+
+    def _on_agent_level_chosen(self, level: AgentLevel) -> None:
+        """GUI thread, from the chip's menu: set the agent's level, effective for
+        its next request."""
+        host = self._running_app_server()
+        if host is not None:
+            host.auth.set_level(level)
+            logging.info("Agent level set to %s by the operator", level.value)
+        self._refresh_agent_chip()
 
     def _agent_seconds_since_seen(self) -> Optional[float]:
         """Seconds since the agent's token last made a request, or None."""

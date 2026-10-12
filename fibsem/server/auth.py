@@ -32,32 +32,15 @@ from typing import FrozenSet, Iterable, Optional
 
 from fastapi import HTTPException, Request
 
+# Re-exported: AgentLevel lives where the GUI can import it without FastAPI.
+from fibsem.server.levels import AgentLevel
+
 
 class Scope(str, Enum):
     READ = "read"
     CONTROL = "control"
     CONFIGURE = "configure"
     HARDWARE = "hardware"
-
-
-class AgentLevel(str, Enum):
-    """How far the agent may act in the App Server (FIB-1035): the one knob the
-    operator sees. Scopes stay the server's mechanism underneath; each level
-    arms a set of them (``LEVEL_SCOPES``).
-
-    - ``off``: every agent-token request is refused, reads included.
-    - ``watch``: reads everything and adds notes; acts on nothing, stops nothing.
-    - ``assist``: as Drive, but each action is a request the operator approves
-      (FIB-1283). Defined, not offered yet.
-    - ``drive``: acts on the session: starts, stops, schedules, answers, edits.
-
-    Hardware joins Assist and Drive in FIB-1267.
-    """
-
-    OFF = "off"
-    WATCH = "watch"
-    ASSIST = "assist"
-    DRIVE = "drive"
 
 
 LEVEL_SCOPES = {
