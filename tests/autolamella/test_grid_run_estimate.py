@@ -183,7 +183,7 @@ def experiment(tmp_path, arctis):
         BeamOverviewGridTaskConfig(task_name="FIB", orientation="FIB", settings=fib)
     )
     exp.grid_protocol.add(_fm())
-    exp.sync_grids_from_inventory(arctis._stage)
+    exp.sync_grids_from_inventory(arctis.sample_handling)
     return exp
 
 
@@ -197,7 +197,7 @@ def test_a_three_grid_run_prices_an_exchange_per_grid_and_each_task_per_grid(
     has a load for each, and SEM, FIB and FM on every grid."""
     grids = [g.name for g in experiment.grids]
     assert len(grids) == 3
-    loader = arctis._stage.loader
+    loader = arctis.sample_handling.magazine
     plan = plan_grid_run(["SEM", "FIB", "FM"], grids)
     exchanges = sum(1 for _, step in plan if step == LOAD_ENTRY_NAME)
 

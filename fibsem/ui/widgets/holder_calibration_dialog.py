@@ -30,7 +30,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from fibsem import utils
-from fibsem.microscopes._stage import COMPUSTAGE_HOLDER_NAME
+from fibsem.services.sample_handling import COMPUSTAGE_HOLDER_NAME
 from fibsem.structures import (
     GRID_RADIUS,
     FibsemStagePosition,
@@ -56,8 +56,8 @@ from fibsem.ui.widgets.guided_setup_dialog import StageDiagram
 from fibsem.util.timestamps import now
 
 # Slot positions are stored at this orientation; every other pose is derived from
-# them by the stable-move projection, which is what the startup stamping in
-# `_create_sample_stage` has always assumed. Now it is written down, and enforced.
+# them by the stable-move projection, which is what the startup stamping of the
+# holder has always assumed. Now it is written down, and enforced.
 CALIBRATION_ORIENTATION = "SEM"
 
 # Two slots whose captured centres are closer than this cannot both be right.

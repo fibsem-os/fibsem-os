@@ -2282,11 +2282,11 @@ class AutoLamellaUI(QMainWindow):
         created as a side effect of marking a lamella.
         """
         experiment = self.experiment
-        stage = getattr(self.microscope, "_stage", None)
+        stage = getattr(self.microscope, "sample_handling", None)
         if experiment is None or stage is None:
             return None
         try:
-            if stage.loader is not None:
+            if stage.magazine is not None:
                 loaded = stage.loaded_grids
                 grid = loaded[0] if len(loaded) == 1 else None
             else:

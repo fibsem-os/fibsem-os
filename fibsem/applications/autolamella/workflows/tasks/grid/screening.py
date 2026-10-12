@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     run_grid_tasks,
 )
 from fibsem.hooks import HookManager
-from fibsem.microscopes._stage import GridInventoryEntry, SampleGrid
+from fibsem.structures import GridInventoryEntry, SampleGrid
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
@@ -34,7 +34,7 @@ def present_grids(
 ) -> List[str]:
     """Refresh the inventory, record every present grid, and return their names
     in slot order. The selection "Screen all grids" runs over."""
-    stage = microscope._stage
+    stage = microscope.sample_handling
     # A read, not a scan: the operator will have inventoried the magazine (in
     # xT or from the Sample view), and a physical scan in front of every
     # screening run is the wait this call exists to avoid.
@@ -121,8 +121,8 @@ def name_and_record_grids(
         if new is None or new == entry.name:
             continue
         slot = (
-            stage.loader.slots[entry.slot_name]
-            if stage.loader is not None
+            stage.magazine.slots[entry.slot_name]
+            if stage.magazine is not None
             else stage.holder.slots[entry.slot_name]
         )
         current = slot.loaded_grid

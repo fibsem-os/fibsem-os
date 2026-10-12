@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.microscopes._stage import SampleGridLoader
+from fibsem.services.sample_handling import GridMagazine
 from fibsem.structures import GridSlot, SampleGrid
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -330,9 +330,9 @@ class SampleLoaderWidget(QWidget):
     # -- model -----------------------------------------------------------------
 
     @property
-    def loader(self) -> Optional[SampleGridLoader]:
-        stage = getattr(self._microscope, "_stage", None)
-        return getattr(stage, "loader", None)
+    def loader(self) -> Optional[GridMagazine]:
+        stage = getattr(self._microscope, "sample_handling", None)
+        return getattr(stage, "magazine", None)
 
     @property
     def busy(self) -> bool:
@@ -348,7 +348,8 @@ class SampleLoaderWidget(QWidget):
             return
 
         states = {
-            e.slot_name: e.state.value for e in self._microscope._stage.grid_inventory()
+            e.slot_name: e.state.value
+            for e in self._microscope.sample_handling.grid_inventory()
         }
         slots = sorted(loader.slots.values(), key=lambda s: s.index)
         occupied = sum(1 for s in slots if s.loaded_grid is not None)
@@ -413,7 +414,7 @@ class SampleLoaderWidget(QWidget):
             name=name, description=current.description, radius=current.radius
         )
         try:
-            self._microscope._stage.assign_grid(slot.name, grid, persist=True)
+            self._microscope.sample_handling.assign_grid(slot.name, grid, persist=True)
         except Exception as e:  # noqa: BLE001 - the hardware kept the old name; say so
             logging.warning(f"Could not write the name of {slot.name}: {e}")
             # The next read would bring the old name back anyway, so keep it now
@@ -433,7 +434,7 @@ class SampleLoaderWidget(QWidget):
             return
 
         def job() -> None:
-            self._microscope._stage.get_inventory()
+            self._microscope.sample_handling.get_inventory()
             self._read_at = datetime.now()
 
         self._start(job, "Reading the magazine…", "Inventory read.")
@@ -451,7 +452,7 @@ class SampleLoaderWidget(QWidget):
             return
 
         def job() -> None:
-            self._microscope._stage.run_inventory()
+            self._microscope.sample_handling.run_inventory()
             self._scanned_at = datetime.now()
 
         self._start(job, "Scanning the magazine…", "Scan complete.")

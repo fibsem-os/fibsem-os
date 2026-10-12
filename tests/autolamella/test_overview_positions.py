@@ -49,7 +49,7 @@ def experiment(tmp_path, microscope):
     exp = Experiment(path=tmp_path, name="positions-exp")
     os.makedirs(exp.path, exist_ok=True)
     exp.task_protocol = AutoLamellaTaskProtocol()
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     assert exp.grids, "the Demo holder has grids to put lamellae on"
     return exp
 

@@ -535,9 +535,9 @@ class TescanMicroscope(FibsemMicroscope):
 
         # create sample stage holder (needed by UI widgets)
         try:
-            self._create_sample_stage()
+            self._build_sample_handling()
         except Exception as e:
-            logging.warning(f"Could not create sample stage: {e}")
+            logging.warning(f"Could not build the sample handling: {e}")
 
         logging.debug(
             {

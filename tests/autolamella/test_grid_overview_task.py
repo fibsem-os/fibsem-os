@@ -34,7 +34,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
     acquire_beam_overview,
 )
 from fibsem.imaging.thumbnail import write_thumbnail
-from fibsem.microscopes._stage import _create_sample_stage
+from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
@@ -59,8 +59,8 @@ def _small_settings(
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
-    slot = microscope._stage.holder.slots["Slot-01"]
+    microscope.sample_handling = bind_sample_handling(microscope)
+    slot = microscope.sample_handling.holder.slots["Slot-01"]
     slot.position = FibsemStagePosition(
         name="Slot-01", x=-4e-3, y=1e-3, z=4e-3, r=0.0, t=0.61
     )
@@ -119,7 +119,7 @@ class TestReachability:
         assert grid.task_state.status is AutoLamellaTaskStatus.Failed
 
     def test_refuses_an_uncalibrated_slot(self, microscope, experiment):
-        slot = microscope._stage.holder.slots["Slot-01"]
+        slot = microscope.sample_handling.holder.slots["Slot-01"]
         slot.position = None
         slot.calibration = None
         grid = experiment.get_grid_by_name("grid-aspen")
@@ -184,7 +184,7 @@ class TestRun:
         after = microscope.get_stage_position()
         # the runner restores its start, which is the grid centre the task moved to
         centre = microscope.get_target_position(
-            microscope._stage.holder.slots["Slot-01"].position, "SEM"
+            microscope.sample_handling.holder.slots["Slot-01"].position, "SEM"
         )
         assert after.x == pytest.approx(centre.x, abs=1e-6)
         assert after.x != pytest.approx(before.x, abs=1e-6)

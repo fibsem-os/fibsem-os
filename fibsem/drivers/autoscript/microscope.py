@@ -30,7 +30,7 @@ from fibsem.microscope import (
     RequiredDeviceUnavailable,
     _records_beam_shift,
 )
-from fibsem.microscopes._stage import SampleGridLoader, _slot_name
+from fibsem.services.sample_handling import GridMagazine, _slot_name
 from fibsem.structures import (
     BeamType,
     DeviceEntry,
@@ -526,7 +526,7 @@ def fibsem_image_from_adorned_image(
     return FibsemImage(data=adorned.data, metadata=metadata)
 
 
-class AutoscriptSampleLoader(SampleGridLoader):
+class AutoscriptSampleLoader(GridMagazine):
     """The AutoScript autoloader (Arctis, xT 28.x, AutoScript >= 4.10) as a grid loader.
 
     Not used: ``ThermoMicroscope`` builds the ``sample_loader`` device
@@ -975,9 +975,9 @@ class ThermoMicroscope(FibsemMicroscope):
         self._warn_on_fluorescence_geometry()
 
         try:
-            self._create_sample_stage()
+            self._build_sample_handling()
         except Exception as e:
-            logging.warning(f"Could not create sample stage: {e}")
+            logging.warning(f"Could not build the sample handling: {e}")
 
         # after the sample stage, which reads which subsystems are fitted
         self._build_parts()
@@ -1083,16 +1083,23 @@ class ThermoMicroscope(FibsemMicroscope):
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
 
-    def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
-        """The grid model over the ``sample_loader`` device, built when the
-        instrument has an autoloader, unless the configuration switches it off.
+    def _build_sample_handling(self) -> None:
+        """The sample handling service, after the ``sample_loader`` device on a
+        compustage (the autoloader stage)."""
+        stage = self.stage
+        if stage is not None and stage.has_builtin_shuttle():
+            self._build_sample_loader()
+        super()._build_sample_handling()
+
+    def _build_sample_loader(self) -> Optional[Any]:
+        """The ``sample_loader`` device, built when the instrument has an autoloader,
+        unless the configuration switches it off; None without one.
 
         A compustage without one gets no loader at all: its grids are exchanged by
         hand, and a phantom twelve-slot magazine would only mislead. The magazine is
         not read here; ``get_inventory`` or ``run_inventory`` reads it.
         """
         from fibsem.drivers.autoscript.devices import autoloader_installed
-        from fibsem.microscopes._stage import DeviceSampleLoader
 
         device = self.devices.get("sample_loader")
         if device is None:
@@ -1103,8 +1110,7 @@ class ThermoMicroscope(FibsemMicroscope):
             device = next(iter(built.values()), None)
         if device is None:
             logging.info("No sample loader: grids are exchanged by hand.")
-            return None
-        return DeviceSampleLoader(self, device)
+        return device
 
     def get_detector_settings(
         self, beam_type: BeamType = BeamType.ELECTRON

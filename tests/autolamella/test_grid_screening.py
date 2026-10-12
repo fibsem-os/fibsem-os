@@ -32,7 +32,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.screening import (
     screen_grids,
     screening_plan,
 )
-from fibsem.microscopes._stage import _create_sample_stage
+from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
@@ -65,8 +65,8 @@ def fixed_holder():
     """A plain Demo with a two-slot holder, both calibrated and occupied."""
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
-    holder = microscope._stage.holder
+    microscope.sample_handling = bind_sample_handling(microscope)
+    holder = microscope.sample_handling.holder
     for i, (name, x) in enumerate([("grid-aspen", -4e-3), ("grid-birch", 4e-3)]):
         slot = holder.slots[f"Slot-{i + 1:02d}"]
         slot.position = FibsemStagePosition(name=slot.name, x=x, y=0, z=4e-3, r=0, t=0)
@@ -148,7 +148,7 @@ class TestOnTheAutoloader:
     def test_a_grid_that_will_not_load_does_not_stop_the_others(
         self, arctis, experiment, stub_tasks
     ):
-        arctis._stage.loader.device.fail_next_exchange = True
+        arctis.sample_handling.magazine.device.fail_next_exchange = True
         manager = screen_grids(arctis, experiment, task_names=["overview_sem"])
         assert stub_tasks == [("Grid-02", "overview_sem"), ("Grid-03", "overview_sem")]
         assert [i.status for i in manager.queue.items if i.item_name == "Grid-01"] == [
@@ -167,7 +167,7 @@ class TestOnTheAutoloader:
             unload_at_end=True,
             report_at_end=True,
         )
-        assert arctis._stage.loaded_grids == []
+        assert arctis.sample_handling.loaded_grids == []
         assert manager.queue.items[-1].task_name == UNLOAD_ENTRY_NAME
         assert (tmp_path / "exp" / REPORT_FILENAME).exists()
 
@@ -181,20 +181,27 @@ class TestNamingAtScreen:
         self, arctis, experiment
     ):
         names = name_and_record_grids(
-            arctis._stage, experiment, {"Slot-01": "grid-oak", "Slot-04": "x"}
+            arctis.sample_handling, experiment, {"Slot-01": "grid-oak", "Slot-04": "x"}
         )
         assert names == ["grid-oak", "Grid-02", "Grid-03"]
         assert [g.name for g in experiment.grids] == names
-        assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "grid-oak"
+        assert (
+            arctis.sample_handling.magazine.slots["Slot-01"].loaded_grid.name
+            == "grid-oak"
+        )
 
     def test_a_record_that_has_not_run_follows_its_grid(self, arctis, experiment):
         record = experiment.add_grid(GridRecord(name="Grid-01"))
-        arctis._stage.ensure_loaded("Grid-01")
-        name_and_record_grids(arctis._stage, experiment, {"Slot-01": "grid-oak"})
+        arctis.sample_handling.ensure_loaded("Grid-01")
+        name_and_record_grids(
+            arctis.sample_handling, experiment, {"Slot-01": "grid-oak"}
+        )
         assert record.name == "grid-oak"
         assert [g.name for g in experiment.grids].count("grid-oak") == 1
         # the loaded grid is the slot's own: the working slot is renamed too
-        assert arctis._stage.holder.find_slot_by_grid_name("grid-oak") is not None
+        assert (
+            arctis.sample_handling.holder.find_slot_by_grid_name("grid-oak") is not None
+        )
 
     def test_a_grid_that_has_run_is_refused_and_nothing_is_written(
         self, arctis, experiment
@@ -203,11 +210,14 @@ class TestNamingAtScreen:
         ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
         with pytest.raises(GridNamingError, match="Grid-02 cannot be renamed"):
             name_and_record_grids(
-                arctis._stage,
+                arctis.sample_handling,
                 experiment,
                 {"Slot-01": "grid-oak", "Slot-02": "grid-elm"},
             )
-        assert arctis._stage.loader.slots["Slot-01"].loaded_grid.name == "Grid-01"
+        assert (
+            arctis.sample_handling.magazine.slots["Slot-01"].loaded_grid.name
+            == "Grid-01"
+        )
         assert [g.name for g in experiment.grids] == ["Grid-02"]
 
 
@@ -238,7 +248,7 @@ class TestOnAFixedHolder:
             unload_at_end=True,
             report_at_end=True,
         )
-        assert [g.name for g in fixed_holder._stage.loaded_grids] == [
+        assert [g.name for g in fixed_holder.sample_handling.loaded_grids] == [
             "grid-aspen",
             "grid-birch",
         ]
@@ -250,8 +260,8 @@ class TestOnAFixedHolder:
     def test_nothing_to_screen_is_an_empty_run(self, experiment, stub_tasks):
         microscope, _ = utils.setup_session(manufacturer="Demo")
         microscope.stage_device.compustage = False
-        microscope._stage = _create_sample_stage(microscope)
-        for slot in microscope._stage.holder.slots.values():
+        microscope.sample_handling = bind_sample_handling(microscope)
+        for slot in microscope.sample_handling.holder.slots.values():
             slot.loaded_grid = None
         manager = screen_grids(microscope, experiment)
         assert experiment.grids == [] and stub_tasks == []

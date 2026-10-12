@@ -1,36 +1,56 @@
+"""Sample handling as a service: the holder on the stage, the grids in it and in the
+loader's magazine, and the commands that make a grid reachable.
+
+`SampleHandling` is the same on every backend and every kind of system, and callers
+never ask which they have:
+
+- **No loader** (a flat stage, or a compustage whose grids are exchanged by hand): the
+  inventory is the holder's slots, their occupancy is what the operator declared (kept
+  in the session state), every present grid is already loaded, ``ensure_loaded`` only
+  checks its slot is calibrated and ``unload`` does nothing.
+- **A loader** (a compustage with an autoloader): the inventory is the loader's
+  magazine, ``ensure_loaded`` is an exchange through the ``sample_loader`` device, and
+  the holder is the compustage's one working slot.
+
+The holder is configuration and session state, not a device: which holder is on the
+stage and where its slots are come from the microscope configuration, and which grid is
+in which slot from the session state. The grid model of the magazine is a
+`GridMagazine` (``sample_handling.magazine``), over the ``sample_loader`` device in the
+``loader`` role.
+
+Every microscope with a stage has one, ``microscope.sample_handling``, built by
+`bind_sample_handling`; a microscope without a stage has none.
+"""
+
 from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Iterable,
-    List,
-    Mapping,
-    Optional,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, List, Optional
 
 import numpy as np
 import yaml
 
 from fibsem import config as cfg
-from fibsem._timing import sim_sleep
 from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
+from fibsem.devices.core import Role, command
 from fibsem.devices.sample_loader import (
     GridExchangeError,
     Magazine,
     MagazineSlotState,
+    SampleLoader,
     StageSample,
 )
+from fibsem.devices.stage import Stage
+from fibsem.services.core import Service
 from fibsem.session_state import SessionState, session_state_for
 from fibsem.structures import (
     GRID_RADIUS,
     FibsemStagePosition,
+    GridInventoryEntry,
     GridSlot,
+    GridSlotState,
     SampleGrid,
     SampleHolder,
     SlotCalibration,
@@ -41,63 +61,21 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 
-class GridSlotState(str, Enum):
-    """Where a grid is, as one word: the state of an inventory slot.
+class GridMagazine:
+    """The grids in a loader's magazine, and the exchanges between it and the holder.
 
-    ``UNKNOWN`` -- no inventory has answered for this slot yet; ``EMPTY`` -- the
-    slot holds no grid; ``OCCUPIED`` -- a grid is in the slot and not on the
-    microscope; ``LOADED`` -- the grid is in the microscope's sample holder. On a
-    fixed holder a named slot is LOADED outright: its grid is already in the
-    holder, and reaching it is only a stage move.
-    """
+    The magazine is the loader's own storage slots, filled by hand, distinct from the
+    holder's working slot(s). ``load_grid`` moves a grid from a magazine slot into the
+    working slot and ``unload_grid`` retracts it.
 
-    UNKNOWN = "unknown"
-    EMPTY = "empty"
-    OCCUPIED = "occupied"
-    LOADED = "loaded"
-
-
-@dataclass
-class GridInventoryEntry:
-    """One row of ``Stage.grid_inventory()``: a slot, and what it holds.
-
-    ``source`` says which hardware answered -- ``"magazine"`` on a system with a
-    loader, ``"holder"`` otherwise. ``state`` is the one stored fact; ``present``
-    (the grid is available to the system) and ``loaded`` (it is in the holder
-    right now) are read off it. Kept apart on purpose: *present* is what a run
-    can select from, *loaded* is what it can act on without an exchange.
-    """
-
-    slot_name: str
-    index: int
-    source: str
-    name: Optional[str]
-    state: GridSlotState
-
-    @property
-    def present(self) -> bool:
-        return self.state in (GridSlotState.OCCUPIED, GridSlotState.LOADED)
-
-    @property
-    def loaded(self) -> bool:
-        return self.state is GridSlotState.LOADED
-
-
-class SampleGridLoader:
-    """The robotic actuator that exchanges grids between its magazine and the beam.
-
-    The loader owns a **magazine** -- its own storage slots, filled by hand -- which
-    is distinct from the holder's working slot(s). ``load_grid`` moves a grid from a
-    magazine slot into the working slot and ``unload_grid`` retracts it.
-
-    A magazine slot keeps its grid while that grid is loaded: the slot is the
-    grid's home, and the working slot references the *same* ``SampleGrid``. So
-    "present" is read from the magazine and "loaded" from the holder, and neither
-    is cached anywhere else.
+    A magazine slot keeps its grid while that grid is loaded: the slot is the grid's
+    home, and the working slot references the *same* ``SampleGrid``. So "present" is
+    read from the magazine and "loaded" from the holder, and neither is cached anywhere
+    else.
 
     Subclasses talk to hardware through ``_do_load`` / ``_do_unload`` /
-    ``_scan_magazine`` / ``_write_slot_description``; this base class is the in-memory
-    model they all share.
+    ``_read_magazine`` / ``_scan_magazine`` / ``_write_slot_description``; this base
+    class is the in-memory model they all share.
     """
 
     def __init__(self, parent: "FibsemMicroscope", capacity: int = 12) -> None:
@@ -133,7 +111,7 @@ class SampleGridLoader:
 
     @property
     def holder(self) -> SampleHolder:
-        return self.parent._stage.holder
+        return self.parent.sample_handling.holder
 
     @property
     def working_slot(self) -> GridSlot:
@@ -267,7 +245,7 @@ class SampleGridLoader:
             ) from None
 
 
-class DeviceSampleLoader(SampleGridLoader):
+class DeviceGridMagazine(GridMagazine):
     """The grid model over a ``SampleLoader`` device (``fibsem.devices.sample_loader``).
 
     The device reports what the hardware knows -- numbered slots, their states and
@@ -324,8 +302,8 @@ class DeviceSampleLoader(SampleGridLoader):
     def _apply(self, magazine: Magazine) -> None:
         if magazine.slots:
             self.capacity = len(magazine.slots)
-        # A read at connect comes before the stage, and so the holder, exists.
-        holder = getattr(getattr(self.parent, "_stage", None), "holder", None)
+        # A read at connect comes before the service, and so the holder, exists.
+        holder = getattr(getattr(self.parent, "sample_handling", None), "holder", None)
         loaded = (
             {s.loaded_grid.name for s in holder.occupied_slots} if holder else set()
         )
@@ -382,28 +360,87 @@ def _slot_name(index: int) -> str:
     return f"Slot-{index + 1:02d}"
 
 
-class Stage:
-    """The grids on the sample stage: the holder, the loader if there is one, and
-    which grid is where. Stage moves are the stage device's (``microscope.stage``) and
-    the stage movement service's (``microscope.stage_movement``); this only adds the
-    moves that need the holder, to a slot or to a grid."""
+class SampleHandling(Service):
+    """Which grid is where, and making a grid reachable.
 
-    parent: "FibsemMicroscope"
-    holder: "SampleHolder"
-    loader: Optional[SampleGridLoader] = None
+    The holder (``holder``), the grid model of the loader's magazine when there is a
+    loader (``magazine``), and the commands over both. Stage moves are the stage
+    device's (``microscope.stage``) and the stage movement service's
+    (``microscope.stage_movement``); this only adds the moves that need the holder, to
+    a slot or to a grid.
+    """
 
-    def __init__(
-        self,
-        parent: "FibsemMicroscope",
-        holder: SampleHolder,
-        loader: Optional[SampleGridLoader] = None,
-    ) -> None:
-        self.parent = parent
-        self.holder = holder
-        self.loader = loader
+    stage = Role(Stage, doc="The stage the holder sits on.")
+    loader = Role(
+        SampleLoader,
+        required=False,
+        doc="The autoloader, where there is one: its magazine is the inventory.",
+    )
+
+    def __init__(self, name: str = "sample_handling", **kwargs: Any):
+        super().__init__(name, **kwargs)
+        self.holder: Optional[SampleHolder] = None
+        self.magazine: Optional[GridMagazine] = None
 
     def __repr__(self) -> str:
-        return f"<Stage: holder={self.holder}, loader={self.loader}>"
+        return f"<SampleHandling: holder={self.holder}, magazine={self.magazine}>"
+
+    def connect(self) -> "SampleHandling":
+        """Build the holder from the configuration, and the magazine's grid model over
+        the loader if there is one; then restore the occupancy the session state
+        records, once the configuration is known."""
+        super().connect()
+        microscope = self.parent
+        stage_settings = microscope.system.stage
+        if self.stage.has_builtin_shuttle():
+            slot01 = _compustage_working_slot(stage_settings)
+            holder = SampleHolder(
+                name=COMPUSTAGE_HOLDER_NAME,
+                capacity=1,
+                slots={"Slot-01": slot01},
+                # Built here rather than resolved from the configuration, so it has to
+                # be given its pre-tilt explicitly -- it does not pass through
+                # `_resolve_configured_holder`, which is where every other holder gets
+                # one.
+                pre_tilt=float(stage_settings.shuttle_pre_tilt),
+            )
+            # The compustage is the autoloader stage, so it is the only stage whose
+            # grids come from a magazine; without a loader they are exchanged by hand.
+            loader = self._roles.get("loader")
+            magazine: Optional[GridMagazine] = None
+            if loader is not None:
+                # Read when built only where that read is free (the simulator).
+                magazine = DeviceGridMagazine(
+                    microscope,
+                    loader,
+                    read_at_connect=bool(
+                        getattr(microscope, "_read_magazine_at_connect", False)
+                    ),
+                )
+        else:
+            holder = _resolve_configured_holder(stage_settings)
+            # Trust only positions the wizard captured against this stage geometry. A
+            # calibrated position carries its own r/t, and an uncalibrated one has
+            # none.
+            for note in holder.discard_untrusted_positions(
+                float(stage_settings.shuttle_pre_tilt),
+                float(stage_settings.rotation_reference),
+            ):
+                logging.warning(f"Sample holder: {note}. Recalibrate it.")
+            magazine = None
+
+        holder._parent = microscope
+        self.holder = holder
+        self.magazine = magazine
+        # The grids in the slots are session state, so a restart does not forget what
+        # is physically still in the shuttle. Restored here when the service is
+        # rebuilt; at the first connect the configuration is not known yet, and
+        # `setup_session` restores it once it is.
+        if getattr(microscope, "configuration_path", None):
+            self.restore_occupancy()
+        return self
+
+    # -- where the stage is, against the holder -----------------------------
 
     def slot_at_position(
         self, position: Optional[FibsemStagePosition]
@@ -452,10 +489,10 @@ class Stage:
         present grid is loaded, because reaching it is only a stage move. Callers
         never need to know which case they got.
         """
-        loader = self.loader
-        if loader is not None:
+        magazine = self.magazine
+        if magazine is not None:
             loaded = {s.loaded_grid.name for s in self.holder.occupied_slots}
-            slots = sorted(loader.slots.values(), key=lambda s: s.index)
+            slots = sorted(magazine.slots.values(), key=lambda s: s.index)
             source = "magazine"
         else:
             loaded = None
@@ -465,8 +502,8 @@ class Stage:
         entries: List[GridInventoryEntry] = []
         for slot in slots:
             grid = slot.loaded_grid
-            if loader is not None and (
-                not loader.scanned or slot.name in loader.unknown_slots
+            if magazine is not None and (
+                not magazine.scanned or slot.name in magazine.unknown_slots
             ):
                 state = GridSlotState.UNKNOWN
             elif grid is None:
@@ -486,6 +523,7 @@ class Stage:
             )
         return entries
 
+    @command
     def move_to_slot(self, slot_name: str) -> FibsemStagePosition:
         """Move the stage to a specific slot. Refuses a slot that is not calibrated."""
         if self.holder is None:
@@ -497,6 +535,7 @@ class Stage:
             raise ValueError(uncalibrated_message(slot_name))
         return self.parent.move_stage_absolute(slot.position)
 
+    @command
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
         """Move the stage to the holder slot that holds this grid."""
         slot = self.holder.find_slot_by_grid_name(grid_name)
@@ -511,6 +550,7 @@ class Stage:
         """The grids loaded right now, read from the holder every time."""
         return [s.loaded_grid for s in self.holder.occupied_slots]  # type: ignore[misc]
 
+    @command
     def ensure_loaded(self, grid_name: str) -> GridSlot:
         """Make a grid reachable, and return the working slot it occupies.
 
@@ -526,33 +566,35 @@ class Stage:
         """
         working = self.holder.find_slot_by_grid_name(grid_name)
         if working is not None:
-            if working.position is None and self.loader is None:
+            if working.position is None and self.magazine is None:
                 # Present, but nothing can be sent to it: on a fixed holder "in the
                 # beam" only means anything once the slot has a trusted position.
                 raise GridExchangeError(uncalibrated_message(working.name))
             return working
-        if self.loader is None:
+        if self.magazine is None:
             raise GridExchangeError(
                 f"Grid '{grid_name}' is not in any holder slot. Place it in the "
                 "holder and update the sample holder configuration."
             )
-        home = self.loader.find_grid(grid_name)
+        home = self.magazine.find_grid(grid_name)
         if home is None:
             raise GridExchangeError(
                 f"Grid '{grid_name}' is not in the magazine. Run an inventory."
             )
-        self.loader.load_grid(home.name)
-        return self.loader.working_slot
+        self.magazine.load_grid(home.name)
+        return self.magazine.working_slot
 
+    @command
     def unload(self) -> None:
         """Retract the working slot. Nothing to do on a fixed holder."""
-        if self.loader is None:
+        if self.magazine is None:
             logging.debug("No loader: nothing to unload from a fixed holder.")
             return
-        self.loader.unload_grid()
+        self.magazine.unload_grid()
 
     # -- naming and refreshing the inventory, on either shape --------------
 
+    @command
     def get_inventory(self) -> List[GridInventoryEntry]:
         """Read what the hardware knows and return the inventory: instant.
 
@@ -560,10 +602,11 @@ class Stage:
         its last scan (xT's inventory counts). On a fixed holder occupancy is what
         the operator declared, so this is a plain refresh.
         """
-        if self.loader is not None:
-            self.loader.get_inventory()
+        if self.magazine is not None:
+            self.magazine.get_inventory()
         return self.grid_inventory()
 
+    @command
     def run_inventory(self) -> List[GridInventoryEntry]:
         """Scan the magazine and return the inventory: the slow one.
 
@@ -571,10 +614,11 @@ class Stage:
         while and needs the magazine shut. On a fixed holder there is nothing to
         scan, so it is the same refresh as ``get_inventory``.
         """
-        if self.loader is not None:
-            self.loader.run_inventory()
+        if self.magazine is not None:
+            self.magazine.run_inventory()
         return self.grid_inventory()
 
+    @command
     def assign_grid(
         self, slot_name: str, grid: Optional[SampleGrid], persist: bool = False
     ) -> None:
@@ -587,8 +631,8 @@ class Stage:
         cannot rewrite what the operator declared is in the shuttle. The
         calibration is never touched.
         """
-        if self.loader is not None:
-            self.loader.assign_grid(slot_name, grid)
+        if self.magazine is not None:
+            self.magazine.assign_grid(slot_name, grid)
             return
         slot = self.holder.slots.get(slot_name)
         if slot is None:
@@ -605,9 +649,23 @@ class Stage:
         Only a fixed holder: an autoloader's magazine is read from the hardware.
         Returns whether anything was recorded.
         """
-        if self.loader is not None:
+        if self.magazine is not None:
             return False
         return load_holder_occupancy(self.holder, session_state_for(self.parent))
+
+
+def bind_sample_handling(microscope: Any) -> Optional[SampleHandling]:
+    """Build the sample handling service over the stage, and the sample loader if
+    there is one; None without a stage device. Every driver builds it once its
+    devices exist (`FibsemMicroscope._build_sample_handling`)."""
+    if microscope.stage is None:
+        return None
+    handling = SampleHandling(parent=microscope)
+    handling.fill_roles(stage=microscope.stage)
+    loader = microscope.devices.get("sample_loader")
+    if loader is not None:
+        handling.fill_roles(loader=loader)
+    return handling.connect()
 
 
 # ---- which grid is in which slot: session state -------------------------------------
@@ -648,6 +706,9 @@ def uncalibrated_message(slot_name: str) -> str:
         f"{slot_name} has no calibrated position. Run 'Calibrate slot positions' "
         "in the Sample Holder panel on the Microscope tab."
     )
+
+
+# ---- which holder is on the stage: configuration ------------------------------------
 
 
 def _resolve_configured_holder(stage_settings) -> SampleHolder:
@@ -744,45 +805,3 @@ def _compustage_working_slot(stage_settings) -> GridSlot:
         ),
         calibration=SlotCalibration.builtin(pre_tilt, rotation_reference),
     )
-
-
-def _create_sample_stage(microscope: "FibsemMicroscope") -> "Stage":
-    stage_device = microscope.stage_device
-    if stage_device is not None and stage_device.has_builtin_shuttle():
-        stage_settings = microscope.system.stage
-        slot01 = _compustage_working_slot(stage_settings)
-        holder = SampleHolder(
-            name=COMPUSTAGE_HOLDER_NAME,
-            capacity=1,
-            slots={"Slot-01": slot01},
-            # Built here rather than resolved from the configuration, so it has to be
-            # given its pre-tilt explicitly -- it does not pass through
-            # `_resolve_configured_holder`, which is where every other holder gets one.
-            pre_tilt=float(stage_settings.shuttle_pre_tilt),
-        )
-        # The compustage is the autoloader stage, so it is also what says "this system
-        # has a loader". Which loader is the backend's call: the simulator builds one
-        # from its config, a real system wraps its autoloader.
-        loader: Optional[SampleGridLoader] = microscope._create_grid_loader()
-    else:
-        holder = _resolve_configured_holder(microscope.system.stage)
-        # Trust only positions the wizard captured against this stage geometry. The
-        # old stamping of SEM r/t onto whatever x/y/z the file held is gone: a
-        # calibrated position carries its own r/t, and an uncalibrated one has none.
-        stage_settings = microscope.system.stage
-        for note in holder.discard_untrusted_positions(
-            float(stage_settings.shuttle_pre_tilt),
-            float(stage_settings.rotation_reference),
-        ):
-            logging.warning(f"Sample holder: {note}. Recalibrate it.")
-        loader = None
-
-    holder._parent = microscope
-    stage = Stage(parent=microscope, holder=holder, loader=loader)
-    # The grids in the slots are session state, so a restart does not forget what is
-    # physically still in the shuttle. Restored here when the stage is rebuilt; at
-    # the first connect the configuration is not known yet, and `setup_session`
-    # restores it once it is.
-    if getattr(microscope, "configuration_path", None):
-        stage.restore_occupancy()
-    return stage

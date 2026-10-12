@@ -128,7 +128,7 @@ def test_a_configured_device_that_cannot_be_built_fails_connect(recording):
 
 def test_connect_builds_the_parts_after_it_reads_what_is_fitted():
     """Whether a manipulator is fitted is read in
-    ``_create_sample_stage``, so the parts are built after it."""
+    ``_build_sample_handling``, so the parts are built after it."""
     import ast
 
     import fibsem
@@ -147,7 +147,7 @@ def test_connect_builds_the_parts_after_it_reads_what_is_fitted():
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr
-        in ("_build_beams", "_build_stage", "_create_sample_stage", "_build_parts")
+        in ("_build_beams", "_build_stage", "_build_sample_handling", "_build_parts")
     ]
     lines = {
         node.func.attr: node.lineno
@@ -155,6 +155,6 @@ def test_connect_builds_the_parts_after_it_reads_what_is_fitted():
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
     }
     assert sorted(order) == sorted(
-        ["_build_beams", "_build_stage", "_create_sample_stage", "_build_parts"]
+        ["_build_beams", "_build_stage", "_build_sample_handling", "_build_parts"]
     )
-    assert lines["_create_sample_stage"] < lines["_build_parts"]
+    assert lines["_build_sample_handling"] < lines["_build_parts"]

@@ -43,7 +43,7 @@ def microscope():
     )
     assert microscope._fm_is_a_pose() and microscope.fm is not None
     # the working slot is the origin by construction; put a grid in it
-    microscope._stage.holder.slots["Slot-01"].loaded_grid = SampleGrid(
+    microscope.sample_handling.holder.slots["Slot-01"].loaded_grid = SampleGrid(
         name="grid-aspen"
     )
     return microscope

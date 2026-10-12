@@ -25,7 +25,7 @@ class FibsemSampleWidget(QWidget):
     def __init__(self, microscope, parent=None):
         super().__init__(parent)
         self.microscope = microscope
-        stage = microscope._stage
+        stage = microscope.sample_handling
 
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
@@ -44,7 +44,7 @@ class FibsemSampleWidget(QWidget):
         inner_layout.addWidget(self.holder_widget)
 
         self.loader_widget: Optional[SampleLoaderWidget] = None
-        if stage.loader is not None:
+        if stage.magazine is not None:
             self.loader_widget = SampleLoaderWidget(microscope=microscope)
             # An exchange changes what is in the holder's working slot.
             self.loader_widget.loader_changed.connect(self.holder_widget.refresh)

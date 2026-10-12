@@ -57,7 +57,7 @@ def build_microscope(
         # slot at the origin, calibrated by construction, whereas the ambient
         # configuration's fixed holder has slots nothing has calibrated -- and the grid
         # boundary is drawn from the holder's slots.
-        microscope._create_sample_stage()
+        microscope._build_sample_handling()
         microscope.move_stage_absolute(
             FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
         )
