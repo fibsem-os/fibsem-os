@@ -134,7 +134,6 @@ def test_the_switch_and_a_small_area_keep_the_configured_position(microscope, tm
     assert SelectMillingPositionTaskConfig().sync_fiducial_position is True
 
 
-
 @pytest.mark.parametrize("assigned", [False, True])
 def test_setup_then_fiducial_saves_with_a_numpy_area(
     microscope, tmp_path, monkeypatch, assigned
