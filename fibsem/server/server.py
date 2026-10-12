@@ -537,8 +537,8 @@ def build_server(
         microscope.start_milling()
         return {"status": "ok"}
 
-    # read scope, and no command slot: an emergency stop must never be blocked
-    # by arming or by the in-flight command it exists to interrupt.
+    # Whoever can act (control or hardware), and no command slot: a stop must
+    # never wait behind the in-flight command it exists to interrupt.
     @stop.post("/stop_milling")
     def stop_milling():
         microscope.stop_milling()
