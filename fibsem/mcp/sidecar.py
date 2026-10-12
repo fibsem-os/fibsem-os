@@ -18,6 +18,9 @@ Register with Claude Code:
     claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
+
+``fibsem-mcp watch`` prints a line per app event worth waking an agent for,
+and needs nothing beyond fibsem itself (see :mod:`fibsem.mcp.watch`).
 """
 
 import argparse
@@ -631,6 +634,12 @@ def build_sidecar(client, capabilities):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["watch"]:
+        # Before the mcp import: watching needs only HTTP (FIB-1269).
+        from fibsem.mcp.watch import main as watch_main
+
+        sys.exit(watch_main(argv[1:]))
     try:
         import mcp  # noqa: F401
     except ImportError:

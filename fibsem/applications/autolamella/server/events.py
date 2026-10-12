@@ -314,8 +314,14 @@ def make_lifecycle_hook(buffer: EventBuffer):
 def buffer_or_unavailable(
     buffer: Optional[EventBuffer], since: int, timeout: float
 ) -> Dict[str, Any]:
-    """The facade-facing read: tolerate a hosting that wired no buffer."""
+    """The facade-facing read: tolerate a hosting that wired no buffer.
+
+    With no buffer the answer is ``available: false``, still after ``timeout``:
+    a long-poll that answers at once turns a client that misses the flag into
+    a busy loop (FIB-870).
+    """
     if buffer is None:
+        time.sleep(max(0.0, timeout))
         return {
             "available": False,
             "events": [],
