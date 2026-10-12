@@ -1073,9 +1073,15 @@ class AutoLamellaAppContext:
         text = str(text).strip()
         if not text:
             return {"available": True, "recorded": False, "error": "empty note"}
+        item_id = None
         if item_name is not None:
             experiment = self._experiment
-            if experiment is None or experiment.get_lamella_by_name(item_name) is None:
+            item = (
+                experiment.get_lamella_by_name(item_name)
+                if experiment is not None
+                else None
+            )
+            if item is None:
                 names = [p.name for p in experiment.positions] if experiment else []
                 return {
                     "available": True,
@@ -1083,14 +1089,18 @@ class AutoLamellaAppContext:
                     "error": f"No item named {item_name!r} in this experiment.",
                     "item_names": names,
                 }
+            item_id = item.id
         logging.info(
             "agent note%s: %s",
             f" [{item_name}]" if item_name else "",
             text,
         )
         if self._event_buffer is not None:
+            # With the item's id, so the record files the note under the item
+            # it is about, not whichever one is running (FIB-1328).
             self._event_buffer.append(
-                "agent_note", {"text": text, "item_name": item_name}
+                "agent_note",
+                {"text": text, "item_name": item_name, "item_id": item_id},
             )
         return {"available": True, "recorded": True}
 
