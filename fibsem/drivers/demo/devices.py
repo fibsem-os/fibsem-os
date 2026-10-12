@@ -615,6 +615,14 @@ class DemoManipulator(Manipulator):
         self.sim_position += delta
         logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
 
+    def _move_corrected(self, dx: float, dy: float, beam_type: BeamType) -> None:
+        # Demo applies no correction: dx and dy go straight onto x and y.
+        logging.info(
+            f"Moving manipulator: dx={dx:.2e}, dy={dy:.2e}, "
+            f"beam_type = {beam_type.name} (Corrected)"
+        )
+        self._move_relative(FibsemManipulatorPosition(x=dx, y=dy))
+
     def _stop(self) -> None:
         # Its moves finish before they return, so there is never one to stop.
         logging.info("Stopping manipulator.")
