@@ -414,7 +414,7 @@ def test_a_driver_offers_a_builder_by_device_type():
 
 
 def test_a_registered_drivers_builders_are_found(restore_registry):
-    builder = registry.DeviceBuilder(f"{__name__}:_build_laser", implements=("Laser",))
+    builder = registry.DeviceBuilder(f"{__name__}:_build_laser")
     register_driver(
         DriverEntry("Acme", f"{__name__}:_Recorder", devices={"laser": builder})
     )
@@ -468,11 +468,7 @@ def test_the_demo_builders_build_each_device_from_its_entry():
 
 DEVICE_ONLY = DriverEntry(
     "oxford",
-    devices={
-        "manipulator": registry.DeviceBuilder(
-            f"{__name__}:_build_laser", implements=("Manipulator",)
-        )
-    },
+    devices={"manipulator": registry.DeviceBuilder(f"{__name__}:_build_laser")},
 )
 
 

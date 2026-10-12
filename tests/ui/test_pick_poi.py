@@ -197,7 +197,7 @@ def test_the_prompt_mirrors_the_live_marker_not_the_frozen_request(window, ui, q
     _finish(thread, qapp)
 
 
-def _answer_with_value_on_worker(ui, qapp, response, nonce, value):
+def _answer_with_value_on_worker(ui, qapp, response, question_id, value):
     """Call AutoLamellaAppContext.answer_prompt from a worker thread, as the server does."""
     from fibsem.applications.autolamella.server import AutoLamellaAppContext
 
@@ -205,7 +205,7 @@ def _answer_with_value_on_worker(ui, qapp, response, nonce, value):
     outcome = {}
 
     def target():
-        outcome["result"] = ctx.answer_prompt(response, nonce, value=value)
+        outcome["result"] = ctx.answer_prompt(response, question_id, value=value)
 
     thread = threading.Thread(target=target, daemon=True)
     thread.start()
@@ -222,10 +222,10 @@ def test_a_value_answer_moves_the_marker_and_answers_with_it(window, ui, qapp):
     thread, outcome = _pick_on_worker_thread(
         ui, qapp, image, initial=Point(x=1e-6, y=2e-6)
     )
-    _, nonce = ui.ui_responder.pending_question_and_nonce()
+    _, question_id = ui.ui_responder.pending_question_and_id()
 
     proposed = {"x": 5e-6, "y": -3e-6}
-    result = _answer_with_value_on_worker(ui, qapp, True, nonce, proposed)
+    result = _answer_with_value_on_worker(ui, qapp, True, question_id, proposed)
     _finish(thread, qapp)
 
     assert result["applied"] is True
@@ -239,22 +239,40 @@ def test_a_value_answer_moves_the_marker_and_answers_with_it(window, ui, qapp):
     assert poi.y == pytest.approx(proposed["y"], abs=px)
 
 
+def test_echoing_the_marker_is_not_an_adjustment(window, ui, qapp):
+    # FIB-1330: sending back `current` accepts the point, it adjusts nothing.
+    image = _fib_image(ui)
+    thread, outcome = _pick_on_worker_thread(
+        ui, qapp, image, initial=Point(x=1e-6, y=2e-6)
+    )
+    nonce, live = ui.ui_responder._live_answer()
+
+    result = _answer_with_value_on_worker(
+        ui, qapp, True, nonce, {"x": live.x, "y": live.y}
+    )
+    _finish(thread, qapp)
+
+    assert result["applied"] is True
+    assert "adjusted" not in result
+    assert outcome["poi"].x == pytest.approx(live.x)
+
+
 def test_an_out_of_bounds_point_is_refused_and_the_marker_stands(window, ui, qapp):
     image = _fib_image(ui)
     initial = Point(x=1e-6, y=2e-6)
     thread, _ = _pick_on_worker_thread(ui, qapp, image, initial=initial)
-    _, nonce = ui.ui_responder.pending_question_and_nonce()
+    _, question_id = ui.ui_responder.pending_question_and_id()
     px = image.metadata.pixel_size.x
     half_width = image.data.shape[1] / 2 * px
 
     result = _answer_with_value_on_worker(
-        ui, qapp, True, nonce, {"x": 2 * half_width, "y": 0.0}
+        ui, qapp, True, question_id, {"x": 2 * half_width, "y": 0.0}
     )
 
     assert result["applied"] is False
     assert "invalid_value" in result
     # Nothing was clicked and the marker did not move.
-    assert ui.ui_responder.pending_question_and_nonce()[1] == nonce
+    assert ui.ui_responder.pending_question_and_id()[1] == question_id
     marker = window.view_controller.overlay_points(BeamType.ION, "poi")
     assert marker, "the marker should still be up"
 

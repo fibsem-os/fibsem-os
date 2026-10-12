@@ -85,6 +85,7 @@ if TYPE_CHECKING:
     from fibsem.cancellation import AnyStopEvent
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.milling.base import FibsemMillingStage
+    from fibsem.services.imaging import Imaging
     from fibsem.services.milling import Milling
     from fibsem.services.sample_handling import SampleHandling
     from fibsem.services.spot_burn import SpotBurn
@@ -347,6 +348,10 @@ class FibsemMicroscope(ABC):
     #: (`fibsem.services.sample_handling.SampleHandling`): the holder, the grids and
     #: the commands that make a grid reachable. None without a stage device.
     sample_handling: Optional[SampleHandling] = None
+    #: The imaging service over the beams (`fibsem.services.imaging.Imaging`):
+    #: `auto_focus`, and the focus sweep. None when no beam was built: `auto_focus`
+    #: raises then.
+    imaging: Optional[Imaging] = None
     #: Whether this driver's sample loader reads its magazine when the sample
     #: handling service is built: only where that read is free (the simulator).
     _read_magazine_at_connect: bool = False
@@ -430,16 +435,30 @@ class FibsemMicroscope(ABC):
             return False
         return True
 
-    @abstractmethod
+    # Imaging and the autofunctions are the beam device's commands, so every backend
+    # runs the same four methods: the driver's work is in its beam's hooks.
+
     def acquire_image(
         self,
         image_settings: Optional[ImageSettings] = None,
         beam_type: Optional[BeamType] = None,
     ) -> FibsemImage:
-        pass
+        """Acquire an image with `image_settings`, or with the current settings of
+        `beam_type`. Given both, the settings win.
 
-    def last_image(self, beam_type: BeamType) -> FibsemImage:
-        raise self._unsupported("last_image")
+        Raises:
+            ValueError: If neither is given, or the beam is not enabled.
+        """
+        if image_settings is None and beam_type is None:
+            raise ValueError(
+                "Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
+            )
+        target = image_settings.beam_type if image_settings is not None else beam_type
+        return self._beam_device(target).acquire(image_settings)
+
+    def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
+        """The last image `beam_type` acquired, read back from the instrument."""
+        return self._beam_device(beam_type).last_image()
 
     @property
     def is_acquiring(self) -> bool:
@@ -491,17 +510,35 @@ class FibsemMicroscope(ABC):
     def acquire_chamber_image(self) -> FibsemImage:
         raise self._unsupported("acquire_chamber_image")
 
-    @abstractmethod
     def autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
-        pass
+        """Run the instrument's brightness and contrast routine for `beam_type`,
+        optionally on a rectangle of the frame (0 to 1)."""
+        self._beam_device(beam_type).autocontrast(reduced_area)
 
-    @abstractmethod
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
-        pass
+        """Focus a beam: with the instrument's own autofocus where the beam has one,
+        else with the image-based sweep at its field of view
+        (`microscope.imaging.auto_focus`)."""
+        self._imaging_service().auto_focus(beam_type, reduced_area)
+
+    def _imaging_service(self) -> "Imaging":
+        """The imaging service, or the error for a microscope with none."""
+        if self.imaging is None:
+            raise ValueError(
+                "There is no imaging: no beam is enabled on this microscope."
+            )
+        return self.imaging
+
+    def _build_imaging(self) -> None:
+        """Build the imaging service over the beams; `auto_focus` then goes to it.
+        Without a beam there is none."""
+        from fibsem.services.imaging import Imaging, bind_imaging
+
+        self.imaging = bind_imaging(Imaging, self)
 
     def reset_beam_shifts(self) -> None:
         """Set the beam shift to zero for the electron and ion beams."""
@@ -1529,6 +1566,25 @@ class FibsemMicroscope(ABC):
         the device server serves them by. Empty on a backend that builds no devices.
         """
         return MappingProxyType(self._devices)
+
+    # The service attributes, in the order `services` lists them.
+    _SERVICE_ATTRIBUTES = (
+        "milling",
+        "stage_movement",
+        "spot_burn",
+        "sample_handling",
+        "imaging",
+    )
+
+    @property
+    def services(self) -> Mapping[str, Any]:
+        """Every service this microscope built, by name (``services["milling"] is
+        microscope.milling``). Read-only. A service the backend didn't build (None)
+        is left out. The App Server serves them under ``/services``."""
+        services = (getattr(self, name, None) for name in self._SERVICE_ATTRIBUTES)
+        return MappingProxyType(
+            {service.name: service for service in services if service is not None}
+        )
 
     def _set_device(self, name: str, device: Optional[Any]) -> None:
         """Put *device* in the map as *name*, or take *name* out when it is None."""

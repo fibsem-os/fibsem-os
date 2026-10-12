@@ -619,6 +619,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self._build_beams()
         self._build_milling()
         self._build_spot_burn()
+        self._build_imaging()
 
         if reset_beam_shift:
             self.reset_beam_shifts()
@@ -806,45 +807,6 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         self._connection.set_channel(channel)
 
-    def acquire_image(
-        self,
-        image_settings: Optional[ImageSettings] = None,
-        beam_type: Optional[BeamType] = None,
-    ) -> FibsemImage:
-        """
-        Acquire a new image with the specified settings.
-
-            Args:
-            image_settings (ImageSettings): The settings for the new image.
-            beam_type (BeamType, optional): The beam type to use with current settings.
-                Used only if image_settings is not provided.
-
-        Returns:
-            FibsemImage: A new FibsemImage object representing the acquired image.
-        """
-        # The beam's acquire command; a beam_type takes precedence and means the
-        # current settings.
-        if beam_type is not None:
-            return self._beam_device(beam_type).acquire(None)
-        if image_settings is None:
-            raise ValueError(
-                "Must provide image_settings to acquire a new image if beam_type is not specified."
-            )
-        return self._beam_device(image_settings.beam_type).acquire(image_settings)
-
-    def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
-        """
-        Get the last previously acquired image.
-
-        Args:
-            beam_type (BeamType, optional): The imaging beam type of the last image.
-                Defaults to BeamType.ELECTRON.
-
-        Returns:
-            FibsemImage: A new FibsemImage object representing the last acquired image.
-        """
-        return self._beam_device(beam_type).last_image()
-
     def acquire_chamber_image(self) -> FibsemImage:
         """Acquire an image of the chamber inside."""
         # The chamber camera is a third device on the channel the beams and the FM
@@ -864,27 +826,6 @@ class ThermoMicroscope(FibsemMicroscope):
                 imaging.set_active_view(restore_view)
         logging.debug({"msg": "acquire_chamber_image"})
         return FibsemImage(data=image.data, metadata=None)
-
-    def autocontrast(
-        self, beam_type: BeamType, reduced_area: FibsemRectangle = None
-    ) -> None:
-        """
-        Automatically adjust the microscope image contrast for the specified beam type.
-
-        Args:
-            beam_type (BeamType) The imaging beam type for which to adjust the contrast.
-        """
-        self._beam_device(beam_type).autocontrast(reduced_area)
-
-    def auto_focus(
-        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
-    ) -> None:
-        """Automatically focus the specified beam type.
-
-        Args:
-            beam_type (BeamType): The imaging beam type for which to focus.
-        """
-        self._beam_device(beam_type).auto_focus(reduced_area)
 
     @_records_beam_shift
     def beam_shift(
@@ -1054,13 +995,6 @@ class ThermoMicroscope(FibsemMicroscope):
         return self.move_manipulator_absolute(saved_position)
 
     manipulator_move_types = ("relative", "corrected")
-
-    def _beam_device(self, beam_type: BeamType) -> Any:
-        """The beam device for ``beam_type``; a column disabled in the config has none."""
-        device = self.beams.get(beam_type)
-        if device is None:
-            raise ValueError(f"The {beam_type.name} beam is not enabled.")
-        return device
 
     @property
     def rotation_centre(self) -> Optional[Tuple[float, float]]:

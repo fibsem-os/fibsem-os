@@ -124,7 +124,7 @@ class AppContext(Protocol):
     ) -> Dict[str, Any]: ...
 
     def answer_prompt(
-        self, response: bool, nonce: int, value: Optional[Dict[str, Any]] = None
+        self, response: bool, question_id: int, value: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]: ...
 
     def add_note(
@@ -377,17 +377,17 @@ def build_app_control_router(context: AppContext) -> APIRouter:
 
     @router.post("/prompt/answer")
     def answer_prompt(body: Dict[str, Any]):
-        # The nonce is mandatory: an answer must name the question it answers
+        # The question id is mandatory: an answer must name the question it answers
         # (from GET /app/prompt), never "whatever is pending by the time this
         # lands" — the prompt can change between the read and the answer.
         try:
-            nonce = int(body["nonce"])
+            question_id = int(body["question_id"])
         except (KeyError, TypeError, ValueError):
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "error_type": "missing_nonce",
-                    "message": "Echo the integer nonce from GET /app/prompt; "
+                    "error_type": "missing_question_id",
+                    "message": "Echo the integer question_id from GET /app/prompt; "
                     "an answer must name the question it answers.",
                 },
             )
@@ -403,14 +403,14 @@ def build_app_control_router(context: AppContext) -> APIRouter:
                 },
             )
         result = context.answer_prompt(
-            bool(body.get("response", False)), nonce, value=value
+            bool(body.get("response", False)), question_id, value=value
         )
         if result.get("stale"):
             raise HTTPException(
                 status_code=409,
                 detail={
                     "error_type": "stale_prompt",
-                    "message": "That question is no longer pending; "
+                    "message": f"That question is no longer pending (question {question_id}); "
                     "re-read /app/prompt and answer the current one.",
                 },
             )

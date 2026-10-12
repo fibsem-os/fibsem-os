@@ -12,7 +12,7 @@ Anything this module imports that reaches ``fibsem.milling.base`` -- including
 ``fibsem.milling.tasks`` and everything under ``fibsem.applications`` -- raises
 ImportError, the plugin loader catches it, and the pattern never registers.
 
-So: patterns import from ``patterns2`` and ``fibsem.structures``, and nothing
+So: patterns import from ``fibsem.milling.patterning.base`` and ``fibsem.structures``, and nothing
 else. That is also why a plugin's pattern, strategy and task have to live in
 separate modules rather than one.
 """
@@ -20,7 +20,7 @@ separate modules rather than one.
 from dataclasses import dataclass, field
 from typing import ClassVar, List
 
-from fibsem.milling.patterning.patterns2 import BasePattern
+from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures import FibsemRectangleSettings
 from fibsem_test_plugin import CLASHING_PATTERN_NAME, PATTERN_NAME
 

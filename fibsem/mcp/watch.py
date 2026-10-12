@@ -130,19 +130,21 @@ def _print_events(events, since, out):
                 f"task={data.get('task_name')}"
             )
         elif kind == "prompt_raised":
-            out(f"PROMPT nonce={data.get('nonce')} type={data.get('type')}")
+            out(f"PROMPT question={data.get('question_id')} type={data.get('type')}")
         elif kind == "prompt_answered":
             out(
-                f"ANSWERED nonce={data.get('nonce')} by={data.get('answered_by')} "
+                f"ANSWERED question={data.get('question_id')} by={data.get('answered_by')} "
                 f"response={data.get('response')}"
             )
         elif kind == "prompt_cancelled":
-            out(f"PROMPT WITHDRAWN nonce={data.get('nonce')}")
+            out(f"PROMPT WITHDRAWN question={data.get('question_id')}")
         elif kind in TERMINAL:
             out(f"RUN ENDED ({kind})")
             run_ended = True
         elif kind in INTERESTING:
-            out(f"EVENT {kind} {data.get('item_name', '')}")
+            task = data.get("task_name")
+            line = f"EVENT {kind} {data.get('item_name', '')}"
+            out(f"{line} {task}" if task else line)
     return since, run_ended
 
 

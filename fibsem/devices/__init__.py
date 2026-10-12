@@ -38,6 +38,8 @@ from fibsem.devices.chamber import (
 )
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
+    Axes,
+    Axis,
     BoundParameter,
     CommandInfo,
     Device,
@@ -57,8 +59,6 @@ from fibsem.devices.stage import (
     AXIS_UNITS,
     STAGE_RESOURCE,
     UNLIMITED,
-    Axes,
-    Axis,
     Stage,
     StageLimitError,
 )

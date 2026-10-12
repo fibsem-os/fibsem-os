@@ -14,7 +14,7 @@ import numpy as np
 from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import (
+from fibsem.milling.patterning.patterns import (
     BitmapPattern,
     CirclePattern,
     LinePattern,

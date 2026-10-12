@@ -68,14 +68,33 @@ if TYPE_CHECKING:
 __all__ = ["QtResponder"]
 
 
+def _same_geometry(request: "Request", live: object, value: object) -> bool:
+    """Whether ``value`` is the geometry the widget already shows.
+
+    A point within half a pixel is the same point: the marker cannot sit
+    any closer. An area is compared to well below anything a drag can do.
+    """
+    if live is None:
+        return False
+    if isinstance(request, PickPOI):
+        tolerance = request.image.metadata.pixel_size.x / 2
+        return abs(live.x - value.x) <= tolerance and abs(live.y - value.y) <= tolerance
+    if isinstance(request, EditAlignmentArea):
+        return all(
+            abs(getattr(live, f) - getattr(value, f)) <= 1e-6
+            for f in ("left", "top", "width", "height")
+        )
+    return False
+
+
 class QtResponder(QObject):
     """Answers workflow requests by driving the window's widgets, on the GUI thread."""
 
     _submitted = pyqtSignal(object, object)  # (Request, Future)
     _agent_answered = pyqtSignal(
         bool, object, object, object
-    )  # (clicked_yes, nonce, value, Future[bool])
-    _agent_peeked = pyqtSignal(object)  # (Future[(nonce, live value)])
+    )  # (clicked_yes, question_id, value, Future[bool])
+    _agent_peeked = pyqtSignal(object)  # (Future[(question_id, live value)])
 
     def __init__(self, ui: "AutoLamellaUI"):
         super().__init__()
@@ -98,8 +117,8 @@ class QtResponder(QObject):
             RunMillingTask: self._run_milling_task,
             RunSpotBurn: self._run_spot_burn,
         }
-        # (request, future, nonce): one attribute so a cross-thread reader sees
-        # a question and its nonce as a single consistent pair. The nonce names
+        # (request, future, question_id): one attribute so a cross-thread reader sees
+        # a question and its id as a single consistent pair. The question id names
         # this posting of a question — a re-park (post-mill re-ask, replaced
         # corpse) is a new question and gets a new one.
         self._pending_question: Optional[Tuple[Request, "Future", int]] = None
@@ -173,13 +192,13 @@ class QtResponder(QObject):
         agent see what it is being asked. A question whose asker already
         aborted reads as None: nobody is waiting on it.
         """
-        request, _ = self.pending_question_and_nonce()
+        request, _ = self.pending_question_and_id()
         return request
 
-    def pending_question_and_nonce(self) -> Tuple[Optional["Request"], Optional[int]]:
-        """The pending request and the nonce naming it, or (None, None). Any thread.
+    def pending_question_and_id(self) -> Tuple[Optional["Request"], Optional[int]]:
+        """The pending request and the question id naming it, or (None, None). Any thread.
 
-        The nonce is how a remote answer names *which* question it answers:
+        The question id is how a remote answer names *which* question it answers:
         echo it back through :meth:`submit_answer` and the answer applies only
         if that exact posting is still standing.
         """
@@ -200,7 +219,7 @@ class QtResponder(QObject):
     def submit_answer(
         self,
         clicked_yes: bool,
-        nonce: Optional[int] = None,
+        question_id: Optional[int] = None,
         value: Optional[object] = None,
     ) -> "Future":
         """Answer the pending question as if the matching button were clicked.
@@ -212,7 +231,7 @@ class QtResponder(QObject):
         buttons, so widget read-backs, the Run Milling interception, and the
         first-writer-wins guards all behave identically for agent and human.
 
-        With a ``nonce`` (from :meth:`pending_question_and_nonce`), the answer
+        With a ``question_id`` (from :meth:`pending_question_and_id`), the answer
         applies only to that posting of the question: if it has meanwhile been
         answered, withdrawn, or replaced, the future fails with
         :class:`StalePromptError` and nothing is clicked. Without one, the
@@ -225,34 +244,37 @@ class QtResponder(QObject):
         for ``PickPOI``. It is applied to the widget first, exactly as if the
         operator had dragged it there, and then the ordinary click path reads
         it back — so the proposed geometry lands on screen, and attribution,
-        the nonce, and first-writer-wins all hold unchanged. A value on any
-        other question type fails the future without clicking anything.
+        the question id, and first-writer-wins all hold unchanged. A value on any
+        other question type fails the future without clicking anything. A
+        value equal to what the widget already shows moves nothing, and the
+        future's ``adjusted`` attribute (set before it resolves) says which
+        it was.
         """
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_answered.emit(clicked_yes, nonce, value, outcome)
+        self._agent_answered.emit(clicked_yes, question_id, value, outcome)
         return outcome
 
     def _apply_agent_answer(
         self,
         clicked_yes: bool,
-        nonce: Optional[int],
+        question_id: Optional[int],
         value: Optional[object],
         outcome: "Future",
     ) -> None:
         """GUI thread. Complete ``outcome`` with whether the answer applied.
 
-        The nonce check happens here, on the thread that posts and clears
+        The question id check happens here, on the thread that posts and clears
         questions — the one place it cannot race a swap.
         """
         pending = self._pending_question
-        if nonce is not None:
-            if pending is None or pending[1].cancelled() or pending[2] != nonce:
+        if question_id is not None:
+            if pending is None or pending[1].cancelled() or pending[2] != question_id:
                 self._fail(
                     outcome,
                     StalePromptError(
-                        f"answer named question {nonce}, which is no longer pending"
+                        f"That question is no longer pending (question {question_id})"
                     ),
                 )
                 return
@@ -269,19 +291,25 @@ class QtResponder(QObject):
                 ),
             )
             return
+        adjusted = False
         try:
             if value is not None:
                 if pending is None or pending[1].cancelled():
                     raise StalePromptError(
                         "a value-carrying answer needs a pending question"
                     )
-                self._apply_value(pending[0], value)
+                # Echoing what stands is accepting it, not adjusting it.
+                _, live = self._live_answer()
+                adjusted = not _same_geometry(pending[0], live, value)
+                if adjusted:
+                    self._apply_value(pending[0], value)
             applied = self.answer_confirm(
-                clicked_yes, source="agent", adjusted=value is not None
+                clicked_yes, source="agent", adjusted=adjusted
             )
         except Exception as exc:  # noqa: BLE001 - the asker owns the failure
             self._fail(outcome, exc)
             return
+        outcome.adjusted = adjusted
         self._deliver(outcome, applied)
 
     def _apply_value(self, request: "Request", value: object) -> None:
@@ -328,9 +356,9 @@ class QtResponder(QObject):
         operator is dragging, the alignment area being resized — which the
         frozen request cannot show a remote agent. This reads that state on the
         GUI thread, without disturbing it: no overlay comes down, nothing is
-        answered. Resolves to ``(nonce, value)`` — the nonce pairs the value
+        answered. Resolves to ``(question_id, value)`` — the question id pairs the value
         with a posting of the question, and value is None for question types
-        with no live half (or no question at all, in which case nonce is None
+        with no live half (or no question at all, in which case question_id is None
         too).
         """
         from concurrent.futures import Future as _Future
@@ -340,7 +368,7 @@ class QtResponder(QObject):
         return outcome
 
     def _apply_agent_peek(self, outcome: "Future") -> None:
-        """GUI thread. Complete ``outcome`` with (nonce, live value)."""
+        """GUI thread. Complete ``outcome`` with (question_id, live value)."""
         try:
             result = self._live_answer()
         except Exception as exc:  # noqa: BLE001 - the peeker owns the failure
@@ -355,28 +383,28 @@ class QtResponder(QObject):
         pending = self._pending_question
         if pending is None or pending[1].cancelled():
             return None, None
-        request, _, nonce = pending
+        request, _, question_id = pending
         if isinstance(request, PickPOI):
             controller = self._view_controller()
             if controller is None:
-                return nonce, None
+                return question_id, None
             pts = controller.overlay_points(BeamType.ION, "poi")
             if not pts:
-                return nonce, None
+                return question_id, None
             from fibsem import conversions
             from fibsem.structures import Point
 
             col, row = pts[0]
             image = request.image
-            return nonce, conversions.image_to_microscope_image_coordinates(
+            return question_id, conversions.image_to_microscope_image_coordinates(
                 Point(x=col, y=row), image.data, image.metadata.pixel_size.x
             )
         if isinstance(request, EditAlignmentArea):
             image_widget = self._ui.image_widget
             if image_widget is None:
-                return nonce, None
-            return nonce, deepcopy(image_widget.get_alignment_area())
-        return nonce, None
+                return question_id, None
+            return question_id, deepcopy(image_widget.get_alignment_area())
+        return question_id, None
 
     def _dispatch(self, request: "Request", future: "Future") -> None:
         """GUI thread. Complete the future, whatever happens in the handler."""
@@ -504,7 +532,7 @@ class QtResponder(QObject):
                 "message": msg,
                 "positive": pos,
                 "negative": neg,
-                "nonce": self._question_seq,
+                "question_id": self._question_seq,
             },
         )
         # Display state, not a handshake: the workflow does not poll this, but
@@ -743,7 +771,7 @@ class QtResponder(QObject):
     # value, who corrected it and by how much belong on the item. Such a question
     # is recorded as a proposal and answered by a decision in the Review tab,
     # which is where every other judgement is collected. Everything about the
-    # *wait* stays here: the nonce, the hold, the abort. Only where the answer
+    # *wait* stays here: the question id, the hold, the abort. Only where the answer
     # comes from changes.
 
     def _review_detection(self, request: ReviewDetection, future: "Future") -> None:
@@ -855,7 +883,7 @@ class QtResponder(QObject):
         decision = proposal.current
         if decision is None:
             return
-        request, future, nonce = pending
+        request, future, question_id = pending
         self._pending_question = None
         self._stop_listening()
         self._ui.hold = None
@@ -865,7 +893,7 @@ class QtResponder(QObject):
             # Nobody answered: the asker is gone, or somebody took it back.
             future.cancel()
             self._emit_question_event(
-                "prompt_cancelled", {"type": name, "nonce": nonce}
+                "prompt_cancelled", {"type": name, "question_id": question_id}
             )
             return
         confirmed = decision.outcome is DecisionOutcome.Confirmed
@@ -877,7 +905,7 @@ class QtResponder(QObject):
                 "answered_by": "agent"
                 if decision.author.kind is AuthorKind.agent
                 else "operator",
-                "nonce": nonce,
+                "question_id": question_id,
             },
         )
         if not confirmed:
@@ -922,7 +950,7 @@ class QtResponder(QObject):
             self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
             self._emit_question_event(
                 "prompt_cancelled",
-                {"type": type(pending[0]).__name__, "nonce": pending[2]},
+                {"type": type(pending[0]).__name__, "question_id": pending[2]},
             )
 
     def _run_spot_burn(self, request: RunSpotBurn, future: "Future") -> None:
@@ -1033,7 +1061,7 @@ class QtResponder(QObject):
             self._ui.workflow_status_signal.emit(WorkflowStatusEvent(message=""))
             self._emit_question_event(
                 "prompt_cancelled",
-                {"type": type(request).__name__, "nonce": pending[2]},
+                {"type": type(request).__name__, "question_id": pending[2]},
             )
             return True
         logging.info(
@@ -1044,7 +1072,7 @@ class QtResponder(QObject):
             "type": type(request).__name__,
             "response": bool(clicked_yes),
             "answered_by": source,
-            "nonce": pending[2],
+            "question_id": pending[2],
         }
         if adjusted:
             answered_payload["adjusted"] = True

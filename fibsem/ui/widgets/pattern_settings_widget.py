@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning import get_pattern, get_pattern_names
-from fibsem.milling.patterning.patterns2 import BasePattern
+from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures import BeamType
 from fibsem.ui.widgets.custom_widgets import FormGrid, ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control

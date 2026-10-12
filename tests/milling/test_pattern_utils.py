@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import CirclePattern, RectanglePattern
+from fibsem.milling.patterning.patterns import CirclePattern, RectanglePattern
 from fibsem.milling.patterning.utils import (
     bbox_to_normalized_coords,
     create_pattern_mask,
