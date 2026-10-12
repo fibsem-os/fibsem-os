@@ -107,15 +107,13 @@ def test_write_when_armed_reaches_the_device(armed_client, microscope):
     assert microscope.get_field_of_view(BeamType.ELECTRON) == pytest.approx(120e-6)
 
 
-def test_write_takes_the_command_slot(armed_client):
-    lock = armed_client.app.state.command_lock
-    assert lock.acquire(blocking=False)
-    try:
+def test_write_takes_control(armed_client, microscope):
+    with microscope.control.take("workflow", "a lamellae run"):
         resp = armed_client.put("/devices/electron/hfw", json={"value": 100e-6})
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error_type"] == "busy"
-    finally:
-        lock.release()
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "microscope_busy"
+    assert detail["in_control"]["by"] == "workflow"
 
 
 def test_metadata_answers_choices(read_client, microscope):
@@ -135,15 +133,13 @@ def test_command_is_hardware_scope(read_client):
     assert resp.status_code == 403
 
 
-def test_stop_commands_pass_the_command_slot_with_read_scope(read_client):
-    # Like /stop_milling: a stop must reach a device whatever holds the slot.
-    lock = read_client.app.state.command_lock
-    assert lock.acquire(blocking=False)
-    try:
+def test_stop_commands_pass_with_read_scope_whoever_is_in_control(
+    read_client, microscope
+):
+    # Like /stop_milling: a stop must reach a device whoever is in control.
+    with microscope.control.take("workflow", "a lamellae run"):
         resp = read_client.post("/devices/electron/commands/stop_live", json={})
-        assert resp.status_code == 200
-    finally:
-        lock.release()
+    assert resp.status_code == 200
 
 
 def test_acquire_command_answers_a_tiff(fibsem_client):

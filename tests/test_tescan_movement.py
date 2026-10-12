@@ -59,7 +59,6 @@ def make_microscope(
     system.stage.shuttle_pre_tilt = pretilt_deg
 
     microscope = object.__new__(TescanMicroscope)  # skip __init__ (requires SDK)
-    microscope._connection_lock = threading.RLock()
     microscope.system = system
 
     if stage_position is None:

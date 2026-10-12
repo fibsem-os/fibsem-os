@@ -116,10 +116,15 @@ def test_task_outputs_for_a_real_item_and_a_missing_one(experiment):
 
     # With history: the live-run 500 — the field is `name`, and an empty
     # history hid the read of a field that doesn't exist.
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+    )
 
     experiment.positions[0].task_history.append(
-        AutoLamellaTaskState(name="Rough Milling")
+        AutoLamellaTaskState(
+            name="Rough Milling", status=AutoLamellaTaskStatus.Completed
+        )
     )
     completed = ctx.task_outputs(name)
     assert completed["completed_tasks"] == ["Rough Milling"]
@@ -179,6 +184,7 @@ def test_output_image_renders_recorded_outputs_only(experiment):
     assert payload["tasks"] == [
         {
             "name": "Rough Milling",
+            "status": "NotStarted",
             "files": {"final_fib": [fname], "fluorescence": [zname]},
         }
     ]

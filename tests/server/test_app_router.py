@@ -134,6 +134,112 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
     assert unknown.json()["detail"]["filenames"] == [fname]
 
 
+def test_every_listed_output_is_served_and_only_completed_runs_count(client, host):
+    # FIB-1330: start images are listed by get_task_outputs, so they are
+    # served too; a cancelled run is listed with its status, not as completed.
+    import numpy as np
+    import tifffile
+
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+    )
+
+    lamella = host.experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    start = "ref_Rough Milling_start_ib.tif"
+    tifffile.imwrite(
+        os.path.join(lamella.path, start),
+        (np.random.rand(64, 96) * 65535).astype(np.uint16),
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name="Rough Milling",
+            status=AutoLamellaTaskStatus.Completed,
+            outputs={"start_fib": [start]},
+        )
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Polishing", status=AutoLamellaTaskStatus.Cancelled)
+    )
+
+    listed = client.get(f"/app/task_outputs/{lamella.name}", headers=AUTH).json()
+    assert listed["completed_tasks"] == ["Rough Milling"]
+    assert [(t["name"], t["status"]) for t in listed["tasks"]] == [
+        ("Rough Milling", "Completed"),
+        ("Polishing", "Cancelled"),
+    ]
+    assert listed["tasks"][0]["files"] == {"start_fib": [start]}
+    served = client.get(f"/app/items/{lamella.name}/outputs/{start}", headers=AUTH)
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/jpeg"
+
+
+def test_task_history_is_in_time_order(client, host):
+    from datetime import datetime, timedelta
+
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    host.experiment.add_new_lamella(MicroscopeState(), EventedDict())
+    first, second = host.experiment.positions[:2]
+    t0 = datetime(2026, 10, 12, 9).timestamp()
+    # The second item ran first: listing by item would put it last.
+    first.task_history.append(
+        AutoLamellaTaskState(name="Polishing", start_timestamp=t0 + 60)
+    )
+    second.task_history.append(
+        AutoLamellaTaskState(name="Rough Milling", start_timestamp=t0)
+    )
+
+    items = client.get("/app/task_history", headers=AUTH).json()["items"]
+    assert [i["task_name"] for i in items] == ["Rough Milling", "Polishing"]
+
+
+def test_sidecar_returns_a_saved_output_as_image_content(client, host):
+    """The Observer's saved-image gap (FIB-848): the JPEG route reaches the
+    agent as MCP image content, with the basename's spaces encoded."""
+    pytest.importorskip("mcp")
+    import numpy as np
+    import tifffile
+
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.mcp.sidecar import build_sidecar
+
+    lamella = host.experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    fname = "ref_Rough Milling_final_res_01_ib.tif"
+    tifffile.imwrite(
+        os.path.join(lamella.path, fname),
+        (np.random.rand(64, 96) * 65535).astype(np.uint16),
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": [fname]})
+    )
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+
+    def call(filename):
+        result = asyncio.run(
+            sidecar.call_tool(
+                "get_item_output_image",
+                {"item_name": lamella.name, "filename": filename},
+            )
+        )
+        if isinstance(result, tuple):
+            result = result[0]
+        return list(getattr(result, "content", result))
+
+    contents = call(fname)
+    image = next(c for c in contents if getattr(c, "type", None) == "image")
+    assert image.mime_type == "image/jpeg"
+    assert fname in "".join(getattr(c, "text", "") for c in contents)
+
+    refused = "".join(getattr(c, "text", "") for c in call("nope.tif"))
+    assert "refused (404)" in refused
+    assert fname in refused  # the valid names come back with the refusal
+
+
 def test_task_config_reads_over_http(client, host):
     from fibsem.applications.autolamella.workflows.tasks.rough import (
         MillRoughTaskConfig,

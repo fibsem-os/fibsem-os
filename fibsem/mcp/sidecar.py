@@ -29,7 +29,7 @@ import json
 import os
 import sys
 from typing import Any, Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from fibsem.server.catalog import CATALOG, tools_for_capabilities
 
@@ -150,6 +150,14 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
         sleep_fn(1.0)
 
 
+def _refusal(resp):
+    try:
+        detail = resp.json().get("detail", resp.text)
+    except ValueError:
+        detail = resp.text
+    return f"refused ({resp.status_code}): {json.dumps(detail)}"
+
+
 def _call(client, method, path, payload=None):
     """Call the server; refusals come back as readable text, not exceptions.
 
@@ -158,11 +166,7 @@ def _call(client, method, path, payload=None):
     """
     resp = client.request(method, path, json=payload)
     if resp.status_code >= 400:
-        try:
-            detail = resp.json().get("detail", resp.text)
-        except ValueError:
-            detail = resp.text
-        return None, f"refused ({resp.status_code}): {json.dumps(detail)}"
+        return None, _refusal(resp)
     try:
         return resp.json(), None
     except ValueError:
@@ -332,6 +336,22 @@ def build_sidecar(client, capabilities):
         )
         return err if err else data
 
+    def list_services():
+        return _json_tool("list_services")[1]()
+
+    def get_service_parameter(service: str, parameter: str):
+        data, err = _call(client, "GET", f"/services/{service}/{parameter}")
+        return err if err else data
+
+    def call_service_command(service: str, command: str, kwargs: Optional[dict] = None):
+        data, err = _call(
+            client,
+            "POST",
+            f"/services/{service}/commands/{command}",
+            {"kwargs": dict(kwargs or {})},
+        )
+        return err if err else data
+
     def autocontrast(beam_type: str = "ELECTRON"):
         data, err = _call(client, "POST", "/autocontrast", {"beam_type": beam_type})
         return err if err else data
@@ -378,6 +398,18 @@ def build_sidecar(client, capabilities):
 
     def get_task_outputs(item_name: str):
         return _app_get(f"/app/task_outputs/{item_name}")
+
+    def get_item_output_image(item_name: str, filename: str):
+        # The route answers image/jpeg for the dashboard's <img>, so this reads
+        # the bytes itself rather than through _call. Basenames carry spaces.
+        path = (
+            f"/app/items/{quote(item_name, safe='')}/outputs/{quote(filename, safe='')}"
+        )
+        resp = client.request("GET", path)
+        if resp.status_code >= 400:
+            return _refusal(resp)
+        meta = {"item_name": item_name, "filename": filename}
+        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_item_detail(item_name: str):
         return _app_get(f"/app/items/{item_name}")
@@ -604,6 +636,9 @@ def build_sidecar(client, capabilities):
             get_parameter,
             set_parameter,
             call_command,
+            list_services,
+            get_service_parameter,
+            call_service_command,
             autocontrast,
             get_app_status,
             get_app_queue,
@@ -613,6 +648,7 @@ def build_sidecar(client, capabilities):
             get_log,
             get_protocol,
             get_task_outputs,
+            get_item_output_image,
             get_item_detail,
             get_grids,
             get_grid_detail,
@@ -653,13 +689,34 @@ def build_sidecar(client, capabilities):
     return mcp
 
 
+def _watch_argv(argv):
+    """``argv`` minus the ``watch`` subcommand, or None when it is not one.
+
+    ``watch`` takes the same --url/--token as the sidecar, so they may come
+    before it (``fibsem-mcp --url ... watch --help``) and still reach it.
+    """
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "watch":
+            return argv[:i] + argv[i + 1 :]
+        if arg in ("--url", "--token"):
+            i += 2
+        elif arg.startswith(("--url=", "--token=")):
+            i += 1
+        else:
+            return None
+    return None
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv[:1] == ["watch"]:
+    watch_argv = _watch_argv(argv)
+    if watch_argv is not None:
         # Before the mcp import: watching needs only HTTP (FIB-1269).
         from fibsem.mcp.watch import main as watch_main
 
-        sys.exit(watch_main(argv[1:]))
+        sys.exit(watch_main(watch_argv))
     try:
         import mcp  # noqa: F401
     except ImportError:
@@ -668,7 +725,11 @@ def main(argv=None):
         )
     import httpx
 
-    parser = argparse.ArgumentParser(description="MCP sidecar for a fibsem server")
+    parser = argparse.ArgumentParser(
+        description="MCP sidecar for a fibsem server",
+        epilog="fibsem-mcp watch: print one line per app event worth waking "
+        "an agent for (fibsem-mcp watch --help).",
+    )
     parser.add_argument(
         "--url", default=None, help="Server URL, e.g. http://127.0.0.1:8001"
     )

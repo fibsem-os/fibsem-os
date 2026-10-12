@@ -126,8 +126,11 @@ def _limits_to_wire(limits: Any) -> Any:
 
 
 def _facts(device: Device) -> Dict[str, Any]:
+    facts = getattr(device, "facts", None)  # a service has none
+    if facts is None:
+        return {}
     try:
-        return jsonable_encoder(device.facts())
+        return jsonable_encoder(facts())
     except Exception as error:  # a description without facts beats none at all
         logging.warning(f"{device.name}: facts: {type(error).__name__}: {error}")
         return {}
@@ -243,13 +246,17 @@ def build_device_router(
     read: Sequence[Any] = (),
     write: Sequence[Any] = (),
     command: Sequence[Any] = (),
+    prefix: str = "/devices",
+    noun: str = "device",
 ) -> APIRouter:
     """The ``/devices`` routes over whatever *devices* returns, by name.
 
     *devices* is called per request, so a map that changes (an FM reconnecting) is
-    served as it is now. *read*, *write* and *command* are FastAPI dependencies for
-    the reads, the parameter writes and the commands: the device server passes none,
-    the App Server its token, scopes and hardware lock.
+    served as it is now. A service has the device shape, so the App Server serves
+    the microscope's services with the same routes under ``prefix="/services"``
+    (*noun* names them in a 404). *read*, *write* and *command* are FastAPI
+    dependencies for the reads, the parameter writes and the commands: the device
+    server passes none, the App Server its token, scopes and hardware lock.
     """
     router = APIRouter()
 
@@ -257,7 +264,7 @@ def build_device_router(
         try:
             return devices()[name]
         except KeyError:
-            raise HTTPException(404, f"no device '{name}'") from None
+            raise HTTPException(404, f"no {noun} '{name}'") from None
 
     def parameter_of(device: str, name: str) -> Any:
         d = lookup(device)
@@ -276,20 +283,20 @@ def build_device_router(
                 status, {"error": type(error).__name__, "detail": str(error)}
             ) from None
 
-    @router.get("/devices", dependencies=list(read))
+    @router.get(prefix, dependencies=list(read))
     def list_devices() -> Dict[str, Any]:
         return {name: describe_device(d) for name, d in devices().items()}
 
-    @router.get("/devices/{device}", dependencies=list(read))
+    @router.get(prefix + "/{device}", dependencies=list(read))
     def get_device(device: str) -> Dict[str, Any]:
         return describe_device(lookup(device))
 
-    @router.get("/devices/{device}/{parameter}", dependencies=list(read))
+    @router.get(prefix + "/{device}/{parameter}", dependencies=list(read))
     def read_parameter(device: str, parameter: str) -> Dict[str, Any]:
         value = run(lambda: parameter_of(device, parameter).get_value())
         return {"value": to_wire(value)}
 
-    @router.put("/devices/{device}/{parameter}", dependencies=list(write))
+    @router.put(prefix + "/{device}/{parameter}", dependencies=list(write))
     def write_parameter(
         device: str, parameter: str, body: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -297,11 +304,11 @@ def build_device_router(
         value = from_wire(param.type, body["value"])
         return {"value": to_wire(run(lambda: param.set_value(value)))}
 
-    @router.get("/devices/{device}/{parameter}/metadata", dependencies=list(read))
+    @router.get(prefix + "/{device}/{parameter}/metadata", dependencies=list(read))
     def metadata(device: str, parameter: str) -> Dict[str, Any]:
         return metadata_payload(run(lambda: parameter_of(device, parameter).metadata))
 
-    @router.post("/devices/{device}/commands/{command}", dependencies=list(command))
+    @router.post(prefix + "/{device}/commands/{command}", dependencies=list(command))
     def call(device: str, command: str, body: Dict[str, Any]) -> Any:
         d = lookup(device)
         if command not in d.commands:
@@ -329,7 +336,8 @@ def build_device_router(
             return Response(
                 buffer.getvalue(), media_type=NPY_MEDIA_TYPE, headers=headers
             )
-        return {"result": jsonable_encoder(result)}
+        # A structure with to_dict answers that (an autofocus result, its summary).
+        return {"result": jsonable_encoder(to_wire(result))}
 
     return router
 

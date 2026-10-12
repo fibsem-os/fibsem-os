@@ -24,13 +24,15 @@ dashboard.
 
 import hmac
 import secrets
-import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import FrozenSet, Iterable, Optional
 
 from fastapi import HTTPException, Request
+
+from fibsem.acting import AGENT, current_actor
+from fibsem.control import MicroscopeBusy
 
 # Re-exported: AgentLevel lives where the GUI can import it without FastAPI.
 from fibsem.server.levels import AgentLevel
@@ -270,23 +272,38 @@ def require_monitoring():
     return dependency
 
 
-def command_slot(request: Request):
-    """Serialize hardware commands: one in flight per microscope, 409 otherwise.
+def take_control(request: Request):
+    """Take control of the microscope for this request (FIB-1270), or 409.
 
-    Concurrent requests on the threadpool would interleave multi-call vendor
-    operations (the FIB-517/542/569 incident class). A structured refusal beats
-    queueing: a caller blocked behind an hour-long mill should be told, not held.
+    The control a run, a script and the operator take too, so a server command
+    never interleaves with them or with another request: concurrent requests on
+    the threadpool would interleave multi-call vendor operations (the
+    FIB-517/542/569 incident class). A structured refusal naming who is in
+    control beats queueing: a caller blocked behind an hour-long mill should be
+    told, not held. During a run's question, the run has lent control, so the
+    request borrows it.
     """
-    lock: threading.Lock = request.app.state.command_lock
-    if not lock.acquire(blocking=False):
+    control = request.app.state.microscope.control
+    taking = control.take(
+        current_actor() or AGENT, f"{request.method} {request.url.path}"
+    )
+    try:
+        taking.__enter__()
+    except MicroscopeBusy as busy:
         raise HTTPException(
             status_code=409,
             detail={
-                "error_type": "busy",
-                "message": "Another hardware command is in progress on this microscope.",
+                "error_type": "microscope_busy",
+                "message": str(busy),
+                "in_control": {
+                    "by": busy.in_control.by,
+                    "action": busy.in_control.action,
+                },
             },
-        )
+        ) from None
+    # Entered and exited by hand, not ``with``: an exception from the route is
+    # thrown in here, and must reach FastAPI as it is.
     try:
         yield
     finally:
-        lock.release()
+        taking.__exit__(None, None, None)

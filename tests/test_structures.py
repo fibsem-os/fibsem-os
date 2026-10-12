@@ -769,3 +769,26 @@ def test_a_chamber_state_reads_any_vendor_name():
     assert ChamberState.from_name("Pumped") is ChamberState.PUMPED
     assert ChamberState.from_name("VENTED") is ChamberState.VENTED
     assert ChamberState.from_name("Somewhere else") is ChamberState.UNKNOWN
+
+
+def test_geometry_holds_plain_numbers_not_numpy_scalars():
+    """Point, FibsemRectangle and the stage and manipulator positions take
+    numpy scalars and keep plain Python numbers, which the YAML writers can
+    represent (FIB-1326). A float stays a float, an integer an int."""
+    import numpy as np
+
+    from fibsem.structures import (
+        FibsemManipulatorPosition,
+        FibsemRectangle,
+        FibsemStagePosition,
+        Point,
+    )
+
+    point = Point(np.float64(1e-6), np.int64(3))
+    assert type(point.x) is float and type(point.y) is int
+    rect = FibsemRectangle(np.float64(0.1), np.float32(0.2), 0.3, 0.4)
+    assert all(type(v) is float for v in (rect.left, rect.top, rect.width, rect.height))
+    stage = FibsemStagePosition(x=np.float64(1e-3), y=None, t=np.float32(0.5))
+    assert type(stage.x) is float and stage.y is None and type(stage.t) is float
+    manipulator = FibsemManipulatorPosition(x=np.float64(1e-3))
+    assert type(manipulator.x) is float

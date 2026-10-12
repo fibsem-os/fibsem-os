@@ -231,6 +231,20 @@ class AutoFocusResult:
     def n_iterations(self) -> int:
         return len(self.iterations)
 
+    def to_dict(self) -> dict:
+        """The result without its images: the working distances, scores and
+        settings, each iteration naming the file its image is saved as. What
+        ``save`` writes to ``data.json``, and what the App Server answers."""
+        return {
+            "working_distance": self.working_distance,
+            "initial_working_distance": self.initial_working_distance,
+            "focus_score": self.focus_score,
+            "n_iterations": self.n_iterations,
+            "method": self.method,
+            "settings": self.settings.to_dict() if self.settings is not None else None,
+            "iterations": [it.to_dict(i) for i, it in enumerate(self.iterations)],
+        }
+
     def plot(self, save_path: str = "autofocus.png") -> None:
         from fibsem.autofunctions.plotting import plot_autofocus_result
 
@@ -250,15 +264,7 @@ class AutoFocusResult:
         result_dir = Path(path) / name
         result_dir.mkdir(parents=True, exist_ok=True)
 
-        data = {
-            "working_distance": self.working_distance,
-            "initial_working_distance": self.initial_working_distance,
-            "focus_score": self.focus_score,
-            "n_iterations": self.n_iterations,
-            "method": self.method,
-            "settings": self.settings.to_dict() if self.settings is not None else None,
-            "iterations": [it.to_dict(i) for i, it in enumerate(self.iterations)],
-        }
+        data = self.to_dict()
 
         with open(result_dir / "data.json", "w") as f:
             json.dump(data, f, indent=2)

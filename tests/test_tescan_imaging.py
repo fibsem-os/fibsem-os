@@ -20,6 +20,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.drivers.tescan import connection as tescan_connection
 from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.structures import (
     BeamType,
@@ -47,12 +48,12 @@ def _system():
 @pytest.fixture
 def connected(monkeypatch):
     """Connected as the app connects it, with its beam devices."""
-    monkeypatch.setattr(tescan_module, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
+    monkeypatch.setattr(tescan_connection, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
     microscope, fake = connect(monkeypatch, _system())
     assert set(microscope.beams) == {E, I}
     # what the last image reported: the API cannot read these
     for beam_type in (E, I):
-        cache = microscope._beam_parameters[beam_type]
+        cache = microscope.beams[beam_type]._cache
         cache.resolution = [1536, 1024]
         cache.dwell_time = 1e-6
         cache.stigmation = Point(0.1, -0.2)
@@ -112,8 +113,8 @@ def _run(microscope, fake, call):
         root.setLevel(level)
     cache = {
         bt.name: [
-            list(microscope._beam_parameters[bt].resolution or []),
-            microscope._beam_parameters[bt].dwell_time,
+            list(microscope.beams[bt]._cache.resolution or []),
+            microscope.beams[bt]._cache.dwell_time,
         ]
         for bt in (E, I)
     }

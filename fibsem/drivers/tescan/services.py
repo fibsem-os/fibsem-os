@@ -20,7 +20,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import logging
-from typing import TYPE_CHECKING, Any, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -57,11 +57,12 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     import threading
 
+    from fibsem.drivers.tescan.connection import TescanConnection
     from fibsem.drivers.tescan.microscope import TescanMicroscope
 
 
 class TescanMilling(Milling):
-    """Tescan milling, on a DrawBeam layer."""
+    """Tescan milling, on a DrawBeam layer, over the microscope's connection."""
 
     parent: TescanMicroscope
 
@@ -78,6 +79,12 @@ class TescanMilling(Milling):
     )
     scan_directions = TESCAN_SCAN_DIRECTIONS
 
+    def __init__(self, connection: TescanConnection, **kwargs: Any):
+        super().__init__(**kwargs)
+        self.connection = connection
+        # The DrawBeam layer the last setup made, which the patterns are drawn on.
+        self.layer: Any = None
+
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "milling_channel":
             # the DrawBeam layer is on the ion column only
@@ -89,7 +96,8 @@ class TescanMilling(Milling):
         if settings.milling_channel is not BeamType.ION:
             raise ValueError("Only FIB milling is currently supported.")
         microscope = self.parent
-        microscope._prepare_beam(settings.milling_channel)
+        connection = self.connection
+        connection.prepare_beam(settings.milling_channel)
         self._clear()
         microscope.milling_channel = settings.milling_channel
         # QUERY: do we need to set this here as it is also set in IEtching?
@@ -106,10 +114,8 @@ class TescanMilling(Milling):
             spacing=settings.spacing,
         )
         # TODO: change the layer name to milling stage name
-        with microscope._connection_lock:
-            microscope.layer = microscope.connection.DrawBeam.Layer(
-                "Layer1", layer_settings
-            )
+        with connection.lock:
+            self.layer = connection.sdk.DrawBeam.Layer("Layer1", layer_settings)
 
     def _draw(self, pattern: FibsemPatternSettings) -> None:
         if isinstance(pattern, FibsemRectangleSettings):
@@ -124,7 +130,6 @@ class TescanMilling(Milling):
             raise NotImplementedError("draw_polygon not implemented for Tescan API")
 
     def _draw_rectangle(self, pattern: FibsemRectangleSettings) -> None:
-        microscope = self.parent
         if pattern.scan_direction in TESCAN_SCAN_DIRECTIONS:
             scanning_path = pattern.scan_direction
         else:
@@ -132,12 +137,12 @@ class TescanMilling(Milling):
             logging.warning(
                 f"Scan direction {pattern.scan_direction} not supported. Using Flyback instead."
             )
-        microscope.connection.DrawBeam.ScanningPath = scanning_path
+        self.connection.sdk.DrawBeam.ScanningPath = scanning_path
 
         if pattern.cross_section is CrossSectionPattern.CleaningCrossSection:
-            add_pattern = microscope.layer.addRectanglePolish
+            add_pattern = self.layer.addRectanglePolish
         else:
-            add_pattern = microscope.layer.addRectangleFilled
+            add_pattern = self.layer.addRectangleFilled
         add_pattern(
             CenterX=pattern.centre_x,
             CenterY=pattern.centre_y,
@@ -150,7 +155,7 @@ class TescanMilling(Milling):
         )
 
     def _draw_line(self, pattern: FibsemLineSettings) -> None:
-        self.parent.layer.addLine(
+        self.layer.addLine(
             BeginX=pattern.start_x,
             BeginY=pattern.start_y,
             EndX=pattern.end_x,
@@ -160,7 +165,7 @@ class TescanMilling(Milling):
         )
 
     def _draw_circle(self, pattern: FibsemCircleSettings) -> None:
-        self.parent.layer.addAnnulusFilled(
+        self.layer.addAnnulusFilled(
             CenterX=pattern.centre_x,
             CenterY=pattern.centre_y,
             RadiusA=pattern.radius,
@@ -172,7 +177,7 @@ class TescanMilling(Milling):
     def _draw_dot(self, centre: Point, exposure_time: float) -> None:
         """A timed dot: DepthUnit.Second makes the depth an exposure time, which is
         a spot burn. Only `TescanSpotBurn` draws one."""
-        self.parent.layer.addDot(
+        self.layer.addDot(
             CenterX=centre.x,
             CenterY=centre.y,
             Depth=exposure_time,
@@ -180,14 +185,13 @@ class TescanMilling(Milling):
         )
 
     def read_state(self) -> MillingState:
-        microscope = self.parent
-        with microscope._connection_lock:
-            status = microscope.connection.DrawBeam.GetStatus()[0]
+        with self.connection.lock:
+            status = self.connection.sdk.DrawBeam.GetStatus()[0]
         return tescan.DrawBeamStatusToPatterningState[status]
 
     def _start(self) -> None:
-        with self.parent._connection_lock:
-            self.parent.connection.DrawBeam.Start()
+        with self.connection.lock:
+            self.connection.sdk.DrawBeam.Start()
 
     def _stop(self) -> None:
         # From another thread too: on a second connection, not the locked one.
@@ -195,7 +199,7 @@ class TescanMilling(Milling):
         thread_connection = None
         try:
             thread_connection = tescan.Automation(
-                self.parent.system.info.ip_address, port=self.parent._port
+                self.connection.ip_address, port=self.connection.port
             )
             if (
                 thread_connection.DrawBeam.GetStatus()[0]
@@ -209,28 +213,28 @@ class TescanMilling(Milling):
             del thread_connection
 
     def _pause(self) -> None:
-        with self.parent._connection_lock:
-            self.parent.connection.DrawBeam.Pause()
+        with self.connection.lock:
+            self.connection.sdk.DrawBeam.Pause()
 
     def _resume(self) -> None:
-        with self.parent._connection_lock:
-            self.parent.connection.DrawBeam.Resume()
+        with self.connection.lock:
+            self.connection.sdk.DrawBeam.Resume()
 
     def _estimate(self) -> float:
         # DrawBeam estimates only a loaded layer, and a layer cannot be loaded twice
         try:
-            with self.parent._connection_lock:
-                return self.parent.connection.DrawBeam.EstimateTime()
+            with self.connection.lock:
+                return self.connection.sdk.DrawBeam.EstimateTime()
         except Exception as e:
             logging.error(f"Error in estimating milling time: {e}")
             return 0
 
     def _before_run(self) -> None:
-        microscope = self.parent
-        microscope._prepare_beam(microscope.milling_channel)
-        with microscope._connection_lock:
-            microscope.connection.DrawBeam.LoadLayer(microscope.layer)
-            microscope.connection.Progress.Show(
+        connection = self.connection
+        connection.prepare_beam(self.parent.milling_channel)
+        with connection.lock:
+            connection.sdk.DrawBeam.LoadLayer(self.layer)
+            connection.sdk.Progress.Show(
                 Title="DrawBeam Milling (OpenFIBSEM)",
                 Text="Layer 1 in progress",
                 HideButton=True,
@@ -240,32 +244,29 @@ class TescanMilling(Milling):
             )
 
     def _poll(self) -> MillingProgress:
-        microscope = self.parent
-        with microscope._connection_lock:
-            status, total, elapsed = microscope.connection.DrawBeam.GetStatus()
+        connection = self.connection
+        with connection.lock:
+            status, total, elapsed = connection.sdk.DrawBeam.GetStatus()
         state = tescan.DrawBeamStatusToPatterningState[status]
         if total <= 0:  # DrawBeam reports no total until the exposition is under way
             return progress_update(state=state)
         if state is MillingState.RUNNING:
-            with microscope._connection_lock:
-                microscope.connection.Progress.SetPercents(
-                    min(100, elapsed / total * 100)
-                )
+            with connection.lock:
+                connection.sdk.Progress.SetPercents(min(100, elapsed / total * 100))
         return progress_update(
             state=state, total=total, remaining=max(0.0, total - elapsed)
         )
 
     def _after_run(self) -> None:
-        microscope = self.parent
-        with microscope._connection_lock:
-            microscope.connection.Progress.Hide()
+        with self.connection.lock:
+            self.connection.sdk.Progress.Hide()
 
     def _clear(self) -> None:
         # DrawBeam.UnloadLayer raises when no layer is loaded (and while an exposition
         # is still active); swallowed, so clearing needs no record of a layer.
         try:
-            with self.parent._connection_lock:
-                self.parent.connection.DrawBeam.UnloadLayer()
+            with self.connection.lock:
+                self.connection.sdk.DrawBeam.UnloadLayer()
         except Exception as e:
             logging.debug(f"Error unloading layer: {e}")
 
@@ -288,7 +289,7 @@ class TescanMilling(Milling):
 
 def bind_tescan_milling(microscope: TescanMicroscope) -> Optional[TescanMilling]:
     """Build ``milling`` for a connected Tescan microscope whose beams are built."""
-    return bind_milling(TescanMilling, microscope)
+    return bind_milling(TescanMilling, microscope, connection=microscope._connection)
 
 
 class TescanStageMovement(StageMovement):
@@ -408,6 +409,35 @@ class TescanSpotBurn(SpotBurn):
             )
         return super().run(settings, stop_event=stop_event)
 
+    @staticmethod
+    def _spot_burn_point_to_metres(
+        point: Point, hfw: float, resolution: Tuple[int, int]
+    ) -> Point:
+        """Convert a normalised (0-1, top-left origin) image coordinate to DrawBeam coordinates.
+
+        DrawBeam objects are positioned in metres from the image centre with +y up, the same
+        convention the draw_* pattern methods already use.
+
+        Args:
+            point: normalised image coordinate, (0, 0) top-left to (1, 1) bottom-right.
+            hfw: horizontal field width in metres.
+            resolution: image resolution as (width, height) in pixels.
+
+        Returns:
+            Point: position in metres relative to the image centre.
+        """
+        from fibsem import conversions
+
+        width, height = resolution
+        pixelsize = hfw / width
+        pixel_coordinate = Point(x=point.x * width, y=point.y * height)
+        return conversions.image_to_microscope_image_coordinates2(
+            coord=pixel_coordinate,
+            image_shape=(height, width),
+            pixelsize=pixelsize,
+            subpixel_precision=True,  # spot coordinates are fractional, don't round to a pixel
+        )
+
     def _setup(self, ion: Beam, current: float) -> None:
         """A layer at the spot burn preset, as wide as the field of view; the
         remaining DrawBeam fields come from the milling defaults."""
@@ -435,7 +465,7 @@ class TescanSpotBurn(SpotBurn):
         hfw = ion.hfw.get_value()
         resolution = ion.resolution.get_value()
         for point in points:
-            centre = microscope._spot_burn_point_to_metres(
+            centre = self._spot_burn_point_to_metres(
                 point, hfw=hfw, resolution=resolution
             )
             logging.info(

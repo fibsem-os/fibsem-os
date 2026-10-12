@@ -343,18 +343,6 @@ class DemoConfiguration:
 
     system: SystemSettings
 
-    # ---- fitted subsystems, as the simulated instrument reports them ---------
-    #
-    # The `sim:` block is where a simulated configuration stands in for a hardware
-    # probe (`has_fm`, `is_compustage`), so that is where these come from too. Absent
-    # means the Demo default -- fitted.
-
-    def _probe_manipulator_installed(self) -> Optional[bool]:
-        return self.system.sim.get("has_manipulator")
-
-    def _probe_plasma_gas(self) -> Optional[str]:
-        return self.system.sim.get("plasma_gas")
-
 
 class DemoImaging:
     """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.

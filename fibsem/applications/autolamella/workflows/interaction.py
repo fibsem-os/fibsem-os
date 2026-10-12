@@ -44,16 +44,20 @@ from __future__ import annotations
 import time
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as _FutureTimeoutError
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Callable,
+    ClassVar,
     Generic,
     Optional,
     Protocol,
     Sequence,
     TypeVar,
 )
+
+from fibsem.control import lending
 
 if TYPE_CHECKING:
     from fibsem.detection.detection import DetectedFeatures
@@ -104,7 +108,15 @@ class Request(Generic[R]):
     Subclasses are frozen dataclasses. A question's answer is a value (never a
     widget to read); an instruction subclasses ``Request[None]`` and its "answer"
     is the acknowledgement that the responder has finished acting on it.
+
+    ``lends_control``: while it stands, the run lends its control of the
+    microscope (FIB-1270), so whoever answers may act on the instrument first,
+    one action at a time. Only questions a person answers by looking -- never
+    an instruction, and not the mill or spot burn, which the responder runs
+    itself and which take no control of their own yet.
     """
+
+    lends_control: ClassVar[bool] = False
 
 
 # --- questions: the workflow needs a value back -----------------------------------
@@ -114,6 +126,8 @@ class Request(Generic[R]):
 class Confirm(Request[bool]):
     """A yes/no prompt. ``True`` means the positive choice was taken."""
 
+    lends_control = True
+
     message: str
     positive: str = "Continue"
     negative: Optional[str] = None
@@ -122,6 +136,8 @@ class Confirm(Request[bool]):
 @dataclass(frozen=True)
 class ConfirmDetection(Request["DetectedFeatures"]):
     """Show detected features for correction; answer with the (possibly moved) set."""
+
+    lends_control = True
 
     detection: "DetectedFeatures"
 
@@ -157,6 +173,8 @@ class EditAlignmentArea(Request["FibsemRectangle"]):
     question (the same seam that serves ``/app/images``).
     """
 
+    lends_control = True
+
     initial: "FibsemRectangle"
     message: str = "Edit Alignment Area"
 
@@ -168,6 +186,8 @@ class PickPOI(Request[Optional["Point"]]):
     The image travels in the request — in-process that is a reference, not a copy —
     so the responder is never answering about whatever happens to be on screen.
     """
+
+    lends_control = True
 
     image: "FibsemImage"
     initial: Optional["Point"] = None
@@ -316,7 +336,9 @@ def ask(
     nobody else, so only this request's responder can complete it.
     """
     future: "Future[R]" = Future()
-    responder.submit(request, future)
-    return wait_for(
-        future, abort=abort, timeout=timeout, description=type(request).__name__
-    )
+    # Lent before the question is put, so nobody who sees it is refused.
+    with lending() if request.lends_control else nullcontext():
+        responder.submit(request, future)
+        return wait_for(
+            future, abort=abort, timeout=timeout, description=type(request).__name__
+        )

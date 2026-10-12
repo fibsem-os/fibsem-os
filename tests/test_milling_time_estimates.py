@@ -21,6 +21,7 @@ import threading
 
 import pytest
 
+from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope, parse_current_from_preset
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import (
@@ -31,7 +32,7 @@ from fibsem.milling.base import (
     set_milling_time_estimator,
     using_milling_time_estimator,
 )
-from fibsem.milling.patterning.patterns2 import RectanglePattern
+from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.structures import CrossSectionPattern, FibsemMillingSettings
 
 RATE = 1.3e-8  # m3/A/s (the cryo-lamella default)
@@ -245,7 +246,6 @@ def test_tescan_disconnect_keeps_the_model(monkeypatch):
         def Disconnect(self):
             pass
 
-    microscope.connection = FakeConnection()
-    microscope._connection_lock = threading.RLock()
+    microscope._connection = TescanConnection(FakeConnection(), "localhost", 8300)
     microscope.disconnect()
     assert estimate_stage_milling_time(stage) == DOSE_MODEL_SECONDS

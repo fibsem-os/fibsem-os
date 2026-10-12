@@ -27,6 +27,7 @@ INSTRUMENT_ROUTES = [
     ("POST", "/stop_milling"),
     ("POST", "/move_stage_relative"),
     ("GET", "/devices"),
+    ("GET", "/services"),
 ]
 
 
