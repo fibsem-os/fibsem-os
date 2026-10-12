@@ -60,7 +60,7 @@ class InterpolateZDialog(QDialog):
         self.setModal(True)
         # The label/chip colours below are picked for a dark surface, so don't
         # rely on the app-level napari stylesheet being installed — state it
-        # here, as FitConfirmationDialog does.
+        # here, as the fit panel does.
         self.setStyleSheet(f"background: {CANVAS_BG}; color: {TEXT_COLOR};")
 
         meta = fm_image.metadata

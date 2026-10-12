@@ -18,11 +18,11 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QDialog
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
+from fibsem.ui.correlation.widgets.fit_panel import FitInputs, FitPanelDialog
+from fibsem.ui.correlation.widgets.fit_result import (
     FitStatus,
     PointFitResult,
 )
-from fibsem.ui.correlation.widgets.fit_panel import FitInputs, FitPanelDialog
 
 
 @pytest.fixture(autouse=True)
@@ -516,3 +516,72 @@ def test_changing_an_input_after_saving_offers_to_save_again(qapp):
     panel._window_spin.setValue(12)
     assert panel._save_btn.isEnabled()
     assert panel._save_btn.text() == "Save as default for FIB fiducials"
+
+
+# --- what the Confirm fit dialog's tests covered, now the panel's -----------------
+
+
+def test_a_wide_diagnostic_keeps_its_aspect(qapp):
+    """A z + XY diagnostic renders wide (9 x 4.5), like the FM fits: shown wide,
+    not squished square, and capped."""
+    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+
+    from fibsem.correlation.fit_diagnostics import FitDiagnostic
+
+    r = _fm_result()
+    r.diagnostic = FitDiagnostic(
+        title="t",
+        roi_xy=np.zeros((10, 10)),
+        input_xy=(5.0, 5.0),
+        z_axis=np.arange(5),
+        z_signal=np.arange(5.0),
+        z_fit=np.arange(5.0),
+        z_input=2.0,
+        z_fitted=2.5,
+    )
+    panel = FitPanelDialog(r, FitInputs(window=2), lambda i: r)
+    canvas = panel.findChildren(FigureCanvasQTAgg)[0]
+    assert canvas.minimumWidth() > canvas.minimumHeight()
+    assert canvas.minimumWidth() <= 900
+
+
+def test_the_channel_row_shows_for_fm_fits_only(qapp):
+    from PyQt5.QtWidgets import QLabel
+
+    def labels(panel):
+        return {lbl.text() for lbl in panel.findChildren(QLabel)}
+
+    fm = _fm_result()
+    fm.channel_name = "reflection"
+    fm_panel = FitPanelDialog(fm, FitInputs(window=2), lambda i: fm)
+    assert {"channel", "reflection"} <= labels(fm_panel)
+    fib_panel = FitPanelDialog(_result(), FitInputs(window=15), lambda i: _result())
+    assert "channel" not in labels(fib_panel)
+
+
+def test_a_failure_shows_a_short_chip_and_a_wrapped_reason(qapp):
+    """The chip is a short title; the long message is on its own wrapped label,
+    so the panel wraps it instead of stretching."""
+    reason = (
+        "The fit didn't converge — the feature may be too faint, or not centred "
+        "in the search region."
+    )
+    failed = _result(None, FitStatus.ERROR, reason)
+    panel = FitPanelDialog(failed, FitInputs(window=15), lambda i: failed)
+    assert panel._status.text() == "Fit failed"
+    assert panel._reason.text() == reason and panel._reason.wordWrap()
+
+
+def test_enter_accepts_and_no_other_button_takes_it(qapp):
+    from PyQt5.QtWidgets import QPushButton
+
+    panel = FitPanelDialog(
+        _result(),
+        FitInputs(window=15),
+        lambda i: _result(),
+        save_default=lambda i: None,
+        position=(0, 3),
+    )
+    buttons = panel.findChildren(QPushButton)
+    assert [b for b in buttons if b.isDefault()] == [panel._accept_btn]
+    assert not any(b.autoDefault() for b in buttons if b is not panel._accept_btn)

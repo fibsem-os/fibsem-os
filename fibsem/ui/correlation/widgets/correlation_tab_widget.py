@@ -128,12 +128,12 @@ from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
     CorrelationFMCanvasWidget,
 )
 from fibsem.ui.correlation.widgets.correlation_point_overlay import POINT_COLORS
-from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
+from fibsem.ui.correlation.widgets.fit_panel import KEPT, FitInputs, FitPanelDialog
+from fibsem.ui.correlation.widgets.fit_result import (
     FitStatus,
     PointFitResult,
     humanize_fit_error,
 )
-from fibsem.ui.correlation.widgets.fit_panel import KEPT, FitInputs, FitPanelDialog
 from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE

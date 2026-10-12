@@ -314,7 +314,7 @@ def test_a_slice_with_no_hole_fails_rather_than_returning_a_runaway_xy():
 
 def test_a_fit_that_left_its_window_reads_as_no_clear_burn():
     pytest.importorskip("PyQt5")
-    from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
+    from fibsem.ui.correlation.widgets.fit_result import (
         humanize_fit_error,
     )
 
