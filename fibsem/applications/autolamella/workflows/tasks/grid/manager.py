@@ -340,6 +340,9 @@ class GridTaskManager(BaseTaskManager):
             self.experiment.decided.connect(self._on_decided)
             try:
                 self._run_items()
+            except Exception as e:
+                self._end_escaped_run(e)
+                raise
             finally:
                 self.experiment.decided.disconnect(self._on_decided)
 
@@ -760,7 +763,9 @@ class GridTaskManager(BaseTaskManager):
                 grid.task_state.status = AutoLamellaTaskStatus.Cancelled
                 grid.task_state.status_message = "Cancelled by user."
             else:
-                logging.warning(f"Error running {task_name} on grid {grid.name}: {e}")
+                logging.warning(
+                    f"Error running {task_name} on grid {grid.name}: {e}", exc_info=True
+                )
                 grid.task_state.status = AutoLamellaTaskStatus.Failed
                 grid.task_state.status_message = str(e)
             # A task freezes its own outcome into the history. One that failed
