@@ -400,7 +400,6 @@ class AutoLamellaAppContext:
                     # the boolean the /supervision verb takes, for the agents
                     # that read it back
                     "supervise": task.attention is Attention.supervised,
-                    "supervisor": getattr(task, "supervisor", "human"),
                     "required": task.required,
                     "requires": list(task.requires),
                     "scheduled_at": task.scheduled_at.isoformat()
@@ -1437,12 +1436,7 @@ class AutoLamellaAppContext:
         result["available"] = True
         return result
 
-    def set_supervision(
-        self,
-        task_name: str,
-        supervise: bool,
-        supervisor: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:
         """Set whether ``task_name`` asks for supervision, in the live protocol.
 
         The workflow reads this at every decision point (never a snapshot), so
@@ -1451,18 +1445,9 @@ class AutoLamellaAppContext:
         GUI's own indicators refresh on the next task transition rather than
         instantly.
 
-        ``supervisor`` optionally sets who the task's questions are addressed
-        to ("human" or "agent") — display and watchdog semantics only; the
-        questions themselves are raised identically, the operator can always
-        answer first, and the designation shows nothing in the GUI unless the
-        App Server is running.
+        A supervised question goes to the operator and the agent alike, and the
+        first answer wins (FIB-1035): there is no saying whose it is.
         """
-        if supervisor not in (None, "human", "agent"):
-            return {
-                "available": True,
-                "applied": False,
-                "error": f"supervisor must be 'human' or 'agent', not {supervisor!r}",
-            }
         experiment = self._experiment
         protocol = getattr(experiment, "task_protocol", None) if experiment else None
         config = getattr(protocol, "workflow_config", None) if protocol else None
@@ -1473,14 +1458,11 @@ class AutoLamellaAppContext:
                 task.attention = (
                     Attention.supervised if supervise else Attention.automated
                 )
-                if supervisor is not None:
-                    task.supervisor = supervisor
                 return {
                     "available": True,
                     "applied": True,
                     "task_name": task_name,
                     "supervise": bool(supervise),
-                    "supervisor": getattr(task, "supervisor", "human"),
                 }
         return {
             "available": True,

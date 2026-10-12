@@ -37,7 +37,7 @@
     overflow:hidden; text-overflow:ellipsis; }
   .rung.done .rung-name, .rung.active .rung-name { color:var(--text); }
   .rung-time { font-size:10.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
-  .sup-agent { color:var(--agent); } .sup-human { color:var(--muted); }
+  .sup-human { color:var(--muted); }
 
   .main { display:grid; grid-template-columns:1fr 300px; gap:10px; margin-top:10px; }
   @media (max-width:900px) { .main { grid-template-columns:1fr; } }
@@ -208,9 +208,7 @@ function renderLadder(protocol, runSummary, status) {
   const current = status.workflow.current_task;
   document.getElementById("ladder").innerHTML = (protocol.tasks || []).map(t => {
     const cls = t.name === current ? "active" : (ran[t.name] ? "done" : "");
-    const sup = t.supervisor === "agent"
-      ? `<span class="sup-agent">&#10022;</span>`
-      : (t.supervise ? `<span class="sup-human">&#8857;</span>` : "");
+    const sup = t.supervise ? `<span class="sup-human">&#8857;</span>` : "";
     const dur = ran[t.name] ? `${Math.round(ran[t.name].duration)} s`
       : (t.name === current ? "running" : "&mdash;");
     return `<div class="rung ${cls}"><div class="rung-bar"></div>
