@@ -1,0 +1,2820 @@
+{
+ "arctis": {
+  "after_moves": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "returned": {
+    "current_grid": "Pinned",
+    "current_slot": "Slot-01",
+    "loaded_grids": [
+     "Pinned"
+    ],
+    "slot_at_origin": "Slot-01"
+   }
+  },
+  "assign_grid": {
+   "calls": [
+    [
+     "loader.set_description",
+     [
+      1,
+      "Pinned"
+     ]
+    ]
+   ],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "returned": null
+  },
+  "ensure_loaded": {
+   "calls": [
+    [
+     "loader.load",
+     1
+    ]
+   ],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "returned": "Slot-01"
+  },
+  "ensure_loaded_again": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "returned": "Slot-01"
+  },
+  "ensure_loaded_unknown": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "message": "Grid 'No-Such-Grid' is not in the magazine. Run an inventory.",
+   "raised": "GridExchangeError"
+  },
+  "get_inventory": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": "Grid-01",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": "Grid-01",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ]
+  },
+  "has_loader": true,
+  "holder": {
+   "capacity": 1,
+   "name": "CompuStage Holder",
+   "pre_tilt": 0.0,
+   "slots": [
+    {
+     "calibrated": true,
+     "grid": null,
+     "index": 0,
+     "name": "Slot-01",
+     "position": {
+      "r": 0.0,
+      "t": 0.0,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+     }
+    }
+   ]
+  },
+  "inventory": [
+   {
+    "index": 0,
+    "loaded": false,
+    "name": "Grid-01",
+    "present": true,
+    "slot": "Slot-01",
+    "source": "magazine",
+    "state": "occupied"
+   },
+   {
+    "index": 1,
+    "loaded": false,
+    "name": "Grid-02",
+    "present": true,
+    "slot": "Slot-02",
+    "source": "magazine",
+    "state": "occupied"
+   },
+   {
+    "index": 2,
+    "loaded": false,
+    "name": "Grid-03",
+    "present": true,
+    "slot": "Slot-03",
+    "source": "magazine",
+    "state": "occupied"
+   },
+   {
+    "index": 3,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-04",
+    "source": "magazine",
+    "state": "empty"
+   },
+   {
+    "index": 4,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-05",
+    "source": "magazine",
+    "state": "empty"
+   },
+   {
+    "index": 5,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-06",
+    "source": "magazine",
+    "state": "empty"
+   },
+   {
+    "index": 6,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-07",
+    "source": "magazine",
+    "state": "empty"
+   },
+   {
+    "index": 7,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-08",
+    "source": "magazine",
+    "state": "empty"
+   },
+   {
+    "index": 8,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-09",
+    "source": "magazine",
+    "state": "empty"
+   },
+   {
+    "index": 9,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-10",
+    "source": "magazine",
+    "state": "empty"
+   },
+   {
+    "index": 10,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-11",
+    "source": "magazine",
+    "state": "empty"
+   },
+   {
+    "index": 11,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-12",
+    "source": "magazine",
+    "state": "empty"
+   }
+  ],
+  "move_to_grid": {
+   "calls": [
+    [
+     "stage.move_absolute",
+     {
+      "r": 0.0,
+      "t": 0.0,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+     }
+    ]
+   ],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "returned": {
+    "r": 0.0,
+    "t": 0.0,
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   }
+  },
+  "move_to_slot": {
+   "calls": [
+    [
+     "stage.move_absolute",
+     {
+      "r": 0.0,
+      "t": 0.0,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+     }
+    ]
+   ],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "returned": {
+      "r": 0.0,
+      "t": 0.0,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+     }
+    }
+   ]
+  },
+  "rebuilt": {
+   "holder": {
+    "capacity": 1,
+    "name": "CompuStage Holder",
+    "pre_tilt": 0.0,
+    "slots": [
+     {
+      "calibrated": true,
+      "grid": null,
+      "index": 0,
+      "name": "Slot-01",
+      "position": {
+       "r": 0.0,
+       "t": 0.0,
+       "x": 0.0,
+       "y": 0.0,
+       "z": 0.0
+      }
+     }
+    ]
+   },
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "restore_occupancy": false
+  },
+  "run_inventory": {
+   "calls": [
+    [
+     "loader.scan",
+     null
+    ]
+   ],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": "Grid-01",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": "Grid-01",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ]
+  },
+  "unload": {
+   "calls": [
+    [
+     "loader.unload",
+     null
+    ]
+   ],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": "Grid-02",
+     "present": true,
+     "slot": "Slot-02",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 2,
+     "loaded": false,
+     "name": "Grid-03",
+     "present": true,
+     "slot": "Slot-03",
+     "source": "magazine",
+     "state": "occupied"
+    },
+    {
+     "index": 3,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-04",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 4,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-05",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 5,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-06",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 6,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-07",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 7,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-08",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 8,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-09",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 9,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-10",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 10,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-11",
+     "source": "magazine",
+     "state": "empty"
+    },
+    {
+     "index": 11,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-12",
+     "source": "magazine",
+     "state": "empty"
+    }
+   ],
+   "returned": null
+  }
+ },
+ "arctis-no-loader": {
+  "after_moves": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    }
+   ],
+   "returned": {
+    "current_grid": "Pinned",
+    "current_slot": "Slot-01",
+    "loaded_grids": [
+     "Pinned"
+    ],
+    "slot_at_origin": "Slot-01"
+   }
+  },
+  "assign_grid": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    }
+   ],
+   "returned": null
+  },
+  "ensure_loaded": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    }
+   ],
+   "returned": "Slot-01"
+  },
+  "ensure_loaded_again": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    }
+   ],
+   "returned": "Slot-01"
+  },
+  "ensure_loaded_unknown": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    }
+   ],
+   "message": "Grid 'No-Such-Grid' is not in any holder slot. Place it in the holder and update the sample holder configuration.",
+   "raised": "GridExchangeError"
+  },
+  "get_inventory": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    }
+   ]
+  },
+  "has_loader": false,
+  "holder": {
+   "capacity": 1,
+   "name": "CompuStage Holder",
+   "pre_tilt": 0.0,
+   "slots": [
+    {
+     "calibrated": true,
+     "grid": null,
+     "index": 0,
+     "name": "Slot-01",
+     "position": {
+      "r": 0.0,
+      "t": 0.0,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+     }
+    }
+   ]
+  },
+  "inventory": [
+   {
+    "index": 0,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-01",
+    "source": "holder",
+    "state": "empty"
+   }
+  ],
+  "move_to_grid": {
+   "calls": [
+    [
+     "stage.move_absolute",
+     {
+      "r": 0.0,
+      "t": 0.0,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+     }
+    ]
+   ],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    }
+   ],
+   "returned": {
+    "r": 0.0,
+    "t": 0.0,
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   }
+  },
+  "move_to_slot": {
+   "calls": [
+    [
+     "stage.move_absolute",
+     {
+      "r": 0.0,
+      "t": 0.0,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+     }
+    ]
+   ],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    }
+   ],
+   "returned": [
+    {
+     "returned": {
+      "r": 0.0,
+      "t": 0.0,
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+     }
+    }
+   ]
+  },
+  "rebuilt": {
+   "holder": {
+    "capacity": 1,
+    "name": "CompuStage Holder",
+    "pre_tilt": 0.0,
+    "slots": [
+     {
+      "calibrated": true,
+      "grid": "Pinned",
+      "index": 0,
+      "name": "Slot-01",
+      "position": {
+       "r": 0.0,
+       "t": 0.0,
+       "x": 0.0,
+       "y": 0.0,
+       "z": 0.0
+      }
+     }
+    ]
+   },
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    }
+   ],
+   "restore_occupancy": true
+  },
+  "run_inventory": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    }
+   ]
+  },
+  "unload": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    }
+   ],
+   "returned": null
+  }
+ },
+ "flat": {
+  "after_moves": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": {
+    "current_grid": null,
+    "current_slot": null,
+    "loaded_grids": [
+     "Pinned"
+    ],
+    "slot_at_origin": null
+   }
+  },
+  "assign_grid": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": null
+  },
+  "ensure_loaded": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "message": "Slot-01 has no calibrated position. Run 'Calibrate slot positions' in the Sample Holder panel on the Microscope tab.",
+   "raised": "GridExchangeError"
+  },
+  "ensure_loaded_again": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "message": "Slot-01 has no calibrated position. Run 'Calibrate slot positions' in the Sample Holder panel on the Microscope tab.",
+   "raised": "GridExchangeError"
+  },
+  "ensure_loaded_unknown": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "message": "Grid 'No-Such-Grid' is not in any holder slot. Place it in the holder and update the sample holder configuration.",
+   "raised": "GridExchangeError"
+  },
+  "get_inventory": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ]
+  },
+  "has_loader": false,
+  "holder": {
+   "capacity": 2,
+   "name": "Default Shuttle",
+   "pre_tilt": 35.0,
+   "slots": [
+    {
+     "calibrated": false,
+     "grid": null,
+     "index": 0,
+     "name": "Slot-01",
+     "position": null
+    },
+    {
+     "calibrated": false,
+     "grid": null,
+     "index": 1,
+     "name": "Slot-02",
+     "position": null
+    }
+   ]
+  },
+  "inventory": [
+   {
+    "index": 0,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-01",
+    "source": "holder",
+    "state": "empty"
+   },
+   {
+    "index": 1,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-02",
+    "source": "holder",
+    "state": "empty"
+   }
+  ],
+  "move_to_grid": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "message": "Slot-01 has no calibrated position. Run 'Calibrate slot positions' in the Sample Holder panel on the Microscope tab.",
+   "raised": "ValueError"
+  },
+  "move_to_slot": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "message": "Slot-01 has no calibrated position. Run 'Calibrate slot positions' in the Sample Holder panel on the Microscope tab.",
+     "raised": "ValueError"
+    },
+    {
+     "message": "Slot-02 has no calibrated position. Run 'Calibrate slot positions' in the Sample Holder panel on the Microscope tab.",
+     "raised": "ValueError"
+    }
+   ]
+  },
+  "rebuilt": {
+   "holder": {
+    "capacity": 2,
+    "name": "Default Shuttle",
+    "pre_tilt": 35.0,
+    "slots": [
+     {
+      "calibrated": false,
+      "grid": "Pinned",
+      "index": 0,
+      "name": "Slot-01",
+      "position": null
+     },
+     {
+      "calibrated": false,
+      "grid": null,
+      "index": 1,
+      "name": "Slot-02",
+      "position": null
+     }
+    ]
+   },
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "restore_occupancy": true
+  },
+  "run_inventory": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ]
+  },
+  "unload": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": null
+  }
+ },
+ "flat-calibrated": {
+  "after_moves": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": {
+    "current_grid": "Pinned",
+    "current_slot": "Slot-01",
+    "loaded_grids": [
+     "Pinned"
+    ],
+    "slot_at_origin": null
+   }
+  },
+  "assign_grid": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": null
+  },
+  "ensure_loaded": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": "Slot-01"
+  },
+  "ensure_loaded_again": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": "Slot-01"
+  },
+  "ensure_loaded_unknown": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "message": "Grid 'No-Such-Grid' is not in any holder slot. Place it in the holder and update the sample holder configuration.",
+   "raised": "GridExchangeError"
+  },
+  "get_inventory": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ]
+  },
+  "has_loader": false,
+  "holder": {
+   "capacity": 2,
+   "name": "Default Shuttle",
+   "pre_tilt": 35.0,
+   "slots": [
+    {
+     "calibrated": true,
+     "grid": null,
+     "index": 0,
+     "name": "Slot-01",
+     "position": {
+      "r": 0.0,
+      "t": 0.610865238198,
+      "x": -0.001,
+      "y": 0.0,
+      "z": 0.0
+     }
+    },
+    {
+     "calibrated": true,
+     "grid": null,
+     "index": 1,
+     "name": "Slot-02",
+     "position": {
+      "r": 0.0,
+      "t": 0.610865238198,
+      "x": 0.001,
+      "y": 0.0,
+      "z": 0.0
+     }
+    }
+   ]
+  },
+  "inventory": [
+   {
+    "index": 0,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-01",
+    "source": "holder",
+    "state": "empty"
+   },
+   {
+    "index": 1,
+    "loaded": false,
+    "name": null,
+    "present": false,
+    "slot": "Slot-02",
+    "source": "holder",
+    "state": "empty"
+   }
+  ],
+  "move_to_grid": {
+   "calls": [
+    [
+     "stage.move_absolute",
+     {
+      "r": 0.0,
+      "t": 0.610865238198,
+      "x": -0.001,
+      "y": 0.0,
+      "z": 0.0
+     }
+    ]
+   ],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": {
+    "r": 0.0,
+    "t": 0.610865238198,
+    "x": -0.001,
+    "y": 0.0,
+    "z": 0.0
+   }
+  },
+  "move_to_slot": {
+   "calls": [
+    [
+     "stage.move_absolute",
+     {
+      "r": 0.0,
+      "t": 0.610865238198,
+      "x": -0.001,
+      "y": 0.0,
+      "z": 0.0
+     }
+    ],
+    [
+     "stage.move_absolute",
+     {
+      "r": 0.0,
+      "t": 0.610865238198,
+      "x": 0.001,
+      "y": 0.0,
+      "z": 0.0
+     }
+    ]
+   ],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "returned": {
+      "r": 0.0,
+      "t": 0.610865238198,
+      "x": -0.001,
+      "y": 0.0,
+      "z": 0.0
+     }
+    },
+    {
+     "returned": {
+      "r": 0.0,
+      "t": 0.610865238198,
+      "x": 0.001,
+      "y": 0.0,
+      "z": 0.0
+     }
+    }
+   ]
+  },
+  "rebuilt": {
+   "holder": {
+    "capacity": 2,
+    "name": "Default Shuttle",
+    "pre_tilt": 35.0,
+    "slots": [
+     {
+      "calibrated": true,
+      "grid": "Pinned",
+      "index": 0,
+      "name": "Slot-01",
+      "position": {
+       "r": 0.0,
+       "t": 0.610865238198,
+       "x": -0.001,
+       "y": 0.0,
+       "z": 0.0
+      }
+     },
+     {
+      "calibrated": true,
+      "grid": null,
+      "index": 1,
+      "name": "Slot-02",
+      "position": {
+       "r": 0.0,
+       "t": 0.610865238198,
+       "x": 0.001,
+       "y": 0.0,
+       "z": 0.0
+      }
+     }
+    ]
+   },
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "restore_occupancy": true
+  },
+  "run_inventory": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": [
+    {
+     "index": 0,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "empty"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ]
+  },
+  "unload": {
+   "calls": [],
+   "inventory": [
+    {
+     "index": 0,
+     "loaded": true,
+     "name": "Pinned",
+     "present": true,
+     "slot": "Slot-01",
+     "source": "holder",
+     "state": "loaded"
+    },
+    {
+     "index": 1,
+     "loaded": false,
+     "name": null,
+     "present": false,
+     "slot": "Slot-02",
+     "source": "holder",
+     "state": "empty"
+    }
+   ],
+   "returned": null
+  }
+ }
+}
