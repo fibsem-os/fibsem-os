@@ -13,6 +13,7 @@ import types
 
 import pytest
 
+from fibsem.drivers.tescan import connection as tescan_connection
 from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.drivers.tescan.services import TescanSpotBurn
 from fibsem.imaging.spot import SpotBurnSettings, SpotBurnStatus
@@ -37,7 +38,7 @@ def tescan(connect, monkeypatch):
         types.SimpleNamespace(Second="Second"),
         raising=False,
     )
-    monkeypatch.setattr(tescan_module.time, "sleep", lambda s: None)
+    monkeypatch.setattr(tescan_connection.time, "sleep", lambda s: None)
 
     def make(running_looks=2):
         microscope, fake = connect()

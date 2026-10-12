@@ -409,14 +409,15 @@ def _settable(beam: Optional[Beam], name: str) -> bool:
     return beam is not None and name in beam.parameters and getattr(beam, name).settable
 
 
-def bind_milling(service: Type[_M], microscope: Any) -> Optional[_M]:
+def bind_milling(service: Type[_M], microscope: Any, **kwargs: Any) -> Optional[_M]:
     """Build a microscope's milling service of class *service* over its beams, or
     None when it has no ion beam (the column is disabled), which leaves the
-    microscope's own milling code in charge."""
+    microscope's own milling code in charge. *kwargs* go to the service's
+    constructor, such as the driver's connection."""
     beams = microscope.beams
     if BeamType.ION not in beams:
         return None
-    milling = service(parent=microscope)
+    milling = service(parent=microscope, **kwargs)
     milling.fill_roles(ion=beams[BeamType.ION])
     if BeamType.ELECTRON in beams:
         milling.fill_roles(electron=beams[BeamType.ELECTRON])
