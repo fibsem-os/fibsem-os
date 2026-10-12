@@ -25,6 +25,7 @@ from fibsem.correlation.util import (
     hole_fitting_reflection,
     target_fitting_fluorescence,
 )
+from fibsem.theme.tokens import CANVAS_BG
 
 
 def _blob_2d(size: int, cx: float, cy: float, sigma: float = 3.0) -> np.ndarray:
@@ -345,7 +346,7 @@ def test_plot_fit_diagnostic_dark_vs_light_facecolor():
     from matplotlib.colors import to_hex
 
     assert (
-        to_hex(plot_fit_diagnostic(_with_z(), dark=True).get_facecolor()) == "#1e2124"
+        to_hex(plot_fit_diagnostic(_with_z(), dark=True).get_facecolor()) == CANVAS_BG
     )
     assert (
         to_hex(plot_fit_diagnostic(_with_z(), dark=False).get_facecolor()) == "#ffffff"

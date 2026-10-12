@@ -23,6 +23,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     OverviewAcquisitionSettings,
 )
+from fibsem.theme.tokens import PANEL_COLOR
 
 POSITION_COLOURS = [
     "lime",
@@ -286,8 +287,8 @@ def plot_tile_grid(
     ax.set_xlabel(f"X ({sym})")
     ax.set_ylabel(f"Y ({sym})")
     ax.set_aspect("equal")
-    ax.set_facecolor("#1e2027")
-    fig.patch.set_facecolor("#1e2027")
+    ax.set_facecolor(PANEL_COLOR)
+    fig.patch.set_facecolor(PANEL_COLOR)
     ax.tick_params(colors="white")
     ax.xaxis.label.set_color("white")
     ax.yaxis.label.set_color("white")
