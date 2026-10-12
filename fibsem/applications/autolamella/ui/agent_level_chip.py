@@ -33,10 +33,8 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     GRAY_ICON_COLOR,
-    GRAY_SECONDARY_COLOR,
     PURPLE_COLOR,
     RED_COLOR,
-    TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
@@ -53,6 +51,12 @@ _CHIP = """
     QPushButton::menu-indicator {{ width: 0px; }}
 """
 
+# Assisting's fill: the purple at a third strength, between Watching's outline and
+# Driving's solid fill.
+_PURPLE_TINT = "rgba({}, {}, {}, 0.35)".format(
+    *(int(PURPLE_COLOR[i : i + 2], 16) for i in (1, 3, 5))
+)
+
 # Each level: the chip's word, its look, and its tooltip.
 _LEVELS = {
     AgentLevel.OFF: (
@@ -63,17 +67,17 @@ _LEVELS = {
     AgentLevel.WATCH: (
         "Agent: Watching",
         _CHIP.format(
-            color=TEXT_COLOR,
+            color=TEXT_STRONG_COLOR,
             background="transparent",
-            border=f"1px solid {GRAY_SECONDARY_COLOR}",
+            border=f"1px solid {PURPLE_COLOR}",
         ),
         "Read only",
     ),
     AgentLevel.ASSIST: (
         "Agent: Assisting",
         _CHIP.format(
-            color=TEXT_COLOR,
-            background="transparent",
+            color=TEXT_STRONG_COLOR,
+            background=_PURPLE_TINT,
             border=f"1px solid {PURPLE_COLOR}",
         ),
         "Asks first",
@@ -240,6 +244,13 @@ class AgentLevelChip(QPushButton):
         self.menu_.aboutToShow.connect(self.refresh_last_heard)
         self.setMenu(self.menu_)
 
+        # One width for every level, so the status bar doesn't shift when it changes.
+        widths = []
+        for level in _LEVELS:
+            self.set_level(level)
+            self.ensurePolished()
+            widths.append(self.sizeHint().width())
+        self.setFixedWidth(max(widths))
         self.set_level(AgentLevel.WATCH)
 
     @property

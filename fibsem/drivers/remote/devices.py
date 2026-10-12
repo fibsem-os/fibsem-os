@@ -509,6 +509,14 @@ class RemoteBeam(RemoteDevice, Beam):
     def _full_frame(self) -> None:
         self.call_command("full_frame")
 
+    _installed_gas: Optional[str] = None
+
+    def _apply_facts(self, facts: Dict[str, Any]) -> None:
+        self._installed_gas = facts.get("installed_plasma_gas")
+
+    def installed_plasma_gas(self) -> Optional[str]:
+        return self._installed_gas
+
     @command(available=lambda beam: False)
     def acquire(self, image_settings: Any = None) -> Any:
         """Not yet: a FibsemImage needs its metadata sent too."""
@@ -687,10 +695,15 @@ class RemoteManipulator(RemoteDevice, Manipulator):
 
     _axes: Tuple[str, ...] = ("x", "y", "z")
     _named: Tuple[str, ...] = ()
+    _installed: Optional[bool] = None
 
     def _apply_facts(self, facts: Dict[str, Any]) -> None:
         self._axes = tuple(facts.get("axes", self._axes))
         self._named = tuple(facts.get("named_positions", ()))
+        self._installed = facts.get("is_installed")
+
+    def is_installed(self) -> Optional[bool]:
+        return self._installed
 
     def axes(self) -> Tuple[str, ...]:
         return self._axes

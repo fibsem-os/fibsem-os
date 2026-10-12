@@ -652,7 +652,6 @@ class ThermoMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.warning(f"Could not build the sample handling: {e}")
 
-        # after the sample stage, which reads which subsystems are fitted
         self._build_parts()
         self._bind_device_roles()
 
@@ -719,18 +718,22 @@ class ThermoMicroscope(FibsemMicroscope):
         )
 
     def _build_parts(self) -> None:
-        """Build the chamber, and the manipulator when it is fitted, and route the
-        chamber and manipulator keys to them. Then build any other device the
-        configuration adds.
+        """Build the chamber and the manipulator, keep the manipulator only when it
+        says it is fitted, and route the chamber and manipulator keys to them. Then
+        build any other device the configuration adds.
 
         ``pump``, ``vent`` and the manipulator's raw moves then go through the
         devices. The corrected and offset needle moves stay here and move through
         the device.
         """
-        fitted = [DeviceEntry(name="chamber", type="chamber")]
-        if self._is_fitted("manipulator"):
-            fitted.append(DeviceEntry(name="manipulator", type="manipulator"))
-        self._build_devices(fitted, _PART_TYPES)
+        self._build_devices(
+            [
+                DeviceEntry(name="chamber", type="chamber"),
+                DeviceEntry(name="manipulator", type="manipulator"),
+            ],
+            _PART_TYPES,
+        )
+        self._keep_if_fitted("manipulator")
 
         routes = dict(self._device_routes)
         routes.update(
@@ -931,29 +934,6 @@ class ThermoMicroscope(FibsemMicroscope):
         Kept for one release because custom scripts may call it.
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
-    # ---- fitted subsystems, as AutoScript reports them --------------------
-
-    #: For a probe that cannot say.
-    DEFAULT_FITTED = {
-        "manipulator": True,
-    }
-
-    def _probe_manipulator_installed(self) -> Optional[bool]:
-        """`specimen.manipulator.is_installed` -- documented, read-only, a bool."""
-        return bool(self._connection.sdk.specimen.manipulator.is_installed)
-
-    def _probe_plasma_gas(self) -> Optional[str]:
-        """`ion_beam.source.plasma_gas.value` -- the call `get("plasma_gas")` makes.
-
-        Only a plasma source has one; on a Ga column the attribute is missing or the
-        read raises, and either is "cannot say", which leaves the file's answer.
-        """
-        ion_beam = self._connection.sdk.beams.ion_beam
-        plasma_gas = getattr(ion_beam.source, "plasma_gas", None)
-        if plasma_gas is None:
-            return None
-        return plasma_gas.value or None
 
     def _x_corrected_needle_movement(
         self, expected_x: float

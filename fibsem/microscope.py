@@ -584,22 +584,19 @@ class FibsemMicroscope(ABC):
     #
     # Whether a manipulator is fitted used to be a configuration key, which meant a
     # site could describe hardware it does not have, or omit hardware it does, and
-    # nothing would disagree. It is not in the file any more. A backend that can ask
-    # the instrument does (AutoScript); one that cannot answers for itself with
-    # `DEFAULT_FITTED`, which is what its shipped configuration used to say. Each
-    # probe returns True, False, or None for "cannot say", and None falls back to the
-    # class default rather than to "not fitted" -- a subsystem that wrongly appears
-    # is a menu entry that errors, one that wrongly disappears is a working
-    # instrument that lost a feature on upgrade.
+    # nothing would disagree. It is not in the file any more. The device answers:
+    # a backend builds its own manipulator, asks it (`Manipulator.is_installed`), and
+    # takes it out of the map when the instrument says it is not fitted
+    # (`_keep_if_fitted`). A device that cannot ask answers None, and the backend's
+    # `DEFAULT_FITTED` stands in, which is what its shipped configuration used to say.
+    # None falls back to that default rather than to "not fitted" -- a subsystem that
+    # wrongly appears is a menu entry that errors, one that wrongly disappears is a
+    # working instrument that lost a feature on upgrade.
 
     #: What this backend assumes is fitted when it cannot ask.
     DEFAULT_FITTED: Dict[str, bool] = {
         "manipulator": True,
     }
-
-    def _probe_manipulator_installed(self) -> Optional[bool]:
-        """Whether a manipulator is fitted, or None if this backend cannot say."""
-        return None
 
     #: Who answered each fitted-subsystem question at connect: ``"instrument"`` when
     #: a probe did, ``"backend"`` when the backend's `DEFAULT_FITTED` stood in,
@@ -611,41 +608,58 @@ class FibsemMicroscope(ABC):
     _FITTED_DEVICES: Tuple[str, ...] = ("manipulator",)
 
     def _probe_fitted(self, key: str) -> Tuple[bool, str]:
-        """Whether the instrument says *key* is fitted, and who answered
-        (``"instrument"`` or ``"backend"``)."""
-        probe = {"manipulator": self._probe_manipulator_installed}[key]
+        """Whether *key*'s device says it is fitted, and who answered
+        (``"instrument"`` or ``"backend"``). With no device, or one that cannot say,
+        the backend's `DEFAULT_FITTED` answers."""
+        device = self._devices.get(key)
         try:
-            present = probe()
+            present = None if device is None else device.is_installed()
         except Exception as e:
-            # A raising probe is ambiguous -- a missing subsystem and a sick
+            # A raising answer is ambiguous -- a missing subsystem and a sick
             # connection look the same -- so it is read as "cannot say".
-            logging.debug(f"Capability probe {probe.__name__} failed: {e}")
+            logging.debug(f"{key}: is_installed failed: {e}")
             present = None
         if present is None:
             return bool(self.DEFAULT_FITTED[key]), "backend"
         return bool(present), "instrument"
 
-    def _is_fitted(self, key: str) -> bool:
-        """Whether the instrument says *key* is fitted: the answer recorded at
-        connect, else a fresh one. What a backend asks before it builds its own
-        device for *key*; once the devices are built, `is_available` is the answer."""
-        answers = getattr(self, "_fitted_answers", None) or {}
-        if key in answers:
-            return answers[key]
-        return self._probe_fitted(key)[0]
+    def _keep_if_fitted(self, key: str) -> None:
+        """Ask the device this backend just built for *key* whether the instrument
+        has it fitted, record the answer, and take the device out of the map when the
+        answer is no. A device from another driver is fitted whatever it says: a
+        manipulator on its own controller is one the vendor never reports."""
+        if self._devices.get(key) is None or self._built_by_another_driver(key):
+            return
+        present, source = self._probe_fitted(key)
+        if not hasattr(self, "_fitted_sources"):
+            self._fitted_sources: Dict[str, str] = {}
+        self._fitted_sources[key] = source
+        sources = getattr(self, "capability_sources", None)
+        if sources is not None:
+            sources[key] = source
+        if not present:
+            logging.info(f"The instrument reports no {key}; its device is not kept.")
+            self._set_device(key, None)
 
     def _read_hardware_capabilities(self) -> None:
-        """Ask the instrument which subsystems are fitted, and record the answers."""
+        """Record who answered whether each subsystem is fitted.
+
+        The answer itself is the device map (`is_available`): a device that is there
+        is asked again, and one `_keep_if_fitted` took out keeps the answer it gave
+        then. A backend that builds its parts after this (AutoScript) records them
+        when it builds them.
+        """
         self.capability_sources = {}
-        self._fitted_answers: Dict[str, bool] = {}
         not_built = getattr(self, "_devices_not_built", set())
+        asked = getattr(self, "_fitted_sources", {})
         for key in self._FITTED_DEVICES:
-            present, source = self._probe_fitted(key)
-            self._fitted_answers[key] = present
+            if key in self._devices or key not in asked:
+                source = self._probe_fitted(key)[1]
+            else:
+                source = asked[key]
             self.capability_sources[key] = "not_built" if key in not_built else source
             # A device for it from another driver is fitted whatever the backend
-            # says: a manipulator on its own controller is one the vendor never
-            # reports. `_set_device` does the same for a device built afterwards.
+            # says. `_set_device` does the same for a device built afterwards.
             self._mark_device_fitted(key)
         self._read_plasma_source()
 
@@ -725,21 +739,18 @@ class FibsemMicroscope(ABC):
     # Read, never changed: nothing here sets a gas on the instrument, and a gas the
     # configuration states is left alone -- the instrument is not even asked. The
     # probe can only find a plasma source; "cannot say" leaves the column as the
-    # file described it.
-
-    def _probe_plasma_gas(self) -> Optional[str]:
-        """The ion column's current plasma gas, or None if this backend cannot say."""
-        return None
+    # file described it. The ion beam device answers (`Beam.installed_plasma_gas`).
 
     def _read_plasma_source(self) -> None:
-        """Record the instrument's plasma gas when the configuration names none."""
+        """Record the ion column's plasma gas when the configuration names none."""
         if self.system.ion.plasma_gas is not None:
             return
+        ion = self._devices.get("ion")
         try:
-            gas = self._probe_plasma_gas()
+            gas = None if ion is None else ion.installed_plasma_gas()
         except Exception as e:
             # A Ga column refuses the question the same way a sick connection does.
-            logging.debug(f"Plasma gas probe failed: {e}")
+            logging.debug(f"Reading the installed plasma gas failed: {e}")
             gas = None
         if not gas:
             return
@@ -747,6 +758,13 @@ class FibsemMicroscope(ABC):
             f"The configuration names no plasma gas; the ion column reports '{gas}'."
         )
         self.system.ion.plasma_gas = str(gas)
+        # The device was built before the gas was recorded, so it has no plasma_gas
+        # yet, and what depends on the gas (the currents) was read without it.
+        if "plasma_gas" not in ion.parameters:
+            ion.bind_implemented("plasma_gas")
+        for param in ion.parameters.values():
+            if "plasma_gas" in param.spec.depends_on:
+                param.refresh_metadata()
 
     def _apply_fluorescence_calibration(self) -> None:
         """Push the configured objective calibration onto the objective.
