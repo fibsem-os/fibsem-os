@@ -154,7 +154,7 @@ def _calls(beam_type):
         ),
         ("acquire current", lambda m: _image(m.acquire_image(beam_type=beam_type))),
         (
-            "acquire both",  # a beam type wins: current settings, as before
+            "acquire both",  # the settings win, as on every backend
             lambda m: _image(
                 m.acquire_image(_settings(beam_type), beam_type=beam_type)
             ),

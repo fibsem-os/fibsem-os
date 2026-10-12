@@ -425,16 +425,30 @@ class FibsemMicroscope(ABC):
             return False
         return True
 
-    @abstractmethod
+    # Imaging and the autofunctions are the beam device's commands, so every backend
+    # runs the same four methods: the driver's work is in its beam's hooks.
+
     def acquire_image(
         self,
         image_settings: Optional[ImageSettings] = None,
         beam_type: Optional[BeamType] = None,
     ) -> FibsemImage:
-        pass
+        """Acquire an image with `image_settings`, or with the current settings of
+        `beam_type`. Given both, the settings win.
 
-    def last_image(self, beam_type: BeamType) -> FibsemImage:
-        raise self._unsupported("last_image")
+        Raises:
+            ValueError: If neither is given, or the beam is not enabled.
+        """
+        if image_settings is None and beam_type is None:
+            raise ValueError(
+                "Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
+            )
+        target = image_settings.beam_type if image_settings is not None else beam_type
+        return self._beam_device(target).acquire(image_settings)
+
+    def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
+        """The last image `beam_type` acquired, read back from the instrument."""
+        return self._beam_device(beam_type).last_image()
 
     @property
     def is_acquiring(self) -> bool:
@@ -486,17 +500,42 @@ class FibsemMicroscope(ABC):
     def acquire_chamber_image(self) -> FibsemImage:
         raise self._unsupported("acquire_chamber_image")
 
-    @abstractmethod
     def autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
-        pass
+        """Run the instrument's brightness and contrast routine for `beam_type`,
+        optionally on a rectangle of the frame (0 to 1)."""
+        self._beam_device(beam_type).autocontrast(reduced_area)
 
-    @abstractmethod
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
-        pass
+        """Focus `beam_type`, optionally on a rectangle of the frame (0 to 1).
+
+        The instrument's own routine where the beam has one. Otherwise an image-based
+        working-distance sweep at the beam's current field of view (Odemis, whose
+        client forwards no autofocus call), where the working distance can be set; a
+        column with neither (the Tescan ion beam) warns and does nothing.
+        """
+        beam = self._beam_device(beam_type)
+        if beam.commands["auto_focus"].available:
+            beam.auto_focus(reduced_area)
+            return
+        if not self.is_working_distance_settable(beam_type):
+            logging.warning(
+                f"Auto focus is not supported for {beam_type.name} in {self.manufacturer} API"
+            )
+            return
+        from fibsem.autofunctions.autofocus import AutoFocusSettings, run_auto_focus
+
+        # acquire_image writes resolution, dwell time and field of view to the beam;
+        # run_auto_focus puts them back when the sweep ends.
+        run_auto_focus(
+            self,
+            beam_type=beam_type,
+            hfw=self.get_field_of_view(beam_type),
+            settings=AutoFocusSettings(reduced_area=reduced_area),
+        )
 
     def reset_beam_shifts(self) -> None:
         """Set the beam shift to zero for the electron and ion beams."""

@@ -365,33 +365,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.connection.set_active_view(channel.value)
         self.connection.set_active_device(channel.value)
 
-    def acquire_image(
-        self,
-        image_settings: Optional[ImageSettings] = None,
-        beam_type: Optional[BeamType] = None,
-    ) -> FibsemImage:
-        """Acquire an image with `image_settings`, or with the current settings of
-        `beam_type` when that is given instead."""
-        # The beam's acquire command; a beam_type takes precedence and means the
-        # current settings.
-        if beam_type is not None:
-            return self._beam_device(beam_type).acquire(None)
-        if image_settings is None:
-            raise ValueError(
-                "Must provide image_settings to acquire a new image if beam_type is not specified."
-            )
-        return self._beam_device(image_settings.beam_type).acquire(image_settings)
-
-    def last_image(self, beam_type: BeamType) -> FibsemImage:
-        return self._beam_device(beam_type).last_image()
-
-    def _beam_device(self, beam_type: BeamType):
-        """The beam device for ``beam_type``; a column disabled in the config has none."""
-        device = self.beams.get(beam_type)
-        if device is None:
-            raise ValueError(f"The {beam_type.name} beam is not enabled.")
-        return device
-
     def _current_image_settings(
         self, beam_type: BeamType, image: np.ndarray
     ) -> ImageSettings:
@@ -416,31 +389,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         image = FibsemImage(data, md)
         self._set_additional_metadata(image)
         return image
-
-    def autocontrast(
-        self, beam_type: BeamType, reduced_area: FibsemRectangle = None
-    ) -> None:
-        self._beam_device(beam_type).autocontrast(reduced_area)
-
-    def auto_focus(
-        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
-    ) -> None:
-        """An image-based working-distance sweep, at the beam's current field of view.
-
-        The odemis client exposes no autofocus call (the AutoScript adapter has one,
-        but odemis does not forward it), so the microscope's own focus routine is out
-        of reach from here.
-        """
-        from fibsem.autofunctions.autofocus import AutoFocusSettings, run_auto_focus
-
-        # acquire_image writes resolution, dwell time and field of view to the beam;
-        # run_auto_focus puts them back when the sweep ends.
-        run_auto_focus(
-            self,
-            beam_type=beam_type,
-            hfw=self.get_field_of_view(beam_type),
-            settings=AutoFocusSettings(reduced_area=reduced_area),
-        )
 
     @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
