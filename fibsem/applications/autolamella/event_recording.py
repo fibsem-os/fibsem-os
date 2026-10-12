@@ -32,7 +32,7 @@ import threading
 import uuid
 import weakref
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR, TASK, acting, current_actor
 from fibsem.applications.autolamella.proposals import _encode_values
@@ -185,6 +185,52 @@ def read_events(path: Path) -> Iterator[Dict[str, Any]]:
             continue
         if isinstance(record, dict):
             yield record
+
+
+def read_new_events(
+    path: Path, offset: int = 0, kinds: Optional[Iterable[str]] = None
+) -> Tuple[List[Dict[str, Any]], int]:
+    """The complete records in an events file from byte *offset* on, and the
+    offset just past the last of them: reading on from there next time gets only
+    what was written since, where `read_events` reads the whole file again.
+
+    A final line without its newline is left for the next read, as its write may
+    not have finished. With *kinds*, only records of those kinds are returned,
+    and a line that does not name one is skipped without being parsed: a long
+    run's file is mostly progress records, and parsing them all took seconds.
+    """
+    with open(path, "rb") as f:
+        f.seek(offset)
+        data = f.read()
+    end = data.rfind(b"\n")
+    if end < 0:
+        return [], offset
+    data = data[: end + 1]
+    wanted = frozenset(kinds) if kinds is not None else None
+    if wanted is None:
+        lines = data.split(b"\n")
+    else:
+        # Find the lines that name a wanted kind, rather than look at every line.
+        starts = set()
+        for needle in (json.dumps(kind).encode() for kind in wanted):
+            at = data.find(needle)
+            while at >= 0:
+                starts.add(data.rfind(b"\n", 0, at) + 1)
+                at = data.find(needle, data.find(b"\n", at) + 1)
+        lines = [data[start : data.find(b"\n", start)] for start in sorted(starts)]
+    records: List[Dict[str, Any]] = []
+    for line in lines:
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(record, dict) and (
+            wanted is None or record.get("kind") in wanted
+        ):
+            records.append(record)
+    return records, offset + end + 1
 
 
 def _lifecycle_events() -> frozenset:
