@@ -45,7 +45,13 @@ from fibsem.server.app_routes import (
     build_app_control_router,
     build_app_router,
 )
-from fibsem.server.auth import AuthConfig, Scope, command_slot, require_scope
+from fibsem.server.auth import (
+    AuthConfig,
+    Scope,
+    command_slot,
+    require_monitoring,
+    require_scope,
+)
 from fibsem.server.devices import build_device_router
 from fibsem.server.discovery import (
     DISCOVERY_FILE,
@@ -204,8 +210,9 @@ def build_server(
             content={"detail": {"error_type": type(exc).__name__, "message": str(exc)}},
         )
 
-    # /capabilities, which every client reads first, whatever is mounted.
-    base = APIRouter(dependencies=[Depends(require_scope(Scope.READ))])
+    # /capabilities, which every client reads first, whatever is mounted, the
+    # dashboard included.
+    base = APIRouter(dependencies=[Depends(require_monitoring())])
     read = APIRouter(dependencies=[Depends(require_scope(Scope.READ))])
     # Hardware routes also take the command slot, so two commands never interleave.
     hw = APIRouter(
@@ -580,10 +587,11 @@ def build_server(
         )
     if app_context is not None:
         # Read scope applied here so auth stays in one place; the router itself
-        # is a thin pass-through over the context's JSON-able snapshots.
+        # is a thin pass-through over the context's JSON-able snapshots. These
+        # are the monitoring routes, so the dashboard token may GET them too.
         app.include_router(
             build_app_router(app_context),
-            dependencies=[Depends(require_scope(Scope.READ))],
+            dependencies=[Depends(require_monitoring())],
         )
         # Acting on the session (answering prompts) is control scope — armed by
         # the hosting, never by default; unarmed callers get 403 scope_not_armed.

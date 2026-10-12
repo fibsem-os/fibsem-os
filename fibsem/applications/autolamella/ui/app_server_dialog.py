@@ -315,10 +315,11 @@ class AppServerDialog(QDialog):
 
     @staticmethod
     def dashboard_url(host) -> str:
-        """The dashboard address with the token in the URL *fragment* — the
-        one part of a URL a browser never sends anywhere, so it reaches the
-        page's own script and nothing else (no server log, no referrer)."""
-        return f"{host.url}/dashboard#token={host.auth.token}"
+        """The dashboard address with the dashboard's own read-only token
+        (FIB-1035), never the agent's, in the URL *fragment* — the one part of
+        a URL a browser never sends anywhere, so it reaches the page's own
+        script and nothing else (no server log, no referrer)."""
+        return f"{host.url}/dashboard#token={host.auth.dashboard_token}"
 
     def _on_dashboard_clicked(self) -> None:
         host = self._host()
