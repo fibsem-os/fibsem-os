@@ -21,6 +21,7 @@ import threading
 
 import pytest
 
+from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope, parse_current_from_preset
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import (
@@ -245,7 +246,6 @@ def test_tescan_disconnect_keeps_the_model(monkeypatch):
         def Disconnect(self):
             pass
 
-    microscope.connection = FakeConnection()
-    microscope._connection_lock = threading.RLock()
+    microscope._connection = TescanConnection(FakeConnection(), "localhost", 8300)
     microscope.disconnect()
     assert estimate_stage_milling_time(stage) == DOSE_MODEL_SECONDS

@@ -51,7 +51,7 @@ def _connected(monkeypatch):
     assert set(microscope.beams) == {E, I}
     # what the last image reported: the API cannot read these
     for beam_type in (E, I):
-        cache = microscope._beam_parameters[beam_type]
+        cache = microscope.beams[beam_type]._cache
         cache.resolution = [1536, 1024]
         cache.dwell_time = 1e-6
         cache.stigmation = Point(0.1, -0.2)
@@ -270,7 +270,7 @@ def test_connect_sets_the_default_detectors_through_the_devices(monkeypatch):
     monkeypatch.setattr(TescanBeam, "write_detector_type", recording)
     microscope, fake = connect(monkeypatch, _system())
     assert seen == [(E, "SE"), (I, "SE")]
-    assert microscope._active_detector[E].name == "SE"
+    assert microscope.beams[E]._detector.name == "SE"
 
 
 def test_a_disabled_column_is_never_built_or_touched(monkeypatch):

@@ -8,7 +8,7 @@ spot burn service draws one DrawBeam dot per point instead, through the milling 
 
 import pytest
 
-from fibsem.drivers.tescan.microscope import TescanMicroscope
+from fibsem.drivers.tescan.services import TescanSpotBurn
 from fibsem.structures import Point
 
 HFW = 100e-6
@@ -25,7 +25,7 @@ RESOLUTION = (1536, 1024)  # (width, height)
 )
 def test_point_to_metres_maps_normalised_to_centre_origin(normalised, expected):
     """(0-1, top-left origin) -> metres from the image centre."""
-    got = TescanMicroscope._spot_burn_point_to_metres(
+    got = TescanSpotBurn._spot_burn_point_to_metres(
         normalised, hfw=HFW, resolution=RESOLUTION
     )
     assert got.x == pytest.approx(expected.x)
@@ -34,10 +34,10 @@ def test_point_to_metres_maps_normalised_to_centre_origin(normalised, expected):
 
 def test_point_to_metres_y_axis_points_up():
     """Image y grows downwards, DrawBeam y grows upwards, so the sign must flip."""
-    top = TescanMicroscope._spot_burn_point_to_metres(
+    top = TescanSpotBurn._spot_burn_point_to_metres(
         Point(0.5, 0.0), hfw=HFW, resolution=RESOLUTION
     )
-    bottom = TescanMicroscope._spot_burn_point_to_metres(
+    bottom = TescanSpotBurn._spot_burn_point_to_metres(
         Point(0.5, 1.0), hfw=HFW, resolution=RESOLUTION
     )
     assert top.y > 0
@@ -48,7 +48,7 @@ def test_point_to_metres_y_axis_points_up():
 def test_point_to_metres_uses_pixel_aspect_not_hfw_for_y():
     """y extent is hfw scaled by the pixel aspect ratio, not hfw itself."""
     width, height = RESOLUTION
-    bottom = TescanMicroscope._spot_burn_point_to_metres(
+    bottom = TescanSpotBurn._spot_burn_point_to_metres(
         Point(0.5, 1.0), hfw=HFW, resolution=RESOLUTION
     )
     assert bottom.y == pytest.approx(-(HFW / width) * (height / 2))
