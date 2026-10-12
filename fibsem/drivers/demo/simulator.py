@@ -386,55 +386,6 @@ class DemoImaging:
         )
         return False
 
-    def acquire_image(
-        self,
-        image_settings: Optional[ImageSettings] = None,
-        beam_type: Optional[BeamType] = None,
-    ) -> FibsemImage:
-        """
-        Acquire a new image with the specified settings or current settings for the given beam type.
-
-        Args:
-            image_settings (ImageSettings, optional): The settings for the new image.
-                Takes precedence if both parameters are provided.
-            beam_type (BeamType, optional): The beam type to use with current settings.
-                Used only if image_settings is not provided.
-
-        Returns:
-            FibsemImage: A new FibsemImage representing the acquired image.
-
-        Raises:
-            ValueError: If neither image_settings nor beam_type is provided.
-
-        Examples:
-            # Acquire with specific settings
-            settings = ImageSettings(beam_type=BeamType.ELECTRON, hfw=1e-6, resolution=(1024, 1024))
-            image = microscope.acquire_image(image_settings=settings)
-
-            # Acquire with current settings for a specific beam type
-            image = microscope.acquire_image(beam_type=BeamType.ION)
-
-            # If both provided, image_settings takes precedence
-            image = microscope.acquire_image(image_settings=settings, beam_type=BeamType.ION)  # Uses settings
-        """
-        # Validate parameters - at least one must be provided
-        if image_settings is None and beam_type is None:
-            raise ValueError(
-                "Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
-            )
-        # The beam's acquire command, on a demo whose beams have it; settings win.
-        target = image_settings.beam_type if image_settings is not None else beam_type
-        return self._imaging_beam(target).acquire(image_settings)
-
-    def _imaging_beam(self, beam_type: BeamType):
-        """The beam device that images, as on the other backends. The Demo's beams
-        run imaging as commands, which call back into the ``_demo_*`` methods below;
-        a column disabled in the config has none."""
-        beam = self.beams.get(beam_type)
-        if beam is None:
-            raise ValueError(f"The {beam_type.name} beam is not enabled.")
-        return beam
-
     def _demo_acquire(
         self,
         image_settings: Optional[ImageSettings],
@@ -681,15 +632,6 @@ class DemoImaging:
             f"Image iterators initialized: {len(self._sem_filenames)} SEM images, {len(self._fib_filenames)} FIB images"
         )
 
-    def last_image(self, beam_type: BeamType) -> Optional[FibsemImage]:
-        """Get the last acquired image of the specified beam type.
-        Args:
-            beam_type: The type of beam (electron or ion).
-        Returns:
-            FibsemImage: The last acquired image.
-        """
-        return self._imaging_beam(beam_type).last_image()
-
     def _demo_last_image(self, beam_type: BeamType) -> Optional[FibsemImage]:
         # `ThermoMicroscope.last_image` sets the channel and then reads the *active
         # view's* buffer -- `imaging.get_image` "retrieves a microscope image currently
@@ -765,11 +707,6 @@ class DemoImaging:
 
         except Exception as e:
             logging.error(f"Error in acquisition worker: {e}")
-
-    def autocontrast(
-        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
-    ) -> None:
-        self._imaging_beam(beam_type).autocontrast(reduced_area)
 
     def _demo_autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle]

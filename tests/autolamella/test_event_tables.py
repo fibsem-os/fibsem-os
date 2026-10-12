@@ -229,7 +229,7 @@ def test_waiting_for_an_answer_is_not_the_machine_s_time():
         _started(0),
         _step(0, "ALIGN_REFERENCE_IMAGE"),
         _step(10, "MILL_LAMELLA"),
-        _record("prompt_raised", 20, {"type": "RunMillingTask", "nonce": 3}),
+        _record("prompt_raised", 20, {"type": "RunMillingTask", "question_id": 3}),
         _record("proposal_asked", 20, {"proposal_id": "p1", "kind": STATE}),
         _record(
             "proposal_decided",
@@ -240,7 +240,7 @@ def test_waiting_for_an_answer_is_not_the_machine_s_time():
         _record(
             "prompt_answered",
             50,
-            {"type": "RunMillingTask", "nonce": 3, "answered_by": "operator"},
+            {"type": "RunMillingTask", "question_id": 3, "answered_by": "operator"},
             actor="operator",
         ),
         _step(60, "ACQUIRE_REFERENCE_IMAGES"),
@@ -280,11 +280,11 @@ def test_a_prompt_is_paired_with_its_own_answer():
     records = [
         _started(0),
         _step(0, "MILL_LAMELLA"),
-        _record("prompt_raised", 10, {"nonce": 1}),
-        _record("prompt_raised", 11, {"nonce": 1}, session="s0"),
-        _record("prompt_answered", 15, {"nonce": 1}),
-        _record("prompt_raised", 20, {"nonce": 2}),
-        _record("prompt_cancelled", 22, {"nonce": 2}),
+        _record("prompt_raised", 10, {"question_id": 1}),
+        _record("prompt_raised", 11, {"question_id": 1}, session="s0"),
+        _record("prompt_answered", 15, {"question_id": 1}),
+        _record("prompt_raised", 20, {"question_id": 2}),
+        _record("prompt_cancelled", 22, {"question_id": 2}),
         _record("task_cancelled", 22),
     ]
 

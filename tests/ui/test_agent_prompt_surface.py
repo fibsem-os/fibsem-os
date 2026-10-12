@@ -99,7 +99,7 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
         assert pending["type"] == "Confirm"
         assert pending["message"] == "Continue to polishing?"
         assert pending["positive"] == "Continue"
-        assert isinstance(pending["nonce"], int)
+        assert isinstance(pending["question_id"], int)
         # A Confirm has no live half — no GUI peek happens, no "current" key.
         assert "current" not in pending
 
@@ -112,7 +112,7 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
             posted["response"] = client.post(
                 "/app/prompt/answer",
                 headers=AUTH,
-                json={"response": True, "nonce": pending["nonce"]},
+                json={"response": True, "question_id": pending["question_id"]},
             )
 
         poster = threading.Thread(target=do_post, daemon=True)
@@ -126,10 +126,12 @@ def test_agent_sees_and_answers_the_question_over_http(ui, qapp):
         assert outcome.get("answer") is True
 
 
-def test_a_stale_nonce_is_refused_and_the_question_stands(ui, qapp):
+def test_a_stale_question_id_is_refused_and_the_question_stands(ui, qapp):
     with _client(ui, arm_control=True) as client:
         thread, outcome = _ask_on_worker(ui, qapp)
-        nonce = client.get("/app/prompt", headers=AUTH).json()["pending"]["nonce"]
+        question_id = client.get("/app/prompt", headers=AUTH).json()["pending"][
+            "question_id"
+        ]
 
         posted = {}
 
@@ -137,7 +139,7 @@ def test_a_stale_nonce_is_refused_and_the_question_stands(ui, qapp):
             posted["response"] = client.post(
                 "/app/prompt/answer",
                 headers=AUTH,
-                json={"response": True, "nonce": nonce - 1},
+                json={"response": True, "question_id": question_id - 1},
             )
 
         poster = threading.Thread(target=do_post, daemon=True)
@@ -262,12 +264,14 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
     clicks nothing, and the question stands."""
     with _client(ui, arm_control=True) as client:
         thread, outcome = _ask_on_worker(ui, qapp)
-        nonce = client.get("/app/prompt", headers=AUTH).json()["pending"]["nonce"]
+        question_id = client.get("/app/prompt", headers=AUTH).json()["pending"][
+            "question_id"
+        ]
 
         malformed = client.post(
             "/app/prompt/answer",
             headers=AUTH,
-            json={"response": True, "nonce": nonce, "value": [1, 2]},
+            json={"response": True, "question_id": question_id, "value": [1, 2]},
         )
         assert malformed.status_code == 422
         assert malformed.json()["detail"]["error_type"] == "invalid_value"
@@ -278,7 +282,11 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
             posted["response"] = client.post(
                 "/app/prompt/answer",
                 headers=AUTH,
-                json={"response": True, "nonce": nonce, "value": {"x": 0, "y": 0}},
+                json={
+                    "response": True,
+                    "question_id": question_id,
+                    "value": {"x": 0, "y": 0},
+                },
             )
 
         poster = threading.Thread(target=do_post, daemon=True)
@@ -289,14 +297,14 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
         assert refused.json()["detail"]["error_type"] == "invalid_value"
         assert "Confirm" in refused.json()["detail"]["message"]
 
-        # The refusals clicked nothing: the same nonce still answers.
+        # The refusals clicked nothing: the same question id still answers.
         posted.clear()
 
         def do_plain_post():
             posted["response"] = client.post(
                 "/app/prompt/answer",
                 headers=AUTH,
-                json={"response": True, "nonce": nonce},
+                json={"response": True, "question_id": question_id},
             )
 
         poster = threading.Thread(target=do_plain_post, daemon=True)
@@ -308,13 +316,13 @@ def test_a_value_on_a_valueless_question_is_refused(ui, qapp):
         assert outcome.get("answer") is True
 
 
-def test_an_answer_without_a_nonce_is_rejected(ui, qapp):
+def test_an_answer_without_a_question_id_is_rejected(ui, qapp):
     with _client(ui, arm_control=True) as client:
         rejected = client.post(
             "/app/prompt/answer", headers=AUTH, json={"response": True}
         )
         assert rejected.status_code == 422
-        assert rejected.json()["detail"]["error_type"] == "missing_nonce"
+        assert rejected.json()["detail"]["error_type"] == "missing_question_id"
 
 
 def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
@@ -334,7 +342,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
             thread, outcome = _ask_on_worker(ui, qapp)
             raised = client.get("/app/events?since=0", headers=AUTH).json()["events"]
             assert raised[-1]["kind"] == "prompt_raised"
-            nonce = raised[-1]["payload"]["nonce"]
+            question_id = raised[-1]["payload"]["question_id"]
 
             posted = {}
 
@@ -342,7 +350,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
                 posted["response"] = client.post(
                     "/app/prompt/answer",
                     headers=AUTH,
-                    json={"response": True, "nonce": nonce},
+                    json={"response": True, "question_id": question_id},
                 )
 
             poster = threading.Thread(target=do_post, daemon=True)
@@ -355,7 +363,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
             answered = [e for e in events if e["kind"] == "prompt_answered"][-1]
             assert answered["payload"]["answered_by"] == "agent"
             assert answered["payload"]["response"] is True
-            assert answered["payload"]["nonce"] == nonce
+            assert answered["payload"]["question_id"] == question_id
     finally:
         dispose()
 
@@ -484,7 +492,9 @@ def test_answering_requires_the_control_scope(ui, qapp):
         # Reading the prompt is observation: read scope suffices.
         assert client.get("/app/prompt", headers=AUTH).status_code == 200
         refused = client.post(
-            "/app/prompt/answer", headers=AUTH, json={"response": True, "nonce": 1}
+            "/app/prompt/answer",
+            headers=AUTH,
+            json={"response": True, "question_id": 1},
         )
         assert refused.status_code == 403
         assert refused.json()["detail"]["scope"] == "control"
