@@ -240,3 +240,70 @@ def test_a_failed_refit_clears_the_last_fit_from_the_panel(qapp):
     assert not old.isVisible()
     shown = [panel._details.itemAt(i).widget() for i in range(panel._details.count())]
     assert len(shown) == 1  # "before" only: no "after", no delta
+
+
+# --- one point after another (FIB-1218 6b) ---------------------------------------
+
+
+def _three_burns():
+    """Three dark burns, each 3 px right of where its point is placed."""
+    yy, xx = np.indices((80, 120), dtype=float)
+    img = np.full((80, 120), 200.0)
+    for cx in (23.0, 53.0, 83.0):
+        img -= 120.0 * np.exp(-((xx - cx) ** 2 + (yy - 40.0) ** 2) / (2 * 3.0**2))
+    return (img + np.random.default_rng(1).normal(0, 4, img.shape)).astype(np.float32)
+
+
+def _run_of_points(qapp, monkeypatch, answers):
+    """Three FIB points; the panel answers each in turn from ``answers``."""
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
+
+    w = _widget(qapp)
+    w._fib_image = SimpleNamespace(filtered_data=_three_burns())
+    coords = [_coord(x, 40.0) for x in (20.0, 50.0, 80.0)]
+    for c in coords:
+        w._coords_tab.fib_list.add_coordinate(c)
+    seen = []
+
+    def answer(panel):
+        seen.append(
+            (panel.result.coordinate, panel._accept_btn.text(), panel._keep_btn.text())
+        )
+        return answers[len(seen) - 1]
+
+    monkeypatch.setattr(ctw.FitPanelDialog, "exec_", answer)
+    return w, coords, seen
+
+
+def test_accept_moves_on_to_the_next_point_until_the_last(qapp, monkeypatch):
+    w, coords, seen = _run_of_points(qapp, monkeypatch, [QDialog.Accepted] * 3)
+    w._on_refit_requested(coords[0])
+    assert [s[0] for s in seen] == coords
+    assert [c.point.x for c in coords] == pytest.approx([23.0, 53.0, 83.0], abs=0.5)
+    assert [s[1] for s in seen] == ["Accept, next ›"] * 2 + ["Accept"]
+
+
+def test_the_run_starts_at_the_point_asked_for(qapp, monkeypatch):
+    w, coords, seen = _run_of_points(qapp, monkeypatch, [QDialog.Accepted] * 2)
+    w._on_refit_requested(coords[1])
+    assert [s[0] for s in seen] == coords[1:]
+    assert coords[0].point.x == 20.0  # before the start: untouched
+
+
+def test_keep_click_moves_on_without_moving_the_point(qapp, monkeypatch):
+    from fibsem.ui.correlation.widgets.fit_panel import KEPT
+
+    w, coords, seen = _run_of_points(
+        qapp, monkeypatch, [KEPT, QDialog.Accepted, QDialog.Accepted]
+    )
+    w._on_refit_requested(coords[0])
+    assert coords[0].point.x == 20.0 and coords[0].fitted is False
+    assert coords[1].point.x == pytest.approx(53.0, abs=0.5)
+    assert seen[0][2] == "Keep click, next ›"
+
+
+def test_closing_the_panel_stops_the_run(qapp, monkeypatch):
+    w, coords, seen = _run_of_points(qapp, monkeypatch, [QDialog.Rejected])
+    w._on_refit_requested(coords[0])
+    assert len(seen) == 1
+    assert [c.point.x for c in coords] == [20.0, 50.0, 80.0]

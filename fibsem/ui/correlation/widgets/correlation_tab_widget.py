@@ -133,7 +133,7 @@ from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
     PointFitResult,
     humanize_fit_error,
 )
-from fibsem.ui.correlation.widgets.fit_panel import FitInputs, FitPanelDialog
+from fibsem.ui.correlation.widgets.fit_panel import KEPT, FitInputs, FitPanelDialog
 from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
@@ -5107,17 +5107,34 @@ class CorrelationTabWidget(QWidget):
             return
 
         # The fit panel: the fit with its inputs beside it, fitting again as they
-        # change (FIB-1218). Accept applies the fit on screen when it closes.
-        inputs = self._fit_inputs_for(coord)
-        dialog = FitPanelDialog(
-            result,
-            inputs,
-            refit=lambda changed: self._run_point_fit(coord, changed),
-            channel_names=self._fm_channel_names(),
-            parent=self,
-        )
-        if dialog.exec_() == QDialog.Accepted:
-            self._apply_fit_result(dialog.result)
+        # change (FIB-1218). Accept applies the fit on screen; Accept and Keep
+        # click then move on to the next point of the same kind, in list order,
+        # until the last one or until the panel is closed.
+        points = list(self._point_specs[coord.point_type].list_widget.coordinates)
+        index = next((i for i, c in enumerate(points) if c is coord), None)
+        if index is None:
+            points, index = [coord], 0
+        while True:
+            dialog = FitPanelDialog(
+                result,
+                self._fit_inputs_for(coord),
+                refit=lambda changed, c=coord: self._run_point_fit(c, changed),
+                channel_names=self._fm_channel_names(),
+                position=(index, len(points)),
+                parent=self,
+            )
+            answer = dialog.exec_()
+            if answer == QDialog.Accepted:
+                self._apply_fit_result(dialog.result)
+            elif answer != KEPT:
+                return  # closed: stop here
+            index += 1
+            if index >= len(points):
+                return
+            coord = points[index]
+            result = self._run_point_fit(coord)
+            if result is None:
+                return
 
     def _should_auto_accept(self, result: PointFitResult) -> bool:
         """Auto-accept only when opted in, the fit succeeded, and it isn't a

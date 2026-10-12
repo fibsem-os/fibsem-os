@@ -70,11 +70,20 @@ class FitInputs:
     fit_xy: Optional[bool] = None  # FM target only: fit x, y too, or keep them
 
 
+# exec_() returns this when the user keeps their click (Keep click), so a caller
+# can tell it from closing the panel (QDialog.Rejected), which stops a run of
+# points.
+KEPT = 2
+
+
 class FitPanelDialog(QDialog):
     """Modal fit panel for one :class:`PointFitResult`.
 
-    ``exec_()`` returns ``QDialog.Accepted`` when the user accepts; the fit to
-    apply is then :attr:`result`, the one on screen when Accept was pressed.
+    ``exec_()`` returns ``QDialog.Accepted`` when the user accepts (the fit to
+    apply is then :attr:`result`, the one on screen when Accept was pressed),
+    :data:`KEPT` for Keep click, and ``QDialog.Rejected`` when the panel is
+    closed. ``position`` is ``(index, count)`` of this point among the ones
+    being fitted in turn; while there is a next one, the buttons say so.
     """
 
     def __init__(
@@ -83,6 +92,7 @@ class FitPanelDialog(QDialog):
         inputs: FitInputs,
         refit: Callable[[FitInputs], Optional[PointFitResult]],
         channel_names: Sequence[str] = (),
+        position: Optional[tuple] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -100,7 +110,8 @@ class FitPanelDialog(QDialog):
         layout.setSpacing(10)
 
         head = QHBoxLayout()
-        title = QLabel(f"Fit · {point} · {result.method}")
+        where = f" {position[0] + 1} of {position[1]}" if position else ""
+        title = QLabel(f"Fit · {point}{where} · {result.method}")
         title.setStyleSheet(f"{BODY_STYLE} font-weight: 600;")
         head.addWidget(title)
         head.addStretch(1)
@@ -191,14 +202,19 @@ class FitPanelDialog(QDialog):
         body.addWidget(side_w)
         layout.addLayout(body)
 
+        # Accept and Keep click both move on to the next point when there is
+        # one; closing the panel stops (FIB-1218).
+        more = position is not None and position[0] + 1 < position[1]
+        nxt = ", next \u203a" if more else ""
         buttons = QHBoxLayout()
         buttons.addStretch(1)
-        keep = QPushButton("Keep click")
+        keep = QPushButton(f"Keep click{nxt}")
         keep.setToolTip("Leave the point where you placed it")
         keep.setAutoDefault(False)
-        keep.clicked.connect(self.reject)
+        keep.clicked.connect(lambda: self.done(KEPT))
         buttons.addWidget(keep)
-        self._accept_btn = QPushButton("Accept")
+        self._keep_btn = keep
+        self._accept_btn = QPushButton(f"Accept{nxt}")
         self._accept_btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self._accept_btn.setDefault(True)  # Enter accepts
         self._accept_btn.clicked.connect(self.accept)
