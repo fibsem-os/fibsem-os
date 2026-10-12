@@ -348,3 +348,22 @@ def test_switching_to_a_lamella_with_other_tasks_keeps_the_filter_menu(
     texts = [a.text() for a in widget._filter_button.menu().actions()]
     assert "Setup Lamella Position" in texts and ROUGH not in texts
     assert "Setup Lamella Position" in _shown(widget)
+
+
+def test_the_filter_menu_has_the_apps_menu_background(widget, qapp):
+    """The header row sets an unscoped `background: transparent`, which reached
+    the menu through the filter button, its parent: the menu drew see-through
+    over the runs. Parentless, it gets the app's menu style like every other."""
+    from fibsem.ui import stylesheets
+    from fibsem.ui.tokens import SURFACE_COLOR
+
+    before = qapp.styleSheet()
+    qapp.setStyleSheet(stylesheets.NAPARI_STYLE)
+    try:
+        menu = widget._filter_button.menu()
+        menu.ensurePolished()
+        image = menu.grab().toImage()
+        pixel = image.pixelColor(image.width() - 3, image.height() // 2)
+        assert pixel.name() == SURFACE_COLOR.lower()
+    finally:
+        qapp.setStyleSheet(before)
