@@ -29,7 +29,6 @@ from typing import (
 import numpy as np
 from psygnal import Signal
 
-import fibsem.constants as constants
 from fibsem import manufacturers
 from fibsem.devices.beam import (
     BEAM_COMMAND_ROUTES,
@@ -41,11 +40,10 @@ from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.core import IMAGING_CHANNEL, Resources
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import image_to_stage_delta
-from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
+from fibsem.imaging.spot import SpotBurnProgress
 from fibsem.imaging.tiling.progress import TiledProgress
-from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
-    ACTIVE_MILLING_STATES,
     BEAMS_STAGE_DEVICE,
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
@@ -61,7 +59,6 @@ from fibsem.structures import (
     FibsemDetectorSettings,
     FibsemHardwareGeometry,
     FibsemImage,
-    FibsemImageMetadata,
     FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
@@ -75,7 +72,6 @@ from fibsem.structures import (
     MicroscopeState,
     MillingState,
     Point,
-    RangeLimit,
     StageDeviceSettings,
     SystemSettings,
 )
@@ -381,8 +377,8 @@ class FibsemMicroscope(ABC):
         )
     )
 
-    # fluorescence
-    fm: Optional[FluorescenceMicroscope]
+    # fluorescence: none until a backend builds one on connect
+    fm: Optional[FluorescenceMicroscope] = None
 
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None

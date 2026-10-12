@@ -28,9 +28,13 @@ import numpy as np
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.demo.sim_scene import SampleScene, fm_channel_weights
-from fibsem.microscopes._stage import SampleGrid
 from fibsem.projection import BeamStageProjection, FMStageProjection
-from fibsem.structures import BeamType, FibsemRectangleSettings, FibsemStagePosition
+from fibsem.structures import (
+    BeamType,
+    FibsemRectangleSettings,
+    FibsemStagePosition,
+    SampleGrid,
+)
 
 OUT = ROOT / "docs" / "img" / "simulator"
 PAGE = ROOT / "docs" / "simulator.md"

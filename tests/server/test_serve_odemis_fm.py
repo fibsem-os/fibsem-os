@@ -71,7 +71,7 @@ def test_an_odemis_backend_that_is_not_running_is_named(odemis_stubs):
 
 
 def test_a_computer_without_odemis_is_named(odemis_stubs, monkeypatch):
-    monkeypatch.setitem(sys.modules, "fibsem.fm.odemis", None)  # import fails
+    monkeypatch.setitem(sys.modules, "odemis.acq.stream", None)  # import fails
 
     with pytest.raises(RuntimeError, match="cannot be imported here"):
         odemis_fm_devices()

@@ -310,7 +310,7 @@ class TestLifecycle:
             run_grid_task(microscope, "nope", experiment, _grid(experiment))
 
     def test_slot_is_resolved_live_from_the_holder(self, microscope, experiment):
-        from fibsem.microscopes._stage import SampleGrid
+        from fibsem.structures import SampleGrid
 
         grid = _grid(experiment, "grid-cedar")
         task = EchoTask(microscope, EchoConfig(task_name="echo"), grid, experiment)

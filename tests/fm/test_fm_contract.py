@@ -67,7 +67,7 @@ class TestTheImagingChannelIsPartOfTheContract:
     """Both forms exist on every FM, so callers need not ask what they are talking to.
 
     A no-op on a system whose FM has a connection of its own, and overridden by the two
-    that share one with the beams: Thermo's (`DeviceThermoFisherFluorescenceMicroscope`)
+    that share one with the beams: Thermo's (`ThermoFisherFluorescenceMicroscope`)
     and, so the sharing can be tested without hardware, the Demo's
     (`DemoFluorescenceMicroscope`, FIB-518).
     """

@@ -2,7 +2,7 @@
 
 Run as a script, in its own interpreter: it installs a fake
 ``autoscript_sdb_microscope_client`` in ``sys.modules`` before importing
-``fibsem.fm.autoscript``, which must see the SDK at import. It writes JSON to the path
+``fibsem.drivers.autoscript.devices``, which must see the SDK when it runs. It writes JSON to the path
 it is given: ``cases`` and ``api``, each holding a call's result and SDK log, for the
 test to compare with what Thermo's old FM class did in the same case
 (``autoscript_fm_old_pins.json``, recorded from it over this fake before it was
@@ -33,7 +33,7 @@ LOG: list = []
 STATE = {"view": BEAM_VIEW}
 
 
-# -- a fake AutoScript SDK, just enough for fibsem.fm.autoscript ----------------------
+# -- a fake AutoScript SDK, just enough for the Thermo FM drivers ----------------------
 
 
 class CameraEmissionType(enum.Enum):
@@ -265,6 +265,7 @@ def make_connection(objective, filter_mode):
 from fibsem.devices.core import IMAGING_CHANNEL, Resources  # noqa: E402
 from fibsem.drivers.autoscript.devices import (  # noqa: E402
     MULTI_BAND,
+    ThermoFisherFluorescenceMicroscope,
     bind_autoscript_fm,
 )
 from fibsem.fm.structures import REFLECTION, ChannelSettings  # noqa: E402
@@ -668,14 +669,12 @@ def _cases(add):
 def api_pair(view, objective, filter_mode, fn):
     """Run *fn* on the FM API over the devices, over a fresh fake: the call the old
     class's pin recorded, since the API is the same."""
-    from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
-
     out = {}
     connection = make_connection(objective, filter_mode)
     parent = Parent(connection)
     devices = bind_autoscript_fm(parent)
     devices["fm"].live_timeout = None  # as ThermoMicroscope builds it
-    api = DeviceThermoFisherFluorescenceMicroscope(devices, parent=parent)
+    api = ThermoFisherFluorescenceMicroscope(devices, parent=parent)
     out["new"] = run(lambda: _api_value(fn(api)), view)
     return out
 

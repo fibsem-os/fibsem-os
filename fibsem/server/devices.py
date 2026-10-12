@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import io
 import json
 import logging
@@ -434,8 +435,10 @@ def odemis_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device
             the message says which, and what to check.
     """
     try:
-        import fibsem.fm.odemis  # noqa: F401
         from fibsem.drivers.odemis.devices import bind_odemis_fm
+
+        # The FM's odemis modules, on the path importing the driver added.
+        importlib.import_module("odemis.acq.stream")
     except ImportError as e:
         raise RuntimeError(
             f"odemis cannot be imported here ({e}). Serve the odemis FM from the "

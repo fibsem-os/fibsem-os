@@ -760,6 +760,10 @@ class LamellaTaskImageWidget(QWidget):
 
         for index, fpath in enumerate(filenames):
             img_label = ClickableLabel(fpath)
+            # Connected here, where every thumbnail is made, not when its image
+            # loads: a filter change rebuilds the rows from images already
+            # loaded, and those never load again.
+            img_label.clicked.connect(self._open_expanded)
             img_label.setFixedSize(self._thumb_width, height)
             img_label.setStyleSheet(f"background: {NEUTRAL_900}; border-radius: 4px;")
             img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -800,8 +804,6 @@ class LamellaTaskImageWidget(QWidget):
             label.setText("")
             label.setFixedSize(pixmap.size())
             label.setPixmap(pixmap)
-            if isinstance(label, ClickableLabel):
-                label.clicked.connect(self._open_expanded)
 
     def _show_caption(self, filepath: str) -> None:
         """Put the image's caption under its tile, and everything its bar would say

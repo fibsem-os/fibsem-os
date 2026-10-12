@@ -32,25 +32,48 @@ from PyQt5.QtWidgets import (
 
 from fibsem import utils
 from fibsem.constants import METRE_TO_MICRON
-from fibsem.devices.beam import STANDARD_RESOLUTIONS
+from fibsem.devices.beam import STANDARD_RESOLUTIONS, Beam
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSystemSettings, BeamType, ImageSettings, Resolution
+from fibsem.structures import (
+    BeamSystemSettings,
+    BeamType,
+    ImageSettings,
+    Resolution,
+    get_fields_with_metadata,
+)
 from fibsem.ui import notification_service
 from fibsem.ui.icon import ICON_READ_FROM_ACQUIRE_TAB, ICON_READ_FROM_MICROSCOPE
-from fibsem.ui.utils import beam_choices, beam_limits, set_range_from_limits
+from fibsem.ui.utils import beam_choices, beam_field_metadata
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TitledPanel,
     ValueComboBox,
     ValueSpinBox,
 )
+from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_field_metadata
+
+# How the field of view and dwell time are shown: as the Image tab shows them, from
+# ImageSettings' field metadata, which takes the beam's display hint and limits.
+_IMAGE = get_fields_with_metadata(ImageSettings)
 
 
-def _use_declared_ranges(hfw: ValueSpinBox, dwell_time: ValueSpinBox) -> None:
-    """The field of view and dwell time ranges every beam declares, until a beam's
-    own are applied."""
+def _beam_box(name: str) -> ValueSpinBox:
+    """A box for an imaging value, in the range every beam declares until a beam's
+    own is applied (``_apply_beam_limits``)."""
+    spinbox = ValueSpinBox()
+    configure_spinbox(spinbox, beam_field_metadata(_IMAGE[name]))
+    return spinbox
+
+
+def _apply_beam_limits(
+    microscope: FibsemMicroscope,
+    beam: BeamType,
+    hfw: ValueSpinBox,
+    dwell_time: ValueSpinBox,
+) -> None:
+    """Bound the field of view and dwell time to what ``beam`` reports."""
     for name, spinbox in (("hfw", hfw), ("dwell_time", dwell_time)):
-        set_range_from_limits(spinbox, beam_limits(None, name, None), METRE_TO_MICRON)
+        configure_spinbox(spinbox, beam_field_metadata(_IMAGE[name], microscope, beam))
 
 
 def _micro(value: float) -> float:
@@ -99,16 +122,16 @@ class BeamDefaultsForm(QWidget):
         self.preset = ValueComboBox()
         self.voltage = ValueComboBox(format_fn=_format_voltage)
         self.current = ValueComboBox(format_fn=_format_current)
-        self.hfw = ValueSpinBox(suffix="µm", decimals=1, step=10.0)
+        self.hfw = _beam_box("hfw")
         self.resolution = ValueComboBox(format_fn=_format_resolution)
-        self.dwell_time = ValueSpinBox(suffix="µs", decimals=2, step=0.1)
-        _use_declared_ranges(self.hfw, self.dwell_time)
+        self.dwell_time = _beam_box("dwell_time")
         self.detector_type = ValueComboBox()
         self.detector_mode = ValueComboBox()
         # A standing choice some sites make -- a FIB run at 180 degrees -- and Apply
         # sets it like the rest, so it is a default rather than alignment state.
-        self.scan_rotation = ValueSpinBox(
-            suffix="°", minimum=0.0, maximum=360.0, decimals=1, step=90.0
+        self.scan_rotation = ValueSpinBox()
+        configure_spinbox(
+            self.scan_rotation, parameter_field_metadata(Beam.scan_rotation)
         )
 
         self._rows = [
@@ -172,10 +195,7 @@ class BeamDefaultsForm(QWidget):
         self._set_choices(
             self.detector_mode, available("detector_mode"), record.detector.mode
         )
-        for name, spinbox in (("hfw", self.hfw), ("dwell_time", self.dwell_time)):
-            set_range_from_limits(
-                spinbox, beam_limits(microscope, name, beam), METRE_TO_MICRON
-            )
+        _apply_beam_limits(microscope, beam, self.hfw, self.dwell_time)
 
     @staticmethod
     def _set_choices(combo: ValueComboBox, choices: list, current) -> None:
@@ -249,11 +269,10 @@ class ImagingDefaultsForm(QWidget):
         super().__init__(parent)
         self.beam_type = ValueComboBox(format_fn=lambda name: str(name).title())
         self.beam_type.set_values([BeamType.ELECTRON.name, BeamType.ION.name])
-        self.hfw = ValueSpinBox(suffix="µm", decimals=1, step=10.0)
+        self.hfw = _beam_box("hfw")
         self.resolution = ValueComboBox(format_fn=_format_resolution)
         self.resolution.set_values([_resolution_key(r) for r in STANDARD_RESOLUTIONS])
-        self.dwell_time = ValueSpinBox(suffix="µs", decimals=2, step=0.1)
-        _use_declared_ranges(self.hfw, self.dwell_time)
+        self.dwell_time = _beam_box("dwell_time")
         self.autocontrast = QCheckBox()
 
         form = QFormLayout()

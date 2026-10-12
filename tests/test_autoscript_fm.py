@@ -27,7 +27,7 @@ What has to match:
 - every FM call made with the FM's view selected, and the view left where the old
   code left it.
 
-The fake SDK has to be in place before ``fibsem.fm.autoscript`` is first imported, so
+The fake SDK has to be in place before the Thermo FM drivers first import it, so
 the recording runs in its own interpreter (``tests/fixtures/autoscript_fm_parity.py``).
 Nothing here has run on an instrument.
 """
@@ -372,7 +372,7 @@ def test_the_api_leaves_the_view_where_it_did_and_never_hands_it_back_more(api):
 
 def test_a_thermo_microscope_builds_its_fm_from_the_devices(facts):
     assert facts["thermo_microscope"] == {
-        "fm": "DeviceThermoFisherFluorescenceMicroscope",
+        "fm": "ThermoFisherFluorescenceMicroscope",
         "devices": ["camera", "filter_set", "fm", "light_source", "objective"],
         # Its own worker pulls live view, so nothing needs to stop it by itself.
         "live_timeout": None,

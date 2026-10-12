@@ -7,6 +7,7 @@ larger "Select All" with a + on the tasks. Rows were 34 and 40 px, names 11 and
 """
 
 import os
+from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -16,11 +17,13 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskDescription,
+    AutoLamellaTaskState,
     Lamella,
 )
 from fibsem.applications.autolamella.ui import list_chrome  # noqa: E402
 from fibsem.applications.autolamella.ui.lamella_list_widget import (  # noqa: E402
     LamellaListWidget,
+    completed_text,
 )
 from fibsem.applications.autolamella.ui.workflow_config_widget import (  # noqa: E402
     WorkflowConfigWidget,
@@ -174,3 +177,26 @@ def test_the_status_line_says_what_the_selection_allows(no_quit, qapp, tmp_path)
     window.close()
     window.deleteLater()
     qapp.processEvents()
+
+
+def test_the_status_says_when_after_a_dot():
+    """The last task and its time as the preflight and timeline say a time:
+    "1:44PM", not "(01:44PM)", in the viewer's zone, with the day when not today."""
+
+    def at_1344(days_ago):
+        # from the local clock, so a daylight-saving change between then and
+        # now does not move the hour
+        day = datetime.now() - timedelta(days=days_ago)
+        return day.replace(hour=13, minute=44, second=0, microsecond=0).astimezone()
+
+    task = AutoLamellaTaskState(name="Rough Milling", end_timestamp=at_1344(0))
+    assert completed_text(task) == "Rough Milling \u00b7 1:44PM"
+    task.end_timestamp = at_1344(0).astimezone(timezone.utc)  # recorded elsewhere
+    assert completed_text(task) == "Rough Milling \u00b7 1:44PM"
+    task.end_timestamp = at_1344(1)
+    assert completed_text(task) == "Rough Milling \u00b7 Yesterday, 1:44PM"
+    task.end_timestamp = earlier = at_1344(30)
+    assert completed_text(task) == (
+        f"Rough Milling \u00b7 {earlier:%b} {earlier.day}, 1:44PM"
+    )
+    assert completed_text(AutoLamellaTaskState(name="Polishing")) == "Polishing"

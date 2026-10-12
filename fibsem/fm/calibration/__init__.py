@@ -77,7 +77,8 @@ def run_autofocus(
     method: str = "tenengrad",
     stop_event: Optional[threading.Event] = None,
     roi: Optional[FibsemRectangle] = None,
-    save_plot: bool = False,
+    path: Optional[str] = None,
+    name: str = "autofocus",
     pass_index: int = 1,
     total_passes: int = 1,
 ) -> Optional[AutoFocusResult]:
@@ -94,7 +95,10 @@ def run_autofocus(
         stop_event: Threading event to check for cancellation (optional)
         roi: Optional region of interest (0-1 relative coordinates) to measure focus on.
             If provided, only the cropped region is used for focus evaluation.
-        save_plot: Whether to save a diagnostic plot of the autofocus results (default: False).
+        path: Folder to save the result in, as ``<path>/<name>/`` (data, probe images
+            and the diagnostic plot; see ``AutoFocusResult.save``). Nothing is saved
+            when it is None.
+        name: Name of the result's folder under ``path``.
         pass_index: Which pass of a multi-pass sweep this is, 1-based. Reported in the
             progress payload so a viewer can say "pass 1/2" rather than restarting an
             apparently identical bar.
@@ -216,8 +220,8 @@ def run_autofocus(
             method=method,
         )
 
-    if save_plot:
-        plot_autofocus(result)
+    if path is not None:
+        result.save(path=path, name=name)
 
     return result
 

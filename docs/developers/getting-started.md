@@ -26,7 +26,8 @@ fibsem/                     the instrument library (no application logic)
                             stage positions, settings
   milling/, imaging/        beam operations built on the abstract class
   segmentation/             segmentation models
-  ui/                       shared Qt widgets, the palette (tokens.py), canvases
+  ui/                       shared Qt widgets, stylesheets, canvases
+  theme/                    the palette (tokens.py), importable without Qt
   server/                   the agent/bench HTTP server (build_server)
   mcp/                      the fibsem-mcp sidecar (MCP to HTTP)
   plugins/                  entry-point loading: fibsem.patterns,
@@ -105,7 +106,7 @@ now. `docs/agent-server.md` describes it; the tool catalogue in
 `.claude/skills/` is a reference client.
 
 **Working on the user interface.** Use the palette tokens in
-`fibsem/ui/tokens.py` and the shared stylesheets rather than literal
+`fibsem/theme/tokens.py` and the shared stylesheets rather than literal
 colours. Two rules: UI event handlers do not read from the microscope
 (updates are pushed, or come from cached state), and cross-thread
 communication goes through signals or the responder seam, never through

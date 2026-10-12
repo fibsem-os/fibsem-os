@@ -12,8 +12,7 @@ widget; all of that belongs to the half that moves.
 
 **Units.** The stage speaks metres and radians, limits included. The form shows
 millimetres and degrees, so every axis is converted on the way through, by the unit
-the stage device gives it. (Without a stage device the limits come from the stage
-model, whose tilt limits are already in degrees, so t is not converted there.)
+the stage device gives it. Without a stage device every axis is hidden.
 
 **Device reads.** Exactly one, at construction, for the axes and their ranges, from
 the stage device's metadata. Both are configuration rather than state: they change

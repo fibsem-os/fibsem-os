@@ -179,13 +179,13 @@ class TestEveryDriverAnnounces:
         modules = (
             "fm/microscope.py",
             "drivers/demo/simulator.py",
-            "fm/autoscript.py",
-            "fm/odemis.py",
+            "drivers/autoscript/devices.py",
+            "drivers/odemis/devices.py",
         )
         for module in modules:
             source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
             for node in ast.walk(ast.parse(source)):
-                if isinstance(node, ast.ClassDef) and "Objective" in node.name:
+                if isinstance(node, ast.ClassDef) and "ObjectiveLens" in node.name:
                     found[f"{module}:{node.name}"] = node
         return found
 
@@ -207,8 +207,8 @@ class TestEveryDriverAnnounces:
         classes = self._objective_classes()
         assert set(classes) == {
             "fm/microscope.py:ObjectiveLens",
-            "fm/autoscript.py:DeviceThermoFisherObjectiveLens",
-            "fm/odemis.py:DeviceOdemisObjectiveLens",
+            "drivers/autoscript/devices.py:ThermoFisherObjectiveLens",
+            "drivers/odemis/devices.py:OdemisObjectiveLens",
         }, f"unexpected ObjectiveLens classes: {sorted(classes)}"
 
     @pytest.mark.parametrize("write_method", WRITE_METHODS)

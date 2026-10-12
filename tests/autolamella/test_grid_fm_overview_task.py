@@ -32,8 +32,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.fluorescence import (
     acquire_fluorescence_overview,
 )
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
-from fibsem.microscopes._stage import SampleGrid
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures import InsertableDeviceState, SampleGrid
 
 
 @pytest.fixture

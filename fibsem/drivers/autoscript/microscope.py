@@ -24,18 +24,13 @@ from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.manipulator import MANIPULATOR_ROUTES
+from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
     _records_beam_shift,
 )
-from fibsem.microscopes._stage import (
-    GridExchangeError,
-    GridSlot,
-    SampleGrid,
-    SampleGridLoader,
-    _slot_name,
-)
+from fibsem.microscopes._stage import SampleGridLoader, _slot_name
 from fibsem.structures import (
     BeamType,
     DeviceEntry,
@@ -46,10 +41,12 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     FibsemUser,
+    GridSlot,
     ImageSettings,
     MicroscopeState,
     Point,
     RangeLimit,
+    SampleGrid,
     SystemSettings,
 )
 from fibsem.util.timestamps import to_datetime
@@ -966,12 +963,12 @@ class ThermoMicroscope(FibsemMicroscope):
         self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
 
-        from fibsem.fm.autoscript import DeviceThermoFisherFluorescenceMicroscope
+        from fibsem.drivers.autoscript.devices import ThermoFisherFluorescenceMicroscope
 
         # Its own FM leaves the shared imaging channel on the FM, as building it
         # selects the channel; any other outcome leaves it on the electron beam.
         self.fm = self._build_fluorescence(manufacturers.THERMOFISHER)
-        if not isinstance(self.fm, DeviceThermoFisherFluorescenceMicroscope):
+        if not isinstance(self.fm, ThermoFisherFluorescenceMicroscope):
             self.set_channel(BeamType.ELECTRON)
 
         self._apply_fluorescence_calibration()

@@ -39,7 +39,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_system_info",
-        description="Microscope system settings and stage geometry flags.",
+        description="Microscope system settings and which optional hardware is fitted.",
         method="GET",
         path="/system",
         scope="read",

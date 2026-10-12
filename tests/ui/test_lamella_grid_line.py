@@ -109,7 +109,8 @@ class TestTheHelpers:
         )
 
     def test_short_status_drops_the_time(self):
-        assert short_status("Rough Milling (02:13PM)") == "Rough Milling"
+        assert short_status("Rough Milling \u00b7 2:13PM") == "Rough Milling"
+        assert short_status("Polishing \u00b7 Sep 14, 9:02AM") == "Polishing"
         assert short_status("Rough Milling") == "Rough Milling"
         assert short_status("") == ""
 

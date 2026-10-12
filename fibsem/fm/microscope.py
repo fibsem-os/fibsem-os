@@ -7,8 +7,8 @@ know which driver built them, or whether they run in this process or on another
 computer:
 
 - the Demo's FM is this over the Demo FM devices (``fibsem.drivers.demo.devices``);
-- the Thermo and Odemis FMs add their hardware's extras (``fibsem.fm.autoscript``,
-  ``fibsem.fm.odemis``);
+- the Thermo and Odemis FMs add their hardware's extras, beside their devices
+  (``fibsem.drivers.autoscript.devices``, ``fibsem.drivers.odemis.devices``);
 - ``RemoteFluorescenceMicroscope`` (``fibsem.fm.remote``) is this over remote devices,
   plus connecting to their server.
 

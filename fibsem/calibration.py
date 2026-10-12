@@ -1,107 +1,13 @@
-import logging
-
 import numpy as np
 
-from fibsem import acquire, utils
+from fibsem import acquire
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
-    ImageSettings,
     MicroscopeSettings,
     MicroscopeState,
 )
-
-# def auto_needle_calibration(
-#     microscope: FibsemMicroscope, settings: MicroscopeSettings, validate: bool = True
-# ):
-
-#     if TESCAN:
-#         raise NotImplementedError
-
-#     # set coordinate system
-#     microscope.connection.specimen.manipulator.set_default_coordinate_system(
-#         ManipulatorCoordinateSystem.STAGE
-#     )
-
-#     # current working distance
-#     wd = microscope.connection.beams.electron_beam.working_distance.value
-#     needle_wd_eb = 4.0e-3
-
-#     # focus on the needle
-#     microscope.connection.beams.electron_beam.working_distance.value = needle_wd_eb
-#     microscope.connection.specimen.stage.link()
-
-#     settings.image.hfw = 2700e-6
-#     acquire.take_reference_images(microscope, settings.image)
-
-#     # very low res alignment
-#     hfws = [2700e-6, 900e-6, 400e-6, 150e-6]
-#     for hfw in hfws:
-#         settings.image.hfw = hfw
-#         align_needle_to_eucentric_position(microscope, settings, validate=validate)
-
-#     # restore working distance
-#     microscope.connection.beams.electron_beam.working_distance.value = wd
-#     microscope.connection.specimen.stage.link()
-
-#     logging.info(f"Finished automatic needle calibration.")
-
-
-# def align_needle_to_eucentric_position(
-#     microscope: FibsemMicroscope,
-#     settings: MicroscopeSettings,
-#     validate: bool = False,
-# ) -> None:
-#     """Move the needle to the eucentric position, and save the updated position to disk
-
-#     Args:
-#         microscope (FibsemMicroscope): OpenFIBSEM microscope instance
-#         settings (MicroscopeSettings): microscope settings
-#         validate (bool, optional): validate the alignment. Defaults to False.
-#     """
-
-#     from fibsem.ui import windows as fibsem_ui_windows
-#     from fibsem.detection import detection
-
-#     # take reference images
-#     settings.image.save = False
-#     settings.image.beam_type = BeamType.ELECTRON
-
-#     det = fibsem_ui_windows.detect_features_v2(
-#         microscope=microscope,
-#         settings=settings,
-#         features=[
-#             NeedleTip(),
-#             ImageCentre(),
-#         ],
-#         validate=validate,
-#     )
-#     detection.move_based_on_detection(
-#         microscope, settings, det, beam_type=settings.image.beam_type
-#     )
-
-#     # take reference images
-#     settings.image.save = False
-#     settings.image.beam_type = BeamType.ION
-
-#     image = acquire.new_image(microscope, settings.image)
-
-#     det = fibsem_ui_windows.detect_features_v2(
-#         microscope=microscope,
-#         settings=settings,
-#         features=[
-#             NeedleTip(),
-#             ImageCentre(),
-#         ],
-#         validate=validate,
-#     )
-#     detection.move_based_on_detection(
-#         microscope, settings, det, beam_type=settings.image.beam_type, move_x=False
-#     )
-
-#     # take image
-#     acquire.take_reference_images(microscope, settings.image)
 
 
 def auto_home_and_link_v2(

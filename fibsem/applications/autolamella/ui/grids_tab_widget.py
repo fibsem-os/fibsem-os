@@ -49,7 +49,8 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     NAME_FIXED_REASON,
     grid_has_run,
 )
-from fibsem.microscopes._stage import GridInventoryEntry, SampleGrid
+from fibsem.microscopes._stage import GridInventoryEntry
+from fibsem.structures import SampleGrid
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker

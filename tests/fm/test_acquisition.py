@@ -1915,21 +1915,26 @@ def test_a_name_whose_mosaic_survived_its_tiles_is_not_reused(tmp_path):
 # ── stage limits ─────────────────────────────────────────────────────────
 
 
-def _narrow_limits(microscope, half_width: float):
-    """Shrink the stage limits to a box of +/- half_width about the origin."""
+def _narrow_limits(microscope, half_width: float, monkeypatch):
+    """Shrink the stage device's x and y limits to +/- half_width about the origin."""
+    from dataclasses import replace
+
     from fibsem.structures import RangeLimit
 
-    microscope._stage.limits = {
-        "x": RangeLimit(min=-half_width, max=half_width),
-        "y": RangeLimit(min=-half_width, max=half_width),
-    }
+    position = microscope.stage.position
+    limits = dict(
+        position.limits,
+        x=RangeLimit(min=-half_width, max=half_width),
+        y=RangeLimit(min=-half_width, max=half_width),
+    )
+    monkeypatch.setattr(position, "metadata", replace(position.metadata, limits=limits))
 
 
-def test_a_grid_reaching_past_the_stage_limits_is_refused(fm_microscope):
+def test_a_grid_reaching_past_the_stage_limits_is_refused(fm_microscope, monkeypatch):
     """The same answer the beam tiler gives, through the same helper. Rejected rather
     than trimmed: a mosaic quietly missing the tiles the stage could not reach stitches
     those gaps as zeros, which nothing downstream can tell from dark sample."""
-    _narrow_limits(fm_microscope, 10e-6)  # far smaller than one tile step
+    _narrow_limits(fm_microscope, 10e-6, monkeypatch)  # far smaller than one tile step
 
     runner = FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -1941,9 +1946,9 @@ def test_a_grid_reaching_past_the_stage_limits_is_refused(fm_microscope):
         runner.run()
 
 
-def test_the_refusal_names_the_tiles_that_caused_it(fm_microscope):
+def test_the_refusal_names_the_tiles_that_caused_it(fm_microscope, monkeypatch):
     """So the grid can be fixed rather than guessed at."""
-    _narrow_limits(fm_microscope, 10e-6)
+    _narrow_limits(fm_microscope, 10e-6, monkeypatch)
 
     runner = FMTiledAcquisitionRunner(
         microscope=fm_microscope,
@@ -1959,9 +1964,9 @@ def test_the_refusal_names_the_tiles_that_caused_it(fm_microscope):
     assert "(0,2)" in str(excinfo.value)
 
 
-def test_nothing_moves_when_a_grid_is_refused(fm_microscope):
+def test_nothing_moves_when_a_grid_is_refused(fm_microscope, monkeypatch):
     """The check runs before the tile loop, so a refused grid costs no stage time."""
-    _narrow_limits(fm_microscope, 10e-6)
+    _narrow_limits(fm_microscope, 10e-6, monkeypatch)
     start = fm_microscope.get_stage_position()
 
     runner = FMTiledAcquisitionRunner(
@@ -1977,10 +1982,12 @@ def test_nothing_moves_when_a_grid_is_refused(fm_microscope):
     assert runner.tileset == [] or all(t is None for row in runner.tileset for t in row)
 
 
-def test_masking_off_the_unreachable_tiles_makes_a_grid_acquirable(fm_microscope):
+def test_masking_off_the_unreachable_tiles_makes_a_grid_acquirable(
+    fm_microscope, monkeypatch
+):
     """Only the tiles that will actually be visited are checked, so excluding a corner
     that falls outside the limits is a legitimate way to bring a grid back into range."""
-    _narrow_limits(fm_microscope, 10e-6)
+    _narrow_limits(fm_microscope, 10e-6, monkeypatch)
 
     parameters = OverviewParameters(
         rows=1,

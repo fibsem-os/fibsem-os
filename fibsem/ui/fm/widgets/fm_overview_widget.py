@@ -2161,7 +2161,8 @@ class FMOverviewWidget(QWidget):
         """
         if not self._may_move():
             return
-        limits = getattr(self.microscope._stage, "limits", None)
+        stage = self.microscope.stage
+        limits = stage.position.limits if stage is not None else None
         if limits and not position.is_within_limits(limits, axes=["x", "y"]):
             notification_service.show_toast(
                 "That position is outside the stage limits.", "warning"
@@ -2261,7 +2262,8 @@ class FMOverviewWidget(QWidget):
             logging.debug(f"Could not resolve the clicked position: {e}")
             return None
 
-        limits = getattr(self.microscope._stage, "limits", None)
+        stage = self.microscope.stage
+        limits = stage.position.limits if stage is not None else None
         if limits and not target.is_within_limits(limits, axes=["x", "y"]):
             notification_service.show_toast(
                 "That position is outside the stage limits.", "warning"
@@ -2649,7 +2651,8 @@ class FMOverviewWidget(QWidget):
             fov = self.settings_widget._tile_fov
             projection = self._projection()
             centre = self._grid_centre()
-            limits = getattr(self.microscope._stage, "limits", None)
+            stage = self.microscope.stage
+            limits = stage.position.limits if stage is not None else None
             if fov is None or projection is None or centre is None or not limits:
                 return []
             height, width = projection.shape

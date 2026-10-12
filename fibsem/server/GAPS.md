@@ -49,7 +49,7 @@ These are read directly from `microscope.<attr>` in the existing codebase, not v
 
 | Attribute | Type | Used where | Notes |
 |-----------|------|-----------|-------|
-| `microscope._stage` | `Stage` | 8 places — movement UI, autolamella grid workflows | Needs `_stage.limits`, `_stage.holder.grids`, `_stage.current_grid`. Expose via a `GET /stage` endpoint or dedicated wrappers. |
+| `microscope._stage` | `Stage` | 8 places — movement UI, autolamella grid workflows | Needs `_stage.holder.grids`, `_stage.current_grid`. Expose via a `GET /stage` endpoint or dedicated wrappers. |
 | `microscope.fm` | `FluorescenceMicroscope \| None` | 4 places — image settings widget, minimap, autolamella UI | Always checked with `if microscope.fm is not None` first. Can be stubbed as `None` on client. |
 | `microscope.milling_channel` | `BeamType` | Milling setup code | Defaults to `BeamType.ION`. Can be a fixed client attribute. |
 | `microscope._last_imaging_settings` | `ImageSettings` | `get_imaging_settings()` fallback path | Internal — low risk. |
@@ -68,7 +68,7 @@ These are read directly from `microscope.<attr>` in the existing codebase, not v
 
 ## Notes
 
-- `microscope.system` and `microscope.stage_is_compustage` are now fetched and cached at `FibsemClient.__init__` — these are covered.
+- `microscope.system` is fetched and cached at `FibsemClient.__init__` — this is covered.
 - `microscope.fm = None` is safe to hardcode on the client; fluorescence microscope is never remote-controlled through this server.
 - The individual `draw_*` methods are the easiest to close — they can delegate to `draw_patterns([pattern])` locally on the client without a new server endpoint.
 - `_stage` is the hardest gap: autolamella grid workflows call `microscope._stage.holder.grids` which is a deeply hardware-specific object. This would require either a dedicated endpoint or is out of scope for remote scripting.

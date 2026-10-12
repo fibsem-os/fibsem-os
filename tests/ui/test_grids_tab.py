@@ -23,7 +23,8 @@ from fibsem.applications.autolamella.ui.grids_tab_widget import GridsTabWidget
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
 )
-from fibsem.microscopes._stage import SampleGrid, _create_sample_stage
+from fibsem.microscopes._stage import _create_sample_stage
+from fibsem.structures import SampleGrid
 
 
 @pytest.fixture

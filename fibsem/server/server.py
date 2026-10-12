@@ -242,9 +242,6 @@ def build_server(
     def get_system():
         return {
             "system": microscope.system.to_dict(),
-            # Clients from before the flag was retired require this key; nothing reads
-            # it now. Drop it a release later.
-            "stage_is_compustage": microscope._fm_is_a_pose(),
             # What is fitted is not in the configuration dict -- the instrument
             # answered it at connect -- so it travels beside it.
             "fitted": {"manipulator": microscope.is_available("manipulator")},

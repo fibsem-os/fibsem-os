@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.devices.beam import STANDARD_RESOLUTIONS, Beam
+from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -28,7 +28,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.tokens import (
     NEUTRAL_400,
 )
-from fibsem.ui.utils import find_data, install_wheel_blocker
+from fibsem.ui.utils import beam_field_metadata, find_data, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     QDirectoryLineEdit,
@@ -37,8 +37,6 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.form_builder import (
     configure_spinbox,
     effective_scale,
-    reported_metadata,
-    runtime_overrides,
 )
 
 # How each control is shown: ImageSettings' field metadata, which takes the beam's
@@ -53,15 +51,7 @@ def _field(
 ) -> dict:
     """The field's metadata, with what the beam allows laid over it for a field bound
     to a beam parameter: what ``beam_type`` reports, else what every beam declares."""
-    metadata = _META[name]
-    beam_parameter = metadata.get("microscope_parameter")
-    if not beam_parameter:
-        return metadata
-    beam = None if microscope is None else microscope.beams.get(beam_type)
-    parameter = None if beam is None else beam.parameters.get(beam_parameter)
-    return runtime_overrides(
-        metadata, reported_metadata(parameter or getattr(Beam, beam_parameter))
-    )
+    return beam_field_metadata(_META[name], microscope, beam_type)
 
 
 def _scale(name: str) -> float:

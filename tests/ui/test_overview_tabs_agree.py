@@ -25,7 +25,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BEAM = REPO_ROOT / "fibsem" / "ui" / "widgets" / "overview_widget.py"
 FM = REPO_ROOT / "fibsem" / "ui" / "fm" / "widgets" / "fm_overview_widget.py"
-TOKENS = REPO_ROOT / "fibsem" / "ui" / "tokens.py"
+TOKENS = REPO_ROOT / "fibsem" / "theme" / "tokens.py"
 OVERLAYS = (
     REPO_ROOT
     / "fibsem"
