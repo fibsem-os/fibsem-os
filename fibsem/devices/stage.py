@@ -33,12 +33,10 @@ milling angle setting, so the microscope builds it from the SEM rotation.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Iterator, Mapping, Optional
-
-from psygnal import Signal
+from typing import Any, Dict, Mapping, Optional
 
 from fibsem.constants import DEGREE_SYMBOL
-from fibsem.devices.core import Device, Parameter, command
+from fibsem.devices.core import Axes, Axis, Device, Parameter, command
 from fibsem.devices.display import Display
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
@@ -149,70 +147,6 @@ class StageLimitError(ValueError):
     """A move whose target is outside an axis's limits. Nothing moved."""
 
 
-class Axis:
-    """One axis of the stage position: a view, with no read of its own."""
-
-    changed = Signal(float)
-    """The axis's new value, when a position read found it moved."""
-
-    def __init__(self, stage: Stage, name: str):
-        self.stage = stage
-        self.name = name
-        self.unit = AXIS_UNITS[name]
-
-    @property
-    def limits(self) -> RangeLimit:
-        """In SI units, from the position metadata cached at connect."""
-        return self.stage.position.limits[self.name]
-
-    @property
-    def value(self) -> float:
-        """A live read: reads the whole position and returns this axis."""
-        return getattr(self.stage.position.get_value(), self.name)
-
-    @property
-    def cached(self) -> float:
-        """The last known value, with no instrument call."""
-        return getattr(self.stage.position.cached, self.name)
-
-    def _position_changed(self, position: FibsemStagePosition) -> None:
-        value = getattr(position, self.name, None)
-        previous = getattr(self.stage.position.previous, self.name, None)
-        if value is not None and value != previous:
-            self.changed.emit(value)
-
-    def __repr__(self) -> str:
-        return f"<Axis {self.name} [{self.unit}] {self.limits}>"
-
-
-class Axes:
-    """The stage's axes by name: ``stage.axes.t``, ``stage.axes["t"]``, ``"r" in``."""
-
-    def __init__(self, axes: Dict[str, Axis]):
-        self._axes = axes
-
-    def __getattr__(self, name: str) -> Axis:
-        try:
-            return self.__dict__["_axes"][name]
-        except KeyError:
-            raise AttributeError(f"the stage has no '{name}' axis") from None
-
-    def __getitem__(self, name: str) -> Axis:
-        return self._axes[name]
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._axes)
-
-    def __contains__(self, name: object) -> bool:
-        return name in self._axes
-
-    def __len__(self) -> int:
-        return len(self._axes)
-
-    def __repr__(self) -> str:
-        return f"<Axes {list(self._axes)}>"
-
-
 class Stage(Device):
     position = Parameter(
         FibsemStagePosition,
@@ -245,7 +179,11 @@ class Stage(Device):
     def _build_axes(self) -> None:
         """An axis for each one the driver gives ``position`` limits for."""
         limits = self.position.limits or {}
-        axes = {name: Axis(self, name) for name in AXIS_UNITS if name in limits}
+        axes = {
+            name: Axis(self, name, AXIS_UNITS[name])
+            for name in AXIS_UNITS
+            if name in limits
+        }
         for axis in axes.values():
             self.position.changed.connect(axis._position_changed)
         self.axes = Axes(axes)

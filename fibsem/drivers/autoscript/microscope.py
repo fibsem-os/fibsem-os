@@ -729,6 +729,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self._build_beams()
         self._build_milling()
         self._build_spot_burn()
+        self._build_imaging()
 
         if reset_beam_shift:
             self.reset_beam_shifts()
@@ -994,16 +995,6 @@ class ThermoMicroscope(FibsemMicroscope):
             beam_type (BeamType) The imaging beam type for which to adjust the contrast.
         """
         self._beam_device(beam_type).autocontrast(reduced_area)
-
-    def auto_focus(
-        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
-    ) -> None:
-        """Automatically focus the specified beam type.
-
-        Args:
-            beam_type (BeamType): The imaging beam type for which to focus.
-        """
-        self._beam_device(beam_type).auto_focus(reduced_area)
 
     @_records_beam_shift
     def beam_shift(

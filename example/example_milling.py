@@ -2,12 +2,13 @@ import logging
 
 from fibsem import milling, utils
 from fibsem.milling import FibsemMillingStage, MillingAlignment
-from fibsem.milling.patterning.patterns2 import Point, RectanglePattern
+from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.structures import (
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemMillingSettings,
     FibsemRectangleSettings,
+    Point,
 )
 
 """

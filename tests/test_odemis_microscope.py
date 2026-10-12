@@ -20,7 +20,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.microscope import _chamber_state_name
 from fibsem.milling import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import PolygonPattern
+from fibsem.milling.patterning.patterns import PolygonPattern
 from fibsem.milling.progress import MillingProgressStatus
 from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
 from fibsem.structures import (
@@ -263,6 +263,7 @@ def microscope(odemis_microscope_cls):
     microscope.milling_channel = BeamType.ION
     microscope._build_devices()
     microscope._build_milling()
+    microscope._build_imaging()
     microscope.connection.calls.clear()
     return microscope
 

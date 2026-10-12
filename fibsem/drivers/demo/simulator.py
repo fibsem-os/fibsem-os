@@ -795,11 +795,6 @@ class DemoImaging:
             self.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "autocontrast", "beam_type": beam_type.name})
 
-    def auto_focus(
-        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
-    ) -> None:
-        self._imaging_beam(beam_type).auto_focus(reduced_area)
-
     def _demo_auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle]
     ) -> None:

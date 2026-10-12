@@ -10,7 +10,7 @@ from fibsem.applications.autolamella.protocol.constants import (
     UNDERCUT_KEY,
 )
 from fibsem.milling import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import (
+from fibsem.milling.patterning.patterns import (
     ArrayPattern,
     FiducialPattern,
     MicroExpansionPattern,

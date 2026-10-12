@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem import utils
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import RectanglePattern
+from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import FibsemMillingSettings, Point
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget

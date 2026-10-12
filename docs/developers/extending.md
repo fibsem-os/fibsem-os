@@ -94,7 +94,7 @@ it. Its "When nothing shows up" section covers the diagnostic steps.
 Each group contributes one kind of object:
 
 - **A pattern** (`fibsem.patterns`): a subclass of `BasePattern` from
-  `fibsem.milling.patterning.patterns2` whose `define()` returns the shapes
+  `fibsem.milling.patterning.base` whose `define()` returns the shapes
   to mill. It appears in the pattern list of every milling stage.
 - **A strategy** (`fibsem.strategies`): how a pattern is milled, for example
   in N passes. It appears in the strategy list of every stage.
@@ -117,8 +117,9 @@ Three constraints on loading. Each produces no error when violated, so the
 example's tests check them:
 
 1. **Pattern modules are imported while `fibsem.milling.base` is only
-   partly initialised.** Import `BasePattern` from `patterns2`, not from the
-   `fibsem.milling.patterning` package, and import nothing that depends on
+   partly initialised.** Import `BasePattern` from
+   `fibsem.milling.patterning.base`, not from the `fibsem.milling.patterning`
+   package (the older `patterns2` path still works), and import nothing that depends on
    `fibsem.milling.base`, which includes everything under
    `fibsem.applications`. A pattern and a task defined in the same module
    breaks the pattern. Strategies and tasks have no such restriction.

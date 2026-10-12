@@ -288,6 +288,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self._build_milling()
         self._build_stage_movement()
         self._build_spot_burn()
+        self._build_imaging()
 
         self.fm = self._build_fluorescence(manufacturers.ODEMIS)
         self._apply_fluorescence_calibration()
@@ -400,26 +401,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self, beam_type: BeamType, reduced_area: FibsemRectangle = None
     ) -> None:
         self._beam_device(beam_type).autocontrast(reduced_area)
-
-    def auto_focus(
-        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
-    ) -> None:
-        """An image-based working-distance sweep, at the beam's current field of view.
-
-        The odemis client exposes no autofocus call (the AutoScript adapter has one,
-        but odemis does not forward it), so the microscope's own focus routine is out
-        of reach from here.
-        """
-        from fibsem.autofunctions.autofocus import AutoFocusSettings, run_auto_focus
-
-        # acquire_image writes resolution, dwell time and field of view to the beam;
-        # run_auto_focus puts them back when the sweep ends.
-        run_auto_focus(
-            self,
-            beam_type=beam_type,
-            hfw=self.get_field_of_view(beam_type),
-            settings=AutoFocusSettings(reduced_area=reduced_area),
-        )
 
     @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:

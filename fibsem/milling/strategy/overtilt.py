@@ -17,7 +17,7 @@ from fibsem.milling.base import (
     MillingStrategy,
     MillingStrategyConfig,
 )
-from fibsem.milling.patterning.patterns2 import TrenchPattern
+from fibsem.milling.patterning.patterns import TrenchPattern
 from fibsem.milling.properties import (
     DEFAULT_ANGLE_METADATA,
     DEFAULT_IMAGE_RESOLUTION_METADATA,
