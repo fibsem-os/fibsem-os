@@ -487,11 +487,12 @@ def test_plot_autofocus_single_pass(tmp_path):
 
 
 def test_plot_autofocus_no_save_path(tmp_path, monkeypatch):
-    # plot_autofocus_result(result) with no save_path must not crash
+    # No save_path: the figure comes back and nothing is written, least of all
+    # into the working directory
     monkeypatch.chdir(tmp_path)
     result = make_autofocus_result(n_passes=1)
-    plot_autofocus_result(result)
-    assert list((tmp_path / "autofocus").glob("autofocus_*.png"))
+    assert plot_autofocus_result(result) is not None
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_plot_autofocus_multi_pass(tmp_path):

@@ -1,10 +1,11 @@
 """OdemisThermoMicroscope.vertical_move is the ThermoFisher one, intact.
 
-Odemis used to delegate to ``ThermoMicroscope.vertical_move``, which calls
+Odemis used to delegate to ``ThermoMicroscope.vertical_move``, which called
 ``self._vertical_move_from_fib/sem(..., relaxation=...)``. On an Odemis
 microscope ``self`` resolved to Odemis's own overrides, so every one of them
 had to take ``relaxation`` or every vertical move raised ``TypeError``. Both now
-inherit the one implementation on ``FibsemMicroscope`` (FIB-643).
+inherit the one implementation on ``FibsemMicroscope`` (FIB-643), which is now
+the stage movement service's.
 
 The oracle is ThermoMicroscope itself: given the same stage state, an Odemis
 vertical move must command exactly the moves a ThermoFisher one does.
@@ -25,6 +26,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 from fibsem.microscope import FibsemMicroscope
+from fibsem.services.stage_movement import StageMovement
 from fibsem.structures import BeamType, FibsemStagePosition
 from tests.fm import _odemis_stubs as stubs
 
@@ -46,6 +48,28 @@ def odemis_microscope_cls():
 
     stubs.remove_odemis_stubs()
     sys.modules.update(saved)
+
+
+class _UprightStage:
+    """A stage that never turns the grid over, as the recorded tilts never do."""
+
+    def turned_over(self, tilt):
+        return False
+
+
+class _StubbedStageMovement(StageMovement):
+    """Reads the beams from the stubbed microscope, which has none, and leaves the
+    stable move to the microscope's stub."""
+
+    def _beam_value(self, beam_type, name):
+        if name == "scan_rotation":
+            return self.parent.get_scan_rotation(beam_type)
+        if name == "working_distance":
+            return self.parent.get_working_distance(beam_type)
+        raise AssertionError(name)
+
+    def stable_move(self, dx, dy, beam_type, static_wd=False):
+        return self.parent.stable_move(dx, dy, beam_type, static_wd)
 
 
 def make_microscope(cls, tilt_deg: float = 18.0):
@@ -75,6 +99,9 @@ def make_microscope(cls, tilt_deg: float = 18.0):
     microscope.get_scan_rotation = lambda beam_type: 0.0
     microscope.get_stage_orientation = lambda: "SEM"
     microscope.get_current_milling_angle = lambda: 18.0
+    movement = _StubbedStageMovement(parent=microscope)
+    movement._roles["stage"] = _UprightStage()
+    microscope.stage_movement = movement
     return microscope
 
 
@@ -124,12 +151,9 @@ def test_odemis_takes_every_parameter_the_base_declares(odemis_microscope_cls):
         "stable_move",
         "vertical_move",
         "project_stable_move",
-        "_vertical_move_from_fib",
-        "_vertical_move_from_sem",
         "_y_corrected_stage_movement",
         "_inverse_y_corrected_stage_movement",
         "safe_absolute_stage_movement",
-        "_safe_rotation_movement",
     ],
 )
 def test_odemis_shares_the_base_moves(odemis_microscope_cls, name):

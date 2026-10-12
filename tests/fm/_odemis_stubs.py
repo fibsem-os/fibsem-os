@@ -1,8 +1,8 @@
-"""Stub odemis modules so fibsem.fm.odemis can be imported and unit-tested
+"""Stub odemis modules so the Odemis driver can be imported and unit-tested
 without an odemis installation or a running backend.
 
-Install with install_odemis_stubs() BEFORE importing fibsem.fm.odemis (or
-fibsem.drivers.odemis.microscope). The stubs mimic the odemis conventions
+Install with install_odemis_stubs() BEFORE importing fibsem.drivers.odemis.devices
+(or fibsem.drivers.odemis.microscope). The stubs mimic the odemis conventions
 that matter to the driver:
 
 - excitation/emission/power stream VAs in SI units (bands in metres, power in
@@ -56,7 +56,6 @@ ODEMIS_MODULE_NAMES = (
 
 # fibsem modules bound to the odemis import; must be re-imported against stubs
 FIBSEM_ODEMIS_MODULE_NAMES = (
-    "fibsem.fm.odemis",
     "fibsem.drivers.odemis.microscope",
     "fibsem.drivers.odemis.devices",
     "fibsem.drivers.odemis.services",

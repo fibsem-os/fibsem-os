@@ -25,7 +25,7 @@ The METEOR's FM through odemis, as devices.
 and command makes the odemis calls the old property or method made, in the same order,
 on the same components and the same ``FluoStream``
 (``tests/fixtures/odemis/old_fm_pins.json`` holds those calls). ``OdemisThermoMicroscope.fm`` is the FM API over
-them (``DeviceOdemisFluorescenceMicroscope``), and the device server serves them from the
+them (``OdemisFluorescenceMicroscope``, below), and the device server serves them from the
 METEOR PC.
 
 The stream stays. Excitation, emission and power are the stream's settings, which odemis
@@ -39,8 +39,9 @@ streaming), each ``acquire_frame`` while live is the camera's next frame
 (``data.get(asap=False)``, as ``acquire_image`` takes it while the stream runs), and
 stopping deactivates the stream (light off).
 
-The FM parts need odemis, through ``fibsem.fm.odemis``, which each imports in the
-method that uses it, so the module still loads where odemis is not installed.
+The FM parts import odemis in the method that uses it, so the module still loads where
+odemis is not installed; loading it puts an installed odemis on the path
+(``add_odemis_path``).
 """
 
 from __future__ import annotations
@@ -56,6 +57,8 @@ from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
 from fibsem.devices.wire import Frame, to_wire
+from fibsem.drivers.odemis import add_odemis_path
+from fibsem.fm import microscope as fm_api
 from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
@@ -75,6 +78,9 @@ from fibsem.structures import (
     RangeLimit,
     Resolution,
 )
+from fibsem.util.timestamps import iso_from_posix
+
+add_odemis_path()
 
 # The voltages Odemis offers on a ThermoFisher column, before the column's own range
 # narrows them. The same list as the AutoScript driver's: Odemis keeps its own copy so
@@ -87,7 +93,7 @@ ODEMIS_VOLTAGE_CHOICES = {
 if TYPE_CHECKING:
     from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
     from fibsem.drivers.registry import BuildContext
-    from fibsem.fm.odemis import DeviceOdemisFluorescenceMicroscope
+    from fibsem.microscope import FibsemMicroscope
     from fibsem.structures import DeviceEntry
 
 # The odemis client's name for each column (``beam_type_to_odemis``).
@@ -569,11 +575,50 @@ def build_odemis_chamber(entry: DeviceEntry, context: BuildContext) -> OdemisCha
 
 # The FM.
 
+# position tolerance for deciding the objective is at the active/deactive position
+OBJECTIVE_POSITION_ATOL = 100e-6  # m
+
+
+def _frame_metadata_from_data(data) -> Optional[dict]:
+    """Translate odemis DataArray metadata to the neutral frame-metadata keys
+    consumed by FluorescenceMicroscope._construct_image.
+
+    Odemis DataArrays carry metadata captured at exposure time (pixel size,
+    acquisition date, exposure time), which is authoritative over a state
+    snapshot taken when the frame is processed.
+    """
+    from odemis import model
+
+    md = getattr(data, "metadata", None)
+    if not md:
+        return None
+
+    frame_metadata = {}
+    pixel_size = md.get(model.MD_PIXEL_SIZE)
+    if pixel_size is not None:
+        frame_metadata["pixel_size"] = tuple(pixel_size)
+    acquisition_date = md.get(model.MD_ACQ_DATE)
+    if acquisition_date is not None:
+        # POSIX, so the instant is known: written with the offset (FIB-1190).
+        frame_metadata["acquisition_date"] = iso_from_posix(acquisition_date)
+    exposure_time = md.get(model.MD_EXP_TIME)
+    if exposure_time is not None:
+        frame_metadata["exposure_time"] = exposure_time
+    return frame_metadata or None
+
+
+def _odemis_bands_nm(choice: Any) -> Tuple[Tuple[float, float], ...]:
+    """The bands of an Odemis emission choice in nm, lowest first. A single band is
+    a tuple of edges in metres (2 or 5 values: its first and last are the edges); a
+    multi-band filter is a tuple of such bands."""
+    bands = choice if isinstance(choice[0], (tuple, list)) else (choice,)
+    return tuple(sorted((band[0] * 1e9, band[-1] * 1e9) for band in bands))
+
 
 def emission_filter_of(choice: Any) -> EmissionFilter:
     """The filter an odemis emission choice is: pass-through is reflection; a band, or
     a multi-band filter's bands, in nm."""
-    from fibsem.fm.odemis import _odemis_bands_nm, model
+    from odemis import model
 
     if isinstance(choice, str) and choice == model.BAND_PASS_THROUGH:
         return REFLECTION
@@ -591,7 +636,7 @@ class OdemisFMCamera(Camera):
         parent: Any = None,
         resources: Optional[Resources] = None,
     ):
-        from fibsem.fm.odemis import model
+        from odemis import model
 
         super().__init__(name="camera", parent=parent, resources=resources)
         self._camera = camera
@@ -654,7 +699,7 @@ class OdemisFMCamera(Camera):
     # without a gain control, or whose gain gives no range or choices to scale by, has
     # no gain parameter; the old class reads it as None and ignores a write.
     def available_gain(self) -> bool:
-        from fibsem.fm.odemis import model
+        from odemis import model
 
         return model.hasVA(self._camera, "gain") and self._max_gain() is not None
 
@@ -693,7 +738,7 @@ class OdemisFMCamera(Camera):
     def read_pixel_size(self) -> tuple:
         """Sample-plane, from the camera metadata: odemis republishes it on binning and
         magnification changes, so no binning scaling here."""
-        from fibsem.fm.odemis import model
+        from odemis import model
 
         try:
             pixel_size = self._camera.getMetadata().get(model.MD_PIXEL_SIZE)
@@ -710,7 +755,7 @@ class OdemisFMCamera(Camera):
         return tuple(self._camera.resolution.value)
 
     def _acquire(self) -> np.ndarray:
-        from fibsem.fm.odemis import acquire
+        from odemis.acq.acqmng import acquire
 
         if self._stream.is_active.value:
             # asap=False guarantees the frame is acquired after this call
@@ -813,7 +858,8 @@ class OdemisFMFilterSet(FilterSet):
     def select_fluorescence(self) -> None:
         """The band odemis matches to the current excitation: what the old class does
         for a channel that names its emission "Fluorescence" (TFS-style)."""
-        from fibsem.fm.odemis import fluo, model
+        from odemis import model
+        from odemis.util import fluo
 
         bands = {
             c
@@ -847,7 +893,7 @@ class OdemisFMObjective(Objective):
         parent: Any = None,
         resources: Optional[Resources] = None,
     ):
-        from fibsem.fm.odemis import model
+        from odemis import model
 
         super().__init__(name="objective", parent=parent, resources=resources)
         self._focuser = focuser
@@ -888,14 +934,14 @@ class OdemisFMObjective(Objective):
     @property
     def active_position(self) -> Optional[dict]:
         """The inserted position, ``{"z": metres}``, or None when odemis has none."""
-        from fibsem.fm.odemis import model
+        from odemis import model
 
         return self._favourite("active_position", model.MD_FAV_POS_ACTIVE, "active")
 
     @property
     def deactive_position(self) -> Optional[dict]:
         """The retracted position, ``{"z": metres}``, or None when odemis has none."""
-        from fibsem.fm.odemis import model
+        from odemis import model
 
         return self._favourite(
             "deactive_position", model.MD_FAV_POS_DEACTIVE, "deactive"
@@ -913,8 +959,6 @@ class OdemisFMObjective(Objective):
         return ParameterMetadata(limits=RangeLimit(min=low, max=high))
 
     def read_state(self) -> InsertableDeviceState:
-        from fibsem.fm.odemis import OBJECTIVE_POSITION_ATOL
-
         try:
             position = self._focuser.position.value["z"]
             active_position = self.active_position
@@ -1037,8 +1081,6 @@ class OdemisFM(FM):
         return self.camera.acquire()
 
     def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
-        from fibsem.fm.odemis import _frame_metadata_from_data
-
         data = self._acquire_channel(channel)
         metadata = self._frame_metadata()
         # What odemis stamped on the frame at exposure time, over the parts' state:
@@ -1060,6 +1102,51 @@ class OdemisFM(FM):
             logging.error(f"Failed to deactivate stream after live view: {e}")
 
 
+class OdemisObjectiveLens(fm_api.ObjectiveLens):
+    """The FM API's objective over the Odemis objective device, focusing where the old
+    objective does: odemis's favourite inserted position."""
+
+    def __init__(self, device, parent=None):
+        super().__init__(device, parent=parent)
+        self._focus_position = device.focus_position
+
+
+class OdemisFilterSet(fm_api.FilterSet):
+    """The FM API's filter set over the Odemis filter set device. A "Fluorescence"
+    emission (TFS-style channel settings) is the band odemis matches to the current
+    excitation, as on the old filter set."""
+
+    @property
+    def emission_bands(self) -> Dict[float, Tuple[Tuple[float, float], ...]]:
+        """Each emission filter's bands in nm, keyed by its bottom edge."""
+        return {f.low: f.bands for f in self._emission_filters() if f.low is not None}
+
+    @property
+    def emission_wavelength(self) -> Optional[float]:
+        return fm_api.FilterSet.emission_wavelength.fget(self)
+
+    @emission_wavelength.setter
+    def emission_wavelength(self, value: Optional[Union[float, str]]) -> None:
+        if isinstance(value, str):
+            self._device.select_fluorescence()
+            return
+        fm_api.FilterSet.emission_wavelength.fset(self, value)
+
+
+class OdemisFluorescenceMicroscope(fm_api.FluorescenceMicroscope):
+    """The FM API over the Odemis FM devices, as a METEOR runs it: what the old
+    ``OdemisFluorescenceMicroscope`` did, through its devices. Live view is the
+    stream running, with each frame pulled."""
+
+    objective: OdemisObjectiveLens
+    filter_set: OdemisFilterSet
+
+    def __init__(self, devices, parent: Optional["FibsemMicroscope"] = None):
+        super().__init__(devices, parent=parent)
+        self.objective = OdemisObjectiveLens(devices["objective"], parent=self)
+        self.filter_set = OdemisFilterSet(devices["filter_set"], parent=self)
+
+
 def bind_odemis_fm(
     parent: Any = None,
     resources: Optional[Resources] = None,
@@ -1069,7 +1156,8 @@ def bind_odemis_fm(
     this computer: its components by role, and one ``FluoStream`` over them, as
     the old ``OdemisFluorescenceMicroscope`` built it. *config* is the fm entry's own
     keys (``mount_transform``)."""
-    from fibsem.fm.odemis import FluoStream, model
+    from odemis import model
+    from odemis.acq.stream import FluoStream
 
     resources = resources if resources is not None else resources_of(parent)
     camera = model.getComponent(role="ccd")
@@ -1100,15 +1188,13 @@ def bind_odemis_fm(
 
 def build_odemis_fm(
     entry: DeviceEntry, context: BuildContext
-) -> "DeviceOdemisFluorescenceMicroscope":
+) -> OdemisFluorescenceMicroscope:
     """The FM API over the Odemis FM devices, which make the odemis calls the old
     ``OdemisFluorescenceMicroscope`` made, on the same components and stream.
 
     The FM API's own live view pulls every frame, so nothing needs to stop it when no
     frame is asked for."""
-    from fibsem.fm.odemis import DeviceOdemisFluorescenceMicroscope
-
     microscope = context.microscope
     devices = bind_odemis_fm(microscope, config=entry.as_block())
     devices["fm"].live_timeout = None
-    return DeviceOdemisFluorescenceMicroscope(devices, parent=microscope)
+    return OdemisFluorescenceMicroscope(devices, parent=microscope)

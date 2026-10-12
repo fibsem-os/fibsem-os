@@ -137,6 +137,8 @@ class ScreenGridsDialog(QDialog):
         ] = None,
         synchronous: bool = False,
         clock: Callable[[], float] = time.monotonic,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -145,6 +147,15 @@ class ScreenGridsDialog(QDialog):
         self.task_names = list(task_names)
         self.grid_names: List[str] = []
         self._beams_off = list(beams_off)
+        # How the run ends, from the Grids page's ⚙ (FIB-1133): said, not chosen.
+        self._ending = [
+            said
+            for said, on in (
+                ("unload the last grid", unload_at_end),
+                ("write the grid screening report", report_at_end),
+            )
+            if on
+        ]
         # Prices a run of these tasks over (grid names, exchanges); asked at the
         # review, so the quote is for the grids the scan found (FIB-1134).
         self._estimate = estimate
@@ -541,6 +552,13 @@ class ScreenGridsDialog(QDialog):
         self.summary_layout.addWidget(detail_block(rows))
         self.summary_layout.addWidget(
             meta_label(f"Output: {self.experiment.path}/grids/<grid>/")
+        )
+        self.summary_layout.addWidget(
+            meta_label(
+                f"When the run ends: {' and '.join(self._ending)}."
+                if self._ending
+                else "When the run ends: nothing more. Set on the ⚙."
+            )
         )
 
         if self._beams_off:

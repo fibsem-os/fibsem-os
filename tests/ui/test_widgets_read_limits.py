@@ -18,8 +18,13 @@ from fibsem.devices.beam import (  # noqa: E402
     STANDARD_RESOLUTIONS,
 )
 from fibsem.devices.core import ParameterMetadata  # noqa: E402
-from fibsem.structures import BeamType, ImageSettings, RangeLimit  # noqa: E402
-from fibsem.ui.utils import beam_limits  # noqa: E402
+from fibsem.structures import (  # noqa: E402
+    BeamType,
+    ImageSettings,
+    RangeLimit,
+    get_fields_with_metadata,  # noqa: E402
+)
+from fibsem.ui.utils import beam_field_metadata  # noqa: E402
 from fibsem.ui.widgets.beam_settings_widget import (
     FibsemBeamSettingsWidget,  # noqa: E402
 )
@@ -54,16 +59,30 @@ def _range(spinbox):
     return spinbox.minimum(), spinbox.maximum()
 
 
-def test_beam_limits_reads_the_device():
+IMAGE = get_fields_with_metadata(ImageSettings)
+
+
+def test_a_bound_field_takes_the_beams_limits():
     microscope = _demo()
-    assert beam_limits(microscope, "scan_rotation", E) == RangeLimit(0.0, 2 * math.pi)
-    assert beam_limits(microscope, "not_a_parameter", E) is None
-    _report(microscope, E, "hfw")
-    assert beam_limits(microscope, "hfw", E) == DEFAULT_HFW_LIMITS
-    # no such beam, or no microscope: the range every beam declares
+    _report(microscope, E, "hfw", limits=RangeLimit(2e-6, 900e-6))
+    hfw = beam_field_metadata(IMAGE["hfw"], microscope, E)
+    assert (hfw["minimum"], hfw["maximum"]) == pytest.approx((2, 900))
+    assert hfw["label"] == "Field of View"
+    # a beam that reports nothing, no such beam, or no microscope: what every beam
+    # declares
+    _report(microscope, E, "dwell_time")
+    for args in ((microscope, E), (None, None)):
+        dwell = beam_field_metadata(IMAGE["dwell_time"], *args)
+        lo, hi = DEFAULT_DWELL_TIME_LIMITS.min, DEFAULT_DWELL_TIME_LIMITS.max
+        assert (dwell["minimum"], dwell["maximum"]) == pytest.approx(
+            (lo * 1e6, hi * 1e6)
+        )
     microscope.beams = {E: microscope.beams[E]}
-    assert beam_limits(microscope, "hfw", I) == DEFAULT_HFW_LIMITS
-    assert beam_limits(None, "dwell_time", I) == DEFAULT_DWELL_TIME_LIMITS
+    hfw = beam_field_metadata(IMAGE["hfw"], microscope, I)
+    assert hfw["maximum"] == pytest.approx(DEFAULT_HFW_LIMITS.max * 1e6)
+    # a field bound to nothing the beam declares comes back as it is
+    unbound = {"label": "Thing", "microscope_parameter": "not_a_parameter"}
+    assert beam_field_metadata(unbound, microscope, E) is unbound
 
 
 def test_beam_settings_follow_the_beam():
@@ -169,3 +188,26 @@ def test_the_overview_bounds_field_of_view_and_dwell_by_the_selected_beam():
     widget.set_microscope(microscope)
     widget.combo_beam.set_value(I)
     assert _range(widget.spin_hfw) == pytest.approx((1, 900))
+
+
+def test_the_overview_shows_its_imaging_controls_as_the_image_tab_does():
+    widget = FibsemOverviewSettingsWidget()
+    assert widget.spin_hfw.suffix() == " µm"
+    assert widget.spin_dwell.suffix() == " µs"
+    assert widget.spin_dwell.decimals() == 3
+    assert _range(widget.spin_line_integration) == (1, 255)
+    assert _range(widget.spin_scan_interlacing) == (1, 8)
+    assert _range(widget.spin_frame_integration) == (1, 512)
+
+
+def test_the_microscope_defaults_are_bounded_by_the_beam():
+    from fibsem.ui.widgets.microscope_defaults_widget import MicroscopeDefaultsWidget
+
+    microscope = _demo()
+    _report(microscope, I, "hfw", limits=RangeLimit(1e-6, 900e-6))
+    widget = MicroscopeDefaultsWidget()
+    widget.set_microscope(microscope)
+    form = widget.ion
+    assert _range(form.hfw) == pytest.approx((1, 900))
+    assert form.scan_rotation.suffix().strip() == "°"
+    assert _range(form.scan_rotation) == pytest.approx((0, 360))

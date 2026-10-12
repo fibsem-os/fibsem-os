@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFontMetrics, QIcon
+from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QDialog, QLabel
 
@@ -35,12 +35,14 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
 )
-from fibsem.microscopes._stage import SampleGrid, SlotCalibration, _create_sample_stage
+from fibsem.microscopes._stage import _create_sample_stage
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,
     OverviewAcquisitionSettings,
+    SampleGrid,
+    SlotCalibration,
 )
 
 
@@ -432,6 +434,26 @@ def test_the_preflight_says_which_beams_are_off(qapp):
     )
 
 
+def test_the_preflight_says_how_the_run_ends(qapp):
+    """Set on the ⚙, said on the confirmation; not when adding to a running
+    queue: the added work ends the way that run was started."""
+    both = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", unload_at_end=True, report_at_end=True
+    )
+    assert (
+        "When the run ends: unload the last grid and write the grid screening report."
+        in _labels(both)
+    )
+    neither = GridRunPreflightDialog(["overview_sem"], ["Grid-01"], 1, "/exp")
+    assert any(
+        t.startswith("When the run ends: nothing more") for t in _labels(neither)
+    )
+    adding = GridRunPreflightDialog(
+        ["overview_sem"], ["Grid-01"], 1, "/exp", adding=True, unload_at_end=True
+    )
+    assert not any(t.startswith("When the run ends") for t in _labels(adding))
+
+
 @pytest.fixture
 def main_ui(qapp):
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
@@ -474,22 +496,47 @@ class TestPanelChrome:
         assert view.get_selected_task_names() == ["overview_sem", "overview_fm"]
         assert box.checkState() == Qt.CheckState.Checked
 
-    def test_the_gear_is_disabled_until_grid_runs_have_options(self, view):
-        # on the Lamella page ⚙ opens the workflow's options; a grid run has
-        # none yet, and ⚙ is not a way to the Protocol tab
-        assert not view.btn_settings.isEnabled()
-        # and looks it: Qt's own disabled icon read as enabled on this palette
-        image = view.btn_settings.icon().pixmap(16, 16, QIcon.Disabled).toImage()
-        drawn = [
-            image.pixelColor(x, y)
-            for x in range(image.width())
-            for y in range(image.height())
-            if image.pixelColor(x, y).alpha() > 128
-        ]
-        assert drawn and max(c.lightness() for c in drawn) < 0x80
-        assert "No grid workflow options" in view.btn_settings.toolTip()
+    def test_the_gear_opens_the_grid_workflow_options(self, view):
+        # on the Lamella page ⚙ opens the workflow's settings; here, how a run
+        # ends. Unload off and the report on until asked otherwise.
+        assert view.btn_settings.isEnabled()
+        assert view.btn_settings.toolTip() == "Grid workflow options"
+        view.btn_settings.click()
+        assert view.options.isVisible()
+        assert not view.unload_at_end()
+        assert view.report_at_end() == view.options.report_check.isEnabled()
+        view.options.hide()
         hints = view.btn_help.toolTip()
         assert "order they run" in hints and "Protocol tab's Grid page" in hints
+
+    def test_unload_is_offered_only_with_a_loader(self, view):
+        options = view.options
+        options.set_availability(can_unload=False, report_unavailable="")
+        options.unload_check.setChecked(True)
+        assert options.unload_check.isHidden()
+        assert not view.unload_at_end(), "a fixed holder has nothing to unload"
+        options.set_availability(can_unload=True, report_unavailable="")
+        assert not options.unload_check.isHidden()
+        assert view.unload_at_end(), "the choice is kept"
+
+    def test_the_gear_says_why_it_cannot_write_the_report(self, view):
+        reason = "Needs the reporting tools: pip install fibsem-os[reporting]"
+        view.options.set_availability(can_unload=False, report_unavailable=reason)
+        assert not view.options.report_check.isEnabled()
+        assert not view.options.report_check.isChecked(), "reads unticked"
+        assert view.options.report_check.toolTip() == reason
+        assert not view.report_at_end()
+        view.options.set_availability(can_unload=False, report_unavailable="")
+        assert view.report_at_end(), "not a choice the operator made"
+
+    def test_the_gear_is_accent_while_an_option_is_off_its_default(self, view):
+        view.options.set_availability(can_unload=True, report_unavailable="")
+        assert "some set" not in view.btn_settings.toolTip()
+        view.options.unload_check.setChecked(True)
+        assert "some set" in view.btn_settings.toolTip()
+        view.options.unload_check.setChecked(False)
+        view.options.report_check.setChecked(False)
+        assert "some set" in view.btn_settings.toolTip()
 
 
 def test_the_grids_view_sits_beside_lamella(main_ui):
@@ -768,10 +815,12 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)
 
     shown = []
+    offered = []
 
     class _Capture:
         def __init__(self, *args, **kwargs):
             shown.append(kwargs.get("first_run"))
+            offered.append(kwargs.get("unload_at_end"))
 
         def exec_(self):
             return QDialog.Rejected  # look, do not run
@@ -781,25 +830,35 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     view.grid_header.checkbox_all.setChecked(True)
     main_ui._run_grid_workflow()
     assert shown == [["grid-birch"]]
+    assert offered == [False], "a fixed holder has nothing to unload"
     assert not ui.is_workflow_running
 
     # Screen all grids asks its own dialog, which names and records the grids,
     # and runs on exactly the grids it hands back (FIB-1138).
     started = []
+    told = []
 
     class _Screen:
         def __init__(self, stage, experiment, task_names, *args, **kwargs):
             self.grid_names = ["grid-birch"]
+            told.append((kwargs["unload_at_end"], kwargs["report_at_end"]))
 
         def exec_(self):
             return QDialog.Accepted
 
     monkeypatch.setattr(module, "ScreenGridsDialog", _Screen)
     monkeypatch.setattr(
-        main_ui, "_start_grid_run", lambda *args, **kwargs: started.append(args)
+        main_ui,
+        "_start_grid_run",
+        lambda *args, **kwargs: started.append((args, kwargs)),
     )
     main_ui._on_screen_all_grids()
-    assert started == [(["overview_sem"], ["grid-birch"])]
+    # the run ends as the Grids page's ⚙ says, and the dialog says so (FIB-1133)
+    ending = main_ui._end_of_run()
+    assert told == [(ending["unload_at_end"], ending["report_at_end"])]
+    assert started == [
+        ((["overview_sem"], ["grid-birch"]), dict(inventory_first=False, **ending))
+    ]
 
 
 def _labels(dialog) -> list:

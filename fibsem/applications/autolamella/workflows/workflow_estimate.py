@@ -272,12 +272,15 @@ def grid_item_seconds(
     and Add to queue price a grid item with.
 
     A "Load grid" step costs ``exchange_seconds``, unless its grid is one of
-    ``loaded`` (on the stage now), when the load is a no-op. A task costs its
+    ``loaded`` (on the stage now), when the load is a no-op. The "Unload grid"
+    step a run can end with costs ``exchange_seconds`` too: the loader gives
+    one figure, and estimates round up. A task costs its
     config's estimate. None for anything else: a step this protocol does not have
     has nothing to offer, as on the lamella side.
     """
     from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
         LOAD_ENTRY_NAME,
+        UNLOAD_ENTRY_NAME,
     )
 
     grids = {grid.name for grid in experiment.grids}
@@ -289,6 +292,8 @@ def grid_item_seconds(
             return None
         if step == LOAD_ENTRY_NAME:
             return 0.0 if grid_name in on_stage else exchange_seconds
+        if step == UNLOAD_ENTRY_NAME:
+            return exchange_seconds
         config = configs.get(step)
         return config.estimated_duration if config is not None else None
 

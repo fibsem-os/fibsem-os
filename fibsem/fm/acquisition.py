@@ -829,7 +829,8 @@ class FMTiledAcquisitionRunner:
         # different conclusions about the same limits. Only the tiles that will be
         # visited: `_ordered` has the masked-off ones dropped already, so excluding a
         # corner is a legitimate way to bring a grid back into range.
-        limits = getattr(self.microscope._stage, "limits", None)
+        stage = self.microscope.stage
+        limits = stage.position.limits if stage is not None else None
         if limits:
             raise_if_outside_stage_limits(
                 self._ordered,

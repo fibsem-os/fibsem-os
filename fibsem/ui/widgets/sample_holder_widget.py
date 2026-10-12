@@ -29,8 +29,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.microscopes._stage import GridSlot, SampleGrid, SampleHolder
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemStagePosition, GridSlot, SampleGrid, SampleHolder
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, fibsem_icon
 from fibsem.ui.tokens import (

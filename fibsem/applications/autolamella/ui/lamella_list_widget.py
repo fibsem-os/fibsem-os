@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -25,6 +24,7 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskState,
     AutoLamellaTaskStatus,
     Lamella,
     QualityRecord,
@@ -45,6 +45,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_550,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
+from fibsem.ui.widgets.preflight import format_clock
 from fibsem.util.timestamps import now
 
 _NAME_MIN_WIDTH = 160
@@ -110,8 +111,9 @@ def apply_grid_label(
 
 
 def short_status(text: str) -> str:
-    """The task name without its time stamp, for a line with no room for it."""
-    return re.sub(r"\s*\([^)]*\)\s*$", "", text)
+    """The task name without its time, for a line with no room for it:
+    "Rough Milling · 1:44PM" (`completed_text`) is "Rough Milling"."""
+    return text.split(" \u00b7 ", 1)[0]
 
 
 def has_defect(lamella) -> bool:
@@ -262,6 +264,27 @@ class _LamellaTooltip(QWidget):
         self.raise_()
 
 
+def completed_text(task: AutoLamellaTaskState) -> str:
+    """The last task done and when, for a list's status column: "Rough Milling ·
+    1:44PM", "· Yesterday, 1:44PM", and further back "· Sep 14, 1:44PM".
+
+    The clock the preflight and timeline use, in the viewer's zone, after a dot.
+    Further back than yesterday that clock gives the whole date and time, which
+    is long for a column; a short date says as much. `task.completed` ("Rough
+    Milling (01:44PM)") is left as it is: the reports and the exported table
+    read it.
+    """
+    when = task.end_timestamp
+    if when is None:
+        return task.name
+    if when.tzinfo is not None:
+        when = when.astimezone()
+    today = datetime.now(when.tzinfo).date()
+    if (today - when.date()).days > 1:
+        return f"{task.name} \u00b7 {when:%b} {when.day}, {format_clock(when, None)}"
+    return f"{task.name} \u00b7 {format_clock(when, datetime.now(when.tzinfo))}"
+
+
 def _status_text(lamella: Lamella) -> tuple[str, str]:
     """Return (text, stylesheet) for the status column."""
     ts = lamella.task_state
@@ -272,7 +295,7 @@ def _status_text(lamella: Lamella) -> tuple[str, str]:
         )
     last = lamella.last_completed_task
     if last:
-        return last.completed, f"color: {NEUTRAL_550}; background: transparent;"
+        return completed_text(last), f"color: {NEUTRAL_550}; background: transparent;"
     return "", "background: transparent;"
 
 

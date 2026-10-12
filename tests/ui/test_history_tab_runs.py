@@ -15,9 +15,11 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtCore import QEvent  # noqa: E402
+from PyQt5.QtCore import QEvent, Qt  # noqa: E402
+from PyQt5.QtTest import QTest  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 
+import fibsem.applications.autolamella.ui.lamella_task_image_widget as history_tab  # noqa: E402
 import fibsem.config as cfg  # noqa: E402
 from fibsem.applications.autolamella.event_recording import (  # noqa: E402
     EVENTS_FILENAME,
@@ -245,3 +247,37 @@ def test_the_menu_lists_the_lamellas_tasks(widget):
         "",
         "Reset filters",
     ]
+
+
+def _loaded(widget):
+    """Wait for the background loader to fill the thumbnails."""
+    for _ in range(200):
+        QApplication.processEvents()
+        if widget._worker is None or widget._worker.isFinished():
+            QApplication.processEvents()
+            return
+        widget._worker.wait(25)
+
+
+@pytest.mark.parametrize("change", ["none", "filter"])
+def test_a_thumbnail_opens_in_the_viewer_after_the_rows_are_rebuilt(
+    widget, lamella, monkeypatch, change
+):
+    """Changing the filter rebuilds the rows from images already loaded. The
+    click used to be connected only when an image first loaded, so after a
+    filter change no thumbnail opened."""
+    opened = []
+    monkeypatch.setattr(
+        history_tab,
+        "open_image_viewer",
+        lambda parent, items, index: opened.append(items[index].path),
+    )
+    _loaded(widget)
+    if change == "filter":
+        widget._filter_button._pick(HistoryFilter(show="images"))
+        _shown(widget)
+
+    (path, thumbnail), *_ = widget._placeholder_labels.items()
+    QTest.mouseClick(thumbnail, Qt.LeftButton)
+
+    assert opened == [path]

@@ -24,7 +24,7 @@ from fibsem import config as cfg
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, RangeLimit
+from fibsem.structures import BeamType
 
 
 def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -> list:
@@ -39,30 +39,24 @@ def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -
     return list(parameter.choices)
 
 
-def beam_limits(
-    microscope: Optional[FibsemMicroscope], name: str, beam_type: Optional[BeamType]
-) -> Optional[RangeLimit]:
-    """The range a beam parameter can take, from its device's limits, as
-    ``beam_choices`` reads its choices. Where there is no microscope, no such beam or
-    the beam reports no range, the range every beam declares (an editor with no
-    instrument still gets one). None when neither has a single range."""
+def beam_field_metadata(
+    metadata: dict,
+    microscope: Optional[FibsemMicroscope] = None,
+    beam_type: Optional[BeamType] = None,
+) -> dict:
+    """A field's metadata with what the beam allows laid over it, for a field bound to
+    a beam parameter (``microscope_parameter``): the limits and choices ``beam_type``
+    reports, else what every beam declares (a form with no instrument still gets
+    them). A field bound to nothing the beam declares comes back as it is."""
+    from fibsem.ui.widgets.form_builder import reported_metadata, runtime_overrides
+
+    name = metadata.get("microscope_parameter")
+    declared = getattr(Beam, name, None) if name else None
+    if not isinstance(declared, Parameter):
+        return metadata
     beam = None if microscope is None else microscope.beams.get(beam_type)
     parameter = None if beam is None else beam.parameters.get(name)
-    limits = None if parameter is None else parameter.limits
-    if not isinstance(limits, RangeLimit):
-        declared = getattr(Beam, name, None)
-        limits = declared.limits if isinstance(declared, Parameter) else None
-    return limits if isinstance(limits, RangeLimit) else None
-
-
-def set_range_from_limits(
-    spinbox: QAbstractSpinBox, limits: Optional[RangeLimit], scale: float = 1.0
-) -> None:
-    """Bound ``spinbox`` to ``limits`` (SI) shown times ``scale``; no limits leaves
-    the box's own range."""
-    if limits is None:
-        return
-    spinbox.setRange(limits.min * scale, limits.max * scale)
+    return runtime_overrides(metadata, reported_metadata(parameter or declared))
 
 
 def find_data(combo: QtWidgets.QComboBox, value) -> int:

@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Iterable, List, Mapping, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Union,
+)
 
 import numpy as np
 import yaml
-from psygnal import Signal
 
 from fibsem import config as cfg
 from fibsem._timing import sim_sleep
@@ -20,32 +26,16 @@ from fibsem.devices.sample_loader import (
     MagazineSlotState,
     StageSample,
 )
-from fibsem.devices.stage import axis_limits_to_degrees
 from fibsem.session_state import SessionState, session_state_for
 from fibsem.structures import (
     GRID_RADIUS,
-    BeamType,
     FibsemStagePosition,
     GridSlot,
-    RangeLimit,
     SampleGrid,
     SampleHolder,
     SlotCalibration,
     default_sample_holder,
 )
-
-# Re-exported: the grid structures moved into `structures.py` so `SystemSettings` could
-# hold a holder without closing an import loop, and `GridExchangeError` to the sample
-# loader device that raises it. They are still part of this module's surface -- around
-# twenty call sites import them from here.
-__all__ = [
-    "GRID_RADIUS",
-    "GridExchangeError",
-    "SampleGrid",
-    "SlotCalibration",
-    "GridSlot",
-    "SampleHolder",
-]
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -388,27 +378,19 @@ class DeviceSampleLoader(SampleGridLoader):
             working.loaded_grid = None
 
 
-def _stage_device_limits(microscope: "FibsemMicroscope") -> Dict[str, RangeLimit]:
-    """The stage device's per-axis limits, in this module's units: metres for x, y
-    and z, degrees for r and t. Empty when there is no stage device, which the
-    readers take as "unknown" rather than "anywhere"."""
-    stage = microscope.stage
-    if stage is None:
-        return {}
-    return axis_limits_to_degrees(stage.position.limits or {})
-
-
 def _slot_name(index: int) -> str:
     return f"Slot-{index + 1:02d}"
 
 
 class Stage:
+    """The grids on the sample stage: the holder, the loader if there is one, and
+    which grid is where. Stage moves are the stage device's (``microscope.stage``) and
+    the stage movement service's (``microscope.stage_movement``); this only adds the
+    moves that need the holder, to a slot or to a grid."""
+
     parent: "FibsemMicroscope"
     holder: "SampleHolder"
     loader: Optional[SampleGridLoader] = None
-    _position: Optional[FibsemStagePosition] = None
-    position_changed = Signal(FibsemStagePosition)
-    limits: dict[str, RangeLimit] = field(default_factory=dict)
 
     def __init__(
         self,
@@ -419,26 +401,9 @@ class Stage:
         self.parent = parent
         self.holder = holder
         self.loader = loader
-        self.limits = _stage_device_limits(parent)
 
     def __repr__(self) -> str:
-        return f"<Stage: position={self.position}, holder={self.holder}>"
-
-    @property
-    def axes(self) -> Tuple[str, ...]:
-        return tuple(self.limits.keys())
-
-    @property
-    def position(self) -> FibsemStagePosition:
-        return self.parent.get_stage_position()
-
-    @property
-    def orientation(self) -> str:
-        return self.parent.get_stage_orientation()
-
-    @property
-    def milling_angle(self) -> float:
-        return self.parent.get_current_milling_angle()
+        return f"<Stage: holder={self.holder}, loader={self.loader}>"
 
     def slot_at_position(
         self, position: Optional[FibsemStagePosition]
@@ -521,42 +486,6 @@ class Stage:
             )
         return entries
 
-    @property
-    def is_homed(self) -> Optional[bool]:
-        stage = self.parent.stage
-        return None if stage is None else stage.is_homed
-
-    def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        return self.parent.move_stage_absolute(position)
-
-    def move_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        return self.parent.move_stage_relative(position)
-
-    def stable_move(
-        self, dx: float, dy: float, beam_type: BeamType
-    ) -> FibsemStagePosition:
-        return self.parent.stable_move(dx, dy, beam_type)
-
-    def vertical_move(
-        self, dy: float, dx: float = 0.0, beam_type: BeamType = BeamType.ION
-    ) -> FibsemStagePosition:
-        return self.parent.vertical_move(dy, dx, beam_type)
-
-    def move_to_milling_angle(self, milling_angle: float) -> bool:
-        return self.parent.move_to_milling_angle(milling_angle)
-
-    def home(self) -> bool:
-        return self.parent.home()
-
-    def project_stable_move(
-        self,
-        dx: float,
-        dy: float,
-        beam_type: BeamType,
-        base_position: FibsemStagePosition,
-    ) -> FibsemStagePosition:
-        return self.parent.project_stable_move(dx, dy, beam_type, base_position)
-
     def move_to_slot(self, slot_name: str) -> FibsemStagePosition:
         """Move the stage to a specific slot. Refuses a slot that is not calibrated."""
         if self.holder is None:
@@ -566,12 +495,7 @@ class Stage:
         slot = self.holder.slots[slot_name]
         if slot.position is None:
             raise ValueError(uncalibrated_message(slot_name))
-        self.move_absolute(slot.position)
-        return self.position
-
-    def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
-        """Move the stage to a specific orientation."""
-        return self.parent.move_to_orientation(orientation)
+        return self.parent.move_stage_absolute(slot.position)
 
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
         """Move the stage to the holder slot that holds this grid."""

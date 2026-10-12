@@ -29,7 +29,6 @@ from typing import (
 import numpy as np
 from psygnal import Signal
 
-import fibsem.constants as constants
 from fibsem import manufacturers
 from fibsem.devices.beam import (
     BEAM_COMMAND_ROUTES,
@@ -40,18 +39,11 @@ from fibsem.devices.beam import (
 from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.core import IMAGING_CHANNEL, Resources
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.geometry.movement import (
-    apply_delta,
-    fib_offset_after_sem_move,
-    image_to_stage_delta,
-    undo_scan_rotation,
-    vertical_move_delta,
-)
-from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
+from fibsem.geometry.movement import image_to_stage_delta
+from fibsem.imaging.spot import SpotBurnProgress
 from fibsem.imaging.tiling.progress import TiledProgress
-from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
-    ACTIVE_MILLING_STATES,
     BEAMS_STAGE_DEVICE,
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
@@ -67,7 +59,6 @@ from fibsem.structures import (
     FibsemDetectorSettings,
     FibsemHardwareGeometry,
     FibsemImage,
-    FibsemImageMetadata,
     FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
@@ -81,7 +72,6 @@ from fibsem.structures import (
     MicroscopeState,
     MillingState,
     Point,
-    RangeLimit,
     StageDeviceSettings,
     SystemSettings,
 )
@@ -97,6 +87,7 @@ if TYPE_CHECKING:
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.services.milling import Milling
     from fibsem.services.spot_burn import SpotBurn
+    from fibsem.services.stage_movement import StageMovement
 
 
 # The device the orientation transform is defined at. `_get_compucentric_rotation_position`
@@ -177,11 +168,12 @@ def _plain_argument(value: Any) -> Any:
     return value
 
 
-def _records_stage_move(method):
+def _records_stage_move(method, microscope_of: Callable[[Any], Any] = lambda m: m):
     """Record each call as one ``stage_moved`` event, unless it is a step of
     another stage move on the same thread, which records the whole.
 
-    For a backend's stage moves. See ``FibsemMicroscope._record_stage_move``.
+    For a backend's stage moves, and the stage movement service's, whose record is
+    its microscope's (``microscope_of``). See ``FibsemMicroscope._record_stage_move``.
     """
     signature = inspect.signature(method)
 
@@ -190,7 +182,8 @@ def _records_stage_move(method):
         if getattr(_recording_stage_move, "active", False):
             return method(self, *args, **kwargs)
         _recording_stage_move.active = True
-        start = self._stage_position
+        microscope = microscope_of(self)
+        start = microscope._stage_position
         began = time.monotonic()
         result: Any = None
         error: Optional[BaseException] = None
@@ -202,7 +195,7 @@ def _records_stage_move(method):
             raise
         finally:
             _recording_stage_move.active = False
-            self._record_stage_move(
+            microscope._record_stage_move(
                 method.__name__,
                 (signature, args, kwargs),
                 start,
@@ -340,6 +333,11 @@ class FibsemMicroscope(ABC):
     #: milling methods go to it. None when no ion beam was built: they raise then,
     #: a stop has nothing to stop, and the state reads idle.
     milling: Optional[Milling] = None
+    #: The stage movement service over the stage and beams
+    #: (`fibsem.services.stage_movement.StageMovement`); the view-corrected moves go
+    #: to it. None on a backend that doesn't build one yet, whose own move code below
+    #: is then in charge.
+    stage_movement: Optional[StageMovement] = None
     #: The spot burn service over the beams (`fibsem.services.spot_burn.SpotBurn`);
     #: `run_spot_burn` goes to it. None when the ion beam can't burn (not built,
     #: or it can't blank and park): the method raises then.
@@ -379,8 +377,8 @@ class FibsemMicroscope(ABC):
         )
     )
 
-    # fluorescence
-    fm: Optional[FluorescenceMicroscope]
+    # fluorescence: none until a backend builds one on connect
+    fm: Optional[FluorescenceMicroscope] = None
 
     stage_position_changed = Signal(FibsemStagePosition)
     _stage_position: FibsemStagePosition = None
@@ -829,10 +827,10 @@ class FibsemMicroscope(ABC):
         self.stage.move_through(position, relative=True)
         return self.get_stage_position()
 
-    # The view-corrected moves below are shared by every backend; Tescan's stage converts
-    # to this frame (FIB-1114) and keeps only its own SEM-view coincidence move. The
-    # geometry is in `fibsem.geometry.movement`; these read the instrument, command the
-    # move and look after the working distance.
+    # The view-corrected moves below are the stage movement service's
+    # (`fibsem.services.stage_movement`); these keep their names and signatures and
+    # route to it. A driver's differences are its service subclass (Tescan's is
+    # `TescanStageMovement`). The geometry is in `fibsem.geometry.movement`.
 
     # TODO: migrate from stable_move vocab to sample_stage
     @_records_stage_move
@@ -849,44 +847,9 @@ class FibsemMicroscope(ABC):
             beam_type (BeamType): beam type to move in
             static_wd (bool, optional): whether to fix the working distance to the eucentric heights. Defaults to False.
         """
-
-        wd = self.get_working_distance(beam_type=BeamType.ELECTRON)
-
-        scan_rotation = self.get_scan_rotation(beam_type=beam_type)
-        dx, dy = undo_scan_rotation(dx, dy, scan_rotation)
-
-        # calculate stable movement
-        stage_position = self._view_stage_delta(
-            dx, dy, view_tilt=self._beam_view_tilt(beam_type)
+        return self._movement_service().stable_move(
+            dx=dx, dy=dy, beam_type=beam_type, static_wd=static_wd
         )
-
-        # move stage
-        self.move_stage_relative(stage_position)
-
-        # adjust working distance to compensate for stage movement
-        if static_wd:
-            wd = self.system.electron.eucentric_height
-
-        # A linked stage's z moves the working distance with it, so put it back. An
-        # unlinked stage (a compustage never links) leaves it where it was.
-        if self._stage_value("linked"):
-            self.set_working_distance(wd, BeamType.ELECTRON)
-
-        # logging
-        logging.debug(
-            {
-                "msg": "stable_move",
-                "dx": dx,
-                "dy": dy,
-                "beam_type": beam_type.name,
-                "static_wd": static_wd,
-                "working_distance": wd,
-                "scan_rotation": scan_rotation,
-                "position": stage_position.to_dict(),
-            }
-        )
-
-        return self.get_stage_position()
 
     @_records_stage_move
     def vertical_move(
@@ -917,118 +880,15 @@ class FibsemMicroscope(ABC):
             NotImplementedError: if this backend cannot correct from that view.
                 Ask supports_vertical_move first rather than catching this.
         """
-        self._check_vertical_move_supported(beam_type)
-        if beam_type is BeamType.ELECTRON:
-            return self._vertical_move_from_sem(dx=dx, dy=dy, relaxation=relaxation)
-        return self._vertical_move_from_fib(dx=dx, dy=dy, relaxation=relaxation)
-
-    def _vertical_move_from_fib(
-        self,
-        dy: float,
-        dx: float = 0.0,
-        relaxation: float = 1.0,
-    ) -> FibsemStagePosition:
-        """Move the stage vertically to correct coincidence point
-
-        The offset is measured in the FIB view: the feature is already centred in
-        the SEM, and a chamber-vertical move is invisible to the electron beam.
-
-        Args:
-            dy (float): distance along the y-axis (image coordinates)
-            dx (float, optional): distance along the x-axis (image coordinates). Defaults to 0.0.
-        """
-
-        # get current working distance, to be restored later
-        wd = self.get_working_distance(beam_type=BeamType.ELECTRON)
-
-        scan_rotation = self.get_scan_rotation(beam_type=BeamType.ION)
-        stage_tilt = self.get_stage_position().t
-        stage_position = vertical_move_delta(
-            dx=dx,
-            dy=dy,
-            scan_rotation=scan_rotation,
-            fib_column_tilt=self.system.ion.column_tilt,
-            stage_tilt=stage_tilt,
-            turned_over=self._stage_turned_over(stage_tilt),
-            relaxation=relaxation,
+        return self._movement_service().vertical_move(
+            dy=dy, dx=dx, beam_type=beam_type, relaxation=relaxation
         )
-        logging.info(f"Vertical movement: {stage_position}")
-        self.move_stage_relative(
-            stage_position
-        )  # NOTE: this seems to be a bit less than previous... -> perspective correction?
-
-        # Vertical moves re-establish the coincidence plane. Always restore the
-        # pre-move SEM (electron) working distance so fine corrections keep their
-        # focus. For a large correction, snap the FIB (ion) WD to eucentric (the
-        # best estimate at the new coincidence plane); small corrections keep the
-        # current FIB focus.
-        EUCENTRIC_RESET_THRESHOLD = 100e-6  # m (stage-z travel)
-        self.set_working_distance(wd=wd, beam_type=BeamType.ELECTRON)
-        if abs(stage_position.z) > EUCENTRIC_RESET_THRESHOLD:
-            self.set_working_distance(
-                wd=self.system.ion.eucentric_height, beam_type=BeamType.ION
-            )
-
-        # logging
-        logging.debug(
-            {
-                "msg": "vertical_move",
-                "dy": stage_position.y,
-                "dx": stage_position.x,
-                "wd": wd,
-                "scan_rotation": scan_rotation,
-                "position": stage_position.to_dict(),
-            }
-        )
-
-        return self.get_stage_position()
-
-    def _vertical_move_from_sem(
-        self, dx: float, dy: float, relaxation: float = 1.0
-    ) -> FibsemStagePosition:
-        """Correct the coincidence point from an offset measured in the SEM view.
-
-        Not the mirror image of the FIB path but a superset: a stable move first
-        brings the feature to the centre of the SEM, and the height correction
-        that follows puts the FIB back.
-        """
-
-        # move to position in SEM
-        base_position = self.get_stage_position()
-        self.stable_move(dx=dx, dy=dy, beam_type=BeamType.ELECTRON)
-
-        # calculate the difference in position after SEM move
-        position_after_sem_move = self.get_stage_position()
-
-        # correct for the stage tilt and milling angle
-        milling_angle = None
-        if self.get_stage_orientation() in ["SEM", "MILLING"]:
-            milling_angle = self.get_current_milling_angle()  # deg
-
-        dy = fib_offset_after_sem_move(
-            stage_dy=position_after_sem_move.y - base_position.y,
-            ion_scan_rotation=self.get_scan_rotation(beam_type=BeamType.ION),
-            milling_angle=milling_angle,
-        )
-
-        # apply the vertical move to correct the position. (The old 1.11
-        # here was 1/0.9: it existed to cancel the magic constant inside
-        # vertical_move from the outside, and is gone with it - FIB-773.)
-        self._vertical_move_from_fib(dx=0, dy=dy, relaxation=relaxation)
-
-        return self.get_stage_position()
 
     def supports_vertical_move(self, beam_type: BeamType = BeamType.ION) -> bool:
         """Whether coincidence can be restored from the given view on this system."""
-        return beam_type in self.vertical_move_views
-
-    def _check_vertical_move_supported(self, beam_type: BeamType) -> None:
-        """Guard for a vertical_move implementation -- one message, one source of truth."""
-        if not self.supports_vertical_move(beam_type):
-            raise NotImplementedError(
-                f"{type(self).__name__} cannot restore coincidence from the "
-                f"{beam_type.name} view."
-            )
+        if self.stage_movement is None:
+            return False
+        return self.stage_movement.supports_vertical_move(beam_type)
 
     def project_stable_move(
         self,
@@ -1042,13 +902,9 @@ class FibsemMicroscope(ABC):
         Nothing moves. The projection is taken at the current stage pose, not at
         ``base_position``, as it always has been.
         """
-        scan_rotation = self.get_scan_rotation(beam_type=beam_type)
-        dx, dy = undo_scan_rotation(dx, dy, scan_rotation)
-
-        delta = self._view_stage_delta(
-            dx, dy, view_tilt=self._beam_view_tilt(beam_type)
+        return self._movement_service().project_stable_move(
+            dx=dx, dy=dy, beam_type=beam_type, base_position=base_position
         )
-        return apply_delta(base_position, delta)
 
     def _axis_restrictions_apply(
         self, position: Optional[FibsemStagePosition] = None
@@ -1076,7 +932,7 @@ class FibsemMicroscope(ABC):
         free, because the one path that enters the pose sends r and t only.
 
         `position` is the destination. Without one, or with a partial pose that has no
-        orientation to read (`_safe_rotation_movement` sends a bare tilt), the stage's
+        orientation to read (the safe move's rotation step sends a bare tilt), the stage's
         own pose stands in -- what such a move got before.
 
         `get_stage_orientation` can never return "FM" on an offset mount -- the FM is a
@@ -1269,88 +1125,14 @@ class FibsemMicroscope(ABC):
         Returns:
             FibsemStagePosition: The new stage position after moving to the orientation.
         """
-        stage_position = self._orientation_move_target(orientation)
-        self.safe_absolute_stage_movement(stage_position)
-        return self._stage.position
-
-    def _orientation_move_target(self, orientation: str) -> FibsemStagePosition:
-        """Where a move to a named orientation ends: its pose (r, t), and on a stage
-        that turns a half turn, x and y carried round the rotation centre.
-
-        The pose alone left x and y to the vendor's own rotation, so a move to FIB
-        landed wherever xT's compucentric centre put it and never saw the configured
-        `rotation_centre_correction` -- about 50 um off on the Hydra (FIB-655), while
-        a saved position converted with `get_target_position` landed true. Now both
-        take the same conversion. z is left to the stage, as before.
-
-        Only where the driver reports its `rotation_centre` (ThermoFisher, the Demo).
-        Without one the centre is only assumed to be the stage origin, and the
-        vendor's own rotation is left to place x and y as it always did (Tescan,
-        Odemis). A position at no named orientation cannot be converted either, and
-        keeps the old move: the pose alone.
-        """
-        pose = deepcopy(self.get_orientation(orientation))
-        if not self.system.stage.rotation or self.rotation_centre is None:
-            return pose
-        current = self.get_stage_position()
-        try:
-            target = self.get_target_position(deepcopy(current), orientation)
-        except ValueError as e:
-            logging.warning(
-                f"Moving to {orientation} by its pose alone, so the rotation centre "
-                f"correction is not applied: {e}"
-            )
-            return pose
-        if target.r == current.r and target.t == current.t:
-            # Already at this orientation: nothing turns, so x and y stay put.
-            return pose
-        pose.x, pose.y = target.x, target.y
-        return pose
-
-    def _safe_rotation_movement(self, stage_position: FibsemStagePosition):
-        """Tilt the stage flat when performing a large rotation to prevent collision.
-
-        Args:
-            stage_position (StagePosition): desired stage position.
-        """
-        current_position = self.get_stage_position()
-
-        # tilt flat for large rotations to prevent collisions
-        from fibsem import movement
-
-        if movement.rotation_angle_is_larger(stage_position.r, current_position.r):
-            self.move_stage_absolute(FibsemStagePosition(t=0))
-            logging.info("tilting to flat for large rotation.")
-
-        return
+        return self._movement_service().move_to_orientation(orientation)
 
     @_records_stage_move
     def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
         """Move the stage to the desired position in a safe manner, using compucentric rotation.
         Supports movements in the stage_position coordinate system
         """
-        # Before anything moves. The staged move below rotates the stage where it
-        # stands, which is the correct order leaving the beams and the wrong one
-        # coming back from the FM -- see FIB-841.
-        self._refuse_rotation_at_the_fluorescence_microscope(stage_position)
-
-        # The safe sequence is about rotating, so a stage with no rotation axis (a
-        # compustage) skips it. `rotation` is `"r" in` the stage's axes, read at connect.
-        if self.system.stage.rotation:
-            # tilt flat for large rotations to prevent collisions
-            self._safe_rotation_movement(stage_position)
-
-            # move to compucentric rotation
-            self.move_stage_absolute(
-                FibsemStagePosition(r=stage_position.r, coordinate_system="RAW")
-            )  # TODO: support compucentric rotation directly
-
-        logging.debug(f"safe moving to {stage_position}")
-        self.move_stage_absolute(stage_position)
-
-        logging.debug("safe movement complete.")
-
-        return
+        self._movement_service().safe_absolute_stage_movement(stage_position)
 
     def get_manipulator_state(self) -> Optional[bool]:
         """Get the manipulator state (Inserted = True, Retracted = False), or None
@@ -1440,6 +1222,22 @@ class FibsemMicroscope(ABC):
     def set_channel(self, channel: BeamType) -> None:
         """Make `channel` the active view and device, for the calls that act on it."""
         raise self._unsupported("set_channel")
+
+    def _build_stage_movement(self, service: Optional[type] = None) -> None:
+        """Build the stage movement service over the stage and beams, of the driver's
+        class (`StageMovement` by default); the view-corrected moves then go to it.
+        Without a stage device there is none."""
+        from fibsem.services.stage_movement import StageMovement, bind_stage_movement
+
+        self.stage_movement = bind_stage_movement(service or StageMovement, self)
+
+    def _movement_service(self) -> "StageMovement":
+        """The stage movement service, or the error for a microscope with none."""
+        if self.stage_movement is None:
+            raise ValueError(
+                "There is no stage movement: this microscope has no stage device."
+            )
+        return self.stage_movement
 
     def _milling_service(self) -> Milling:
         """The milling service, or the error for a microscope with none."""
@@ -3172,17 +2970,9 @@ class FibsemMicroscope(ABC):
         Returns:
             bool: True if the stage is close to the target milling angle after the move, False otherwise.
         """
-
-        if rotation is None:
-            rotation = np.radians(self.system.stage.rotation_reference)
-
-        # calculate the stage tilt from the milling angle
-        stage_tilt = get_stage_tilt_from_milling_angle(self, milling_angle)
-        stage_position = FibsemStagePosition(t=stage_tilt, r=rotation)
-        self.safe_absolute_stage_movement(stage_position)
-
-        # milling_angle is radians here; is_close_to_milling_angle compares degrees (FIB-853)
-        return self.is_close_to_milling_angle(np.degrees(milling_angle))
+        return self._movement_service().move_to_milling_angle(
+            milling_angle, rotation=rotation
+        )
 
     def _beam_view_tilt(self, beam_type: BeamType) -> float:
         """Tilt of a beam column's viewing axis from the electron column, in radians."""
@@ -3331,56 +3121,6 @@ class FibsemMicroscope(ABC):
             stage_tilt=position.t if position.t is not None else 0.0,
         )
 
-    def _fm_image_to_stage_delta(self, dx: float, dy: float) -> Tuple[float, float]:
-        """Map a displacement in the displayed FM image onto stage axes.
-
-        The driver hands out stage-aligned images -- any fixed rotation or flip of the
-        mount is corrected by `FluorescenceMicroscope.mount_transform` before the
-        user's display preference is applied -- so undoing that preference is all
-        that is needed here. It is read live rather than from configuration, since
-        the user can change it mid-session, and every remaining transform is its own
-        inverse, so applying it maps in both directions.
-        """
-        if self.fm is None:
-            return dx, dy
-        return self.fm._transform.apply_to_delta(dx, dy)
-
-    def _fm_stage_delta(self, dx: float, dy: float) -> FibsemStagePosition:
-        """Relative stage movement for a displacement seen in the displayed FM image.
-
-        The projection shared by :meth:`fm_stable_move` and
-        :meth:`project_fm_stable_move`, so the two cannot disagree about where a
-        given displacement lands.
-
-        Input is in the frame the user is looking at, so the display transform is
-        undone here -- the direct counterpart of `project_stable_move` undoing the
-        beam's scan rotation before projecting. Doing it in the shared helper rather
-        than at one entry point means neither path can skip it.
-
-        That applies to synthesised displacements as much as to clicks. A tile step is
-        expressed in the same frame as the tile it positions, and the mosaic canvas is
-        in display space, because `stitch_tileset` pastes image data that already
-        carries the transform. If the arrangement did not carry it while the content
-        did, the two would disagree and every seam would break.
-
-        Args:
-            dx: distance along the x-axis, in displayed image coordinates.
-            dy: distance along the y-axis, in displayed image coordinates.
-
-        Returns:
-            FibsemStagePosition: relative movement, with the y-displacement split
-            across the stage y- and z-axes by the sample tilt.
-
-        Raises:
-            ValueError: if no fluorescence microscope is available.
-        """
-        if self.fm is None:
-            raise ValueError("Fluorescence microscope is not available.")
-
-        dx, dy = self._fm_image_to_stage_delta(dx, dy)
-
-        return self._view_stage_delta(dx, dy, view_tilt=np.deg2rad(self.fm.camera_tilt))
-
     def project_fm_stable_move(
         self, dx: float, dy: float, base_position: FibsemStagePosition
     ) -> FibsemStagePosition:
@@ -3410,7 +3150,9 @@ class FibsemMicroscope(ABC):
         Raises:
             ValueError: if no fluorescence microscope is available.
         """
-        return apply_delta(base_position, self._fm_stage_delta(dx, dy))
+        return self._movement_service().project_fm_stable_move(
+            dx=dx, dy=dy, base_position=base_position
+        )
 
     def hardware_geometry(self) -> FibsemHardwareGeometry:
         """The fixed geometry this instrument is arranged in.
@@ -3624,34 +3366,7 @@ class FibsemMicroscope(ABC):
         Raises:
             ValueError: if no fluorescence microscope is available.
         """
-        if self.fm is None:
-            raise ValueError("Fluorescence microscope is not available. Cannot move.")
-
-        if self.fm.objective.state != "Inserted":
-            logging.warning(
-                "Moving via the fluorescence image while the objective is not inserted "
-                f"(state: {self.fm.objective.state}); the view may not match the sample."
-            )
-
-        # The display transform is undone inside _fm_stage_delta, so this and
-        # project_fm_stable_move share one input convention.
-        stage_position = self._fm_stage_delta(dx, dy)
-
-        # NOTE: no working-distance restore. That is beam bookkeeping; the objective
-        # keeps focus because the move stays in the sample plane.
-        self.move_stage_relative(stage_position)
-
-        logging.debug(
-            {
-                "msg": "fm_stable_move",
-                "dx": dx,
-                "dy": dy,
-                "camera_tilt": self.fm.camera_tilt,
-                "position": stage_position.to_dict(),
-            }
-        )
-
-        return self.get_stage_position()
+        return self._movement_service().fm_stable_move(dx=dx, dy=dy)
 
     def _get_device(self, device: str) -> StageDeviceSettings:
         """The configuration for `device`, or a refusal naming the ones there are."""
@@ -4021,140 +3736,7 @@ class FibsemMicroscope(ABC):
         for it from SEM used to be a refusal), the device's first declared
         acquisition orientation is used.
         """
-        target_device = self._get_device(device)  # refuses by name
-
-        if device == "FM" and not self.fm:
-            raise ValueError("FM module is not available. Cannot move to FM position.")
-
-        stage_position = self.get_stage_position()
-        source = self.get_current_device(stage_position)
-        if source is None:
-            raise ValueError(
-                f"The stage is not at any configured device "
-                f"({sorted(self.system.stage.devices)}), so there is nothing to "
-                f"travel from. Position: {stage_position}."
-            )
-
-        # The pose to arrive in. An explicit ask is honoured as asked; otherwise the
-        # pose is carried across, unless the target device cannot image from it --
-        # then its first declared acquisition orientation stands in.
-        desired = self._arrival_orientation(device, stage_position, orientation)
-        if desired is not None and orientation is None:
-            logging.info(
-                f"The {device} device images from "
-                f"{target_device.available_orientations}; re-posing to {desired} "
-                f"at the beams before travelling."
-            )
-
-        if desired is None and source == device:
-            logging.info(f"Already at {device} position, no need to move.")
-        else:
-            # Both ends checked before anything moves: the source by finding it, the
-            # target by converting to where the stage will arrive.
-            arrival = self._planned_arrival(device, stage_position, desired)
-            if arrival is not None:
-                self._check_arrival(device, arrival)
-
-            if desired is not None:
-                # The bracketing order: every re-pose happens at the beams, where the
-                # rotation is about the sample rather than a 48.8 mm arm.
-                #
-                # Driven to the *converted* position, not to the orientation by name.
-                # `move_to_orientation` rewrites r and t where the stage stands; a half
-                # turn there is compucentric about a centre that is not the sample, so the
-                # point that was under the beam is swung away and the traverse carries the
-                # wrong piece of sample out. The transform is what every pose derivation
-                # and overview marker uses, so arriving where it says is what puts the
-                # stage on the marked point. Falls back to the bare re-pose only from a
-                # pose the classifier cannot name: there is no point to keep there, and
-                # the fallback is how a stage in an unsupported pose gets back to a
-                # supported one.
-                try:
-                    at_the_beams = self.get_target_position(
-                        stage_position, desired, target_device="FIBSEM"
-                    )
-                except ValueError as e:
-                    logging.warning(
-                        f"Re-posing to {desired} without keeping the sample point: {e}"
-                    )
-                    at_the_beams = None
-
-                self._retract_objective_to_move(device)
-                self._travel(source, "FIBSEM")
-                if at_the_beams is not None:
-                    self.safe_absolute_stage_movement(at_the_beams)
-                else:
-                    self.move_to_orientation(desired)
-                self._travel("FIBSEM", device)
-            elif _moves(self._device_translation(source, device)):
-                self._retract_objective_to_move(device)
-                self._travel(source, device)
-
-        # Unconditional, so that the postcondition is the device *and* the objective
-        # state together: asking again for a device the stage is already at cannot
-        # leave the FM blind.
-        if device == "FM":
-            self.fm.objective.insert()
-
-    def _travel(self, source: str, target: str) -> None:
-        """Move the stage by the translation from one device to another, if any.
-
-        Nothing is commanded between two devices at one place (a compustage's beams
-        and an FM without an origin of its own)."""
-        translation = self._device_translation(source, target)
-        if _moves(translation):
-            self.move_stage_relative(translation)
-
-    def _retract_objective_to_move(self, device: str) -> None:
-        """Retract the objective immediately before the stage moves, and only then.
-
-        The objective must not be out over the sample while the stage moves, but every
-        reason to retract it is the motion itself -- so a call that refuses, or finds
-        it has nowhere to go, leaves the objective exactly as it found it rather than
-        pulling it out of the sample for nothing.
-        """
-        logging.info(f"Moving to {device} position...")
-        if self.fm is not None:
-            self.fm.objective.retract()
-
-    def _planned_arrival(
-        self,
-        device: str,
-        stage_position: FibsemStagePosition,
-        desired: Optional[str],
-    ) -> Optional[FibsemStagePosition]:
-        """Where `move_to_device` will put the stage: the `get_target_position`
-        conversion it drives to, or the bare translation from a pose the conversion
-        cannot name. `None` when neither can say -- a re-pose from such a pose, which
-        has no point to keep and is checked by nothing but the move itself."""
-        try:
-            return self.get_target_position(
-                deepcopy(stage_position), desired, target_device=device
-            )
-        except ValueError as e:
-            if desired is not None:
-                logging.warning(f"Not checking where {device} will be reached: {e}")
-                return None
-            source = self.get_current_device(stage_position)
-            return stage_position + self._device_translation(source, device)
-
-    def _check_arrival(self, device: str, arrival: FibsemStagePosition) -> None:
-        """Refuse a traverse that would arrive outside *device*'s range.
-
-        The start is checked by finding the source (`get_current_device`); this is the
-        other end. Each device has its own range, and the stage keeps its offset from
-        the source's origin, so a position well inside the beams' range can land
-        outside an FM's -- where the stage would report it had not arrived, and could
-        not go back. Checked before the stage moves, and before the objective is
-        retracted for it.
-        """
-        if not self.is_at_device(device, arrival):
-            raise ValueError(
-                f"Travelling to {device} from here would arrive at {arrival}, outside "
-                f"its range {self._get_device(device).range} of its origin "
-                f"{self._get_device(device).origin}. Move the stage nearer the "
-                "source's origin first."
-            )
+        self._movement_service().move_to_device(device, orientation=orientation)
 
     def move_to_microscope(self, target: str) -> None:
         """Deprecated name for `move_to_device(target)` -- the last place a device

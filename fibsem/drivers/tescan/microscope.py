@@ -1,12 +1,10 @@
 import datetime
 import logging
-import os
 import re
 import sys
 import threading
 import time
 from copy import deepcopy
-from queue import Queue
 from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -19,7 +17,6 @@ from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
-    _records_stage_move,
 )
 
 TESCAN_API_AVAILABLE = False
@@ -49,10 +46,11 @@ TESCAN_SCAN_DIRECTIONS = (
 try:
     import tescanautomation
     from tescanautomation import Automation
-    from tescanautomation.Common import Bpp, Detector, Document
-    from tescanautomation.DrawBeam import DepthUnit, IEtching
+
+    # Bpp, DepthUnit and IEtching are read through this module by devices.py and services.py.
+    from tescanautomation.Common import Bpp, Detector, Document  # noqa: F401
+    from tescanautomation.DrawBeam import DepthUnit, IEtching  # noqa: F401
     from tescanautomation.DrawBeam import Status as DBStatus
-    from tescanautomation.SEM import HVBeamStatus as SEMStatus
 
     sys.modules.pop("tescanautomation.GUI")
     sys.modules.pop("tescanautomation.pyside6gui")
@@ -70,13 +68,7 @@ try:
 except Exception as e:
     logging.debug(f"Automation (TESCAN) not installed. {e}")
 
-from fibsem.imaging.spot import (
-    SpotBurnProgress,
-    SpotBurnSettings,
-    SpotBurnStatus,
-)
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
     STAGE_FRAME_TESCAN,
@@ -328,20 +320,8 @@ try:
         DBStatus.ProjectLoadedExpositionPaused: MillingState.PAUSED,
         DBStatus.Unknown: MillingState.ERROR,
     }
-except Exception as e:
+except Exception:
     pass
-
-# def printProgressBar(
-#     value, total, prefix="", suffix="", decimals=0, length=100, fill="█"
-# ):
-#     """
-#     terminal progress bar
-#     """
-#     percent = ("{0:." + str(decimals) + "f}").format(100 * (value / float(total)))
-#     filled_length = int(length * value // total)
-#     bar = fill * filled_length + "-" * (length - filled_length)
-#     print(f"\r{prefix} |{bar}| {percent}% {suffix}", end="\r")
-
 
 SEM_LIMITS: Dict[str, Tuple] = {
     "hfw": (1.0e-6, 2580.0e-6),
@@ -474,9 +454,6 @@ class TescanMicroscope(FibsemMicroscope):
         self.last_image_eb: Optional[FibsemImage] = None
         self.last_image_ib: Optional[FibsemImage] = None
 
-        # fluorescence microscope: none until connected (`connect_to_microscope`)
-        self.fm = None
-
         # cached beam parameters
         # not all parameters are available via the api, so we cache them after acquiring image
         self._beam_parameters: Dict[BeamType, BeamSettings] = {
@@ -525,6 +502,7 @@ class TescanMicroscope(FibsemMicroscope):
         self._build_beams()
         self._build_stage()
         self._build_milling()
+        self._build_stage_movement()
         self._build_spot_burn()
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
@@ -609,6 +587,13 @@ class TescanMicroscope(FibsemMicroscope):
         from fibsem.drivers.tescan.services import bind_tescan_milling
 
         self.milling = bind_tescan_milling(self)
+
+    def _build_stage_movement(self, service: Optional[type] = None) -> None:
+        """Build the stage movement service, with Tescan's own coincidence move from
+        the SEM view (`TescanStageMovement`)."""
+        from fibsem.drivers.tescan.services import TescanStageMovement
+
+        super()._build_stage_movement(service or TescanStageMovement)
 
     def _build_spot_burn(self) -> None:
         """Build the spot burn service over the milling service; `run_spot_burn` then
@@ -780,16 +765,6 @@ class TescanMicroscope(FibsemMicroscope):
         """fibsem's frame through the stage device; Tescan's own without one."""
         return self.stage.frame if self.stage is not None else STAGE_FRAME_TESCAN
 
-    @_records_stage_move
-    def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
-        # Inert until Tescan has a fluorescence microscope at all -- `self.fm` is set
-        # to None unconditionally here (FIB-836) -- but the guard belongs on every
-        # re-pose path, not only the ones that can reach it today.
-        self._refuse_rotation_at_the_fluorescence_microscope(stage_position)
-
-        # TODO: implement if required.
-        self.move_stage_absolute(stage_position)
-
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct the coincidence point from the SEM view.
 
@@ -797,138 +772,6 @@ class TescanMicroscope(FibsemMicroscope):
         Kept for one release because custom scripts may call it.
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
-    def _vertical_move_from_sem(
-        self, dx: float, dy: float, relaxation: float = 1.0
-    ) -> FibsemStagePosition:
-        """Correct the coincidence point from the SEM view.
-
-        Tescan's own move, kept in place of the shared stable move then FIB-vertical
-        move because it is the one verified on hardware. ``relaxation`` is not applied,
-        as it never was here.
-
-        The mirror of the FIB-view move: the stage slides along the FIB
-        line of sight, which is invisible in the FIB image, until the clicked
-        feature is centred in the SEM. A feature already positioned in the FIB
-        view (e.g. just milled, or just corrected with vertical_move) therefore
-        lands on both beam axes at once -- at the coincidence point. The math
-        is :func:`coincident_from_sem_stage_movement_tescan_from_geometry`; the sample plane, and with it
-        the shuttle pre-tilt, cancels out of this move, so only the stage tilt
-        and the column tilts appear. See
-        https://linear.app/fibsemos/document/tescan-sample-plane-stage-movement-stable-move-derivation-ae56d0f2c414
-        for the derivation and figures.
-
-        Verified on hardware 2026-08-26 (acceptance test: Alt-double-click a
-        feature in the SEM view lands it centred in the SEM image with no
-        movement in the FIB image). Small focus shifts in both views are
-        inherent to the move.
-
-        Args:
-            dx (float): distance along the image x-axis (SEM view), in metres.
-            dy (float): distance along the image y-axis (SEM view), in metres.
-        """
-        # adjust for scan rotation (radians, codebase convention)
-        scan_rotation = self.get_scan_rotation(BeamType.ELECTRON)
-        if np.isclose(scan_rotation, np.pi):
-            dx *= -1.0
-            dy *= -1.0
-
-        y_move, z_move = coincident_from_sem_stage_movement_tescan_from_geometry(
-            geometry=self.hardware_geometry(),
-            stage_position=self.get_stage_position(),
-            dy=dy,
-        )
-
-        # The move in Tescan's frame: x and y run opposite the image, z as computed
-        # (+z is down). The stage device takes fibsem's frame, at the current tilt.
-        stage_position = FibsemStagePosition(x=-dx, y=-y_move, z=z_move, r=0, t=0)
-        if self.stage is not None:
-            tilt = self.get_stage_position().t
-            stage_position = self.stage.native_delta(stage_position, tilt)
-        logging.info(f"coincident move from SEM: {stage_position}")
-        self.move_stage_relative(stage_position)
-
-        logging.debug(
-            {
-                "msg": "move_coincident_from_sem",
-                "dx": dx,
-                "dy": dy,
-                "scan_rotation": scan_rotation,
-                "position": stage_position.to_dict(),
-            }
-        )
-        return self.get_stage_position()
-
-    # def run_milling_drift_corrected(self, milling_current: float,
-    #     image_settings: ImageSettings,
-    #     ref_image: FibsemImage,
-    #     reduced_area: FibsemRectangle = None,
-    #     asynch: bool = False
-    #     ):
-    #     """
-    #     Run ion beam milling using the specified milling current.
-
-    #     Args:
-    #         milling_current (float): The current to use for milling in amps.
-    #         asynch (bool, optional): If True, the milling will be run asynchronously.
-    #                                  Defaults to False, in which case it will run synchronously.
-
-    #     Returns:
-    #         None
-
-    #     Raises:
-    #         None
-    #     """
-    #     status = self.connection.FIB.Beam.GetStatus()
-    #     if status != Automation.FIB.Beam.Status.BeamOn:
-    #         self.connection.FIB.Beam.On()
-    #     self.connection.DrawBeam.LoadLayer(self.layer)
-    #     logging.info("running ion beam milling now...")
-    #     self.connection.DrawBeam.Start()
-    #     self.connection.Progress.Show(
-    #         "DrawBeam", "Layer 1 in progress", False, False, 0, 100
-    #     )
-    #     from fibsem import alignment
-    #     while True:
-    #         status = self.connection.DrawBeam.GetStatus()
-    #         running = status[0] == DBStatus.ProjectLoadedExpositionInProgress
-    #         if running:
-    #             progress = 0
-    #             if status[1] > 0:
-    #                 progress = min(100, status[2] / status[1] * 100)
-    #             printProgressBar(progress, 100)
-    #             self.connection.Progress.SetPercents(progress)
-    #             status = self.connection.DrawBeam.GetStatus()
-    #             if status[0] == DBStatus.ProjectLoadedExpositionInProgress:
-    #                 self.connection.DrawBeam.Pause()
-    #             elif status[0] == DBStatus.ProjectLoadedExpositionIdle:
-    #                 printProgressBar(100, 100, suffix="Finished")
-    #                 self.connection.DrawBeam.Stop()
-    #                 self.connection.DrawBeam.UnloadLayer()
-    #                 break
-    #             logging.info("Drift correction in progress...")
-    #             image_settings.beam_type = BeamType.ION
-    #             alignment.beam_shift_alignment(
-    #                 self,
-    #                 image_settings,
-    #                 ref_image,
-    #                 reduced_area,
-    #             )
-    #             time.sleep(1)
-    #             status = self.connection.DrawBeam.GetStatus()
-    #             if status[0] == DBStatus.ProjectLoadedExpositionPaused :
-    #                 self.connection.DrawBeam.Resume()
-    #             logging.info("Drift correction complete.")
-    #             time.sleep(5)
-    #         else:
-    #             if status[0] == DBStatus.ProjectLoadedExpositionIdle:
-    #                 printProgressBar(100, 100, suffix="Finished")
-    #                 self.connection.DrawBeam.Stop()
-    #                 self.connection.DrawBeam.UnloadLayer()
-    #             break
-
-    #     print()  # new line on complete
-    #     self.connection.Progress.Hide()
 
     @staticmethod
     def _spot_burn_point_to_metres(

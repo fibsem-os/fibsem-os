@@ -23,12 +23,8 @@ from fibsem.devices.wire import from_wire, to_wire
 from fibsem.drivers.demo.devices import DemoSampleLoader as DemoSampleLoaderDevice
 from fibsem.drivers.demo.devices import build_demo_sample_loader
 from fibsem.drivers.registry import BuildContext
-from fibsem.microscopes._stage import (
-    DeviceSampleLoader,
-    SampleGrid,
-    _create_sample_stage,
-)
-from fibsem.structures import DeviceEntry
+from fibsem.microscopes._stage import DeviceSampleLoader, _create_sample_stage
+from fibsem.structures import DeviceEntry, SampleGrid
 
 
 def _device(**kwargs) -> DemoSampleLoaderDevice:

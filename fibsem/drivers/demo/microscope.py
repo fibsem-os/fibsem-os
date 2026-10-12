@@ -203,6 +203,7 @@ class DemoMicroscope(
             }
         )
         self.milling = bind_demo_milling(self)
+        self._build_stage_movement()
         self.spot_burn = bind_demo_spot_burn(self)
 
     def _create_grid_loader(self) -> Optional[SampleGridLoader]:

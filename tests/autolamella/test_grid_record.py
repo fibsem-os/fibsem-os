@@ -16,7 +16,8 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
     Lamella,
 )
-from fibsem.microscopes._stage import SampleGrid, _create_sample_stage
+from fibsem.microscopes._stage import _create_sample_stage
+from fibsem.structures import SampleGrid
 from tests.fixtures.demo_stage import demo_grid_loader
 
 

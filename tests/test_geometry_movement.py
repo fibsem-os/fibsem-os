@@ -42,12 +42,9 @@ SHARED_MOVES = (
     "stable_move",
     "vertical_move",
     "project_stable_move",
-    "_vertical_move_from_fib",
-    "_vertical_move_from_sem",
     "_y_corrected_stage_movement",
     "_inverse_y_corrected_stage_movement",
     "safe_absolute_stage_movement",
-    "_safe_rotation_movement",
 )
 
 
@@ -293,13 +290,19 @@ def _record(microscope, name):
     return calls
 
 
+def _working_distance_writes(microscope):
+    """The electron working distances written, at the beam device: the stage
+    movement service writes there, not through ``set_working_distance``."""
+    return _record(microscope.beams[BeamType.ELECTRON].working_distance, "_write")
+
+
 class TestStableMoveRestoresTheWorkingDistanceOfALinkedStage:
     @pytest.mark.parametrize("compustage", [False, True])
     def test_as_before_on_each_mount(self, compustage):
         """An offset stage boots linked and a compustage can't link, so each mount
         keeps the answer the compustage branch gave it."""
         microscope = _session(compustage)
-        restored = _record(microscope, "set_working_distance")
+        restored = _working_distance_writes(microscope)
 
         microscope.stable_move(10e-6, 5e-6, BeamType.ELECTRON)
 
@@ -311,7 +314,7 @@ class TestStableMoveRestoresTheWorkingDistanceOfALinkedStage:
         nothing to put back."""
         microscope = _session(compustage=False)
         microscope.stage_device.sim_linked = False
-        restored = _record(microscope, "set_working_distance")
+        restored = _working_distance_writes(microscope)
 
         microscope.stable_move(10e-6, 5e-6, BeamType.ELECTRON, static_wd=True)
 

@@ -5,7 +5,8 @@ and Stop buttons, the timeline on the right, the confirmation before a start.
 Grid rows come from the experiment's records with the hardware's word on each
 (slot, loaded) drawn as chips; only a present grid can be ticked. Task rows
 come from the grid protocol in its order, and the order can be changed here.
-Settings live on the Protocol tab's Grid page.
+Task settings live on the Protocol tab's Grid page; how a run ends (unload the
+last grid, write the screening report) is behind the ⚙ on the task list.
 
 "Screen all", on the grid list's header, is the Arctis user's one action:
 inventory, every present grid, the ticked tasks.
@@ -17,12 +18,12 @@ import logging
 import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import QPoint, QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -38,6 +39,9 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     Experiment,
     GridRecord,
+)
+from fibsem.applications.autolamella.tools.grid_report_pdf import (
+    report_unavailable_reason,
 )
 from fibsem.applications.autolamella.ui.grid_card_widget import grid_headline
 from fibsem.applications.autolamella.ui.list_chrome import (
@@ -84,13 +88,16 @@ from fibsem.ui.icon import (
     fibsem_icon,
 )
 from fibsem.ui.tokens import (
+    ACCENT_COLOR,
     BORDER_COLOR,
     NEUTRAL_200,
     NEUTRAL_550,
     NEUTRAL_700,
     OK_COLOR,
+    PANEL_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
+    TEXT_STRONG_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import (
     ElidedLabel,
@@ -576,6 +583,92 @@ def _add_row(widget: QListWidget, row: QWidget, key: Optional[str] = None) -> No
 # ---------------------------------------------------------------------------
 
 
+class GridRunOptionsPopup(QFrame):
+    """How a grid run ends, behind the ⚙ on the task list's header, as the Lamella
+    page keeps its workflow settings: unload the last grid, write the screening
+    report. Set once if at all, and kept for the session: every run started from
+    this page ends the way they say."""
+
+    changed = pyqtSignal()
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent, Qt.Popup)
+        self.setObjectName("gridRunOptions")
+        self.setStyleSheet(
+            f"#gridRunOptions {{ background: {PANEL_COLOR}; "
+            f"border: 1px solid {BORDER_COLOR}; border-radius: 4px; }}"
+        )
+        self.setFixedWidth(340)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        title = QLabel("Grid workflow options")
+        title.setStyleSheet(
+            f"color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 600; "
+            "background: transparent;"
+        )
+        layout.addWidget(title)
+        self.unload_check = QCheckBox("Unload the grid when the run finishes")
+        self.unload_check.setToolTip(
+            "Return the last grid to the magazine once every queued task has "
+            "run. A Stop, or a run left waiting on the Review tab, leaves it "
+            "loaded."
+        )
+        self.report_check = QCheckBox("Write the grid screening report at the end")
+        self._report_tooltip = (
+            "Writes grid-screening-report.pdf to the experiment folder, after "
+            "the unload. No grid has a verdict yet then: write it again once "
+            "they do."
+        )
+        # Unload is off until asked for, since it moves the hardware after the
+        # operator has stopped watching; the report only writes a file, so it is on.
+        self.unload_check.setChecked(False)
+        self.report_check.setChecked(True)
+        self._report_wanted = True
+        for box in (self.unload_check, self.report_check):
+            box.setStyleSheet(
+                f"QCheckBox {{ color: {TEXT_COLOR}; font-size: 12px; "
+                "background: transparent; } "
+                f"QCheckBox:disabled {{ color: {TEXT_MUTED_COLOR}; }}"
+            )
+            box.toggled.connect(self.changed)
+            layout.addWidget(box)
+        self.set_availability(can_unload=False, report_unavailable="")
+
+    def set_availability(self, can_unload: bool, report_unavailable: str) -> None:
+        """What this setup can do at the end of a run: an unload only with a
+        loader to return the grid to, the report only where reportlab is
+        installed (`report_unavailable` says why not). The choices are kept, so
+        they come back with the microscope."""
+        self.unload_check.setVisible(can_unload)
+        report = self.report_check
+        # A report that cannot be written reads unticked, not ticked and greyed:
+        # the operator's choice is put back when it can be written again.
+        if report_unavailable and report.isEnabled():
+            self._report_wanted = report.isChecked()
+            report.setChecked(False)
+        elif not report_unavailable and not report.isEnabled():
+            report.setChecked(self._report_wanted)
+        report.setEnabled(not report_unavailable)
+        self.report_check.setToolTip(report_unavailable or self._report_tooltip)
+        self.changed.emit()
+
+    def unload_at_end(self) -> bool:
+        """Whether a run unloads its last grid once the queue is done."""
+        return not self.unload_check.isHidden() and self.unload_check.isChecked()
+
+    def report_at_end(self) -> bool:
+        """Whether a run writes the grid screening report as it ends."""
+        return self.report_check.isEnabled() and self.report_check.isChecked()
+
+    def show_under(self, button: QWidget) -> None:
+        """Open below *button*, its right edge on the button's."""
+        self.adjustSize()
+        corner = button.mapToGlobal(QPoint(button.width(), button.height()))
+        self.move(corner.x() - self.width(), corner.y() + 2)
+        self.show()
+
+
 class GridWorkflowWidget(QWidget):
     selection_changed = pyqtSignal()
     # The one-click path. The host runs it: inventory, then the ticked tasks on
@@ -619,25 +712,16 @@ class GridWorkflowWidget(QWidget):
         self.task_header = ListHeader("Tasks")
         self.task_header.select_all_changed.connect(self.set_all_tasks_selected)
         self.task_header.add_stretch()
-        # ⚙ where the Lamella page has its workflow options, disabled: a grid
-        # run has none yet. It is not a way to the Protocol tab -- on the
-        # Lamella page ⚙ opens options, and the two should mean one thing.
+        # ⚙ where the Lamella page has its workflow settings: how a run ends.
+        self.options = GridRunOptionsPopup(self)
         self.btn_settings = IconToolButton(
-            icon="mdi:cog-outline",
-            tooltip="No grid workflow options yet",
-            size=24,
+            icon="mdi:cog-outline", tooltip="Grid workflow options", size=24
         )
-        # Qt's own disabled rendering of the icon reads as enabled on this
-        # palette: draw the disabled state dim, as a disabled control's text is.
-        icon = QIcon()
-        for colour, mode in (
-            (stylesheets.GRAY_ICON_COLOR, QIcon.Normal),
-            (NEUTRAL_700, QIcon.Disabled),
-        ):
-            pixmap = fibsem_icon("mdi:cog-outline", color=colour).pixmap(32, 32)
-            icon.addPixmap(pixmap, mode)
-        self.btn_settings.setIcon(icon)
-        self.btn_settings.setEnabled(False)
+        self.btn_settings.clicked.connect(
+            lambda: self.options.show_under(self.btn_settings)
+        )
+        self.options.changed.connect(self._refresh_settings_button)
+        self._refresh_settings_button()
         self.task_header.add_widget(self.btn_settings)
         self.btn_help = help_button(TASK_LIST_HINTS)
         self.task_header.add_widget(self.btn_help)
@@ -669,7 +753,37 @@ class GridWorkflowWidget(QWidget):
 
     def set_microscope(self, microscope) -> None:
         self._microscope = microscope
+        stage = self.stage
+        self.options.set_availability(
+            can_unload=stage is not None and stage.loader is not None,
+            report_unavailable=report_unavailable_reason(),
+        )
         self.refresh()
+
+    def unload_at_end(self) -> bool:
+        """The ⚙'s choice: a run unloads its last grid once the queue is done."""
+        return self.options.unload_at_end()
+
+    def report_at_end(self) -> bool:
+        """The ⚙'s choice: a run writes the grid screening report as it ends."""
+        return self.options.report_at_end()
+
+    def _refresh_settings_button(self) -> None:
+        """The ⚙ in the accent colour while an option is off its default, as the
+        Lamella page's is while something in it is set."""
+        report = self.options.report_check
+        changed = self.unload_at_end() or (
+            report.isEnabled() and not report.isChecked()
+        )
+        self.btn_settings.setIcon(
+            fibsem_icon(
+                "mdi:cog-outline",
+                color=ACCENT_COLOR if changed else stylesheets.GRAY_ICON_COLOR,
+            )
+        )
+        self.btn_settings.setToolTip(
+            "Grid workflow options (some set)" if changed else "Grid workflow options"
+        )
 
     @property
     def stage(self):
@@ -969,6 +1083,8 @@ class GridRunPreflightDialog(QDialog):
         first_run: Sequence[str] = (),
         estimate: Optional[WorkflowEstimate] = None,
         addition: Optional[AdditionEstimate] = None,
+        unload_at_end: bool = False,
+        report_at_end: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         """``adding``: the same plan, going onto the end of a running queue
@@ -978,7 +1094,8 @@ class GridRunPreflightDialog(QDialog):
         run will fix. ``estimate``: what the run will take, task by task
         (``estimate_grid_run``); ``addition``: what adding it to the running
         queue costs, and how much later the queue now finishes. Without
-        either, no time is quoted."""
+        either, no time is quoted. ``unload_at_end``, ``report_at_end``: how
+        the run ends, from the Grids page's ⚙; said, not chosen, here."""
         super().__init__(parent)
         self.setWindowTitle(
             "Add to the queue"
@@ -1089,6 +1206,26 @@ class GridRunPreflightDialog(QDialog):
                 warning_label(
                     f"Names are fixed once a grid has run. Running for the first "
                     f"time: {first}{more}. Rename on the Grids tab first if needed."
+                )
+            )
+
+        # How the run ends is set on the Grids page's ⚙; said here so it is no
+        # surprise. Not when adding: the added work ends the way the run it
+        # joins was started.
+        if not adding:
+            ending = [
+                said
+                for said, on in (
+                    ("unload the last grid", unload_at_end),
+                    ("write the grid screening report", report_at_end),
+                )
+                if on
+            ]
+            layout.addWidget(
+                meta_label(
+                    f"When the run ends: {' and '.join(ending)}."
+                    if ending
+                    else "When the run ends: nothing more. Set on the ⚙."
                 )
             )
 

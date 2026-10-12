@@ -188,6 +188,26 @@ def test_already_scanned_opens_at_the_review(qapp, arctis, experiment):
     )
 
 
+def test_the_review_says_how_the_run_ends(qapp, arctis, experiment):
+    def ending(**kwargs):
+        dialog = ScreenGridsDialog(
+            arctis._stage,
+            experiment,
+            ["overview_sem"],
+            str(experiment.path),
+            synchronous=True,
+            **kwargs,
+        )
+        # a set: the review is rebuilt, and the old labels go on deleteLater
+        labels = dialog.summary_box.findChildren(type(dialog.banner))
+        return {w.text() for w in labels if w.text().startswith("When the run ends")}
+
+    assert ending() == {"When the run ends: nothing more. Set on the ⚙."}
+    assert ending(unload_at_end=True, report_at_end=True) == {
+        "When the run ends: unload the last grid and write the grid screening report."
+    }
+
+
 def test_a_grid_that_has_run_keeps_its_name(qapp, arctis, experiment):
     ran = experiment.add_grid(GridRecord(name="Grid-01"))
     ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))

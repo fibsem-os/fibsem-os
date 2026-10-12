@@ -30,13 +30,13 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from fibsem import utils
-from fibsem.microscopes._stage import (
-    COMPUSTAGE_HOLDER_NAME,
+from fibsem.microscopes._stage import COMPUSTAGE_HOLDER_NAME
+from fibsem.structures import (
     GRID_RADIUS,
+    FibsemStagePosition,
     SampleHolder,
     SlotCalibration,
 )
-from fibsem.structures import FibsemStagePosition
 from fibsem.ui import stylesheets
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.tokens import (
@@ -671,7 +671,8 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
     def review_notes(self) -> Dict[str, List[str]]:
         """What the review step says about each slot: warnings, and refusals."""
         notes: Dict[str, List[str]] = {name: [] for name in self.slot_names}
-        limits = getattr(getattr(self._microscope, "_stage", None), "limits", {}) or {}
+        stage = self._microscope.stage
+        limits = (stage.position.limits if stage is not None else None) or {}
         positions = {name: self._position_for(name) for name in self.slot_names}
         for name, position in positions.items():
             if position is None:

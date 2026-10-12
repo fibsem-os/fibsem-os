@@ -340,8 +340,11 @@ class TiledAcquisitionRunner:
         for tile, sp in zip(self._ordered, self._tile_stage_positions):
             logging.debug(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
 
+        stage = self.microscope.stage
         raise_if_outside_stage_limits(
-            self._ordered, self._tile_stage_positions, self.microscope._stage.limits
+            self._ordered,
+            self._tile_stage_positions,
+            (stage.position.limits if stage is not None else None) or {},
         )
 
         # EACH_ROW is not well-defined for SPIRAL (rows are revisited non-sequentially),

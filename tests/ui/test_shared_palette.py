@@ -10,7 +10,7 @@ diff.
 So the rule is enforced rather than documented: if a colour is already in the
 palette, import it.
 
-The palette itself now lives in ``fibsem/ui/tokens.py``; ``stylesheets.py`` is
+The palette itself now lives in ``fibsem/theme/tokens.py``; ``stylesheets.py`` is
 still read for declarations because it re-exports the palette and is the module
 most callers import a colour *from*, so a colour reintroduced there is the same
 duplicate this test exists to catch.
@@ -23,7 +23,7 @@ import pytest
 
 PACKAGE = Path(__file__).resolve().parents[2] / "fibsem"
 STYLESHEETS = PACKAGE / "ui" / "stylesheets.py"
-TOKENS = PACKAGE / "ui" / "tokens.py"
+TOKENS = PACKAGE / "theme" / "tokens.py"
 
 # The files that are allowed to declare a palette colour. Anything else that
 # declares one is duplicating them.

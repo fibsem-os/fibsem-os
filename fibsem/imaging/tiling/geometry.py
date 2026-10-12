@@ -37,6 +37,7 @@ class TilePosition:
             in the grid -- they still define the canvas extent and the traversal
             pattern -- but are not visited. See :func:`order_tiles`.
     """
+
     row: int
     col: int
     dx: float
@@ -55,14 +56,13 @@ def _validate_mask(mask, nrows: int, ncols: int) -> None:
     the sample was dark there.
     """
     if len(mask) != nrows:
-        raise ValueError(
-            f"Tile mask has {len(mask)} rows, but the grid has {nrows}."
-        )
+        raise ValueError(f"Tile mask has {len(mask)} rows, but the grid has {nrows}.")
     for i, row in enumerate(mask):
         if len(row) != ncols:
             raise ValueError(
                 f"Tile mask row {i} has {len(row)} columns, but the grid has {ncols}."
             )
+
 
 def compute_tile_grid(
     settings: OverviewAcquisitionSettings,
@@ -139,23 +139,27 @@ def compute_tile_grid_from_fov(
     dx_step = fov_x * (1 - overlap)
     dy_step = fov_y * (1 - overlap)
 
-    eff_w = max(1, int(round(image_width  * (1 - overlap))))
+    eff_w = max(1, int(round(image_width * (1 - overlap))))
     eff_h = max(1, int(round(image_height * (1 - overlap))))
 
     tiles = []
     for i in range(nrows):
         for j in range(ncols):
-            tiles.append(TilePosition(
-                row=i, col=j,
-                dx=j * dx_step,
-                dy=-(i * dy_step),   # negate: stage y axis is inverted
-                canvas_x=j * eff_w,
-                canvas_y=i * eff_h,
-                # bool(): a numpy mask yields np.bool_, which does not survive
-                # yaml.safe_dump when the grid is recorded alongside the mosaic.
-                enabled=True if mask is None else bool(mask[i][j]),
-            ))
+            tiles.append(
+                TilePosition(
+                    row=i,
+                    col=j,
+                    dx=j * dx_step,
+                    dy=-(i * dy_step),  # negate: stage y axis is inverted
+                    canvas_x=j * eff_w,
+                    canvas_y=i * eff_h,
+                    # bool(): a numpy mask yields np.bool_, which does not survive
+                    # yaml.safe_dump when the grid is recorded alongside the mosaic.
+                    enabled=True if mask is None else bool(mask[i][j]),
+                )
+            )
     return tiles
+
 
 def _spiral_order(nrows: int, ncols: int) -> list[tuple[int, int]]:
     """Return (row, col) pairs in a clockwise outward spiral from the centre tile.
@@ -190,7 +194,10 @@ def _spiral_order(nrows: int, ncols: int) -> list[tuple[int, int]]:
 
     return result
 
-def order_tiles(tiles: list[TilePosition], strategy: TileOrderStrategy) -> list[TilePosition]:
+
+def order_tiles(
+    tiles: list[TilePosition], strategy: TileOrderStrategy
+) -> list[TilePosition]:
     """Put tiles in traversal order, dropping the disabled ones.
 
     Pure function — no microscope, no side effects.
@@ -227,6 +234,7 @@ def order_tiles(tiles: list[TilePosition], strategy: TileOrderStrategy) -> list[
         result.extend(t for t in row_tiles if t.enabled)
     return result
 
+
 def validate_tile_stage_positions(
     ordered: list[TilePosition],
     tile_stage_positions: list[FibsemStagePosition],
@@ -237,7 +245,7 @@ def validate_tile_stage_positions(
     Args:
         ordered: Tile grid positions in acquisition order.
         tile_stage_positions: Projected stage position for each tile (same order).
-        limits: Dict[str, RangeLimit] from microscope._stage.limits.
+        limits: Dict[str, RangeLimit] from the stage device, `stage.position.limits`.
     Returns:
         List of (row, col) tuples for out-of-bounds tiles (empty if all OK).
     """
@@ -296,7 +304,7 @@ def unreachable_tiles(
             offsets handed over are negated in y. A cached projection rather than
             `microscope.project_*_stable_move`: the two agree exactly, but the
             microscope's re-reads the instrument on every call.
-        limits: `microscope._stage.limits`. Falsy means unknown, which reads as "no
+        limits: the stage device's `stage.position.limits`. Falsy means unknown, which reads as "no
             answer" rather than "all fine" -- an empty result either way, but the
             caller should say nothing rather than say it is reachable.
 

@@ -165,9 +165,8 @@ def odemis():
     sys.modules["odemis.acq.stream"].FluoStream = _fluo_stream
     sys.modules["odemis.acq.acqmng"].acquire = _acquire
     import fibsem.drivers.odemis.devices as drivers
-    import fibsem.fm.odemis as fm_odemis
 
-    yield fm_odemis, drivers
+    yield drivers
 
     stubs.remove_odemis_stubs()
     sys.modules.update(saved)
@@ -222,7 +221,7 @@ def _run(world, action):
 
 
 def _devices(odemis, state):
-    _, drivers = odemis
+    drivers = odemis
     world, devices = _build(state, lambda: drivers.bind_odemis_fm())
     _prepare(world, devices["fm"]._stream, state)
     return world, devices
@@ -564,7 +563,7 @@ def test_the_pins_hold_the_calls():
 
 
 def test_connecting_makes_the_old_calls_and_reads_the_limits(odemis):
-    _, drivers = odemis
+    drivers = odemis
     old_log = PINS["connect"]["log"]
     world = _World(_components("retracted"))
     _CURRENT.append(world)
@@ -717,7 +716,7 @@ def test_live_view_stops_the_stream_when_nobody_pulls(odemis):
 
 
 def test_the_drivers_are_the_fm_devices(odemis):
-    _, drivers = odemis
+    drivers = odemis
     world = _World(_components("gain"))
     _CURRENT.append(world)
     try:
@@ -733,6 +732,7 @@ def test_the_drivers_are_the_fm_devices(odemis):
     }
     assert sorted(devices["camera"].parameters) == [
         "binning",
+        "display_transform",
         "exposure_time",
         "gain",
         "mount_transform",
@@ -747,7 +747,7 @@ def test_the_drivers_are_the_fm_devices(odemis):
 
 
 def test_a_camera_without_gain_has_no_gain_parameter(odemis):
-    _, drivers = odemis
+    drivers = odemis
     world = _World(_components("retracted"))
     _CURRENT.append(world)
     try:
@@ -769,7 +769,7 @@ def _camera_with_gain(drivers, va):
 
 
 def test_gain_is_a_fraction_of_the_cameras_range(odemis):
-    _, drivers = odemis
+    drivers = odemis
     va = stubs.FakeVA(4.0, range=(0.0, 16.0))
     camera = _camera_with_gain(drivers, va)
 
@@ -782,7 +782,7 @@ def test_gain_is_a_fraction_of_the_cameras_range(odemis):
 
 
 def test_gain_with_set_values_takes_the_nearest(odemis):
-    _, drivers = odemis
+    drivers = odemis
     va = stubs.FakeVA(2.0, choices={1.0, 2.0, 4.0})
     camera = _camera_with_gain(drivers, va)
 
@@ -793,7 +793,7 @@ def test_gain_with_set_values_takes_the_nearest(odemis):
 
 def test_gain_without_a_range_is_not_offered(odemis):
     # with no range or choices there is no maximum to scale it to a fraction by
-    _, drivers = odemis
+    drivers = odemis
     camera = _camera_with_gain(drivers, stubs.FakeVA(3.0))
 
     assert "gain" not in camera.parameters
@@ -803,12 +803,12 @@ def test_gain_without_a_range_is_not_offered(odemis):
 
 
 def _api_fm(odemis, state):
-    fm_odemis, drivers = odemis
+    drivers = odemis
 
     def new_fm():
         devices = drivers.bind_odemis_fm()
         devices["fm"].live_timeout = None
-        return fm_odemis.DeviceOdemisFluorescenceMicroscope(devices)
+        return drivers.OdemisFluorescenceMicroscope(devices)
 
     world, fm = _build(state, new_fm)
     _prepare(world, fm.devices["fm"]._stream, state)
@@ -990,7 +990,7 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
         )
     finally:
         _CURRENT.pop()
-    assert type(fm).__name__ == "DeviceOdemisFluorescenceMicroscope"
+    assert type(fm).__name__ == "OdemisFluorescenceMicroscope"
     assert fm.parent is microscope
     assert sorted(fm.devices) == [
         "camera",
