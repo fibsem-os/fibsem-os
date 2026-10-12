@@ -624,9 +624,12 @@ class GridRunOptionsPopup(QFrame):
         # operator has stopped watching; the report only writes a file, so it is on.
         self.unload_check.setChecked(False)
         self.report_check.setChecked(True)
+        self._report_wanted = True
         for box in (self.unload_check, self.report_check):
             box.setStyleSheet(
-                f"color: {TEXT_COLOR}; font-size: 12px; background: transparent;"
+                f"QCheckBox {{ color: {TEXT_COLOR}; font-size: 12px; "
+                "background: transparent; } "
+                f"QCheckBox:disabled {{ color: {TEXT_MUTED_COLOR}; }}"
             )
             box.toggled.connect(self.changed)
             layout.addWidget(box)
@@ -638,7 +641,15 @@ class GridRunOptionsPopup(QFrame):
         installed (`report_unavailable` says why not). The choices are kept, so
         they come back with the microscope."""
         self.unload_check.setVisible(can_unload)
-        self.report_check.setEnabled(not report_unavailable)
+        report = self.report_check
+        # A report that cannot be written reads unticked, not ticked and greyed:
+        # the operator's choice is put back when it can be written again.
+        if report_unavailable and report.isEnabled():
+            self._report_wanted = report.isChecked()
+            report.setChecked(False)
+        elif not report_unavailable and not report.isEnabled():
+            report.setChecked(self._report_wanted)
+        report.setEnabled(not report_unavailable)
         self.report_check.setToolTip(report_unavailable or self._report_tooltip)
         self.changed.emit()
 

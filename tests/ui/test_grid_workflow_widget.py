@@ -521,6 +521,7 @@ class TestPanelChrome:
         reason = "Needs the reporting tools: pip install fibsem-os[reporting]"
         view.options.set_availability(can_unload=False, report_unavailable=reason)
         assert not view.options.report_check.isEnabled()
+        assert not view.options.report_check.isChecked(), "reads unticked"
         assert view.options.report_check.toolTip() == reason
         assert not view.report_at_end()
         view.options.set_availability(can_unload=False, report_unavailable="")
