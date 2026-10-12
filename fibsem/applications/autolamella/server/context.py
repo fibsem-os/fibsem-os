@@ -348,10 +348,16 @@ class AutoLamellaAppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "items": []}
-        return {
-            "available": True,
-            "items": _records(experiment.task_history_dataframe()),
-        }
+        from fibsem.util.timestamps import to_datetime
+
+        def started(record):
+            # Each item's runs in turn is not the order they ran in. Through
+            # POSIX time, so old naive stamps and aware ones still compare.
+            start = to_datetime(record.get("start_timestamp"))
+            return start.timestamp() if start is not None else float("inf")
+
+        items = sorted(_records(experiment.task_history_dataframe()), key=started)
+        return {"available": True, "items": items}
 
     def run_summary(self) -> Dict[str, Any]:
         """The most recent run's outcome table, if a run has happened."""
@@ -419,6 +425,9 @@ class AutoLamellaAppContext:
                     "error": f"No run {task_id!r} in this experiment's record.",
                 }
             window = {"since": found[0], "until": found[1]}
+            # A run's window at DEBUG is mostly noise, and the cap keeps its
+            # end: the start of the run would be the part dropped.
+            level = level or "INFO"
         path = Path(experiment.path) / log_tail.LOG_FILENAME
         if not path.is_file():
             return {"available": False, "records": []}
@@ -428,6 +437,7 @@ class AutoLamellaAppContext:
             "available": True,
             "since": start.isoformat() if start is not None else None,
             "until": end.isoformat() if end is not None else None,
+            "level": level or "DEBUG",
             **result,
         }
 
@@ -507,11 +517,17 @@ class AutoLamellaAppContext:
                 ]
                 if names:
                     files[role] = names
-            tasks.append({"name": state.name, "files": files})
+            tasks.append(
+                {"name": state.name, "status": state.status.name, "files": files}
+            )
         return {
             "available": True,
             "item_name": item_name,
-            "completed_tasks": [state.name for state in history],
+            "completed_tasks": [
+                state.name
+                for state in history
+                if state.status is AutoLamellaTaskStatus.Completed
+            ],
             "tasks": tasks,
             "final_reference_images": [
                 str(p) for p in _task_outputs.final_reference_images(lamella, *history)
@@ -520,6 +536,26 @@ class AutoLamellaAppContext:
                 str(p) for p in _task_outputs.fluorescence_images(lamella, *history)
             ],
         }
+
+    @staticmethod
+    def _recorded_item_paths(lamella) -> List[str]:
+        """Every file :meth:`task_outputs` lists for ``lamella``, as paths."""
+        import os
+
+        history = list(lamella.task_history)
+        paths = [
+            os.path.join(lamella.path, rp)
+            for state in history
+            for relpaths in dict(state.outputs).values()
+            for rp in relpaths
+            if os.path.isfile(os.path.join(lamella.path, rp))
+        ]
+        for path in _task_outputs.final_reference_images(
+            lamella, *history
+        ) + _task_outputs.fluorescence_images(lamella, *history):
+            if str(path) not in paths:
+                paths.append(str(path))
+        return paths
 
     def output_image(
         self, item_name: str, filename: str, max_width: int = 768
@@ -545,10 +581,7 @@ class AutoLamellaAppContext:
                 "jpeg": None,
                 "error": f"No item named {item_name!r} in this experiment.",
             }
-        history = list(lamella.task_history)
-        paths = _task_outputs.final_reference_images(
-            lamella, *history
-        ) + _task_outputs.fluorescence_images(lamella, *history)
+        paths = self._recorded_item_paths(lamella)
         match = next((p for p in paths if os.path.basename(p) == filename), None)
         if match is None:
             return {
@@ -1799,7 +1832,7 @@ class AutoLamellaAppContext:
         except StalePromptError:
             return {"available": True, "applied": False, "stale": True}
         result = {"available": True, "applied": applied, "stale": False}
-        if parsed is not None:
+        if getattr(outcome, "adjusted", parsed is not None):
             result["adjusted"] = True
         return result
 

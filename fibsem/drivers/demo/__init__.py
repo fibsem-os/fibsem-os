@@ -30,8 +30,7 @@ DRIVER = DriverEntry(
         },
         # An external scan generator a beam's ``scanner`` role can be bound to.
         "scan_generator": DeviceBuilder(
-            "fibsem.drivers.demo.devices:build_demo_scan_generator",
-            implements=("Scanner",),
+            "fibsem.drivers.demo.devices:build_demo_scan_generator"
         ),
     },
 )

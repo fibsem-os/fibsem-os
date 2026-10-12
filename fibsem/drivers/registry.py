@@ -110,10 +110,6 @@ class DeviceBuilder:
     called as ``build(entry, context)`` with the ``DeviceEntry`` and a
     :class:`BuildContext`, and returns the connected device, or raises."""
 
-    implements: Tuple[str, ...] = ()
-    """The interfaces the device implements, by class name (``"Scanner"``), for a
-    role to be bound to it (FIB-1167). Nothing reads it yet."""
-
     def load(self) -> "BuildFn":
         """Import and return the build function."""
         return _import(self.build)

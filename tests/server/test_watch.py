@@ -154,6 +154,34 @@ def test_seeds_at_the_tail_and_ends_with_the_run(app):
     ]
 
 
+def test_task_lines_name_the_task(app):
+    def run():
+        app.buffer.append(
+            "task_started", {"item_name": "01-alive-dory", "task_name": "Rough Milling"}
+        )
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert code == 0
+    assert lines[0] == "EVENT task_started 01-alive-dory Rough Milling"
+
+
+def test_watch_is_found_after_the_shared_options():
+    from fibsem.mcp.sidecar import _watch_argv
+
+    assert _watch_argv(["watch", "--help"]) == ["--help"]
+    assert _watch_argv(["--url", "http://x", "watch", "--help"]) == [
+        "--url",
+        "http://x",
+        "--help",
+    ]
+    assert _watch_argv(["--token=t", "watch"]) == ["--token=t"]
+    assert _watch_argv(["--check"]) is None
+    assert _watch_argv(["--wait", "5", "watch"]) is None
+    assert _watch_argv([]) is None
+
+
 def test_quiet_polls_keep_watching(app):
     code, lines = _watch({4: lambda: app.buffer.append("workflow_cancelled", {})})
     assert code == 0

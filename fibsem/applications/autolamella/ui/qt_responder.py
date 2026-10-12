@@ -68,6 +68,25 @@ if TYPE_CHECKING:
 __all__ = ["QtResponder"]
 
 
+def _same_geometry(request: "Request", live: object, value: object) -> bool:
+    """Whether ``value`` is the geometry the widget already shows.
+
+    A point within half a pixel is the same point: the marker cannot sit
+    any closer. An area is compared to well below anything a drag can do.
+    """
+    if live is None:
+        return False
+    if isinstance(request, PickPOI):
+        tolerance = request.image.metadata.pixel_size.x / 2
+        return abs(live.x - value.x) <= tolerance and abs(live.y - value.y) <= tolerance
+    if isinstance(request, EditAlignmentArea):
+        return all(
+            abs(getattr(live, f) - getattr(value, f)) <= 1e-6
+            for f in ("left", "top", "width", "height")
+        )
+    return False
+
+
 class QtResponder(QObject):
     """Answers workflow requests by driving the window's widgets, on the GUI thread."""
 
@@ -226,7 +245,10 @@ class QtResponder(QObject):
         operator had dragged it there, and then the ordinary click path reads
         it back — so the proposed geometry lands on screen, and attribution,
         the question id, and first-writer-wins all hold unchanged. A value on any
-        other question type fails the future without clicking anything.
+        other question type fails the future without clicking anything. A
+        value equal to what the widget already shows moves nothing, and the
+        future's ``adjusted`` attribute (set before it resolves) says which
+        it was.
         """
         from concurrent.futures import Future as _Future
 
@@ -269,19 +291,25 @@ class QtResponder(QObject):
                 ),
             )
             return
+        adjusted = False
         try:
             if value is not None:
                 if pending is None or pending[1].cancelled():
                     raise StalePromptError(
                         "a value-carrying answer needs a pending question"
                     )
-                self._apply_value(pending[0], value)
+                # Echoing what stands is accepting it, not adjusting it.
+                _, live = self._live_answer()
+                adjusted = not _same_geometry(pending[0], live, value)
+                if adjusted:
+                    self._apply_value(pending[0], value)
             applied = self.answer_confirm(
-                clicked_yes, source="agent", adjusted=value is not None
+                clicked_yes, source="agent", adjusted=adjusted
             )
         except Exception as exc:  # noqa: BLE001 - the asker owns the failure
             self._fail(outcome, exc)
             return
+        outcome.adjusted = adjusted
         self._deliver(outcome, applied)
 
     def _apply_value(self, request: "Request", value: object) -> None:

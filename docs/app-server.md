@@ -25,7 +25,8 @@ observer with a doorbell, not a second driver.
 
 1. **Preferences → App Server**: tick *Enable App Server*. This is the durable
    switch. *Serve the microscope's devices* beside it also serves the routes
-   that reach the instrument — its devices, stage, beams and milling state,
+   that reach the instrument — its devices, services (milling, stage
+   movement, spot burn, sample handling, imaging), stage, beams and milling state,
    reads included. It is off by default: a read of the instrument is
    hardware access, not monitoring.
 2. Connect a microscope. The server starts with the session and stops with it.

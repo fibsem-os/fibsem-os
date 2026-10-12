@@ -239,6 +239,24 @@ def test_a_value_answer_moves_the_marker_and_answers_with_it(window, ui, qapp):
     assert poi.y == pytest.approx(proposed["y"], abs=px)
 
 
+def test_echoing_the_marker_is_not_an_adjustment(window, ui, qapp):
+    # FIB-1330: sending back `current` accepts the point, it adjusts nothing.
+    image = _fib_image(ui)
+    thread, outcome = _pick_on_worker_thread(
+        ui, qapp, image, initial=Point(x=1e-6, y=2e-6)
+    )
+    nonce, live = ui.ui_responder._live_answer()
+
+    result = _answer_with_value_on_worker(
+        ui, qapp, True, nonce, {"x": live.x, "y": live.y}
+    )
+    _finish(thread, qapp)
+
+    assert result["applied"] is True
+    assert "adjusted" not in result
+    assert outcome["poi"].x == pytest.approx(live.x)
+
+
 def test_an_out_of_bounds_point_is_refused_and_the_marker_stands(window, ui, qapp):
     image = _fib_image(ui)
     initial = Point(x=1e-6, y=2e-6)

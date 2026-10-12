@@ -9,10 +9,10 @@ converts between fibsem's stage frame and Tescan's, and routes its stage keys an
 to it. It builds both from its device entries (``fibsem.devices.entries``) with the
 builders at the end of this module, which the Tescan driver record names.
 
-The vendor beams are ``connection.SEM`` and ``connection.FIB``. SharkSEM is one socket,
-so every read and write holds the microscope's ``_connection_lock``, as ``_get`` and
-``_set`` do. This module imports nothing from the SDK; the Tescan backend's guarded
-import is the only one.
+Each device is handed the microscope's `TescanConnection` and makes its SDK calls
+through it. The vendor beams are ``SEM`` and ``FIB`` on it. SharkSEM is one socket, so
+every read and write holds the connection's ``lock``. This module imports nothing from
+the SDK; the Tescan backend's guarded import is the only one.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import threading
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import numpy as np
 
@@ -28,7 +28,9 @@ import fibsem.constants as constants
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import AXIS_UNITS, UNLIMITED, Stage
+from fibsem.drivers.tescan import images
 from fibsem.structures import (
+    BeamSettings,
     BeamType,
     FibsemImage,
     FibsemRectangle,
@@ -40,6 +42,7 @@ from fibsem.structures import (
 
 if TYPE_CHECKING:
     from fibsem.drivers.registry import BuildContext
+    from fibsem.drivers.tescan.connection import TescanConnection
     from fibsem.drivers.tescan.microscope import TescanMicroscope
     from fibsem.structures import DeviceEntry
 
@@ -53,7 +56,7 @@ _NOT_SETTABLE = ParameterMetadata(settable=False)
 
 
 class TescanBeam(Beam):
-    """A Tescan column: ``connection.SEM`` or ``connection.FIB``.
+    """A Tescan column: ``SEM`` or ``FIB`` on the connection.
 
     Each parameter was the matching branch of ``TescanMicroscope._get``/``_set``. A
     write prepares the beam first (turns it on, stops the scan, waits until it is not
@@ -68,35 +71,46 @@ class TescanBeam(Beam):
     Not here, because the Tescan API does not have them: the ion column's working
     distance and ``detector_mode`` (``TescanMicroscope``'s wrappers return None for
     them), ``blanked``, ``plasma_gas`` and the scan modes.
+
+    ``preserve_settings_on_preset_change``: restore the rotation, field of view and
+    shift across a preset change; when False, the preset's own values stand.
     """
 
     def __init__(
         self,
         beam_type: BeamType,
         parent: TescanMicroscope,
+        connection: TescanConnection,
         resources: Optional[Resources] = None,
     ):
+        from fibsem.drivers.tescan.microscope import (
+            TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE,
+        )
+
         super().__init__(beam_type, parent=parent, resources=resources)
+        self.connection = connection
+        self.preserve_settings_on_preset_change: bool = (
+            TESCAN_PRESERVE_SETTINGS_ON_PRESET_CHANGE
+        )
+        # The detector the column images with, set by write_detector_type.
+        self._detector: Any = None
+        # The beam settings the last image reported, for what the API cannot read.
+        self._cache = BeamSettings(beam_type)
 
     @property
     def _lock(self):
-        return self.parent._connection_lock
+        return self.connection.lock
 
     @property
     def _beam(self) -> Any:
         """The vendor beam, looked up on every call, as the old branches did."""
-        return self.parent._get_beam(self.beam_type)
+        return self.connection.beam(self.beam_type)
 
     def _prepared(self) -> Any:
         """The vendor beam, prepared as ``_set`` prepares it before every beam key."""
         beam = self._beam
-        self.parent._prepare_beam(self.beam_type)
+        self.connection.prepare_beam(self.beam_type)
         return beam
-
-    @property
-    def _cache(self) -> Any:
-        """The beam settings the last image reported, for what the API cannot read."""
-        return self.parent._beam_parameters[self.beam_type]
 
     def _not_supported(self, key: str) -> None:
         with self._lock:
@@ -273,10 +287,10 @@ class TescanBeam(Beam):
     def write_preset(self, value: str) -> None:
         with self._lock:
             beam = self._prepared()
-            self.parent._activate_preset(beam, self.beam_type, value)
+            self._activate_preset(beam, value)
 
     def metadata_preset(self) -> ParameterMetadata:
-        return ParameterMetadata(choices=self.parent._get_presets(self.beam_type))
+        return ParameterMetadata(choices=self._get_presets())
 
     # -- the detector: each column has its own, so no channel to claim ---------------
 
@@ -288,22 +302,21 @@ class TescanBeam(Beam):
     def write_detector_type(self, value: str) -> None:
         with self._lock:
             beam = self._prepared()
-            detector = self.parent._get_detector(value, self.beam_type)
+            detector = self._get_detector(value)
             if detector is None:
                 logging.warning(f"Detector {value} not found for {self.beam_type}.")
                 return
             beam.Detector.Set(Channel=0, Detector=detector)
-            self.parent._active_detector[self.beam_type] = detector
+            self._detector = detector
             logging.debug(f"{self.beam_type.name} detector type set to {value}.")
 
     def metadata_detector_type(self) -> ParameterMetadata:
-        detectors = self.parent._get_available_detectors(self.beam_type)
+        detectors = self.list_detectors()
         return ParameterMetadata(choices=[d.name for d in detectors])
 
     def _gain_black(self) -> Any:
-        return self._beam.Detector.GetGainBlack(
-            Detector=self.parent._active_detector[self.beam_type]
-        )
+        with self._lock:
+            return self._beam.Detector.GetGainBlack(Detector=self._detector)
 
     def read_detector_contrast(self) -> float:
         with self._lock:
@@ -329,7 +342,7 @@ class TescanBeam(Beam):
                     f"Invalid value for {self.beam_type} {key}: {value}. Must be between 0 and 1."
                 )
                 return
-            active_detector = self.parent._active_detector[self.beam_type]
+            active_detector = self._detector
             if active_detector is None:
                 logging.warning(
                     f"No active detector for {self.beam_type}. Please set detector type first."
@@ -354,6 +367,7 @@ class TescanBeam(Beam):
         from fibsem.drivers.tescan import microscope as tescan
 
         microscope = self.parent
+        connection = self.connection
         beam_type = self.beam_type
         settings = (
             image_settings
@@ -363,10 +377,10 @@ class TescanBeam(Beam):
         logging.debug(f"acquiring new {beam_type.name} image.")
 
         if image_settings is not None:
-            microscope._settle_after_electron_image(beam_type)
+            connection.settle_after_electron_image(beam_type)
 
         # prepare the beam (turn on, stop scanning)
-        beam = microscope._prepare_beam(beam_type)
+        beam = connection.prepare_beam(beam_type)
 
         dwell_time_ns = settings.dwell_time * constants.SI_TO_NANO
         image_width, image_height = settings.resolution
@@ -378,10 +392,10 @@ class TescanBeam(Beam):
                 microscope.set_field_of_view(settings.hfw, beam_type)
 
         image_roi = settings.reduced_area
-        detector = microscope._active_detector[beam_type]
+        detector = self._detector
         with self._lock:
             if image_roi is not None:
-                left, top, right, bottom = tescan.to_tescan_image_roi(
+                left, top, right, bottom = images.to_tescan_image_roi(
                     rect=image_roi, image_shape=(image_width, image_height)
                 )
                 image = beam.Scan.AcquireROI(
@@ -406,7 +420,7 @@ class TescanBeam(Beam):
         if image is None:
             raise ValueError("Failed to acquire image from microscope.")
 
-        fibsem_image = microscope._image_from_tescan(image, settings)
+        fibsem_image = images.image_from_tescan(image, settings, microscope.stage)
         fibsem_image.metadata.image_settings.beam_type = deepcopy(beam_type)
 
         # the last image, for last_image and for what the API cannot read
@@ -449,25 +463,22 @@ class TescanBeam(Beam):
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         # The SDK's AutoSignal works on the whole frame: the area is not used.
-        microscope = self.parent
-        beam = microscope._prepare_beam(beam_type=self.beam_type)
+        beam = self.connection.prepare_beam(beam_type=self.beam_type)
         logging.debug(f"Running autocontrast on {self.beam_type.name}.")
         with self._lock:
-            beam.Detector.AutoSignal(
-                Detector=microscope._active_detector[self.beam_type]
-            )
+            beam.Detector.AutoSignal(Detector=self._detector)
 
     def _has_auto_focus(self) -> bool:
         # The ion column has no working distance or focus control: no auto_focus,
-        # and microscope.auto_focus(ION) keeps its warning.
+        # so microscope.auto_focus(ION) falls to the focus sweep, which warns and
+        # skips (the working distance can't be set).
         return self.beam_type is BeamType.ELECTRON
 
     def _auto_focus(self, reduced_area: Optional[FibsemRectangle]) -> None:
         # AutoWDFine, on the electron column only.
-        microscope = self.parent
-        beam = microscope._prepare_beam(beam_type=self.beam_type)
+        beam = self.connection.prepare_beam(beam_type=self.beam_type)
         with self._lock:
-            beam.AutoWDFine(microscope._active_detector[self.beam_type])
+            beam.AutoWDFine(self._detector)
 
     def _live(self, stop: threading.Event) -> None:
         # Tescan has no streaming API: re-acquire with the current settings until
@@ -482,6 +493,101 @@ class TescanBeam(Beam):
         except Exception as e:
             logging.error(f"Error in TESCAN acquisition worker: {e}")
 
+    # -- the column's presets and detectors ------------------------------------------
+
+    def _get_presets(self) -> List[str]:
+        with self._lock:
+            presets = self._beam.Preset.Enum()
+        return sorted(presets)
+
+    def list_detectors(self) -> List[Any]:
+        """The column's detectors, as the SDK lists them."""
+        with self._lock:
+            return self._beam.Detector.Enum()
+
+    def _get_detector(self, detector_type: Union[Any, str]) -> Optional[Any]:
+        """The SDK detector named ``detector_type``, or None if the column has none."""
+        from fibsem.drivers.tescan import microscope as tescan
+
+        if isinstance(detector_type, tescan.Detector):
+            detector_type = detector_type.name
+
+        for detector in self.list_detectors():
+            if detector_type == detector.name:
+                logging.debug(f"Found detector {detector.name}, index {detector.index}")
+                return detector
+        return None
+
+    def _activate_preset(self, beam: Any, preset_name: str) -> None:
+        """Activate a preset, preserving rotation/FOV/shift when
+        ``preserve_settings_on_preset_change`` is set."""
+        beam_type = self.beam_type
+        # Check if preset is available
+        with self._lock:
+            available = beam.Preset.IsAvailable(preset_name)
+        if not available:
+            logging.warning(f"Preset {preset_name} not available for {beam_type}.")
+            return
+
+        preserve_settings = self.preserve_settings_on_preset_change
+
+        # Save current settings if they should be preserved
+        image_rotation = None
+        view_field = None
+        image_shift_x = None
+        image_shift_y = None
+
+        if preserve_settings:
+            with self._lock:
+                image_rotation = beam.Optics.GetImageRotation()
+                view_field = beam.Optics.GetViewfield()
+                image_shift_x, image_shift_y = beam.Optics.GetImageShift()
+            logging.debug(f"Image rotation before changing preset: {image_rotation}.")
+            logging.debug(f"FOV before changing preset: {view_field}.")
+            logging.debug(
+                f"XY shift before changing preset: {image_shift_x}, {image_shift_y}."
+            )
+
+        try:
+            # Activate preset
+            with self._lock:
+                beam.Preset.Activate(preset_name)
+            logging.info(f"Preset {preset_name} activated for {beam_type}.")
+
+            # Wait for preset to fully apply
+            self.connection.wait_for_beam_ready(
+                beam, beam_type, operation="preset activation"
+            )
+
+            # Update internal state
+            self._cache.preset = preset_name
+
+        except Exception as e:
+            logging.error(
+                f"Failed to activate preset {preset_name} for {beam_type}: {e}"
+            )
+            raise  # Re-raise to ensure finally block runs and then propagate error
+
+        finally:
+            # Restore settings if requested
+            if preserve_settings:
+                try:
+                    with self._lock:
+                        beam.Optics.SetImageRotation(image_rotation)
+                        beam.Optics.SetViewfield(view_field)
+                        beam.Optics.SetImageShift(image_shift_x, image_shift_y)
+                    logging.debug(
+                        f"Restored image rotation after changing preset to {image_rotation}."
+                    )
+                    logging.debug(
+                        f"Restored FOV after changing preset to {view_field}."
+                    )
+                    logging.debug(
+                        f"Restored XY shift after changing preset to {image_shift_x}, {image_shift_y}."
+                    )
+                except Exception as restore_error:
+                    logging.error(f"Failed to restore beam settings: {restore_error}")
+
 
 def bind_tescan_beams(
     microscope: TescanMicroscope, resources: Optional[Resources] = None
@@ -493,7 +599,9 @@ def bind_tescan_beams(
         BeamType.ION: microscope.system.ion.enabled,
     }
     return {
-        beam_type: TescanBeam(beam_type, microscope, resources).connect()
+        beam_type: TescanBeam(
+            beam_type, microscope, microscope._connection, resources
+        ).connect()
         for beam_type, on in enabled.items()
         if on
     }
@@ -574,15 +682,17 @@ class TescanStage(Stage):
     def __init__(
         self,
         parent: TescanMicroscope,
+        connection: TescanConnection,
         resources: Optional[Resources] = None,
         tilt_axis_z: float = TILT_AXIS_Z,
     ):
         super().__init__(parent=parent, resources=resources)
+        self.connection = connection
         self.tilt_axis_z = tilt_axis_z
 
     @property
     def _lock(self):
-        return self.parent._connection_lock
+        return self.connection.lock
 
     def from_native(self, native: FibsemStagePosition) -> FibsemStagePosition:
         """A position Tescan reported (an image header's, say) in fibsem's frame."""
@@ -604,7 +714,7 @@ class TescanStage(Stage):
         from fibsem.drivers.tescan.microscope import from_tescan_stage_position
 
         with self._lock:
-            position = self.parent.connection.Stage.GetPosition()
+            position = self.connection.sdk.Stage.GetPosition()
         return self.from_native(from_tescan_stage_position(position))
 
     def metadata_position(self) -> ParameterMetadata:
@@ -638,7 +748,7 @@ class TescanStage(Stage):
         logging.info(f"Moving stage to {position}.")
         x, y, z, r, t = to_tescan_stage_position(position=self._native(position))
         with self._lock:
-            self.parent.connection.Stage.MoveTo(x=x, y=y, z=z, rot=r, tiltx=t)
+            self.connection.sdk.Stage.MoveTo(x=x, y=y, z=z, rot=r, tiltx=t)
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
     def _move_relative(self, delta: FibsemStagePosition) -> None:
@@ -661,7 +771,7 @@ def bind_tescan_stage(
     disabled, so it is never touched."""
     if microscope.system.stage.enabled is False:
         return None
-    return TescanStage(microscope, resources).connect()
+    return TescanStage(microscope, microscope._connection, resources).connect()
 
 
 def build_tescan_beam(entry: DeviceEntry, context: BuildContext) -> TescanBeam:
@@ -669,10 +779,12 @@ def build_tescan_beam(entry: DeviceEntry, context: BuildContext) -> TescanBeam:
     if entry.name not in ("electron", "ion"):
         raise ValueError("a Tescan beam is named 'electron' or 'ion'")
     beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
-    return TescanBeam(beam_type, context.microscope).connect()
+    microscope = context.microscope
+    return TescanBeam(beam_type, microscope, microscope._connection).connect()
 
 
 def build_tescan_stage(entry: DeviceEntry, context: BuildContext) -> TescanStage:
-    stage = TescanStage(context.microscope)
+    microscope = context.microscope
+    stage = TescanStage(microscope, microscope._connection)
     stage.name = entry.name
     return stage.connect()

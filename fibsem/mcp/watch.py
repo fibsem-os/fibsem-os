@@ -142,7 +142,9 @@ def _print_events(events, since, out):
             out(f"RUN ENDED ({kind})")
             run_ended = True
         elif kind in INTERESTING:
-            out(f"EVENT {kind} {data.get('item_name', '')}")
+            task = data.get("task_name")
+            line = f"EVENT {kind} {data.get('item_name', '')}"
+            out(f"{line} {task}" if task else line)
     return since, run_ended
 
 
