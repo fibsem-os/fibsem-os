@@ -95,7 +95,7 @@ def experiment(tmp_path, microscope):
     exp.grid_protocol.add(
         BeamOverviewGridTaskConfig(task_name=OVERVIEW, settings=_small_settings())
     )
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     return exp
 
 
@@ -376,7 +376,7 @@ class TestTheGridRunWaitsOnADecision:
         manager.run([OVERVIEW, LATER], [GRID])
 
         assert manager.stalled is True
-        assert [g.name for g in microscope._stage.loaded_grids] == [GRID]
+        assert [g.name for g in microscope.sample_handling.loaded_grids] == [GRID]
 
     def test_a_confirm_wakes_the_run_and_the_later_task_runs(
         self, microscope, experiment
@@ -611,7 +611,7 @@ class TestTheLatestRunOfARequirementCounts:
 
 
 def _loaded(microscope, name):
-    return microscope._stage.holder.find_slot_by_grid_name(name) is not None
+    return microscope.sample_handling.holder.find_slot_by_grid_name(name) is not None
 
 
 class TestAGridIsLoadedForWorkThatCanRun:

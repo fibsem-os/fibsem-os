@@ -18,6 +18,9 @@ Register with Claude Code:
     claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
+
+``fibsem-mcp watch`` prints a line per app event worth waking an agent for,
+and needs nothing beyond fibsem itself (see :mod:`fibsem.mcp.watch`).
 """
 
 import argparse
@@ -26,6 +29,7 @@ import json
 import os
 import sys
 from typing import Any, Optional, Tuple
+from urllib.parse import urlencode
 
 from fibsem.server.catalog import CATALOG, tools_for_capabilities
 
@@ -354,6 +358,24 @@ def build_sidecar(client, capabilities):
     def get_protocol():
         return _app_get("/app/protocol")
 
+    def get_log(
+        task_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        level: Optional[str] = None,
+        lines: int = 200,
+    ):
+        query = {
+            "task_id": task_id,
+            "since": since,
+            "until": until,
+            "level": level,
+            "lines": lines,
+        }
+        return _app_get(
+            "/app/log?" + urlencode({k: v for k, v in query.items() if v is not None})
+        )
+
     def get_task_outputs(item_name: str):
         return _app_get(f"/app/task_outputs/{item_name}")
 
@@ -588,6 +610,7 @@ def build_sidecar(client, capabilities):
             get_experiment_summary,
             get_task_history,
             get_run_summary,
+            get_log,
             get_protocol,
             get_task_outputs,
             get_item_detail,
@@ -631,6 +654,12 @@ def build_sidecar(client, capabilities):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["watch"]:
+        # Before the mcp import: watching needs only HTTP (FIB-1269).
+        from fibsem.mcp.watch import main as watch_main
+
+        sys.exit(watch_main(argv[1:]))
     try:
         import mcp  # noqa: F401
     except ImportError:

@@ -10,6 +10,7 @@ try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
     pass
+import functools
 import logging
 import os
 import threading
@@ -190,13 +191,10 @@ class AutoLamellaUI(QMainWindow):
     _hook_toast_signal = pyqtSignal(
         str, str
     )  # (message, notification_type) — thread-safe bridge for NotificationHook
-    # A remote (agent) start request, marshalled to the GUI thread the same
-    # way agent answers are: (task_names, item_names, Future[dict]).
-    _agent_start_workflow = pyqtSignal(list, object, object)
-    # The grid twin: (task_names, grid_names, inventory_first, Future[dict]).
-    _agent_start_grid_workflow = pyqtSignal(list, object, bool, object)
-    # (item_name, task_name, patch, version, Future) — the config-patch marshal
-    _agent_config_patch = pyqtSignal(str, str, str, object, str, object)
+    # A remote (agent) request, marshalled to the GUI thread the same way agent
+    # answers are: the work, bound to its arguments and its Future, and marked
+    # as whoever asked (FIB-1276) -- the mark stays on the requesting thread.
+    _agent_call = pyqtSignal(object)
 
     def __init__(
         self,
@@ -213,9 +211,8 @@ class AutoLamellaUI(QMainWindow):
         # The timeline renders the responder's question-lifecycle feed; the
         # widget itself is built in _setup_ui, before the responder exists.
         self.ui_responder.add_question_observer(self.question_timeline.record)
-        self._agent_start_workflow.connect(self._apply_agent_start_workflow)
-        self._agent_start_grid_workflow.connect(self._apply_agent_start_grid_workflow)
-        self._agent_config_patch.connect(self._apply_agent_config_patch)
+        # A bound method, not a lambda: the slot must run on this window's thread.
+        self._agent_call.connect(self._run_agent_call)
 
         self._protocol_lock = threading.RLock()
 
@@ -1240,6 +1237,16 @@ class AutoLamellaUI(QMainWindow):
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
 
+    def _marshal(self, apply, *args) -> None:
+        """Run ``apply(*args)`` on the GUI thread as whoever called this."""
+        from fibsem.acting import carried
+
+        self._agent_call.emit(carried(functools.partial(apply, *args)))
+
+    def _run_agent_call(self, call) -> None:
+        """GUI thread. Run a call :meth:`_marshal` sent."""
+        call()
+
     def request_start_workflow(
         self, task_names: List[str], item_names: Optional[List[str]] = None
     ) -> "Future":
@@ -1254,7 +1261,9 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_start_workflow.emit(list(task_names), item_names, outcome)
+        self._marshal(
+            self._apply_agent_start_workflow, list(task_names), item_names, outcome
+        )
         return outcome
 
     def _apply_agent_start_workflow(
@@ -1335,8 +1344,12 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_start_grid_workflow.emit(
-            list(task_names), grid_names, bool(inventory_first), outcome
+        self._marshal(
+            self._apply_agent_start_grid_workflow,
+            list(task_names),
+            grid_names,
+            bool(inventory_first),
+            outcome,
         )
         return outcome
 
@@ -1446,8 +1459,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "item", item_name, task_name, patch, version, outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "item",
+            item_name,
+            task_name,
+            patch,
+            version,
+            outcome,
         )
         return outcome
 
@@ -1462,8 +1481,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "item_fields", item_name, "", patch, version, outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "item_fields",
+            item_name,
+            "",
+            patch,
+            version,
+            outcome,
         )
         return outcome
 
@@ -1485,7 +1510,8 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
+        self._marshal(
+            self._apply_agent_config_patch,
             "reorder_stages",
             item_name,
             task_name,
@@ -1506,8 +1532,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "apply_protocol", item_name, "", {"task_names": task_names}, "", outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "apply_protocol",
+            item_name,
+            "",
+            {"task_names": task_names},
+            "",
+            outcome,
         )
         return outcome
 
@@ -1523,8 +1555,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "protocol", "", task_name, patch, version, outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "protocol",
+            "",
+            task_name,
+            patch,
+            version,
+            outcome,
         )
         return outcome
 
@@ -2244,11 +2282,11 @@ class AutoLamellaUI(QMainWindow):
         created as a side effect of marking a lamella.
         """
         experiment = self.experiment
-        stage = getattr(self.microscope, "_stage", None)
+        stage = getattr(self.microscope, "sample_handling", None)
         if experiment is None or stage is None:
             return None
         try:
-            if stage.loader is not None:
+            if stage.magazine is not None:
                 loaded = stage.loaded_grids
                 grid = loaded[0] if len(loaded) == 1 else None
             else:

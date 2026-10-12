@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem import utils
-from fibsem.microscopes._stage import _create_sample_stage
+from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
     FibsemStagePosition,
     SampleGrid,
@@ -21,7 +21,7 @@ from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     return microscope
 
 
@@ -40,7 +40,7 @@ def _calibrate(slot, x=-5e-3):
 
 def test_uncalibrated_holder_reads_as_such(qapp, microscope):
     widget = SampleHolderWidget(microscope=microscope)
-    widget.set_holder(microscope._stage.holder)
+    widget.set_holder(microscope.sample_handling.holder)
     assert widget.hint_label.isVisibleTo(widget)
     row = widget._row_widget(0)
     assert row.status == "unavailable"
@@ -51,7 +51,7 @@ def test_uncalibrated_holder_reads_as_such(qapp, microscope):
 
 
 def test_calibrated_slot_shows_when_and_can_move(qapp, microscope):
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     _calibrate(holder.slots["Slot-01"])
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
@@ -70,7 +70,7 @@ def test_calibrated_slot_shows_when_and_can_move(qapp, microscope):
 
 
 def test_fully_calibrated_hides_the_hint(qapp, microscope):
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     _calibrate(holder.slots["Slot-01"])
     _calibrate(holder.slots["Slot-02"], x=5e-3)
     widget = SampleHolderWidget(microscope=microscope)
@@ -80,7 +80,7 @@ def test_fully_calibrated_hides_the_hint(qapp, microscope):
 
 
 def test_naming_a_grid_inline_updates_the_holder_and_emits(qapp, microscope):
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
     changed = []
@@ -98,7 +98,7 @@ def test_naming_a_grid_inline_updates_the_holder_and_emits(qapp, microscope):
 
 
 def test_status_dot_is_available_only_when_calibrated_with_a_grid(qapp, microscope):
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     holder.slots["Slot-01"].loaded_grid = SampleGrid(name="grid-aspen")
     _calibrate(holder.slots["Slot-01"])
     holder.slots["Slot-02"].loaded_grid = SampleGrid(name="grid-birch")  # uncalibrated
@@ -109,7 +109,7 @@ def test_status_dot_is_available_only_when_calibrated_with_a_grid(qapp, microsco
 
 
 def test_unchanged_name_does_not_emit(qapp, microscope):
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     holder.slots["Slot-01"].loaded_grid = SampleGrid(name="grid-aspen")
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
@@ -122,7 +122,7 @@ def test_unchanged_name_does_not_emit(qapp, microscope):
 
 
 def test_panel_is_titled_after_the_holder(qapp, microscope):
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
     assert widget._panel._title_label.text() == holder.name  # set in the wizard
@@ -131,7 +131,7 @@ def test_panel_is_titled_after_the_holder(qapp, microscope):
 
 
 def test_unhosted_widget_moves_the_stage_itself(qapp, microscope):
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     _calibrate(holder.slots["Slot-01"])
     widget = SampleHolderWidget(microscope=microscope, move_directly=True)
     widget.set_holder(holder)
@@ -145,7 +145,7 @@ def test_naming_persists_to_the_session_state_not_the_calibration(qapp, microsco
     import fibsem.config as cfg
     from fibsem.session_state import session_state_for
 
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
     row = widget._row_widget(0)
@@ -162,11 +162,11 @@ def test_names_are_read_only_with_a_loader(qapp):
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = True
-    microscope._stage = _create_sample_stage(microscope)
-    microscope._stage.loader = demo_grid_loader(microscope, occupied=(1,))
-    microscope._stage.ensure_loaded("Grid-01")
+    microscope.sample_handling = bind_sample_handling(microscope)
+    microscope.sample_handling.magazine = demo_grid_loader(microscope, occupied=(1,))
+    microscope.sample_handling.ensure_loaded("Grid-01")
     widget = SampleHolderWidget(microscope=microscope)
-    widget.set_holder(microscope._stage.holder)
+    widget.set_holder(microscope.sample_handling.holder)
     row = widget._row_widget(0)
     assert row.name_edit.isReadOnly()
     assert row.name_edit.text() == "Grid-01"
@@ -174,7 +174,7 @@ def test_names_are_read_only_with_a_loader(qapp):
 
 def test_calibrate_opens_the_wizard_non_modal(qapp, microscope):
     widget = SampleHolderWidget(microscope=microscope)
-    widget.set_holder(microscope._stage.holder)
+    widget.set_holder(microscope.sample_handling.holder)
     widget.btn_calibrate.click()
     dialog = widget._calibration_dialog
     assert dialog is not None and not dialog.isModal()
@@ -193,7 +193,7 @@ def test_without_a_microscope_nothing_moves_or_calibrates(qapp):
 
 
 def test_a_rename_is_announced_and_a_new_or_cleared_grid_is_not(qapp, microscope):
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
     renamed = []
@@ -209,7 +209,7 @@ def test_a_rename_is_announced_and_a_new_or_cleared_grid_is_not(qapp, microscope
 
 
 def test_the_host_can_refuse_a_rename_on_a_fixed_holder(qapp, microscope):
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     holder.slots["Slot-01"].loaded_grid = SampleGrid(name="grid-aspen")
     widget = SampleHolderWidget(microscope=microscope)
     widget.set_holder(holder)
@@ -226,7 +226,7 @@ def test_the_host_can_refuse_a_rename_on_a_fixed_holder(qapp, microscope):
 
 def test_a_calibration_with_an_offset_shows_in_the_viewers_zone(qapp, microscope):
     """New records carry their UTC offset (FIB-1190); `_calibrate`'s does not."""
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     slot = holder.slots["Slot-01"]
     _calibrate(slot)
     slot.calibration.captured_at = "2026-09-02T11:24:09+00:00"

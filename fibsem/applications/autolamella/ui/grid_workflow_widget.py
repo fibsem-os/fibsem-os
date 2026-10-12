@@ -78,8 +78,7 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
     AdditionEstimate,
     WorkflowEstimate,
 )
-from fibsem.microscopes._stage import GridInventoryEntry, GridSlotState
-from fibsem.structures import BeamType
+from fibsem.structures import BeamType, GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
@@ -755,7 +754,7 @@ class GridWorkflowWidget(QWidget):
         self._microscope = microscope
         stage = self.stage
         self.options.set_availability(
-            can_unload=stage is not None and stage.loader is not None,
+            can_unload=stage is not None and stage.magazine is not None,
             report_unavailable=report_unavailable_reason(),
         )
         self.refresh()
@@ -787,7 +786,7 @@ class GridWorkflowWidget(QWidget):
 
     @property
     def stage(self):
-        return getattr(self._microscope, "_stage", None)
+        return getattr(self._microscope, "sample_handling", None)
 
     def _protocol(self):
         if self._experiment is None or self._experiment.task_protocol is None:
@@ -920,9 +919,9 @@ class GridWorkflowWidget(QWidget):
     def exchange_seconds(self) -> float:
         """What the loader says one exchange costs; nothing on a fixed holder."""
         stage = self.stage
-        if stage is None or stage.loader is None:
+        if stage is None or stage.magazine is None:
             return 0.0
-        return stage.loader.exchange_seconds
+        return stage.magazine.exchange_seconds
 
     def loaded_grid_names(self) -> List[str]:
         """The grids on the stage now, which a load step does not exchange."""
@@ -932,7 +931,7 @@ class GridWorkflowWidget(QWidget):
         """How many of these grids are not loaded now: the exchanges a run
         would make on a loader, zero on a fixed holder."""
         stage = self.stage
-        if stage is None or stage.loader is None:
+        if stage is None or stage.magazine is None:
             return 0
         count = 0
         for g in grids:
@@ -956,7 +955,7 @@ class GridWorkflowWidget(QWidget):
             f"{len(tasks)} task{'s' if len(tasks) != 1 else ''}"
         )
         stage = self.stage
-        if grids and stage is not None and stage.loader is not None:
+        if grids and stage is not None and stage.magazine is not None:
             exchanges = self.exchanges_for(grids)
             text += f" \u00b7 {exchanges} exchange{'s' if exchanges != 1 else ''}"
         return text

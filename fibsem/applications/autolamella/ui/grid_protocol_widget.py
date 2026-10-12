@@ -439,7 +439,9 @@ class GridProtocolWidget(QWidget):
         if config is not None and microscope is not None:
             try:
                 reaches = overview_reach(microscope, config, self._projections)
-                one_slot = getattr(microscope._stage, "loader", None) is not None
+                one_slot = (
+                    getattr(microscope.sample_handling, "magazine", None) is not None
+                )
                 text = describe_reach(reaches, one_slot)
             except Exception as e:  # noqa: BLE001 - a warning, never a failure
                 logging.debug(f"Could not check the overview against the stage: {e}")

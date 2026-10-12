@@ -52,8 +52,8 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.microscopes._stage import uncalibrated_message
 from fibsem.projection import FMStageProjection
+from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import FibsemStagePosition, InsertableDeviceState
 
 if TYPE_CHECKING:

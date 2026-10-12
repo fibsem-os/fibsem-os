@@ -14,9 +14,12 @@ one owns the file.
 import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from fibsem.server.auth import AuthConfig
+if TYPE_CHECKING:
+    # Typing only: auth needs FastAPI, and the sidecar and ``fibsem-mcp watch``
+    # read this file without the [server] extra.
+    from fibsem.server.auth import AuthConfig
 
 DISCOVERY_DIR = Path.home() / ".fibsem"
 DISCOVERY_FILE = DISCOVERY_DIR / "app-server.json"
@@ -32,7 +35,7 @@ def _client_host(bind_host: str) -> str:
 
 
 def write_discovery_file(
-    host: str, port: int, auth: AuthConfig, path: Optional[Path] = None
+    host: str, port: int, auth: "AuthConfig", path: Optional[Path] = None
 ) -> Path:
     path = Path(path) if path is not None else DISCOVERY_FILE
     path.parent.mkdir(parents=True, exist_ok=True)

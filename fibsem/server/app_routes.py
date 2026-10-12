@@ -42,6 +42,15 @@ class AppContext(Protocol):
 
     def run_summary(self) -> Dict[str, Any]: ...
 
+    def log(
+        self,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        task_id: Optional[str] = None,
+        level: Optional[str] = None,
+        lines: int = 200,
+    ) -> Dict[str, Any]: ...
+
     def protocol(self) -> Dict[str, Any]: ...
 
     def task_outputs(self, item_name: str) -> Dict[str, Any]: ...
@@ -223,6 +232,34 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/protocol")
     def protocol():
         return context.protocol()
+
+    @router.get("/log")
+    def log(
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        task_id: Optional[str] = None,
+        level: Optional[str] = None,
+        lines: int = 200,
+    ):
+        # The record cap is the transport's, as the events long-poll's
+        # timeout is: it bounds what one answer can carry.
+        result = context.log(
+            since=since,
+            until=until,
+            task_id=task_id,
+            level=level,
+            lines=min(max(lines, 1), 2000),
+        )
+        if "error" in result:
+            status = 404 if result.get("error_type") == "not_found" else 422
+            detail = {
+                "error_type": result["error_type"],
+                "message": result["error"],
+            }
+            if "levels" in result:
+                detail["levels"] = result["levels"]
+            raise HTTPException(status_code=status, detail=detail)
+        return result
 
     @router.get("/task_outputs/{item_name}")
     def task_outputs(item_name: str):

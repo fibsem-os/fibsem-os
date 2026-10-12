@@ -1,8 +1,5 @@
-"""The Stage device, the reverse of today's ``Stage``.
-
-Today ``fibsem.microscopes._stage.Stage`` owns nothing: every property and move asks
-its parent microscope, which asks its backend's ``get``/``set`` chain. Here the device
-owns the hardware contract and the microscope would ask the device.
+"""The Stage device: the stage's hardware contract, owned by the device rather than
+asked of the microscope's backend ``get``/``set`` chain.
 
 The stage is the raw hardware contract only: where it is, what it can reach, and
 "move to these coordinates" in the fibsem-os frame (FIB-1083). View-corrected moves

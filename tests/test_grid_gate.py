@@ -34,7 +34,7 @@ def experiment(tmp_path, arctis):
     exp = Experiment(path=tmp_path, name="gate")
     (tmp_path / "gate").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol()
-    exp.sync_grids_from_inventory(arctis._stage)
+    exp.sync_grids_from_inventory(arctis.sample_handling)
     return exp
 
 
@@ -52,7 +52,7 @@ def _lamella(experiment, name, grid_name):
 def test_nothing_loaded_refuses_every_linked_lamella_and_no_unlinked_one(
     experiment, arctis
 ):
-    stage = arctis._stage
+    stage = arctis.sample_handling
     on_two = _lamella(experiment, "on-two", "Grid-02")
     on_three = _lamella(experiment, "on-three", "Grid-03")
     also_two = _lamella(experiment, "also-two", "Grid-02")
@@ -68,7 +68,7 @@ def test_nothing_loaded_refuses_every_linked_lamella_and_no_unlinked_one(
 
 
 def test_loading_the_grid_clears_its_lamellae(experiment, arctis):
-    stage = arctis._stage
+    stage = arctis.sample_handling
     on_two = _lamella(experiment, "on-two", "Grid-02")
     on_three = _lamella(experiment, "on-three", "Grid-03")
     stage.ensure_loaded("Grid-02")
@@ -79,7 +79,7 @@ def test_loading_the_grid_clears_its_lamellae(experiment, arctis):
 
 
 def test_the_refusal_names_the_lamellae_and_the_grid(experiment, arctis):
-    stage = arctis._stage
+    stage = arctis.sample_handling
     on_two = _lamella(experiment, "on-two", "Grid-02")
     also_two = _lamella(experiment, "also-two", "Grid-02")
     assert run_refusal(experiment, stage, [on_two]) == (
@@ -94,7 +94,7 @@ def test_the_refusal_names_the_lamellae_and_the_grid(experiment, arctis):
 
 def test_a_grid_with_no_record_is_not_refused(experiment, arctis):
     """The rule is about a known grid being elsewhere, not missing bookkeeping."""
-    stage = arctis._stage
+    stage = arctis.sample_handling
     on_two = _lamella(experiment, "on-two", "Grid-02")
     experiment.remove_grid("Grid-02")
     assert on_two.grid_id is None
@@ -103,7 +103,7 @@ def test_a_grid_with_no_record_is_not_refused(experiment, arctis):
 
 def test_the_inventory_is_read_first(experiment, arctis, monkeypatch):
     """The answer is the hardware's: the read happens before the check."""
-    stage = arctis._stage
+    stage = arctis.sample_handling
     on_two = _lamella(experiment, "on-two", "Grid-02")
     calls = []
     original = stage.get_inventory

@@ -1,7 +1,7 @@
 """The SampleLoader device on the Demo driver, and the grid model over it.
 
 The device reports numbered magazine slots, their states and descriptions, and does
-the exchanges; ``DeviceSampleLoader`` turns that into grids. The grid model's
+the exchanges; ``DeviceGridMagazine`` turns that into grids. The grid model's
 exchanges and inventory over the Demo device are tested in ``test_grid_inventory``.
 """
 
@@ -23,7 +23,7 @@ from fibsem.devices.wire import from_wire, to_wire
 from fibsem.drivers.demo.devices import DemoSampleLoader as DemoSampleLoaderDevice
 from fibsem.drivers.demo.devices import build_demo_sample_loader
 from fibsem.drivers.registry import BuildContext
-from fibsem.microscopes._stage import DeviceSampleLoader, _create_sample_stage
+from fibsem.services.sample_handling import DeviceGridMagazine, bind_sample_handling
 from fibsem.structures import DeviceEntry, SampleGrid
 
 
@@ -242,9 +242,9 @@ class TestBuilder:
 def _arctis(**config):
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
     microscope.stage_device.compustage = True
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     device = _device(parent=microscope, **config)
-    microscope._stage.loader = DeviceSampleLoader(
+    microscope.sample_handling.magazine = DeviceGridMagazine(
         microscope, device, read_at_connect=True
     )
     return microscope
@@ -255,19 +255,22 @@ class TestGridModel:
 
     def test_the_loaded_grid_is_one_object_in_its_home_and_the_working_slot(self):
         microscope = _arctis(**self.CONFIG)
-        microscope._stage.ensure_loaded("grid-elm")
-        microscope._stage.get_inventory()  # a read must not split the identity
-        loader = microscope._stage.loader
+        microscope.sample_handling.ensure_loaded("grid-elm")
+        microscope.sample_handling.get_inventory()  # a read must not split the identity
+        loader = microscope.sample_handling.magazine
         assert loader.working_slot.loaded_grid is loader.slots["Slot-05"].loaded_grid
 
     def test_renaming_writes_the_slot_description(self):
         microscope = _arctis(**self.CONFIG)
-        microscope._stage.assign_grid("Slot-01", SampleGrid(name="grid-ash"))
-        device = microscope._stage.loader.device
+        microscope.sample_handling.assign_grid("Slot-01", SampleGrid(name="grid-ash"))
+        device = microscope.sample_handling.magazine.device
         assert device.magazine.cached.slot(1).description == "grid-ash"
-        microscope._stage.get_inventory()
-        assert microscope._stage.loader.slots["Slot-01"].loaded_grid.name == "grid-ash"
+        microscope.sample_handling.get_inventory()
+        assert (
+            microscope.sample_handling.magazine.slots["Slot-01"].loaded_grid.name
+            == "grid-ash"
+        )
 
     def test_exchange_seconds_is_the_devices(self):
         microscope = _arctis(exchange_delay=3.0)
-        assert microscope._stage.loader.exchange_seconds == 6.0
+        assert microscope.sample_handling.magazine.exchange_seconds == 6.0

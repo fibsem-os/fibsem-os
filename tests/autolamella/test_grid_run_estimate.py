@@ -35,7 +35,7 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
     grid_item_seconds,
 )
 from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusSweepPass
-from fibsem.drivers.autoscript.microscope import AutoscriptSampleLoader
+from fibsem.drivers.autoscript.devices import AutoscriptSampleLoader
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
 from fibsem.structures import (
     AutoContrastMode,
@@ -157,7 +157,10 @@ def test_each_loader_declares_what_an_exchange_costs():
     assert (
         demo_grid_loader(SimpleNamespace(), exchange_delay=5.0).exchange_seconds == 10
     )
-    assert AutoscriptSampleLoader(SimpleNamespace()).exchange_seconds == 180
+    assert (
+        AutoscriptSampleLoader(SimpleNamespace()).connect().exchange_time.get_value()
+        == 180
+    )
 
 
 @pytest.fixture
@@ -183,7 +186,7 @@ def experiment(tmp_path, arctis):
         BeamOverviewGridTaskConfig(task_name="FIB", orientation="FIB", settings=fib)
     )
     exp.grid_protocol.add(_fm())
-    exp.sync_grids_from_inventory(arctis._stage)
+    exp.sync_grids_from_inventory(arctis.sample_handling)
     return exp
 
 
@@ -197,7 +200,7 @@ def test_a_three_grid_run_prices_an_exchange_per_grid_and_each_task_per_grid(
     has a load for each, and SEM, FIB and FM on every grid."""
     grids = [g.name for g in experiment.grids]
     assert len(grids) == 3
-    loader = arctis._stage.loader
+    loader = arctis.sample_handling.magazine
     plan = plan_grid_run(["SEM", "FIB", "FM"], grids)
     exchanges = sum(1 for _, step in plan if step == LOAD_ENTRY_NAME)
 
@@ -264,7 +267,10 @@ def test_the_estimate_is_not_shorter_than_the_arctis_bench_run():
         task_name="FIB", orientation="FIB", settings=fib_settings
     )
 
-    assert AutoscriptSampleLoader(SimpleNamespace()).exchange_seconds >= 3 * 60
+    assert (
+        AutoscriptSampleLoader(SimpleNamespace()).connect().exchange_time.get_value()
+        >= 3 * 60
+    )
     assert sem.estimated_duration >= 3 * 60
     assert fib.estimated_duration >= 4 * 60
     # and not wildly so on the SEM, which the tile move was taken from

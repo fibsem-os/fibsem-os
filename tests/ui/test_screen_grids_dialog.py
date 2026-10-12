@@ -27,11 +27,11 @@ from fibsem.applications.autolamella.ui.screen_grids_dialog import (
     SCANNING,
     ScreenGridsDialog,
 )
-from fibsem.microscopes._stage import (
+from fibsem.services.sample_handling import (
     GridExchangeError,
     SampleGrid,
     SlotCalibration,
-    _create_sample_stage,
+    bind_sample_handling,
 )
 from fibsem.structures import FibsemStagePosition
 from tests.fixtures.demo_stage import demo_grid_loader
@@ -51,7 +51,7 @@ def unscanned(arctis):
     """The magazine as an Arctis reads it after it has been opened: slots 1, 2
     and 5 hold grids, slot 2's description is set in xT, and nothing is known
     until a scan."""
-    arctis._stage.loader = demo_grid_loader(
+    arctis.sample_handling.magazine = demo_grid_loader(
         arctis,
         capacity=12,
         occupied=(1, 2, 5),
@@ -71,7 +71,7 @@ def experiment(tmp_path):
 
 def _dialog(microscope, experiment):
     return ScreenGridsDialog(
-        microscope._stage,
+        microscope.sample_handling,
         experiment,
         ["overview_sem"],
         str(experiment.path),
@@ -81,7 +81,9 @@ def _dialog(microscope, experiment):
 
 def _slot_names(microscope):
     return {
-        e.slot_name: e.name for e in microscope._stage.grid_inventory() if e.present
+        e.slot_name: e.name
+        for e in microscope.sample_handling.grid_inventory()
+        if e.present
     }
 
 
@@ -100,7 +102,7 @@ def test_unscanned_opens_at_not_scanned_with_every_slot_unknown(
 def test_names_typed_during_the_scan_are_held_until_screen(
     qapp, unscanned, experiment, monkeypatch
 ):
-    stage = unscanned._stage
+    stage = unscanned.sample_handling
     dialog = _dialog(unscanned, experiment)
     scan = stage.run_inventory
     seen = {}
@@ -191,7 +193,7 @@ def test_already_scanned_opens_at_the_review(qapp, arctis, experiment):
 def test_the_review_says_how_the_run_ends(qapp, arctis, experiment):
     def ending(**kwargs):
         dialog = ScreenGridsDialog(
-            arctis._stage,
+            arctis.sample_handling,
             experiment,
             ["overview_sem"],
             str(experiment.path),
@@ -233,7 +235,7 @@ def test_a_name_two_slots_share_is_refused_before_anything_is_written(
 def test_a_name_that_does_not_stick_is_said_at_screen(
     qapp, arctis, experiment, monkeypatch
 ):
-    loader = arctis._stage.loader
+    loader = arctis.sample_handling.magazine
 
     def refuse(slot):
         raise GridExchangeError("Autoloader slot 1 reads back '', not 'grid-oak'.")
@@ -252,9 +254,9 @@ def test_a_name_that_does_not_stick_is_said_at_screen(
 def test_a_fixed_holder_opens_at_the_review_without_a_scan(qapp, experiment):
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     for i, name in enumerate(["grid-aspen", "Grid-02"]):
-        slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
+        slot = microscope.sample_handling.holder.slots[f"Slot-{i + 1:02d}"]
         slot.position = FibsemStagePosition(
             name=slot.name, x=-4e-3 + i * 8e-3, y=0, z=4e-3, r=0, t=0
         )
@@ -267,7 +269,10 @@ def test_a_fixed_holder_opens_at_the_review_without_a_scan(qapp, experiment):
     dialog._apply()
     dialog.btn_screen.click()
     assert dialog.grid_names == ["grid-aspen", "grid-birch"]
-    assert microscope._stage.holder.slots["Slot-02"].loaded_grid.name == "grid-birch"
+    assert (
+        microscope.sample_handling.holder.slots["Slot-02"].loaded_grid.name
+        == "grid-birch"
+    )
 
 
 def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
@@ -334,7 +339,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     try:
         ui.system_widget.connect_to_microscope()
         microscope = ui.microscope
-        microscope._stage.loader = demo_grid_loader(
+        microscope.sample_handling.magazine = demo_grid_loader(
             microscope,
             capacity=12,
             occupied=(1, 2, 5),
@@ -402,7 +407,7 @@ def test_the_quote_is_for_the_grids_the_scan_found(qapp, unscanned, experiment):
         )
 
     dialog = ScreenGridsDialog(
-        unscanned._stage,
+        unscanned.sample_handling,
         experiment,
         ["overview_sem"],
         str(experiment.path),

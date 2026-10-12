@@ -6,7 +6,7 @@ would drive the stage to that pose on whatever grid *is* there, so a run that
 includes one is refused, by name, before anything moves. There is no override:
 load the grid from the Grids tab, or leave that lamella out.
 
-The inventory is *read* first (`Stage.get_inventory`: instant, nothing moves) so
+The inventory is *read* first (`SampleHandling.get_inventory`: instant, nothing moves) so
 the answer is the hardware's, not a stale chip's. A lamella that is not linked to
 a grid, or whose grid has no record in this experiment, is never refused: the
 rule is about a known grid being somewhere else, not about missing bookkeeping.
@@ -19,13 +19,13 @@ from typing import TYPE_CHECKING, Dict, Iterable, List
 
 if TYPE_CHECKING:  # pragma: no cover - annotations only
     from fibsem.applications.autolamella.structures import Experiment, Lamella
-    from fibsem.microscopes._stage import Stage
+    from fibsem.services.sample_handling import SampleHandling
 
 logger = logging.getLogger(__name__)
 
 
 def lamellae_off_the_stage(
-    experiment: "Experiment", stage: "Stage", lamellae: Iterable["Lamella"]
+    experiment: "Experiment", stage: "SampleHandling", lamellae: Iterable["Lamella"]
 ) -> Dict[str, List[str]]:
     """Grid name -> the names of the given lamellae on it that cannot be run,
     because that grid is not on the stage. Empty when the run is clear."""
@@ -49,7 +49,7 @@ def lamellae_off_the_stage(
 
 
 def run_refusal(
-    experiment: "Experiment", stage: "Stage", lamellae: Iterable["Lamella"]
+    experiment: "Experiment", stage: "SampleHandling", lamellae: Iterable["Lamella"]
 ) -> str:
     """Why this run cannot start, naming the lamellae and their grid, or ""."""
     off = lamellae_off_the_stage(experiment, stage, lamellae)

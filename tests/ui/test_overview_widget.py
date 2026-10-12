@@ -1654,7 +1654,7 @@ class TestTheHolderIsDrawnOnEveryStage:
         Set on the instance: `slots` is a dataclass field, so patching the class puts
         a `property` object where a dict belongs.
         """
-        holder = widget.microscope._stage.holder
+        holder = widget.microscope.sample_handling.holder
         slots = {
             "Slot-01": self._slot("Slot-01", -5.0e-3),
             "Slot-02": self._slot("Slot-02", 5.0e-3),
@@ -1733,7 +1733,9 @@ class TestTheHolderIsDrawnOnEveryStage:
         widget._refresh_gridbars()
 
         frame = widget._frame()
-        slot = widget._slot_landmark(widget.microscope._stage.holder.slots["Slot-02"])
+        slot = widget._slot_landmark(
+            widget.microscope.sample_handling.holder.slots["Slot-02"]
+        )
         assert widget.gridbar_overlay._centre == pytest.approx(
             frame.to_canvas(slot), abs=1e-6
         )
@@ -1742,7 +1744,7 @@ class TestTheHolderIsDrawnOnEveryStage:
         self, widget, monkeypatch
     ):
         """A holder not yet calibrated says nowhere: the bars go where the overview is."""
-        holder = widget.microscope._stage.holder
+        holder = widget.microscope.sample_handling.holder
         monkeypatch.setattr(holder, "slots", {})
         self._view_origin_at(widget, 3.0e-3, 4.0e-3)
         widget.overlay_controls.set_visible("gridbars", True)
@@ -1770,7 +1772,7 @@ class TestTheHolderIsDrawnOnEveryStage:
         sem = widget.microscope.get_orientation("SEM")
 
         place = widget._slot_landmark(
-            list(widget.microscope._stage.holder.slots.values())[0]
+            list(widget.microscope.sample_handling.holder.slots.values())[0]
         )
 
         assert place.r == pytest.approx(sem.r)
@@ -1813,7 +1815,7 @@ class TestTheHolderIsDrawnOnEveryStage:
         assert before, "no slot marker drawn to move"
 
         slots["Slot-02"] = calibrated("Slot-02", 3.0e-3)
-        widget.microscope.holder_changed.emit(widget.microscope._stage.holder)
+        widget.microscope.holder_changed.emit(widget.microscope.sample_handling.holder)
         _app.processEvents()
 
         after = [(s.cx, s.cy) for s in self._specs(widget, "crosshair", "Slot-02")]
@@ -3031,7 +3033,7 @@ class TestTheFramingFindsThePlan:
         other is left a pan away rather than shrinking the plan into a 12 mm view."""
         from fibsem.structures import GridSlot
 
-        holder = widget.microscope._stage.holder
+        holder = widget.microscope.sample_handling.holder
         monkeypatch.setattr(
             holder,
             "slots",
@@ -5125,20 +5127,20 @@ def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
     slot they draw where the grid is, and that is worth having on by default.
     A slot calibrated mid-session turns them on in the tab already built, and a
     holder change that leaves calibration as it was leaves the switches alone."""
-    from fibsem.microscopes._stage import _create_sample_stage
+    from fibsem.services.sample_handling import bind_sample_handling
     from fibsem.structures import FibsemStagePosition, SlotCalibration
     from fibsem.ui.widgets.canvas.overlays import stage_context
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     assert not stage_context.holder_is_calibrated(microscope)
     widget = FibsemOverviewWidget(microscope)
     try:
         assert not widget.overlay_controls.is_visible(stage_context.OVERLAY_BOUNDARIES)
         assert not widget.overlay_controls.is_visible(stage_context.OVERLAY_SLOTS)
 
-        slot = microscope._stage.holder.slots["Slot-01"]
+        slot = microscope.sample_handling.holder.slots["Slot-01"]
         slot.position = FibsemStagePosition(
             name=slot.name, x=-4e-3, y=1e-3, z=4e-3, r=0, t=0.61
         )

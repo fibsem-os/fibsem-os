@@ -497,7 +497,7 @@ class GridTaskManager(BaseTaskManager):
         recorded on the grid as the load is. Nothing to do on a fixed holder, or
         with the slot already empty. A failed unload is the step's outcome and a
         notification; the run itself is done."""
-        stage = self.microscope._stage
+        stage = self.microscope.sample_handling
         occupant = self._working_slot_occupant(stage)
         if occupant is None or self.is_stopped:
             return
@@ -560,7 +560,7 @@ class GridTaskManager(BaseTaskManager):
             )
 
             # The stage's own record, for the slot column; no hardware call.
-            inventory = self.microscope._stage.grid_inventory()
+            inventory = self.microscope.sample_handling.grid_inventory()
             path = generate_grid_report(self.experiment, inventory=inventory)
         except Exception as e:  # noqa: BLE001 - the run is over; said, not raised
             msg = f"The grid screening report was not written: {e}"
@@ -661,7 +661,7 @@ class GridTaskManager(BaseTaskManager):
         """
         if grid.name in self._not_loaded:
             return False
-        stage = self.microscope._stage
+        stage = self.microscope.sample_handling
         loaded = stage.holder.find_slot_by_grid_name(grid.name) is not None
         entry = AutoLamellaTaskState(
             name=LOAD_ENTRY_NAME,
@@ -714,9 +714,9 @@ class GridTaskManager(BaseTaskManager):
     def _working_slot_occupant(stage) -> Optional[str]:
         """The name of the grid an exchange would have to retract first, or None.
         Only a loader retracts anything; a fixed holder has nowhere to put it."""
-        if stage.loader is None:
+        if stage.magazine is None:
             return None
-        occupant = stage.loader.working_slot.loaded_grid
+        occupant = stage.magazine.working_slot.loaded_grid
         return occupant.name if occupant is not None else None
 
     def _stop_exchange_if_asked(

@@ -11,7 +11,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes._stage import _create_sample_stage
+from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import FibsemStagePosition, SampleHolder
 from fibsem.ui.widgets.holder_calibration_dialog import (
     CALIBRATION_ORIENTATION,
@@ -23,7 +23,7 @@ from fibsem.ui.widgets.holder_calibration_dialog import (
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     return microscope
 
 
@@ -304,7 +304,7 @@ def test_the_next_connect_uses_the_calibrated_holder(qapp, microscope, tmp_path)
         config_path=str(_configuration(tmp_path)), manufacturer="Demo"
     )
 
-    holder = again._stage.holder
+    holder = again.sample_handling.holder
     assert holder.name == "Test shuttle"
     assert holder.slots["Slot-01"].is_calibrated
     assert abs(holder.slots["Slot-01"].position.x + 3e-3) < 1e-9
@@ -343,7 +343,7 @@ def test_on_a_compustage_the_working_slot_is_calibrated_and_kept(qapp, tmp_path)
     Arctis: the wizard captures it, and the next connect uses it, not the origin."""
     path = str(_arctis_configuration(tmp_path))
     arctis, _ = utils.setup_session(config_path=path, manufacturer="Demo")
-    holder = arctis._stage.holder
+    holder = arctis.sample_handling.holder
     assert holder.slots["Slot-01"].calibration.is_builtin
     dialog = HolderCalibrationDialog(arctis, holder, configuration_path=path)
     # one working slot, named for what it is: not the operator's to change
@@ -361,8 +361,8 @@ def test_on_a_compustage_the_working_slot_is_calibrated_and_kept(qapp, tmp_path)
 
     again, _ = utils.setup_session(config_path=path, manufacturer="Demo")
     try:
-        slot = again._stage.holder.slots["Slot-01"]
-        assert again._stage.holder.name == "CompuStage Holder"
+        slot = again.sample_handling.holder.slots["Slot-01"]
+        assert again.sample_handling.holder.name == "CompuStage Holder"
         assert not slot.calibration.is_builtin
         assert abs(slot.position.x - 150e-6) < 1e-9
         assert abs(slot.position.y + 50e-6) < 1e-9

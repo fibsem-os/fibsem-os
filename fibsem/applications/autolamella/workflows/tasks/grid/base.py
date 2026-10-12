@@ -47,7 +47,7 @@ from fibsem.util.timestamps import now, now_iso
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.microscopes._stage import Stage
+    from fibsem.services.sample_handling import SampleHandling
     from fibsem.structures import GridSlot
 
 _LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
@@ -87,7 +87,7 @@ class GridTaskConfig(ABC):
 
         On the config, as on the lamella side, because those callers hold configs
         and no microscope. The exchange that brings the grid in is not the task's:
-        it is the loader's (``SampleGridLoader.exchange_seconds``), priced once per
+        it is the loader's (``GridMagazine.exchange_seconds``), priced once per
         grid. Zero here; each task type adds what its run does (see
         :mod:`fibsem.timing`).
         """
@@ -252,8 +252,8 @@ class GridTask(ABC):
     # -- where the grid is, and where its files go -----------------------------
 
     @property
-    def stage(self) -> "Stage":
-        return self.microscope._stage
+    def stage(self) -> "SampleHandling":
+        return self.microscope.sample_handling
 
     @property
     def slot(self) -> Optional["GridSlot"]:
