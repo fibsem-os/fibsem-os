@@ -654,20 +654,27 @@ class _Controllable:
         """
         self.check_roles()
         for name in self.declared_parameters():
-            read = getattr(self, f"read_{name}", None)
-            if read is None:
-                continue
-            available = getattr(self, f"available_{name}", None)
-            if available is not None and not available():
-                continue
-            self.bind(
-                name,
-                read=read,
-                write=getattr(self, f"write_{name}", None),
-                metadata=getattr(self, f"metadata_{name}", None),
-                needs_channel=name in self.needs_channel,
-            )
+            self.bind_implemented(name)
         return self
+
+    def bind_implemented(self, name: str) -> Optional[BoundParameter]:
+        """Bind *name* from this class's ``read_<name>`` (and ``write_``/
+        ``metadata_``), unless it has none or its ``available_<name>()`` is False.
+        Returns the bound parameter, or None. `connect` does this for each declared
+        parameter; a backend calls it for one that becomes available afterwards."""
+        read = getattr(self, f"read_{name}", None)
+        if read is None:
+            return None
+        available = getattr(self, f"available_{name}", None)
+        if available is not None and not available():
+            return None
+        return self.bind(
+            name,
+            read=read,
+            write=getattr(self, f"write_{name}", None),
+            metadata=getattr(self, f"metadata_{name}", None),
+            needs_channel=name in self.needs_channel,
+        )
 
     def bind_channel(self, select: Callable[[], Optional[Callable[[], None]]]) -> None:
         """How to make this device the active imaging channel, for needs_channel params.

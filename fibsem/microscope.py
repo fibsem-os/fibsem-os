@@ -758,7 +758,10 @@ class FibsemMicroscope(ABC):
             f"The configuration names no plasma gas; the ion column reports '{gas}'."
         )
         self.system.ion.plasma_gas = str(gas)
-        # What depends on the gas (the currents) was read before it was recorded.
+        # The device was built before the gas was recorded, so it has no plasma_gas
+        # yet, and what depends on the gas (the currents) was read without it.
+        if "plasma_gas" not in ion.parameters:
+            ion.bind_implemented("plasma_gas")
         for param in ion.parameters.values():
             if "plasma_gas" in param.spec.depends_on:
                 param.refresh_metadata()

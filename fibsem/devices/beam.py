@@ -196,8 +196,8 @@ class Beam(Device):
         electron beam, a backend that cannot ask).
 
         It is how connect finds the gas when the configuration names none
-        (`FibsemMicroscope._read_plasma_source`), and how a backend offers the
-        ``plasma_gas`` parameter on such a column.
+        (`FibsemMicroscope._read_plasma_source`), which then binds the ``plasma_gas``
+        parameter the column did not have.
         """
         return None
 

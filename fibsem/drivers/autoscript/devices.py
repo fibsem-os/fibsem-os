@@ -589,12 +589,9 @@ class AutoscriptBeam(Beam):
         tilt_correction = self._beam.angular_correction.tilt_correction
         tilt_correction.turn_on() if value else tilt_correction.turn_off()
 
-    # Only a plasma ion column has a gas: one the configuration names a gas for, or
-    # whose source reports one.
+    # Only a plasma ion column has a gas.
     def available_plasma_gas(self) -> bool:
-        if self.beam_type is not BeamType.ION:
-            return False
-        return bool(self.parent.system.ion.plasma or self._installed_gas_or_none())
+        return self.beam_type is BeamType.ION and bool(self.parent.system.ion.plasma)
 
     def installed_plasma_gas(self) -> Optional[str]:
         """``source.plasma_gas.value``, the read ``plasma_gas`` makes. Only a plasma

@@ -203,6 +203,9 @@ def test_an_old_plasma_flag_without_a_gas_gets_the_instrument_s_gas(tmp_path):
     try:
         assert microscope.system.ion.plasma_gas == "Xenon"
         assert microscope.is_available("ion_plasma") is True
+        # the ion device was built before the gas was known, and gains the control
+        ion = microscope.beams[BeamType.ION]
+        assert ion.plasma_gas.get_value() == "Xenon"
     finally:
         microscope.disconnect()
 

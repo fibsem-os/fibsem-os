@@ -305,12 +305,9 @@ class DemoBeam(Beam):
         self.sim_scanning_mode = "full_frame"
         self.sim_scanning_mode_value = None
 
-    # Only a plasma ion column has a gas: one the configuration names a gas for, or
-    # whose (simulated) source reports one.
+    # Only a plasma ion column has a gas.
     def available_plasma_gas(self) -> bool:
-        if self.beam_type is not BeamType.ION:
-            return False
-        return bool(self.parent.system.ion.plasma or self._installed_gas_or_none())
+        return self.beam_type is BeamType.ION and self.parent.system.ion.plasma
 
     def installed_plasma_gas(self) -> Optional[str]:
         """The ``sim:`` block's ``plasma_gas``, standing in for the instrument's."""
