@@ -28,7 +28,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
 )
 from fibsem.fm.structures import ChannelSettings
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
-from fibsem.structures import FibsemRectangle, Point
+from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
     fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml"
@@ -179,7 +179,7 @@ def test_fails_before_moving_without_a_setup_record(microscope, tmp_path):
         task.run()
 
     assert microscope.get_stage_position() == pose_before
-    assert microscope.fm.objective.state != "Inserted"
+    assert microscope.fm.objective.state is not InsertableDeviceState.INSERTED
 
 
 def test_fails_when_setup_has_not_run(microscope, tmp_path):
@@ -227,7 +227,7 @@ def test_headless_mill_runs_from_the_setup_record_to_timeout(
     # aligned to the setup reference, not the generic one
     assert "no coincidence setup reference" not in caplog.text
     # the objective is retracted on the way out and the FM is quiet
-    assert microscope.fm.objective.state != "Inserted"
+    assert microscope.fm.objective.state is not InsertableDeviceState.INSERTED
     assert not microscope.fm.is_acquiring
     # final images recorded
     assert lamella.task_state.outputs.get("fluorescence")
@@ -258,4 +258,4 @@ def test_abort_token_stops_the_mill(microscope, tmp_path):
     strategy = milling.enabled_stages[0].strategy
     assert isinstance(strategy, CoincidenceMillingStrategy)
     assert strategy.end_reason == "stopped"
-    assert microscope.fm.objective.state != "Inserted"
+    assert microscope.fm.objective.state is not InsertableDeviceState.INSERTED

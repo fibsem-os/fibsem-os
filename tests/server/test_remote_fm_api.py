@@ -6,6 +6,8 @@ import time
 import numpy as np
 import pytest
 
+from fibsem.structures import InsertableDeviceState
+
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
@@ -105,10 +107,10 @@ def test_the_objective_moves_and_announces_where_it_ended_up(served):
     far, fm = served
     moves = []
     fm.objective.position_changed.connect(lambda p, s: moves.append((p, s)))
-    assert fm.objective.state == "Retracted"
+    assert fm.objective.state is InsertableDeviceState.RETRACTED
     fm.objective.insert()
-    assert far.objective.state == "Inserted" == fm.objective.state
-    assert moves == [(far.objective.position, "Inserted")]
+    assert far.objective.state is InsertableDeviceState.INSERTED is fm.objective.state
+    assert moves == [(far.objective.position, InsertableDeviceState.INSERTED)]
     fm.objective.move_relative(1e-6)
     assert fm.objective.position == pytest.approx(far.objective.position)
     assert len(moves) == 2
@@ -117,7 +119,7 @@ def test_the_objective_moves_and_announces_where_it_ended_up(served):
     fm.objective.focus_position = fm.objective.position  # a session setting
     assert fm.objective.focus_position == fm.objective.position
     fm.objective.retract()
-    assert far.objective.state == "Retracted"
+    assert far.objective.state is InsertableDeviceState.RETRACTED
 
 
 def test_acquire_image_with_the_current_settings(served):
@@ -380,7 +382,7 @@ def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
             lambda: fm.online and client.connected and came_online, timeout=5
         )
         assert came_online == [True]
-        assert fm.objective.state == "Retracted"
+        assert fm.objective.state is InsertableDeviceState.RETRACTED
         power = fm.devices["light_source"].power
         assert power.cached == local["light_source"].power.get_value()  # primed
         fm.set_power(0.3)

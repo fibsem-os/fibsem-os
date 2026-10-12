@@ -19,7 +19,7 @@ The two are not the same problem, and the issue's list conflates them:
   z-stack left the spinbox showing the position from before it.
 
 The reads that stay are pinned in `tests/fm/test_objective_signal.py`: guards read the
-device every time, because a stale "Retracted" moves the stage with the objective in the
+device every time, because a stale RETRACTED moves the stage with the objective in the
 chamber.
 """
 
@@ -31,6 +31,8 @@ import sys
 from contextlib import nullcontext
 
 import pytest
+
+from fibsem.structures import InsertableDeviceState
 
 pytest.importorskip("PyQt5")
 
@@ -119,7 +121,7 @@ class TestTheLoopThatWouldNotWarn:
         )
 
         echoed = fm.objective.position + 5e-6
-        widget._on_objective_moved(echoed, "Inserted")
+        widget._on_objective_moved(echoed, InsertableDeviceState.INSERTED)
 
         assert moves == [], "handling a move emitted another one"
         assert widget.doubleSpinBox_objective_position.value() == pytest.approx(
@@ -261,7 +263,7 @@ class TestTheLabelStillExistsBeforeTheFirstMove:
 
 
 class _StubObjective:
-    state = "Retracted"
+    state = InsertableDeviceState.RETRACTED
 
 
 class _StubFM:

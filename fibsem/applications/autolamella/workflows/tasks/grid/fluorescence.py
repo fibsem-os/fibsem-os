@@ -54,7 +54,7 @@ from fibsem.imaging.tiling.progress import (
 )
 from fibsem.microscopes._stage import uncalibrated_message
 from fibsem.projection import FMStageProjection
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemStagePosition, InsertableDeviceState
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
@@ -264,13 +264,13 @@ class FluorescenceOverviewGridTask(GridTask):
         # Read before the travel: on a compustage `move_to_device("FM")` inserts the
         # objective itself, and "how it was found" means before any of this ran.
         objective = fm.objective
-        was_inserted = objective.state == "Inserted"
+        was_inserted = objective.state is InsertableDeviceState.INSERTED
 
         self.log_status_message("MOVE_TO_FM", f"Moving {self.grid.name} to the FM")
         self.microscope.move_to_device("FM")
         self._check_for_abort()
 
-        if objective.state != "Inserted":
+        if objective.state is not InsertableDeviceState.INSERTED:
             self.log_status_message("INSERT_OBJECTIVE", "Inserting the objective")
             objective.insert()
         try:

@@ -61,7 +61,6 @@ from fibsem.fm.structures import (
     ChannelSettings,
     EmissionFilter,
     band_name,
-    objective_device_state,
 )
 from fibsem.structures import (
     BeamType,
@@ -920,15 +919,15 @@ class OdemisFMObjective(Objective):
             active_position = self.active_position
             deactive_position = self.deactive_position
             if active_position is None or deactive_position is None:
-                return objective_device_state("Other")
+                return InsertableDeviceState.UNKNOWN
             if position > active_position["z"] - OBJECTIVE_POSITION_ATOL:
-                return objective_device_state("Inserted")
+                return InsertableDeviceState.INSERTED
             if position < deactive_position["z"] + OBJECTIVE_POSITION_ATOL:
-                return objective_device_state("Retracted")
-            return objective_device_state("Other")
+                return InsertableDeviceState.RETRACTED
+            return InsertableDeviceState.UNKNOWN
         except Exception as e:
             logging.error(f"Failed to get objective lens state: {e}")
-            return objective_device_state("Error")
+            return InsertableDeviceState.ERROR
 
     def read_magnification(self) -> float:
         return self._lens.magnification.value

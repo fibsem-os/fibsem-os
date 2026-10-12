@@ -21,6 +21,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.poses import _to_fluorescence, _to_milling
+from fibsem.structures import InsertableDeviceState
 
 ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
 IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -161,4 +162,4 @@ def test_the_traverse_re_poses_instead_of_refusing():
 
     assert microscope.get_current_device() == "FM"
     assert microscope.get_stage_orientation() == "FIB"
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED

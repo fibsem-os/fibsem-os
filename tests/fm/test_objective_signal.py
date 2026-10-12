@@ -30,6 +30,7 @@ import fibsem
 from fibsem.drivers.demo.devices import bind_demo_fm
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.fm.microscope import ObjectiveLens
+from fibsem.structures import InsertableDeviceState
 
 
 @pytest.fixture
@@ -106,10 +107,10 @@ class TestThePayload:
     def test_the_state_travels_with_it(self, fm, moves):
         """The info bar renders both from one line, so both have to arrive."""
         fm.objective.insert()
-        assert moves[-1][1] == "Inserted"
+        assert moves[-1][1] is InsertableDeviceState.INSERTED
 
         fm.objective.retract()
-        assert moves[-1][1] == "Retracted"
+        assert moves[-1][1] is InsertableDeviceState.RETRACTED
 
     def test_both_reads_share_one_channel_scope(self, fm, monkeypatch):
         """What keeps the payload cheap on a TFS system.
@@ -240,7 +241,7 @@ class TestTheGuardsStillReadTheDevice:
     `ObjectiveLens.position_changed` is for *displays*. Guards read the device, every time, because one
     of them is a collision guard: `AutoscriptStage._move_absolute` suppresses z and
     t from a stage move while the objective is inserted -- the condition itself now lives
-    in `FibsemMicroscope._blocked_axes` -- and a stale `"Retracted"` there
+    in `FibsemMicroscope._blocked_axes` -- and a stale `RETRACTED` there
     means the stage changes height and rotates with the objective in the chamber.
 
     That is affordable because the guards were never the polling load -- this one runs

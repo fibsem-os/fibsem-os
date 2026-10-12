@@ -56,13 +56,12 @@ from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
-    ObjectiveStateName,
     ZParameters,
     ZStackOrder,
     emission_filter_for,
-    objective_state_name,
     same_emission_value,
 )
+from fibsem.structures import InsertableDeviceState
 from fibsem.util.timestamps import now, now_iso, to_aware
 
 if TYPE_CHECKING:
@@ -114,13 +113,13 @@ class ObjectiveLens:
     # and lets an objective built without a parent announce its own moves.
     #
     # For displays only. Guards read the device, every time -- one of them suppresses z
-    # and t from a stage move while the objective is inserted, and a stale "Retracted"
+    # and t from a stage move while the objective is inserted, and a stale RETRACTED
     # there moves the stage with the objective in the chamber.
     #
     # Emitted from whichever thread made the move -- connect with `@ensure_main_thread`
     # if the slot touches widgets, and disconnect on teardown: this is psygnal, so
     # nothing is severed for you when the C++ object goes (FIB-550).
-    position_changed = Signal(float, str)
+    position_changed = Signal(float, InsertableDeviceState)
 
     """The FM API's objective lens: what the FM UI and workflows call.
 
@@ -254,9 +253,9 @@ class ObjectiveLens:
         return (limits.min, limits.max)
 
     @property
-    def state(self) -> ObjectiveStateName:
-        """The objective's state ('Inserted', 'Retracted', 'Busy', 'Error', ...)."""
-        return objective_state_name(_param(self._device, "state").get_value())
+    def state(self) -> InsertableDeviceState:
+        """The objective's state: INSERTED, RETRACTED, MOVING, ERROR or UNKNOWN."""
+        return _param(self._device, "state").get_value()
 
     # Every move announces itself (`_notify_moved`); insert and retract do unless the
     # driver says nothing moved.

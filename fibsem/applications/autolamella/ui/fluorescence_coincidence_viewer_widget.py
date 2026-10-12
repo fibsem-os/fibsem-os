@@ -73,7 +73,13 @@ from fibsem.milling.progress import (
     MillingProgressStatus,
 )
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy
-from fibsem.structures import BeamType, DeviceImagingState, FibsemImage, Point
+from fibsem.structures import (
+    BeamType,
+    DeviceImagingState,
+    FibsemImage,
+    InsertableDeviceState,
+    Point,
+)
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.fm.widgets import LinePlotWidget
 from fibsem.ui.icon import fibsem_icon
@@ -1350,7 +1356,11 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             notification_service.show_toast("No lamella selected.", "warning")
             return
         obj = self.microscope.fm.objective
-        value_m = obj.position if obj.state == "Inserted" else obj.focus_position
+        value_m = (
+            obj.position
+            if obj.state is InsertableDeviceState.INSERTED
+            else obj.focus_position
+        )
         if value_m is None:
             notification_service.show_toast(
                 "Objective position unavailable.", "warning"
@@ -1400,7 +1410,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             )
             return
         obj = self.microscope.fm.objective
-        if obj.state != "Inserted":
+        if obj.state is not InsertableDeviceState.INSERTED:
             notification_service.show_toast(
                 "Insert the objective before moving to a stored position.", "warning"
             )

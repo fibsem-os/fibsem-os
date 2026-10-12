@@ -39,7 +39,12 @@ from superqt import ensure_main_thread
 from fibsem import config as cfg
 from fibsem import constants, conversions
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemStagePosition, Point
+from fibsem.structures import (
+    BeamType,
+    FibsemStagePosition,
+    InsertableDeviceState,
+    Point,
+)
 from fibsem.ui import notification_service
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.stylesheets import (
@@ -357,7 +362,7 @@ class StageControlWidget(QWidget):
             retake is False
             or self.microscope.is_acquiring
             or self.microscope.fm is not None
-            and self.microscope.fm.objective.state == "Inserted"
+            and self.microscope.fm.objective.state is InsertableDeviceState.INSERTED
         ):
             self.update_ui()
             return

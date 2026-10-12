@@ -32,7 +32,6 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import Role, command
 from fibsem.devices.fm import FM, mount_transform_from_name
 from fibsem.devices.stage import Stage
-from fibsem.fm.structures import objective_state_name
 from fibsem.geometry.movement import (
     apply_delta,
     fib_offset_after_sem_move,
@@ -41,7 +40,12 @@ from fibsem.geometry.movement import (
     vertical_move_delta,
 )
 from fibsem.services.core import Service
-from fibsem.structures import BeamType, CameraImageTransform, FibsemStagePosition
+from fibsem.structures import (
+    BeamType,
+    CameraImageTransform,
+    FibsemStagePosition,
+    InsertableDeviceState,
+)
 
 _S = TypeVar("_S", bound="StageMovement")
 
@@ -388,11 +392,11 @@ class StageMovement(Service):
             camera.parameters["display_transform"].get_value()
         )
 
-    def _objective_state(self, fm: FM) -> Optional[str]:
+    def _objective_state(self, fm: FM) -> Optional[InsertableDeviceState]:
         objective = fm._roles.get("objective")
         if objective is None:
             return None
-        return objective_state_name(objective.state.get_value())
+        return objective.state.get_value()
 
     def _fm_stage_delta(self, fm: FM, dx: float, dy: float) -> FibsemStagePosition:
         """Relative stage movement for a displacement seen in the displayed FM image.
@@ -433,10 +437,10 @@ class StageMovement(Service):
         fm = self._require_fm("Fluorescence microscope is not available. Cannot move.")
         state = self._objective_state(fm)
         if state is not None:
-            if state != "Inserted":
+            if state is not InsertableDeviceState.INSERTED:
                 logging.warning(
                     "Moving via the fluorescence image while the objective is not "
-                    f"inserted (state: {state}); the view may not match the sample."
+                    f"inserted (state: {state.value}); the view may not match the sample."
                 )
 
         stage_position = self._fm_stage_delta(fm, dx, dy)

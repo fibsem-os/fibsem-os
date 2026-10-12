@@ -47,6 +47,7 @@ from fibsem.structures import (
     BeamType,
     DeviceImagingState,
     FibsemStagePosition,
+    InsertableDeviceState,
     TileOrderStrategy,
 )
 
@@ -684,9 +685,9 @@ class FMTiledAcquisitionRunner:
             ValueError: if the objective is anywhere but inserted.
         """
         state = self.microscope.fm.objective.state
-        if state != "Inserted":
+        if state is not InsertableDeviceState.INSERTED:
             raise ValueError(
-                f"The objective is {state.lower()}, so an overview cannot be acquired. "
+                f"The objective is {state.value}, so an overview cannot be acquired. "
                 f"Insert it and try again."
             )
 

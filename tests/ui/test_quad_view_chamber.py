@@ -6,6 +6,8 @@ import os
 
 import pytest
 
+from fibsem.structures import InsertableDeviceState
+
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem import utils
@@ -200,14 +202,18 @@ def test_the_objective_is_drawn_in_once_it_is_inserted(controller, arctis):
     _show(controller, arctis, "FM")
     position = arctis.get_stage_position()
 
-    controller.update_info(arctis, stage_position=position, objective_state="Inserted")
+    controller.update_info(
+        arctis, stage_position=position, objective_state=InsertableDeviceState.INSERTED
+    )
     assert controller.widget.chamber_view.diagram._objective_inserted is True
 
     # A stage update carries no objective state, and keeps the last one.
     controller.update_info(arctis, stage_position=position)
     assert controller.widget.chamber_view.diagram._objective_inserted is True
 
-    controller.update_info(arctis, stage_position=position, objective_state="Retracted")
+    controller.update_info(
+        arctis, stage_position=position, objective_state=InsertableDeviceState.RETRACTED
+    )
     assert controller.widget.chamber_view.diagram._objective_inserted is False
 
 

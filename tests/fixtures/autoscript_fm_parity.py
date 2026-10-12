@@ -680,6 +680,14 @@ def api_pair(view, objective, filter_mode, fn):
     return out
 
 
+def _pinned_state(fm):
+    """The objective state by the AutoScript name the pins hold; the API answers
+    the enum now."""
+    return {"INSERTED": "Inserted", "RETRACTED": "Retracted"}.get(
+        fm.objective.state.name, "Other"
+    )
+
+
 def _api_value(value):
     """An image as its data and metadata, without the time it was taken."""
     if hasattr(value, "data") and hasattr(value, "metadata"):
@@ -749,7 +757,7 @@ def api_cases():
         "objective reads": lambda fm: [
             fm.objective.position,
             list(fm.objective.limits),
-            fm.objective.state,
+            _pinned_state(fm),
             fm.objective.magnification,
             fm.objective.numerical_aperture,
             fm.objective.focus_position,
@@ -774,7 +782,7 @@ def api_cases():
         "objective insert retract": lambda fm: (
             fm.objective.insert(),
             fm.objective.retract(),
-            fm.objective.state,
+            _pinned_state(fm),
         )[2],
         "objective limit_position": lambda fm: (
             setattr(fm.objective, "limit_position", 7e-3),

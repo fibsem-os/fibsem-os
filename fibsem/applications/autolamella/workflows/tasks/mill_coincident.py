@@ -45,7 +45,7 @@ from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategyConfig,
 )
 from fibsem.milling.tasks import FibsemMillingStage, FibsemMillingTaskConfig
-from fibsem.structures import CrossSectionPattern, field_meta
+from fibsem.structures import CrossSectionPattern, InsertableDeviceState, field_meta
 
 MILL_COINCIDENT_KEY = "mill_coincident"
 DEFAULT_SETUP_TASK_NAME = "Setup Coincidence Milling"
@@ -237,7 +237,7 @@ class MillCoincidentTask(AutoLamellaTask):
     def _move_objective(self, position: float) -> None:
         objective = self.microscope.fm.objective
         self.log_status_message("MOVE_OBJECTIVE", "Inserting Objective...")
-        if objective.state != "Inserted":
+        if objective.state is not InsertableDeviceState.INSERTED:
             objective.insert()
         self.log_status_message("MOVE_OBJECTIVE", "Moving Objective to position...")
         objective.move_absolute(position)

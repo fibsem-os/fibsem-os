@@ -1061,9 +1061,9 @@ def test_fm_acquires_a_channel(fm_microscope):
 def test_fm_objective_inserts_and_retracts(fm_microscope):
     objective = fm_microscope.fm.objective
     objective.insert()
-    assert objective.state == "Inserted"
+    assert objective.state is InsertableDeviceState.INSERTED
     objective.retract()
-    assert objective.state == "Retracted"
+    assert objective.state is InsertableDeviceState.RETRACTED
 
 
 def test_demo_builds_no_fm_devices_without_an_fm():
@@ -1088,7 +1088,7 @@ def test_demo_fm_devices_share_state_with_the_fm():
     fm.light_source.power = 0.4
     assert devices["light_source"].power.get_value() == 0.4
     devices["objective"].insert()
-    assert fm.objective.state == "Inserted"
+    assert fm.objective.state is InsertableDeviceState.INSERTED
     assert devices["objective"].state.cached is InsertableDeviceState.INSERTED
 
 

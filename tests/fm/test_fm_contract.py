@@ -14,6 +14,7 @@ import pytest
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.drivers.demo.simulator import BINNING_VALUES, SIM_CAMERA_EXPOSURE_LIMITS
+from fibsem.structures import InsertableDeviceState
 
 
 @pytest.fixture()
@@ -41,9 +42,8 @@ class TestPromotedContract:
         fm.camera.binning = 2
         assert fm.camera.binning == 2
 
-    def test_objective_state_is_a_string_property(self, fm):
-        assert isinstance(fm.objective.state, str)
-        assert fm.objective.state in ("Inserted", "Retracted", "Busy", "Error", "Other")
+    def test_objective_state_is_the_device_enum(self, fm):
+        assert isinstance(fm.objective.state, InsertableDeviceState)
 
 
 class TestPerInstanceAcquisitionState:

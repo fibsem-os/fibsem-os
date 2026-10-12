@@ -3,6 +3,7 @@ import time
 import warnings
 
 from fibsem import conversions
+from fibsem.structures import InsertableDeviceState
 from fibsem.ui.widgets.custom_widgets import scrollable
 
 try:
@@ -2596,7 +2597,7 @@ class AutoLamellaUI(QMainWindow):
             notification_service.show_toast("No lamella selected.", "warning")
             return
         obj = self.microscope.fm.objective
-        if obj.state == "Inserted":
+        if obj.state is InsertableDeviceState.INSERTED:
             value_m = obj.position
         else:
             value_m = obj.focus_position
@@ -2633,7 +2634,7 @@ class AutoLamellaUI(QMainWindow):
             )
             return
         obj = self.microscope.fm.objective
-        if obj.state != "Inserted":
+        if obj.state is not InsertableDeviceState.INSERTED:
             notification_service.show_toast(
                 "Insert the objective before moving to a stored position.", "warning"
             )

@@ -10,12 +10,9 @@ from fibsem.devices.core import ParameterReadOnly
 from fibsem.drivers.demo.devices import bind_demo_fm
 from fibsem.drivers.demo.simulator import SIM_CAMERA_EXPOSURE_LIMITS
 from fibsem.fm.structures import (
-    OBJECTIVE_STATES,
     REFLECTION,
     ChannelSettings,
     EmissionFilter,
-    objective_device_state,
-    objective_state_name,
 )
 from fibsem.structures import InsertableDeviceState
 
@@ -71,12 +68,6 @@ def test_the_objective_moves_only_through_commands(fm):
     assert seen == [InsertableDeviceState.INSERTED]
     objective.retract()
     assert objective.state.cached is InsertableDeviceState.RETRACTED
-
-
-def test_every_objective_state_name_survives_the_device_state():
-    for name in OBJECTIVE_STATES:
-        assert objective_state_name(objective_device_state(name)) == name
-    assert objective_device_state("Parked") is InsertableDeviceState.UNKNOWN
 
 
 def test_a_camera_frame_is_the_binned_resolution(fm):

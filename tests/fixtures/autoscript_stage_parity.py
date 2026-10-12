@@ -212,7 +212,11 @@ from fibsem.drivers.autoscript.devices import (  # noqa: E402
     AutoscriptCompustage,
     bind_autoscript_stage,
 )
-from fibsem.structures import BeamType, FibsemStagePosition  # noqa: E402
+from fibsem.structures import (  # noqa: E402
+    BeamType,
+    FibsemStagePosition,
+    InsertableDeviceState,
+)
 
 assert A.THERMO_API_AVAILABLE, A.THERMO_API_IMPORT_ERROR
 
@@ -228,7 +232,7 @@ SYSTEM = utils.load_microscope_configuration(
 
 
 class _Objective:
-    state = "Inserted"
+    state = InsertableDeviceState.INSERTED
     blocked_axes = ("z", "t")
 
 

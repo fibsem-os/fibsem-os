@@ -239,33 +239,6 @@ class FMStagePosition:
         )
 
 
-# The objective's states as today's FM API names them (AutoScript's
-# RetractableDeviceState), and the device state each one is.
-ObjectiveStateName = Literal["Inserted", "Retracted", "Busy", "Error", "Other"]
-OBJECTIVE_STATES: Tuple[str, ...] = get_args(ObjectiveStateName)
-OBJECTIVE_INSERTED = "Inserted"
-_OBJECTIVE_DEVICE_STATES = {
-    "Inserted": InsertableDeviceState.INSERTED,
-    "Retracted": InsertableDeviceState.RETRACTED,
-    "Busy": InsertableDeviceState.MOVING,
-    "Error": InsertableDeviceState.ERROR,
-    "Other": InsertableDeviceState.UNKNOWN,
-}
-
-
-def objective_device_state(name: str) -> InsertableDeviceState:
-    """The device state for an objective state name; an unknown name is UNKNOWN."""
-    return _OBJECTIVE_DEVICE_STATES.get(name, InsertableDeviceState.UNKNOWN)
-
-
-def objective_state_name(state: InsertableDeviceState) -> str:
-    """The objective state name today's FM API uses for a device state."""
-    for name, device_state in _OBJECTIVE_DEVICE_STATES.items():
-        if device_state is state:
-            return name
-    return "Other"
-
-
 Band = Tuple[float, Optional[float]]  # edges in nm; the top may be unknown
 
 

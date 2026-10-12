@@ -35,7 +35,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.structures import FibsemRectangle, Point, field_meta
+from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point, field_meta
 
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
 
@@ -254,7 +254,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
     def _move_objective(self, position: Optional[float]) -> None:
         objective = self.microscope.fm.objective
         self.log_status_message("MOVE_OBJECTIVE", "Inserting Objective...")
-        if objective.state != "Inserted":
+        if objective.state is not InsertableDeviceState.INSERTED:
             objective.insert()
         if position is None:
             logging.warning(
@@ -268,7 +268,11 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
     def _current_objective_position(self, fallback: Optional[float]) -> float:
         """Where the objective is now: what the operator left, or what we set."""
         objective = self.microscope.fm.objective
-        position = objective.position if objective.state == "Inserted" else None
+        position = (
+            objective.position
+            if objective.state is InsertableDeviceState.INSERTED
+            else None
+        )
         if position is None:
             position = fallback
         if position is None:

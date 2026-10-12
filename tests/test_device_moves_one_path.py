@@ -15,7 +15,11 @@ import logging
 import pytest
 
 from fibsem.applications.autolamella.poses import _to_fluorescence, _to_milling
-from fibsem.structures import DeviceImagingState, FibsemStagePosition
+from fibsem.structures import (
+    DeviceImagingState,
+    FibsemStagePosition,
+    InsertableDeviceState,
+)
 from tests import test_device_moves_pinned as pinned
 
 OFFSET = FibsemStagePosition(x=50e-6, y=-30e-6)
@@ -52,7 +56,7 @@ def test_the_fm_is_the_flip_then_the_offset():
     _assert_xy(arrived, start.x + OFFSET.x, start.y + OFFSET.y)
     assert microscope.get_stage_orientation() == "FM"
     assert microscope.get_current_device() == "FM"
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
     # Retracted, flipped where the stage stands, then the offset, then inserted.
     assert [c[0] for c in commands] == ["retract", "absolute", "relative", "insert"]
     assert commands[2][1]["x"] == pytest.approx(OFFSET.x)
@@ -118,7 +122,7 @@ def test_at_the_beams_origin_the_fm_is_the_flip_alone():
 
     _assert_xy(microscope.get_stage_position(), start.x, start.y)
     assert microscope.get_stage_orientation() == "FM"
-    assert microscope.fm.objective.state == "Inserted"
+    assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
     assert [c[0] for c in commands] == ["retract", "absolute", "insert"]
 
 
