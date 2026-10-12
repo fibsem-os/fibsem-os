@@ -14,8 +14,11 @@ import pandas as pd
 import pytest
 from matplotlib.figure import Figure
 
-import fibsem.applications.autolamella.tools.reporting as reporting
-from fibsem.theme.plots import LIGHT
+# The report is built with reportlab, an optional extra the build jobs do not install.
+pytest.importorskip("reportlab")
+
+import fibsem.applications.autolamella.tools.reporting as reporting  # noqa: E402
+from fibsem.theme.plots import LIGHT  # noqa: E402
 
 
 class _PDF:
