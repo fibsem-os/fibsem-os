@@ -134,14 +134,18 @@ def test_the_switch_and_a_small_area_keep_the_configured_position(microscope, tm
     assert SelectMillingPositionTaskConfig().sync_fiducial_position is True
 
 
-@pytest.mark.parametrize("assigned", [False, True])
-def test_setup_then_fiducial_saves_with_a_numpy_area(
-    microscope, tmp_path, monkeypatch, assigned
+@pytest.mark.parametrize("numpy_area", [False, True])
+def test_setup_again_after_the_fiducial_saves_and_reloads(
+    microscope, tmp_path, monkeypatch, numpy_area
 ):
-    """Setup -> Mill Fiducial through the task manager with a numpy-typed
-    alignment area, then the experiment saves and reloads (FIB-1326). The
-    area is built from numpy values, or has them assigned after it is built
-    (which the dataclass cannot convert, so the YAML writer must cope)."""
+    """The FIB-1326 sequence, through the task manager on the Demo
+    microscope: Setup, Mill Fiducial (which re-records the alignment area
+    from the milled pattern's bounding box, numpy min/max), then Setup again
+    with the sync on and the area accepted unchanged; the experiment then
+    saves and reloads. On main the second Setup's fiducial point came out as
+    np.float64 and the save failed. ``numpy_area`` also starts from an area
+    assigned numpy values after it is built, which the dataclass cannot
+    convert, so the YAML writer has to cope."""
     import numpy as np
 
     from fibsem.applications.autolamella.structures import (
@@ -179,28 +183,31 @@ def test_setup_then_fiducial_saves_with_a_numpy_area(
     lamella = exp.positions[0]
     lamella.path.mkdir(parents=True, exist_ok=True)
     lamella.milling_pose = microscope.get_microscope_state()
-    values = [np.float64(v) for v in (AREA.left, AREA.top, AREA.width, AREA.height)]
-    if assigned:
+    if numpy_area:
         area = FibsemRectangle()
-        area.left, area.top, area.width, area.height = values
-    else:
-        area = FibsemRectangle(*values)
-    lamella.alignment_area = area
+        area.left, area.top, area.width, area.height = (
+            np.float64(v) for v in (AREA.left, AREA.top, AREA.width, AREA.height)
+        )
+        lamella.alignment_area = area
     # the mill itself is not the point: the session hands back its config
     monkeypatch.setattr(
         MillFiducialTask, "update_milling_config_ui", lambda self, cfg, msg: cfg
     )
 
     run_tasks(microscope, exp, [SETUP, FIDUCIAL])
+    run_tasks(microscope, exp, [SETUP])
 
     assert lamella.has_completed_task(SETUP)
     assert lamella.has_completed_task(FIDUCIAL)
     point = lamella.task_config[FIDUCIAL].milling[FIDUCIAL_KEY].stages[0].pattern.point
     exp.save()
     loaded = Experiment.load(os.path.join(exp.path, "experiment.yaml"))
+    reloaded_lamella = loaded.positions[0]
     reloaded = (
-        loaded.positions[0].task_config[FIDUCIAL].milling[FIDUCIAL_KEY].stages[0]
+        reloaded_lamella.task_config[FIDUCIAL].milling[FIDUCIAL_KEY].stages[0]
     ).pattern.point
     assert reloaded.x == pytest.approx(float(point.x))
     assert reloaded.y == pytest.approx(float(point.y))
-    assert reloaded.x == pytest.approx(30.0e-6, abs=1e-6), "synced to the area"
+    assert reloaded_lamella.alignment_area.left == pytest.approx(
+        float(lamella.alignment_area.left)
+    )
