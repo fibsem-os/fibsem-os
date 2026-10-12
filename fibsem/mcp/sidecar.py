@@ -29,7 +29,7 @@ import json
 import os
 import sys
 from typing import Any, Optional, Tuple
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from fibsem.server.catalog import CATALOG, tools_for_capabilities
 
@@ -150,6 +150,14 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
         sleep_fn(1.0)
 
 
+def _refusal(resp):
+    try:
+        detail = resp.json().get("detail", resp.text)
+    except ValueError:
+        detail = resp.text
+    return f"refused ({resp.status_code}): {json.dumps(detail)}"
+
+
 def _call(client, method, path, payload=None):
     """Call the server; refusals come back as readable text, not exceptions.
 
@@ -158,11 +166,7 @@ def _call(client, method, path, payload=None):
     """
     resp = client.request(method, path, json=payload)
     if resp.status_code >= 400:
-        try:
-            detail = resp.json().get("detail", resp.text)
-        except ValueError:
-            detail = resp.text
-        return None, f"refused ({resp.status_code}): {json.dumps(detail)}"
+        return None, _refusal(resp)
     try:
         return resp.json(), None
     except ValueError:
@@ -378,6 +382,18 @@ def build_sidecar(client, capabilities):
 
     def get_task_outputs(item_name: str):
         return _app_get(f"/app/task_outputs/{item_name}")
+
+    def get_item_output_image(item_name: str, filename: str):
+        # The route answers image/jpeg for the dashboard's <img>, so this reads
+        # the bytes itself rather than through _call. Basenames carry spaces.
+        path = (
+            f"/app/items/{quote(item_name, safe='')}/outputs/{quote(filename, safe='')}"
+        )
+        resp = client.request("GET", path)
+        if resp.status_code >= 400:
+            return _refusal(resp)
+        meta = {"item_name": item_name, "filename": filename}
+        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_item_detail(item_name: str):
         return _app_get(f"/app/items/{item_name}")
@@ -613,6 +629,7 @@ def build_sidecar(client, capabilities):
             get_log,
             get_protocol,
             get_task_outputs,
+            get_item_output_image,
             get_item_detail,
             get_grids,
             get_grid_detail,
