@@ -375,3 +375,52 @@ def test_running_is_refused_when_the_host_has_no_context(qapp, tmp_path):
 
     assert runner.run(runner.discover()[0]) is None
     assert notes and notes[-1] == ("warning", "Load an experiment")
+
+
+class _MicroscopeWithControl:
+    def __init__(self):
+        from fibsem.control import Control
+
+        self.control = Control()
+
+
+def test_a_microscope_script_is_in_control_while_it_runs(qapp, tmp_path):
+    """FIB-1270: a command from the App Server cannot move the stage under it."""
+    _write(
+        tmp_path,
+        "hw.py",
+        "uses_microscope = True\n"
+        "def run(ctx):\n    return ctx.microscope.control.current\n",
+    )
+    context = FakeContext()
+    context.microscope = microscope = _MicroscopeWithControl()
+    done = []
+    runner = _runner(tmp_path, context=context)
+
+    runner.run(runner.discover()[0], on_finished=done.append)
+
+    assert _drain(qapp, lambda: bool(done))
+    assert (done[0].value.by, done[0].value.action) == ("script", "hw")
+    assert microscope.control.current is None
+
+
+def test_a_microscope_script_is_refused_while_someone_else_is_in_control(
+    qapp, tmp_path
+):
+    _write(
+        tmp_path,
+        "hw.py",
+        "uses_microscope = True\ndef run(ctx):\n    raise AssertionError\n",
+    )
+    context = FakeContext()
+    context.microscope = microscope = _MicroscopeWithControl()
+    done, notes = [], []
+    runner = _runner(tmp_path, context=context, notes=notes)
+
+    with microscope.control.take("agent", "POST /move_stage_relative"):
+        runner.run(runner.discover()[0], on_finished=done.append)
+        assert _drain(qapp, lambda: bool(done))
+
+    assert not done[0].ok
+    assert notes[-1][0] == "error"
+    assert "the agent is in control" in notes[-1][1]
