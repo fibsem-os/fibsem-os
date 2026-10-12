@@ -278,6 +278,21 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
     ),
     ToolSpec(
+        name="get_log",
+        description="The session's log (logfile.log), raw: one record per logged line, with any traceback after it. Read a window: a run's own with task_id (the id on its task events; a few seconds either side), or since/until; with none, the latest records. Times are the instrument's wall clock. level=WARNING keeps warnings and errors, which is usually what explains a failure. truncated says older records in the window were dropped: narrow it.",
+        method="GET",
+        path="/app/log",
+        scope="read",
+        router="app",
+        params={
+            "task_id": "a run's task id: read the log while that run was going",
+            "since": "ISO time: records at or after it (instead of task_id)",
+            "until": "ISO time: records at or before it (instead of task_id)",
+            "level": "the lowest level to keep: DEBUG, INFO, WARNING, ERROR",
+            "lines": "the most records to return, the latest kept (default 200, max 2000)",
+        },
+    ),
+    ToolSpec(
         name="get_protocol",
         description="The workflow definition with live supervision flags and schedules. Each task carries `attendance`: whether a person must be at the microscope while it runs and what waits for their decision afterwards, under its current attention.",
         method="GET",
