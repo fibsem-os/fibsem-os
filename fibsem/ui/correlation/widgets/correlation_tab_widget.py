@@ -214,12 +214,6 @@ _LEGACY_RESULT_FILENAME = "correlation_result.json"
 _AUTO_ACCEPT_MAX_XY_PX = 25.0  # XY displacement (pixels)
 _AUTO_ACCEPT_MAX_Z = 5.0  # Z displacement (slices)
 
-# The FIB hole fit's window half-width, px (hole_fitting_FIB's default); the fit
-# panel starts there.
-FIB_HOLE_WINDOW = 15
-# The planes below and above the clicked one the reflection fit searches
-# (hole_fitting_reflection's default); the fit panel starts there.
-REFLECTION_PLANES = (10, 4)
 
 # Run-bar RMS cue. The badge FLAGS problems; it never certifies quality. The RMS
 # is a fit residual over the fiducials, so a low value cannot promise the POI —
@@ -3594,6 +3588,8 @@ class CorrelationTabWidget(QWidget):
             reflection_cutout=stored.fit.reflection_cutout,
             fluorescence_cutout=stored.fit.fluorescence_cutout,
             fm_fiducial_polarity=cl._fm_fid_looks_combo.value(),
+            fib_window=stored.fit.fib_window,
+            reflection_planes=stored.fit.reflection_planes,
         )
         ri = RISettings(
             tilt_deg=params.tilt_deg,
@@ -5124,6 +5120,8 @@ class CorrelationTabWidget(QWidget):
                 refit=lambda changed, c=coord: self._run_point_fit(c, changed),
                 channel_names=self._fm_channel_names(),
                 position=(index, len(points)),
+                save_default=lambda saved, c=coord: self._save_fit_defaults(c, saved),
+                default_label=self._fit_kind_label(coord),
                 stack=(
                     (lambda ch: self._fm_image.data[ch])
                     if self._fm_image is not None
@@ -5174,6 +5172,40 @@ class CorrelationTabWidget(QWidget):
             f"Auto-fit {name}: Δ {result.delta_px:.1f} px, {result.delta_z:+.1f} z"
         )
 
+    def _fit_kind_label(self, coord: Coordinate) -> str:
+        spec = self._point_specs[coord.point_type]
+        if spec.adapter.side == "fib":
+            return "FIB fiducials"
+        return "FM fiducials" if spec.fm_fit_role == "fid" else "FM targets"
+
+    def _save_fit_defaults(self, coord: Coordinate, inputs: FitInputs) -> None:
+        """The fit panel's "Save as default": its inputs become the experiment's
+        fit settings for this kind of point, and the Method panel shows them.
+        Saved with the correlation settings, like a change made in the Method
+        panel (FIB-1218)."""
+        cl = self._coords_tab
+        fit = self._correlation_config.fit
+        spec = self._point_specs[coord.point_type]
+        if spec.adapter.side == "fib":
+            fit = dataclasses.replace(fit, fib_window=inputs.window)
+        elif spec.fm_fit_role == "fid":
+            if inputs.channel is not None:
+                cl._fm_fid_ch_combo.setCurrentIndex(inputs.channel)
+            if inputs.looks is not None:
+                cl._fm_fid_looks_combo.set_value(inputs.looks)
+            fit = dataclasses.replace(
+                fit,
+                reflection_cutout=inputs.window,
+                reflection_planes=inputs.planes or fit.reflection_planes,
+            )
+        else:
+            if inputs.channel is not None:
+                cl._fm_poi_ch_combo.setCurrentIndex(inputs.channel)
+            fit = dataclasses.replace(fit, fluorescence_cutout=inputs.window)
+        self._correlation_config = dataclasses.replace(
+            self._correlation_config, fit=fit
+        )
+
     def _fm_channel_names(self) -> List[str]:
         combo = self._coords_tab._fm_fid_ch_combo
         return [combo.itemText(i) for i in range(combo.count())]
@@ -5185,7 +5217,7 @@ class CorrelationTabWidget(QWidget):
         fit = self._correlation_config.fit
         spec = self._point_specs[coord.point_type]
         if spec.adapter.side == "fib":
-            return FitInputs(window=FIB_HOLE_WINDOW, window_label="Window ±")
+            return FitInputs(window=fit.fib_window, window_label="Window ±")
         is_fid = spec.fm_fit_role == "fid"
         method = (
             cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
@@ -5204,7 +5236,7 @@ class CorrelationTabWidget(QWidget):
             window_label="Depth box ±",
             channel=channel,
             looks=cl._fm_fid_looks_combo.value() if is_fid else None,
-            planes=REFLECTION_PLANES,
+            planes=tuple(fit.reflection_planes),
         )
 
     def _run_point_fit(
@@ -5268,7 +5300,8 @@ class CorrelationTabWidget(QWidget):
                             z=int(z),  # sub-pixel x/y (FIB-282)
                             cutout=inputs.window,
                             polarity=Polarity(inputs.looks or "dark"),
-                            planes=inputs.planes or REFLECTION_PLANES,
+                            planes=inputs.planes
+                            or tuple(self._correlation_config.fit.reflection_planes),
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
                     elif method == "Gaussian":

@@ -11,7 +11,7 @@ model only holds an instance; imports no UI.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 # Mirror the UI constants as plain strings so this module never imports the UI.
 FIT_METHODS = ("None", "Hole", "Gaussian")
@@ -49,6 +49,11 @@ class FitSettings:
     # bright on METEOR reflection (FIB-1218). Dark is what the fit always
     # assumed, so a protocol without the key fits as before.
     fm_fiducial_polarity: str = "dark"
+    # The FIB hole fit's window half-width (px), and the planes below and above
+    # the clicked one the reflection fit searches. Both were fixed in the fits;
+    # the fit panel's "Save as default" sets them (FIB-1218).
+    fib_window: int = 15
+    reflection_planes: Tuple[int, int] = (10, 4)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -60,6 +65,8 @@ class FitSettings:
             "reflection_cutout": self.reflection_cutout,
             "fluorescence_cutout": self.fluorescence_cutout,
             "fm_fiducial_polarity": self.fm_fiducial_polarity,
+            "fib_window": self.fib_window,
+            "reflection_planes": list(self.reflection_planes),
         }
 
     @staticmethod
@@ -81,7 +88,26 @@ class FitSettings:
                 if d.get("fm_fiducial_polarity") in FM_FIDUCIAL_POLARITIES
                 else default.fm_fiducial_polarity
             ),
+            fib_window=_positive_int(d.get("fib_window"), default.fib_window),
+            reflection_planes=_plane_pair(
+                d.get("reflection_planes"), default.reflection_planes
+            ),
         )
+
+
+def _positive_int(value: Any, default: int) -> int:
+    return value if isinstance(value, int) and value > 0 else default
+
+
+def _plane_pair(value: Any, default: Tuple[int, int]) -> Tuple[int, int]:
+    """Two positive plane counts, (below, above); anything else, the default."""
+    if (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and all(isinstance(v, int) and v > 0 for v in value)
+    ):
+        return (value[0], value[1])
+    return default
 
 
 @dataclass
