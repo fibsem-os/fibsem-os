@@ -754,7 +754,7 @@ class GridWorkflowWidget(QWidget):
         self._microscope = microscope
         stage = self.stage
         self.options.set_availability(
-            can_unload=stage is not None and stage.loader is not None,
+            can_unload=stage is not None and stage.magazine is not None,
             report_unavailable=report_unavailable_reason(),
         )
         self.refresh()
