@@ -20,7 +20,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem import utils
-from fibsem.structures import FibsemManipulatorPosition
+from fibsem.structures import FibsemManipulatorPosition, InsertableDeviceState
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 
 
@@ -51,8 +51,11 @@ class StubMicroscope:
     def is_available(self, key):
         return key == "manipulator_rotation" and self._rotation
 
-    def get_manipulator_state(self):
-        return True
+    class manipulator_device:
+        class state:
+            @staticmethod
+            def get_value():
+                return InsertableDeviceState.INSERTED
 
     def get_manipulator_position(self):
         return FibsemManipulatorPosition()

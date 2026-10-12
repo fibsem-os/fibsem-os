@@ -391,12 +391,6 @@ ACTIVE_MILLING_STATES = [
 ]
 
 
-class ManipulatorState(Enum):
-    RETRACTED = 0
-    INSERTED = 1
-    MOVING = 2
-
-
 class InsertableDeviceState(Enum):
     """Where a device that goes in and out is: the FM objective, the manipulator. A
     driver that only knows in or out reports those two."""
