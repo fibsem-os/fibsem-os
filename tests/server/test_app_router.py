@@ -134,6 +134,51 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
     assert unknown.json()["detail"]["filenames"] == [fname]
 
 
+def test_sidecar_returns_a_saved_output_as_image_content(client, host):
+    """The Observer's saved-image gap (FIB-848): the JPEG route reaches the
+    agent as MCP image content, with the basename's spaces encoded."""
+    pytest.importorskip("mcp")
+    import numpy as np
+    import tifffile
+
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+    from fibsem.mcp.sidecar import build_sidecar
+
+    lamella = host.experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    fname = "ref_Rough Milling_final_res_01_ib.tif"
+    tifffile.imwrite(
+        os.path.join(lamella.path, fname),
+        (np.random.rand(64, 96) * 65535).astype(np.uint16),
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Rough Milling", outputs={"final_fib": [fname]})
+    )
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+
+    def call(filename):
+        result = asyncio.run(
+            sidecar.call_tool(
+                "get_item_output_image",
+                {"item_name": lamella.name, "filename": filename},
+            )
+        )
+        if isinstance(result, tuple):
+            result = result[0]
+        return list(getattr(result, "content", result))
+
+    contents = call(fname)
+    image = next(c for c in contents if getattr(c, "type", None) == "image")
+    assert image.mime_type == "image/jpeg"
+    assert fname in "".join(getattr(c, "text", "") for c in contents)
+
+    refused = "".join(getattr(c, "text", "") for c in call("nope.tif"))
+    assert "refused (404)" in refused
+    assert fname in refused  # the valid names come back with the refusal
+
+
 def test_task_config_reads_over_http(client, host):
     from fibsem.applications.autolamella.workflows.tasks.rough import (
         MillRoughTaskConfig,
