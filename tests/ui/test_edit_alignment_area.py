@@ -192,7 +192,7 @@ def test_a_value_answer_moves_the_area_and_answers_with_it(ui, qapp):
 def test_echoing_the_area_is_not_an_adjustment(ui, qapp):
     # FIB-1330: sending back `current` accepts the area, it adjusts nothing.
     thread, outcome = _edit_on_worker_thread(ui, qapp)
-    _, nonce = ui.ui_responder.pending_question_and_nonce()
+    _, question_id = ui.ui_responder.pending_question_and_id()
     current = ui.image_widget.get_alignment_area().to_dict()
 
     events = []
@@ -200,7 +200,7 @@ def test_echoing_the_area_is_not_an_adjustment(ui, qapp):
         lambda kind, payload: events.append((kind, payload))
     )
     try:
-        result = _answer_with_value_on_worker(ui, qapp, True, nonce, current)
+        result = _answer_with_value_on_worker(ui, qapp, True, question_id, current)
     finally:
         dispose()
     _finish(thread, qapp)

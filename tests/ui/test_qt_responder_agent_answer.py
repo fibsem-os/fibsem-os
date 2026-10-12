@@ -236,8 +236,8 @@ def test_the_asker_hears_who_answered(ui, qapp):
     # The task records the decision the answer makes, on its own thread, and
     # names who made it from this (FIB-1328).
     def agent():
-        _, nonce = ui.ui_responder.pending_question_and_nonce()
-        ui.ui_responder.submit_answer(True, nonce=nonce)
+        _, question_id = ui.ui_responder.pending_question_and_id()
+        ui.ui_responder.submit_answer(True, question_id=question_id)
 
     assert _ask_and_hear_who_answered(ui, qapp, agent) == "agent"
     assert (
