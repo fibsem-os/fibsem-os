@@ -29,7 +29,6 @@ def connected(monkeypatch):
 def test_it_reports_no_manipulator(connected):
     microscope, _ = connected
     assert microscope.is_available("manipulator") is False
-    assert microscope.system.manipulator.enabled is False
     assert microscope.capability_sources["manipulator"] == "backend"
     assert microscope.manipulator_device is None
     assert microscope.manipulator_named_positions() == []

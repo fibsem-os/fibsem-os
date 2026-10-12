@@ -172,8 +172,12 @@ class DemoMicroscope(
         ``_setup_fluorescence``.
         """
         defaults = DEMO_DEVICES
+        # A simulated instrument with no manipulator has no manipulator device, so
+        # `is_available("manipulator")` says so (`sim.has_manipulator`).
+        if not self._is_fitted("manipulator"):
+            defaults = tuple(d for d in defaults if d.name != "manipulator")
         if sim_is_compustage(self.system):
-            defaults = (*DEMO_DEVICES, DEMO_SAMPLE_LOADER)
+            defaults = (*defaults, DEMO_SAMPLE_LOADER)
         resolved = [
             item
             for item in resolve_system_devices(

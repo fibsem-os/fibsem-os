@@ -1055,7 +1055,7 @@ class ThermoMicroscope(FibsemMicroscope):
         the device.
         """
         fitted = [DeviceEntry(name="chamber", type="chamber")]
-        if self.is_available("manipulator"):
+        if self._is_fitted("manipulator"):
             fitted.append(DeviceEntry(name="manipulator", type="manipulator"))
         self._build_devices(fitted, _PART_TYPES)
 

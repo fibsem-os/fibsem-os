@@ -117,6 +117,8 @@ def test_a_simulated_probe_is_reported_as_the_instrument(microscope):
     """`sim.has_manipulator` is the simulator's stand-in for the instrument
     answering."""
     microscope.system.sim["has_manipulator"] = False
+    # what connecting with that answer builds: no manipulator device
+    microscope.manipulator_device = None
     microscope._read_hardware_capabilities()
 
     rows = {

@@ -2861,15 +2861,10 @@ def _plasma_gas_from(settings: dict) -> Optional[str]:
 
 @dataclass
 class ManipulatorSystemSettings:
+    # Whether a manipulator is fitted, as `FibsemClient` reads it from the server. A
+    # microscope answers from its devices (`is_available("manipulator")`), and the
+    # axes the arm has from its device too, so neither is set here.
     enabled: bool = True
-    # Whether the arm can rotate and tilt. Not in the configuration file: every
-    # shipped file said `false`, which is the default, and the axes an arm has are
-    # the instrument's to report, not a site's to state. Kept as fields because
-    # `is_available("manipulator_rotation")` reads them and a backend that can ask
-    # the instrument may set them at connect. Neither written nor read by the
-    # file readers below.
-    rotation: bool = False
-    tilt: bool = False
 
     def to_dict(self):
         return {"enabled": self.enabled}
