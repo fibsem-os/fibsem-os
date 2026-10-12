@@ -6,7 +6,12 @@ from PyQt5.QtWidgets import QMessageBox
 
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemManipulatorPosition, MicroscopeSettings
+from fibsem.structures import (
+    BeamType,
+    FibsemManipulatorPosition,
+    InsertableDeviceState,
+    MicroscopeSettings,
+)
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.utils import install_wheel_blocker_recursive, message_box_ui
 
@@ -52,7 +57,7 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
         self.move_type_comboBox.setCurrentIndex(0)
         self.move_type_comboBox.currentIndexChanged.connect(self.change_move_type)
 
-        manipulator_inserted = self.microscope.get_manipulator_state()
+        manipulator_inserted = self._inserted()
         self._hide_show_buttons(manipulator_inserted)
         self.insertManipulator_button.setText(
             "Retract" if manipulator_inserted else "Insert"
@@ -156,9 +161,16 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
         self.dZ_spinbox.setEnabled(not self._is_corrected_move())
         self._hide_show_buttons(self._controls_shown)
 
+    def _inserted(self) -> bool:
+        """Whether the needle is in, read from the manipulator device."""
+        device = self.microscope.manipulator_device
+        if device is None:
+            return False
+        return device.state.get_value() is InsertableDeviceState.INSERTED
+
     def update_ui_state(self):
 
-        is_inserted = self.microscope.get_manipulator_state()
+        is_inserted = self._inserted()
         self._hide_show_buttons(show=is_inserted)
         self.manipulatorStatus_label.setText(
             "Manipulator Status: Inserted"
@@ -197,7 +209,7 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
         )
 
     def refresh_data(self):
-        self.manipulator_inserted = self.microscope.get_manipulator_state()
+        self.manipulator_inserted = self._inserted()
 
         self._hide_show_buttons(self.manipulator_inserted)
         self.insertManipulator_button.setText(
@@ -271,7 +283,7 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
 
     def insert_retract_manipulator(self):
 
-        if self.microscope.get_manipulator_state():
+        if self._inserted():
             self.microscope.retract_manipulator()
             self.insertManipulator_button.setText("Insert")
             self.manipulatorStatus_label.setText("Manipulator Status: Retracted")
