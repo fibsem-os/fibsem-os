@@ -167,8 +167,7 @@ def test_the_default_inputs_come_from_the_method_panel(qapp):
     fid = w._fit_inputs_for(_coord(pt=PointType.FM))
     assert (fid.window, fid.looks, fid.fit_xy) == (3, "bright", None)
     target = w._fit_inputs_for(_coord(pt=PointType.POI))
-    # no x, y control until the target's xy fit can find a bright target
-    assert (target.window, target.looks, target.fit_xy) == (6, None, None)
+    assert (target.window, target.looks, target.fit_xy) == (6, None, False)
 
 
 def test_the_window_reaches_the_fib_fit(qapp):
