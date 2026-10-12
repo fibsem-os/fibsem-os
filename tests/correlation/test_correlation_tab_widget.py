@@ -2044,9 +2044,9 @@ def test_auto_accept_applies_without_dialog(qapp, monkeypatch):
     monkeypatch.setattr(w, "_apply_fit_result", lambda r: applied.append(r))
 
     def _boom(*a, **k):
-        raise AssertionError("confirm dialog must not open in auto-accept")
+        raise AssertionError("fit panel must not open in auto-accept")
 
-    monkeypatch.setattr(mod, "FitConfirmationDialog", _boom)
+    monkeypatch.setattr(mod, "FitPanelDialog", _boom)
 
     w._on_refit_requested(_coord(pt=PointType.FM))
     assert applied == [result]
@@ -2071,7 +2071,7 @@ def test_auto_accept_error_still_shows_dialog(qapp, monkeypatch):
         def exec_(self):
             return QDialog.Rejected
 
-    monkeypatch.setattr(mod, "FitConfirmationDialog", _FakeDialog)
+    monkeypatch.setattr(mod, "FitPanelDialog", _FakeDialog)
 
     w._on_refit_requested(_coord(pt=PointType.FM))
     assert constructed == [True]  # error surfaced despite auto-accept
@@ -2089,7 +2089,7 @@ def test_run_point_fit_does_not_mutate_coordinate(qapp, monkeypatch):
     w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
     diag = object()  # stand-in FitDiagnostic
     monkeypatch.setattr(
-        util, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, diag)
+        util, "hole_fitting_FIB", lambda img, x, y, **kw: (x + 3.0, y + 4.0, diag)
     )
 
     coord = _coord(20.0, 20.0, 0.0, PointType.FIB)  # FIB method defaults to "Hole"
@@ -2116,23 +2116,19 @@ def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
     w = _widget(qapp)
     w._fib_image = SimpleNamespace(filtered_data=np.zeros((64, 64), dtype=np.float32))
     monkeypatch.setattr(
-        util, "hole_fitting_FIB", lambda img, x, y: (x + 3.0, y + 4.0, None)
+        util, "hole_fitting_FIB", lambda img, x, y, **kw: (x + 3.0, y + 4.0, None)
     )
     coord = _coord(20.0, 20.0, 0.0, PointType.FIB)
     w._coords_tab.fib_list.add_coordinate(coord)
 
     # Reject → coordinate unchanged.
-    monkeypatch.setattr(
-        ctw.FitConfirmationDialog, "exec_", lambda self: QDialog.Rejected
-    )
+    monkeypatch.setattr(ctw.FitPanelDialog, "exec_", lambda self: QDialog.Rejected)
     w._on_refit_requested(coord)
     assert (coord.point.x, coord.point.y) == (20.0, 20.0)
     assert coord.fitted is False
 
     # Accept → coordinate moved and flagged.
-    monkeypatch.setattr(
-        ctw.FitConfirmationDialog, "exec_", lambda self: QDialog.Accepted
-    )
+    monkeypatch.setattr(ctw.FitPanelDialog, "exec_", lambda self: QDialog.Accepted)
     w._on_refit_requested(coord)
     assert (coord.point.x, coord.point.y) == (23.0, 24.0)
     assert coord.fitted is True

@@ -129,11 +129,11 @@ from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
 )
 from fibsem.ui.correlation.widgets.correlation_point_overlay import POINT_COLORS
 from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
-    FitConfirmationDialog,
     FitStatus,
     PointFitResult,
     humanize_fit_error,
 )
+from fibsem.ui.correlation.widgets.fit_panel import FitInputs, FitPanelDialog
 from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
@@ -213,6 +213,10 @@ _LEGACY_RESULT_FILENAME = "correlation_result.json"
 # catch gross mis-locks, not sub-pixel disagreement.
 _AUTO_ACCEPT_MAX_XY_PX = 25.0  # XY displacement (pixels)
 _AUTO_ACCEPT_MAX_Z = 5.0  # Z displacement (slices)
+
+# The FIB hole fit's window half-width, px (hole_fitting_FIB's default); the fit
+# panel starts there.
+FIB_HOLE_WINDOW = 15
 
 # Run-bar RMS cue. The badge FLAGS problems; it never certifies quality. The RMS
 # is a fit residual over the fiducials, so a low value cannot promise the POI —
@@ -1161,9 +1165,8 @@ class _CoordinatesTab(QWidget):
         )
         fit_form.addRow(_form_label("Delete fiducial"), self._delete_fiducial_combo)
 
-        # A checkbox carries its own label: the two share one row.
-        self._show_diag_check = QCheckBox("Show diagnostic")
-
+        # A checkbox carries its own label: the two share one row. The fit panel
+        # always shows the diagnostic, so there is no "Show diagnostic" box.
         # Opt-in: apply fits without the confirm dialog. Off by default (the
         # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
         # fits still surface the dialog — see _on_refit_requested.
@@ -1186,7 +1189,6 @@ class _CoordinatesTab(QWidget):
             self._fm_poi_ch_combo,
             self._fm_fid_looks_combo,
             self._delete_fiducial_combo,
-            self._show_diag_check,
             self._auto_accept_check,
             self._auto_rerun_check,
         ):
@@ -1204,8 +1206,8 @@ class _CoordinatesTab(QWidget):
             _combo.setMinimumContentsLength(10)
             _combo.setMinimumWidth(_CHOICE_COMBO_WIDTH)
         self._auto_accept_check.setToolTip(
-            "Apply fits immediately without the confirm dialog.\n"
-            "Failed or far-off fits still ask for confirmation."
+            "Apply fits immediately without the fit panel.\n"
+            "Failed or far-off fits still open it."
         )
         checks = QWidget()
         checks_layout = QHBoxLayout(checks)
@@ -1215,15 +1217,15 @@ class _CoordinatesTab(QWidget):
             "Run the correlation again when the points stop changing, rather "
             "than waiting for Run.\nContinue still has to be pressed."
         )
-        checks_layout.addWidget(self._show_diag_check)
         checks_layout.addWidget(self._auto_accept_check)
         checks_layout.addWidget(self._auto_rerun_check)
         checks_layout.addStretch(1)
         fit_form.addRow(checks)
 
         fit_help = QLabel(
-            "Each fit opens a confirmation to accept or reject \u2014 unless "
-            "<b>Auto-accept</b> is on (failed or far-off fits still ask)."
+            "Each fit opens the fit panel: change its inputs to fit again, then "
+            "Accept or keep your click \u2014 unless <b>Auto-accept</b> is on "
+            "(failed or far-off fits still open it)."
         )
         fit_help.setWordWrap(True)
         fit_help.setStyleSheet(f"{CAPTION_STYLE} padding-top: 4px;")
@@ -5104,12 +5106,18 @@ class CorrelationTabWidget(QWidget):
             self._auto_accept_fit(result)
             return
 
-        show_fig = self._coords_tab._show_diag_check.isChecked()
-        dialog = FitConfirmationDialog(result, show_figure=show_fig, parent=self)
-        # The dialog renders its own figure (OO API, no pyplot) and frees it with
-        # its canvas, so there's nothing to plt.close here anymore.
+        # The fit panel: the fit with its inputs beside it, fitting again as they
+        # change (FIB-1218). Accept applies the fit on screen when it closes.
+        inputs = self._fit_inputs_for(coord)
+        dialog = FitPanelDialog(
+            result,
+            inputs,
+            refit=lambda changed: self._run_point_fit(coord, changed),
+            channel_names=self._fm_channel_names(),
+            parent=self,
+        )
         if dialog.exec_() == QDialog.Accepted:
-            self._apply_fit_result(result)
+            self._apply_fit_result(dialog.result)
 
     def _should_auto_accept(self, result: PointFitResult) -> bool:
         """Auto-accept only when opted in, the fit succeeded, and it isn't a
@@ -5140,13 +5148,50 @@ class CorrelationTabWidget(QWidget):
             f"Auto-fit {name}: Δ {result.delta_px:.1f} px, {result.delta_z:+.1f} z"
         )
 
-    def _run_point_fit(self, coord: Coordinate) -> Optional[PointFitResult]:
+    def _fm_channel_names(self) -> List[str]:
+        combo = self._coords_tab._fm_fid_ch_combo
+        return [combo.itemText(i) for i in range(combo.count())]
+
+    def _fit_inputs_for(self, coord: Coordinate) -> FitInputs:
+        """The inputs ``coord``'s fit runs with by default: the Method panel's
+        channel and look, and the configured window for its method."""
+        cl = self._coords_tab
+        fit = self._correlation_config.fit
+        spec = self._point_specs[coord.point_type]
+        if spec.adapter.side == "fib":
+            return FitInputs(window=FIB_HOLE_WINDOW, window_label="Window ±")
+        is_fid = spec.fm_fit_role == "fid"
+        method = (
+            cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
+        ).currentText()
+        channel = (
+            cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
+        ).currentIndex()
+        if method == "Gaussian":
+            # No x, y control yet: the target's xy fit looks for a dark spot,
+            # so on a bright target it falls back to the click (FIB-1220).
+            return FitInputs(
+                window=fit.fluorescence_cutout, window_label="Box ±", channel=channel
+            )
+        return FitInputs(
+            window=fit.reflection_cutout,
+            window_label="Depth box ±",
+            channel=channel,
+            looks=cl._fm_fid_looks_combo.value() if is_fid else None,
+        )
+
+    def _run_point_fit(
+        self, coord: Coordinate, inputs: Optional[FitInputs] = None
+    ) -> Optional[PointFitResult]:
         """Compute an auto-fit for ``coord`` WITHOUT mutating it.
 
-        Returns None when no fit is applicable (method "None" / image missing);
-        otherwise a PointFitResult carrying the proposed position, coarse status,
-        and the diagnostic figure.
+        ``inputs`` are the fit panel's; None runs with the defaults
+        (:meth:`_fit_inputs_for`). Returns None when no fit is applicable
+        (method "None" / image missing); otherwise a PointFitResult carrying the
+        proposed position, coarse status, and the diagnostic figure.
         """
+        if inputs is None:
+            inputs = self._fit_inputs_for(coord)
         from fibsem.correlation.util import (
             hole_fitting_FIB,
             hole_fitting_reflection,
@@ -5167,7 +5212,9 @@ class CorrelationTabWidget(QWidget):
                     attempted = True
                     # pass the sub-pixel click (not int) so the diagnostic's
                     # input marker lands where the user clicked — FIB-282.
-                    xr, yr, diag = hole_fitting_FIB(self._fib_image.filtered_data, x, y)
+                    xr, yr, diag = hole_fitting_FIB(
+                        self._fib_image.filtered_data, x, y, cutout=inputs.window
+                    )
                     fitted = PointXYZ(float(xr), float(yr), z)
             else:
                 # The FM surface is typically picked in the reflection channel,
@@ -5177,8 +5224,12 @@ class CorrelationTabWidget(QWidget):
                     cl._fm_fid_method_combo if is_fid else cl._fm_poi_method_combo
                 ).currentText()
                 ch_combo = cl._fm_fid_ch_combo if is_fid else cl._fm_poi_ch_combo
-                channel = ch_combo.currentIndex()
-                channel_name = ch_combo.currentText()
+                channel = (
+                    inputs.channel
+                    if inputs.channel is not None
+                    else ch_combo.currentIndex()
+                )
+                channel_name = ch_combo.itemText(channel)
                 if method != "None" and self._fm_image is not None and channel >= 0:
                     img = self._fm_image.data[channel]
                     if method == "Hole":
@@ -5188,10 +5239,8 @@ class CorrelationTabWidget(QWidget):
                             x,
                             y,
                             z=int(z),  # sub-pixel x/y (FIB-282)
-                            cutout=self._correlation_config.fit.reflection_cutout,
-                            polarity=Polarity(
-                                cl._fm_fid_looks_combo.value() if is_fid else "dark"
-                            ),
+                            cutout=inputs.window,
+                            polarity=Polarity(inputs.looks or "dark"),
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
                     elif method == "Gaussian":
@@ -5201,7 +5250,8 @@ class CorrelationTabWidget(QWidget):
                             x,
                             y,
                             int(z),  # sub-pixel x/y (FIB-282)
-                            cutout=self._correlation_config.fit.fluorescence_cutout,
+                            cutout=inputs.window,
+                            use_xy_fitting=bool(inputs.fit_xy),
                         )
                         fitted = PointXYZ(float(xr), float(yr), float(zr))
         except Exception as exc:
