@@ -45,6 +45,7 @@ import time
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as _FutureTimeoutError
 from contextlib import nullcontext
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
@@ -81,7 +82,9 @@ __all__ = [
     "SetFluorescenceChannels",
     "Responder",
     "StalePromptError",
+    "answered_by",
     "ask",
+    "mark_answered_by",
     "wait_for",
 ]
 
@@ -288,6 +291,30 @@ class Responder(Protocol):
         ...
 
 
+# Who answered the last question this thread of control asked, as the responder
+# marked it on the answer's future. A context variable, as fibsem.acting's mark
+# is: the task that asked reads it on its own thread.
+_answered_by: "ContextVar[Optional[str]]" = ContextVar(
+    "fibsem_answered_by", default=None
+)
+
+
+def mark_answered_by(future: "Future", who: Optional[str]) -> None:
+    """Say on ``future`` who is answering it, before completing it: ``"agent"``
+    for an answer over the App Server, ``"operator"`` for a click. A responder
+    that never says is taken to be the operator."""
+    future.answered_by = who  # type: ignore[attr-defined]
+
+
+def answered_by() -> Optional[str]:
+    """Who answered the last question :func:`ask` returned from on this thread
+    of control, as the responder marked it; None when it did not say (FIB-1328).
+
+    The task that asked records the decision the answer makes, on its own
+    thread, so it cannot read who clicked from the GUI thread that did."""
+    return _answered_by.get()
+
+
 def wait_for(
     future: "Future[R]",
     *,
@@ -339,6 +366,8 @@ def ask(
     # Lent before the question is put, so nobody who sees it is refused.
     with lending() if request.lends_control else nullcontext():
         responder.submit(request, future)
-        return wait_for(
+        answer = wait_for(
             future, abort=abort, timeout=timeout, description=type(request).__name__
         )
+    _answered_by.set(getattr(future, "answered_by", None))
+    return answer

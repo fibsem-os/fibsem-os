@@ -17,7 +17,6 @@ from fibsem.applications.autolamella.proposals import (
     Decision,
     DecisionOutcome,
     Proposal,
-    human_author,
 )
 from fibsem.applications.autolamella.protocol.constants import FIDUCIAL_KEY
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
@@ -319,12 +318,9 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 # after the run; already applied, so it is recorded without a
                 # second write-through, and the delta between it and the
                 # proposer's point is what supervised runs used to throw away.
-                experiment = getattr(self.task_manager, "experiment", None)
                 self.inline_decision = Decision(
                     outcome=DecisionOutcome.Confirmed,
-                    author=experiment.author()
-                    if experiment is not None
-                    else human_author(""),
+                    author=self._answer_author(),
                     values={"poi": poi},
                     via="workflow",
                 )

@@ -254,6 +254,36 @@ def test_each_event_says_where_in_the_run_it_happened(
     assert inside["experiment"] == {"id": "E1", "name": "an-experiment"}
 
 
+def test_an_agent_note_about_an_item_is_filed_under_that_item(tmp_path, microscope):
+    # Not whichever item happens to be running (FIB-1328).
+    ref = microscope.experiment
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+
+    def note(item_id, item_name):
+        recorder.buffer.append(
+            "agent_note", {"text": "x", "item_name": item_name, "item_id": item_id}
+        )
+
+    try:
+        note("L2", "02-other")  # nothing running
+        ref.set_workflow_metadata(
+            item_id="L1", item_name="01-lamella", task_id="T1", task_name="Mill"
+        )
+        note("L2", "02-other")  # another item running
+        note("L1", "01-lamella")  # this item running
+        note(None, None)  # about no item: where the run is
+    finally:
+        ref.clear_workflow_metadata()
+        recorder.close()
+    idle, beside, running, unnamed = _written(tmp_path / EVENTS_FILENAME)
+    assert idle["item"] == {"id": "L2", "name": "02-other"} and idle["task"] is None
+    assert beside["item"] == {"id": "L2", "name": "02-other"}
+    assert beside["task"] is None, "the running task is another item's"
+    assert running["item"] == {"id": "L1", "name": "01-lamella"}
+    assert running["task"] == {"id": "T1", "name": "Mill"}
+    assert unnamed["item"] == {"id": "L1", "name": "01-lamella"}
+
+
 def test_the_lifecycle_hook_records_every_run_it_is_registered_for(
     tmp_path, microscope
 ):

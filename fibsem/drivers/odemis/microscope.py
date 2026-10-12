@@ -6,7 +6,6 @@ from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
-from psygnal import Signal
 
 from fibsem import manufacturers
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
@@ -16,7 +15,6 @@ from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
 )
-from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -249,7 +247,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         "manipulator": False,
     }
 
-    milling_progress_signal = Signal(MillingProgress)
     _last_imaging_settings: ImageSettings
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 

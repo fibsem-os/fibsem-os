@@ -262,6 +262,10 @@ class FibsemMicroscope(ABC):
     # thread). Any handler that touches Qt or a canvas MUST marshal, e.g. with
     # @superqt.ensure_main_thread; a bare .connect() of a GUI handler is a
     # crash-on-hardware bug that won't reproduce on a dev machine.
+    #
+    # The two progress signals send on what the milling and spot burn services'
+    # ``progress`` parameters report (`bind_milling`, `bind_spot_burn`): report there
+    # (`fibsem.services.milling.report_progress`), never emit on them directly.
     milling_progress_signal = Signal(MillingProgress)
     tiled_acquisition_signal = Signal(TiledProgress)
     spot_burn_progress_signal = Signal(SpotBurnProgress)

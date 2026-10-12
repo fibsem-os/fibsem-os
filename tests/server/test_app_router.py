@@ -419,6 +419,7 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
         note = [e for e in events if e["kind"] == "agent_note"][-1]
         assert note["payload"]["item_name"] == item
+        assert note["payload"]["item_id"] == host.experiment.positions[0].id
 
         unknown = client.post(
             "/app/agent/notes",

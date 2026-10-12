@@ -378,7 +378,8 @@ class EventRecorder:
         own lifecycle event is the task's whichever thread fired it (a skip fires
         from the task manager), and so is the way a run ends -- completed,
         cancelled, stalled, the experiment completed -- which the run reports,
-        not whoever started it. An answer says who answered.
+        not whoever started it. An answer says who answered, and an agent's
+        note about a named item is that item's.
         """
         ref = getattr(self._microscope, "experiment", None)
         if kind in _LIFECYCLE_EVENTS and isinstance(payload, dict):
@@ -391,6 +392,17 @@ class EventRecorder:
                 item = {"id": ref.item_id, "name": ref.item_name}
             if getattr(ref, "task_id", None) or getattr(ref, "task_name", None):
                 task = {"id": ref.task_id, "name": ref.task_name}
+        if (
+            kind == "agent_note"
+            and isinstance(payload, dict)
+            and payload.get("item_id")
+        ):
+            # A note names the item it is about. The running task is another
+            # item's, unless it is this one's.
+            named = {"id": payload["item_id"], "name": payload.get("item_name")}
+            if item is None or item.get("id") != named["id"]:
+                task = None
+            item = named
         if kind == "prompt_answered" and isinstance(payload, dict):
             actor = payload.get("answered_by")
         elif kind in _LIFECYCLE_EVENTS and task is not None:
