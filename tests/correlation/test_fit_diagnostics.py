@@ -106,12 +106,14 @@ def test_fib_hole_fit_finds_the_burn_from_anywhere_in_its_window(offset, directi
 
 
 def test_fib_hole_fit_from_on_the_burn_is_the_fit_it_always_was():
-    """A start the old fit handled is not re-fitted: the click-start answer
-    stands whenever it is burn-shaped."""
+    """From a click on the burn, the fit on the bounded core (FIB-1218) gives
+    the old unbounded fit's answer: on 89 of 94 saved FIB picks the two agree
+    to under 0.5 px, median 0.004 px."""
     img = _fib_burn(40.3, 39.6)
     popt, _ = fit_gauss_2d_mod(img[38 - 15 : 38 + 15, 41 - 15 : 41 + 15])
     xr, yr, _ = hole_fitting_FIB(img, 41.0, 38.0)
-    assert (xr, yr) == (popt[1] + 41 - 15, popt[2] + 38 - 15)
+    assert (xr, yr) == pytest.approx((popt[1] + 41 - 15, popt[2] + 38 - 15), abs=0.05)
+    assert (xr, yr) == pytest.approx((40.3, 39.6), abs=0.3)
 
 
 def test_fib_hole_fit_with_no_burn_fails_instead_of_returning_the_click():
