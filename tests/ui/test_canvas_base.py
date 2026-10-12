@@ -111,6 +111,21 @@ def test_setting_crosshair_visibility_syncs_its_button():
     assert c.btn_toggle_crosshair.toolTip() == "Show crosshair"
 
 
+def test_the_crosshair_is_the_themes_current_position_yellow():
+    """The same yellow as the image export and the saved figures, not pure
+    yellow (FIB-1303)."""
+    from matplotlib.colors import to_hex
+
+    from fibsem.theme.plots import DARK
+
+    c = FibsemImageCanvas()
+    c.set_array(_img(32, 32))
+    c.set_crosshair_visible(True)
+
+    assert c._crosshair_artists
+    assert {to_hex(a.get_color()) for a in c._crosshair_artists} == {DARK.crosshair}
+
+
 def test_setting_scalebar_visibility_syncs_its_button():
     """`set_scalebar_visible` is new: the shared canvas had only a toggle, which
     cannot express "off" without first knowing what it is currently set to."""
