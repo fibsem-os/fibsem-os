@@ -1,9 +1,8 @@
 """The AutoScript autoloader against a fake of the AutoScript autoloader API.
 
-Every case runs twice: on the old grid loader (``AutoscriptSampleLoader`` in
-``fibsem.drivers.autoscript.microscope``) and on what ``ThermoMicroscope`` builds now, the
-grid model (``DeviceGridMagazine``) over the ``sample_loader`` device
-(``fibsem.drivers.autoscript.devices``), and needs the same answer from both.
+Each case runs on what ``ThermoMicroscope`` builds: the grid model
+(``DeviceGridMagazine``) over the ``sample_loader`` device
+(``fibsem.drivers.autoscript.devices``).
 
 The fake mirrors what operator code confirmed on an Arctis: ``get_slots(run_inventory)``
 returns ``AutoloaderSlot``-like objects with a 1-based ``id``, a ``state`` in
@@ -19,23 +18,8 @@ import pytest
 from fibsem import utils
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.drivers.autoscript import devices as autoscript_devices
-from fibsem.drivers.autoscript.microscope import AutoscriptSampleLoader
 from fibsem.services.sample_handling import DeviceGridMagazine, bind_sample_handling
 from fibsem.structures import DeviceEntry, SampleGrid
-
-_KIND = "old"
-
-
-@pytest.fixture(autouse=True, params=["old", "device"])
-def loader_kind(request):
-    """Run each case on the old grid loader and on the device's grid model."""
-    global _KIND
-    if request.param == "device" and request.node.cls is TestIsInstalled:
-        pytest.skip("the old loader's own installed check")
-    _KIND = request.param
-    yield request.param
-    _KIND = "old"
-
 
 # ---------------------------------------------------------------------------
 # A fake autoloader, shaped like the vendor API
@@ -127,11 +111,8 @@ def _microscope_with(autoloader: FakeAutoloader):
     microscope.stage_device.compustage = True
     microscope.sample_handling = bind_sample_handling(microscope)
     microscope.connection = FakeConnection(autoloader)
-    if _KIND == "old":
-        loader = AutoscriptSampleLoader(parent=microscope)
-    else:
-        device = autoscript_devices.AutoscriptSampleLoader(microscope).connect()
-        loader = DeviceGridMagazine(microscope, device)
+    device = autoscript_devices.AutoscriptSampleLoader(microscope).connect()
+    loader = DeviceGridMagazine(microscope, device)
     microscope.sample_handling.magazine = loader
     return microscope, loader
 
@@ -426,16 +407,16 @@ class TestNaming:
 class TestIsInstalled:
     def test_reports_the_hardware_flag(self):
         hw = FakeAutoloader()
-        _, loader = _microscope_with(hw)
-        assert loader.is_installed is True
+        microscope, _ = _microscope_with(hw)
+        assert autoscript_devices.autoloader_installed(microscope) is True
         hw.is_installed = False
-        assert loader.is_installed is False
+        assert autoscript_devices.autoloader_installed(microscope) is False
 
     def test_absent_device_reads_as_not_installed(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
         microscope.connection = FakeConnection(FakeAutoloader())
         del microscope.connection.specimen.autoloader
-        assert AutoscriptSampleLoader(parent=microscope).is_installed is False
+        assert autoscript_devices.autoloader_installed(microscope) is False
 
 
 # ---------------------------------------------------------------------------
@@ -460,11 +441,6 @@ def _thermo(autoloader: FakeAutoloader, devices=None):
 
 
 class TestThermoBuildsTheDevice:
-    @pytest.fixture(autouse=True)
-    def _once(self, loader_kind):
-        if loader_kind == "old":
-            pytest.skip("wiring, not a loader")
-
     def test_an_installed_autoloader_is_a_sample_loader_device(self):
         microscope = _thermo(FakeAutoloader(occupied={1: "a"}))
         device = microscope._build_sample_loader()
