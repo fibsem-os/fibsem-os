@@ -459,7 +459,8 @@ class TescanBeam(Beam):
 
     def _has_auto_focus(self) -> bool:
         # The ion column has no working distance or focus control: no auto_focus,
-        # and microscope.auto_focus(ION) keeps its warning.
+        # so microscope.auto_focus(ION) falls to the focus sweep, which warns and
+        # skips (the working distance can't be set).
         return self.beam_type is BeamType.ELECTRON
 
     def _auto_focus(self, reduced_area: Optional[FibsemRectangle]) -> None:

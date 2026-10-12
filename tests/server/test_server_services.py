@@ -58,6 +58,7 @@ def test_microscope_lists_the_services_it_built(microscope):
     assert services["stage_movement"] is microscope.stage_movement
     assert services["spot_burn"] is microscope.spot_burn
     assert services["sample_handling"] is microscope.sample_handling
+    assert services["imaging"] is microscope.imaging
 
 
 def test_lists_every_service_with_its_commands(read_client, microscope):
@@ -131,3 +132,31 @@ def test_unknown_service_parameter_or_command_is_404(read_client, armed_client):
 def test_devices_and_services_do_not_mix(read_client):
     assert read_client.get("/devices/milling/state").status_code == 404
     assert read_client.get("/services/ion/current").status_code == 404
+
+
+def test_an_agent_runs_a_focus_sweep(armed_client, microscope):
+    from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusSweepPass
+    from fibsem.structures import BeamType
+
+    settings = AutoFocusSettings(
+        passes=[FocusSweepPass(search_range=20e-6, step_size=10e-6)],
+        probe_resolution=(64, 64),
+        use_autocontrast=False,
+    )
+    resp = armed_client.post(
+        "/services/imaging/commands/focus_sweep",
+        json={
+            "kwargs": {
+                "beam_type": to_wire(BeamType.ELECTRON),
+                "hfw": 80e-6,
+                "settings": settings.to_dict(),
+            }
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    assert result["n_iterations"] == 3
+    beam = microscope.beams[BeamType.ELECTRON]
+    assert beam.working_distance.get_value() == pytest.approx(
+        result["working_distance"]
+    )

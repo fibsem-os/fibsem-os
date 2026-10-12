@@ -262,6 +262,7 @@ def microscope(odemis_microscope_cls):
     microscope.milling_channel = BeamType.ION
     microscope._build_devices()
     microscope._build_milling()
+    microscope._build_imaging()
     microscope.connection.calls.clear()
     return microscope
 

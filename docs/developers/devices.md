@@ -355,13 +355,25 @@ coordinates devices or runs steps over time is a service. The base class is
 `fibsem.services.Service`.
 
 `microscope.services` maps each service the microscope built to its name (`milling`,
-`stage_movement`, `spot_burn`, `sample_handling`); one the backend didn't build is left
-out. The App Server serves them as it serves devices, under `/services`: `GET
+`stage_movement`, `spot_burn`, `sample_handling`, `imaging`); one the backend didn't
+build is left out. The App Server serves them as it serves devices, under `/services`: `GET
 /services` describes each one's parameters and commands, `GET
 /services/{service}/{parameter}` reads one, and `POST
 /services/{service}/commands/{command}` runs one, behind the same token, scopes and
 command slot. A service's `stop` needs only the token and never waits for the slot,
 like a device's.
+
+### Imaging
+
+`microscope.imaging` holds the imaging routines that step a beam over time. Its
+`auto_focus(beam_type, reduced_area=None)` is the one place that chooses how to focus:
+the instrument's own autofocus where the beam has one (its `auto_focus` command is
+available), else the image-based sweep at the beam's field of view, which skips with a
+warning on a beam whose working distance can't be set (a Tescan ion column).
+`microscope.auto_focus` goes to it on every backend. `focus_sweep(beam_type, hfw=None,
+settings=None)` is the sweep itself (`fibsem.autofunctions.autofocus.run_auto_focus`),
+and `stop()` ends one in progress from another caller. No backend needs its own imaging
+code, so every backend builds the shared class.
 
 ### Milling
 

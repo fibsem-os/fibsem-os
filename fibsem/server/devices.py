@@ -336,7 +336,8 @@ def build_device_router(
             return Response(
                 buffer.getvalue(), media_type=NPY_MEDIA_TYPE, headers=headers
             )
-        return {"result": jsonable_encoder(result)}
+        # A structure with to_dict answers that (an autofocus result, its summary).
+        return {"result": jsonable_encoder(to_wire(result))}
 
     return router
 

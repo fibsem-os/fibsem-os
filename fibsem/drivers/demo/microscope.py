@@ -211,6 +211,7 @@ class DemoMicroscope(
         self.milling = bind_demo_milling(self)
         self._build_stage_movement()
         self.spot_burn = bind_demo_spot_burn(self)
+        self._build_imaging()
 
     # The beam methods the shared demo code leaves to each demo, on the beam devices.
 

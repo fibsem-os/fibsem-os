@@ -107,6 +107,7 @@ def make():
     microscope.get_microscope_state = get_microscope_state
     microscope._set_additional_metadata = set_additional_metadata
     microscope._build_beams()
+    microscope._build_imaging()
     return microscope
 
 
