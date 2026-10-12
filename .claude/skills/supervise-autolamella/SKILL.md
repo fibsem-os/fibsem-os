@@ -56,6 +56,7 @@ status bar. Every launch starts at Watch; nothing in a file raises it.
 - **Watch** — you see everything and can add notes; you cannot answer,
   start, stop, re-queue or edit. Watch is a complete job: say what you see,
   say what you would answer and why, and leave the click to the operator.
+  What you would answer goes on the record too (see *Write down why*).
 - **Drive** — you may answer questions, start and stop workflows, change
   supervision, re-queue, and edit configuration and schedules.
 - **Assist** is not offered yet. **Off** refuses everything, `/capabilities`
@@ -140,6 +141,25 @@ quiet run — when in doubt, read `/app/prompt` directly.
    whose payload says `answer_via: "decide"` carries a `decide` block with
    the same three fields; `answer_prompt` on it is refused with nothing
    clicked, and `decide_review` is the answer there too.)
+
+## Write down why
+
+Chat is not kept; the experiment folder is. Every time you act (answer,
+decide, start, stop, re-queue, edit) or suggest an action at Watch, call
+`add_note` with the item's name, before the action. The note lands in the
+experiment's `events.jsonl` and `logfile.log`, beside what you did.
+
+A note says what you looked at and what you saw in it, then what you did:
+
+- *"lamella-02 Polishing: ref_polishing_ib.tif (02:14:05, after the last
+  pass). Face clean; curtaining stops below the trench. Answered no: accept."*
+- *"Suggest: lamella-04 Setup, POI 1.5 µm left of the marker. The marker
+  sits on the grid bar edge in ref_setup_eb.tif. Left for the operator."*
+
+Name the image, value or event you judged from. A note you cannot tie to
+something you looked at is not a reason; look first, or escalate instead.
+Laddered repeats get a note too, one line. Notes change nothing, so they
+are allowed at Watch.
 
 ## The prompt playbook
 
@@ -310,8 +330,9 @@ Etiquette:
 ## Report
 
 Keep the operator oriented without flooding them: say what you answered and
-why when it was a judgment call; stay quiet for laddered repeats; always
-report task completions/failures, escalations, and the end-of-run summary
-(items, durations, outcomes — `/app/run_summary` survives the run's end).
+why when it was a judgment call (the note already records it); stay quiet
+for laddered repeats; always report task completions/failures, escalations,
+and the end-of-run summary (items, durations, outcomes — `/app/run_summary`
+survives the run's end).
 Every answer you give is attributed on the timeline in the app; write nothing
 the timeline would contradict.
