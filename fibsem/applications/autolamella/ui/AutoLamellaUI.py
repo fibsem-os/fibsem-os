@@ -103,7 +103,6 @@ from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
-from fibsem.ui.fm.widgets import MinimapPlotWidget
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 
@@ -238,13 +237,6 @@ class AutoLamellaUI(QMainWindow):
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.milling_tab: Optional[QWidget] = None  # the scroll area around it
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
-
-        # minimap plot widget — a floating tool window, shown on demand (was a
-        # napari dock; relocated here so it no longer needs a viewer).
-        self.minimap_plot_widget = MinimapPlotWidget(self)
-        self.minimap_plot_widget.setWindowFlags(Qt.Tool)
-        self.minimap_plot_widget.setWindowTitle("Minimap Plot")
-        self.minimap_plot_widget.hide()
 
         # add widgets to tabs.
         #
@@ -482,8 +474,6 @@ class AutoLamellaUI(QMainWindow):
             # pass the position from the signal; re-querying the microscope here races
             # with the worker thread driving the move (see TescanMicroscope socket lock)
             self.movement_widget.update_ui(stage_position=stage_position)
-
-        self._update_minimap_data(stage_position=stage_position)
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -1133,59 +1123,6 @@ class AutoLamellaUI(QMainWindow):
         )
 
     #### MINIMAP
-
-    def _update_minimap_data(
-        self,
-        stage_position: Optional[FibsemStagePosition] = None,
-        selected_name: Optional[str] = None,
-    ) -> None:
-        if self.microscope is None:
-            return
-        if self.experiment is None:
-            return
-
-        if self.minimap_plot_widget is None:
-            return
-
-        if not self.minimap_plot_widget.isVisible():
-            return
-
-        try:
-            image: Optional[FibsemImage] = None
-            if self.minimap_plot_widget.image is None:
-                ms = self.microscope.get_microscope_state(beam_type=BeamType.ELECTRON)
-                image = FibsemImage.generate_blank_image(
-                    resolution=(2048, 2048), hfw=4000e-6
-                )
-                image.metadata.microscope_state = ms  # type: ignore
-                image.metadata.system_info = self.microscope.system.info  # type: ignore
-                image.metadata.hardware_geometry = self.microscope.hardware_geometry()  # type: ignore
-                self.minimap_plot_widget.image = image
-
-            beam_type = self.minimap_plot_widget.image.metadata.beam_type  # type: ignore
-            fov = self.microscope.get_field_of_view(beam_type=beam_type)
-
-            # Set the data (delay redraw until all data updated...)
-            if selected_name is not None:
-                self.minimap_plot_widget.selected_name = selected_name
-            self.minimap_plot_widget.lamella_positions = (
-                self.experiment.get_milling_positions()
-            )
-            if self.minimap_plot_widget.grid_positions is None:
-                self.minimap_plot_widget.grid_positions = [
-                    s.position
-                    for s in self.microscope._stage.holder.slots.values()
-                    if s.position is not None  # uncalibrated slots draw nothing
-                ]
-            self.minimap_plot_widget.fov_width = fov
-            if stage_position is not None:
-                self.minimap_plot_widget.set_current_position(stage_position)
-            else:
-                self.minimap_plot_widget.update_minimap()
-            if image is not None:
-                self.minimap_plot_widget.reset_zoom()
-        except Exception as e:
-            logging.warning(f"Failed to update minimap data: {e}")
 
     #### TASK WORKFLOW
 
@@ -2252,8 +2189,6 @@ class AutoLamellaUI(QMainWindow):
 
         # refresh objective position + pose display for the selected lamella
         self.selected_lamella_widget.set_lamella(lamella)
-
-        self._update_minimap_data(selected_name=lamella.name)
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
