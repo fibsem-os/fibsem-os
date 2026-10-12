@@ -21,7 +21,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskStatus,
+    Experiment,
+)
 from fibsem.constants import MICRO_TO_SI, SI_TO_MICRO
 from fibsem.structures import (
     BeamType,
@@ -323,7 +326,12 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
         tasks: the protocol's, and those of each of *lamellae* that has the
         task. Only these two settings: a lamella keeps everything else it was
         tuned to (FIB-1071). Returns how many of the protocol's selected tasks
-        have milling."""
+        have milling.
+
+        A lamella's task that is running is left alone: the task holds that
+        config object, so an edit would change its settings mid-run. Those are
+        listed in ``skipped_running`` as (lamella name, task name)."""
+        self.skipped_running: List[tuple] = []
         # Get selected tasks
         selected_tasks = self.get_selected_tasks()
 
@@ -347,8 +355,12 @@ class AutoLamellaGlobalTaskEditDialog(QDialog):
                 updated_count += 1
             for lamella in lamellae:
                 lamella_config = lamella.task_config.get(task_name)
-                if lamella_config is not None:
-                    _set_imaging(lamella_config, new_ref_imaging, new_milling_fov)
+                if lamella_config is None:
+                    continue
+                if _is_running(lamella, task_name):
+                    self.skipped_running.append((lamella.name, task_name))
+                    continue
+                _set_imaging(lamella_config, new_ref_imaging, new_milling_fov)
 
         return updated_count
 
@@ -366,8 +378,21 @@ def _set_imaging(
     task_config: Any, reference_imaging: ReferenceImageParameters, milling_fov: float
 ) -> bool:
     """Set a task's reference imaging, and each milling config's field of view;
-    whether it has milling."""
+    whether it has milling. The save path is kept: the dialog's settings carry
+    none, and a None path fails the next image saved with them."""
+    path = task_config.reference_imaging.imaging.path
     task_config.reference_imaging = copy.deepcopy(reference_imaging)
+    task_config.reference_imaging.imaging.path = path
     for milling_config in (task_config.milling or {}).values():
         milling_config.field_of_view = milling_fov
     return bool(task_config.milling)
+
+
+def _is_running(lamella: Any, task_name: str) -> bool:
+    """Whether *task_name* is the task running on *lamella* now."""
+    state = getattr(lamella, "task_state", None)
+    return (
+        state is not None
+        and state.name == task_name
+        and state.status == AutoLamellaTaskStatus.InProgress
+    )

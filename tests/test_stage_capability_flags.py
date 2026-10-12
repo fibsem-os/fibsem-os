@@ -81,9 +81,11 @@ def test_a_manipulator_does_not_gain_an_axis_by_default(key: str):
     scoped edit goes wrong: a manipulator quietly given an axis it does not have.
     While the files said `false` that was safe by restatement; now it is safe by
     default, and this is the test that says so. `False` is the only correct default --
-    an axis assumed present is a move the hardware will refuse.
+    an axis assumed present is a move the hardware will refuse. The axes are now the
+    manipulator device's (`is_available("manipulator_rotation")`), so a file cannot
+    state one at all.
     """
-    assert getattr(ManipulatorSystemSettings.from_dict({}), key) is False
+    assert not hasattr(ManipulatorSystemSettings.from_dict({key: True}), key)
 
 
 @pytest.mark.parametrize(

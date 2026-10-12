@@ -22,10 +22,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import QPoint, QRect, Qt
 from PyQt5.QtGui import QColor, QFont, QPainter, QPen
 
-from fibsem.ui.tokens import (
-    NEUTRAL_900,
-    PANEL_COLOR,
-)
+from fibsem.theme.plots import DARK, style_axes
 from fibsem.ui.widgets.drag_distance import _MeasureOverlayBase
 
 try:
@@ -48,13 +45,13 @@ class _ProfilePlotWidget(QtWidgets.QWidget):
         super().__init__(parent)
         self.setMinimumHeight(160)
         self.setMaximumHeight(200)
-        self.setStyleSheet(f"background: {NEUTRAL_900};")
+        self.setStyleSheet(f"background: {DARK.background};")
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
         if _MPL:
-            self._fig = Figure(figsize=(4, 1.8), facecolor=NEUTRAL_900)
+            self._fig = Figure(figsize=(4, 1.8), facecolor=DARK.background)
             self._ax = self._fig.add_subplot(111)
             self._canvas = FigureCanvasQTAgg(self._fig)
             layout.addWidget(self._canvas)
@@ -73,14 +70,9 @@ class _ProfilePlotWidget(QtWidgets.QWidget):
             self._canvas.hide()
 
     def _style_axes(self):
-        ax = self._ax
         self._fig.patch.set_alpha(0)
-        ax.set_facecolor(PANEL_COLOR)
-        ax.tick_params(colors="#999", labelsize=8)
-        for spine in ax.spines.values():
-            spine.set_color("#444")
-        ax.xaxis.label.set_color("#999")
-        ax.yaxis.label.set_color("#999")
+        style_axes(self._ax, DARK)
+        self._ax.tick_params(labelsize=8)
 
     def update_profile(
         self,
@@ -95,9 +87,10 @@ class _ProfilePlotWidget(QtWidgets.QWidget):
 
         self._ax.clear()
         self._style_axes()
-        self._ax.plot(distances, intensities, color="#ff8c00", linewidth=1.2)
-        self._ax.set_xlabel(f"Distance ({unit})", fontsize=8, color="#999")
-        self._ax.set_ylabel("Intensity", fontsize=8, color="#999")
+        # the orange of the line drawn on the image, so the two read as one
+        self._ax.plot(distances, intensities, color=_LINE_COLOR.name(), linewidth=1.2)
+        self._ax.set_xlabel(f"Distance ({unit})", fontsize=8, color=DARK.text)
+        self._ax.set_ylabel("Intensity", fontsize=8, color=DARK.text)
         self._ax.set_xlim(distances[0], distances[-1])
         self._ax.set_ylim(0, 255)
         self._fig.tight_layout(pad=0.5)

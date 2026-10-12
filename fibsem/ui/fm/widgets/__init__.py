@@ -1,7 +1,7 @@
 """
 Fluorescence Microscopy UI Widgets
 
-This module contains all the individual widget components for the 
+This module contains all the individual widget components for the
 fluorescence microscopy acquisition interface.
 """
 
@@ -25,26 +25,24 @@ from .fm_overview_widget import FMOverviewWidget
 from .histogram_widget import HistogramWidget
 from .line_plot_widget import LinePlotWidget
 from .load_image_dialog import LoadImageDialog
-from .minimap_plot_widget import MinimapPlotWidget
 from .objective_control_widget import ObjectiveControlWidget
 from .z_parameters_widget import ZParametersWidget
 
 __all__ = [
-    'ZParametersWidget',
-    'ObjectiveControlWidget',
-    'ChannelSettingsWidget',
-    'CameraWidget',
-    'HistogramWidget',
-    'LinePlotWidget',
-    'MinimapPlotWidget',
-    'AutofocusWidget',
-    'LoadImageDialog',
-    'FMImageViewerWidget',
-    'ChannelListWidget',
-    'FluorescenceMultiChannelWidget',
-    'TileGridOptionsPanel',
-    'TileMaskWidget',
-    'FMOverviewSettingsWidget',
-    'FMOverviewConfirmationDialog',
-    'FMOverviewWidget',
+    "ZParametersWidget",
+    "ObjectiveControlWidget",
+    "ChannelSettingsWidget",
+    "CameraWidget",
+    "HistogramWidget",
+    "LinePlotWidget",
+    "AutofocusWidget",
+    "LoadImageDialog",
+    "FMImageViewerWidget",
+    "ChannelListWidget",
+    "FluorescenceMultiChannelWidget",
+    "TileGridOptionsPanel",
+    "TileMaskWidget",
+    "FMOverviewSettingsWidget",
+    "FMOverviewConfirmationDialog",
+    "FMOverviewWidget",
 ]

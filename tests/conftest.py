@@ -23,7 +23,7 @@ def _isolate_sample_holder_config(tmp_path_factory, monkeypatch):
     call time, so patching the two module attributes is enough.
     """
     import fibsem.config as cfg
-    import fibsem.microscopes._stage as stage_module
+    import fibsem.services.sample_handling as stage_module
     from fibsem.structures import default_sample_holder
 
     # Its own directory, not the test's tmp_path: tests assert on that staying empty.

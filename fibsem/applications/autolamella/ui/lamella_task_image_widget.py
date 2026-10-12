@@ -7,11 +7,11 @@ import os
 import threading
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QSize, Qt, QThread, QTimer, pyqtSignal
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import QSize, Qt, QThread, QTimer, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QImage, QImageReader, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QFrame,
@@ -27,13 +27,18 @@ from PyQt5.QtWidgets import (
 )
 from skimage.transform import resize
 
-from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
+from fibsem.applications.autolamella.event_recording import (
+    EVENTS_FILENAME,
+    read_new_events,
+)
 from fibsem.applications.autolamella.history_rows import (
+    OPERATION_KINDS,
     HistoryFilter,
     HistoryOperation,
     HistoryRun,
     filter_runs,
     history_rows,
+    operation_facts,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
@@ -58,6 +63,7 @@ from fibsem.ui.tokens import (
     NEUTRAL_550,
     NEUTRAL_900,
     NUMBER_FONT,
+    PANEL_COLOR,
     SURFACE_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
@@ -65,18 +71,18 @@ from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.ui.widgets.task_summary_formatting import STATUS_BADGE_COLORS
 from fibsem.util.timestamps import format_time
 
-# Thumbnails, two to a line in the panel's width: a run is a few lines and a
-# pair of pictures, and the full image is a click away in the viewer. The width
-# follows the panel between these bounds; _TARGET_WIDTH is also the loader's
-# default.
-_TARGET_WIDTH = 190
-_PLACEHOLDER_HEIGHT = 142  # 3:4 of the width, the box a 3:2 beam image fits
+# Thumbnails, two to a line in the panel's width, up to the size the tab has
+# always shown them at: big enough to judge a lamella from without opening it.
+# Narrower panels shrink them, down to the minimum. _TARGET_WIDTH is also the
+# loader's default.
+_TARGET_WIDTH = 512
+_PLACEHOLDER_HEIGHT = 384  # 3:4 of the width, the box a 3:2 beam image fits
 _MIN_THUMB_WIDTH = 120
-_MAX_THUMB_WIDTH = 280
+_MAX_THUMB_WIDTH = _TARGET_WIDTH
 _MARGIN = 16
 _SPACING = 8
-# The runs stay a column rather than spreading across a wide panel, so a line's
-# duration sits beside what it times.
+# The runs stay as wide as a pair of thumbnails rather than spreading across a
+# wider panel, so a line's duration sits above the pictures it timed.
 _MAX_CONTENT_WIDTH = 2 * _MAX_THUMB_WIDTH + _SPACING + 2 * _MARGIN
 _MAX_IMAGES_PER_TASK = 2  # last 2 files = highest-res SEM + FIB
 _IMAGES_PER_LINE = 2  # tiles per line before wrapping; matches the SEM/FIB pair
@@ -99,6 +105,15 @@ def _arr_to_pixmap(arr: np.ndarray, w: int, h: int) -> QPixmap:
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
+
+
+def _stamp(path: str) -> Optional[Tuple[int, int]]:
+    """The file's modification time and size, or None when it cannot be read."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
 
 
 def _load_and_resize(
@@ -142,8 +157,21 @@ def _load_and_resize(
     max_height = target_width * _PLACEHOLDER_HEIGHT / _TARGET_WIDTH
     scale = min(target_width / w, max_height / h)
     new_w, new_h = int(w * scale), int(h * scale)
+    # Average whole blocks of pixels down to near the size first: resize's
+    # anti-aliasing filter over a full 6144 x 4096 frame took seconds an image.
+    # The few edge pixels that do not fill a block are left off.
+    factor = int(1 / scale)
+    covered = w
+    if factor >= 2:
+        bh, bw = h // factor, w // factor
+        covered = bw * factor
+        data = (
+            data[: bh * factor, :covered]
+            .reshape(bh, factor, bw, factor, *data.shape[2:])
+            .mean(axis=(1, 3))
+        )
     resized = resize(data, (new_h, new_w), preserve_range=True).astype(np.uint8)
-    return resized, pixel_size_x / scale, info
+    return resized, pixel_size_x * covered / w / scale, info
 
 
 class ClickableLabel(QLabel):
@@ -162,17 +190,76 @@ class ClickableLabel(QLabel):
         super().mousePressEvent(event)
 
 
+class _ClickableRow(QWidget):
+    """A line that emits clicked() when left-clicked: an operation, to expand it."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
+def _open_path(path: str) -> None:
+    """In the system's own viewer: a folder in the file browser, a figure in
+    whatever opens PNGs."""
+    QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+
+# The widest a figure is drawn on hover: readable, and well inside a screen.
+_FIGURE_TOOLTIP_WIDTH = 640
+# An opened operation's figure, small at the right of its values and no taller
+# than they are; shown only when the thumbnails are at least
+# _MIN_WIDTH_FOR_MINI_FIGURE wide, so the values keep their room.
+_MINI_FIGURE_SIZE = QSize(220, 140)
+_MIN_WIDTH_FOR_MINI_FIGURE = 300
+
+
+def _figure_tooltip(path: str) -> str:
+    """A tooltip that is the figure at ``path``, no wider than the cap. Qt draws
+    rich-text tooltips, images included, and reads the file only when shown."""
+    width = QImageReader(path).size().width()
+    if width <= 0:
+        return path
+    width = min(width, _FIGURE_TOOLTIP_WIDTH)
+    return f'<img src="{QUrl.fromLocalFile(path).toString()}" width="{width}">'
+
+
+def _link(text: str, path: str) -> QPushButton:
+    """A flat accent link that opens ``path``, the path on hover."""
+    link = QPushButton(text)
+    link.setFlat(True)
+    link.setCursor(Qt.CursorShape.PointingHandCursor)
+    link.setToolTip(path)
+    link.setStyleSheet(
+        f"QPushButton {{ color: {ACCENT_COLOR}; background: transparent;"
+        " border: none; padding: 0; text-align: left; font-size: 11px; }"
+    )
+    link.clicked.connect(lambda _c=False: _open_path(path))
+    return link
+
+
 class _ImageLoaderWorker(QThread):
     """Background worker that loads images one at a time."""
 
     # filepath, array, pixel_size_x, ImageFields
     image_loaded = pyqtSignal(str, np.ndarray, float, object)
 
-    def __init__(self, filepaths: List[str], target_width: int, parent=None):
-        super().__init__(parent)
+    def __init__(self, filepaths: List[str], target_width: int):
+        # No parent, and kept in _WORKERS until it has finished: a cancelled
+        # worker ends the image it is on by itself, and Qt aborts the app when a
+        # QThread is destroyed while it runs, as a parent's deletion would do.
+        super().__init__()
         self._filepaths = filepaths
         self._target_width = target_width
         self._cancel = threading.Event()
+        _WORKERS.difference_update([w for w in _WORKERS if w.isFinished()])
+        _WORKERS.add(self)
 
     def cancel(self):
         self._cancel.set()
@@ -188,6 +275,9 @@ class _ImageLoaderWorker(QThread):
                 self.image_loaded.emit(fpath, arr, pixel_size_x, info)
             except Exception as e:
                 logging.warning(f"Failed to load image {fpath}: {e}")
+
+
+_WORKERS: Set[_ImageLoaderWorker] = set()
 
 
 # Status words and colours, as the run's header shows them. The colours are the
@@ -273,7 +363,11 @@ class _HistoryFilterButton(QToolButton):
         )
         self.setPopupMode(QToolButton.InstantPopup)
         self.setFocusPolicy(Qt.NoFocus)
-        self._menu = QMenu(self)
+        # No parent: a child of this button inherits the stylesheets above it, and
+        # the header row's unscoped `background: transparent` made the menu
+        # see-through. Unparented, it is styled as every other menu in the app,
+        # and is not deleted with the header either. self._menu keeps it alive.
+        self._menu = QMenu()
         self.setMenu(self._menu)
         self._filter = HistoryFilter()
         self._tasks: List[str] = []
@@ -378,6 +472,9 @@ class LamellaTaskImageWidget(QWidget):
         self._lamella: Optional[Lamella] = None
         self._lamella_id: Optional[str] = None
         self._pixmap_cache: Dict[str, QPixmap] = {}
+        # image path -> the file's (mtime, size) when its pixmap was read: a
+        # refresh keeps the pixmaps whose files have not changed since.
+        self._stamps: Dict[str, Tuple[int, int]] = {}
         self._placeholder_labels: Dict[str, QLabel] = {}
         self._caption_labels: Dict[str, QLabel] = {}
         self._task_names: Dict[str, str] = {}  # image path -> the task that made it
@@ -386,9 +483,18 @@ class LamellaTaskImageWidget(QWidget):
         self._captions: Dict[str, Tuple[str, str]] = {}
         self._worker: Optional[_ImageLoaderWorker] = None
         self._runs: List[HistoryRun] = []
+        # The operations shown expanded, as (run, index in the run): kept across
+        # a rebuild, so a refresh after a task does not fold what was open.
+        self._expanded: Set[Tuple[str, int]] = set()
         # Whether the experiment records its events: without the file nothing
         # was ever recorded, so "no operations" would be a claim it cannot make.
         self._has_events = False
+        # The experiment's operation events read so far, and where in its file
+        # the next read starts: a rebuild reads only what was written since,
+        # not the whole file again (it grows through a run).
+        self._events_path: Optional[Path] = None
+        self._events_offset = 0
+        self._operation_events: List[Dict[str, Any]] = []
         self._thumb_width = _TARGET_WIDTH
         # Re-fit the thumbnails once a resize settles, not on every pixel of a drag.
         self._refit = QTimer(self)
@@ -446,8 +552,10 @@ class LamellaTaskImageWidget(QWidget):
         self._lamella = lamella
         self._lamella_id = new_id
         self._pixmap_cache.clear()
+        self._stamps.clear()
         self._captions.clear()
         self._placeholder_labels.clear()
+        self._expanded.clear()
         self._rebuild()
 
     def refresh(self) -> None:
@@ -455,36 +563,51 @@ class LamellaTaskImageWidget(QWidget):
 
         `set_lamella` skips the lamella it already shows, so without this the
         panel kept the history it was opened with until another lamella was
-        selected and back (FIB-1111). The image cache goes too: a re-run writes
-        its reference images to the same filenames, so a cached pixmap would be
-        the previous run's picture.
+        selected and back (FIB-1111). A cached image goes when its file has
+        changed: a re-run writes its reference images to the same filenames, so
+        its pixmap would be the previous run's picture. The others stay, so a
+        refresh after each task reads only the images that task wrote.
         """
         if self._lamella is None:
             return
         self._cancel_worker()
-        self._pixmap_cache.clear()
-        self._captions.clear()
+        for path in list(self._pixmap_cache):
+            if _stamp(path) != self._stamps.get(path):
+                self._forget_image(path)
         self._rebuild()
+
+    def _forget_image(self, path: str) -> None:
+        self._pixmap_cache.pop(path, None)
+        self._stamps.pop(path, None)
+        self._captions.pop(path, None)
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
     def _cancel_worker(self) -> None:
+        """Stop the loader without waiting for it: it finishes the image it is on
+        in the background, and nothing it loads reaches the panel. Waiting held
+        the GUI for up to two seconds, as a large image takes that to resize."""
         if self._worker is not None:
             self._worker.image_loaded.disconnect(self._on_image_loaded)
             self._worker.cancel()
-            self._worker.quit()
-            self._worker.wait(2000)
             self._worker = None
 
     def _clear_layout(self) -> None:
-        """Remove all widgets from the content layout, keeping the filter button."""
+        """Remove all widgets from the content layout, keeping the filter button.
+
+        The button lives in the header row, which is deleted here: it is taken out
+        first, or Qt deletes it and its menu with the header. A rebuild usually
+        moves it into the new header before that happens, but clearing the
+        selection makes no new header, and the next rebuild then used a deleted
+        QMenu and aborted the app.
+        """
+        self._filter_button.hide()
+        self._filter_button.setParent(self)
         while self._content_layout.count():
             item = self._content_layout.takeAt(0)
             w = item.widget()
-            if w is self._filter_button:
-                continue
             if w is not None:
                 w.deleteLater()
 
@@ -506,7 +629,11 @@ class LamellaTaskImageWidget(QWidget):
             return
         if abs(self._fitted_thumb_width() - self._thumb_width) < 16:
             return
-        self.refresh()
+        self._cancel_worker()
+        self._pixmap_cache.clear()
+        self._stamps.clear()
+        self._captions.clear()
+        self._rebuild()
 
     def _on_filter_changed(self) -> None:
         flt = self._filter_button.filter
@@ -522,14 +649,27 @@ class LamellaTaskImageWidget(QWidget):
         if self._lamella is None:
             return []
         path = Path(self._lamella.path).parent / EVENTS_FILENAME
-        self._has_events = path.exists()
-        if not self._has_events:
-            return []
         try:
-            return list(read_events(path))
+            size = path.stat().st_size
+        except OSError:
+            size = None
+        self._has_events = size is not None
+        if size is None:
+            return []
+        if path != self._events_path or size < self._events_offset:
+            # another experiment, or a file that was started again
+            self._events_path = path
+            self._events_offset = 0
+            self._operation_events = []
+        try:
+            new, self._events_offset = read_new_events(
+                path, self._events_offset, OPERATION_KINDS
+            )
         except OSError as e:
             logging.warning(f"Could not read {path}: {e}")
-            return []
+            return self._operation_events
+        self._operation_events.extend(new)
+        return self._operation_events
 
     def _rebuild(self) -> None:
         """Build the rows with placeholders, then load the images in the background."""
@@ -591,9 +731,10 @@ class LamellaTaskImageWidget(QWidget):
                 self._show_caption(fpath)
             else:
                 to_load.append(fpath)
+                self._stamps[fpath] = _stamp(fpath)
 
         if to_load:
-            self._worker = _ImageLoaderWorker(to_load, self._thumb_width, parent=self)
+            self._worker = _ImageLoaderWorker(to_load, self._thumb_width)
             self._worker.image_loaded.connect(self._on_image_loaded)
             self._worker.start()
 
@@ -671,22 +812,22 @@ class LamellaTaskImageWidget(QWidget):
         )
         colour = STATUS_BADGE_COLORS.get(badge, (NEUTRAL_550, NEUTRAL_550))[1]
         top = QHBoxLayout()
-        top.setSpacing(6)
+        top.setSpacing(8)
         top.addWidget(
             _text(
                 run.task_name,
                 f"font-size: 12px; font-weight: 600; color: {NEUTRAL_400};",
-            ),
-            1,
+            )
         )
-        top.addWidget(_icon_label(icon, colour, 12))
-        top.addWidget(_text(word, f"font-size: 11px; color: {colour};"))
-        layout.addLayout(top)
         when = " · ".join(
             part for part in (_clock(run.started_at), _duration(run.duration)) if part
         )
         if when:
-            layout.addWidget(_text(when, _CAPTION_STYLE))
+            top.addWidget(_text(when, _CAPTION_STYLE))
+        top.addStretch(1)
+        top.addWidget(_icon_label(icon, colour, 12))
+        top.addWidget(_text(word, f"font-size: 11px; color: {colour};"))
+        layout.addLayout(top)
         if run.status_message and run.status in (
             AutoLamellaTaskStatus.Failed,
             AutoLamellaTaskStatus.Cancelled,
@@ -696,8 +837,8 @@ class LamellaTaskImageWidget(QWidget):
             layout.addWidget(message)
 
         if flt.show != "images":
-            for operation in run.operations:
-                layout.addWidget(self._operation_line(operation))
+            for index, operation in enumerate(run.operations):
+                layout.addWidget(self._operation(run.task_id, index, operation))
             if not run.operations and flt.show == "all" and self._has_events:
                 layout.addWidget(
                     _text(
@@ -729,13 +870,59 @@ class LamellaTaskImageWidget(QWidget):
                 )
         return container
 
-    def _operation_line(self, operation: HistoryOperation) -> QWidget:
-        """``✓ Align   1.11 µm · 3 steps   6 s``, its full text on hover."""
-        line = QWidget()
+    def _operation(
+        self, task_id: str, index: int, operation: HistoryOperation
+    ) -> QWidget:
+        """The operation's line, and under it, once clicked, what it ran with and
+        measured and the figure it saved. Built on first opening: the figure is
+        read from disk."""
+        box = QWidget()
+        box.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+        line, chevron = self._operation_line(operation)
+        layout.addWidget(line)
+        key = (task_id, index)
+        details: List[QWidget] = []
+
+        def show(expanded: bool) -> None:
+            if expanded and not details:
+                details.append(self._operation_details(operation))
+                layout.addWidget(details[0])
+            if details:
+                details[0].setVisible(expanded)
+            chevron.setPixmap(
+                fibsem_icon(
+                    "mdi:chevron-down" if expanded else "mdi:chevron-right",
+                    color=NEUTRAL_550,
+                ).pixmap(QSize(14, 14))
+            )
+
+        def toggle() -> None:
+            expanded = key not in self._expanded
+            if expanded:
+                self._expanded.add(key)
+            else:
+                self._expanded.discard(key)
+            show(expanded)
+
+        line.clicked.connect(toggle)
+        show(key in self._expanded)
+        return box
+
+    def _operation_line(
+        self, operation: HistoryOperation
+    ) -> Tuple[_ClickableRow, QLabel]:
+        """``› ✓ Align   1.11 µm · 3 steps   6 s``, and its chevron."""
+        line = _ClickableRow()
         line.setStyleSheet("background: transparent;")
+        line.setToolTip(f"{operation.detail}\nClick for details")
         layout = QHBoxLayout(line)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        chevron = _icon_label("mdi:chevron-right", NEUTRAL_550)
+        layout.addWidget(chevron)
         icon, badge = _OPERATION_ICON.get(operation.status, ("mdi:circle-outline", ""))
         colour = STATUS_BADGE_COLORS.get(badge, (NEUTRAL_550, NEUTRAL_550))[0]
         layout.addWidget(_icon_label(icon, colour))
@@ -744,10 +931,100 @@ class LamellaTaskImageWidget(QWidget):
         )
         detail = ElidedLabel(operation.detail)
         detail.setStyleSheet(_CAPTION_STYLE)
-        detail.setToolTip(operation.detail)
+        detail.setToolTip(line.toolTip())
         layout.addWidget(detail, 1)
         layout.addWidget(_text(_duration(operation.duration), _CAPTION_STYLE))
-        return line
+        return line, chevron
+
+    def _operation_details(self, operation: HistoryOperation) -> QWidget:
+        """What the operation ran with and measured, one fact a line, then links
+        to the figure its run saved and its folder; the figure itself small at
+        the right, full size on hover. Indented under its line."""
+        panel = QFrame()
+        panel.setObjectName("operationDetails")
+        panel.setStyleSheet(
+            f"QFrame#operationDetails {{ background: {PANEL_COLOR}; border-radius: 4px; }}"
+        )
+        columns = QHBoxLayout(panel)
+        columns.setContentsMargins(10, 8, 10, 8)
+        columns.setSpacing(12)
+        layout = QVBoxLayout()
+        layout.setSpacing(6)
+        columns.addLayout(layout, 1)
+
+        facts = QGridLayout()
+        facts.setHorizontalSpacing(12)
+        facts.setVerticalSpacing(2)
+        for row, (name, value) in enumerate(operation_facts(operation)):
+            facts.addWidget(
+                _text(name, f"font-size: 11px; color: {NEUTRAL_550};"),
+                row,
+                0,
+                Qt.AlignmentFlag.AlignTop,
+            )
+            text = _text(
+                value,
+                f"font-family: {NUMBER_FONT}; font-size: 11px; color: {NEUTRAL_400};",
+            )
+            text.setWordWrap(True)
+            text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            facts.addWidget(text, row, 1)
+        facts.setColumnStretch(1, 1)
+        layout.addLayout(facts)
+
+        # The figure small, not full width: a full-width plot under every opened
+        # line drowned the run's own images. Full size on hover, or opened.
+        links = QHBoxLayout()
+        links.setSpacing(16)
+        if operation.plot is not None:
+            figure = _figure_tooltip(operation.plot)
+            link = _link("Open figure", operation.plot)
+            link.setToolTip(figure)
+            links.addWidget(link)
+            mini = self._mini_figure(operation.plot, figure)
+            if mini is not None:
+                columns.addWidget(mini, 0, Qt.AlignmentFlag.AlignTop)
+            else:  # too narrow for it: the hover is the only look
+                panel.setToolTip(figure)
+        if operation.path and os.path.isdir(operation.path):
+            links.addWidget(_link("Open folder", operation.path))
+        elif operation.path:
+            gone = ElidedLabel(
+                f"Saved to {operation.path}, no longer there", mode=Qt.ElideLeft
+            )
+            gone.setStyleSheet(f"font-size: 11px; color: {NEUTRAL_550};")
+            links.addWidget(gone, 1)
+        if links.count():
+            links.addStretch(1)
+            layout.addLayout(links)
+        layout.addStretch(1)
+        # in line with the operation's name, past its chevron
+        holder = QWidget()
+        holder.setStyleSheet("background: transparent;")
+        indent = QHBoxLayout(holder)
+        indent.setContentsMargins(24, 0, 0, 0)
+        indent.addWidget(panel)
+        return holder
+
+    def _mini_figure(self, path: str, tooltip: str) -> Optional[QLabel]:
+        """The figure at the panel's right, or None when the panel is too narrow to
+        give it room beside the facts."""
+        if self._thumb_width < _MIN_WIDTH_FOR_MINI_FIGURE:
+            return None
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            return None
+        mini = ClickableLabel(path)
+        mini.setPixmap(
+            pixmap.scaled(
+                _MINI_FIGURE_SIZE,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        mini.setToolTip(tooltip)
+        mini.clicked.connect(_open_path)
+        return mini
 
     def _image_grid(self, filenames: List[str]) -> QWidget:
         """The run's images as thumbnails, two to a line, each with its caption."""

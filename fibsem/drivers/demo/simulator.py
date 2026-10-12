@@ -911,8 +911,8 @@ class DemoScene:
         scene = getattr(self, "_sample_scene", None)
         if scene is None or not scene.grids_from_holder:
             return []
-        stage = getattr(self, "_stage", None)
-        holder = getattr(stage, "holder", None)
+        handling = getattr(self, "sample_handling", None)
+        holder = getattr(handling, "holder", None)
         if holder is None:
             return []
         # Where the simulated autoloader really puts a grid, if it is told: the
@@ -1209,9 +1209,9 @@ class DemoSession:
         )
 
         try:
-            self._create_sample_stage()
+            self._build_sample_handling()
         except Exception as e:
-            logging.warning(f"Could not create sample stage: {e}")
+            logging.warning(f"Could not build the sample handling: {e}")
 
         return
 

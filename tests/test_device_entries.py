@@ -233,6 +233,8 @@ def test_a_manipulator_that_failed_to_build_is_not_fitted(tmp_path):
     microscope = _demo_with(tmp_path)
     assert microscope.is_available("manipulator")
 
+    # what `build_device_entries` leaves: no device, and the reason recorded
+    microscope.manipulator_device = None
     microscope._mark_device_not_built("manipulator")
 
     assert not microscope.is_available("manipulator")
@@ -274,15 +276,15 @@ def test_the_arctis_simulator_builds_its_sample_loader_from_its_entry(tmp_path):
     assert [
         s.number for s in device.magazine.get_value().slots if s.state.value != "empty"
     ] == [1, 2, 3]
-    assert microscope._stage.loader.device is device
+    assert microscope.sample_handling.magazine.device is device
 
 
 def test_a_compustage_with_its_sample_loader_switched_off_has_none(tmp_path):
     microscope = _arctis_with(tmp_path, {"name": "sample_loader", "enabled": False})
 
     assert "sample_loader" not in microscope.devices
-    assert microscope._stage.loader is None  # grids are exchanged by hand
-    assert microscope._stage.holder.slots  # the working slot is still there
+    assert microscope.sample_handling.magazine is None  # grids are exchanged by hand
+    assert microscope.sample_handling.holder.slots  # the working slot is still there
 
 
 def test_the_demo_builds_every_device_it_has(tmp_path):

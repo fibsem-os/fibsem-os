@@ -83,9 +83,9 @@ from fibsem.transformations import (
 if TYPE_CHECKING:
     from fibsem.cancellation import AnyStopEvent
     from fibsem.imaging.spot import SpotBurnSettings
-    from fibsem.microscopes._stage import SampleGridLoader
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.services.milling import Milling
+    from fibsem.services.sample_handling import SampleHandling
     from fibsem.services.spot_burn import SpotBurn
     from fibsem.services.stage_movement import StageMovement
 
@@ -342,6 +342,13 @@ class FibsemMicroscope(ABC):
     #: `run_spot_burn` goes to it. None when the ion beam can't burn (not built,
     #: or it can't blank and park): the method raises then.
     spot_burn: Optional[SpotBurn] = None
+    #: The sample handling service over the stage and the sample loader
+    #: (`fibsem.services.sample_handling.SampleHandling`): the holder, the grids and
+    #: the commands that make a grid reachable. None without a stage device.
+    sample_handling: Optional[SampleHandling] = None
+    #: Whether this driver's sample loader reads its magazine when the sample
+    #: handling service is built: only where that read is free (the simulator).
+    _read_magazine_at_connect: bool = False
     #: The file `system` was loaded from, when it was loaded from one. Set by
     #: `utils.setup_session`; what a calibration action writes back to.
     configuration_path: Optional[str] = None
@@ -551,11 +558,12 @@ class FibsemMicroscope(ABC):
         if self.stage is not None:
             self.system.stage.rotation = "r" in self.stage.axes
 
-    def _create_sample_stage(self) -> None:
-        """Create the sample stage and holder based on the system settings."""
-        from fibsem.microscopes._stage import _create_sample_stage
+    def _build_sample_handling(self) -> None:
+        """Build the sample handling service (the holder, and the grid model over the
+        sample loader if there is one) from the system settings."""
+        from fibsem.services.sample_handling import bind_sample_handling
 
-        # Before the stage object, not after. Every backend wraps this call in a
+        # Before the service, not after. Every backend wraps this call in a
         # try/except that logs and carries on, so a failure below leaves the
         # capability at its field default -- `True`, which on a compustage is the
         # wrong answer and a silent one. Reading it first cannot fail: it asks the
@@ -563,8 +571,9 @@ class FibsemMicroscope(ABC):
         self._read_stage_capabilities()
         self._read_hardware_capabilities()
 
-        self._stage = _create_sample_stage(self)
-        self.holder_changed.emit(self._stage.holder)
+        self.sample_handling = bind_sample_handling(self)
+        if self.sample_handling is not None:
+            self.holder_changed.emit(self.sample_handling.holder)
 
     # ---- fitted subsystems ---------------------------------------------------
     #
@@ -593,44 +602,55 @@ class FibsemMicroscope(ABC):
     #: when its device failed to build.
     capability_sources: Dict[str, str]
 
+    #: The fitted subsystems that are a device of the same name.
+    _FITTED_DEVICES: Tuple[str, ...] = ("manipulator",)
+
+    def _probe_fitted(self, key: str) -> Tuple[bool, str]:
+        """Whether the instrument says *key* is fitted, and who answered
+        (``"instrument"`` or ``"backend"``)."""
+        probe = {"manipulator": self._probe_manipulator_installed}[key]
+        try:
+            present = probe()
+        except Exception as e:
+            # A raising probe is ambiguous -- a missing subsystem and a sick
+            # connection look the same -- so it is read as "cannot say".
+            logging.debug(f"Capability probe {probe.__name__} failed: {e}")
+            present = None
+        if present is None:
+            return bool(self.DEFAULT_FITTED[key]), "backend"
+        return bool(present), "instrument"
+
+    def _is_fitted(self, key: str) -> bool:
+        """Whether the instrument says *key* is fitted: the answer recorded at
+        connect, else a fresh one. What a backend asks before it builds its own
+        device for *key*; once the devices are built, `is_available` is the answer."""
+        answers = getattr(self, "_fitted_answers", None) or {}
+        if key in answers:
+            return answers[key]
+        return self._probe_fitted(key)[0]
+
     def _read_hardware_capabilities(self) -> None:
         """Ask the instrument which subsystems are fitted, and record the answers."""
         self.capability_sources = {}
-        probes = (("manipulator", self._probe_manipulator_installed),)
-        for key, probe in probes:
-            try:
-                present = probe()
-            except Exception as e:
-                # A raising probe is ambiguous -- a missing subsystem and a sick
-                # connection look the same -- so it is read as "cannot say".
-                logging.debug(f"Capability probe {probe.__name__} failed: {e}")
-                present = None
-            if present is None:
-                present = self.DEFAULT_FITTED[key]
-                self.capability_sources[key] = "backend"
-            else:
-                self.capability_sources[key] = "instrument"
-            self.set_available(key, bool(present))
+        self._fitted_answers: Dict[str, bool] = {}
+        not_built = getattr(self, "_devices_not_built", set())
+        for key in self._FITTED_DEVICES:
+            present, source = self._probe_fitted(key)
+            self._fitted_answers[key] = present
+            self.capability_sources[key] = "not_built" if key in not_built else source
             # A device for it from another driver is fitted whatever the backend
             # says: a manipulator on its own controller is one the vendor never
             # reports. `_set_device` does the same for a device built afterwards.
             self._mark_device_fitted(key)
         self._read_plasma_source()
 
-    #: The fitted subsystems that are a device of the same name.
-    _FITTED_DEVICES: Tuple[str, ...] = ("manipulator",)
-
     def _mark_device_fitted(self, name: str) -> None:
-        """Record *name* as fitted when its device was built by a driver other than
-        this backend's, from a `hardware.devices` entry.
-
-        The backend's own device follows the backend's answer: the Demo builds a
-        manipulator even where its simulated instrument has none."""
+        """Record that a configured device from a driver other than this backend's
+        answered whether *name* is fitted (`capability_sources`)."""
         if name not in self._FITTED_DEVICES or self._devices.get(name) is None:
             return
-        if not self._built_by_another_driver(name) or self.is_available(name):
+        if not self._built_by_another_driver(name):
             return
-        self.set_available(name, True)
         # Before the probes run there is nothing to record a source in; they call
         # this again.
         sources = getattr(self, "capability_sources", None)
@@ -638,11 +658,14 @@ class FibsemMicroscope(ABC):
             sources[name] = "device"
 
     def _mark_device_not_built(self, name: str) -> None:
-        """Record *name* as not fitted when its device failed to build, so the part
-        does not read as there (`fibsem.devices.entries.build_device_entries`)."""
+        """Record that *name*'s device failed to build
+        (`fibsem.devices.entries.build_device_entries`). With no device it is not
+        available; this only says why, in `capability_sources`."""
         if name not in self._FITTED_DEVICES:
             return
-        self.set_available(name, False)
+        if not hasattr(self, "_devices_not_built"):
+            self._devices_not_built = set()
+        self._devices_not_built.add(name)
         sources = getattr(self, "capability_sources", None)
         if sources is not None:
             sources[name] = "not_built"
@@ -799,15 +822,6 @@ class FibsemMicroscope(ABC):
             if detector is not None:
                 record.detector.type = detector.type
                 record.detector.mode = detector.mode
-
-    def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
-        """The grid loader for a compustage system, or None when it has no autoloader.
-
-        Backends wrap their own hardware; this default is the in-memory model.
-        """
-        from fibsem.microscopes._stage import SampleGridLoader
-
-        return SampleGridLoader(parent=self)
 
     # The raw moves go through the stage device when the backend builds one, without
     # its limit check (the old API never had one); a backend without one overrides
@@ -1200,7 +1214,7 @@ class FibsemMicroscope(ABC):
 
     # What a manipulator offers beyond the raw moves is the backend's to say, so the
     # manipulator widget asks these rather than checking the class. Whether the arm
-    # rotates is `is_available("manipulator_rotation")`.
+    # rotates is `is_available("manipulator_rotation")`, from the device's axes.
 
     #: The moves this backend offers: "relative" always, and "corrected" when it
     #: can move the needle in a beam's image coordinates (`move_manipulator_corrected`).
@@ -1500,18 +1514,6 @@ class FibsemMicroscope(ABC):
         else:
             self._devices[name] = device
             self._mark_device_fitted(name)
-            if name == "manipulator":
-                self._read_manipulator_axes(device)
-
-    def _read_manipulator_axes(self, device: Any) -> None:
-        """Whether the arm rotates and tilts, from the axes the device says it has
-        (`Manipulator.axes`); what `is_available("manipulator_rotation")` reads."""
-        axes = getattr(device, "axes", None)
-        if axes is None:
-            return
-        axes = axes()
-        self.system.manipulator.rotation = "r" in axes
-        self.system.manipulator.tilt = "t" in axes
 
     @property
     def beams(self) -> Mapping[BeamType, Any]:
@@ -2098,50 +2100,37 @@ class FibsemMicroscope(ABC):
         return
 
     def is_available(self, system: str) -> bool:
+        """Whether *system* is on this microscope, read from its devices.
 
+        A subsystem is there when its device was built: `enabled: false` builds no
+        device, and neither does a part the instrument says is not fitted or a device
+        that failed to build. ``stage_rotation`` and the manipulator's ``rotation`` and
+        ``tilt`` are the axes their device reports; ``ion_plasma`` is an ion column
+        with a plasma gas. Anything else is not available.
+        """
+        devices = self._devices
         if system == "electron_beam":
-            return self.system.electron.enabled
-        elif system == "ion_beam":
-            return self.system.ion.enabled
-        elif system == "ion_plasma":
-            return self.system.ion.plasma
-        elif system == "stage":
-            return self.system.stage.enabled
-        elif system == "stage_rotation":
-            return self.system.stage.rotation
-        elif system == "manipulator":
-            return self.system.manipulator.enabled
-        elif system == "manipulator_rotation":
-            return self.system.manipulator.rotation
-        elif system == "manipulator_tilt":
-            return self.system.manipulator.tilt
-        else:
-            return False
+            return "electron" in devices
+        if system == "ion_beam":
+            return "ion" in devices
+        if system == "ion_plasma":
+            return "ion" in devices and self.system.ion.plasma
+        if system == "stage":
+            return "stage" in devices
+        if system == "stage_rotation":
+            stage = devices.get("stage")
+            return stage is not None and "r" in stage.axes
+        if system == "manipulator":
+            return "manipulator" in devices
+        if system in ("manipulator_rotation", "manipulator_tilt"):
+            axis = "r" if system == "manipulator_rotation" else "t"
+            return axis in self._manipulator_axes()
+        return False
 
-    def set_available(self, system: str, value: bool) -> None:
-
-        if system == "electron_beam":
-            self.system.electron.enabled = value
-        elif system == "ion_beam":
-            self.system.ion.enabled = value
-        elif system == "ion_plasma":
-            # Derived from the gas, so it can only be switched off here; switching
-            # it on needs a gas, which is `system.ion.plasma_gas`.
-            if not value:
-                self.system.ion.plasma_gas = None
-            elif self.system.ion.plasma_gas is None:
-                logging.warning(
-                    "set_available('ion_plasma', True) has no effect: a plasma column "
-                    "is one with a gas. Set system.ion.plasma_gas instead."
-                )
-        elif system == "stage":
-            self.system.stage.enabled = value
-        elif system == "manipulator":
-            self.system.manipulator.enabled = value
-        elif system == "manipulator_rotation":
-            self.system.manipulator.rotation = value
-        elif system == "manipulator_tilt":
-            self.system.manipulator.tilt = value
+    def _manipulator_axes(self) -> Tuple[str, ...]:
+        """The axes the manipulator device moves on; none without one."""
+        axes = getattr(self._devices.get("manipulator"), "axes", None)
+        return tuple(axes()) if axes is not None else ()
 
     def apply_configuration(
         self, system_settings: Optional[SystemSettings] = None
@@ -2174,17 +2163,18 @@ class FibsemMicroscope(ABC):
             # The same replacement empties the holder map, for the same reason: a
             # configuration written before the holder moved into it has no `holders:`.
             # But which holder is in the shuttle is a physical fact, and pressing Apply
-            # did not change it -- so it is carried across, and the running `Stage`
+            # did not change it -- so it is carried across, and the running service
             # keeps agreeing with the configuration it came from. A file that *does*
             # name holders wins, because then the user is choosing one.
             if not self.system.stage.holders:
                 self.system.stage.holders = previous_stage.holders
                 self.system.stage.active_holder = previous_stage.active_holder
             else:
-                # The file chose a holder, so the running `Stage` -- built once at
-                # connect -- has to be rebuilt around it, or `system.stage` says one
-                # holder while `_stage.holder` still moves to the slots of another.
-                self._create_sample_stage()
+                # The file chose a holder, so the sample handling service -- built
+                # once at connect -- has to be rebuilt around it, or `system.stage`
+                # says one holder while `sample_handling.holder` still moves to the
+                # slots of another.
+                self._build_sample_handling()
 
         # `system_settings.manipulator` is not taken from the incoming settings:
         # what is fitted is not in the file, so the incoming record only carries
@@ -3756,7 +3746,7 @@ class FibsemMicroscope(ABC):
     @property
     def current_grid(self) -> str:
         try:
-            grid = self._stage.current_grid
+            grid = self.sample_handling.current_grid
             if grid is None:
                 return "NONE"
             return grid.name

@@ -49,7 +49,7 @@ These are read directly from `microscope.<attr>` in the existing codebase, not v
 
 | Attribute | Type | Used where | Notes |
 |-----------|------|-----------|-------|
-| `microscope._stage` | `Stage` | 8 places — movement UI, autolamella grid workflows | Needs `_stage.holder.grids`, `_stage.current_grid`. Expose via a `GET /stage` endpoint or dedicated wrappers. |
+| `microscope.sample_handling` | `SampleHandling` | movement UI, autolamella grid workflows | A service (`fibsem.services.sample_handling`): its commands can be served once services are (FIB-1280). Needs `holder`, `current_grid`, the inventory. |
 | `microscope.fm` | `FluorescenceMicroscope \| None` | 4 places — image settings widget, minimap, autolamella UI | Always checked with `if microscope.fm is not None` first. Can be stubbed as `None` on client. |
 | `microscope.milling_channel` | `BeamType` | Milling setup code | Defaults to `BeamType.ION`. Can be a fixed client attribute. |
 | `microscope._last_imaging_settings` | `ImageSettings` | `get_imaging_settings()` fallback path | Internal — low risk. |
@@ -61,7 +61,7 @@ These are read directly from `microscope.<attr>` in the existing codebase, not v
 | Property | Returns | Notes |
 |----------|---------|-------|
 | `is_acquiring` | `bool` | Could poll `GET /is_acquiring` or always return `False` |
-| `current_grid` | `str` | Reads `_stage.current_grid` — depends on `_stage` being exposed |
+| `current_grid` | `str` | Reads `sample_handling.current_grid` — depends on `sample_handling` being served |
 | `manufacturer` | `str` | Can be populated from `GET /health` at connect time |
 
 ---
@@ -71,4 +71,4 @@ These are read directly from `microscope.<attr>` in the existing codebase, not v
 - `microscope.system` is fetched and cached at `FibsemClient.__init__` — this is covered.
 - `microscope.fm = None` is safe to hardcode on the client; fluorescence microscope is never remote-controlled through this server.
 - The individual `draw_*` methods are the easiest to close — they can delegate to `draw_patterns([pattern])` locally on the client without a new server endpoint.
-- `_stage` is the hardest gap: autolamella grid workflows call `microscope._stage.holder.grids` which is a deeply hardware-specific object. This would require either a dedicated endpoint or is out of scope for remote scripting.
+- `sample_handling` is the hardest gap: autolamella grid workflows read `microscope.sample_handling.holder` directly. Its commands become reachable when services are served (FIB-1280); the holder itself would need its own endpoint.

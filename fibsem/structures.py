@@ -391,12 +391,6 @@ ACTIVE_MILLING_STATES = [
 ]
 
 
-class ManipulatorState(Enum):
-    RETRACTED = 0
-    INSERTED = 1
-    MOVING = 2
-
-
 class InsertableDeviceState(Enum):
     """Where a device that goes in and out is: the FM objective, the manipulator. A
     driver that only knows in or out reports those two."""
@@ -2510,7 +2504,7 @@ class StageSystemSettings:
     # for a pre-tilted one should select the other entry rather than re-enter its
     # geometry -- and, once pre-tilt moves onto the holder, re-calibrate for it.
     #
-    # Empty by default. `_create_sample_stage` fills it, importing a `sample-holder.yaml`
+    # Empty by default. The sample handling service fills it, importing a `sample-holder.yaml`
     # if the site has one; nothing here reads that file, so a `SystemSettings` built
     # from a dict stays a pure function of that dict.
     holders: Dict[str, "SampleHolder"] = field(default_factory=dict)
@@ -2568,7 +2562,7 @@ class StageSystemSettings:
         every projection.
 
         The fallback is not decoration. A `StageSystemSettings` built from a
-        configuration has no holder until `_create_sample_stage` resolves one, and
+        configuration has no holder until the sample handling service resolves one, and
         every holder file written before this carries no pre-tilt. Returning 0.0 in
         either case would turn a 35 degree site flat, which is the one outcome this
         change must not produce. So the configured value stands until a holder
@@ -2867,15 +2861,10 @@ def _plasma_gas_from(settings: dict) -> Optional[str]:
 
 @dataclass
 class ManipulatorSystemSettings:
+    # Whether a manipulator is fitted, as `FibsemClient` reads it from the server. A
+    # microscope answers from its devices (`is_available("manipulator")`), and the
+    # axes the arm has from its device too, so neither is set here.
     enabled: bool = True
-    # Whether the arm can rotate and tilt. Not in the configuration file: every
-    # shipped file said `false`, which is the default, and the axes an arm has are
-    # the instrument's to report, not a site's to state. Kept as fields because
-    # `is_available("manipulator_rotation")` reads them and a backend that can ask
-    # the instrument may set them at connect. Neither written nor read by the
-    # file readers below.
-    rotation: bool = False
-    tilt: bool = False
 
     def to_dict(self):
         return {"enabled": self.enabled}
@@ -5130,12 +5119,10 @@ class ReferenceImageParameters:
 # ---------------------------------------------------------------------------
 # The sample holder
 #
-# Moved here from `fibsem/microscopes/_stage.py`, unchanged, so that
-# `SystemSettings` can hold one. `_stage.py` imports from this module, so a
-# holder field on `SystemSettings` would have closed an import loop; a class this
-# far down the dependency order belongs below the loop rather than behind a
-# deferred import that hides it. `_stage.py` re-exports these four names, so
-# every existing importer is unaffected.
+# Here rather than with the sample handling service (`fibsem.services.sample_handling`)
+# so that `SystemSettings` can hold one: the service imports from this module, so a
+# holder field on `SystemSettings` would close an import loop. The inventory rows
+# (`GridSlotState`, `GridInventoryEntry`) sit here with them.
 # ---------------------------------------------------------------------------
 
 GRID_RADIUS = 1e-3  # 1mm
@@ -5509,7 +5496,7 @@ class SampleHolder:
 
     def save(self, path: Union[str, Path]) -> None:
         """Write the holder's geometry and calibration. Not the grids in it: those
-        are session state (``fibsem.microscopes._stage.save_holder_occupancy``)."""
+        are session state (``fibsem.services.sample_handling.save_holder_occupancy``)."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as f:
@@ -5534,6 +5521,48 @@ class SampleHolder:
 #
 # A function rather than a module constant because a holder is mutable and gets a
 # `_parent` bound to it; one shared instance would be handed to every microscope.
+class GridSlotState(str, Enum):
+    """Where a grid is, as one word: the state of an inventory slot.
+
+    ``UNKNOWN`` -- no inventory has answered for this slot yet; ``EMPTY`` -- the
+    slot holds no grid; ``OCCUPIED`` -- a grid is in the slot and not on the
+    microscope; ``LOADED`` -- the grid is in the microscope's sample holder. On a
+    fixed holder a named slot is LOADED outright: its grid is already in the
+    holder, and reaching it is only a stage move.
+    """
+
+    UNKNOWN = "unknown"
+    EMPTY = "empty"
+    OCCUPIED = "occupied"
+    LOADED = "loaded"
+
+
+@dataclass
+class GridInventoryEntry:
+    """One row of ``SampleHandling.grid_inventory()``: a slot, and what it holds.
+
+    ``source`` says which hardware answered -- ``"magazine"`` on a system with a
+    loader, ``"holder"`` otherwise. ``state`` is the one stored fact; ``present``
+    (the grid is available to the system) and ``loaded`` (it is in the holder
+    right now) are read off it. Kept apart on purpose: *present* is what a run
+    can select from, *loaded* is what it can act on without an exchange.
+    """
+
+    slot_name: str
+    index: int
+    source: str
+    name: Optional[str]
+    state: GridSlotState
+
+    @property
+    def present(self) -> bool:
+        return self.state in (GridSlotState.OCCUPIED, GridSlotState.LOADED)
+
+    @property
+    def loaded(self) -> bool:
+        return self.state is GridSlotState.LOADED
+
+
 def default_sample_holder(pre_tilt: float) -> "SampleHolder":
     """A two-slot shuttle with nothing calibrated on it.
 

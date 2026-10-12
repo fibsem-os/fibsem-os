@@ -10,6 +10,7 @@ try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
     pass
+import functools
 import logging
 import os
 import threading
@@ -103,7 +104,6 @@ from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
-from fibsem.ui.fm.widgets import MinimapPlotWidget
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 
@@ -191,13 +191,10 @@ class AutoLamellaUI(QMainWindow):
     _hook_toast_signal = pyqtSignal(
         str, str
     )  # (message, notification_type) — thread-safe bridge for NotificationHook
-    # A remote (agent) start request, marshalled to the GUI thread the same
-    # way agent answers are: (task_names, item_names, Future[dict]).
-    _agent_start_workflow = pyqtSignal(list, object, object)
-    # The grid twin: (task_names, grid_names, inventory_first, Future[dict]).
-    _agent_start_grid_workflow = pyqtSignal(list, object, bool, object)
-    # (item_name, task_name, patch, version, Future) — the config-patch marshal
-    _agent_config_patch = pyqtSignal(str, str, str, object, str, object)
+    # A remote (agent) request, marshalled to the GUI thread the same way agent
+    # answers are: the work, bound to its arguments and its Future, and marked
+    # as whoever asked (FIB-1276) -- the mark stays on the requesting thread.
+    _agent_call = pyqtSignal(object)
 
     def __init__(
         self,
@@ -214,9 +211,8 @@ class AutoLamellaUI(QMainWindow):
         # The timeline renders the responder's question-lifecycle feed; the
         # widget itself is built in _setup_ui, before the responder exists.
         self.ui_responder.add_question_observer(self.question_timeline.record)
-        self._agent_start_workflow.connect(self._apply_agent_start_workflow)
-        self._agent_start_grid_workflow.connect(self._apply_agent_start_grid_workflow)
-        self._agent_config_patch.connect(self._apply_agent_config_patch)
+        # A bound method, not a lambda: the slot must run on this window's thread.
+        self._agent_call.connect(self._run_agent_call)
 
         self._protocol_lock = threading.RLock()
 
@@ -238,13 +234,6 @@ class AutoLamellaUI(QMainWindow):
         self.milling_task_config_widget: Optional[MillingTaskViewerWidget] = None
         self.milling_tab: Optional[QWidget] = None  # the scroll area around it
         self.det_widget: Optional["FibsemEmbeddedDetectionWidget"] = None
-
-        # minimap plot widget — a floating tool window, shown on demand (was a
-        # napari dock; relocated here so it no longer needs a viewer).
-        self.minimap_plot_widget = MinimapPlotWidget(self)
-        self.minimap_plot_widget.setWindowFlags(Qt.Tool)
-        self.minimap_plot_widget.setWindowTitle("Minimap Plot")
-        self.minimap_plot_widget.hide()
 
         # add widgets to tabs.
         #
@@ -482,8 +471,6 @@ class AutoLamellaUI(QMainWindow):
             # pass the position from the signal; re-querying the microscope here races
             # with the worker thread driving the move (see TescanMicroscope socket lock)
             self.movement_widget.update_ui(stage_position=stage_position)
-
-        self._update_minimap_data(stage_position=stage_position)
 
     def _disconnect_experiment_events(self) -> None:
         """Disconnect existing experiment and microscope event subscribers.
@@ -1134,59 +1121,6 @@ class AutoLamellaUI(QMainWindow):
 
     #### MINIMAP
 
-    def _update_minimap_data(
-        self,
-        stage_position: Optional[FibsemStagePosition] = None,
-        selected_name: Optional[str] = None,
-    ) -> None:
-        if self.microscope is None:
-            return
-        if self.experiment is None:
-            return
-
-        if self.minimap_plot_widget is None:
-            return
-
-        if not self.minimap_plot_widget.isVisible():
-            return
-
-        try:
-            image: Optional[FibsemImage] = None
-            if self.minimap_plot_widget.image is None:
-                ms = self.microscope.get_microscope_state(beam_type=BeamType.ELECTRON)
-                image = FibsemImage.generate_blank_image(
-                    resolution=(2048, 2048), hfw=4000e-6
-                )
-                image.metadata.microscope_state = ms  # type: ignore
-                image.metadata.system_info = self.microscope.system.info  # type: ignore
-                image.metadata.hardware_geometry = self.microscope.hardware_geometry()  # type: ignore
-                self.minimap_plot_widget.image = image
-
-            beam_type = self.minimap_plot_widget.image.metadata.beam_type  # type: ignore
-            fov = self.microscope.get_field_of_view(beam_type=beam_type)
-
-            # Set the data (delay redraw until all data updated...)
-            if selected_name is not None:
-                self.minimap_plot_widget.selected_name = selected_name
-            self.minimap_plot_widget.lamella_positions = (
-                self.experiment.get_milling_positions()
-            )
-            if self.minimap_plot_widget.grid_positions is None:
-                self.minimap_plot_widget.grid_positions = [
-                    s.position
-                    for s in self.microscope._stage.holder.slots.values()
-                    if s.position is not None  # uncalibrated slots draw nothing
-                ]
-            self.minimap_plot_widget.fov_width = fov
-            if stage_position is not None:
-                self.minimap_plot_widget.set_current_position(stage_position)
-            else:
-                self.minimap_plot_widget.update_minimap()
-            if image is not None:
-                self.minimap_plot_widget.reset_zoom()
-        except Exception as e:
-            logging.warning(f"Failed to update minimap data: {e}")
-
     #### TASK WORKFLOW
 
     def _start_run_workflow_thread(
@@ -1303,6 +1237,16 @@ class AutoLamellaUI(QMainWindow):
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
 
+    def _marshal(self, apply, *args) -> None:
+        """Run ``apply(*args)`` on the GUI thread as whoever called this."""
+        from fibsem.acting import carried
+
+        self._agent_call.emit(carried(functools.partial(apply, *args)))
+
+    def _run_agent_call(self, call) -> None:
+        """GUI thread. Run a call :meth:`_marshal` sent."""
+        call()
+
     def request_start_workflow(
         self, task_names: List[str], item_names: Optional[List[str]] = None
     ) -> "Future":
@@ -1317,7 +1261,9 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_start_workflow.emit(list(task_names), item_names, outcome)
+        self._marshal(
+            self._apply_agent_start_workflow, list(task_names), item_names, outcome
+        )
         return outcome
 
     def _apply_agent_start_workflow(
@@ -1398,8 +1344,12 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_start_grid_workflow.emit(
-            list(task_names), grid_names, bool(inventory_first), outcome
+        self._marshal(
+            self._apply_agent_start_grid_workflow,
+            list(task_names),
+            grid_names,
+            bool(inventory_first),
+            outcome,
         )
         return outcome
 
@@ -1509,8 +1459,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "item", item_name, task_name, patch, version, outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "item",
+            item_name,
+            task_name,
+            patch,
+            version,
+            outcome,
         )
         return outcome
 
@@ -1525,8 +1481,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "item_fields", item_name, "", patch, version, outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "item_fields",
+            item_name,
+            "",
+            patch,
+            version,
+            outcome,
         )
         return outcome
 
@@ -1548,7 +1510,8 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
+        self._marshal(
+            self._apply_agent_config_patch,
             "reorder_stages",
             item_name,
             task_name,
@@ -1569,8 +1532,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "apply_protocol", item_name, "", {"task_names": task_names}, "", outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "apply_protocol",
+            item_name,
+            "",
+            {"task_names": task_names},
+            "",
+            outcome,
         )
         return outcome
 
@@ -1586,8 +1555,14 @@ class AutoLamellaUI(QMainWindow):
         from concurrent.futures import Future as _Future
 
         outcome: "_Future" = _Future()
-        self._agent_config_patch.emit(
-            "protocol", "", task_name, patch, version, outcome
+        self._marshal(
+            self._apply_agent_config_patch,
+            "protocol",
+            "",
+            task_name,
+            patch,
+            version,
+            outcome,
         )
         return outcome
 
@@ -2253,8 +2228,6 @@ class AutoLamellaUI(QMainWindow):
         # refresh objective position + pose display for the selected lamella
         self.selected_lamella_widget.set_lamella(lamella)
 
-        self._update_minimap_data(selected_name=lamella.name)
-
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""
         if self.spot_burn_widget is None:
@@ -2309,11 +2282,11 @@ class AutoLamellaUI(QMainWindow):
         created as a side effect of marking a lamella.
         """
         experiment = self.experiment
-        stage = getattr(self.microscope, "_stage", None)
+        stage = getattr(self.microscope, "sample_handling", None)
         if experiment is None or stage is None:
             return None
         try:
-            if stage.loader is not None:
+            if stage.magazine is not None:
                 loaded = stage.loaded_grids
                 grid = loaded[0] if len(loaded) == 1 else None
             else:

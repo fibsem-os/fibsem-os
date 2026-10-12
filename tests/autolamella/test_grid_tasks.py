@@ -315,7 +315,7 @@ class TestLifecycle:
         grid = _grid(experiment, "grid-cedar")
         task = EchoTask(microscope, EchoConfig(task_name="echo"), grid, experiment)
         assert task.slot is None
-        microscope._stage.assign_grid(
+        microscope.sample_handling.assign_grid(
             "Slot-01", SampleGrid(name="grid-cedar"), persist=False
         )
         assert task.slot.name == "Slot-01"

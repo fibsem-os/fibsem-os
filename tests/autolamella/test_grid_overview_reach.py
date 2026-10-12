@@ -51,7 +51,7 @@ def experiment(tmp_path, microscope):
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol()
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     return exp
 
 
@@ -140,7 +140,7 @@ def test_a_mask_already_set_is_kept_and_not_counted(microscope):
     question's answers are reported, on top of the mask already there."""
     settings = _beam(4, 4, 300e-6)
     settings.tile_mask = disable_tiles(None, 4, 4, [(1, 1)])
-    centre = microscope._stage.holder.slots["Slot-01"].position
+    centre = microscope.sample_handling.holder.slots["Slot-01"].position
     masked, skipped = reachable_overview(microscope, settings, centre)
     assert len(skipped) == 8 and (1, 1) not in skipped
     assert sum(not on for row in masked.tile_mask for on in row) == 9

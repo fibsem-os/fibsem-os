@@ -171,7 +171,7 @@ class Harness:
         session_state.SESSION_STATE_DIRECTORY = str(tmp / "session")
         # the stage module imports the holder paths by name, so rebinding
         # cfg's is not enough: a calibration would land in the real file
-        from fibsem.microscopes import _stage as stage_module
+        from fibsem.services import sample_handling as stage_module
 
         holder_path = str(tmp / "sample-holder.yaml")
         occupancy_path = str(tmp / "sample-holder-occupancy.yaml")
@@ -2261,7 +2261,18 @@ def render_grid_workflow(h: Harness) -> None:
     summary_dialog.close()
     h.pump(300)
 
-    # Screen all grids: the dialog only; the run above already screened them
+    # Screen all grids: the dialog only, at its review (the simulated magazine
+    # is scanned); the run above already screened them
+    def screen_all(dialog):
+        dialog.show()
+        waited = 0
+        while dialog.stage_name == "reading" and waited < 10000:
+            h.pump(100)
+            waited += 100
+        preflight(dialog)
+        return QDialog.Rejected
+
+    main_module.ScreenGridsDialog.exec_ = screen_all
     gw.btn_screen_all.click()
     h.pump(500)
 

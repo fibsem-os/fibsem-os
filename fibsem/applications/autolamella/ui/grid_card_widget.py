@@ -50,7 +50,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     grid_has_run,
 )
 from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
-from fibsem.microscopes._stage import GridInventoryEntry, GridSlotState
+from fibsem.structures import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.tokens import (

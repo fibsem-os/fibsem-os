@@ -35,7 +35,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid import (
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
 )
-from fibsem.microscopes._stage import _create_sample_stage
+from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
@@ -77,7 +77,7 @@ def experiment(tmp_path):
 
 @pytest.fixture
 def view(qapp, arctis, experiment):
-    experiment.sync_grids_from_inventory(arctis._stage)
+    experiment.sync_grids_from_inventory(arctis.sample_handling)
     experiment.add_grid(GridRecord(name="grid-oak"))  # not in the magazine
     widget = GridWorkflowWidget()
     widget.set_microscope(arctis)
@@ -130,7 +130,7 @@ class TestSelection:
         assert len(view.get_selected_grids()) == 3
 
     def test_a_grid_in_the_beam_costs_no_exchange(self, view, arctis):
-        arctis._stage.ensure_loaded("Grid-02")
+        arctis.sample_handling.ensure_loaded("Grid-02")
         view.refresh()
         view.grid_header.checkbox_all.setChecked(True)
         assert view.exchanges_for(view.get_selected_grids()) == 2
@@ -141,7 +141,7 @@ class TestSelection:
     def test_a_loaded_row_keeps_its_slot_inside_the_list(self, view, arctis):
         """The Loaded pill once pushed the slot column past the list's edge, and
         the slot read as "s". The row must ask for less than the panel gives."""
-        arctis._stage.ensure_loaded("Grid-02")
+        arctis.sample_handling.ensure_loaded("Grid-02")
         view.refresh()
         row = view._grid_rows["Grid-02"]
         assert [c.text() for c in row._chip_widgets] == ["Loaded"]
@@ -150,12 +150,12 @@ class TestSelection:
     def test_an_unscanned_magazine_says_so_on_every_row(self, view, arctis):
         """Before an inventory the rows are UNKNOWN: the chip says the magazine
         has not been read, not that the grids are missing, and none can be run."""
-        arctis._stage.loader.scanned = False
+        arctis.sample_handling.magazine.scanned = False
         view.refresh()
         rows = [view._grid_rows[n] for n in ("Grid-01", "Grid-02", "Grid-03")]
         assert all([c.text() for c in r._chip_widgets] == ["not scanned"] for r in rows)
         assert not any(r.checkbox.isEnabled() for r in rows)
-        arctis._stage.loader.scanned = True
+        arctis.sample_handling.magazine.scanned = True
         view.refresh()
         assert all(r.checkbox.isEnabled() for r in rows)
 
@@ -557,8 +557,8 @@ def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
-    slot = microscope._stage.holder.slots["Slot-01"]
+    microscope.sample_handling = bind_sample_handling(microscope)
+    slot = microscope.sample_handling.holder.slots["Slot-01"]
     slot.position = FibsemStagePosition(
         name=slot.name, x=-4e-3, y=1e-3, z=4e-3, r=0, t=0.61
     )
@@ -611,11 +611,11 @@ def test_an_inventory_on_the_sample_view_reaches_the_grids_tab_and_run_view(
 
     loader = ui.sample_widget.loader_widget
     assert loader is not None
-    ui.microscope._stage.get_inventory()
+    ui.microscope.sample_handling.get_inventory()
     loader.loader_changed.emit()  # what the Sample view does after an inventory
     names = [g.name for g in exp.grids]
     assert names and names == [
-        e.name for e in ui.microscope._stage.grid_inventory() if e.present
+        e.name for e in ui.microscope.sample_handling.grid_inventory() if e.present
     ]
     assert [c.grid.name for c in main_ui.grids_tab.cards.cards] == names
     assert list(main_ui.grid_workflow_widget._grid_rows) == names
@@ -640,8 +640,8 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
-    slot = microscope._stage.holder.slots["Slot-01"]
+    microscope.sample_handling = bind_sample_handling(microscope)
+    slot = microscope.sample_handling.holder.slots["Slot-01"]
     slot.position = FibsemStagePosition(
         name=slot.name, x=-4e-3, y=1e-3, z=4e-3, r=0, t=0.61
     )
@@ -655,7 +655,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     exp.grid_protocol.add(
         BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
     )
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     ui.experiment = exp
     # The pieces of _on_experiment_update this test needs. The whole handler also
     # rebuilds the lamella task editor, which cannot take a protocol with no
@@ -715,9 +715,9 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     for i, name in enumerate(["grid-aspen", "grid-birch"]):
-        slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
+        slot = microscope.sample_handling.holder.slots[f"Slot-{i + 1:02d}"]
         slot.position = FibsemStagePosition(
             name=slot.name, x=-4e-3 + i * 8e-3, y=1e-3, z=4e-3, r=0, t=0.61
         )
@@ -730,7 +730,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     exp.grid_protocol.add(
         BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
     )
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     ui.experiment = exp
     main_ui.grid_workflow_widget.set_experiment(exp)
     main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)
@@ -783,17 +783,17 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
 def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     main_ui, tmp_path, monkeypatch
 ):
-    """The window hands the confirmation the grids that have never run: the
-    ticked ones for Run, the present ones for Screen all grids."""
+    """The window hands Run's confirmation the ticked grids that have never run;
+    Screen all grids runs on the grids its own dialog names."""
     from fibsem.applications.autolamella.ui import AutoLamellaMainUI as module
 
     ui = main_ui.autolamella_ui
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     for i, name in enumerate(["grid-aspen", "grid-birch"]):
-        slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
+        slot = microscope.sample_handling.holder.slots[f"Slot-{i + 1:02d}"]
         slot.position = FibsemStagePosition(
             name=slot.name, x=-4e-3 + i * 8e-3, y=1e-3, z=4e-3, r=0, t=0.61
         )
@@ -806,7 +806,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     exp.grid_protocol.add(
         BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
     )
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     # grid-aspen has run once; grid-birch has not
     ran = exp.get_grid_by_name("grid-aspen")
     ran.task_history.append(AutoLamellaTaskState(name="overview_sem"))
@@ -831,8 +831,34 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     main_ui._run_grid_workflow()
     assert shown == [["grid-birch"]]
     assert offered == [False], "a fixed holder has nothing to unload"
-    assert main_ui._present_grids_not_run() == ["grid-birch"]
     assert not ui.is_workflow_running
+
+    # Screen all grids asks its own dialog, which names and records the grids,
+    # and runs on exactly the grids it hands back (FIB-1138).
+    started = []
+    told = []
+
+    class _Screen:
+        def __init__(self, stage, experiment, task_names, *args, **kwargs):
+            self.grid_names = ["grid-birch"]
+            told.append((kwargs["unload_at_end"], kwargs["report_at_end"]))
+
+        def exec_(self):
+            return QDialog.Accepted
+
+    monkeypatch.setattr(module, "ScreenGridsDialog", _Screen)
+    monkeypatch.setattr(
+        main_ui,
+        "_start_grid_run",
+        lambda *args, **kwargs: started.append((args, kwargs)),
+    )
+    main_ui._on_screen_all_grids()
+    # the run ends as the Grids page's ⚙ says, and the dialog says so (FIB-1133)
+    ending = main_ui._end_of_run()
+    assert told == [(ending["unload_at_end"], ending["report_at_end"])]
+    assert started == [
+        ((["overview_sem"], ["grid-birch"]), dict(inventory_first=False, **ending))
+    ]
 
 
 def _labels(dialog) -> list:
@@ -855,7 +881,9 @@ def test_the_preflight_quotes_the_time_per_task_and_the_finish(
     grids = view.get_selected_grids()
     names = [g.name for g in grids]
     exchanges = view.exchanges_for(grids)
-    assert view.exchange_seconds() == arctis._stage.loader.exchange_seconds > 0
+    assert (
+        view.exchange_seconds() == arctis.sample_handling.magazine.exchange_seconds > 0
+    )
     estimate = estimate_grid_run(
         experiment,
         ["overview_sem", "overview_fm"],
@@ -925,9 +953,9 @@ def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
     ui.system_widget.connect_to_microscope()
     microscope = ui.microscope
     microscope.stage_device.compustage = False
-    microscope._stage = _create_sample_stage(microscope)
+    microscope.sample_handling = bind_sample_handling(microscope)
     for i, name in enumerate(["grid-aspen", "grid-birch"]):
-        slot = microscope._stage.holder.slots[f"Slot-{i + 1:02d}"]
+        slot = microscope.sample_handling.holder.slots[f"Slot-{i + 1:02d}"]
         slot.position = FibsemStagePosition(
             name=slot.name, x=-4e-3 + i * 8e-3, y=1e-3, z=4e-3, r=0, t=0.61
         )
@@ -940,7 +968,7 @@ def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
     exp.grid_protocol.add(
         BeamOverviewGridTaskConfig(task_name="overview_sem", settings=_small_settings())
     )
-    exp.sync_grids_from_inventory(microscope._stage)
+    exp.sync_grids_from_inventory(microscope.sample_handling)
     ui.experiment = exp
     main_ui.grid_workflow_widget.set_experiment(exp)
     main_ui.workflow_left_tabs.setCurrentWidget(main_ui.grid_workflow_widget)

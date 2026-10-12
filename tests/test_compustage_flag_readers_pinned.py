@@ -17,7 +17,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.poses import _to_milling
-from fibsem.microscopes._stage import COMPUSTAGE_HOLDER_NAME
+from fibsem.services.sample_handling import COMPUSTAGE_HOLDER_NAME
 from fibsem.structures import FibsemStagePosition
 
 ARCTIS = "sim-arctis-configuration.yaml"
@@ -113,18 +113,18 @@ def test_a_lamella_is_marked_from_fluorescence_only_on_a_compustage(scope):
             _to_milling(scope[1], fm_position)
 
 
-# --- microscopes/_stage.py ----------------------------------------------------------
+# --- services/sample_handling.py ------------------------------------------------------
 
 
 def test_a_compustage_holds_one_built_in_shuttle(scope):
     compustage = _compustage(scope)
-    stage = scope[1]._stage
+    stage = scope[1].sample_handling
     if compustage:
         assert (stage.holder.name, stage.holder.capacity) == (COMPUSTAGE_HOLDER_NAME, 1)
-        assert stage.loader is not None
+        assert stage.magazine is not None
     else:
         assert stage.holder.name != COMPUSTAGE_HOLDER_NAME
-        assert stage.loader is None
+        assert stage.magazine is None
 
 
 # --- the Demo's stage and devices ---------------------------------------------------

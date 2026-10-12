@@ -30,7 +30,6 @@ from fibsem.microscope import (
     RequiredDeviceUnavailable,
     _records_beam_shift,
 )
-from fibsem.microscopes._stage import SampleGridLoader, _slot_name
 from fibsem.structures import (
     BeamType,
     DeviceEntry,
@@ -526,194 +525,6 @@ def fibsem_image_from_adorned_image(
     return FibsemImage(data=adorned.data, metadata=metadata)
 
 
-class AutoscriptSampleLoader(SampleGridLoader):
-    """The AutoScript autoloader (Arctis, xT 28.x, AutoScript >= 4.10) as a grid loader.
-
-    Not used: ``ThermoMicroscope`` builds the ``sample_loader`` device
-    (``fibsem.drivers.autoscript.devices.AutoscriptSampleLoader``) and the grid model
-    over it. Kept until the device has run on an Arctis, then deleted.
-
-    Wraps ``connection.specimen.autoloader``. Magazine slots mirror ``get_slots()``
-    and are addressed by the 1-based ``AutoloaderSlot.id``; ``load(id)`` blocks until
-    the exchange is done and ``unload()`` takes nothing. Grid names live in each
-    slot's ``sample_description``, read on inventory and written back on rename.
-
-    Two things the hardware does that the in-memory model must absorb:
-
-    - The home slot of the grid on the stage. From AutoScript 4.14 it reads
-      ``Loaded`` (release notes 4.14.0, "Autoloader state change"), which says
-      outright that the slot's grid is on the stage, so a fresh connect can put it
-      back in both places. Up to 4.13 it read ``Empty``, and the only way to keep
-      the grid in its home slot was memory: a rescan keeps it there while our
-      working slot holds it. Both paths are kept, so either version reads
-      "present, loaded". States are compared case-blind: they arrive as enum names.
-    - ``get_slots(False)`` returns the autoloader's last-known states, which may
-      all be ``Unknown`` before any scan; ``get_slots(True)`` runs a physical scan.
-      ``get_inventory`` is the first, ``run_inventory`` the second, and the caller
-      chooses: a read is instant, a scan is not.
-
-    Confirmed from operator code: the ``get_slots(bool)`` shape, the state strings,
-    ``load(id)`` / ``unload()``, and ``autoloader.stage`` reporting what is on the
-    microscope. Not verified on hardware: whether ``sample_description`` is writable
-    (a refusal is logged, not raised). The magazine is not queried on construction;
-    call ``get_inventory()`` or ``run_inventory()``.
-    """
-
-    @property
-    def _autoloader(self):
-        return self.parent.connection.specimen.autoloader
-
-    @property
-    def exchange_seconds(self) -> float:
-        """Measured on an Arctis (FIB-893, 2026-10-02): an unload and a load took
-        about 3 minutes, a load alone about 2 (98 s on 2026-09-13). Every exchange
-        is charged the full figure, a run's first load included, which errs long."""
-        return 180.0
-
-    @property
-    def is_installed(self) -> bool:
-        try:
-            return bool(self._autoloader.is_installed)
-        except Exception:  # noqa: BLE001 - device absent, or not ready
-            return False
-
-    # -- inventory -----------------------------------------------------------
-
-    def _read_magazine(self) -> None:
-        self._apply_hardware_slots(list(self._autoloader.get_slots(False)))
-
-    def _scan_magazine(self) -> None:
-        self._apply_hardware_slots(list(self._autoloader.get_slots(True)))
-
-    def _apply_hardware_slots(self, hw_slots: list) -> None:
-        # The rows as the hardware gave them, before any reading of ours: what a
-        # bench session needs from the log when the Sample view shows every slot
-        # as unknown or empty and the question is what AutoScript actually said.
-        logging.info(
-            "Autoloader slots: " + ", ".join(_describe_hw(hw, hw.id) for hw in hw_slots)
-        )
-        stage = getattr(self._autoloader, "stage", None)
-        if stage is not None:
-            logging.info(f"Autoloader stage: {_describe_hw(stage)}")
-        if hw_slots:
-            self.capacity = len(hw_slots)
-
-        loaded = {s.loaded_grid.name for s in self.holder.occupied_slots}
-        slots: dict = {}
-        unknown: set = set()
-        on_stage: Optional[SampleGrid] = None
-        for hw in hw_slots:
-            number = int(hw.id)
-            name = _slot_name(number - 1)
-            previous = self.slots.get(name)
-            state = _slot_state(hw)
-            grid: Optional[SampleGrid] = None
-            if state in ("Occupied", "Loaded"):
-                described = (getattr(hw, "sample_description", "") or "").strip()
-                grid_name = described or f"Grid-{number:02d}"
-                if previous is not None and previous.loaded_grid is not None:
-                    if previous.loaded_grid.name == grid_name:
-                        grid = previous.loaded_grid  # keep identity across scans
-                if grid is None:
-                    grid = SampleGrid(name=grid_name)
-                if state == "Loaded":
-                    on_stage = grid  # 4.14: its home slot, and it is on the stage
-            elif (
-                previous is not None
-                and previous.loaded_grid is not None
-                and previous.loaded_grid.name in loaded
-            ):
-                grid = (
-                    previous.loaded_grid
-                )  # <= 4.13: its home reads Empty while loaded
-            elif state == "Unknown":
-                logging.warning(f"Autoloader slot {number} has not been scanned.")
-                unknown.add(name)
-            slots[name] = GridSlot(name=name, index=number - 1, loaded_grid=grid)
-        self.slots = slots
-        self.unknown_slots = unknown
-
-        working = self.working_slot
-        if on_stage is not None:
-            # The same object in both places, as a load through us leaves it.
-            working.loaded_grid = on_stage
-        # Something may be on the stage that we did not load: reflect the hardware.
-        stage = getattr(self._autoloader, "stage", None)
-        if stage is not None:
-            if working.loaded_grid is None and _slot_state(stage) == "Occupied":
-                described = (getattr(stage, "sample_description", "") or "").strip()
-                working.loaded_grid = SampleGrid(name=described or "Grid-on-stage")
-            elif working.loaded_grid is not None and _slot_state(stage) == "Empty":
-                working.loaded_grid = None
-
-    def _write_slot_description(self, slot: GridSlot) -> None:
-        """Write the grid's name to its slot, and read it back.
-
-        Every inventory read takes the name from the slot description, so a write
-        that did not land would quietly undo a rename at the next read. Seen to
-        stick on an Arctis (2026-10-02); read back anyway, and raise
-        ``GridExchangeError`` when it did not, so the rename can say so.
-        """
-        description = slot.loaded_grid.name if slot.loaded_grid is not None else ""
-        number = slot.index + 1
-        try:
-            hw = self._hardware_slot(number)
-            if hw is not None:
-                hw.sample_description = description
-                hw = self._hardware_slot(number)
-        except Exception as e:  # noqa: BLE001 - whatever AutoScript raised, as one error
-            raise GridExchangeError(
-                f"Could not write the autoloader slot description: {e}"
-            ) from e
-        if hw is None:
-            raise GridExchangeError(f"Autoloader reported no slot {number} to name.")
-        written = (getattr(hw, "sample_description", "") or "").strip()
-        if written != description:
-            raise GridExchangeError(
-                f"Autoloader slot {number} reads back '{written}', not "
-                f"'{description}': the name did not stick."
-            )
-
-    def _hardware_slot(self, number: int):
-        """AutoScript's record of one magazine slot (1-based), freshly read."""
-        for hw in self._autoloader.get_slots(False):
-            if int(hw.id) == number:
-                return hw
-        return None
-
-    # -- exchange ------------------------------------------------------------
-
-    def _do_load(self, slot: GridSlot) -> None:
-        try:
-            self._autoloader.load(slot.index + 1)
-        except Exception as e:
-            raise GridExchangeError(
-                f"Autoloader could not load {slot.name}: {e}"
-            ) from e
-
-    def _do_unload(self, working_slot: GridSlot) -> None:
-        try:
-            self._autoloader.unload()
-        except Exception as e:
-            raise GridExchangeError(f"Autoloader could not unload: {e}") from e
-
-
-def _describe_hw(hw, label=None) -> str:
-    """``id=State 'description'`` for a slot, ``State 'description'`` for the stage."""
-    described = (getattr(hw, "sample_description", "") or "").strip()
-    text = _slot_state(hw) + (f" '{described}'" if described else "")
-    return f"{label}={text}" if label is not None else text
-
-
-def _slot_state(hw_slot) -> str:
-    """``AutoloaderSlot.state`` as a plain string; enum members stringify to it."""
-    state = getattr(hw_slot, "state", "Unknown")
-    text = str(state)
-    text = text.rsplit(".", 1)[-1] if "." in text else text
-    # Enum names arrive upper-case (``OCCUPIED``); one spelling for the comparisons.
-    return text.capitalize()
-
-
 # The device types each connect step builds (``ThermoMicroscope._build_devices``).
 # The FM is built on its own path; any other type a configuration adds is built last.
 _BEAM_TYPES = ("beam",)
@@ -975,9 +786,9 @@ class ThermoMicroscope(FibsemMicroscope):
         self._warn_on_fluorescence_geometry()
 
         try:
-            self._create_sample_stage()
+            self._build_sample_handling()
         except Exception as e:
-            logging.warning(f"Could not create sample stage: {e}")
+            logging.warning(f"Could not build the sample handling: {e}")
 
         # after the sample stage, which reads which subsystems are fitted
         self._build_parts()
@@ -1055,7 +866,7 @@ class ThermoMicroscope(FibsemMicroscope):
         the device.
         """
         fitted = [DeviceEntry(name="chamber", type="chamber")]
-        if self.is_available("manipulator"):
+        if self._is_fitted("manipulator"):
             fitted.append(DeviceEntry(name="manipulator", type="manipulator"))
         self._build_devices(fitted, _PART_TYPES)
 
@@ -1083,16 +894,23 @@ class ThermoMicroscope(FibsemMicroscope):
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
 
-    def _create_grid_loader(self) -> Optional["SampleGridLoader"]:
-        """The grid model over the ``sample_loader`` device, built when the
-        instrument has an autoloader, unless the configuration switches it off.
+    def _build_sample_handling(self) -> None:
+        """The sample handling service, after the ``sample_loader`` device on a
+        compustage (the autoloader stage)."""
+        stage = self.stage
+        if stage is not None and stage.has_builtin_shuttle():
+            self._build_sample_loader()
+        super()._build_sample_handling()
+
+    def _build_sample_loader(self) -> Optional[Any]:
+        """The ``sample_loader`` device, built when the instrument has an autoloader,
+        unless the configuration switches it off; None without one.
 
         A compustage without one gets no loader at all: its grids are exchanged by
         hand, and a phantom twelve-slot magazine would only mislead. The magazine is
         not read here; ``get_inventory`` or ``run_inventory`` reads it.
         """
         from fibsem.drivers.autoscript.devices import autoloader_installed
-        from fibsem.microscopes._stage import DeviceSampleLoader
 
         device = self.devices.get("sample_loader")
         if device is None:
@@ -1103,8 +921,7 @@ class ThermoMicroscope(FibsemMicroscope):
             device = next(iter(built.values()), None)
         if device is None:
             logging.info("No sample loader: grids are exchanged by hand.")
-            return None
-        return DeviceSampleLoader(self, device)
+        return device
 
     def get_detector_settings(
         self, beam_type: BeamType = BeamType.ELECTRON

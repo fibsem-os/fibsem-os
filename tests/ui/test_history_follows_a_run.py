@@ -193,6 +193,30 @@ def test_a_re_run_shows_its_own_image_not_the_last_run_s(qapp, tmp_path):
         widget.deleteLater()
 
 
+def test_a_refresh_reads_only_the_images_that_changed(qapp, tmp_path):
+    """A refresh after each task used to read every image of every run again."""
+    from fibsem.applications.autolamella.structures import Lamella
+
+    lamella = Lamella(path=tmp_path / "lam", number=1, petname="lam")
+    os.makedirs(lamella.path, exist_ok=True)
+    first = os.path.join(lamella.path, f"ref_{TASK}_final_high_res.tif")
+    widget = LamellaTaskImageWidget()
+    try:
+        _finish(lamella)
+        widget.set_lamella(lamella)
+        _loaded(widget, first)
+        kept = widget._pixmap_cache[first]
+
+        _finish(lamella, task_name="Polish")
+        widget.refresh()
+        second = os.path.join(lamella.path, "ref_Polish_final_high_res.tif")
+        _loaded(widget, second)
+        assert widget._pixmap_cache[first] is kept
+    finally:
+        widget._cancel_worker()
+        widget.deleteLater()
+
+
 def test_refresh_with_nothing_shown_does_nothing(qapp):
     widget = LamellaTaskImageWidget()
     try:

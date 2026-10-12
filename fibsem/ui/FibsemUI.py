@@ -213,7 +213,7 @@ class FibsemUI(QMainWindow):
                 parent=self,
                 image_widget=self.image_widget,  # lets it resolve the quad controller
             )
-            if self.microscope.system.manipulator.enabled:
+            if self.microscope.is_available("manipulator"):
                 self.manipulator_widget = FibsemManipulatorWidget(
                     microscope=self.microscope,
                     settings=self.settings,
@@ -241,7 +241,7 @@ class FibsemUI(QMainWindow):
             self._add_control_tab(scrollable(self.milling_widget), "Milling")
             self._add_control_tab(self.sample_widget, "Sample")
 
-            if self.microscope.system.manipulator.enabled:
+            if self.microscope.is_available("manipulator"):
                 self._add_control_tab(self.manipulator_widget, "Manipulator")
 
             self.system_widget.image_widget = self.image_widget

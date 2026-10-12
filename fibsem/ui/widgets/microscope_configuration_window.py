@@ -187,7 +187,7 @@ def devices_rows(microscope: FibsemMicroscope) -> List[Tuple[str, bool, str, str
     """(device, fitted, reported by, detail) for each subsystem the application uses."""
     sources = getattr(microscope, "capability_sources", {}) or {}
     ion = microscope.system.ion
-    loader = getattr(getattr(microscope, "_stage", None), "loader", None)
+    loader = getattr(getattr(microscope, "sample_handling", None), "magazine", None)
 
     def probed(key: str) -> Tuple[bool, str]:
         return (
@@ -391,7 +391,7 @@ STATE_COLOURS = {"Calibrated": OK_COLOR, "Built in": OK_COLOR}
 
 def calibration_tab(microscope: FibsemMicroscope, calibrate_slots) -> QWidget:
     """*calibrate_slots* opens the holder's guided calibration, or is None."""
-    holder = microscope._stage.holder
+    holder = microscope.sample_handling.holder
     rows = slot_rows(holder)
     calibrated = sum(1 for _, state, *_ in rows if state != "Not calibrated")
     holder_box = QWidget()
@@ -771,7 +771,7 @@ class MicroscopeConfigurationWindow(QDialog):
     def _calibration_tab(self) -> QWidget:
         # A holder the loader fills is calibrated by construction; there are no
         # slots to capture.
-        loader = getattr(self.microscope._stage, "loader", None)
+        loader = getattr(self.microscope.sample_handling, "magazine", None)
         return calibration_tab(
             self.microscope, None if loader is not None else self.calibrate_slots
         )
@@ -783,7 +783,7 @@ class MicroscopeConfigurationWindow(QDialog):
         )
 
         dialog = HolderCalibrationDialog(
-            self.microscope, self.microscope._stage.holder, parent=self
+            self.microscope, self.microscope.sample_handling.holder, parent=self
         )
         dialog.holder_saved.connect(self.refresh_calibration)
         self._calibration_dialog = dialog  # non-modal; kept alive here
