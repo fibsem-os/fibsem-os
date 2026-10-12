@@ -10,7 +10,7 @@ import pytest
 
 from fibsem import timing
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import RectanglePattern
+from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig, MillingTaskAcquisitionSettings
 from fibsem.structures import (
     FibsemMillingSettings,

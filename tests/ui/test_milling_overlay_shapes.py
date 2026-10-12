@@ -43,7 +43,7 @@ from matplotlib.patches import (  # noqa: E402
 )
 
 from fibsem.milling.base import FibsemMillingStage  # noqa: E402
-from fibsem.milling.patterning.patterns2 import (  # noqa: E402
+from fibsem.milling.patterning.patterns import (  # noqa: E402
     BitmapPattern,
     CirclePattern,
     PolygonPattern,

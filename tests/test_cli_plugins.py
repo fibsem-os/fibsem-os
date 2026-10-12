@@ -48,8 +48,10 @@ def test_all_shows_built_ins_that_are_otherwise_only_counted(capsys):
     cli.cmd_plugins(_parse("plugins", "--all"))
     everything = capsys.readouterr().out
 
-    assert "fibsem.milling.patterning.patterns2.RectanglePattern" not in default
-    assert "fibsem.milling.patterning.patterns2.RectanglePattern" in everything
+    assert (
+        "fibsem.milling.patterning.patterns.rectangle.RectanglePattern" not in default
+    )
+    assert "fibsem.milling.patterning.patterns.rectangle.RectanglePattern" in everything
     assert "built-in hidden (use --all)." in default
     assert "built-in hidden" not in everything
 

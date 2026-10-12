@@ -33,7 +33,7 @@ BUILTIN = Extension(
     group="fibsem.patterns",
     name="Rectangle",
     source=ExtensionSource.BUILTIN,
-    target="fibsem.milling.patterning.patterns2.RectanglePattern",
+    target="fibsem.milling.patterning.patterns.rectangle.RectanglePattern",
 )
 SHADOWED = Extension(
     group="fibsem.strategies",

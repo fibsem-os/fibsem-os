@@ -12,7 +12,7 @@ from fibsem.structures import FibsemRectangle
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from fibsem.milling.patterning.patterns2 import BasePattern
+    from fibsem.milling.patterning.base import BasePattern
     from fibsem.structures import FibsemImage
 
 

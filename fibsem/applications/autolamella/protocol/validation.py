@@ -229,7 +229,7 @@ def convert_protocol_to_stage_config(
     name = pprotocol.get("type", None)
     # some old protocols don't have type and we need to look it up from the protocol key... best effort only
     if name is None:
-        from fibsem.milling.patterning.patterns2 import PROTOCOL_MILL_MAP
+        from fibsem.milling.patterning import PROTOCOL_MILL_MAP
 
         pattern = PROTOCOL_MILL_MAP.get(pkey, None)  # support legacy mapping
         if pattern is None:

@@ -147,7 +147,7 @@ def field_meta(
         field_meta(**DEFAULT_DISTANCE_METADATA, type=Point)   # TypeError
 
     Worth preferring where nothing needs overriding, because a dict literal
-    silently resolves that collision instead -- `patterns2.BasePattern.point`
+    silently resolves that collision instead -- `BasePattern.point`
     declares `"type": Point` and renders as a float because the spread that
     follows wins.
 

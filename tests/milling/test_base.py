@@ -3,7 +3,7 @@ from fibsem.milling.base import (
     MillingStrategy,
     get_strategy,
 )
-from fibsem.milling.patterning.patterns2 import RectanglePattern
+from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.strategy import DEFAULT_STRATEGY, get_strategies
 from fibsem.structures import FibsemMillingSettings, MillingAlignment, Point
 

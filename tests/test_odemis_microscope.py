@@ -19,7 +19,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.milling import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import PolygonPattern
+from fibsem.milling.patterning.patterns import PolygonPattern
 from fibsem.milling.progress import MillingProgressStatus
 from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
 from fibsem.structures import (
