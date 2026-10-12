@@ -39,10 +39,10 @@ def ui(qapp):
 
 
 @pytest.fixture
-def agent_server_enabled(monkeypatch, tmp_path):
+def app_server_enabled(monkeypatch, tmp_path):
     """Flip the preference on and confine the host to a test port + tmp file."""
     preferences = fibsem_cfg.UserPreferences()
-    preferences.features.agent_server_enabled = True
+    preferences.app_server.enabled = True
     monkeypatch.setattr(fibsem_cfg, "load_user_preferences", lambda: preferences)
 
     real_host = hosting.AgentServerHost
@@ -57,7 +57,7 @@ def agent_server_enabled(monkeypatch, tmp_path):
     return preferences
 
 
-def test_connect_starts_a_live_read_only_server(ui, agent_server_enabled):
+def test_connect_starts_a_live_read_only_server(ui, app_server_enabled):
     ui.system_widget.connect_to_microscope()
     ui.connect_to_microscope()
 
@@ -111,7 +111,7 @@ def test_saving_the_preference_mid_session_starts_and_stops_the_server(
     assert ui._agent_server_host is None  # flag off at connect, as before
 
     # The user ticks the box and saves: the server starts now, not next connect.
-    preferences.features.agent_server_enabled = True
+    preferences.app_server.enabled = True
     ui.sync_agent_server_with_preference()
     host = ui._agent_server_host
     assert host is not None and host.running
@@ -121,14 +121,14 @@ def test_saving_the_preference_mid_session_starts_and_stops_the_server(
     assert ui._agent_server_host is host and host.running
 
     # Unticking stops it just as immediately.
-    preferences.features.agent_server_enabled = False
+    preferences.app_server.enabled = False
     ui.sync_agent_server_with_preference()
     assert not host.running
 
 
 def test_syncing_without_a_microscope_waits_for_connect(ui, monkeypatch, tmp_path):
     preferences = _confine_and_control_preferences(monkeypatch, tmp_path)
-    preferences.features.agent_server_enabled = True
+    preferences.app_server.enabled = True
     ui.sync_agent_server_with_preference()
     # Nothing to serve yet: the connect path picks the preference up, as before.
     assert ui._agent_server_host is None
@@ -169,7 +169,7 @@ def test_the_event_stream_runs_without_the_agent_server(ui, monkeypatch):
     assert not recorder.writer.alive
 
 
-def test_the_agent_server_reads_the_session_stream(ui, agent_server_enabled):
+def test_the_agent_server_reads_the_session_stream(ui, app_server_enabled):
     # connect_to_microscope runs twice here: through the widget's signal, then
     # called directly -- as it would on any later refresh of the widget while
     # connected. The second must not leave the server on a stream it replaced.

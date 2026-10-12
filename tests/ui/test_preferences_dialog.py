@@ -106,6 +106,29 @@ def test_agent_section_round_trips(qapp):
     dialog.deleteLater()
 
 
+def test_app_server_section_round_trips(qapp):
+    prefs = UserPreferences()
+    prefs.app_server.enabled = True
+    dialog = PreferencesDialog(prefs)
+    assert dialog._chk_app_server.isChecked()
+    dialog._chk_app_server.setChecked(False)
+    rebuilt = dialog.get_preferences()
+    assert rebuilt.app_server.enabled is False
+    dialog._chk_app_server.setChecked(True)
+    again = UserPreferences.from_dict(dialog.get_preferences().to_dict())
+    assert again.app_server.enabled is True
+    dialog.deleteLater()
+
+
+def test_the_app_server_fails_closed():
+    # Absent section, empty section and the retired flag all read as off (FIB-1035):
+    # `agent_server_enabled` was never in a release, so it is not migrated.
+    assert UserPreferences.from_dict({"features": {}}).app_server.enabled is False
+    assert UserPreferences.from_dict({"app_server": {}}).app_server.enabled is False
+    retired = {"features": {"agent_server_enabled": True}}
+    assert UserPreferences.from_dict(retired).app_server.enabled is False
+
+
 def _every_field_changed() -> UserPreferences:
     """Preferences with every field moved off its default, so a field the dialog drops
     and rebuilds from scratch cannot pass by coincidence."""
@@ -143,6 +166,8 @@ def _every_field_changed() -> UserPreferences:
     prefs.reporting.update_check_enabled = True
 
     prefs.agent.watchdog_minutes = 12
+
+    prefs.app_server.enabled = True
 
     prefs.hooks = [{"type": "notification", "name": "custom"}]
     return prefs

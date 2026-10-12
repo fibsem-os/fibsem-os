@@ -107,7 +107,7 @@ def _agent_supervision_available() -> bool:
     import fibsem.config as fibsem_cfg
 
     try:
-        return bool(fibsem_cfg.load_user_preferences().features.agent_server_enabled)
+        return bool(fibsem_cfg.load_user_preferences().app_server.enabled)
     except Exception:
         return False
 

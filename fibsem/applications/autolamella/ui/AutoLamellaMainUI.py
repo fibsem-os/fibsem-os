@@ -1021,9 +1021,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._action_coincidence_separator.setVisible(coincidence_enabled)
         self._apply_review_visibility()
         # Same rule as the rest of the agent chrome: invisible unless enabled.
-        self.action_agent_server.setVisible(
-            self._preferences.features.agent_server_enabled
-        )
+        self.action_agent_server.setVisible(self._preferences.app_server.enabled)
         # getattr because this also runs from the preferences dialog, and the tab it
         # reaches into is built by AutoLamellaUI rather than here.
         system_widget = getattr(self.autolamella_ui, "system_widget", None)

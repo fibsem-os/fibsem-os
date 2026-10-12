@@ -396,12 +396,11 @@ class FeatureFlags:
     # Protocol tab's Grid page and the grid screening report are shown to everyone.
     # Removed rather than defaulted on, since a changed default reaches only fresh
     # installs; same load rule as above.
-    # The embedded agent server (FIB-845): an HTTP API over the running session that
-    # agents reach through the fibsem-mcp sidecar. Off by default and fail-closed like
-    # scripts: enabling starts a localhost-only, token-authenticated, READ-ONLY server
-    # when a microscope connects. Nothing can move hardware through it until the
-    # control/hardware scopes are armed, which no configuration file can do.
-    agent_server_enabled: bool = False
+    # `agent_server_enabled` retired 2026-10-11 (FIB-1035): the App Server is a
+    # lasting per-machine choice, not a staging flag, so it moved to
+    # `UserPreferences.app_server`. It was never in a release, so there is no
+    # migration; a saved file that still names it loads fine (unknown keys are
+    # ignored) and the App Server stays off until it is turned on again.
     # The connection chip in the tab-corner header, and the experiment buttons
     # waiting for a microscope alongside it. Off while the Connection tab is still
     # how people connect: this is the header half of FIB-775, landing ahead of the
@@ -459,6 +458,22 @@ class ReportingPreferences:
 
 
 @dataclass
+class AppServerPreferences:
+    """The App Server: the HTTP API inside AutoLamella that the agent, the
+    dashboard and ``FibsemClient`` reach (FIB-1035).
+
+    Off by default and fail-closed (CONTRIBUTING's network rule): a missing or
+    unreadable section reads as these defaults, so the server stays off. When on,
+    it starts when a microscope connects, listens on localhost only and requires
+    a token. Monitoring -- every read of the session -- is always served while
+    it runs. What the agent may do is its level, which is never stored here: it
+    resets to Watch at every launch.
+    """
+
+    enabled: bool = False
+
+
+@dataclass
 class AgentPreferences:
     """Durable agent-supervision policy (the session-scoped half — scope
     arming — deliberately does NOT live here: arming is consent, dies with
@@ -477,6 +492,7 @@ class UserPreferences:
     experiment: ExperimentPreferences = field(default_factory=ExperimentPreferences)
     reporting: ReportingPreferences = field(default_factory=ReportingPreferences)
     agent: AgentPreferences = field(default_factory=AgentPreferences)
+    app_server: AppServerPreferences = field(default_factory=AppServerPreferences)
     # Serialized hooks, as HookManager.to_dict()["hooks"] produces them. Held as plain
     # dicts rather than Hook objects on purpose: to_dict() below is dataclasses.asdict,
     # which would recurse into a Hook, strip the "type" key that reconstructs it, and
@@ -504,6 +520,7 @@ class UserPreferences:
                 "experiment",
                 "reporting",
                 "agent",
+                "app_server",
                 "hooks",
             )
         ):
@@ -516,6 +533,9 @@ class UserPreferences:
                 ),
                 reporting=_sub_from_dict(ReportingPreferences, d.get("reporting", {})),
                 agent=_sub_from_dict(AgentPreferences, d.get("agent", {})),
+                app_server=_sub_from_dict(
+                    AppServerPreferences, d.get("app_server", {})
+                ),
                 # .get() rather than a default, so an absent key stays None
                 hooks=d.get("hooks"),
             )
