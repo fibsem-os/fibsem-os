@@ -233,6 +233,8 @@ def test_a_manipulator_that_failed_to_build_is_not_fitted(tmp_path):
     microscope = _demo_with(tmp_path)
     assert microscope.is_available("manipulator")
 
+    # what `build_device_entries` leaves: no device, and the reason recorded
+    microscope.manipulator_device = None
     microscope._mark_device_not_built("manipulator")
 
     assert not microscope.is_available("manipulator")

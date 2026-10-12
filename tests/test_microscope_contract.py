@@ -521,13 +521,14 @@ def test_beam_key_round_trips(microscope, key, beam_type):
     [(BeamType.ELECTRON, "electron_beam"), (BeamType.ION, "ion_beam")],
 )
 def test_each_beam_can_be_disabled_on_its_own(microscope, beam_type, system):
-    """`beam_enabled` is what `is_available` and `get_available_beams` answer from."""
+    """The beam devices are what `is_available` and `get_available_beams` answer
+    from: a column with no device (``enabled: false`` at connect) is not there."""
     other = BeamType.ION if beam_type is BeamType.ELECTRON else BeamType.ELECTRON
-    microscope.set("beam_enabled", False, beam_type)
-    assert microscope.get("beam_enabled", beam_type) is False
+    beams = dict(microscope.beams)
+    microscope.beams = {other: beams[other]}
     assert not microscope.is_available(system)
     assert microscope.get_available_beams() == [other]
-    microscope.set("beam_enabled", True, beam_type)
+    microscope.beams = beams
     assert microscope.is_available(system)
     assert microscope.get_available_beams() == BEAMS
 
@@ -1261,8 +1262,9 @@ def test_demo_devices_claim_the_microscopes_resources():
         *microscope.beams.values(),
         microscope.stage_device,
         microscope.chamber_device,
-        microscope.manipulator_device,
         *microscope.fm_devices.values(),
     ]
+    # the simulated Arctis has no manipulator (`sim.has_manipulator: false`)
+    assert microscope.manipulator_device is None
     assert microscope.fm_devices
     assert all(device.resources is microscope.resources for device in devices)

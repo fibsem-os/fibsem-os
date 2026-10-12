@@ -81,13 +81,11 @@ def test_a_backend_that_cannot_probe_uses_its_own_default(microscope, monkeypatc
     whose backend has no way to ask -- Tescan and Odemis today. Reading None as False
     would disable the manipulator on all of them."""
     monkeypatch.setattr(microscope, "_probe_manipulator_installed", lambda: None)
-    microscope.set_available("manipulator", False)
 
     microscope._read_hardware_capabilities()
 
     assert (
-        microscope.is_available("manipulator")
-        is microscope.DEFAULT_FITTED["manipulator"]
+        microscope._is_fitted("manipulator") is microscope.DEFAULT_FITTED["manipulator"]
     )
 
 
@@ -100,23 +98,20 @@ def test_a_probe_that_raises_is_read_as_cannot_say(microscope, monkeypatch):
         raise RuntimeError("connection reset")
 
     monkeypatch.setattr(microscope, "_probe_manipulator_installed", boom)
-    microscope.set_available("manipulator", False)
 
     microscope._read_hardware_capabilities()
 
     assert (
-        microscope.is_available("manipulator")
-        is microscope.DEFAULT_FITTED["manipulator"]
+        microscope._is_fitted("manipulator") is microscope.DEFAULT_FITTED["manipulator"]
     )
 
 
 def test_a_probe_that_answers_wins(microscope, monkeypatch):
     monkeypatch.setattr(microscope, "_probe_manipulator_installed", lambda: False)
-    microscope.set_available("manipulator", True)
 
     microscope._read_hardware_capabilities()
 
-    assert microscope.is_available("manipulator") is False
+    assert microscope._is_fitted("manipulator") is False
 
 
 # ---------------------------------------------------------------------------
@@ -144,17 +139,25 @@ def test_a_simulated_file_can_say_otherwise():
 # ---------------------------------------------------------------------------
 
 
-def test_applying_a_configuration_keeps_what_the_instrument_said(microscope):
+def test_applying_a_configuration_keeps_what_the_instrument_said():
     """`apply_configuration` used to replace `system.manipulator` from the incoming
     settings. That now carries only defaults, so replacing would restore the default
-    over what the instrument said at connect."""
-    microscope.set_available("manipulator", False)
+    over what the instrument said at connect. The answer is the device map, which
+    Apply does not touch."""
+    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
+    try:
+        assert microscope.is_available("manipulator") is False
 
-    incoming = SystemSettings.from_dict({})
-    assert incoming.manipulator.enabled is True, "fixture no longer exercises the trap"
-    microscope.apply_configuration(incoming)
+        incoming = SystemSettings.from_dict({})
+        assert incoming.manipulator.enabled is True, (
+            "fixture no longer exercises the trap"
+        )
+        microscope.apply_configuration(incoming)
 
-    assert microscope.is_available("manipulator") is False
+        assert microscope.is_available("manipulator") is False
+    finally:
+        microscope.disconnect()
 
 
 def test_a_configuration_that_says_nothing_still_loads_and_images(microscope):
@@ -267,26 +270,12 @@ def test_autoscript_asks_the_ion_source():
     assert probe(SimpleNamespace(plasma_gas=SimpleNamespace(value=""))) is None
 
 
-def test_switching_plasma_on_without_a_gas_says_it_did_nothing(microscope, caplog):
-    """It set a flag once; now a plasma column is one with a gas, so a script that
-    still calls it gets a warning instead of a silently non-plasma column."""
+def test_a_plasma_column_is_one_with_a_gas(microscope):
     microscope.system.ion.plasma_gas = None
-
-    with caplog.at_level("WARNING"):
-        microscope.set_available("ion_plasma", True)
-
     assert microscope.is_available("ion_plasma") is False
-    assert "plasma_gas" in caplog.text
 
-
-def test_switching_plasma_on_with_a_gas_is_quiet(microscope, caplog):
     microscope.system.ion.plasma_gas = "Xenon"
-
-    with caplog.at_level("WARNING"):
-        microscope.set_available("ion_plasma", True)
-
     assert microscope.is_available("ion_plasma") is True
-    assert "ion_plasma" not in caplog.text
 
 
 def test_the_source_of_each_answer_is_recorded(microscope, monkeypatch):
@@ -306,3 +295,66 @@ def test_the_source_of_each_answer_is_recorded(microscope, monkeypatch):
     monkeypatch.setattr(microscope, "_probe_manipulator_installed", boom)
     microscope._read_hardware_capabilities()
     assert microscope.capability_sources["manipulator"] == "backend"
+
+
+# ---------------------------------------------------------------------------
+# What is available is what was built
+# ---------------------------------------------------------------------------
+
+
+def test_availability_is_the_device_map(microscope):
+    """No second record: a subsystem is there when its device is."""
+    assert microscope.is_available("electron_beam") is (
+        "electron" in microscope.devices
+    )
+    assert microscope.is_available("ion_beam") is ("ion" in microscope.devices)
+    assert microscope.is_available("stage") is (microscope.stage is not None)
+    assert microscope.is_available("manipulator") is (
+        microscope.manipulator_device is not None
+    )
+
+    microscope.beams = {BeamType.ELECTRON: microscope.beams[BeamType.ELECTRON]}
+    assert microscope.is_available("ion_beam") is False
+    assert microscope.get_available_beams() == [BeamType.ELECTRON]
+
+
+def test_a_disabled_column_is_not_available(tmp_path):
+    """`enabled: false` builds no device, so the column is not there."""
+    import yaml
+
+    config = _load("microscope-configuration.yaml")
+    config["hardware"]["devices"] = [{"name": "ion", "enabled": False}]
+    path = tmp_path / "single-beam.yaml"
+    path.write_text(yaml.safe_dump(config))
+    microscope, _ = utils.setup_session(
+        session_path=str(tmp_path),
+        config_path=str(path),
+        manufacturer="Demo",
+        setup_logging=False,
+    )
+    try:
+        assert "ion" not in microscope.devices
+        assert microscope.is_available("ion_beam") is False
+        assert microscope.is_available("electron_beam") is True
+    finally:
+        microscope.disconnect()
+
+
+def test_the_arm_s_axes_are_its_device_s(microscope, monkeypatch):
+    device = microscope.manipulator_device
+    assert microscope.is_available("manipulator_rotation") is False
+
+    monkeypatch.setattr(device, "axes", lambda: ("x", "y", "z", "r"))
+    assert microscope.is_available("manipulator_rotation") is True
+    assert microscope.is_available("manipulator_tilt") is False
+
+    microscope.manipulator_device = None
+    assert microscope.is_available("manipulator_rotation") is False
+
+
+def test_stage_rotation_is_the_stage_s_r_axis(microscope):
+    assert microscope.is_available("stage_rotation") is ("r" in microscope.stage.axes)
+
+
+def test_an_unknown_subsystem_is_not_available(microscope):
+    assert microscope.is_available("gis") is False
