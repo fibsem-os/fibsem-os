@@ -71,6 +71,7 @@ import numpy as np
 
 from fibsem.devices.beam import Beam, nearest_resolution
 from fibsem.devices.chamber import Chamber
+from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
     BoundParameter,
@@ -840,6 +841,45 @@ def bind_autoscript_beams(
 # -- the chamber and the manipulator --------------------------------------------------
 
 
+# The chamber camera's place on the channel the beams and the FM share.
+CHAMBER_CAMERA_VIEW = 4
+CHAMBER_CAMERA_DEVICE = 3
+
+
+class AutoscriptChamberCamera(ChamberCamera):
+    """The chamber camera: view 4, device 3 on the shared imaging channel.
+
+    A glance at it takes the channel away from whatever had it, so the frame is grabbed
+    under the channel lock and the view put back in a ``finally``: leaving the
+    connection on the chamber camera strands whoever was mid-operation, which is
+    FIB-517 with a different thief (FIB-545). It restores the view alone, because
+    ``set_active_device`` changes the device *in the active view*, so the device comes
+    back with it.
+    """
+
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(parent=parent, resources=resources)
+        self.connection = connection
+
+    def _acquire(self) -> np.ndarray:
+        imaging = self.connection.sdk.imaging
+        with self.connection.lock:
+            restore_view = imaging.get_active_view()
+            imaging.set_active_view(CHAMBER_CAMERA_VIEW)
+            imaging.set_active_device(CHAMBER_CAMERA_DEVICE)
+            try:
+                image = imaging.get_image()
+            finally:
+                imaging.set_active_view(restore_view)
+        logging.debug({"msg": "acquire_chamber_image"})
+        return image.data
+
+
 class AutoscriptChamber(Chamber):
     """The AutoScript vacuum, ``connection.vacuum``.
 
@@ -1201,6 +1241,13 @@ def build_autoscript_chamber(
 ) -> AutoscriptChamber:
     microscope = context.microscope
     return _named(AutoscriptChamber(microscope, microscope._connection), entry)
+
+
+def build_autoscript_chamber_camera(
+    entry: DeviceEntry, context: BuildContext
+) -> AutoscriptChamberCamera:
+    microscope = context.microscope
+    return _named(AutoscriptChamberCamera(microscope, microscope._connection), entry)
 
 
 def build_autoscript_manipulator(

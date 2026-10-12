@@ -449,7 +449,11 @@ class FibsemMicroscope(ABC):
             beam.stop_live()
 
     def acquire_chamber_image(self) -> FibsemImage:
-        raise self._unsupported("acquire_chamber_image")
+        """A frame from the ``chamber_camera`` device, as an image without metadata."""
+        camera = self.devices.get("chamber_camera")
+        if camera is None:
+            raise self._unsupported("acquire_chamber_image")
+        return FibsemImage(data=camera.acquire(), metadata=None)
 
     def autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None

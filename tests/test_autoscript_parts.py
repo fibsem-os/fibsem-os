@@ -106,7 +106,7 @@ def test_the_configuration_switches_parts_off(recording):
     fitted part off, so it is never built; a device no driver builds is left out with
     a warning when it says `required: false`."""
     facts = recording["facts"]["configured"]
-    assert facts["devices"] == ["stage", "chamber"]
+    assert facts["devices"] == ["stage", "chamber", "chamber_camera"]
     assert facts["manipulator"] is True
     assert facts["routed"] is False
 

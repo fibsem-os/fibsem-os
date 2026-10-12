@@ -407,7 +407,7 @@ def manipulator_position_from_autoscript(
 # The FM is built on its own path; any other type a configuration adds is built last.
 _BEAM_TYPES = ("beam",)
 _STAGE_TYPES = ("stage",)
-_PART_TYPES = ("chamber", "manipulator")
+_PART_TYPES = ("chamber", "chamber_camera", "manipulator")
 _LOADER_TYPES = ("sample_loader",)
 _OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + _LOADER_TYPES + ("fm",)
 
@@ -702,8 +702,9 @@ class ThermoMicroscope(FibsemMicroscope):
         self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
 
     def _build_parts(self) -> None:
-        """Build the chamber and the manipulator, and keep the manipulator only when
-        it says it is fitted. Then build any other device the configuration adds.
+        """Build the chamber, its camera and the manipulator, and keep the
+        manipulator only when it says it is fitted. Then build any other device the
+        configuration adds.
 
         ``pump``, ``vent`` and the manipulator's raw moves then go through the
         devices. The corrected and offset needle moves stay here and move through
@@ -712,6 +713,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self._build_devices(
             [
                 DeviceEntry(name="chamber", type="chamber"),
+                DeviceEntry(name="chamber_camera", type="chamber_camera"),
                 DeviceEntry(name="manipulator", type="manipulator"),
             ],
             _PART_TYPES,
@@ -767,26 +769,6 @@ class ThermoMicroscope(FibsemMicroscope):
             channel (BeamType): The beam type to set as the active channel.
         """
         self._connection.set_channel(channel)
-
-    def acquire_chamber_image(self) -> FibsemImage:
-        """Acquire an image of the chamber inside."""
-        # The chamber camera is a third device on the channel the beams and the FM
-        # share, so a glance at it takes the microscope away from whatever had it.
-        # Captured and put back in a `finally`: leaving the connection on the chamber
-        # camera strands whoever was mid-operation, which is FIB-517 with a different
-        # thief (FIB-545). Restores the view alone -- `set_active_device` changes the
-        # device *in the active view*, so the device comes back with it.
-        imaging = self._connection.sdk.imaging
-        with self._threading_lock:
-            restore_view = imaging.get_active_view()
-            imaging.set_active_view(4)
-            imaging.set_active_device(3)
-            try:
-                image = imaging.get_image()
-            finally:
-                imaging.set_active_view(restore_view)
-        logging.debug({"msg": "acquire_chamber_image"})
-        return FibsemImage(data=image.data, metadata=None)
 
     @_records_beam_shift
     def beam_shift(

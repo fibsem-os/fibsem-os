@@ -86,6 +86,7 @@ same map:
 | `microscope.beams[BeamType.ION]` | `Beam` | `ion` |
 | `microscope.stage` | `Stage` | `stage` |
 | `microscope.chamber_device` | `Chamber` | `chamber` |
+| `microscope.devices["chamber_camera"]` | `ChamberCamera` | `chamber_camera` |
 | `microscope.manipulator_device` | `Manipulator` | `manipulator` |
 | `microscope.fm_devices` | `FM` and its parts | `fm`, `camera`, `light_source`, `filter_set`, `objective` |
 
@@ -93,7 +94,7 @@ same map:
 alias. The vendor's own stage object is private to each backend.
 
 The device classes are in `fibsem.devices` (`Beam`, `Stage`, `Chamber`,
-`Manipulator`) and `fibsem.devices.fm` (`FM`, `Camera`, `LightSource`, `FilterSet`,
+`ChamberCamera`, `Manipulator`) and `fibsem.devices.fm` (`FM`, `Camera`, `LightSource`, `FilterSet`,
 `Objective`). Each backend subclasses them in `fibsem/drivers/<driver>/devices.py`.
 
 ## Parameters

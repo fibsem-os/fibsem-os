@@ -33,6 +33,7 @@ import numpy as np
 from fibsem._timing import sim_sleep
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
+from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.manipulator import Manipulator
@@ -475,6 +476,17 @@ def _insertable_state(inserted: bool) -> InsertableDeviceState:
     )
 
 
+class DemoChamberCamera(ChamberCamera):
+    """The Demo chamber camera: the Demo's own chamber frame (``_demo_chamber_frame``
+    of ``DemoImaging``), which takes the simulated imaging channel as Thermo's does."""
+
+    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources]):
+        super().__init__(parent=parent, resources=resources)
+
+    def _acquire(self) -> np.ndarray:
+        return self.parent._demo_chamber_frame()
+
+
 class DemoChamber(Chamber):
     """The Demo chamber.
 
@@ -824,6 +836,13 @@ def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> DemoStage
 
 def build_demo_chamber(entry: "DeviceEntry", context: "BuildContext") -> DemoChamber:
     return _named(DemoChamber(context.microscope, *_demo_start(context)), entry)
+
+
+def build_demo_chamber_camera(
+    entry: "DeviceEntry", context: "BuildContext"
+) -> DemoChamberCamera:
+    resources, _ = _demo_start(context)
+    return _named(DemoChamberCamera(context.microscope, resources), entry)
 
 
 def build_demo_manipulator(

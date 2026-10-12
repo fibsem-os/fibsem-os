@@ -26,6 +26,7 @@ is the guide, including where each removed ``get``/``set`` key went.
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import CHAMBER_RESOURCE, Chamber
+from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
     Axes,
@@ -55,6 +56,7 @@ __all__ = [
     "Axis",
     "CHAMBER_RESOURCE",
     "Chamber",
+    "ChamberCamera",
     "STAGE_RESOURCE",
     "IMAGING_CHANNEL",
     "MANIPULATOR_RESOURCE",

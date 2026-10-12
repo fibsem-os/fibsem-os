@@ -2,7 +2,7 @@
 
 The quad view's fourth cell. A chamber camera answers "where is the stage and what
 is pointing at it", but on a Thermo system reading one takes the imaging channel the
-beams and the fluorescence microscope share (`ThermoMicroscope.acquire_chamber_image`),
+beams and the fluorescence microscope share (`AutoscriptChamberCamera`),
 so it cannot sit on screen refreshing. This draws the same answer from numbers the app
 already has: the side view the setup wizard draws (`StageDiagram`), at the stage's
 tilt, with the ion column at the system's own angle, and on a system whose FM objective

@@ -79,6 +79,7 @@ DEMO_DEVICES = (
     DeviceEntry(name="ion", type="beam"),
     DeviceEntry(name="stage", type="stage"),
     DeviceEntry(name="chamber", type="chamber"),
+    DeviceEntry(name="chamber_camera", type="chamber_camera"),
     DeviceEntry(name="manipulator", type="manipulator"),
 )
 
