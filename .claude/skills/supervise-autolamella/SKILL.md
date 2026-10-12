@@ -62,8 +62,11 @@ status bar. Every launch starts at Watch; nothing in a file raises it.
 - **Assist** is not offered yet. **Off** refuses everything, `/capabilities`
   included (`403 agent_off`).
 
-Hardware (moving the stage, acquiring, milling directly) is never part of a
-level. Milling happens only inside a workflow's own steps.
+At Drive with the microscope's devices served (`routers.microscope` in
+`/capabilities`), the hardware tools work too: moving the stage, acquiring,
+milling directly. Supervising doesn't need them. Use them only when the
+operator asks. While a run is in control they are refused with
+`409 microscope_busy`; don't retry, say so.
 
 A refusal names its reason in `detail.error_type`:
 

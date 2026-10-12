@@ -9,8 +9,9 @@ Scopes mirror the server's enforcement (fibsem/server/auth.py). The sidecar
 registers every tool the server's mounted routers serve, whatever the agent's
 level (FIB-1035): the level changes mid-session, and an MCP client may never
 re-read its tool list, so the server's 403 is the gate and each description
-names the level it needs. Only ``hardware`` tools are still filtered, by the
-armed scope, which no level grants and which changes only with a restart.
+names the level it needs. Hardware tools are offered the same way, Drive
+arming them (FIB-1267), except on a bench server, which has no level: there
+they are filtered by the armed scope, which changes only with a restart.
 """
 
 from dataclasses import dataclass, field
@@ -38,14 +39,18 @@ class ToolSpec:
 
     @property
     def hardware_only(self) -> bool:
-        """Needs the hardware scope and nothing a level grants."""
+        """Needs the hardware scope: Drive in the App Server, ``--arm-hardware``
+        on the bench."""
         return {self.scope, *self.also} == {"hardware"}
 
     @property
     def level_note(self) -> str:
         """What the tool needs, in the agent's terms (FIB-1035)."""
         if self.hardware_only:
-            return "Needs the hardware scope, which no agent level grants."
+            return (
+                "Needs the agent at Drive: refused (403) at Watch; refused (409) "
+                "while a run or script is in control of the microscope."
+            )
         if self.scope == "read":
             return "Works at Watch and Drive."
         return (
@@ -687,15 +692,17 @@ def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     """Catalog entries to offer given a full /capabilities payload.
 
     Every tool whose router is mounted, whatever the agent's level: the level
-    changes mid-session and the server's 403 is the gate (FIB-1035). Hardware
-    tools are left out unless the hardware scope is armed, which no level
-    does and only a restart changes.
+    changes mid-session and the server's 403 is the gate (FIB-1035). Drive
+    arms hardware (FIB-1267), so on a server with a level hardware tools are
+    offered like the rest. A bench server has no level: there only a restart
+    arms hardware, so its tools are left out unless it is armed.
     """
     scopes = capabilities.get("scopes", {})
     routers = dict(capabilities.get("routers", {}), base=True)
+    has_level = capabilities.get("level") is not None
     return tuple(
         t
         for t in CATALOG
         if routers.get(t.router, False)
-        and (not t.hardware_only or scopes.get("hardware", False))
+        and (not t.hardware_only or has_level or scopes.get("hardware", False))
     )

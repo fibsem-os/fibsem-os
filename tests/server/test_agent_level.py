@@ -1,5 +1,6 @@
 """The agent level (FIB-1035): Off refuses the agent everything, Watch reads and
-notes, Drive acts on the session. The dashboard's token ignores the level."""
+notes, Drive acts on the session and, with the devices service on, on the
+microscope (FIB-1267). The dashboard's token ignores the level."""
 
 import os
 
@@ -17,11 +18,24 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.control import WORKFLOW  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.auth import AgentLevel, Scope  # noqa: E402
 from fibsem.structures import MicroscopeState  # noqa: E402
 
 AGENT = {"Authorization": "Bearer agent"}
+# A one-micron stage nudge, in the route's body shape.
+_NUDGE = {
+    "position": {
+        "name": None,
+        "x": 1e-6,
+        "y": 0.0,
+        "z": 0.0,
+        "r": 0.0,
+        "t": 0.0,
+        "coordinate_system": "RAW",
+    }
+}
 DASHBOARD = {"Authorization": "Bearer dashboard"}
 
 
@@ -78,7 +92,7 @@ def test_watch_reads_and_notes_but_acts_on_nothing(client):
         assert response.json()["detail"]["level"] == "watch"
 
 
-def test_drive_acts_on_the_session_but_not_the_hardware(client, auth):
+def test_drive_acts_on_the_session_and_the_hardware(client, auth):
     auth.set_level(AgentLevel.DRIVE)
     capabilities = client.get("/capabilities", headers=AGENT).json()
     assert capabilities["level"] == "drive"
@@ -86,11 +100,45 @@ def test_drive_acts_on_the_session_but_not_the_hardware(client, auth):
         "read": True,
         "control": True,
         "configure": True,
-        "hardware": False,
+        "hardware": True,
     }
     assert client.post("/app/workflow/stop", headers=AGENT).status_code == 200
     assert client.post("/stop_milling", headers=AGENT).status_code == 200
-    moved = client.post("/move_stage_relative", headers=AGENT, json={"dx": 1e-6})
+    moved = client.post("/move_stage_relative", headers=AGENT, json=_NUDGE)
+    assert moved.status_code == 200, moved.text
+
+
+def test_watch_refuses_a_hardware_command_naming_the_level(client, auth):
+    moved = client.post("/move_stage_relative", headers=AGENT, json=_NUDGE)
+    assert moved.status_code == 403
+    assert _error(moved) == "scope_not_armed"
+    assert moved.json()["detail"]["level"] == "watch"
+
+
+def test_at_drive_a_run_in_control_refuses_a_hardware_command(client, auth, microscope):
+    auth.set_level(AgentLevel.DRIVE)
+    with microscope.control.take(WORKFLOW, "a lamella run"):
+        moved = client.post("/move_stage_relative", headers=AGENT, json=_NUDGE)
+        # Stopping never takes control, so the run never refuses it.
+        assert client.post("/stop_milling", headers=AGENT).status_code == 200
+    assert moved.status_code == 409
+    assert _error(moved) == "microscope_busy"
+    assert moved.json()["detail"]["in_control"]["by"] == WORKFLOW
+
+
+def test_with_devices_off_drive_has_no_hardware_routes(microscope, auth):
+    auth.set_level(AgentLevel.DRIVE)
+    app = build_server(microscope, auth=auth, devices=False)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        moved = client.post("/move_stage_relative", headers=AGENT, json=_NUDGE)
+    assert moved.status_code == 404
+
+
+def test_stop_agent_takes_hardware_with_the_rest(client, auth):
+    auth.set_level(AgentLevel.DRIVE)
+    auth.stop_agent()
+    assert not auth.is_armed(Scope.HARDWARE)
+    moved = client.post("/move_stage_relative", headers=AGENT, json=_NUDGE)
     assert moved.status_code == 403
 
 
@@ -118,19 +166,24 @@ def test_back_from_off_to_watch(client, auth):
     assert client.get("/app/status", headers=AGENT).status_code == 200
 
 
-def test_a_level_never_arms_or_disarms_hardware():
+def test_the_level_alone_arms_hardware():
+    """Drive arms it and every other level disarms it, whatever the server was
+    built with (FIB-1267)."""
     auth = AuthConfig.generate(arm_hardware=True)
     auth.set_level(AgentLevel.WATCH)
-    assert auth.is_armed(Scope.HARDWARE)
-    auth = AuthConfig.generate()
+    assert not auth.is_armed(Scope.HARDWARE)
     auth.set_level(AgentLevel.DRIVE)
+    assert auth.is_armed(Scope.HARDWARE)
+    auth.set_level(AgentLevel.OFF)
     assert not auth.is_armed(Scope.HARDWARE)
 
 
 def test_assist_arms_nothing_until_approvals_exist():
     auth = AuthConfig.generate()
     auth.set_level(AgentLevel.ASSIST)
-    assert not any(auth.is_armed(s) for s in (Scope.CONTROL, Scope.CONFIGURE))
+    assert not any(
+        auth.is_armed(s) for s in (Scope.CONTROL, Scope.CONFIGURE, Scope.HARDWARE)
+    )
 
 
 def test_a_server_without_a_level_reports_none(microscope):

@@ -44,7 +44,7 @@ One knob, on the Agent chip in the status bar, set in two clicks:
 |---|---|
 | **Off** | nothing: every request is refused |
 | **Watch** | see everything below and add notes; never act |
-| **Drive** | also answer, start and stop, change supervision, re-queue, and edit configuration |
+| **Drive** | also answer, start and stop, change supervision, re-queue, and edit configuration; with the devices service on, use the microscope too |
 
 *Assist* — asking before every action — is not offered yet.
 
@@ -56,8 +56,8 @@ While the agent is at Drive the chip's menu leads with **Stop agent**. It drops
 the agent to Watch at once, with no confirmation, and the agent is told it was
 stopped. A running workflow keeps running; its own Stop is beside the chip.
 
-Hardware is not on the ladder: no level lets an agent move the stage, acquire,
-or mill directly.
+Using the microscope directly (moving the stage, acquiring, milling) needs
+Drive and *Serve the microscope's devices*. Stop agent ends it with the rest.
 
 ## What the agent can see (Watch and above)
 
@@ -128,11 +128,26 @@ view's Run or Screen all grids, remotely — over the grid tasks in your
 protocol. It is refused while any run is going, and a good agent shows you
 the plan (every grid, its load, its tasks) before it starts one.
 
-## What the agent cannot do
+## Using the microscope (Drive, devices on)
 
-Command hardware. No level lets an agent move the stage, acquire, or mill
-directly. Milling happens only the way it always has: through a workflow's own
-steps, with its checks.
+With *Serve the microscope's devices* on, an agent at Drive may also use the
+microscope directly: move the stage, acquire images, change beam and detector
+settings, and mill. Each command is in control of the microscope while it
+runs, so it never acts beside anything else:
+
+- while a workflow run or a microscope script is in control, the command is
+  refused with `409 microscope_busy`, naming who is in control;
+- while the run waits on a question, the run lends control: whoever answers
+  may act, one command at a time, and the run carries on when it ends;
+- stopping a mill never takes control, so it is never refused.
+
+Your own buttons don't take control yet, so nothing stops an agent's command
+running beside something you started by hand. Set the agent to Watch while
+you work at the microscope yourself.
+
+The app follows: a stage move shows in its stage position like one of yours
+would. With the devices service off these routes don't exist (404), whatever
+the level.
 
 ## Supervised tasks and the agent
 
@@ -201,7 +216,8 @@ bearer token — the sidecar is convenience, not a requirement.
   shown only in *Connect an agent…*, and the dashboard's, which reads the
   monitoring routes and nothing else. No token, no access.
 - **Access fails closed.** Reading needs a valid token and a level above Off;
-  acting needs Drive; hardware is on no level at all.
+  acting needs Drive; using the microscope needs Drive and the devices
+  service.
 - **The level lasts one session** — set by whoever is at the microscope,
   back to Watch when the app restarts. A microscope reconnect or a services
   change restarts the server but not the session: the level and the agent's

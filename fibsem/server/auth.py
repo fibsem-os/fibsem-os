@@ -8,8 +8,8 @@ One bearer token per server instance, three scopes:
 - ``configure``: editing task parameters (protocol and per-item task configs).
   Its own rung, deliberately separate from ``control``: answering a question
   with geometry and editing protocols are different grants (FIB-864).
-- ``hardware``: anything that commands or mutates the microscope. Armed
-  explicitly by the hosting (GUI toggle, or ``--arm-hardware`` on the CLI).
+- ``hardware``: anything that commands or mutates the microscope. In the App
+  Server, armed at Drive (FIB-1267); on the bench, by ``--arm-hardware``.
 
 Fail closed: a server always has a token (generated when the hosting does not
 supply one), and only ``read`` is armed unless the hosting says otherwise.
@@ -51,7 +51,9 @@ LEVEL_SCOPES = {
     # Until FIB-1283's approvals exist, Assist arms nothing: it must never act
     # unasked, and there is nothing yet to ask through.
     AgentLevel.ASSIST: frozenset(),
-    AgentLevel.DRIVE: frozenset({Scope.CONTROL, Scope.CONFIGURE}),
+    # Hardware routes are mounted only with the devices setting on, and take
+    # control of the microscope, so a run or script refuses them (FIB-1267).
+    AgentLevel.DRIVE: frozenset({Scope.CONTROL, Scope.CONFIGURE, Scope.HARDWARE}),
 }
 
 
@@ -104,12 +106,11 @@ class AuthConfig:
     def set_level(self, level: AgentLevel) -> None:
         """Set the agent level, effective for the next request.
 
-        Rewrites the armed scopes to the level's, keeping hardware as it was:
-        no level arms or disarms it until FIB-1267."""
+        Rewrites the armed scopes to the level's, hardware included: the
+        level alone decides (FIB-1267)."""
         level = AgentLevel(level)
-        keep = self.armed & {Scope.HARDWARE}
         # Two atomic rebinds, read independently by requests.
-        self.armed = frozenset(LEVEL_SCOPES[level] | keep)
+        self.armed = LEVEL_SCOPES[level]
         self.level = level
         self.stopped = False
 
