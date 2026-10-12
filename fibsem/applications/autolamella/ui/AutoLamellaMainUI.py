@@ -715,14 +715,14 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             parent=self,
         )
 
-        # Session controls for the embedded App Server: status, token, and
-        # scope arming (arming is per-session consent; the durable policy is in
-        # Preferences -> Agent). Visible only with the feature enabled, next to
-        # Scripts — its future Automation-menu sibling (FIB-863).
+        # The embedded App Server's dialog: status, services, the dashboard. The
+        # agent's level and connecting one are the agent chip's (FIB-1035); the
+        # durable settings are in Preferences -> App Server. Visible only with the
+        # App Server enabled, next to Scripts (FIB-863).
         self.action_app_server = QAction("App Server...", self)
         self.action_app_server.setMenuRole(QAction.NoRole)
         self.action_app_server.setToolTip(
-            "Session status, access token, and what the connected agent may do"
+            "The App Server: whether it is running, its services, and the dashboard"
         )
         self.action_app_server.triggered.connect(self._on_app_server_dialog)
         tools_menu.addAction(self.action_app_server)
@@ -1614,6 +1614,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         self.agent_chip.hide()
         self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
+        self.agent_chip.connect_clicked.connect(self._on_connect_agent_dialog)
         self.status_bar.add_action(self.agent_chip)
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
@@ -3667,8 +3668,20 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             if tab is not None and getattr(tab, "lamella_list", None) is not None
         ]
 
+    def _on_connect_agent_dialog(self) -> None:
+        """From the agent chip's menu: the agent token and how to register the
+        sidecar (FIB-1035)."""
+        from fibsem.applications.autolamella.ui.connect_agent_dialog import (
+            ConnectAgentDialog,
+        )
+
+        dialog = ConnectAgentDialog(
+            lambda: getattr(self.autolamella_ui, "_app_server_host", None), self
+        )
+        dialog.exec_()
+
     def _on_app_server_dialog(self) -> None:
-        """Open the session dialog: status, token, and scope arming."""
+        """Open Tools → App Server: status, services, clients, the dashboard."""
         from fibsem.applications.autolamella.ui.app_server_dialog import (
             AppServerDialog,
         )
