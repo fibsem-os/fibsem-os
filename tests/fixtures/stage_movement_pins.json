@@ -8695,45 +8695,78 @@
   "result": null
  },
  "default safe_absolute_stage_movement xy only @FIB": {
-  "commands": [],
+  "commands": [
+   [
+    "stage.absolute",
+    {
+     "r": null,
+     "t": null,
+     "x": -0.001,
+     "y": 0.0005,
+     "z": null
+    }
+   ]
+  ],
   "end": {
    "r": 3.141592653589793,
    "t": 0.29670597283903605,
-   "x": 0.0001,
-   "y": 5e-05,
+   "x": -0.001,
+   "y": 0.0005,
    "z": 0.001
   },
-  "error": "TypeError: unsupported operand type(s) for %=: 'NoneType' and 'float'",
+  "error": null,
   "events": [
    "safe_absolute_stage_movement"
   ],
   "result": null
  },
  "default safe_absolute_stage_movement xy only @MILLING": {
-  "commands": [],
+  "commands": [
+   [
+    "stage.absolute",
+    {
+     "r": null,
+     "t": null,
+     "x": -0.001,
+     "y": 0.0005,
+     "z": null
+    }
+   ]
+  ],
   "end": {
    "r": 0.0,
    "t": 0.20943951023931962,
-   "x": 0.0001,
-   "y": 5e-05,
+   "x": -0.001,
+   "y": 0.0005,
    "z": 0.001
   },
-  "error": "TypeError: unsupported operand type(s) for %=: 'NoneType' and 'float'",
+  "error": null,
   "events": [
    "safe_absolute_stage_movement"
   ],
   "result": null
  },
  "default safe_absolute_stage_movement xy only @SEM": {
-  "commands": [],
+  "commands": [
+   [
+    "stage.absolute",
+    {
+     "r": null,
+     "t": null,
+     "x": -0.001,
+     "y": 0.0005,
+     "z": null
+    }
+   ]
+  ],
   "end": {
    "r": 0.0,
    "t": 0.6108652381980153,
-   "x": 0.0001,
-   "y": 5e-05,
+   "x": -0.001,
+   "y": 0.0005,
    "z": 0.001
   },
-  "error": "TypeError: unsupported operand type(s) for %=: 'NoneType' and 'float'",
+  "error": null,
   "events": [
    "safe_absolute_stage_movement"
   ],
@@ -14648,45 +14681,78 @@
   "result": null
  },
  "iflm safe_absolute_stage_movement xy only @FIB": {
-  "commands": [],
+  "commands": [
+   [
+    "stage.absolute",
+    {
+     "r": null,
+     "t": null,
+     "x": -0.001,
+     "y": 0.0005,
+     "z": null
+    }
+   ]
+  ],
   "end": {
    "r": 3.141592653589793,
    "t": 0.29670597283903605,
-   "x": 0.0001,
-   "y": 5e-05,
+   "x": -0.001,
+   "y": 0.0005,
    "z": 0.001
   },
-  "error": "TypeError: unsupported operand type(s) for %=: 'NoneType' and 'float'",
+  "error": null,
   "events": [
    "safe_absolute_stage_movement"
   ],
   "result": null
  },
  "iflm safe_absolute_stage_movement xy only @MILLING": {
-  "commands": [],
+  "commands": [
+   [
+    "stage.absolute",
+    {
+     "r": null,
+     "t": null,
+     "x": -0.001,
+     "y": 0.0005,
+     "z": null
+    }
+   ]
+  ],
   "end": {
    "r": 0.0,
    "t": 0.20943951023931962,
-   "x": 0.0001,
-   "y": 5e-05,
+   "x": -0.001,
+   "y": 0.0005,
    "z": 0.001
   },
-  "error": "TypeError: unsupported operand type(s) for %=: 'NoneType' and 'float'",
+  "error": null,
   "events": [
    "safe_absolute_stage_movement"
   ],
   "result": null
  },
  "iflm safe_absolute_stage_movement xy only @SEM": {
-  "commands": [],
+  "commands": [
+   [
+    "stage.absolute",
+    {
+     "r": null,
+     "t": null,
+     "x": -0.001,
+     "y": 0.0005,
+     "z": null
+    }
+   ]
+  ],
   "end": {
    "r": 0.0,
    "t": 0.6108652381980153,
-   "x": 0.0001,
-   "y": 5e-05,
+   "x": -0.001,
+   "y": 0.0005,
    "z": 0.001
   },
-  "error": "TypeError: unsupported operand type(s) for %=: 'NoneType' and 'float'",
+  "error": null,
   "events": [
    "safe_absolute_stage_movement"
   ],
