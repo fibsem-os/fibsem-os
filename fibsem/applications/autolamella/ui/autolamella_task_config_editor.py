@@ -983,6 +983,10 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             msg = f"Successfully updated reference imaging for {selected_count} task(s) and milling FoV for {updated_count} task(s) with milling."
             if update_lamella:
                 msg += "\nExisting lamella configurations were also updated."
+            skipped = getattr(dialog, "skipped_running", [])
+            if skipped:
+                names = ", ".join(f"{lamella} ({task})" for lamella, task in skipped)
+                msg += f"\nNot changed, because the task is running: {names}."
             QMessageBox.information(
                 self,
                 "Global Edit Applied",

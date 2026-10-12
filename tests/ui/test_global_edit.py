@@ -22,6 +22,7 @@ from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
+    AutoLamellaTaskStatus,
     Experiment,
 )
 from fibsem.applications.autolamella.ui import (  # noqa: E402
@@ -81,8 +82,9 @@ def experiment(window, tmp_path):
     return exp
 
 
-def _global_edit(window, experiment, monkeypatch, update_lamellae=True):
-    """Global Edit of every task: 10 µm wider, and a wider first reference image."""
+def _global_edit(window, experiment, monkeypatch, update_lamellae=True, said=None):
+    """Global Edit of every task: 10 µm wider, and a wider first reference image.
+    The message it ends with is appended to *said*."""
     editor = window.task_widget
     editor.set_experiment(experiment)
 
@@ -98,8 +100,11 @@ def _global_edit(window, experiment, monkeypatch, update_lamellae=True):
     monkeypatch.setattr(
         protocol_editor_module.AutoLamellaGlobalTaskEditDialog, "exec_", accept
     )
+    said = [] if said is None else said
     monkeypatch.setattr(
-        protocol_editor_module.QMessageBox, "information", lambda *a, **k: None
+        protocol_editor_module.QMessageBox,
+        "information",
+        lambda *args, **kwargs: said.append(args[2]),
     )
     editor._on_global_edit_clicked()
 
@@ -145,3 +150,31 @@ def test_unticked_the_lamellae_are_left_as_they_were(window, experiment, monkeyp
     assert tuned.task_config[ROUGH].to_dict() == before
     protocol = experiment.task_protocol.task_config[ROUGH]
     assert protocol.reference_imaging.field_of_view1 == pytest.approx(200e-6)
+
+
+def test_the_task_running_on_a_lamella_is_left_alone(window, experiment, monkeypatch):
+    """A running task holds its lamella's config object, so an edit would change
+    its settings mid-run: new reference imaging with no save path failed the
+    task's next save on the Arctis (2026-10-12)."""
+    running, other = experiment.positions
+    running.task_state.name = ROUGH
+    running.task_state.status = AutoLamellaTaskStatus.InProgress
+    before = running.task_config[ROUGH].to_dict()
+    said = []
+
+    _global_edit(window, experiment, monkeypatch, said=said)
+
+    assert running.task_config[ROUGH].to_dict() == before
+    # its other tasks, and the other lamella, still get the edit
+    for config in (running.task_config[POLISH], other.task_config[ROUGH]):
+        assert config.reference_imaging.field_of_view1 == pytest.approx(200e-6)
+    assert f"{running.name} ({ROUGH})" in said[-1]
+
+
+def test_a_lamella_keeps_its_save_path(window, experiment, monkeypatch):
+    tuned = experiment.positions[0]
+    tuned.task_config[ROUGH].imaging.path = str(tuned.path)
+
+    _global_edit(window, experiment, monkeypatch)
+
+    assert tuned.task_config[ROUGH].imaging.path == str(tuned.path)
