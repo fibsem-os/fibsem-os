@@ -3846,7 +3846,8 @@ class FibsemOverviewWidget(QWidget):
         # old height, and its first task drove the stage back down to it (GH #943).
         target = self._posed_like_the_stage(self._lifted(frame, target))
 
-        limits = getattr(self.microscope._stage, "limits", None)
+        stage = self.microscope.stage
+        limits = stage.position.limits if stage is not None else None
         if limits and not target.is_within_limits(limits, axes=["x", "y"]):
             notification_service.show_toast(
                 "That position is outside the stage limits.", "warning"
@@ -4060,7 +4061,8 @@ class FibsemOverviewWidget(QWidget):
         try:
             projection = self._projection(self.acquisition_view)
             centre = self._grid_centre()
-            limits = getattr(self.microscope._stage, "limits", None)
+            stage = self.microscope.stage
+            limits = stage.position.limits if stage is not None else None
             if projection is None or centre is None or not limits:
                 return []
             if tiles is None:

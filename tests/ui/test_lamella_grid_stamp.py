@@ -22,8 +22,7 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
 )
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.microscopes._stage import SampleGrid, SlotCalibration
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import FibsemStagePosition, SampleGrid, SlotCalibration
 
 
 def _ui(monkeypatch, tmp_path, arctis: bool):

@@ -17,15 +17,11 @@ from typing import List, Optional
 import pytest
 
 from fibsem import utils
+from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.drivers.autoscript import devices as autoscript_devices
 from fibsem.drivers.autoscript.microscope import AutoscriptSampleLoader
-from fibsem.microscopes._stage import (
-    DeviceSampleLoader,
-    GridExchangeError,
-    SampleGrid,
-    _create_sample_stage,
-)
-from fibsem.structures import DeviceEntry
+from fibsem.microscopes._stage import DeviceSampleLoader, _create_sample_stage
+from fibsem.structures import DeviceEntry, SampleGrid
 
 _KIND = "old"
 

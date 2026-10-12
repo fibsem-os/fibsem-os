@@ -47,7 +47,8 @@ from fibsem.util.timestamps import now, now_iso
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.microscopes._stage import GridSlot, Stage
+    from fibsem.microscopes._stage import Stage
+    from fibsem.structures import GridSlot
 
 _LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 

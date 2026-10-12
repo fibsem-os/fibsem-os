@@ -322,7 +322,7 @@ def test_reachability_is_worked_out_without_asking_the_instrument(pane, microsco
 def test_the_limits_drawn_are_the_stage_it_was_given(pane, microscope):
     """Read from the instrument rather than assumed, so a stage with different travel
     draws a different box."""
-    limits = microscope._stage.limits
+    limits = microscope.stage.position.limits
     [box] = [s for s in pane.stage_overlay._specs if s.kind == "rect"]
 
     ratio = box.height / box.width

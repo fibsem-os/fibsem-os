@@ -331,6 +331,7 @@ class FMTilePreviewWidget(QWidget):
         Any strategy: `order_tiles` changes the sequence and drops the disabled ones,
         and only the second half bears on whether a tile is reachable.
         """
+        stage = self.microscope.stage
         # Qualified: this class has a property of the same name, and a bare call would
         # read as though it returned that.
         return tiling_geometry.unreachable_tiles(
@@ -339,7 +340,7 @@ class FMTilePreviewWidget(QWidget):
             lambda dx, dy: self._projection.from_plane(
                 dx, dy, self._plan.centre_position
             ),
-            getattr(self.microscope._stage, "limits", None),
+            stage.position.limits if stage is not None else None,
         )
 
     def _draw_stage_context(self) -> None:

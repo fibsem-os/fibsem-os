@@ -38,13 +38,13 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
 )
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
-from fibsem.microscopes._stage import SampleGrid
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
     OverviewAcquisitionSettings,
+    SampleGrid,
 )
 
 

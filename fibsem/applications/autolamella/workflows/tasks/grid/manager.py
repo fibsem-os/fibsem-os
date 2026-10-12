@@ -63,8 +63,8 @@ from fibsem.applications.autolamella.workflows.tasks.manager import BaseTaskMana
 from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
+from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
-from fibsem.microscopes._stage import GridExchangeError
 from fibsem.util import timestamps
 
 if TYPE_CHECKING:

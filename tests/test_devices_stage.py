@@ -61,14 +61,6 @@ def test_is_homed_is_none_for_a_stage_that_cannot_say(stage, monkeypatch):
     assert stage.is_homed is None
 
 
-def test_the_sample_stage_asks_the_stage_device_whether_it_is_homed():
-    microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
-    microscope._create_sample_stage()
-    assert microscope._stage.is_homed is True
-    microscope.stage.sim_homed = False
-    assert microscope._stage.is_homed is False
-
-
 def test_a_compustage_has_no_rotation_axis_and_cannot_link():
     stage = _demo_stage(_ARCTIS_CONFIG)
     assert list(stage.axes) == ["x", "y", "z", "t"]

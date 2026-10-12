@@ -49,7 +49,7 @@ These are read directly from `microscope.<attr>` in the existing codebase, not v
 
 | Attribute | Type | Used where | Notes |
 |-----------|------|-----------|-------|
-| `microscope._stage` | `Stage` | 8 places — movement UI, autolamella grid workflows | Needs `_stage.limits`, `_stage.holder.grids`, `_stage.current_grid`. Expose via a `GET /stage` endpoint or dedicated wrappers. |
+| `microscope._stage` | `Stage` | 8 places — movement UI, autolamella grid workflows | Needs `_stage.holder.grids`, `_stage.current_grid`. Expose via a `GET /stage` endpoint or dedicated wrappers. |
 | `microscope.fm` | `FluorescenceMicroscope \| None` | 4 places — image settings widget, minimap, autolamella UI | Always checked with `if microscope.fm is not None` first. Can be stubbed as `None` on client. |
 | `microscope.milling_channel` | `BeamType` | Milling setup code | Defaults to `BeamType.ION`. Can be a fixed client attribute. |
 | `microscope._last_imaging_settings` | `ImageSettings` | `get_imaging_settings()` fallback path | Internal — low risk. |

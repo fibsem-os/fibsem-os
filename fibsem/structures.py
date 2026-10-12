@@ -2500,7 +2500,7 @@ class StageSystemSettings:
     # Configured on each device's entry (`origin`, `available_orientations`, `range`)
     # rather than on the stage; `SystemSettings.from_dict` fills this from them. Each
     # device's `range` is how far from it the stage can be and still count as having
-    # travelled to it. Not to be confused with `microscope._stage.limits`, which is
+    # travelled to it. Not to be confused with the stage device's `position.limits`, which is
     # how far the axes can physically move.
     devices: Dict[str, StageDeviceSettings] = field(
         default_factory=lambda: deepcopy(DEFAULT_STAGE_DEVICES)

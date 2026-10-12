@@ -10,8 +10,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscopes._stage import SampleGrid
-from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
+from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings, SampleGrid
 
 TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 SLOT_X = 3e-3  # m, slots either side of the boot position
@@ -151,13 +150,8 @@ GRID_POSITION = (200e-6, 100e-6, 0.0)  # m: where the loader puts a grid
 def _arctis(grid_position=GRID_POSITION, captured=None):
     """The Arctis simulator with its loader putting grids at *grid_position*
     and, if given, a captured working-slot position in its configuration."""
-    from fibsem.microscopes._stage import (
-        COMPUSTAGE_HOLDER_NAME,
-        GridSlot,
-        SampleHolder,
-        SlotCalibration,
-        _create_sample_stage,
-    )
+    from fibsem.microscopes._stage import COMPUSTAGE_HOLDER_NAME, _create_sample_stage
+    from fibsem.structures import GridSlot, SampleHolder, SlotCalibration
 
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=ARCTIS_CONFIG)
     microscope.devices["sample_loader"].sim_grid_position = tuple(grid_position)

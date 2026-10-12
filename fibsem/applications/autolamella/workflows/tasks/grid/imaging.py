@@ -130,7 +130,8 @@ def reachable_overview(
     *projection* is one already built for this beam, by a caller asking repeatedly
     (the Grid page, on every edit): building it reads the scan rotation.
     """
-    limits = getattr(microscope._stage, "limits", None)
+    stage = microscope.stage
+    limits = stage.position.limits if stage is not None else None
     if projection is None:
         projection = BeamStageProjection.from_microscope(
             microscope, settings.image_settings.beam_type

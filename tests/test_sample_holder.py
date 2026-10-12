@@ -1,14 +1,8 @@
 import pytest
 
 from fibsem import utils
-from fibsem.microscopes._stage import (
-    GridSlot,
-    SampleGrid,
-    SampleHolder,
-    Stage,
-    _create_sample_stage,
-)
-from fibsem.structures import FibsemStagePosition
+from fibsem.microscopes._stage import Stage, _create_sample_stage
+from fibsem.structures import FibsemStagePosition, GridSlot, SampleGrid, SampleHolder
 from tests.fixtures.demo_stage import demo_session
 
 # ---------------------------------------------------------------------------

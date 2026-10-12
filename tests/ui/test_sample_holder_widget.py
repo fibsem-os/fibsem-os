@@ -7,13 +7,13 @@ import pytest
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem import utils
-from fibsem.microscopes._stage import (
+from fibsem.microscopes._stage import _create_sample_stage
+from fibsem.structures import (
+    FibsemStagePosition,
     SampleGrid,
     SampleHolder,
     SlotCalibration,
-    _create_sample_stage,
 )
-from fibsem.structures import FibsemStagePosition
 from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
 
 
