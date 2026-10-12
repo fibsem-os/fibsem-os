@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QVBoxLayout, QWidget
 from fibsem import conversions
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import LinePattern
+from fibsem.milling.patterning.patterns import LinePattern
 
 # `is_pattern_placement_valid` is pure geometry despite living under `fibsem/ui/napari/`
 # — it validates a pattern against the image bounds and never touches a Viewer or Layer.

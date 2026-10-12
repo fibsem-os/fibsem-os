@@ -195,7 +195,7 @@ def test_shadowed_plugin_is_not_silently_reported_as_the_builtin():
     "Rectangle" keeps meaning the built-in even with the plugin installed.
     """
     from fibsem.milling.patterning import get_pattern
-    from fibsem.milling.patterning.patterns2 import RectanglePattern
+    from fibsem.milling.patterning.patterns import RectanglePattern
 
     assert isinstance(get_pattern(CLASHING_PATTERN_NAME), RectanglePattern)
 
@@ -311,9 +311,10 @@ def test_report_lists_the_fixture_across_every_group():
     assert text.count("failed") >= 1
 
     # Built-ins are counted but not listed unless asked for.
-    assert "fibsem.milling.patterning.patterns2.RectanglePattern" not in text
-    assert "fibsem.milling.patterning.patterns2.RectanglePattern" in render_report(
-        groups, show_builtins=True
+    assert "fibsem.milling.patterning.patterns.rectangle.RectanglePattern" not in text
+    assert (
+        "fibsem.milling.patterning.patterns.rectangle.RectanglePattern"
+        in render_report(groups, show_builtins=True)
     )
     assert any(e.source is ExtensionSource.BUILTIN for e in groups[0].extensions)
 

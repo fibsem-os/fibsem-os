@@ -25,7 +25,7 @@ from typing import (
 
 from fibsem.milling.config import MILLING_SPUTTER_RATE
 from fibsem.milling.patterning import DEFAULT_MILLING_PATTERN, get_pattern
-from fibsem.milling.patterning.patterns2 import BasePattern
+from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures import (
     CrossSectionPattern,
     FibsemImage,

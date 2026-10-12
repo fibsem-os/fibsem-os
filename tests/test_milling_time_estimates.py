@@ -32,7 +32,7 @@ from fibsem.milling.base import (
     set_milling_time_estimator,
     using_milling_time_estimator,
 )
-from fibsem.milling.patterning.patterns2 import RectanglePattern
+from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.structures import CrossSectionPattern, FibsemMillingSettings
 
 RATE = 1.3e-8  # m3/A/s (the cryo-lamella default)
