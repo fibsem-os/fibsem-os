@@ -69,7 +69,7 @@ from typing import (
 
 import numpy as np
 
-from fibsem.devices.beam import Beam
+from fibsem.devices.beam import Beam, nearest_resolution
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
@@ -618,6 +618,10 @@ class AutoscriptBeam(Beam):
     # moved as they are. The vendor call runs with this beam's channel claimed
     # (claim_channel), which is the old `_threading_lock` + `set_channel` pair, and the
     # FibsemImage is built from get_microscope_state as before.
+
+    def _acquire_resolution(self, requested: Tuple[int, int]) -> Tuple[int, int]:
+        # GrabFrameSettings takes only a resolution the scan lists
+        return nearest_resolution(requested, self.resolution.choices)
 
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
         from fibsem.drivers.autoscript import microscope as thermo
