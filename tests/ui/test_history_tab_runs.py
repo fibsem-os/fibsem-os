@@ -326,3 +326,44 @@ def test_a_runs_time_sits_on_its_name_line(widget):
     ]
     assert when.parent() is name.parent()
     assert abs(when.geometry().center().y() - name.geometry().center().y()) <= 2
+
+
+def test_switching_to_a_lamella_with_other_tasks_keeps_the_filter_menu(
+    widget, tmp_path
+):
+    """The filter button sits in the header row, which every rebuild deletes.
+    Loading another experiment clears the selection first, and that rebuild makes
+    no new header for the button to move to, so it was deleted with the old one;
+    the next lamella whose tasks differed rebuilt its menu on a deleted QMenu,
+    PyQt raised, and the app aborted."""
+    other = Lamella(path=tmp_path / "exp2" / "02-other", number=2, petname="other")
+    other.path.mkdir(parents=True)
+    other.task_history = [_run("Setup Lamella Position", "s1", 0)]
+
+    widget.set_lamella(None)  # as loading another experiment does
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)  # the old header goes
+    widget.set_lamella(other)
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    texts = [a.text() for a in widget._filter_button.menu().actions()]
+    assert "Setup Lamella Position" in texts and ROUGH not in texts
+    assert "Setup Lamella Position" in _shown(widget)
+
+
+def test_the_filter_menu_has_the_apps_menu_background(widget, qapp):
+    """The header row sets an unscoped `background: transparent`, which reached
+    the menu through the filter button, its parent: the menu drew see-through
+    over the runs. Parentless, it gets the app's menu style like every other."""
+    from fibsem.ui import stylesheets
+    from fibsem.ui.tokens import SURFACE_COLOR
+
+    before = qapp.styleSheet()
+    qapp.setStyleSheet(stylesheets.NAPARI_STYLE)
+    try:
+        menu = widget._filter_button.menu()
+        menu.ensurePolished()
+        image = menu.grab().toImage()
+        pixel = image.pixelColor(image.width() - 3, image.height() // 2)
+        assert pixel.name() == SURFACE_COLOR.lower()
+    finally:
+        qapp.setStyleSheet(before)

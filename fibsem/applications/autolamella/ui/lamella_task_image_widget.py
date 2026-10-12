@@ -329,7 +329,11 @@ class _HistoryFilterButton(QToolButton):
         )
         self.setPopupMode(QToolButton.InstantPopup)
         self.setFocusPolicy(Qt.NoFocus)
-        self._menu = QMenu(self)
+        # No parent: a child of this button inherits the stylesheets above it, and
+        # the header row's unscoped `background: transparent` made the menu
+        # see-through. Unparented, it is styled as every other menu in the app,
+        # and is not deleted with the header either. self._menu keeps it alive.
+        self._menu = QMenu()
         self.setMenu(self._menu)
         self._filter = HistoryFilter()
         self._tasks: List[str] = []
@@ -539,12 +543,19 @@ class LamellaTaskImageWidget(QWidget):
             self._worker = None
 
     def _clear_layout(self) -> None:
-        """Remove all widgets from the content layout, keeping the filter button."""
+        """Remove all widgets from the content layout, keeping the filter button.
+
+        The button lives in the header row, which is deleted here: it is taken out
+        first, or Qt deletes it and its menu with the header. A rebuild usually
+        moves it into the new header before that happens, but clearing the
+        selection makes no new header, and the next rebuild then used a deleted
+        QMenu and aborted the app.
+        """
+        self._filter_button.hide()
+        self._filter_button.setParent(self)
         while self._content_layout.count():
             item = self._content_layout.takeAt(0)
             w = item.widget()
-            if w is self._filter_button:
-                continue
             if w is not None:
                 w.deleteLater()
 
