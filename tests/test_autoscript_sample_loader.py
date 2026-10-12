@@ -18,6 +18,7 @@ import pytest
 from fibsem import utils
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.drivers.autoscript import devices as autoscript_devices
+from fibsem.drivers.autoscript.connection import AutoScriptConnection
 from fibsem.services.sample_handling import DeviceGridMagazine, bind_sample_handling
 from fibsem.structures import DeviceEntry, SampleGrid
 
@@ -106,12 +107,18 @@ class FakeConnection:
         self.specimen = FakeSpecimen(autoloader)
 
 
+def _connection(microscope, autoloader: FakeAutoloader) -> AutoScriptConnection:
+    return AutoScriptConnection(FakeConnection(autoloader), microscope._threading_lock)
+
+
 def _microscope_with(autoloader: FakeAutoloader):
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.stage_device.compustage = True
     microscope.sample_handling = bind_sample_handling(microscope)
-    microscope.connection = FakeConnection(autoloader)
-    device = autoscript_devices.AutoscriptSampleLoader(microscope).connect()
+    microscope._connection = _connection(microscope, autoloader)
+    device = autoscript_devices.AutoscriptSampleLoader(
+        microscope, microscope._connection
+    ).connect()
     loader = DeviceGridMagazine(microscope, device)
     microscope.sample_handling.magazine = loader
     return microscope, loader
@@ -414,8 +421,8 @@ class TestIsInstalled:
 
     def test_absent_device_reads_as_not_installed(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
-        microscope.connection = FakeConnection(FakeAutoloader())
-        del microscope.connection.specimen.autoloader
+        microscope._connection = _connection(microscope, FakeAutoloader())
+        del microscope._connection.sdk.specimen.autoloader
         assert autoscript_devices.autoloader_installed(microscope) is False
 
 
@@ -435,7 +442,7 @@ def _thermo(autoloader: FakeAutoloader, devices=None):
         system.other_devices = [DeviceEntry.from_dict(entry) for entry in devices]
     microscope = ThermoMicroscope.__new__(ThermoMicroscope)
     microscope.system = system
-    microscope.connection = FakeConnection(autoloader)
+    microscope._connection = _connection(microscope, autoloader)
     microscope._devices = {}
     return microscope
 
@@ -447,7 +454,7 @@ class TestThermoBuildsTheDevice:
         assert isinstance(device, autoscript_devices.AutoscriptSampleLoader)
         assert microscope.devices["sample_loader"] is device
         # nothing is read at connect
-        assert microscope.connection.specimen.autoloader.calls == []
+        assert microscope._connection.sdk.specimen.autoloader.calls == []
 
     def test_a_rebuilt_sample_stage_keeps_the_device(self):
         microscope = _thermo(FakeAutoloader())

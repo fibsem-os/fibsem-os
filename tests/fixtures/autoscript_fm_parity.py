@@ -263,6 +263,7 @@ def make_connection(objective, filter_mode):
 # -- the drivers, over a fake connection ------------------------------------------------
 
 from fibsem.devices.core import IMAGING_CHANNEL, Resources  # noqa: E402
+from fibsem.drivers.autoscript.connection import AutoScriptConnection  # noqa: E402
 from fibsem.drivers.autoscript.devices import (  # noqa: E402
     MULTI_BAND,
     ThermoFisherFluorescenceMicroscope,
@@ -275,8 +276,8 @@ class Parent:
     """What either side needs of the Thermo microscope: its connection and its lock."""
 
     def __init__(self, connection):
-        self.connection = connection
         self._threading_lock = threading.RLock()
+        self._connection = AutoScriptConnection(connection, self._threading_lock)
         self.resources = Resources(
             groups={IMAGING_CHANNEL: IMAGING_CHANNEL},
             locks={IMAGING_CHANNEL: self._threading_lock},
@@ -860,7 +861,10 @@ def _thermo_microscope_fm():
     )
 
     microscope = object.__new__(A.ThermoMicroscope)
-    microscope.connection = make_connection("Retracted", CameraFilterType.FLUORESCENCE)
+    microscope._connection = AutoScriptConnection(
+        make_connection("Retracted", CameraFilterType.FLUORESCENCE),
+        microscope._threading_lock,
+    )
     microscope.system = SimpleNamespace(
         fm=FluorescenceSystemSettings(mount_transform=CameraImageTransform.FLIP_Y)
     )

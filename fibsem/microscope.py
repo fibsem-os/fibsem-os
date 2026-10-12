@@ -1541,7 +1541,7 @@ class FibsemMicroscope(ABC):
     # A backend whose stage device keeps its own state also routes the stage keys
     # (`_device_routes`, `_command_routes`), so `get("stage_position")` and the
     # device can't disagree. A backend keeps its vendor stage object private
-    # (`_vendor_stage` on Thermo and Odemis).
+    # (on the connection on Thermo, `_vendor_stage` on Odemis).
     @property
     def stage(self) -> Optional[Any]:
         return self._devices.get("stage")

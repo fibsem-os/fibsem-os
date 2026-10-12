@@ -257,8 +257,10 @@ def test_autoscript_asks_the_ion_source():
 
     def probe(source) -> Optional[str]:
         fake = SimpleNamespace(
-            connection=SimpleNamespace(
-                beams=SimpleNamespace(ion_beam=SimpleNamespace(source=source))
+            _connection=SimpleNamespace(
+                sdk=SimpleNamespace(
+                    beams=SimpleNamespace(ion_beam=SimpleNamespace(source=source))
+                )
             )
         )
         return ThermoMicroscope._probe_plasma_gas(fake)

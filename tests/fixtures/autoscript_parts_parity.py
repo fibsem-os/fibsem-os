@@ -109,7 +109,7 @@ def make(build):
     them when *build*, else as before."""
     microscope = S.make(compustage=False)
     microscope._fitted_answers = {"manipulator": True}  # what the probe said
-    connection = microscope.connection
+    connection = microscope._connection.sdk
     object.__setattr__(connection.vacuum, "chamber_state", "Pumped")
     object.__setattr__(connection.vacuum.chamber_pressure, "value", 2.5e-4)
     object.__setattr__(

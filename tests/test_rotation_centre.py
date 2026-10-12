@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from fibsem import utils
+from fibsem.drivers.autoscript.connection import AutoScriptConnection
 from fibsem.imaging.tiling.reprojection import (
     _transform_position,
     calculate_reprojected_stage_position2,
@@ -248,9 +249,11 @@ def _thermo(correction=(0.0, 0.0), monkeypatch=None):
     microscope = object.__new__(A.ThermoMicroscope)
     microscope.system = utils.setup_session(manufacturer="Demo")[0].system
     microscope.system.stage.rotation_centre_correction = correction
-    microscope._vendor_stage = _VendorStage()
-    microscope._default_stage_coordinate_system = "Raw"
-    microscope._compucentric_offset = microscope._read_compucentric_offset()
+    connection = AutoScriptConnection(sdk=None, lock=None)
+    connection.vendor_stage = _VendorStage()
+    connection.default_stage_coordinate_system = "Raw"
+    microscope._connection = connection
+    microscope._compucentric_offset = connection.read_compucentric_offset()
     return microscope
 
 
@@ -261,7 +264,7 @@ class TestThermoFisher:
         microscope = _thermo(monkeypatch=monkeypatch)
 
         assert microscope.rotation_centre == pytest.approx((513e-6, -794e-6))
-        assert microscope._vendor_stage.systems[-1] == "Raw"
+        assert microscope._connection.vendor_stage.systems[-1] == "Raw"
 
     def test_the_correction_is_added(self, monkeypatch):
         microscope = _thermo((19e-6, 11e-6), monkeypatch=monkeypatch)
