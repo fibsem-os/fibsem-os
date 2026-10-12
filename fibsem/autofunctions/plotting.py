@@ -129,7 +129,7 @@ def plot_autofocus_result(
 ) -> None:
     """Diagnostic plot: one row per pass, curve on left, thumbnails on right.
 
-    If ``save_path`` is None, a timestamped file under ``autofocus/`` is used.
+    If ``save_path`` is None, the figure is returned and nothing is written.
     """
     import matplotlib.gridspec as gridspec
     import numpy as np
@@ -242,13 +242,10 @@ def plot_autofocus_result(
 
 
 def _save_figure(fig, save_path: Optional[str] = None) -> None:
+    # No path means the caller did not say where its run writes, so nothing is
+    # saved: guessing one (it used to be ``autofocus/`` under the working
+    # directory) scattered plots wherever the app was started from.
     if save_path is None:
-        import os
-        from datetime import datetime
-
-        os.makedirs("autofocus", exist_ok=True)
-        save_path = os.path.join(
-            "autofocus", f"autofocus_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        )
+        return
     fig.savefig(save_path, dpi=120, bbox_inches="tight")
     logger.debug("Plot saved to %s", save_path)
