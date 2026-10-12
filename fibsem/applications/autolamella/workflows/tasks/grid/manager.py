@@ -78,6 +78,7 @@ from fibsem.applications.autolamella.workflows.tasks.manager import BaseTaskMana
 from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import OperationCancelledError
+from fibsem.control import WORKFLOW
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.hooks import HookEvent, HookManager
 from fibsem.util import timestamps
@@ -872,7 +873,10 @@ def run_grid_tasks(
 
     ``unload_at_end`` returns the last grid to the magazine once the queue is
     done; ``report_at_end`` writes the grid screening report however the run
-    ends. Both off unless asked for; the app's confirmation offers them."""
+    ends. Both off unless asked for; the app's confirmation offers them.
+
+    In control of the microscope for the run (FIB-1270): refused with
+    ``MicroscopeBusy`` if someone else is."""
     if task_names is None:
         task_names = experiment.grid_protocol.ordered_task_names
     manager = GridTaskManager(
@@ -883,5 +887,6 @@ def run_grid_tasks(
         unload_at_end=unload_at_end,
         report_at_end=report_at_end,
     )
-    manager.run(task_names, grid_names)
+    with microscope.control.take(WORKFLOW, "a grid run"):
+        manager.run(task_names, grid_names)
     return manager
