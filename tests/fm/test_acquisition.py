@@ -54,7 +54,7 @@ def fm_microscope(demo_microscope):
     microscope = demo_microscope
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope.stage_device.compustage = True
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     return microscope
 
 

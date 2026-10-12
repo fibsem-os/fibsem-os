@@ -10,8 +10,7 @@ to it. It builds both from its device entries (``fibsem.devices.entries``) with 
 builders at the end of this module, which the Tescan driver record names.
 
 The vendor beams are ``connection.SEM`` and ``connection.FIB``. SharkSEM is one socket,
-so every read and write holds the microscope's ``_connection_lock``, as ``_get`` and
-``_set`` do. This module imports nothing from the SDK; the Tescan backend's guarded
+so every read and write holds the microscope's ``_connection_lock``. This module imports nothing from the SDK; the Tescan backend's guarded
 import is the only one.
 """
 
@@ -57,7 +56,7 @@ class TescanBeam(Beam):
 
     Each parameter was the matching branch of ``TescanMicroscope._get``/``_set``. A
     write prepares the beam first (turns it on, stops the scan, waits until it is not
-    busy), as ``_set`` does for every beam key. The choices are what
+    busy), as ``_set`` did for every beam key. The choices are what
     ``get_available_values`` answers for a beam key.
 
     What the Tescan API refuses is still written, so the old API keeps its message,
@@ -88,7 +87,7 @@ class TescanBeam(Beam):
         return self.parent._get_beam(self.beam_type)
 
     def _prepared(self) -> Any:
-        """The vendor beam, prepared as ``_set`` prepares it before every beam key."""
+        """The vendor beam, prepared for a write (`TescanMicroscope._prepare_beam`)."""
         beam = self._beam
         self.parent._prepare_beam(self.beam_type)
         return beam

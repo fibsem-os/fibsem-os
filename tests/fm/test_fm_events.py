@@ -41,7 +41,7 @@ def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
     microscope.system.stage.shuttle_pre_tilt = 0
     microscope.stage_device.compustage = True
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     return microscope
 
 

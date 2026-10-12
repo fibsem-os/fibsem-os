@@ -3730,18 +3730,6 @@ class FibsemMicroscope(ABC):
         """
         self._movement_service().move_to_device(device, orientation=orientation)
 
-    def move_to_microscope(self, target: str) -> None:
-        """Deprecated name for `move_to_device(target)` -- the last place a device
-        was called a microscope. Kept as a shim for its many callers.
-
-        Where the FM is a pose, the beams are reached at SEM, as they always were here;
-        `move_to_device` keeps the pose instead when it can.
-        """
-        if target == BEAMS_STAGE_DEVICE and self._fm_is_a_pose():
-            self.move_to_device(target, orientation="SEM")
-            return
-        self.move_to_device(target)
-
     @property
     def current_grid(self) -> str:
         try:

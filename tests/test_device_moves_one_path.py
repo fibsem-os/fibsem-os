@@ -87,27 +87,17 @@ def test_an_orientation_asked_for_is_reached_at_the_beams():
     assert microscope.get_stage_orientation() == "MILLING"
 
 
-def test_the_beams_keep_the_pose_and_the_old_name_lands_at_sem():
+def test_the_beams_keep_the_pose():
     """`move_to_device` takes a device and an orientation, so with none it keeps the
-    pose; `move_to_microscope` keeps the SEM landing its callers rely on."""
+    pose; a caller that wants SEM asks for it."""
     microscope = _offset_arctis()
     _at(microscope, "FIB")
 
     microscope.move_to_device("FIBSEM")
     assert microscope.get_stage_orientation() == "FIB"
 
-    microscope.move_to_microscope("FIBSEM")
+    microscope.move_to_device("FIBSEM", orientation="SEM")
     assert microscope.get_stage_orientation() == "SEM"
-
-
-def test_the_old_name_takes_the_offset_too():
-    microscope = _offset_arctis()
-    start = _at(microscope, "SEM")
-
-    microscope.move_to_microscope("FM")
-
-    _assert_xy(microscope.get_stage_position(), start.x + OFFSET.x, start.y + OFFSET.y)
-    assert microscope.get_stage_orientation() == "FM"
 
 
 # -- at the beams' origin ----------------------------------------------------------------
@@ -141,8 +131,7 @@ def test_far_from_the_centre_the_fm_is_still_reached():
 
 
 def test_back_to_the_beams_keeps_a_pose_they_image_from():
-    """`move_to_device` keeps the pose with no orientation asked for; the old name
-    lands at SEM, as its callers rely on (Patrick 2026-10-06)."""
+    """`move_to_device` keeps the pose with no orientation asked for."""
     microscope = pinned._microscope("arctis")
     _at(microscope, "FIB")
     commands = pinned._record_commands(microscope)
@@ -151,9 +140,6 @@ def test_back_to_the_beams_keeps_a_pose_they_image_from():
 
     assert microscope.get_stage_orientation() == "FIB"
     assert commands == []
-
-    microscope.move_to_microscope("FIBSEM")
-    assert microscope.get_stage_orientation() == "SEM"
 
 
 # -- converting and asking --------------------------------------------------------------

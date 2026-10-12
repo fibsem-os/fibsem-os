@@ -569,8 +569,8 @@ class TescanMicroscope(FibsemMicroscope):
         """Build the beam devices and route the beam keys to them.
 
         A key a beam does not have (the ion column's working distance,
-        ``detector_mode``) is unknown; their wrappers answer for themselves. Every key
-        of a disabled column, which gets no device, goes to ``_get``/``_set``.
+        ``detector_mode``) is unknown; their wrappers answer for themselves. A disabled
+        column gets no device, and its keys are unsupported (they read None).
         """
         self._build_devices(
             [
@@ -606,8 +606,8 @@ class TescanMicroscope(FibsemMicroscope):
         """Build the stage device and route the stage keys to it.
 
         The absolute and relative moves then go through the device, and so do the
-        view-corrected moves, which end in them. ``homed`` is not on the device, so its
-        key still goes to ``_get``/``_set``. A disabled stage gets no device, and then
+        view-corrected moves, which end in them. The device has no ``homed``, so it
+        reads None. A disabled stage gets no device, and then
         the stage cannot be read or moved.
         """
         self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
@@ -687,7 +687,7 @@ class TescanMicroscope(FibsemMicroscope):
     def is_working_distance_settable(self, beam_type: BeamType) -> bool:
         """ION working distance is not settable: the SDK's FIB class has no WD or
         focus control anywhere (FIB.Optics carries only rotation/shift/viewfield) --
-        ion focus on TESCAN is preset-driven. _set("working_distance", ION) is a
+        ion focus on TESCAN is preset-driven. Writing the ion working distance is a
         best-effort no-op so state restores keep working; anything that *depends* on
         the write landing (the autofocus sweep) must gate on this instead."""
         return beam_type is not BeamType.ION

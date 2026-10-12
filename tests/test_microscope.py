@@ -93,7 +93,7 @@ def test_move_to_orientation_round_trip(orientation):
 
 
 # ---------------------------------------------------------------------------
-# move_to_microscope: FIBSEM <-> FM on a compustage
+# move_to_device: FIBSEM <-> FM on a compustage
 # ---------------------------------------------------------------------------
 
 
@@ -110,23 +110,23 @@ def _compustage_with_fm():
 
 
 @pytest.mark.parametrize("target,expected", [("FIBSEM", "SEM"), ("FM", "FM")])
-def test_move_to_microscope_on_a_compustage_lands_on_the_named_orientation(
+def test_move_to_device_on_a_compustage_lands_on_the_named_orientation(
     target, expected
 ):
     microscope = _compustage_with_fm()
 
-    microscope.move_to_microscope(target)
+    microscope.move_to_device(target)
 
     assert microscope.get_stage_orientation() == expected
 
 
-def test_move_to_microscope_on_a_compustage_round_trip():
+def test_move_to_device_on_a_compustage_round_trip():
     microscope = _compustage_with_fm()
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     start = microscope.get_stage_position()
 
-    microscope.move_to_microscope("FIBSEM")
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FIBSEM")
+    microscope.move_to_device("FM")
 
     end = microscope.get_stage_position()
     assert np.isclose(end.r, start.r, atol=1e-6)

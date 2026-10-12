@@ -2803,7 +2803,7 @@ def test_a_click_never_changes_the_stage_orientation(qapp):
     qapp.processEvents()
     assert np.rad2deg(widget.origin.t) == pytest.approx(0.0)
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     widget._on_stage_moved(microscope.get_stage_position())
     qapp.processEvents()
 
@@ -2820,7 +2820,7 @@ def test_a_stale_origin_resolves_a_click_to_the_same_place_as_a_fresh_one(qapp):
     stale_microscope = _microscope_at(0.0)
     stale = FMOverviewWidget(stale_microscope)
     stale._refresh_tile_grid()
-    stale_microscope.move_to_microscope("FM")
+    stale_microscope.move_to_device("FM")
     stale._on_stage_moved(stale_microscope.get_stage_position())
     qapp.processEvents()
 
@@ -2847,7 +2847,7 @@ def test_the_anchor_itself_does_not_move_with_the_pose(qapp):
     qapp.processEvents()
     anchor = (widget.origin.x, widget.origin.y, widget.origin.z)
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     widget._on_stage_moved(microscope.get_stage_position())
     qapp.processEvents()
 
@@ -2874,7 +2874,7 @@ def test_an_acquired_image_lands_where_the_grid_that_planned_it_is_drawn(qapp):
     widget._refresh_tile_grid()  # origin fixed at t = 0
     qapp.processEvents()
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     microscope.move_stage_absolute(
         FibsemStagePosition(x=200e-6, y=150e-6, z=0.0, r=0.0, t=np.deg2rad(-180))
     )
@@ -2904,7 +2904,7 @@ def test_the_placement_of_an_image_matches_a_widget_that_never_moved(qapp):
     stale_microscope = _microscope_at(0.0)
     stale = FMOverviewWidget(stale_microscope)
     stale._refresh_tile_grid()
-    stale_microscope.move_to_microscope("FM")
+    stale_microscope.move_to_device("FM")
     stale._on_stage_moved(stale_microscope.get_stage_position())
 
     fresh_microscope = _microscope_at(-180.0)
