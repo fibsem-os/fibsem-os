@@ -501,10 +501,10 @@ async function liveLoop() {
 /* ── boot ──────────────────────────────────────────────────────────── */
 
 async function boot() {
-  if (!TOKEN) { gate("Paste the session token from Tools → App Server."); return; }
+  if (!TOKEN) { gate("Open the dashboard from Tools → App Server, or paste its link from Copy link there."); return; }
   let caps;
   try { caps = await api("/capabilities"); }
-  catch (e) { gate("That token was refused — copy a fresh one from Tools → App Server."); return; }
+  catch (e) { gate("That token was refused — copy a fresh link from Tools → App Server."); return; }
   if (!caps.routers || !caps.routers.app) {
     $app.innerHTML = `<div class="gate panel"><h1>AutoLamella Dashboard</h1>
       <p>This server hosts no application (bench mode) — there is no session to show.</p></div>`;

@@ -135,10 +135,19 @@ class AppServerHost:
                 "App Server: agent level DRIVE via FIBSEM_AGENT_ARM_CONTROL "
                 "(developer override; the agent chip replaces this)"
             )
-        self.auth = AuthConfig.generate()
-        # The agent level starts at Watch at every launch (FIB-1035): it is
-        # never remembered. The override is Drive, today's armed behaviour.
-        self.auth.set_level(AgentLevel.DRIVE if arm_control else AgentLevel.WATCH)
+        # One AuthConfig per app session, kept on the window across server
+        # restarts (a microscope reconnect, a devices toggle): the agent's
+        # token stays valid, so a connected sidecar carries on, and the level
+        # the operator set stands. It starts at Watch at every launch and is
+        # never written to disk (FIB-1035). The override is Drive.
+        self.auth = getattr(self._ui, "_app_server_auth", None)
+        if self.auth is None:
+            self.auth = AuthConfig.generate()
+            self.auth.set_level(AgentLevel.DRIVE if arm_control else AgentLevel.WATCH)
+            try:
+                self._ui._app_server_auth = self.auth
+            except AttributeError:
+                pass
         if event_buffer is not None:
             # The app's stream: already fed, and not ours to detach on stop.
             self.event_buffer = event_buffer
@@ -207,10 +216,11 @@ class AppServerHost:
         )
         self._wrote_discovery = True
         atexit.register(self._remove_discovery)
+        # Never the token: it is in the discovery file (0600) and behind
+        # Connect an agent…, and a log is read by more people than either.
         logging.info(
             "App Server on %s — agent level: %s", self.url, self.auth.level.value
         )
-        logging.info("App Server token: %s", self.auth.token)
         return True
 
     def stop(self) -> None:

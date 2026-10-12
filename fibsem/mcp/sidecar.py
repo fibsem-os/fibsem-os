@@ -3,8 +3,9 @@
 Runs on the agent host (the machine running Claude Code / Claude Desktop) and
 proxies MCP tool calls to a fibsem server over HTTP with a bearer token. It
 owns no microscope connection and enforces nothing itself — the server is the
-security boundary; the sidecar merely registers the tools the server's
-``/capabilities`` says are available.
+security boundary. It registers every tool the server's mounted routers serve,
+whatever the agent's level: the level changes mid-session, and the server's
+403 says what is needed (FIB-1035).
 
 Connection resolution, in order: ``--url``/``--token`` arguments, the
 ``FIBSEM_SERVER_URL``/``FIBSEM_SERVER_TOKEN`` environment variables, then the
@@ -12,9 +13,9 @@ same-machine discovery file a running server maintains.
 
 Register with Claude Code:
 
-    claude mcp add fibsem -- fibsem-mcp
+    claude mcp add -s user fibsem -- fibsem-mcp
     # or explicitly:
-    claude mcp add fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
+    claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 """
@@ -53,6 +54,51 @@ def _try_resolve(url, token):
     return None
 
 
+class _ReconnectingClient:
+    """An httpx-style client that follows a restarted server.
+
+    A server restart (a microscope reconnect, a devices toggle) can bring a
+    new address or token; the sidecar would otherwise answer 401 until the MCP
+    client restarted it. On a 401 or a failed connection, re-resolve once --
+    the discovery file names the server now running -- and retry with the
+    fresh client. Explicit ``--url``/``--token`` re-resolve to themselves, so
+    they just fail as before.
+    """
+
+    def __init__(self, client_factory, url, token, client, resolved):
+        self._factory = client_factory
+        self._url = url
+        self._token = token
+        self._client = client
+        self._resolved = resolved
+
+    def request(self, method, path, **kwargs):
+        try:
+            resp = self._client.request(method, path, **kwargs)
+        except Exception:
+            if not self._reresolve():
+                raise
+            return self._client.request(method, path, **kwargs)
+        if resp.status_code == 401 and self._reresolve():
+            return self._client.request(method, path, **kwargs)
+        return resp
+
+    def _reresolve(self) -> bool:
+        fresh = _try_resolve(self._url, self._token)
+        if fresh is None or fresh == self._resolved:
+            return False
+        self._client.close()
+        self._client = self._factory(fresh[0], fresh[1])
+        self._resolved = fresh
+        return True
+
+    def close(self):
+        self._client.close()
+
+    def __getattr__(self, name):  # base_url and the like
+        return getattr(self._client, name)
+
+
 def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
     """Resolve + reach a server, retrying until the deadline.
 
@@ -62,7 +108,8 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
     re-resolving (the discovery file appears when the server starts) and
     re-trying /capabilities until ``wait_s`` runs out.
 
-    Returns (client, capabilities). Exits with guidance on timeout.
+    Returns (client, capabilities), the client a :class:`_ReconnectingClient`.
+    Exits with guidance on timeout.
     """
     import time
 
@@ -78,7 +125,10 @@ def _connect_with_retry(client_factory, url, token, wait_s, sleep_fn=None):
             except Exception as e:  # connection refused, DNS, ...
                 capabilities, err = None, str(e)
             if err is None:
-                return client, capabilities
+                return (
+                    _ReconnectingClient(client_factory, url, token, client, resolved),
+                    capabilities,
+                )
             client.close()
         if time.monotonic() >= deadline:
             if resolved is None:
@@ -123,9 +173,10 @@ def _call(client, method, path, payload=None):
 def build_sidecar(client, capabilities):
     """Build the MCP server over an httpx-compatible client.
 
-    ``capabilities`` is the full /capabilities payload; a tool registers only
-    when its scope is armed AND its router is mounted (an app tool exists only
-    when the server hosts an application). The server enforces regardless.
+    ``capabilities`` is the full /capabilities payload; a tool registers when
+    its router is mounted (an app tool exists only when the server hosts an
+    application), whatever the agent's level, and hardware tools only when
+    the hardware scope is armed. The server enforces regardless.
     """
     from mcp.server.mcpserver import Image, MCPServer
 
@@ -154,6 +205,33 @@ def build_sidecar(client, capabilities):
             return [json.dumps(data), Image(data=jpeg, format="jpeg")]
 
         return spec, tool
+
+    def _with_images(data):
+        """Move every base64 preview in *data* out into MCP image content.
+
+        A question's context image as base64 text is unreadable to the agent
+        and can overflow a tool result (a PickPOI prompt ran to 63k
+        characters). Each preview's place in the JSON keeps ``image_index``,
+        its position among the images that follow.
+        """
+        images = []
+
+        def walk(node):
+            if isinstance(node, dict):
+                b64 = node.pop("image_b64_jpeg", None)
+                if isinstance(b64, str):
+                    node["image_index"] = len(images)
+                    images.append(Image(data=base64.b64decode(b64), format="jpeg"))
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(data)
+        if not images:
+            return data
+        return [json.dumps(data), *images]
 
     # Explicit signatures so FastMCP derives a real parameter schema per tool.
     def get_capabilities():
@@ -441,10 +519,12 @@ def build_sidecar(client, capabilities):
         return content
 
     def get_pending_prompt():
-        return _app_get("/app/prompt")
+        data, err = _call(client, "GET", "/app/prompt")
+        return err if err else _with_images(data)
 
     def get_pending_reviews():
-        return _app_get("/app/reviews")
+        data, err = _call(client, "GET", "/app/reviews")
+        return err if err else _with_images(data)
 
     def decide_review(
         item_id: str,
@@ -546,7 +626,7 @@ def build_sidecar(client, capabilities):
 
     for name, fn in implementations.items():
         if name in armed:
-            mcp.add_tool(fn, name=name, description=by_name[name].description)
+            mcp.add_tool(fn, name=name, description=by_name[name].full_description)
     return mcp
 
 
@@ -592,7 +672,8 @@ def main(argv=None):
     )
     print(
         f"fibsem-mcp: connected to {client.base_url} "
-        f"({capabilities.get('manufacturer')}, scopes {capabilities.get('scopes')})",
+        f"({capabilities.get('manufacturer')}, agent level "
+        f"{capabilities.get('level')})",
         file=sys.stderr,
     )
     if args.check:

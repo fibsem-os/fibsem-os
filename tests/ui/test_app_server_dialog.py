@@ -17,8 +17,7 @@ from fibsem.applications.autolamella.ui.app_server_dialog import (  # noqa: E402
 )
 from fibsem.applications.autolamella.ui.connect_agent_dialog import (  # noqa: E402
     ConnectAgentDialog,
-    claude_code_command,
-    claude_desktop_config,
+    agent_setup_text,
     sidecar_path,
 )
 from fibsem.server.auth import AgentLevel, AuthConfig  # noqa: E402
@@ -108,11 +107,39 @@ def test_connect_without_a_server_has_no_token(qapp, tmp_path):
     dialog.deleteLater()
 
 
-def test_the_registrations_use_the_sidecar_s_absolute_path(tmp_path):
+def test_the_agent_text_registers_for_every_project_by_absolute_path(tmp_path):
     path = tmp_path / "env" / "bin" / "fibsem-mcp"
-    assert claude_code_command(path) == f'claude mcp add fibsem -- "{path}"'
-    config = json.loads(claude_desktop_config(path))
-    assert config == {"mcpServers": {"fibsem": {"command": str(path)}}}
+    text = agent_setup_text(path, "http://127.0.0.1:8002", platform="darwin")
+    assert f'claude mcp add -s user fibsem -- "{path}"' in text
+    assert f'"{path}" --check' in text
+    assert '"connected to http://127.0.0.1:8002"' in text
+    assert "get_capabilities" in text
+    # Desktop users merge one entry into mcpServers; they never replace the file.
+    entry = text.split('"fibsem": ', 1)[1].split(" under", 1)[0]
+    assert json.loads(entry) == {"command": str(path)}
+    assert "Library/Application Support/Claude/claude_desktop_config.json" in text
+    assert "don't replace the file" in text
+
+
+def test_the_agent_text_names_the_windows_desktop_config():
+    text = agent_setup_text(r"C:\env\Scripts\fibsem-mcp.exe", platform="win32")
+    assert r"%APPDATA%\Claude\claude_desktop_config.json" in text
+    assert '"connected to http://127.0.0.1:8001"' in text
+    entry = text.split('"fibsem": ', 1)[1].split(" under", 1)[0]
+    assert json.loads(entry) == {"command": r"C:\env\Scripts\fibsem-mcp.exe"}
+
+
+def test_copy_for_your_agent_fills_in_the_running_server(qapp, host, tmp_path):
+    from PyQt5.QtWidgets import QApplication
+
+    path = tmp_path / "fibsem-mcp"
+    dialog = ConnectAgentDialog(lambda: host, sidecar=path)
+    assert not hasattr(dialog, "_btn_copy_code")
+    dialog._btn_copy_setup.click()
+    copied = QApplication.clipboard().text()
+    assert copied == agent_setup_text(path, host.url)
+    assert host.auth.token not in copied
+    dialog.deleteLater()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="the POSIX layout")
@@ -130,6 +157,5 @@ def test_a_missing_sidecar_says_how_to_install_it(qapp, host, monkeypatch):
 
     monkeypatch.setattr(connect_agent_dialog, "sidecar_path", lambda: None)
     dialog = ConnectAgentDialog(lambda: host)
-    assert not dialog._btn_copy_code.isEnabled()
-    assert not dialog._btn_copy_desktop.isEnabled()
+    assert not dialog._btn_copy_setup.isEnabled()
     dialog.deleteLater()

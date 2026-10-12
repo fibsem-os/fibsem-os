@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fibsem.server.auth import AuthConfig, Scope
+from fibsem.server.auth import AuthConfig
 
 DISCOVERY_DIR = Path.home() / ".fibsem"
 DISCOVERY_FILE = DISCOVERY_DIR / "app-server.json"
@@ -40,7 +40,8 @@ def write_discovery_file(
         "url": f"http://{_client_host(host)}:{port}",
         "token": auth.token,
         "pid": os.getpid(),
-        "scopes": {s.value: auth.is_armed(s) for s in Scope},
+        # No scopes or level: they change while the server runs and a file
+        # would go stale. /capabilities is the live answer (FIB-1035).
     }
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)

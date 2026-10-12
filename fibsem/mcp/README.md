@@ -1,11 +1,15 @@
 # fibsem-mcp — connect an agent to the microscope
 
-> New to the agent? Start with the guide: [docs/app-server.md](../../docs/app-server.md) — what the agent can see and do, permissions, and the security model.
+> New to the agent? Start with the guide: [docs/app-server.md](../../docs/app-server.md) — what the agent can see and do at each level, and the security model.
 
 The MCP sidecar lets Claude (Code or Desktop) drive a fibsem server: acquire
-and *look at* images, read state, move the stage, and always stop a mill. The
-server is the security boundary — the sidecar registers only the tools the
-server's `/capabilities` reports, and the server enforces scopes regardless.
+and *look at* images, read state, move the stage, and stop a mill. The server
+is the security boundary: the sidecar registers every tool the server's mounted
+routers serve (hardware tools only when that scope is armed), whatever the
+agent's level, and the server refuses what the level doesn't allow with a 403
+that says so. Each tool's description names the level it needs. If the server
+restarts with a new token, the sidecar re-reads the discovery file and carries
+on.
 
 ## Install
 
@@ -36,19 +40,23 @@ python -m fibsem.server.server --manufacturer Demo --arm-hardware
 ## 2. Register the sidecar
 
 ```bash
-claude mcp add fibsem -- fibsem-mcp
+claude mcp add -s user fibsem -- fibsem-mcp
 ```
 
-Same-machine setups need nothing more: the sidecar autodiscovers the running
+`-s user` registers it for all your projects. In AutoLamella, *Copy for your
+agent* in the Agent chip's *Connect an agent…* gives the same setup with the
+absolute path filled in, for the agent to run itself. Same-machine setups need
+nothing more: the sidecar autodiscovers the running
 server. For a server on another machine (or a non-default setup):
 
 ```bash
-claude mcp add fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
+claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
 ```
 
 (`FIBSEM_SERVER_URL` / `FIBSEM_SERVER_TOKEN` environment variables also work.)
 
-For Claude Desktop, add to `claude_desktop_config.json`:
+For Claude Desktop, merge this into the `mcpServers` already in
+`claude_desktop_config.json` (don't replace the file):
 
 ```json
 {
@@ -92,7 +100,8 @@ tools) and ask:
 Loopback bind keeps everything off the network by default; the per-session
 bearer token keeps other users on the same machine out; the `hardware` scope
 must be armed before anything moves or images; one hardware command runs at a
-time (a second gets `409 busy`); `stop_milling` is always allowed and never
-waits. **Never run this beside a running AutoLamella session** — one
-commander per microscope; agent access to a live AutoLamella session goes
-*through* the app (embedded hosting, in development), not around it.
+time (a second gets `409 busy`); `stop_milling` needs `control` or
+`hardware` and never waits. **Never run this beside a running AutoLamella
+session** — one commander per microscope; agent access to a live AutoLamella
+session goes *through* the app (its App Server, where the operator sets the
+agent's level), not around it.

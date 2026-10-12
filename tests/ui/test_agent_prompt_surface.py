@@ -513,4 +513,5 @@ def test_capabilities_reflect_the_armed_control_scope(ui, qapp):
             )
         }
         assert "get_pending_prompt" in names
-        assert "answer_prompt" not in names
+        # Offered at Watch too: the server refuses it (FIB-1035).
+        assert "answer_prompt" in names
