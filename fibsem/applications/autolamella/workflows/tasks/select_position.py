@@ -19,8 +19,13 @@ from fibsem.applications.autolamella.proposals import (
     Proposal,
     human_author,
 )
+from fibsem.applications.autolamella.protocol.constants import FIDUCIAL_KEY
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+from fibsem.applications.autolamella.workflows.tasks.fiducial import (
+    MillFiducialTaskConfig,
+    fiducial_point_in_alignment_area,
+)
 from fibsem.applications.autolamella.workflows.ui import ask_user, select_poi_ui
 from fibsem.structures import BeamType, ImageSettings, Point, field_meta
 
@@ -99,6 +104,16 @@ class SelectMillingPositionTaskConfig(AutoLamellaTaskConfig):
             "position recorded here, so a fluorescence task images the site as "
             "set up rather than where the lamella was first marked. Off (the "
             "default) leaves the fluorescence pose as it was.",
+        ),
+    )
+    sync_fiducial_position: bool = field(
+        default=True,
+        metadata=field_meta(
+            label="Sync Fiducial Position",
+            tooltip="Start the fiducial at the centre of the alignment area "
+            "chosen here, so it clears the milling site. When the fiducial "
+            "does not fit in the area, it keeps its configured position. You "
+            "can still move it when the fiducial is milled.",
         ),
     )
     task_type: ClassVar[str] = "SELECT_MILLING_POSITION"
@@ -316,6 +331,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
 
         # validate alignment area
         self._validate_alignment_area(enabled=self.config.confirm_alignment_area)
+        self.sync_fiducial_milling_task_position()
 
         # acquire alignment reference image
         self._acquire_alignment_reference_image(
@@ -338,6 +354,36 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # default leaves the pose alone, as the task always has.
         if self.config.sync_fluorescence_pose:
             sync_fluorescence_pose(self.microscope, self.lamella)
+
+    def sync_fiducial_milling_task_position(self) -> None:
+        """Move the fiducial to the centre of the alignment area, on the FIB
+        image the area was chosen on, if a fiducial task exists."""
+        if not self.config.sync_fiducial_position:
+            return
+        image = self._last_fib_image
+        if image is None:
+            return
+        for task_name, task_config in self.lamella.task_config.items():
+            if task_config.task_type != MillFiducialTaskConfig.task_type:
+                continue
+            milling_config = task_config.milling.get(FIDUCIAL_KEY)
+            if milling_config is None or not milling_config.stages:
+                continue
+            point = fiducial_point_in_alignment_area(
+                milling_config, self.lamella.alignment_area, image
+            )
+            if point is None:
+                logging.warning(
+                    f"The fiducial for {task_name} does not fit in the alignment "
+                    f"area {self.lamella.alignment_area}; keeping its configured position."
+                )
+                continue
+            diff = point - milling_config.stages[0].pattern.point
+            for stage in milling_config.stages:
+                stage.pattern.point = stage.pattern.point + diff
+            logging.info(
+                f"Synced {task_name} fiducial position to the alignment area: {point}"
+            )
 
     def _stage_position_now(self) -> Dict[str, Any]:
         return {"stage_position": self.microscope.get_stage_position()}

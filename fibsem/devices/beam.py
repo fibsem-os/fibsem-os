@@ -11,7 +11,7 @@ import copy
 import logging
 import threading
 from math import pi
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 from psygnal import Signal
 
@@ -41,6 +41,20 @@ STANDARD_RESOLUTIONS: Tuple[Tuple[int, int], ...] = (
     (3072, 2048),
     (6144, 4096),
 )
+
+
+def nearest_resolution(
+    resolution: Tuple[int, int], choices: Optional[Sequence[Tuple[int, int]]]
+) -> Tuple[int, int]:
+    """The listed resolution nearest ``resolution`` (least width plus height
+    difference), for a driver that can only scan the ones it lists."""
+    if not choices:
+        return tuple(resolution)
+    return min(
+        (tuple(c) for c in choices),
+        key=lambda c: abs(c[0] - resolution[0]) + abs(c[1] - resolution[1]),
+    )
+
 
 # Field of view and dwell time limits for a driver that can't report its instrument's:
 # wide enough not to refuse a real setting. A driver reports its own in metadata.

@@ -69,7 +69,7 @@ from typing import (
 
 import numpy as np
 
-from fibsem.devices.beam import Beam
+from fibsem.devices.beam import Beam, nearest_resolution
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
@@ -632,6 +632,16 @@ class AutoscriptBeam(Beam):
             logging.debug(f"acquiring new {name} image.")
         else:
             settings = image_settings
+            # GrabFrameSettings takes only a listed resolution: snap to the nearest
+            resolution = nearest_resolution(
+                settings.resolution, self.resolution.choices
+            )
+            if resolution != tuple(settings.resolution):
+                logging.warning(
+                    f"Resolution {settings.resolution} not available, using {resolution}"
+                )
+                settings = copy.deepcopy(settings)
+                settings.resolution = resolution
             if settings.reduced_area is not None:
                 rect = settings.reduced_area
                 reduced_area = thermo.Rectangle(

@@ -45,6 +45,7 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     Point,
 )
+from fibsem.theme.plots import DARK
 from fibsem.ui.tokens import (
     CANVAS_BG,
 )
@@ -211,8 +212,8 @@ class MillingPatternOverlay(CanvasOverlay):
             loc="upper right",
             fontsize=8,
             facecolor=CANVAS_BG,
-            edgecolor="#555555",
-            labelcolor="#d1d2d4",
+            edgecolor=DARK.grid,
+            labelcolor=DARK.text,
             framealpha=0.85,
         )
         self._legend.set_zorder(10)

@@ -32,8 +32,10 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 )
 from fibsem.applications.autolamella.ui.lamella_task_image_widget import (  # noqa: E402
     LamellaTaskImageWidget,
+    _ClickableRow,
 )
 from fibsem.structures import FibsemImage, MicroscopeState  # noqa: E402
+from fibsem.util.timestamps import format_time  # noqa: E402
 
 T0 = datetime(2026, 7, 29, 18, 0, tzinfo=timezone(timedelta(hours=10)))
 ROUGH, POLISH = "Rough Milling", "Polishing"
@@ -281,3 +283,87 @@ def test_a_thumbnail_opens_in_the_viewer_after_the_rows_are_rebuilt(
     QTest.mouseClick(thumbnail, Qt.LeftButton)
 
     assert opened == [path]
+
+
+def _operation_lines(widget):
+    QApplication.processEvents()
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    return [
+        line
+        for line in widget._content.findChildren(_ClickableRow)
+        if line.isVisibleTo(widget)
+    ]
+
+
+def test_clicking_an_operation_shows_its_steps_and_stays_open(widget):
+    assert "Step 1" not in _shown(widget)
+    alignment = _operation_lines(widget)[1]  # the second Rough Milling's
+
+    alignment.clicked.emit()
+    texts = _shown(widget)
+    assert "Step 1" in texts and "(+300, +400) nm · score 0.00" in texts
+
+    widget.refresh()  # as after a task finishes
+    assert "Step 1" in _shown(widget), "a refresh keeps it open"
+
+    _operation_lines(widget)[1].clicked.emit()
+    assert "Step 1" not in _shown(widget)
+
+
+def test_a_runs_time_sits_on_its_name_line(widget):
+    # in the viewer's zone, as the tab shows it
+    at = format_time(T0 + timedelta(minutes=10), "%H:%M")
+    QApplication.processEvents()
+    (name,) = [
+        label
+        for label in widget._content.findChildren(QLabel)
+        if label.text() == POLISH and label.isVisibleTo(widget)
+    ]
+    (when,) = [
+        label
+        for label in widget._content.findChildren(QLabel)
+        if label.text() == f"{at} · 1 m 30 s" and label.isVisibleTo(widget)
+    ]
+    assert when.parent() is name.parent()
+    assert abs(when.geometry().center().y() - name.geometry().center().y()) <= 2
+
+
+def test_switching_to_a_lamella_with_other_tasks_keeps_the_filter_menu(
+    widget, tmp_path
+):
+    """The filter button sits in the header row, which every rebuild deletes.
+    Loading another experiment clears the selection first, and that rebuild makes
+    no new header for the button to move to, so it was deleted with the old one;
+    the next lamella whose tasks differed rebuilt its menu on a deleted QMenu,
+    PyQt raised, and the app aborted."""
+    other = Lamella(path=tmp_path / "exp2" / "02-other", number=2, petname="other")
+    other.path.mkdir(parents=True)
+    other.task_history = [_run("Setup Lamella Position", "s1", 0)]
+
+    widget.set_lamella(None)  # as loading another experiment does
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)  # the old header goes
+    widget.set_lamella(other)
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    texts = [a.text() for a in widget._filter_button.menu().actions()]
+    assert "Setup Lamella Position" in texts and ROUGH not in texts
+    assert "Setup Lamella Position" in _shown(widget)
+
+
+def test_the_filter_menu_has_the_apps_menu_background(widget, qapp):
+    """The header row sets an unscoped `background: transparent`, which reached
+    the menu through the filter button, its parent: the menu drew see-through
+    over the runs. Parentless, it gets the app's menu style like every other."""
+    from fibsem.ui import stylesheets
+    from fibsem.ui.tokens import SURFACE_COLOR
+
+    before = qapp.styleSheet()
+    qapp.setStyleSheet(stylesheets.NAPARI_STYLE)
+    try:
+        menu = widget._filter_button.menu()
+        menu.ensurePolished()
+        image = menu.grab().toImage()
+        pixel = image.pixelColor(image.width() - 3, image.height() // 2)
+        assert pixel.name() == SURFACE_COLOR.lower()
+    finally:
+        qapp.setStyleSheet(before)

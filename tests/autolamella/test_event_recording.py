@@ -21,6 +21,7 @@ from fibsem.applications.autolamella.event_recording import (
     EventFileWriter,
     EventRecorder,
     read_events,
+    read_new_events,
 )
 from fibsem.applications.autolamella.server.events import EventBuffer
 from fibsem.structures import FibsemStagePosition
@@ -174,6 +175,37 @@ def test_a_write_cut_short_is_skipped_not_half_read(tmp_path):
     path = tmp_path / EVENTS_FILENAME
     path.write_text('{"n": 1}\n\nnot json\n{"n": 2}\n{"n": 3, "cut', encoding="utf-8")
     assert [r["n"] for r in read_events(path)] == [1, 2]
+
+
+def test_reading_on_from_the_offset_gets_only_what_was_written_since(tmp_path):
+    path = tmp_path / EVENTS_FILENAME
+    path.write_text('{"n": 1}\n{"n": 2}\n{"n": 3', encoding="utf-8")
+    first, offset = read_new_events(path)
+    assert [r["n"] for r in first] == [1, 2]
+
+    with open(path, "a", encoding="utf-8") as f:  # the cut write finishes
+        f.write('}\n{"n": 4}\n')
+    second, offset = read_new_events(path, offset)
+    assert [r["n"] for r in second] == [3, 4]
+    assert read_new_events(path, offset) == ([], offset)
+
+
+def test_reading_some_kinds_returns_only_those(tmp_path):
+    path = tmp_path / EVENTS_FILENAME
+    records = [
+        {"kind": "milling_progress", "n": 1},
+        {"kind": "alignment", "n": 2},
+        {"kind": "milling_progress", "n": 3, "note": "alignment"},
+        {"kind": "autofocus", "n": 4},
+        {"kind": "alignment", "n": 5},
+    ]
+    path.write_text(
+        "".join(json.dumps(r) + "\n" for r in records) + "not json alignment\n",
+        encoding="utf-8",
+    )
+    found, offset = read_new_events(path, kinds=("alignment", "autofocus"))
+    assert [r["n"] for r in found] == [2, 4, 5]
+    assert offset == path.stat().st_size
 
 
 # ── the recorder ──────────────────────────────────────────────────────────────
