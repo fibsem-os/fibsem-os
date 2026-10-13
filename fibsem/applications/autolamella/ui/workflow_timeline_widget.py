@@ -9,7 +9,6 @@ from typing import Dict, List, Optional, Tuple
 from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter
 from PyQt5.QtWidgets import (
-    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -1356,40 +1355,3 @@ class WorkflowProgressWidget(QWidget):
             self._outer._steps[outer_idx].trailing = format_duration_rounded(
                 task_duration, pad=True
             )
-
-
-# ── Demo ──────────────────────────────────────────────────────────────────────
-DEMO_STEPS = [
-    TimelineStep("Setup session", StepStatus.COMPLETED),
-    TimelineStep("Move to position", StepStatus.COMPLETED, "0.32 s"),
-    TimelineStep("Acquire overview", StepStatus.COMPLETED, "1.1 s"),
-    TimelineStep("Detect features", StepStatus.COMPLETED, "2.4 s"),
-    TimelineStep("Mill rough trench", StepStatus.ACTIVE, "running…"),
-    TimelineStep("Mill fine trench", StepStatus.PENDING),
-    TimelineStep("Polish lamella", StepStatus.PENDING),
-    TimelineStep("Acquire final image", StepStatus.PENDING),
-]
-
-if __name__ == "__main__":
-    import sys
-
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-
-    win = QWidget()
-    win.setWindowTitle("Workflow Timeline — Demo")
-    win.resize(320, 400)
-    win.setStyleSheet(f"background: {stylesheets.GRAY_BACKGROUND_COLOR};")
-
-    from PyQt5.QtWidgets import QVBoxLayout as VBox
-
-    layout = VBox(win)
-    layout.setContentsMargins(0, 0, 0, 0)
-
-    timeline = WorkflowTimelineWidget()
-    timeline.set_steps(DEMO_STEPS)
-    timeline.step_selected.connect(lambda i: print(f"Selected step {i}"))
-
-    layout.addWidget(timeline)
-    win.show()
-    sys.exit(app.exec_())

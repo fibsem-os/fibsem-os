@@ -249,7 +249,7 @@ class TestGeometryIsRecorded:
         geometry = image.metadata.geometry
         assert geometry is not None
         assert geometry.transform is CameraImageTransform.FLIP_XY
-        assert geometry.is_compustage is True
+        assert geometry.fm_is_pose is True
         assert geometry.camera_tilt == microscope.fm.camera_tilt
 
     @pytest.mark.parametrize("transform", TRANSFORMS)
@@ -262,7 +262,8 @@ class TestGeometryIsRecorded:
             shuttle_pre_tilt=35.0,
             rotation_reference=10.0,
             rotation_180=190.0,
-            is_compustage=True,
+            fm_is_pose=True,
+            mirrors_back_view=True,
         )
 
         assert FibsemHardwareGeometry.from_dict(geometry.to_dict()) == geometry
@@ -343,7 +344,8 @@ def test_the_pure_projection_needs_no_microscope():
     geometry = FibsemHardwareGeometry(
         transform=CameraImageTransform.NONE,
         camera_tilt=180.0,
-        is_compustage=True,
+        fm_is_pose=True,
+        mirrors_back_view=True,
         shuttle_pre_tilt=0.0,
     )
     base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(-180))

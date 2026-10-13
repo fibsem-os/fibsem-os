@@ -22,8 +22,8 @@ import pytest
 
 from tests.fixtures.fake_drivers import built_in_packages
 
-# Every built-in driver but the Demo, which has no SDK to reach.
-DRIVERS = sorted(set(built_in_packages().values()) - {"demo"})
+# Every built-in driver, the Demo's simulator included.
+DRIVERS = sorted(set(built_in_packages().values()))
 
 ALLOWED = {
     "_last_imaging_settings",

@@ -62,7 +62,9 @@ class FibsemBeamWidget(QWidget):
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )
-        self.beam_group = TitledPanel("Beam", content=self.beam_settings_widget, collapsible=False)
+        self.beam_group = TitledPanel(
+            "Beam", content=self.beam_settings_widget, collapsible=False
+        )
         self.beam_group.add_header_widget(self._btn_advanced_beam)
         layout.addWidget(self.beam_group)
 
@@ -78,7 +80,9 @@ class FibsemBeamWidget(QWidget):
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )
-        self.detector_group = TitledPanel("Detector", content=self.detector_settings_widget, collapsible=False)
+        self.detector_group = TitledPanel(
+            "Detector", content=self.detector_settings_widget, collapsible=False
+        )
         self.detector_group.add_header_widget(self._btn_advanced_detector)
         layout.addWidget(self.detector_group)
 
@@ -90,9 +94,15 @@ class FibsemBeamWidget(QWidget):
 
     def _connect_signals(self):
         self.beam_settings_widget.settings_changed.connect(self.beam_settings_changed)
-        self.detector_settings_widget.settings_changed.connect(self.detector_settings_changed)
-        self._btn_advanced_beam.toggled.connect(self.beam_settings_widget.set_advanced_visible)
-        self._btn_advanced_detector.toggled.connect(self.detector_settings_widget.set_advanced_visible)
+        self.detector_settings_widget.settings_changed.connect(
+            self.detector_settings_changed
+        )
+        self._btn_advanced_beam.toggled.connect(
+            self.beam_settings_widget.set_advanced_visible
+        )
+        self._btn_advanced_detector.toggled.connect(
+            self.detector_settings_widget.set_advanced_visible
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -129,55 +139,3 @@ class FibsemBeamWidget(QWidget):
         beam_settings = self.microscope.get_beam_settings(self.beam_type)
         detector_settings = self.microscope.get_detector_settings(self.beam_type)
         self.update_from_settings(beam_settings, detector_settings)
-
-
-if __name__ == "__main__":
-    import sys
-
-    from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLabel, QPushButton
-
-    from fibsem import utils
-
-    app = QApplication(sys.argv)
-
-    microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-
-    main_widget = QWidget()
-    main_layout = QHBoxLayout()
-    main_widget.setLayout(main_layout)
-
-    for beam_type in [BeamType.ELECTRON, BeamType.ION]:
-        col = QWidget()
-        col_layout = QVBoxLayout()
-        col.setLayout(col_layout)
-
-        header = QLabel(f"{beam_type.name.title()} Beam")
-        header.setStyleSheet("font-weight: bold; font-size: 16px;")
-        col_layout.addWidget(header)
-
-        widget = FibsemBeamWidget(microscope=microscope, beam_type=beam_type)
-        widget.populate_combos()
-        widget.sync_from_microscope()
-        col_layout.addWidget(widget)
-
-        widget.beam_settings_changed.connect(
-            lambda s, bt=beam_type: print(f"[{bt.name}] beam_settings_changed: {s}")
-        )
-        widget.detector_settings_changed.connect(
-            lambda s, bt=beam_type: print(f"[{bt.name}] detector_settings_changed: {s}")
-        )
-
-        def _print(checked=False, w=widget, bt=beam_type):
-            from pprint import pprint
-            print(f"--- {bt.name} beam ---")
-            pprint(w.get_beam_settings().to_dict())
-            pprint(w.get_detector_settings().to_dict())
-
-        btn = QPushButton("Print Settings")
-        btn.clicked.connect(_print)
-        col_layout.addWidget(btn)
-
-        main_layout.addWidget(col)
-
-    main_widget.show()
-    sys.exit(app.exec_())

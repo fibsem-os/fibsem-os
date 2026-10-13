@@ -749,8 +749,8 @@ def _click(overlay, x, y):
 @pytest.fixture(scope="module")
 def overview_widget(qapp):
     """A real widget against the Demo microscope, for the canvas/settings wiring."""
-    from fibsem.ui.fm.overview_app import build_microscope
     from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
+    from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
     # Inserted, so the widget under test is one that could actually run. Left retracted
@@ -1920,7 +1920,7 @@ def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
     Asserted on the subscriber count rather than by provoking the crash, since a test
     that segfaults takes the runner with it.
     """
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
     before = len(microscope.stage_position_changed)
@@ -1940,7 +1940,7 @@ def test_a_dropped_widget_lets_go_of_the_stage_signal_too(qapp):
     It also says nothing when the disconnect therefore removes nothing."""
     import gc
 
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
     before = len(microscope.stage_position_changed)
@@ -1958,7 +1958,7 @@ def test_a_dropped_widget_lets_go_of_the_stage_signal_too(qapp):
 
 def _fresh_widget(qapp):
     """A widget of its own, for tests that change state the module fixture shares."""
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     widget = FMOverviewWidget(build_microscope())
     qapp.processEvents()
@@ -2237,7 +2237,7 @@ def test_the_overview_tab_is_reserved_but_dead_without_a_microscope(qapp):
 
 
 def test_the_tab_comes_alive_when_fluorescence_connects(qapp):
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost()
     host.autolamella_ui.microscope = build_microscope()
@@ -2311,7 +2311,7 @@ def test_a_microscope_with_fluorescence_brings_the_chip_back(qapp):
 
     The tooltip has to stop being a reason, not just the chip enabled: a stale "No
     Fluorescence Microscope Available" sitting on a working chip is worse than none."""
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=_plain_microscope())
     host._refresh_overview_microscope()
@@ -2338,7 +2338,7 @@ def test_nothing_unreachable_is_ever_silent(qapp):
     Two levels to sweep now, and the invariant is the same on both: the tab, and each
     chip on it.
     """
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     for label, microscope in (
         ("no microscope", None),
@@ -2377,7 +2377,7 @@ def test_retiring_the_widget_releases_the_stage_signal(qapp):
     emits into a Qt object already torn down on the C++ side, which is a segfault rather
     than an exception -- so a reconnect that dropped the widget without closing it would
     take the application down on the next stage move."""
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
     host = _StubHost(microscope=microscope)
@@ -2403,7 +2403,7 @@ def test_disconnecting_the_microscope_retires_the_page(qapp):
     is what a disconnect actually calls -- the fluorescence-only path would leave the
     beam widget holding the microscope that was just taken away.
     """
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._refresh_overview_microscope()
@@ -2419,7 +2419,7 @@ def test_disconnecting_the_microscope_retires_the_page(qapp):
 def test_the_experiment_directory_reaches_the_widget(qapp, tmp_path):
     """By setter, not by handing over the experiment: the widget knows nothing about
     experiments, which is what lets it open standalone and be built in a test."""
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
@@ -2438,7 +2438,7 @@ def test_the_experiment_directory_reaches_the_widget(qapp, tmp_path):
 def test_a_workflow_lock_reaches_the_fm_tab(qapp):
     """A running workflow owns the instrument; neither overview tab should be able to
     start competing for it."""
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
@@ -3052,7 +3052,7 @@ def test_the_host_marks_lamellae_by_their_fluorescence_pose(qapp, tmp_path):
     fluorescence pose, and on a compustage the stage flips 180 degrees between them —
     so marking the milling pose would put every lamella somewhere the sample is not.
     """
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
@@ -3077,7 +3077,7 @@ def test_the_host_marks_lamellae_by_their_fluorescence_pose(qapp, tmp_path):
 def test_a_lamella_with_no_fluorescence_pose_is_skipped_not_misplaced(qapp, tmp_path):
     """It cannot be placed on this canvas at all — normal on a system with no FM, and
     possible on an older experiment. Better absent than drawn somewhere invented."""
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
@@ -3098,7 +3098,7 @@ def test_a_lamella_with_no_fluorescence_pose_is_skipped_not_misplaced(qapp, tmp_
 
 
 def test_no_experiment_clears_the_marked_positions(qapp, tmp_path):
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
@@ -3128,7 +3128,7 @@ def test_selection_reaches_the_overview_whichever_list_it_came_from(qapp):
     """The three selection handlers guard against selecting each other in circles. This
     highlight emits nothing, so it must run whichever list the selection came from —
     which is exactly what that guard suppresses."""
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
@@ -3367,7 +3367,7 @@ def _experiment_with(positions, tmp_path):
 
 def _wired_host(qapp, tmp_path, positions=()):
     """A `_StubHost` with an experiment and a recording AutoLamella UI."""
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
@@ -3509,7 +3509,7 @@ def test_moving_asks_before_it_moves_anything(qapp, tmp_path, monkeypatch):
     from fibsem.applications.autolamella.ui import (
         autolamella_fluorescence_overview_tab as module,
     )
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _wired_host(qapp, tmp_path)
     microscope = host.autolamella_ui.microscope
@@ -3702,7 +3702,7 @@ class _ListStub:
 
 def _list_host(qapp, tmp_path, experiment=None):
     """A `_StubHost` that can run the real `_rebuild_lamella_list`."""
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _StubHost(microscope=build_microscope())
     host._build_fm_overview_widget()
@@ -3905,7 +3905,7 @@ def _tab_with(qapp, tmp_path, positions=()):
     from fibsem.applications.autolamella.ui.autolamella_fluorescence_overview_tab import (
         AutoLamellaFluorescenceOverviewTab,
     )
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
     experiment = _experiment_with(positions, tmp_path)
@@ -4110,7 +4110,7 @@ def test_the_list_survives_the_overview_being_rebuilt(qapp, tmp_path):
 
     from PyQt5.QtCore import QEvent
 
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     tab.autolamella_ui.microscope = build_microscope()
     tab.refresh_microscope()  # a reconnection: new microscope, new overview
@@ -4150,7 +4150,7 @@ def test_a_lamella_is_complete_before_anyone_is_told_about_it(qapp, tmp_path):
     )
     from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
     from fibsem.structures import FibsemStagePosition
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
     experiment = _real_experiment(tmp_path)
