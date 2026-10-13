@@ -100,7 +100,7 @@ def test_capabilities_reports_scopes_and_routers(read_client):
         "hardware": False,
         "stop": False,
     }
-    assert body["manufacturer"] == "DemoMicroscope"
+    assert body["manufacturer"] == "Demo"
 
 
 def test_read_route_with_token(read_client):
@@ -117,13 +117,6 @@ def test_hardware_route_refused_when_not_armed(read_client):
     detail = resp.json()["detail"]
     assert detail["error_type"] == "scope_not_armed"
     assert detail["scope"] == "hardware"
-
-
-def test_last_image_is_hardware_scope(read_client):
-    # ThermoMicroscope.last_image switches the active imaging channel, so it is
-    # a command, not a read (see the FIB-852 review).
-    resp = read_client.post("/last_image", headers=AUTH, json={"beam_type": "ION"})
-    assert resp.status_code == 403
 
 
 def test_stop_milling_needs_a_scope_that_acts(read_client):
@@ -192,9 +185,66 @@ def test_hardware_command_takes_control_as_the_agent(armed_client, microscope):
         microscope.control.changed.disconnect(seen.append)
     assert resp.status_code == 200
     assert seen[0].by == "agent"
-    assert seen[0].action == "POST /move_stage_relative"
+    assert seen[0].action == "move stage relative"
     assert seen[-1] is None  # released when the command ended
     assert microscope.control.current is None
+
+
+@pytest.mark.parametrize(
+    "method, path, params, expected",
+    [
+        (
+            "POST",
+            "/services/imaging/commands/focus_sweep",
+            {"device": "imaging", "command": "focus_sweep"},
+            "focus sweep",
+        ),
+        (
+            "POST",
+            "/services/milling/commands/run",
+            {"device": "milling", "command": "run"},
+            "milling run",
+        ),
+        (
+            "POST",
+            "/services/spot_burn/commands/run",
+            {"device": "spot_burn", "command": "run"},
+            "spot burn run",
+        ),
+        ("POST", "/move_stage_relative", {}, "move stage relative"),
+        (
+            "PUT",
+            "/beams/electron/imaging_settings",
+            {"beam": "electron"},
+            "set electron imaging settings",
+        ),
+        (
+            "PUT",
+            "/devices/electron/voltage",
+            {"device": "electron", "parameter": "voltage"},
+            "set electron voltage",
+        ),
+    ],
+)
+def test_the_action_is_named_in_words_not_the_route(method, path, params, expected):
+    """FIB-1359: Stop agent's record and toast read the action, not the route."""
+    from starlette.requests import Request
+
+    from fibsem.server.auth import action_name
+
+    request = Request(
+        {
+            "type": "http",
+            "method": method,
+            "path": path,
+            "path_params": params,
+            "query_string": b"",
+            "headers": [],
+            "server": ("testserver", 80),
+            "scheme": "http",
+        }
+    )
+    assert action_name(request) == expected
 
 
 def test_hardware_command_borrows_control_a_run_has_lent(armed_client, microscope):

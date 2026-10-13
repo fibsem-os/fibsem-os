@@ -1,6 +1,6 @@
 """Thermo's imaging methods make the same SDK calls through the beam commands.
 
-``AutoscriptBeam``'s ``acquire``, ``last_image``, ``autocontrast`` and ``auto_focus``
+``AutoscriptBeam``'s ``acquire``, ``autocontrast`` and ``auto_focus``
 are ``ThermoMicroscope``'s methods moved onto the beam, and its ``start_live`` and
 ``stop_live`` its live view worker, whose frames the old signals forward. Each case
 runs a method on a microscope whose beams are built as connect builds them, over a
@@ -54,7 +54,7 @@ def recording(tmp_path_factory):
 
 def test_the_recording_makes_sdk_calls_on_both_beams(recording):
     cases = recording["cases"]
-    assert len(cases) == 23
+    assert len(cases) == 21
     assert any(c["key"].startswith("ION ") for c in cases)
     assert all(c["old"][1] for c in cases if c["key"] != "acquire nothing")
 
@@ -110,7 +110,7 @@ def test_the_vendor_time_is_the_acquisition_time_and_the_state_keeps_its_own(
     # The fake frame's AutoScript time, read as this machine's local time.
     vendor = datetime(2026, 10, 5, 6, 0, 0).astimezone().isoformat()
     new = _images(recording, "new")
-    assert len(new) == 10  # acquire settings, reduced, current, both, last; per beam
+    assert len(new) == 8  # acquire settings, reduced, current, both; per beam
     assert {image["timestamp"] for image in new} == {0.0}  # the state, as read
     assert {image["acquisition_datetime"] for image in new} == {vendor}
     # What the old methods wrote in the state instead.
@@ -122,7 +122,6 @@ def test_the_old_methods_go_through_the_beams(recording):
     assert recording["facts"]["used"] == [
         "electron.acquire",
         "ion.acquire",
-        "ion.last_image",
         "electron.autocontrast",
         "ion.auto_focus",
     ]
@@ -132,7 +131,6 @@ def test_each_vendor_call_holds_the_imaging_channel(recording):
     assert recording["facts"]["held"] == [
         ["grab_frame", True],
         ["grab_frame", True],
-        ["get_image", True],
         ["run_auto_cb", True],
         ["run_auto_focus", True],
     ]
@@ -155,7 +153,6 @@ def test_both_beams_have_the_imaging_commands(recording, beam):
     commands = recording["facts"]["commands"][beam]
     for name in (
         "acquire",
-        "last_image",
         "autocontrast",
         "auto_focus",
         "start_live",

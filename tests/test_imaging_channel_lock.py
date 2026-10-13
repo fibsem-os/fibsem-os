@@ -138,7 +138,7 @@ Sweeping the class for the same shape found three more. Each is documented by th
 as acting on the active view, so each needs the channel to still be its own when it runs:
 
 * `imaging.get_image` — "Retrieves a microscope image currently present in the active
-  view". `last_image` is FIB-542's pair on the retrieval path.
+  view".
 * `auto_functions.run_auto_cb` — "optimizes contrast and brightness of the active
   detector in the active view".
 * `auto_functions.run_auto_focus` — "Runs the automatic focus routine in the active

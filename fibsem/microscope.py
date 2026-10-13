@@ -79,7 +79,6 @@ from fibsem.transformations import (
 if TYPE_CHECKING:
     from fibsem.cancellation import AnyStopEvent
     from fibsem.imaging.spot import SpotBurnSettings
-    from fibsem.milling.base import FibsemMillingStage
     from fibsem.services.imaging import Imaging
     from fibsem.services.milling import Milling
     from fibsem.services.sample_handling import SampleHandling
@@ -325,10 +324,6 @@ class FibsemMicroscope(ABC):
             )
         target = image_settings.beam_type if image_settings is not None else beam_type
         return self._beam_device(target).acquire(image_settings)
-
-    def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
-        """The last image `beam_type` acquired, read back from the instrument."""
-        return self._beam_device(beam_type).last_image()
 
     @property
     def is_acquiring(self) -> bool:
@@ -1293,17 +1288,6 @@ class FibsemMicroscope(ABC):
     def estimate_milling_time(self) -> float:
         return self._milling_service().estimate()
 
-    @staticmethod
-    def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
-        """This backend's estimate of one stage's milling time, in seconds.
-
-        None means use the shared sputter-rate table, which is right for any
-        backend that mills like ThermoFisher. A backend with its own model
-        overrides this; `utils.setup_session` installs it on connect, for the
-        planning stack, which estimates without a microscope in scope.
-        """
-        return None
-
     def draw_patterns(self, patterns: List[FibsemPatternSettings]) -> None:
         """Draw milling patterns on the microscope from the list of settings. All
         are checked first: one this instrument can't draw raises `UnsupportedPattern`
@@ -1871,7 +1855,16 @@ class FibsemMicroscope(ABC):
 
     def home(self) -> Optional[bool]:
         """Home the stage. A stage that cannot home is left alone; returns whether
-        it is homed (None when it cannot say)."""
+        it is homed (None when it cannot say).
+
+        Deprecated: call ``microscope.stage.home()``.
+        """
+        warnings.warn(
+            "microscope.home() is deprecated and will be removed in the next minor "
+            "release; use microscope.stage.home() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self.stage is not None and self.stage.commands["home"].available:
             return self.stage.home()
         return self._stage_value("homed")
@@ -2369,142 +2362,80 @@ class FibsemMicroscope(ABC):
 
         return stage_position
 
+    # The orientation reads are the stage movement service's
+    # (`StageMovement.orientation`, `stage_orientation`, `current_milling_angle`, ...);
+    # these keep their names and signatures. Without a stage there is no service, no
+    # orientation and nothing turned over.
+
+    @property
+    def orientations(self) -> Dict[str, FibsemStagePosition]:
+        """Each orientation's pose (r and t), by name: the stage movement service's."""
+        if self.stage_movement is None:
+            return {}
+        return self.stage_movement.orientations
+
+    @orientations.setter
+    def orientations(self, table: Dict[str, FibsemStagePosition]) -> None:
+        self._movement_service().orientations = table
+
     def get_stage_orientation(
         self, stage_position: Optional[FibsemStagePosition] = None
     ) -> str:
-        """Get the current stage orientation based on the stage position (r,t).
-        Args:
-            stage_position (FibsemStagePosition, optional): stage position to use. If None, uses current stage position.
-        Returns:
-            str: current stage orientation ("SEM", "FIB", "MILLING", "NONE")
-        """
-        if stage_position is None:
-            stage_position = self.get_stage_position()
-        if stage_position.r is None or stage_position.t is None:
-            raise ValueError(
-                "Stage position must have both rotation (r) and tilt (t) defined."
-            )
-        if not hasattr(self, "orientations"):
-            self._update_orientations()
-        return classify_orientation(
-            stage_position.r, stage_position.t, self.orientations
-        )
+        """The orientation ("SEM", "FIB", "MILLING", "FM" or "NONE") a stage position is
+        in, the current one when None. See `StageMovement.stage_orientation`."""
+        return self._movement_service().stage_orientation(stage_position)
 
     def get_orientation(self, orientation: str) -> FibsemStagePosition:
-        """Get the orientation (r,t) for the given orientation string."""
-
-        # if orientations not initialised, update
-        if not hasattr(self, "orientations"):
-            self._update_orientations()
-
-        if orientation not in self.orientations:
+        """The pose (r, t) of an orientation. See `StageMovement.orientation`."""
+        if self.stage_movement is None:
             raise ValueError(f"Orientation {orientation} not supported.")
-
-        return self.orientations[orientation]
+        return self.stage_movement.orientation(orientation)
 
     def _stage_turned_over(self, tilt: float) -> bool:
-        """Whether the stage has the sample turned over at this tilt, in radians.
-
-        The stage device says (FIB-1124); with no stage, nothing is turned over.
-        """
-        if self.stage_device is None:
+        """Whether the stage has the sample turned over at this tilt, in radians."""
+        if self.stage_movement is None:
             return False
-        return self.stage_device.turned_over(tilt)
+        return self.stage_movement.turned_over(tilt)
 
     def _stage_poses(self) -> Dict[str, FibsemStagePosition]:
-        """The stage's pose for each orientation name, from the configured geometry.
-
-        The stage device declares them (FIB-1101). With no stage there are none.
-        """
-        if self.stage_device is None:
+        """The stage's pose for each orientation name (`StageMovement.stage_poses`)."""
+        if self.stage_movement is None:
             return {}
-        stage_settings = self.system.stage
-        geometry = dict(
-            rotation_reference=stage_settings.rotation_reference,
-            shuttle_pre_tilt=stage_settings.shuttle_pre_tilt,
-            fib_column_tilt=self.system.ion.column_tilt,
-        )
-        return self.stage_device.poses(**geometry)
+        return self.stage_movement.stage_poses()
 
     def _fm_is_a_pose(self) -> bool:
         """Does the stage reach the FM by re-posing rather than by travelling?
-
-        True where the stage declares an FM pose (FIB-1101): the objective is under
-        the grid and the stage turns the grid over to face it, so the beams and the
-        FM are one place. False on an offset mount, where the FM is a place the stage
-        travels to in whatever pose it holds. The FM decisions ask this rather than
-        the stage's type; today it is true exactly on a compustage.
-        """
-        return "FM" in self._stage_poses()
+        See `StageMovement.fm_is_a_pose`."""
+        return self.stage_movement is not None and self.stage_movement.fm_is_a_pose()
 
     def _update_orientations(self) -> None:
-        """Update the stage orientations based on the current system settings."""
-        # With no stage there is nothing to orient.
-        if self.stage_device is None:
-            self.orientations = {}
-            return
-
-        milling_angle = self.system.stage.milling_angle  # deg
-
-        # needs to be dynmaically updated as it can change.
-        milling_stage_tilt = get_stage_tilt_from_milling_angle(
-            self, np.radians(milling_angle)
-        )
-
-        # The stage's own poses, with MILLING between FIB and the rest: it is the SEM
-        # rotation at the tilt the milling angle needs, so it is not the stage's to
-        # declare.
-        poses = self._stage_poses()
-        sem = poses.pop("SEM")
-        fib = poses.pop("FIB")
-        self.orientations = {
-            "SEM": sem,
-            "FIB": fib,
-            "MILLING": FibsemStagePosition(r=sem.r, t=milling_stage_tilt),
-            **poses,
-        }
+        """Rebuild the orientation table (`StageMovement.update_orientations`)."""
+        if self.stage_movement is not None:
+            self.stage_movement.update_orientations()
 
     def set_milling_angle(self, milling_angle: float) -> None:
-        """Set the 'stored' milling angle in the system settings."""
-        self.system.stage.milling_angle = milling_angle
-        self._update_orientations()
+        """Set the stored milling angle, in degrees: the stage movement service's
+        ``milling_angle``, which rebuilds the MILLING orientation."""
+        if self.stage_movement is None:
+            self.system.stage.milling_angle = milling_angle
+            return
+        self.stage_movement.milling_angle.set_value(milling_angle)
 
     def get_current_milling_angle(
         self, stage_position: Optional[FibsemStagePosition] = None
     ) -> float:
-        """Get the current milling angle in degrees based on the current stage tilt."""
-
-        if stage_position is None:
-            stage_position = self.get_stage_position()
-
-        # NOTE: this is only valid for sem orientation
-        if self.get_stage_orientation(stage_position=stage_position) == "FIB":
-            return 90  # stage-tilt + pre-tilt + 90 - column-tilt
-
-        if stage_position.t is None:
-            raise ValueError(
-                "Stage tilt is not available. Cannot calculate milling angle."
-            )
-        return milling_angle_from_tilt(
-            stage_position.t,
-            pretilt=self.system.stage.shuttle_pre_tilt,
-            column_tilt=self.system.ion.column_tilt,
-            turned_over=self._stage_turned_over(stage_position.t),
-        )
+        """The milling angle, in degrees, a stage position gives (the current one when
+        None). See `StageMovement.current_milling_angle`."""
+        return self._movement_service().current_milling_angle(stage_position)
 
     def is_close_to_milling_angle(
         self, milling_angle: float, atol: float = 2.0
     ) -> bool:
-        """Check if the current milling angle is close to the specified milling angle.
-        Args:
-            milling_angle (float): The target milling angle in degrees.
-            atol (float): The absolute tolerance for the comparison.
-        Returns:
-            bool: True if the current milling angle is close to the specified milling angle, False otherwise
-        """
-        current_milling_angle = self.get_current_milling_angle()  # degrees
-
-        return bool(np.isclose(current_milling_angle, milling_angle, atol=atol))
+        """Whether the current milling angle is within ``atol`` of ``milling_angle``,
+        both in degrees. See `StageMovement.is_close_to_milling_angle`."""
+        return self._movement_service().is_close_to_milling_angle(
+            milling_angle, atol=atol
+        )
 
     def move_to_milling_angle(
         self, milling_angle: float, rotation: Optional[float] = None
@@ -3219,25 +3150,3 @@ class FibsemMicroscope(ABC):
                 "DRIVER.manufacturer."
             )
         return name
-
-
-# `ThermoMicroscope` moved to `fibsem.drivers.autoscript.microscope`. These names are served
-# lazily so `from fibsem.microscope import ThermoMicroscope` keeps working for external
-# scripts and plugins, without this module importing the AutoScript backend at load.
-_MOVED_TO_AUTOSCRIPT = frozenset(
-    {"ThermoMicroscope", "THERMO_API_AVAILABLE", "AutoScriptException"}
-)
-
-
-def __getattr__(name: str) -> Any:
-    if name in _MOVED_TO_AUTOSCRIPT:
-        warnings.warn(
-            f"fibsem.microscope.{name} has moved to fibsem.drivers.autoscript.microscope; "
-            "import it from there.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        from fibsem.drivers.autoscript import microscope as autoscript
-
-        return getattr(autoscript, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -36,6 +36,7 @@ from typing import Optional
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
+from fastapi.routing import APIRoute
 
 from fibsem import utils
 from fibsem.acting import AGENT, acting
@@ -49,11 +50,12 @@ from fibsem.server.app_routes import (
 from fibsem.server.auth import (
     AuthConfig,
     Scope,
+    action_name,
     require_monitoring,
     require_scope,
     take_control,
 )
-from fibsem.server.devices import build_device_router
+from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.discovery import (
     DISCOVERY_FILE,
     read_discovery_file,
@@ -131,8 +133,29 @@ def _beam_type(value: str) -> BeamType:
     except KeyError:
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown beam_type: {value!r}. Use 'ELECTRON' or 'ION'.",
+            detail={
+                "error_type": "ValueError",
+                "message": f"Unknown beam_type: {value!r}. Use 'ELECTRON' or 'ION'.",
+                "parameter": "beam_type",
+            },
         )
+
+
+class _RefusingRoute(APIRoute):
+    """A microscope route whose expected errors (a stage limit, a bad value, a
+    stopped mill) are refusals, as on the device routes: a 4xx in the one refusal
+    shape, logged as one line, not a 500 with a traceback (FIB-1377)."""
+
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def refusing(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except tuple(ERROR_STATUS) as error:
+                raise refusal(error, action_name(request)) from None
+
+        return refusing
 
 
 # Device and service commands that stop something. Like POST /stop_milling,
@@ -214,17 +237,23 @@ def build_server(
     # /capabilities, which every client reads first, whatever is mounted, the
     # dashboard included.
     base = APIRouter(dependencies=[Depends(require_monitoring())])
-    read = APIRouter(dependencies=[Depends(require_scope(Scope.READ))])
+    read = APIRouter(
+        dependencies=[Depends(require_scope(Scope.READ))], route_class=_RefusingRoute
+    )
     # The always-allowed stop: the stop scope (the App Server at Assist and
     # Drive), or control or hardware where a server has no level (the bench).
     # Never takes control: a stop must not be refused by the mill it stops.
     stop = APIRouter(
-        dependencies=[Depends(require_scope(Scope.STOP, Scope.CONTROL, Scope.HARDWARE))]
+        dependencies=[
+            Depends(require_scope(Scope.STOP, Scope.CONTROL, Scope.HARDWARE))
+        ],
+        route_class=_RefusingRoute,
     )
     # Hardware routes also take control, so a command never interleaves with a
     # run, a script or another command.
     hw = APIRouter(
-        dependencies=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)]
+        dependencies=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)],
+        route_class=_RefusingRoute,
     )
 
     # --- Health / capabilities ---
@@ -254,7 +283,7 @@ def build_server(
     def capabilities():
         return {
             "api_version": API_VERSION,
-            "manufacturer": type(microscope).__name__,
+            "manufacturer": microscope.manufacturer,
             "routers": {
                 "microscope": devices,
                 "devices": devices,
@@ -288,14 +317,6 @@ def build_server(
             microscope.acquire_image(image_settings=image_settings, beam_type=bt)
         )
 
-    # hardware, not read: on Thermo this switches the active imaging channel
-    # (shared-view state) before pulling the frame from the vendor server.
-    @hw.post("/last_image")
-    def last_image(body: BeamTypeRequest) -> Response:
-        return _image_response(
-            microscope.last_image(beam_type=_beam_type(body.beam_type))
-        )
-
     @hw.post("/acquire_chamber_image")
     def acquire_chamber_image() -> Response:
         return _image_response(microscope.acquire_chamber_image())
@@ -311,11 +332,6 @@ def build_server(
             else None
         )
         image = microscope.acquire_image(image_settings=image_settings, beam_type=bt)
-        return preview_payload(image)
-
-    @hw.post("/last_image_preview")
-    def last_image_preview(body: BeamTypeRequest):
-        image = microscope.last_image(beam_type=_beam_type(body.beam_type))
         return preview_payload(image)
 
     @hw.post("/autocontrast")
@@ -524,8 +540,8 @@ def build_server(
     def draw_patterns(body: DrawPatternsRequest):
         try:
             patterns = [_pattern_from_dict(p) for p in body.patterns]
-        except (KeyError, ValueError) as e:
-            raise HTTPException(status_code=422, detail=str(e))
+        except KeyError as e:  # a field a pattern needs; refused as a bad value
+            raise ValueError(f"A pattern has a bad or missing field: {e}") from e
         microscope.draw_patterns(patterns)
         return {"status": "ok"}
 
@@ -606,6 +622,10 @@ def build_server(
                 noun="service",
             )
         )
+    else:
+        # Off, the same paths answer why they are missing (FIB-1359): a bare
+        # "Not Found" reads as a wrong path, not as the operator's choice.
+        app.include_router(_devices_off_router(read, stop, hw))
     if app_context is not None:
         # Read scope applied here so auth stays in one place; the router itself
         # is a thin pass-through over the context's JSON-able snapshots. These
@@ -642,6 +662,36 @@ def build_server(
         )
         app.include_router(build_request_router(app.state.requests))
     return app
+
+
+DEVICES_OFF_MESSAGE = (
+    "The microscope's devices aren't served: the operator turns them on in "
+    "Tools → App Server."
+)
+
+
+def _devices_off(request: Request) -> None:
+    raise HTTPException(
+        status_code=404,
+        detail={"error_type": "devices_off", "message": DEVICES_OFF_MESSAGE},
+    )
+
+
+def _devices_off_router(*routers: APIRouter) -> APIRouter:
+    """The instrument routes' paths, each answering a 404 that says the devices
+    are off. Behind the token like the routes they stand in for."""
+    off = APIRouter(dependencies=[Depends(require_scope(Scope.READ))])
+    paths = {route.path for router in routers for route in router.routes}
+    for prefix in ("/devices", "/services"):
+        paths.update((prefix, prefix + "/{rest:path}"))
+    for path in sorted(paths):
+        off.add_api_route(
+            path,
+            _devices_off,
+            methods=["GET", "POST", "PUT", "DELETE"],
+            include_in_schema=False,
+        )
+    return off
 
 
 class FibsemServer:

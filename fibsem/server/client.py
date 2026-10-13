@@ -134,9 +134,6 @@ class FibsemClient:
             body["image_settings"] = image_settings.to_dict()
         return self._post_image("acquire_image", body)
 
-    def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
-        return self._post_image("last_image", {"beam_type": beam_type.name})
-
     def acquire_chamber_image(self) -> FibsemImage:
         return self._post_image("acquire_chamber_image")
 

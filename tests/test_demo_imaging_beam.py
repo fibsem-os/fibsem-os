@@ -1,6 +1,6 @@
 """The device-built Demo images through its beams' commands.
 
-``DemoMicroscope``'s ``acquire_image``, ``last_image``, ``autocontrast``,
+``DemoMicroscope``'s ``acquire_image``, ``autocontrast``,
 ``auto_focus`` and live view go through the beam devices, whose driver runs the
 Demo's own imaging code; ``test_microscope_contract.py`` pins what it images.
 """
@@ -29,7 +29,7 @@ def microscope():
 
 def _record(microscope, used):
     for beam in microscope.beams.values():
-        for name in ("acquire", "last_image", "autocontrast", "auto_focus"):
+        for name in ("acquire", "autocontrast", "auto_focus"):
             original = getattr(beam, name)
 
             def wrapper(*args, _name=f"{beam.name}.{name}", _f=original, **kwargs):
@@ -43,7 +43,6 @@ def test_every_imaging_command_is_available(microscope):
     for beam in microscope.beams.values():
         for name in (
             "acquire",
-            "last_image",
             "autocontrast",
             "auto_focus",
             "start_live",
@@ -64,13 +63,11 @@ def test_the_old_imaging_methods_go_through_the_beams(microscope):
     assert image.data.shape == (256, 384)
     assert image.metadata.image_settings.beam_type is BeamType.ELECTRON
     assert isinstance(microscope.acquire_image(beam_type=BeamType.ION), FibsemImage)
-    assert isinstance(microscope.last_image(BeamType.ION), FibsemImage)
     microscope.autocontrast(BeamType.ELECTRON, AREA)
     microscope.auto_focus(BeamType.ION)
     assert used == [
         f"{sem.name}.acquire",
         f"{fib.name}.acquire",
-        f"{fib.name}.last_image",
         f"{sem.name}.autocontrast",
         f"{fib.name}.auto_focus",
     ]
@@ -118,7 +115,6 @@ def test_a_disabled_beam_does_not_image(microscope):
     assert BeamType.ION not in electron_only.beams
     for call in (
         lambda: electron_only.acquire_image(beam_type=BeamType.ION),
-        lambda: electron_only.last_image(BeamType.ION),
         lambda: electron_only.autocontrast(BeamType.ION),
         lambda: electron_only.auto_focus(BeamType.ION),
     ):
