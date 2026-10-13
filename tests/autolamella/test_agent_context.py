@@ -315,6 +315,29 @@ def test_set_supervision_flips_the_live_protocol(experiment):
     )
 
 
+def test_set_workflow_options_turns_the_run_summary_off_and_saves(experiment):
+    host = Host()
+    host.experiment = experiment
+    ctx = AutoLamellaAppContext(host)
+    assert ctx.protocol()["options"]["show_run_summary"] is True  # the default
+
+    applied = ctx.set_workflow_options(False)
+    assert applied == {
+        "available": True,
+        "applied": True,
+        "saved": True,
+        "show_run_summary": False,
+    }
+    assert experiment.task_protocol.options.show_run_summary is False
+    assert ctx.protocol()["options"]["show_run_summary"] is False
+    _assert_json_safe(applied)
+
+    assert AutoLamellaAppContext(Host()).set_workflow_options(False) == {
+        "available": False,
+        "applied": False,
+    }
+
+
 def test_supervision_sets_attention_and_names_no_supervisor(experiment):
     # A supervised question goes to the operator and the agent alike, and the
     # first answer wins (FIB-1035): no task says whose its questions are.

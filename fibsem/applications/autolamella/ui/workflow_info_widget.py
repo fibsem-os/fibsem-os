@@ -93,10 +93,15 @@ class WorkflowInfoWidget(QWidget):
         self.turn_beams_off_cb.setStyleSheet(f"color: {TEXT_COLOR}; font-size: 11px;")
         root.addWidget(self.turn_beams_off_cb)
 
+        self.show_run_summary_cb = QCheckBox("Show summary after completion")
+        self.show_run_summary_cb.setStyleSheet(f"color: {TEXT_COLOR}; font-size: 11px;")
+        root.addWidget(self.show_run_summary_cb)
+
         # ── signals ───────────────────────────────────────────────────────
         self.name_edit.editingFinished.connect(self._on_name_changed)
         self.desc_edit.editingFinished.connect(self._on_desc_changed)
         self.turn_beams_off_cb.toggled.connect(self._on_options_changed)
+        self.show_run_summary_cb.toggled.connect(self._on_options_changed)
 
     # ------------------------------------------------------------------
     # Public API
@@ -113,9 +118,20 @@ class WorkflowInfoWidget(QWidget):
 
     def set_options(self, options: AutoLamellaWorkflowOptions) -> None:
         self._options = options
-        self.turn_beams_off_cb.blockSignals(True)
-        self.turn_beams_off_cb.setChecked(options.turn_beams_off)
-        self.turn_beams_off_cb.blockSignals(False)
+        for checkbox, value in (
+            (self.turn_beams_off_cb, options.turn_beams_off),
+            (self.show_run_summary_cb, options.show_run_summary),
+        ):
+            checkbox.blockSignals(True)
+            checkbox.setChecked(value)
+            checkbox.blockSignals(False)
+
+    def showEvent(self, event) -> None:
+        # The agent can change an option while this is closed
+        # (set_workflow_options); show what is set now, not what was.
+        if self._options is not None:
+            self.set_options(self._options)
+        super().showEvent(event)
 
     # ------------------------------------------------------------------
     # Internal
@@ -136,4 +152,5 @@ class WorkflowInfoWidget(QWidget):
     def _on_options_changed(self) -> None:
         if self._options is not None:
             self._options.turn_beams_off = self.turn_beams_off_cb.isChecked()
+            self._options.show_run_summary = self.show_run_summary_cb.isChecked()
         self.options_changed.emit(self._options)

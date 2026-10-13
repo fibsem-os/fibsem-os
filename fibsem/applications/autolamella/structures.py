@@ -573,6 +573,10 @@ class AutoLamellaWorkflowConfig:
 @dataclass
 class AutoLamellaWorkflowOptions:
     turn_beams_off: bool = False
+    # Open the run summary dialog when a run ends. The run-end toast, with its
+    # Show summary link, comes either way; off is for runs nobody is watching
+    # the end of -- an agent starting many short runs, or overnight (FIB-1376).
+    show_run_summary: bool = True
     # How long a run whose remaining work all waits on a review keeps waiting for
     # one, in seconds of *inactivity* -- every decision resets the clock, so a
     # slow reviewer mid-sitting is never cut off, only an absent one. 0 exits at
