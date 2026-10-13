@@ -40,6 +40,8 @@ from fibsem.applications.autolamella.history_rows import (
     history_rows,
     milling_stages,
     operation_facts,
+    operations_need_a_look,
+    operations_summary,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
@@ -299,6 +301,9 @@ _RUN_STATUS = {
     ),
     AutoLamellaTaskStatus.Skipped: ("Skipped", "mdi:skip-next", "Skipped"),
 }
+# Which of a run's operation endings its folded line shows: the worst.
+_SEVERITY = {FAILED: 0, CANCELLED: 1, SKIPPED: 2}
+
 _OPERATION_ICON = {
     COMPLETED: ("mdi:check", "Completed"),
     SKIPPED: ("mdi:skip-next", "Skipped"),
@@ -487,6 +492,10 @@ class LamellaTaskImageWidget(QWidget):
         # The operations shown expanded, as (run, index in the run): kept across
         # a rebuild, so a refresh after a task does not fold what was open.
         self._expanded: Set[Tuple[str, int]] = set()
+        # A run's operations opened or folded by a click, by run: kept across a
+        # rebuild like the lines. A run nobody clicked is open only when one of
+        # its operations needs a look (FIB-1361).
+        self._operations_open: Dict[str, bool] = {}
         # Whether the experiment records its events: without the file nothing
         # was ever recorded, so "no operations" would be a claim it cannot make.
         self._has_events = False
@@ -557,6 +566,7 @@ class LamellaTaskImageWidget(QWidget):
         self._captions.clear()
         self._placeholder_labels.clear()
         self._expanded.clear()
+        self._operations_open.clear()
         self._rebuild()
 
     def refresh(self) -> None:
@@ -842,8 +852,11 @@ class LamellaTaskImageWidget(QWidget):
             layout.addWidget(message)
 
         if flt.show != "images":
-            for index, operation in enumerate(run.operations):
-                layout.addWidget(self._operation(run.task_id, index, operation))
+            if len(run.operations) > 1 and flt.show == "all":
+                layout.addWidget(self._operations_fold(run))
+            else:  # one line, or operations asked for: no fold to open
+                for index, operation in enumerate(run.operations):
+                    layout.addWidget(self._operation(run.task_id, index, operation))
             if not run.operations and flt.show == "all" and self._has_events:
                 layout.addWidget(
                     _text(
@@ -874,6 +887,70 @@ class LamellaTaskImageWidget(QWidget):
                     )
                 )
         return container
+
+    def _operations_fold(self, run: HistoryRun) -> QWidget:
+        """``› ✓ 3 operations · all completed   6 s``, the run's operations
+        under it. Folded unless one needs a look or it was opened (FIB-1361):
+        a run that went to plan is one line, and one that did not shows why."""
+        box = QWidget()
+        box.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        line = _ClickableRow()
+        line.setStyleSheet("background: transparent;")
+        row = QHBoxLayout(line)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        chevron = _icon_label("mdi:chevron-right", NEUTRAL_550)
+        row.addWidget(chevron)
+        # the worst way one ended: a failure before a stop before a skip
+        worst = min(
+            (op.status for op in run.operations), key=lambda s: _SEVERITY.get(s, 3)
+        )
+        icon, badge = _OPERATION_ICON.get(worst, ("mdi:circle-outline", ""))
+        colour = STATUS_BADGE_COLORS.get(badge, (NEUTRAL_550, NEUTRAL_550))[0]
+        row.addWidget(_icon_label(icon, colour))
+        summary = ElidedLabel(operations_summary(run))
+        summary.setStyleSheet(_CAPTION_STYLE)
+        row.addWidget(summary, 1)
+        durations = [op.duration for op in run.operations if op.duration is not None]
+        row.addWidget(
+            _text(_duration(sum(durations)) if durations else "", _CAPTION_STYLE)
+        )
+        line.setToolTip("Click to show or hide the operations")
+        layout.addWidget(line)
+
+        body = QWidget()
+        body.setStyleSheet("background: transparent;")
+        lines = QVBoxLayout(body)
+        lines.setContentsMargins(22, 0, 0, 0)  # under the summary, past its chevron
+        lines.setSpacing(4)
+        for index, operation in enumerate(run.operations):
+            lines.addWidget(self._operation(run.task_id, index, operation))
+        layout.addWidget(body)
+
+        def show(opened: bool) -> None:
+            body.setVisible(opened)
+            chevron.setPixmap(
+                fibsem_icon(
+                    "mdi:chevron-down" if opened else "mdi:chevron-right",
+                    color=NEUTRAL_550,
+                ).pixmap(QSize(14, 14))
+            )
+
+        def toggle() -> None:
+            opened = not self._operations_opened(run)
+            self._operations_open[run.task_id] = opened
+            show(opened)
+
+        line.clicked.connect(toggle)
+        show(self._operations_opened(run))
+        return box
+
+    def _operations_opened(self, run: HistoryRun) -> bool:
+        return self._operations_open.get(run.task_id, operations_need_a_look(run))
 
     def _operation(
         self, task_id: str, index: int, operation: HistoryOperation

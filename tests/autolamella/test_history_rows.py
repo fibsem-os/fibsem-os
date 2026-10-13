@@ -23,6 +23,8 @@ from fibsem.applications.autolamella.history_rows import (
     history_rows,
     milling_stages,
     operation_facts,
+    operations_need_a_look,
+    operations_summary,
 )
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskDescription,
@@ -705,3 +707,69 @@ def test_a_strategy_that_says_why_it_stopped_has_its_own_line(tmp_path):
     assert stage.strategy == "Coincidence Milling"
     assert stage.said == "intensity drop · Mill time (s) 250 · Intensity drop seen yes"
     assert stage.figure == str(summary)
+
+
+# --- a run's operations, folded unless one needs a look (FIB-1361) ------------
+
+
+def _aligned(lamella, minute, **payload):
+    event = _event(
+        lamella,
+        "r",
+        "alignment",
+        status="completed",
+        started_at=_at(minute),
+        results=[{"shift": {"x": 1e-8, "y": 0.0}, "success": True}],
+        **payload,
+    )
+    event["t"] = _at(minute, 5)
+    return event
+
+
+def test_a_run_that_went_to_plan_folds(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    disagree = {"agreement": False, "max_disagreement_px": 9.0}
+
+    (run,) = history_rows(
+        lamella, [_aligned(lamella, 0, validation=disagree), _mill(lamella)]
+    )
+
+    assert operations_summary(run) == "2 operations · all completed"
+    # methods disagreeing is routine on the Demo, and not a reason to open
+    assert not operations_need_a_look(run)
+
+
+def test_a_run_that_did_not_opens_and_says_what(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    skipped = _event(lamella, "r", "alignment", status="skipped", reason="no image")
+    failed = _mill(lamella, status="failed", error="RuntimeError: rejected")
+
+    (run,) = history_rows(lamella, [skipped, failed])
+
+    assert operations_summary(run) == "2 operations · 1 failed · 1 skipped"
+    assert operations_need_a_look(run)
+
+
+def test_a_weak_or_failed_alignment_opens_its_run(tmp_path):
+    """Its own, or one a mill's stage ran: both completed operations otherwise."""
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    weak = _aligned(lamella, 0)
+    weak["payload"]["results"][0]["success"] = False
+    (run,) = history_rows(lamella, [weak, _mill(lamella)])
+    assert operations_need_a_look(run)
+
+    in_stage = _event(
+        lamella,
+        "r",
+        "alignment",
+        status="failed",
+        error="RuntimeError: no signal",
+        started_at=_at(1, 1),
+    )
+    in_stage["t"] = _at(1, 2)
+    (run,) = history_rows(lamella, [_aligned(lamella, 0), in_stage, _mill(lamella)])
+    assert len(run.operations) == 2  # the failed one is under its stage
+    assert operations_need_a_look(run)

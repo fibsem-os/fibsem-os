@@ -301,7 +301,8 @@ def test_an_argument_that_does_not_decode_is_422_naming_it(read_client):
     assert resp.status_code == 422
     detail = resp.json()["detail"]
     assert detail["parameter"] == "beam_type"
-    assert "PROTON" in detail["detail"]
+    assert detail["error_type"] == "ArgumentError"
+    assert "PROTON" in detail["message"]
 
 
 def test_a_cancelled_command_is_409_cancelled(armed_client, microscope, monkeypatch):
@@ -314,7 +315,7 @@ def test_a_cancelled_command_is_409_cancelled(armed_client, microscope, monkeypa
     resp = armed_client.post("/services/imaging/commands/focus_sweep", json={})
     assert resp.status_code == 409
     assert resp.json()["detail"] == {
-        "error": "OperationCancelledError",
-        "detail": "AutoFocus cancelled by user.",
+        "error_type": "OperationCancelledError",
+        "message": "AutoFocus cancelled by user.",
         "status": "cancelled",
     }

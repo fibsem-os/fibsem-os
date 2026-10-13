@@ -328,7 +328,6 @@ def test_actions_are_plain_methods_that_describe_themselves(beams):
         "spot",
         "reduced_area",
         "full_frame",
-        "last_image",
         "autocontrast",
         "auto_focus",
         "start_live",
@@ -343,7 +342,7 @@ def test_actions_are_plain_methods_that_describe_themselves(beams):
         pass
 
     bare = Bare(BeamType.ELECTRON).commands
-    assert not bare["last_image"].available
+    assert not bare["autocontrast"].available
     assert not bare["auto_focus"].available
     assert not bare["start_live"].available
 

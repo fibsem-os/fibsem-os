@@ -41,6 +41,7 @@ from fibsem.applications.autolamella.structures import (
     get_fields_with_metadata,
 )
 from fibsem.applications.autolamella.workflows.tasks.proposing import settle
+from fibsem.applications.autolamella.workflows.tasks.status import take_back_finish
 from fibsem.cancellation import OperationCancelledError
 from fibsem.util.timestamps import now, now_iso
 
@@ -305,8 +306,31 @@ class GridTask(ABC):
             raise
         finally:
             self._clear_workflow_metadata()
-        self.post_task()
-        self._settle()
+        try:
+            self.post_task()
+            self._settle()
+        except Exception as e:
+            # The work finished, but what follows it failed: settling its result
+            # can save the experiment, and a save that fails leaves nothing on
+            # disk to say so. It did not complete (FIB-1374).
+            cancelled = self._is_cancellation(e)
+            try:
+                take_back_finish(
+                    self.grid,
+                    self.task_id,
+                    AutoLamellaTaskStatus.Cancelled
+                    if cancelled
+                    else AutoLamellaTaskStatus.Failed,
+                    "Cancelled by user."
+                    if cancelled
+                    else f"Finished, but its result could not be recorded: {e}",
+                )
+            except Exception:
+                logging.exception(f"Could not record the outcome of {self.task_name}")
+            self._fire_hook(
+                "task_cancelled" if cancelled else "task_failed", error=str(e)
+            )
+            raise
         self._fire_hook("task_completed")
 
     def _settle(self, failure: str = "") -> None:

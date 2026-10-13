@@ -4,6 +4,7 @@ import dataclasses
 import datetime
 import logging
 import threading
+import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
@@ -78,7 +79,6 @@ from fibsem.transformations import (
 if TYPE_CHECKING:
     from fibsem.cancellation import AnyStopEvent
     from fibsem.imaging.spot import SpotBurnSettings
-    from fibsem.milling.base import FibsemMillingStage
     from fibsem.services.imaging import Imaging
     from fibsem.services.milling import Milling
     from fibsem.services.sample_handling import SampleHandling
@@ -324,10 +324,6 @@ class FibsemMicroscope(ABC):
             )
         target = image_settings.beam_type if image_settings is not None else beam_type
         return self._beam_device(target).acquire(image_settings)
-
-    def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
-        """The last image `beam_type` acquired, read back from the instrument."""
-        return self._beam_device(beam_type).last_image()
 
     @property
     def is_acquiring(self) -> bool:
@@ -1292,17 +1288,6 @@ class FibsemMicroscope(ABC):
     def estimate_milling_time(self) -> float:
         return self._milling_service().estimate()
 
-    @staticmethod
-    def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
-        """This backend's estimate of one stage's milling time, in seconds.
-
-        None means use the shared sputter-rate table, which is right for any
-        backend that mills like ThermoFisher. A backend with its own model
-        overrides this; `utils.setup_session` installs it on connect, for the
-        planning stack, which estimates without a microscope in scope.
-        """
-        return None
-
     def draw_patterns(self, patterns: List[FibsemPatternSettings]) -> None:
         """Draw milling patterns on the microscope from the list of settings. All
         are checked first: one this instrument can't draw raises `UnsupportedPattern`
@@ -1870,7 +1855,16 @@ class FibsemMicroscope(ABC):
 
     def home(self) -> Optional[bool]:
         """Home the stage. A stage that cannot home is left alone; returns whether
-        it is homed (None when it cannot say)."""
+        it is homed (None when it cannot say).
+
+        Deprecated: call ``microscope.stage.home()``.
+        """
+        warnings.warn(
+            "microscope.home() is deprecated and will be removed in the next minor "
+            "release; use microscope.stage.home() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self.stage is not None and self.stage.commands["home"].available:
             return self.stage.home()
         return self._stage_value("homed")
