@@ -144,13 +144,13 @@ def fm_geometry_for(
     FM images written before 2026-08-04 carry no ``geometry``; the instrument terms
     are the FIB image's, and only the camera's two are missing. The camera tilt is
     derived the way :attr:`FluorescenceMicroscope.camera_tilt` derives it -- a half
-    turn under a compustage, the ion column tilt on an offset mount -- unless given.
+    turn where the FM is a pose, the ion column tilt on an offset mount -- unless given.
     The transform cannot be derived and must be supplied (from the run's log or the
     FM configuration in force at the time).
     """
     if camera_tilt is None:
         camera_tilt = (
-            180.0 if fib_geometry.is_compustage else float(fib_geometry.fib_column_tilt)
+            180.0 if fib_geometry.fm_is_pose else float(fib_geometry.fib_column_tilt)
         )
     return dataclasses.replace(
         fib_geometry, camera_tilt=float(camera_tilt), transform=transform

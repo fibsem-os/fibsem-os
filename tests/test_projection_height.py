@@ -45,7 +45,8 @@ ARCTIS = FibsemHardwareGeometry(
     shuttle_pre_tilt=0.0,
     rotation_reference=0,
     rotation_180=0,
-    is_compustage=True,
+    fm_is_pose=True,
+    mirrors_back_view=True,
     camera_tilt=0.0,
 )
 AUTOLOADER = FibsemHardwareGeometry(
@@ -54,7 +55,8 @@ AUTOLOADER = FibsemHardwareGeometry(
     shuttle_pre_tilt=35.0,
     rotation_reference=0,
     rotation_180=180,
-    is_compustage=False,
+    fm_is_pose=False,
+    mirrors_back_view=False,
     camera_tilt=0.0,
 )
 
@@ -86,7 +88,7 @@ def _rot(theta: float) -> np.ndarray:
 
 def _pose_matrix():
     for geometry in (ARCTIS, AUTOLOADER):
-        rotations = (0.0,) if geometry.is_compustage else (0.0, np.pi)
+        rotations = (0.0,) if geometry.fm_is_pose else (0.0, np.pi)
         for rotation in rotations:
             for tilt_deg in TILTS_DEG:
                 yield geometry, rotation, np.deg2rad(tilt_deg)
@@ -111,7 +113,7 @@ class _Oracle:
         self.k_fold, self.m_r, self.m_cs = k_fold, m_r, m_cs
 
     def _stage_axes(self, geometry, rotation, tilt):
-        tau = self.s_t * tilt + (np.pi * self.k_fold if geometry.is_compustage else 0.0)
+        tau = self.s_t * tilt + (np.pi * self.k_fold if geometry.fm_is_pose else 0.0)
         y_stage = _rot(tau) @ np.array([1.0, 0.0])
         z_stage = _rot(tau) @ np.array([0.0, 1.0])
         near_180 = abs((np.rad2deg(rotation) % 360.0) - 180.0) < 5.0
@@ -120,7 +122,7 @@ class _Oracle:
         return y_stage, z_stage
 
     def _flip(self, geometry, rotation, tilt, view_tilt) -> float:
-        if not (geometry.is_compustage and self.m_cs):
+        if not (geometry.fm_is_pose and self.m_cs):
             return 1.0
         from fibsem.transformations import _image_y_flip
 
@@ -214,7 +216,7 @@ class TestAgainstTheOracle:
                     want = oracle.project(geometry, rotation, tilt, view_tilt, dy, dz)
                     got = _inverse(geometry, rotation, tilt, view_tilt, dy, dz)
                     assert got == pytest.approx(want, abs=1e-15), (
-                        f"compustage={geometry.is_compustage} r={np.rad2deg(rotation):.0f} "
+                        f"compustage={geometry.fm_is_pose} r={np.rad2deg(rotation):.0f} "
                         f"t={np.rad2deg(tilt):.1f} view={np.rad2deg(view_tilt):.0f} "
                         f"delta=({dy:.2e}, {dz:.2e})"
                     )

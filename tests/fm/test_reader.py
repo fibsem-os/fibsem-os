@@ -393,7 +393,8 @@ def test_the_built_image_saves_and_loads_back_as_built(tmp_path, compression):
         shuttle_pre_tilt=0.0,
         rotation_reference=0.0,
         rotation_180=180.0,
-        is_compustage=True,
+        fm_is_pose=True,
+        mirrors_back_view=True,
         camera_tilt=0.0,
         transform=CameraImageTransform.NONE,
     )
@@ -447,7 +448,8 @@ class _NoFM:
             shuttle_pre_tilt=35.0,
             rotation_reference=0.0,
             rotation_180=180.0,
-            is_compustage=False,
+            fm_is_pose=False,
+            mirrors_back_view=False,
             camera_tilt=12.0,
             transform=CameraImageTransform.FLIP_XY,
         )

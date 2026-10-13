@@ -36,7 +36,7 @@ def microscope():
         manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
     )
     microscope.system.sim["coincidence_projection"] = True
-    microscope._setup_sample_scene()
+    microscope._connection.setup_sample_scene()
     yield microscope
     microscope.disconnect()
 
@@ -50,7 +50,7 @@ def _anchor_scene(microscope, coincidence_offset: float) -> None:
         noise_fraction=0.0,
     )
     scene.anchor(microscope.get_stage_position())
-    microscope._sample_scene = scene
+    microscope._connection.sample_scene = scene
 
 
 def _anchor_in_fib_view(microscope) -> tuple:
@@ -58,7 +58,7 @@ def _anchor_in_fib_view(microscope) -> tuple:
     the invariant: with reference=ION nothing the task does may move what
     the operator centred there - not the alignment, not the tilt."""
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ION)
-    scene = microscope._sample_scene
+    scene = microscope._connection.sample_scene
     pose = microscope.get_stage_position()
     return projection.to_plane(scene._non_eucentric_reference(pose, projection), pose)
 

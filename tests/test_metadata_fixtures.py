@@ -99,7 +99,8 @@ def test_compustage_detection(
     raw = load(name)
     geometry = FibsemImageMetadata.from_dict(raw).hardware_geometry
 
-    assert geometry.is_compustage is compustage
+    assert geometry.fm_is_pose is compustage
+    assert geometry.mirrors_back_view is compustage
 
     # What the recovery had to work with in the file itself.
     system = raw["system"]
