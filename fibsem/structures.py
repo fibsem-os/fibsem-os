@@ -38,7 +38,6 @@ from numpy.typing import NDArray
 import fibsem
 from fibsem.config import (
     METADATA_VERSION,
-    SUPPORTED_COORDINATE_SYSTEMS,
     UNVERSIONED_METADATA,
 )
 from fibsem.manufacturers import DEMO, normalize_manufacturer
@@ -772,20 +771,11 @@ class FibsemManipulatorPosition:
     z: float = 0.0
     r: float = 0.0
     t: float = 0.0
-    coordinate_system: str = "RAW"
+    coordinate_system: Optional[str] = None
 
     def __post_init__(self):
         for axis in ("x", "y", "z", "r", "t"):
             setattr(self, axis, _plain_number(getattr(self, axis)))
-        assert (
-            isinstance(self.coordinate_system, str) or self.coordinate_system is None
-        ), f"unsupported type {type(self.coordinate_system)} for coorindate system"
-        assert (
-            self.coordinate_system in SUPPORTED_COORDINATE_SYSTEMS
-            or self.coordinate_system is None
-        ), (
-            f"coordinate system value {self.coordinate_system} is unsupported or invalid syntax. Must be RAW or SPECIMEN"
-        )
 
     def to_dict(self) -> dict:
         position_dict = {}
@@ -794,7 +784,9 @@ class FibsemManipulatorPosition:
         position_dict["z"] = self.z
         position_dict["r"] = self.r
         position_dict["t"] = self.t
-        position_dict["coordinate_system"] = self.coordinate_system.upper()
+        position_dict["coordinate_system"] = (
+            self.coordinate_system.upper() if self.coordinate_system else None
+        )
 
         return position_dict
 
@@ -813,7 +805,7 @@ class FibsemManipulatorPosition:
             z=data["z"],
             r=data["r"],
             t=data["t"],
-            coordinate_system=data["coordinate_system"],
+            coordinate_system=data.get("coordinate_system"),
         )
 
     def __add__(

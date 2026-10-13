@@ -273,6 +273,30 @@ def test_the_imaging_form_shows_the_configured_defaults(imaging_widget):
     assert widget.imaging.autocontrast.isChecked() is bool(image.autocontrast)
 
 
+def test_the_imaging_form_offers_the_beams_resolutions(qapp, microscope, monkeypatch):
+    """The resolutions come from the instrument's beam, not a fixed list."""
+    from fibsem.structures import BeamType
+
+    listed = [(1024, 768), (1536, 1024), (2048, 1536)]
+    monkeypatch.setattr(
+        defaults_widget,
+        "beam_choices",
+        lambda m, name, beam: (
+            listed if (name, beam) == ("resolution", BeamType.ELECTRON) else []
+        ),
+    )
+    settings = utils.load_microscope_configuration(microscope.configuration_path)
+    w = MicroscopeDefaultsWidget()
+    w.set_microscope(microscope, image_settings=settings.image)
+    items = [
+        w.imaging.resolution.itemData(i) for i in range(w.imaging.resolution.count())
+    ]
+    assert items == ["1024x768", "1536x1024", "2048x1536"]
+    assert w.imaging.resolution.value() == "1536x1024"
+    w.close()
+    w.deleteLater()
+
+
 def test_reading_from_the_acquire_tab_fills_the_imaging_form(imaging_widget):
     widget, _ = imaging_widget
     assert not widget.button_read_imaging.isEnabled()  # no tab offered yet
