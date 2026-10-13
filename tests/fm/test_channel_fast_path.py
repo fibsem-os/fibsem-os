@@ -44,7 +44,9 @@ class TestTheFastPath:
         this blocks for the full hold; the fast path does not ask for it at all.
         """
         fm = microscope.fm
-        microscope.imaging_system.active_view = FM_ACTIVE_VIEW  # the stream owns it
+        microscope._connection.imaging_system.active_view = (
+            FM_ACTIVE_VIEW  # the stream owns it
+        )
 
         holding = threading.Event()
         release = threading.Event()
@@ -82,13 +84,13 @@ class TestTheFastPath:
         could wait behind an unbounded number of iterations.
         """
         fm = microscope.fm
-        microscope.imaging_system.active_view = FM_ACTIVE_VIEW
+        microscope._connection.imaging_system.active_view = FM_ACTIVE_VIEW
         stop = threading.Event()
 
         def stream():
             while not stop.is_set():
                 with microscope._threading_lock:
-                    microscope.imaging_system.active_view = FM_ACTIVE_VIEW
+                    microscope._connection.imaging_system.active_view = FM_ACTIVE_VIEW
                     time.sleep(0.002)  # the 2 ms exposure, under the lock
 
         t = threading.Thread(target=stream, daemon=True)
@@ -111,7 +113,7 @@ class TestTheFastPath:
     def test_it_writes_nothing_when_the_channel_is_already_ours(self, microscope):
         """No writes is what makes skipping the lock safe: FIB-517 was a stray *write*."""
         fm = microscope.fm
-        imaging = microscope.imaging_system
+        imaging = microscope._connection.imaging_system
         imaging.active_view = FM_ACTIVE_VIEW
         imaging.active_device = FM_ACTIVE_DEVICE
 
@@ -127,7 +129,7 @@ class TestTheSlowPathIsUnchanged:
     def test_a_beam_view_is_still_taken_and_put_back(self, microscope):
         """The FIB-517 guarantee, which the fast path must not weaken."""
         fm = microscope.fm
-        imaging = microscope.imaging_system
+        imaging = microscope._connection.imaging_system
         imaging.active_view = 1  # a beam view — not ours
 
         with fm.active_channel():
@@ -140,7 +142,7 @@ class TestTheSlowPathIsUnchanged:
     def test_nested_scopes_restore_once_at_the_outermost(self, microscope):
         """The tileset case: an inner acquisition must not restore between tiles."""
         fm = microscope.fm
-        imaging = microscope.imaging_system
+        imaging = microscope._connection.imaging_system
         imaging.active_view = 1
 
         with fm.active_channel():
@@ -155,7 +157,9 @@ class TestTheSlowPathIsUnchanged:
     def test_a_scope_entered_from_a_beam_view_still_serialises(self, microscope):
         """It still takes the lock when it has real work to do — only the no-op skips."""
         fm = microscope.fm
-        microscope.imaging_system.active_view = 1  # not ours, so the slow path
+        microscope._connection.imaging_system.active_view = (
+            1  # not ours, so the slow path
+        )
 
         holding = threading.Event()
         release = threading.Event()

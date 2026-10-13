@@ -102,7 +102,13 @@ class TestCalculateReprojectedStagePosition:
         assert (rotated.y - centre.y) == pytest.approx(-(plain.y - centre.y))
 
     def test_compustage_pose_inverts_y(self, image):
-        """At t = -180 the grid is imaged from behind, so in-image y flips."""
+        """At t = -180 the grid is imaged from behind, so in-image y flips on an
+        instrument that mirrors its back views."""
+        from dataclasses import replace
+
+        image.metadata.hardware_geometry = replace(
+            image.metadata.hardware_geometry, mirrors_back_view=True
+        )
         pos = _base(image) + FibsemStagePosition(x=0, y=10e-6, z=0)
 
         image.metadata.stage_position.t = 0.0
@@ -187,3 +193,38 @@ class TestTransformPositionLogging:
         with caplog.at_level(logging.INFO):
             _transform_position(pos)
         assert [r for r in caplog.records if "was transformed" in r.getMessage()] == []
+
+
+class TestTheTurnedOverFlip:
+    """`calculate_reprojected_stage_position` flips image y for an image taken with
+    the stage at -180 degrees tilt, where the grid is turned over (FIB-1350, C3). Only
+    an instrument that mirrors its images of the back of the grid does that flip; on
+    any other stage that reaches -180 the image is as the beam saw it."""
+
+    @staticmethod
+    def _turned_over(image, mirrors: bool):
+        from dataclasses import replace
+
+        image.metadata.microscope_state.stage_position.t = np.radians(-180)
+        image.metadata.hardware_geometry = replace(
+            image.metadata.hardware_geometry, mirrors_back_view=mirrors
+        )
+        return image
+
+    @staticmethod
+    def _dy(image) -> float:
+        base = _base(image)
+        centre = calculate_reprojected_stage_position(image, base)
+        moved = calculate_reprojected_stage_position(
+            image, base + FibsemStagePosition(x=0, y=10e-6, z=0)
+        )
+        return moved.y - centre.y
+
+    def test_flat_image_y_runs_against_stage_y(self, image):
+        assert self._dy(image) < 0
+
+    def test_a_mirroring_instrument_flips_y_when_turned_over(self, image):
+        assert self._dy(self._turned_over(image, mirrors=True)) > 0
+
+    def test_any_other_stage_keeps_y_when_turned_over(self, image):
+        assert self._dy(self._turned_over(image, mirrors=False)) < 0

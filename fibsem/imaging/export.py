@@ -264,9 +264,8 @@ def _display_rgb(image: ExportImage, options: ExportOptions) -> np.ndarray:
     return np.stack([gray] * 3, axis=2)
 
 
-# Detector modes as the microscope state panel abbreviates them
-# (microscope_state_widget._detector, which this module cannot import; tests/ui
-# checks they agree). A mode not listed is shown as reported.
+# Detector modes as the export bar and the microscope state panel abbreviate them
+# (microscope_state_widget._detector). A mode not listed is shown as reported.
 DETECTOR_MODE_ABBREVIATIONS = {
     "SecondaryElectrons": "SE",
     "BackscatteredElectrons": "BSE",

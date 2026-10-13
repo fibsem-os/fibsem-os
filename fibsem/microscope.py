@@ -1105,7 +1105,7 @@ class FibsemMicroscope(ABC):
     # beam geometry, which differs by backend, so they stay the backend's.
 
     def insert_manipulator(
-        self, name: str = "PARK"
+        self, name: Optional[str] = None
     ) -> Optional[FibsemManipulatorPosition]:
         if self.manipulator_device is None:
             raise self._unsupported("insert_manipulator")
@@ -1296,36 +1296,23 @@ class FibsemMicroscope(ABC):
         return None
 
     def draw_patterns(self, patterns: List[FibsemPatternSettings]) -> None:
-        """Draw milling patterns on the microscope from the list of settings
+        """Draw milling patterns on the microscope from the list of settings. All
+        are checked first: one this instrument can't draw raises `UnsupportedPattern`
+        with none drawn.
+
         Args:
             patterns (List[FibsemPatternSettings]): List of milling patterns
         """
-        for pattern in patterns:
-            self.draw_pattern(pattern)
+        self._milling_service().draw(patterns)
 
     def draw_pattern(self, pattern: FibsemPatternSettings) -> None:
-        """Draw a milling pattern from settings
+        """Draw a milling pattern from settings. A pattern this instrument can't
+        draw raises `UnsupportedPattern`.
 
         Args:
             pattern_settings (FibsemPatternSettings): pattern settings
         """
-        if not isinstance(pattern, FibsemPatternSettings):
-            raise TypeError(f"Expected FibsemPatternSettings, got {type(pattern)}")
-
-        if isinstance(pattern, FibsemRectangleSettings):
-            self.draw_rectangle(pattern)
-
-        elif isinstance(pattern, FibsemLineSettings):
-            self.draw_line(pattern)
-
-        elif isinstance(pattern, FibsemCircleSettings):
-            self.draw_circle(pattern)
-
-        elif isinstance(pattern, FibsemBitmapSettings):
-            self.draw_bitmap_pattern(pattern)
-
-        elif isinstance(pattern, FibsemPolygonSettings):
-            self.draw_polygon(pattern)
+        self._milling_service().draw([pattern])
 
     def draw_rectangle(self, pattern_settings: FibsemRectangleSettings) -> None:
         self._milling_service().draw([pattern_settings])
@@ -2310,7 +2297,10 @@ class FibsemMicroscope(ABC):
         if "FM" in (currrent_orientation, target_orientation) and (
             not self._fm_is_a_pose()
         ):
-            raise ValueError("Cannot move to FM position on non-compustage systems.")
+            raise ValueError(
+                "Cannot move to the FM position: this stage reaches the FM by "
+                "travelling, not by re-posing."
+            )
 
         # Which device the stage is at, read *before* either leg runs. The orientation
         # leg below can move x and y most of the way across the grid, so asking
@@ -2851,13 +2841,15 @@ class FibsemMicroscope(ABC):
         stamp the same terms onto an acquired image so it can be reprojected later
         without a live microscope to consult.
 
-        ``is_compustage`` is stamped from the stage device's poses: a stage that
-        reaches the FM by re-posing is a compustage. Recording it is what lets the
-        reprojection stop inferring it from the model name (FIB-481).
+        ``fm_is_pose`` is stamped from the stage device's poses, and
+        ``mirrors_back_view`` from the stage device. Recording them is what lets the
+        reprojection stop inferring them from the model name (FIB-481).
         """
+        stage = self.stage_device
         return FibsemHardwareGeometry.from_system_settings(
             self.system,
-            is_compustage=self._fm_is_a_pose(),
+            fm_is_pose=self._fm_is_a_pose(),
+            mirrors_back_view=stage is not None and stage.mirrors_back_view(),
             rotation_centre=self.rotation_centre,
             poses=self._stage_poses(),
             stage_frame=self.stage_frame,

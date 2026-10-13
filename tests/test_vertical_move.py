@@ -38,10 +38,10 @@ def microscope():
     )
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = 0.0
-    microscope._setup_sample_scene()
+    microscope._connection.setup_sample_scene()
     from fibsem.drivers.demo.sim_scene import SampleScene
 
-    microscope._sample_scene = SampleScene(
+    microscope._connection.sample_scene = SampleScene(
         coincidence_offset=0.0,
         fiducial=True,
         cell_type="none",
@@ -107,15 +107,19 @@ def test_vertical_move_delivers_the_requested_fib_shift(microscope, tilt_deg):
 def test_vertical_move_closes_the_measured_coincidence_error(microscope):
     """The mini align loop: measure the height error, correct it with one
     vertical move, re-measure - the residual must be near zero."""
-    microscope._sample_scene.coincidence_offset = 8e-6
-    microscope._sample_scene.reference_position = None  # re-anchor with offset
+    microscope._connection.sample_scene.coincidence_offset = 8e-6
+    microscope._connection.sample_scene.reference_position = (
+        None  # re-anchor with offset
+    )
     pose = microscope.get_stage_position()
     pose.t = np.deg2rad(12.0)
     microscope.move_stage_absolute(pose)
-    microscope._sample_scene.cell_type = "mammalian"  # cells back on the film
-    microscope._sample_scene.grid_intensity = 90.0
-    microscope._sample_scene.features = []
-    microscope._sample_scene.__post_init__()
+    microscope._connection.sample_scene.cell_type = (
+        "mammalian"  # cells back on the film
+    )
+    microscope._connection.sample_scene.grid_intensity = 90.0
+    microscope._connection.sample_scene.features = []
+    microscope._connection.sample_scene.__post_init__()
 
     def measure():
         settings = ImageSettings(

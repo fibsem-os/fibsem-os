@@ -747,20 +747,3 @@ def create_overview_image_widget(
 # TODO: add more options for customization (scalebar size, font type, etc.)
 # - show only completed lamellae
 # - show defected lamellae in different color
-
-
-if __name__ == "__main__":
-    import sys
-
-    from PyQt5.QtWidgets import QApplication
-
-    app = QApplication(sys.argv)
-
-    layout = QVBoxLayout()
-    widget = OverviewImageWidget()
-    PATH = "/home/patrick/github/fibsem/fibsem/applications/autolamella/log/AutoLamella-2025-11-07-12-32/experiment.yaml"
-    exp = Experiment.load(PATH)
-    dialog = create_overview_image_widget(experiment=exp)
-
-    dialog.show()
-    sys.exit(app.exec_())
