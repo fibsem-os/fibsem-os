@@ -63,7 +63,7 @@ class TestTheAutofunctionsHoldTheChannel:
 
         getattr(microscope, operation)(BeamType.ION)
 
-        assert microscope.imaging_system.active_view == BeamType.ION.value
+        assert microscope._connection.imaging_system.active_view == BeamType.ION.value
 
     @pytest.mark.parametrize("operation", ["autocontrast", "auto_focus"])
     def test_a_clean_run_says_nothing(self, microscope, operation, caplog):
@@ -140,7 +140,7 @@ class TestTheChamberCameraGivesTheChannelBack:
         real_randint = __import__("numpy").random.randint
 
         def watching_randint(*args, **kwargs):
-            seen["view"] = microscope.imaging_system.active_view
+            seen["view"] = microscope._connection.imaging_system.active_view
             return real_randint(*args, **kwargs)
 
         monkeypatch.setattr("numpy.random.randint", watching_randint)
@@ -157,8 +157,8 @@ class TestTheChamberCameraGivesTheChannelBack:
 
         microscope.acquire_chamber_image()
 
-        assert microscope.imaging_system.active_view == beam_type.value
-        assert microscope.imaging_system.active_device == beam_type.value
+        assert microscope._connection.imaging_system.active_view == beam_type.value
+        assert microscope._connection.imaging_system.active_device == beam_type.value
 
     def test_it_puts_it_back_even_when_the_grab_fails(self, microscope, monkeypatch):
         microscope.set_channel(BeamType.ION)
@@ -171,4 +171,4 @@ class TestTheChamberCameraGivesTheChannelBack:
         with pytest.raises(RuntimeError):
             microscope.acquire_chamber_image()
 
-        assert microscope.imaging_system.active_view == BeamType.ION.value
+        assert microscope._connection.imaging_system.active_view == BeamType.ION.value

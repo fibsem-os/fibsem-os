@@ -40,8 +40,12 @@ OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
 _BEAM = {"ELECTRON": "SEM", "ION": "FIB"}
 
 # The figure each kind of run saves into its folder: AlignmentResult.save and
-# AutoFocusResult.save.
-_PLOT_FILES = {"alignment": "figure.png", "autofocus": "plot.png"}
+# AutoFocusResult.save, which the FM autofocus saves with too.
+_PLOT_FILES = {
+    "alignment": "figure.png",
+    "autofocus": "plot.png",
+    "fm_autofocus": "plot.png",
+}
 
 
 @dataclass
@@ -291,27 +295,31 @@ def _started(operation: HistoryOperation) -> float:
 def _fold_drift(operations: List[HistoryOperation]) -> List[HistoryOperation]:
     """Move each alignment that started inside a mill's stage under that mill:
     the stage's drift correction (FIB-1351). Stages run one after another on one
-    clock, so an alignment's start places it. ``operations`` are one run's, in
-    the order they started; what no stage claims stays as it is."""
+    clock, so an alignment's start places it. On a coarse clock (Windows ticks
+    every 15.6 ms) one stage's end, the next one's start and that stage's drift
+    correction can read the same instant: the later stage takes it, since a
+    correction runs after its stage starts. ``operations`` are one run's, in the
+    order they started; what no stage claims stays as it is."""
     claimed = set()
     for mill in operations:
         if mill.kind != "milling":
             continue
+        windows = []
         for position, stage in enumerate(_stages(mill.payload)):
             start = to_datetime(stage.get("started_at"))
             end = to_datetime(stage.get("ended_at"))
-            if start is None or end is None:
+            if start is not None and end is not None:
+                windows.append((position, start.timestamp(), end.timestamp()))
+        for index, op in enumerate(operations):
+            when = op.started_at or op.ended_at
+            if op.kind != "alignment" or index in claimed or when is None:
                 continue
-            for index, op in enumerate(operations):
-                when = op.started_at or op.ended_at
-                if (
-                    op.kind == "alignment"
-                    and index not in claimed
-                    and when is not None
-                    and start.timestamp() <= when.timestamp() <= end.timestamp()
-                ):
-                    mill.drift.setdefault(position, []).append(op)
-                    claimed.add(index)
+            inside = [
+                p for p, start, end in windows if start <= when.timestamp() <= end
+            ]
+            if inside:
+                mill.drift.setdefault(inside[-1], []).append(op)
+                claimed.add(index)
         if mill.drift:
             mill.detail += _drift_summary(mill, completed=mill.status == COMPLETED)
     return [op for index, op in enumerate(operations) if index not in claimed]

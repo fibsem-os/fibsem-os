@@ -74,14 +74,14 @@ def test_a_drivers_own_time_is_kept(microscope, monkeypatch):
     """A driver that reads the time off the instrument sets it; the default doesn't
     overwrite it."""
     vendor = datetime.fromisoformat("2026-07-16T11:07:27-06:00")
-    original = microscope._demo_acquire
+    original = microscope._connection.acquire
 
     def acquire_with_a_vendor_time(*args, **kwargs):
         image = original(*args, **kwargs)
         image.metadata.acquisition_datetime = vendor
         return image
 
-    monkeypatch.setattr(microscope, "_demo_acquire", acquire_with_a_vendor_time)
+    monkeypatch.setattr(microscope._connection, "acquire", acquire_with_a_vendor_time)
     image = microscope.acquire_image(_settings(beam_type=BeamType.ELECTRON))
     assert image.metadata.acquisition_datetime == vendor
 

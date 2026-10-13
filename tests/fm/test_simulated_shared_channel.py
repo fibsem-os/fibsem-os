@@ -61,7 +61,7 @@ class TestTheFMTakesTheChannel:
         """As `ThermoMicroscope.__init__` does. Taking it back is the next beam
         operation's job, and the fact that this is the starting state is half of why
         that matters."""
-        assert microscope.imaging_system.active_view == FM_ACTIVE_VIEW
+        assert microscope._connection.imaging_system.active_view == FM_ACTIVE_VIEW
 
     def test_a_bare_set_leaves_it_on_the_fm(self, microscope):
         """The shape of the bug: this is what a property getter does. `objective.state`
@@ -70,16 +70,18 @@ class TestTheFMTakesTheChannel:
 
         microscope.fm.set_active_channel()
 
-        assert microscope.imaging_system.active_view == FM_ACTIVE_VIEW
-        assert microscope.imaging_system.active_device == FM_ACTIVE_DEVICE
+        assert microscope._connection.imaging_system.active_view == FM_ACTIVE_VIEW
+        assert microscope._connection.imaging_system.active_device == FM_ACTIVE_DEVICE
 
     def test_the_scope_hands_it_back(self, microscope):
         microscope.set_channel(BeamType.ELECTRON)
 
         with microscope.fm.active_channel():
-            assert microscope.imaging_system.active_view == FM_ACTIVE_VIEW
+            assert microscope._connection.imaging_system.active_view == FM_ACTIVE_VIEW
 
-        assert microscope.imaging_system.active_view == BeamType.ELECTRON.value
+        assert (
+            microscope._connection.imaging_system.active_view == BeamType.ELECTRON.value
+        )
 
     def test_it_restores_whatever_was_there(self, microscope):
         """Not a hardcoded beam view: it puts back what it found."""
@@ -89,7 +91,7 @@ class TestTheFMTakesTheChannel:
             with microscope.fm.active_channel():
                 pass
 
-            assert microscope.imaging_system.active_view == beam_type.value
+            assert microscope._connection.imaging_system.active_view == beam_type.value
 
     def test_the_device_comes_back_with_the_view(self, microscope):
         """A view left correct with the device still on the FM would be a half-restore
@@ -99,7 +101,7 @@ class TestTheFMTakesTheChannel:
         with microscope.fm.active_channel():
             pass
 
-        assert microscope.imaging_system.active_device == BeamType.ION.value
+        assert microscope._connection.imaging_system.active_device == BeamType.ION.value
 
     def test_it_hands_it_back_when_the_body_fails(self, microscope):
         """An FM that is off, or answering slowly, must not strand the beam side."""
@@ -109,7 +111,7 @@ class TestTheFMTakesTheChannel:
             with microscope.fm.active_channel():
                 raise RuntimeError("detector did not answer")
 
-        assert microscope.imaging_system.active_view == BeamType.ION.value
+        assert microscope._connection.imaging_system.active_view == BeamType.ION.value
 
     def test_only_the_outermost_scope_restores(self, microscope):
         """A tileset holds the channel for the whole run and each tile opens a scope
@@ -119,12 +121,14 @@ class TestTheFMTakesTheChannel:
 
         with microscope.fm.active_channel():
             with microscope.fm.active_channel():
-                assert microscope.imaging_system.active_view == FM_ACTIVE_VIEW
-            assert microscope.imaging_system.active_view == FM_ACTIVE_VIEW, (
-                "the inner scope restored"
-            )
+                assert (
+                    microscope._connection.imaging_system.active_view == FM_ACTIVE_VIEW
+                )
+            assert (
+                microscope._connection.imaging_system.active_view == FM_ACTIVE_VIEW
+            ), "the inner scope restored"
 
-        assert microscope.imaging_system.active_view == BeamType.ION.value
+        assert microscope._connection.imaging_system.active_view == BeamType.ION.value
 
     def test_acquiring_an_fm_image_hands_the_channel_back(self, microscope):
         """The path everything above the driver actually takes:
@@ -134,7 +138,9 @@ class TestTheFMTakesTheChannel:
 
         microscope.fm.acquire_image()
 
-        assert microscope.imaging_system.active_view == BeamType.ELECTRON.value
+        assert (
+            microscope._connection.imaging_system.active_view == BeamType.ELECTRON.value
+        )
 
 
 class TestTheBeamNoticesATheft:
@@ -145,7 +151,10 @@ class TestTheBeamNoticesATheft:
 
         microscope.acquire_image(image_settings=settings)
 
-        assert microscope.imaging_system.active_view == settings.beam_type.value
+        assert (
+            microscope._connection.imaging_system.active_view
+            == settings.beam_type.value
+        )
 
     def test_a_clean_acquisition_says_nothing(self, microscope, settings, caplog):
         with caplog.at_level(logging.WARNING):

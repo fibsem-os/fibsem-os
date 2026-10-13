@@ -158,6 +158,41 @@ def test_acquire_fluorescence_persists_autofocus_result(
     assert lamella.fluorescence_pose.objective_position == pytest.approx(refined)
 
 
+def test_the_autofocus_saves_under_the_task_s_folder_and_records_where(
+    fm_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """The sweep saves its result itself, so its ``fm_autofocus`` event says where
+    and the History tab can open it (FIB-1257). The task used to save it
+    afterwards, outside the record."""
+    from fibsem.fm.structures import AutoFocusSettings, FocusMethod
+
+    lamella = _make_lamella(tmp_path, None, with_fluorescence_pose=False)
+    lamella.path.mkdir(parents=True, exist_ok=True)
+    task = _acquire_task(fm_microscope, lamella)
+    task.config.autofocus_settings = AutoFocusSettings.from_coarse_fine(
+        coarse_range=4e-6,
+        coarse_step=2e-6,
+        fine_range=2e-6,
+        fine_step=1e-6,
+        method=FocusMethod.LAPLACIAN,
+    )
+    task.config.autofocus_settings.channel_name = "GFP"
+    events = []
+    fm_microscope.record_signal.connect(
+        lambda kind, payload: events.append(payload) if kind == "fm_autofocus" else None
+    )
+
+    result = task._run_autofocus()
+
+    (event,) = events
+    assert event["status"] == "completed"
+    saved = Path(event["path"])
+    assert saved.parent == Path(task.output_dir) / "autofunctions"
+    assert saved.name.startswith(f"{task.task_name}_autofocus_")
+    assert (saved / "plot.png").is_file() and (saved / "data.json").is_file()
+    assert event["position"] == pytest.approx(result.working_distance)
+
+
 def test_mill_coincident_requires_objective_position(
     fm_microscope: FibsemMicroscope, tmp_path: Path
 ) -> None:
