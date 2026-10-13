@@ -31,6 +31,7 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import Role, command, query
 from fibsem.devices.fm import FM, mount_transform_from_name
 from fibsem.devices.stage import Stage, recording_move
+from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
 from fibsem.geometry.movement import (
     apply_delta,
     fib_offset_after_sem_move,
@@ -379,10 +380,8 @@ class StageMovement(Service):
     def camera_tilt(self) -> float:
         """Tilt of the FM camera's optical axis from the SEM column, in degrees.
 
-        The FM entry's ``camera_tilt`` where the configuration states one (FIB-335).
-        Otherwise from the mount: an FM the stage reaches by turning the grid over (a
-        compustage) looks up at it from the opposite side to the SEM, 180 degrees; an
-        offset FM sits parallel to the FIB column and shares its tilt.
+        The FM entry's ``camera_tilt`` where the configuration states one (FIB-335),
+        else derived from the mount (`fibsem.geometry.frames.fm_camera_tilt`).
         """
         return fm_camera_tilt(self.parent)
 
@@ -769,6 +768,6 @@ def fm_camera_tilt(microscope: Any) -> float:
     configured = microscope.system.fm.camera_tilt
     if configured is not None:
         return float(configured)
-    if microscope._fm_is_a_pose():
-        return 180.0
-    return microscope.system.ion.column_tilt
+    return derived_camera_tilt(
+        microscope._fm_is_a_pose(), microscope.system.ion.column_tilt
+    )

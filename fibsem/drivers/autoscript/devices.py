@@ -94,8 +94,8 @@ from fibsem.devices.sample_loader import (
 from fibsem.devices.stage import (
     Stage,
     axis_limits_from_degrees,
-    compustage_device_at_pose,
-    compustage_poses,
+    flip_stage_device_at_pose,
+    flip_stage_poses,
 )
 from fibsem.devices.wire import Frame
 from fibsem.drivers.autoscript import images
@@ -278,10 +278,10 @@ class AutoscriptCompustage(AutoscriptStage):
     def poses(
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
     ) -> Dict[str, FibsemStagePosition]:
-        return compustage_poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
+        return flip_stage_poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
 
     def device_at_pose(self, orientation: str) -> Optional[str]:
-        return compustage_device_at_pose(orientation)
+        return flip_stage_device_at_pose(orientation)
 
 
 def autoscript_stage_class(microscope: ThermoMicroscope) -> Type[AutoscriptStage]:
