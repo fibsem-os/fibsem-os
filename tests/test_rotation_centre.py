@@ -32,13 +32,23 @@ CENTRE = (1.5e-3, -0.75e-3)
 
 
 class TestTransformPosition:
-    def test_the_default_is_the_legacy_formula(self):
-        """Images with no recorded centre reflect through LEGACY_ROTATION_CENTRE."""
-        pos = FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=0.1, t=0.2)
-        transformed = _transform_position(pos)
+    def test_without_a_centre_it_turns_about_the_origin_and_says_so_once(
+        self, caplog, monkeypatch
+    ):
+        """No centre known: the stage origin, not one ThermoFisher's calibration."""
+        import logging
 
-        assert transformed.x == pytest.approx(2 * LEGACY_ROTATION_CENTRE[0] - pos.x)
-        assert transformed.y == pytest.approx(2 * LEGACY_ROTATION_CENTRE[1] - pos.y)
+        import fibsem.imaging.tiling.reprojection as reprojection
+
+        monkeypatch.setattr(reprojection, "_warned_no_rotation_centre", False)
+        pos = FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=0.1, t=0.2)
+        with caplog.at_level(logging.WARNING):
+            transformed = _transform_position(pos)
+            _transform_position(pos, None)
+
+        assert (transformed.x, transformed.y) == pytest.approx((-pos.x, -pos.y))
+        warnings = [r for r in caplog.records if "rotation centre" in r.getMessage()]
+        assert len(warnings) == 1
 
     def test_a_centre_reflects_xy_through_it(self):
         pos = FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=0.1, t=0.2)
@@ -77,13 +87,23 @@ class TestGeometry:
             == CENTRE
         )
 
-    def test_without_one_the_legacy_centre_is_recorded(self):
+    def test_a_recorded_none_stays_none(self):
+        """A driver with no centre is not mistaken for an image from before the field."""
+        geometry = FibsemHardwareGeometry(rotation_centre=None)
+
+        assert geometry.to_dict()["rotation_centre"] is None
+        assert (
+            FibsemHardwareGeometry.from_dict(geometry.to_dict()).rotation_centre is None
+        )
+
+    def test_without_one_none_is_recorded(self):
+        """Not ThermoFisher's legacy calibration (FIB-1081)."""
         microscope, _ = utils.setup_session(manufacturer="Demo")
         microscope.rotation_centre = (
             None  # the Demo names one; this is a driver that does not
         )
 
-        assert microscope.hardware_geometry().rotation_centre == LEGACY_ROTATION_CENTRE
+        assert microscope.hardware_geometry().rotation_centre is None
 
     def test_a_driver_s_centre_is_recorded(self):
         microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -197,6 +217,28 @@ class TestReprojection:
         (drawn,) = reproject_stage_positions_onto_image2(image, [other_side])
         expected = calculate_reprojected_stage_position2(
             image, _transform_position(other_side, CENTRE)
+        )
+
+        assert (drawn.x, drawn.y) == pytest.approx((expected.x, expected.y))
+
+    def test_an_image_without_a_centre_is_drawn_about_the_origin(self):
+        microscope, _ = utils.setup_session(manufacturer="Demo")
+        microscope.rotation_centre = None
+        image = microscope.acquire_image(
+            ImageSettings(
+                hfw=2e-3, resolution=[64, 64], beam_type=BeamType.ELECTRON, save=False
+            )
+        )
+        base = image.metadata.microscope_state.stage_position
+        assert image.metadata.hardware_geometry.rotation_centre is None
+
+        other_side = deepcopy(base)
+        other_side.r = base.r + np.pi
+        other_side.x += 100e-6
+
+        (drawn,) = reproject_stage_positions_onto_image2(image, [other_side])
+        expected = calculate_reprojected_stage_position2(
+            image, _transform_position(other_side, (0.0, 0.0))
         )
 
         assert (drawn.x, drawn.y) == pytest.approx((expected.x, expected.y))

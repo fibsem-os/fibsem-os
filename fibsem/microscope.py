@@ -309,8 +309,7 @@ class FibsemMicroscope(ABC):
     # position p on one side of the stage is at 2c - p on the other. A property of the
     # hardware, so the driver sets it (ThermoFisher adds the configured
     # `rotation_centre_correction` to xT's centre). None means no rotating stage is
-    # known: stage moves assume the stage origin, and images record
-    # LEGACY_ROTATION_CENTRE for reprojection (FIB-1081).
+    # known: stage moves and image reprojection assume the stage origin (FIB-1081).
     rotation_centre: Optional[Tuple[float, float]] = None
 
     # live acquisition
