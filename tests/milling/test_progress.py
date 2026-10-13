@@ -122,7 +122,7 @@ class TestDisplayMessage:
 
     def test_the_default_says_which_task_when_the_report_names_one(self):
         report = MillingProgress(
-            MillingProgressStatus.TASK_FINISHED, task_name="Trench"
+            MillingProgressStatus.TASK_FINISHED, milling_task_name="Trench"
         )
         assert report.display_message == "Finished milling task: Trench"
 
@@ -269,6 +269,9 @@ class TestTheTotalityGuard:
         )
         assert report.status is MillingProgressStatus.TASK_FINISHED
         assert report.status.is_terminal
+        # The older names for the milling run's own id and config name (FIB-1356).
+        assert report.milling_run_id == "abc"
+        assert report.milling_task_name == "Trench"
 
     def test_a_delegating_strategys_shape_decodes_to_something(self):
         """The shape with no `state` at all: a strategy that emits its label, then hands

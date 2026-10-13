@@ -42,6 +42,7 @@ import pandas as pd
 
 from fibsem.applications.autolamella.event_recording import (
     EVENTS_FILENAME,
+    milling_run_of,
     read_events,
 )
 from fibsem.applications.autolamella.proposals import (
@@ -235,11 +236,12 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
             current_step[run_id] = step
         elif kind == "milling_stage_started":
             stage = payload.get("stage") or {}
+            milling_run_id, milling_task = milling_run_of(payload)
             row = {
                 "item": item.get("name"),
                 "task": task.get("name"),
                 "task_id": run_id,
-                "milling_task": payload.get("task_name"),
+                "milling_task": milling_task,
                 "stage": stage.get("name"),
                 "stage_index": payload.get("stage_index"),
                 "start": time,
@@ -249,9 +251,10 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
                 "finished": False,
             }
             milling.append(row)
-            stages[(payload.get("task_id"), stage.get("name"))] = row
+            stages[(milling_run_id, stage.get("name"))] = row
         elif kind == "milling_progress" and payload.get("status") == "stage-finished":
-            row = stages.pop((payload.get("task_id"), payload.get("stage_name")), None)
+            key = (milling_run_of(payload)[0], payload.get("stage_name"))
+            row = stages.pop(key, None)
             if row is not None:
                 row.update(end=time, finished=True)
         elif kind == "prompt_raised":

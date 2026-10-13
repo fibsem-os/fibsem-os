@@ -457,8 +457,8 @@ class OdemisStage(Stage):
       ``move_stage_relative``, each waiting on the move's future;
     - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
 
-    The old moves end by reading the position back; ``Stage.move_through`` does the
-    same read.
+    The old moves end by reading the position back; ``Stage.move_absolute`` and
+    ``move_relative`` do the same read.
     """
 
     def __init__(

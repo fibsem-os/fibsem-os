@@ -27,16 +27,13 @@ from typing import (
     Sequence,
 )
 
-from fibsem import manufacturers
+from fibsem.drivers.registry import REMOTE_DRIVER, normalize_name
 from fibsem.structures import DeviceEntry, read_device_entries
 
 if TYPE_CHECKING:
     from fibsem.drivers.registry import DeviceBuilder
     from fibsem.microscope import FibsemMicroscope
     from fibsem.structures import SystemSettings
-
-# The driver for a device on its own PC, reached through the device server.
-REMOTE_DRIVER = "remote"
 
 
 @dataclass(frozen=True)
@@ -80,9 +77,7 @@ def _driver_name(driver: Optional[str], manufacturer: Optional[str]) -> str:
     name = driver if driver else manufacturer
     if not name:
         raise ValueError("A device has no driver and info.manufacturer is not set.")
-    if name.strip().lower() == REMOTE_DRIVER:
-        return REMOTE_DRIVER
-    return manufacturers.normalize_manufacturer(name)
+    return normalize_name(name)
 
 
 def resolve_device_entries(
