@@ -21,6 +21,37 @@ writing up.
   cannot run Python 3.10: a Windows 7 support PC can stay on 0.5.3, or fibsemOS can
   run on a Windows 10 or newer computer on the microscope network.
 
+### Scripting API: the old string-key calls are removed
+
+Scripts and plugins that drive the microscope directly need these changes. 0.5.3 still
+has every call below and does not warn about any of them; 0.6.0 removes them without a
+warning release in between. The [device guide](docs/developers/devices.md#from-getset-to-devices)
+lists where each key went.
+
+- **`microscope.get("key", beam_type)` and `microscope.set("key", value, beam_type)`
+  are removed.** Read and write the device parameter instead, for example
+  `microscope.beams[BeamType.ION].current.get_value()` and `.set_value(v)` for
+  `"current"`, `microscope.stage.position.get_value()` for `"stage_position"`, and
+  `microscope.stage.home()` for `set("stage_home", True)`. The
+  named methods (`get_beam_current`, `set_field_of_view`, `move_stage_absolute`,
+  `get_microscope_state`, ...) are unchanged and read and write the devices.
+- **`get_available_values`, `get_available_values_cached` and
+  `clear_available_values_cache` are removed.** A parameter's `choices` is the same
+  list: `microscope.beams[BeamType.ION].parameters["current"].choices`. Milling
+  settings' choices are `microscope.milling.supported_settings()`.
+- **`microscope.move_to_microscope(target)` is removed.** Call
+  `microscope.move_to_device(target)`; pass `orientation="SEM"` to land at SEM when
+  returning to the beams, as the old method did on a compustage.
+- **The `fibsem.microscopes.*` driver module names are removed.** Import from
+  `fibsem.drivers`: `fibsem.drivers.autoscript.microscope`,
+  `fibsem.drivers.tescan.microscope`, `fibsem.drivers.odemis.microscope`
+  (`OdemisTescanMicroscope`), `fibsem.drivers.demo.microscope`,
+  `fibsem.drivers.demo.simulator`, `fibsem.drivers.demo.sim_scene` and
+  `fibsem.drivers.registry`.
+- A backend no longer implements `_get`/`_set`; its devices are the whole contract.
+  The key tables (`fibsem.devices.BEAM_ROUTES`, `STAGE_ROUTES`, `CHAMBER_ROUTES`,
+  `MANIPULATOR_ROUTES` and their command tables) are gone with them.
+
 ### Workflow (early access)
 
 - **Every task records what it did.** A task that proposes something (Setup

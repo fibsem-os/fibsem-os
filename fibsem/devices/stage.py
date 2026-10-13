@@ -1,5 +1,5 @@
-"""The Stage device: the stage's hardware contract, owned by the device rather than
-asked of the microscope's backend ``get``/``set`` chain.
+"""The Stage device: it owns the stage's hardware contract, and the microscope asks
+the device.
 
 The stage is the raw hardware contract only: where it is, what it can reach, and
 "move to these coordinates" in the fibsem-os frame (FIB-1083). View-corrected moves

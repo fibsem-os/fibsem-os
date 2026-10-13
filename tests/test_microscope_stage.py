@@ -42,9 +42,3 @@ def test_a_backend_without_a_stage_device_has_none():
     microscope = _bare_microscope()
     assert microscope.stage is None
     assert dict(microscope.devices) == {}
-
-
-def test_the_stage_keys_route_to_the_stage():
-    microscope = _demo()
-    microscope.move_stage_absolute(FibsemStagePosition(x=1e-4, y=0.0))
-    assert microscope.get("stage_position") == microscope.stage.position.cached

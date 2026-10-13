@@ -341,7 +341,7 @@ def _beams_off(monkeypatch):
     def connect_off(self, *args, **kwargs):
         original(self, *args, **kwargs)
         for beam_type in (BeamType.ELECTRON, BeamType.ION):
-            self.set("on", False, beam_type)
+            self.turn_off(beam_type)
 
     original_turn_on = DemoMicroscope.turn_on
 

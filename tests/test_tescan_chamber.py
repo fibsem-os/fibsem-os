@@ -30,19 +30,6 @@ def test_it_has_no_chamber_device(connected):
     assert microscope.chamber_device is None
 
 
-@pytest.mark.parametrize(
-    "call",
-    [
-        lambda m: m.get("chamber_state"),
-        lambda m: m.get("chamber_pressure"),
-    ],
-)
-def test_the_chamber_is_never_touched(connected, call):
-    microscope, fake = connected
-    assert call(microscope) is None
-    assert not [path for path, _, _ in fake.log if "Chamber" in path]
-
-
 @pytest.mark.parametrize("method", ["pump", "vent"])
 def test_pumping_or_venting_raises_unsupported(connected, method):
     microscope, fake = connected

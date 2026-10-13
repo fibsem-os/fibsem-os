@@ -1,14 +1,12 @@
 import logging
 import re
 import sys
-from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 import fibsem.constants as constants
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_ROUTES, STAGE_ROUTES
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.microscope import (
@@ -389,11 +387,11 @@ class TescanMicroscope(FibsemMicroscope):
         return built
 
     def _build_beams(self) -> None:
-        """Build the beam devices and route the beam keys to them.
+        """Build the beam devices.
 
-        A key a beam does not have (the ion column's working distance,
-        ``detector_mode``) is unknown; their wrappers answer for themselves. Every key
-        of a disabled column, which gets no device, goes to ``_get``/``_set``.
+        A parameter a beam does not have (the ion column's working distance,
+        ``detector_mode``) is unsupported; their wrappers answer for themselves. A
+        disabled column gets no device, and its wrappers read None.
         """
         self._build_devices(
             [
@@ -402,7 +400,6 @@ class TescanMicroscope(FibsemMicroscope):
             ],
             _BEAM_TYPES,
         )
-        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
 
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
@@ -426,18 +423,14 @@ class TescanMicroscope(FibsemMicroscope):
         self.spot_burn = bind_tescan_spot_burn(self)
 
     def _build_stage(self) -> None:
-        """Build the stage device and route the stage keys to it.
+        """Build the stage device.
 
         The absolute and relative moves then go through the device, and so do the
-        view-corrected moves, which end in them. ``homed`` is not on the device, so its
-        key still goes to ``_get``/``_set``. A disabled stage gets no device, and then
+        view-corrected moves, which end in them. The device has no ``homed``, so it
+        reads None. A disabled stage gets no device, and then
         the stage cannot be read or moved.
         """
         self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
-        if self.stage is not None:
-            self._device_routes = MappingProxyType(
-                {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
-            )
 
     @property
     def manufacturer(self) -> str:
@@ -446,7 +439,7 @@ class TescanMicroscope(FibsemMicroscope):
     def is_working_distance_settable(self, beam_type: BeamType) -> bool:
         """ION working distance is not settable: the SDK's FIB class has no WD or
         focus control anywhere (FIB.Optics carries only rotation/shift/viewfield) --
-        ion focus on TESCAN is preset-driven. _set("working_distance", ION) is a
+        ion focus on TESCAN is preset-driven. Writing the ion working distance is a
         best-effort no-op so state restores keep working; anything that *depends* on
         the write landing (the autofocus sweep) must gate on this instead."""
         return beam_type is not BeamType.ION

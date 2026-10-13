@@ -186,8 +186,8 @@ class TestTheStartingPlacement:
         pose alone shows the image upside down; the opposite rotation is taken."""
         import math
 
-        before = microscope.get("scan_rotation", BeamType.ELECTRON)
-        microscope.set("scan_rotation", math.pi, BeamType.ELECTRON)
+        before = microscope.get_scan_rotation(BeamType.ELECTRON)
+        microscope.set_scan_rotation(math.pi, BeamType.ELECTRON)
         try:
             w = FibsemOverviewWidget(microscope)
             w.resize(900, 700)
@@ -204,7 +204,7 @@ class TestTheStartingPlacement:
             assert base.r == pytest.approx(pose.r + math.pi)  # the opposite one
             w.close()
         finally:
-            microscope.set("scan_rotation", before, BeamType.ELECTRON)
+            microscope.set_scan_rotation(before, BeamType.ELECTRON)
 
 
 class TestLoadAsksOnlyWhenItMustAndKeepsACopy:

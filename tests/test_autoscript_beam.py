@@ -72,6 +72,9 @@ def recording(tmp_path_factory):
     recording = load(out.read_text())
     # the old code's side, recorded before it was deleted
     old = load(RECORDED.read_text())["beam"]
+    # the tilt correction's get returned None without asking anything; the key was
+    # set-only, and with the keys gone there is no such get to compare
+    old = {k: v for k, v in old.items() if " get angular_correction_tilt" not in k}
     assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
     for case in recording["cases"]:
         result, calls, messages = old[case["key"]]
@@ -335,12 +338,7 @@ def test_the_angular_correction_is_set_as_before(recording):
     assert case["new"][0] == [None, 0.2]
 
 
-def test_the_tilt_correction_reads_on_the_new_api_only(recording):
-    """The old key could only be set, and its get returned None. It still does; the
-    device's parameter reads the vendor's state."""
-    assert recording["facts"]["tilt_correction"] == {
-        "before": False,
-        "after": True,
-        "key": None,
-        "ion": None,
-    }
+def test_the_tilt_correction_reads_the_vendor_state(recording):
+    """The old key could only be set; the device's parameter reads the vendor's
+    state."""
+    assert recording["facts"]["tilt_correction"] == {"before": False, "after": True}

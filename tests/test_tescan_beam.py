@@ -26,7 +26,6 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.devices.beam import BEAM_ROUTES
 from fibsem.drivers.tescan.devices import TescanBeam, bind_tescan_beams
 from fibsem.structures import BeamType, Point
 from tests.fixtures.demoted_messages import as_logged_now
@@ -91,7 +90,32 @@ def _run(microscope, fake, call):
 #: Writes whose old branches were deleted rather than moved: the API has no control.
 #: ``detector_mode`` reads go too; the ion working distance read never had a branch.
 DELETED = {(E, "detector_mode"), (I, "detector_mode"), (I, "working_distance")}
-GETS = sorted(BEAM_ROUTES)
+#: The keys the recording was made with (the removed ``get``/``set`` keys), by the beam
+#: parameter each is now: the cases read and write the parameter through the named
+#: methods' path (``_read_beam``/``_write_beam``), which the old keys took.
+PARAMETERS = {
+    "voltage": "voltage",
+    "current": "current",
+    "plasma_gas": "plasma_gas",
+    "working_distance": "working_distance",
+    "hfw": "hfw",
+    "scan_rotation": "scan_rotation",
+    "blanked": "blanked",
+    "preset": "preset",
+    "detector_type": "detector_type",
+    "detector_mode": "detector_mode",
+    "detector_contrast": "detector_contrast",
+    "detector_brightness": "detector_brightness",
+    "resolution": "resolution",
+    "dwell_time": "dwell_time",
+    "stigmation": "stigmation",
+    "shift": "shift",
+    "on": "on",
+    "scanning_mode": "scanning_mode",
+    "angular_correction_angle": "angular_correction",
+    "angular_correction_tilt_correction": "tilt_correction",
+}
+GETS = sorted(PARAMETERS)
 
 SETS = [
     ("on", False),
@@ -125,14 +149,19 @@ def _cases():
                 continue
             yield (
                 f"{beam_type.name} get {key}",
-                (lambda m, k=key, b=beam_type: m.get(k, b)),
+                (lambda m, n=PARAMETERS[key], b=beam_type: m._read_beam(n, b)),
             )
         for key, value in SETS:
             if (beam_type, key) in DELETED:
                 continue
             yield (
                 f"{beam_type.name} set {key} {value!r}",
-                (lambda m, k=key, v=value, b=beam_type: (m.set(k, v, b), m.get(k, b))),
+                (
+                    lambda m, n=PARAMETERS[key], v=value, b=beam_type: (
+                        m._write_beam(n, v, b),
+                        m._read_beam(n, b),
+                    )
+                ),
             )
 
 
@@ -242,14 +271,6 @@ def test_what_the_api_refuses_reads_as_not_settable(monkeypatch):
     ]
     assert settable[E] == sorted(common + ["preset", "voltage", "working_distance"])
     assert settable[I] == sorted(common + ["preset"])
-
-
-@pytest.mark.parametrize("beam_type", [E, I])
-@pytest.mark.parametrize("key", ["current", "detector_type", "preset"])
-def test_the_choices_are_get_available_values(monkeypatch, beam_type, key):
-    microscope, _ = connect(monkeypatch, _system())
-    param = microscope.beams[beam_type].parameters[key]
-    assert list(param.choices) == microscope.get_available_values(key, beam_type)
 
 
 def test_hfw_limits_are_the_columns(monkeypatch):

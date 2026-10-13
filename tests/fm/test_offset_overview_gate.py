@@ -51,7 +51,7 @@ def _at_the_fm():
     """An offset system parked at the FM: FIB pose, then the 48.8 mm traverse."""
     microscope, _ = utils.setup_session(config_path=IFLM_CONFIG)
     microscope.move_to_orientation("FIB")
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     return microscope
 
 
@@ -121,7 +121,7 @@ def test_a_compustage_tileset_needs_the_fm_pose():
     microscope, _ = utils.setup_session(config_path=ARCTIS_CONFIG)
     microscope.fm.objective.insert()
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     tiles = acquire_tileset(
         microscope=microscope,
         channel_settings=CHANNEL,

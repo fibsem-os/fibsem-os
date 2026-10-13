@@ -5,9 +5,9 @@
 The MCP sidecar lets Claude (Code or Desktop) drive a fibsem server: acquire
 and *look at* images, read state, move the stage, and stop a mill. The server
 is the security boundary: the sidecar registers every tool the server's mounted
-routers serve (hardware tools only when that scope is armed), whatever the
-agent's level, and the server refuses what the level doesn't allow with a 403
-that says so. Each tool's description names the level it needs. If the server
+routers serve (on the bench server, hardware tools only when that scope is
+armed), whatever the agent's level, and the server refuses what the level
+doesn't allow with a 403 that says so. Each tool's description names the level it needs. If the server
 restarts with a new token, the sidecar re-reads the discovery file and carries
 on.
 

@@ -63,7 +63,7 @@ def test_the_electron_working_distance_still_reaches_the_column(connected):
 def test_the_keys_are_unsupported(connected, key, beam_type, caplog):
     microscope, fake = connected
     with caplog.at_level(logging.INFO):
-        microscope.set(key, None, beam_type)
-        assert microscope.get(key, beam_type) is None
+        microscope._write_beam(key, None, beam_type)
+        assert microscope._read_beam(key, beam_type) is None
     assert fake.log == []
     assert caplog.records == []

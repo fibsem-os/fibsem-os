@@ -445,7 +445,7 @@ def cases():
 
         add(
             "get position",
-            lambda m: m.get("stage_position"),
+            lambda m: m._stage_value("position"),
             lambda s, m: s.position.get_value(),
         )
         add(
@@ -455,28 +455,23 @@ def cases():
         )
         add(
             "get homed",
-            lambda m: m.get("stage_homed"),
+            lambda m: m._stage_value("homed"),
             lambda s, m: s.homed.get_value(),
         )
-        add("home", lambda m: m.set("stage_home", True), lambda s, m: s._home())
+        add("home", lambda m: (m.stage.home(), None)[1], lambda s, m: s._home())
         if not compustage:
             add(
                 "get linked",
-                lambda m: m.get("stage_linked"),
+                lambda m: m._stage_value("linked"),
                 lambda s, m: s.linked.get_value(),
             )
-            add("link", lambda m: m.set("stage_link", True), lambda s, m: s._link())
+            add("link", lambda m: (m.stage.link(), None)[1], lambda s, m: s._link())
             add(
                 "link_stage",
                 lambda m: m.link_stage(),
                 lambda s, m: (s._link(), s.linked.get_value())[1],
             )
         add("home()", lambda m: m.home(), lambda s, m: (s._home(), True)[1])
-        add(
-            "unlink",
-            lambda m: m.set("stage_link", False),
-            lambda s, m: m.set("stage_link", False),  # no device unlinks
-        )
 
         for i, position in enumerate(positions(compustage)):
             add(

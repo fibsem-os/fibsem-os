@@ -177,20 +177,20 @@ def test_changing_beam_current_moves_the_beam_reproducibly(microscope):
         current_offset_scale=2e-6,
     )
     settings = _settings(BeamType.ION)
-    currents = microscope.get_available_values("current", BeamType.ION)
+    currents = microscope.beams[BeamType.ION].parameters["current"].choices
     low, high = currents[1], currents[-2]
 
-    microscope.set("current", low, BeamType.ION)
+    microscope.set_beam_current(low, BeamType.ION)
     reference = microscope.acquire_image(image_settings=settings)
     at_low = _fiducial(reference)
-    microscope.set("current", high, BeamType.ION)
+    microscope.set_beam_current(high, BeamType.ION)
     at_high = _fiducial(microscope.acquire_image(image_settings=settings))
     assert np.hypot(at_high[0] - at_low[0], at_high[1] - at_low[1]) > 3
-    microscope.set("current", low, BeamType.ION)
+    microscope.set_beam_current(low, BeamType.ION)
     again = _fiducial(microscope.acquire_image(image_settings=settings))
     assert np.hypot(again[0] - at_low[0], again[1] - at_low[1]) < 1.5
 
-    microscope.set("current", high, BeamType.ION)
+    microscope.set_beam_current(high, BeamType.ION)
     beam_shift_alignment_v2(
         microscope, reference, subsystem=AlignmentSubsystem.BEAM_SHIFT
     )
@@ -674,7 +674,7 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
     # acquisition leaves the beam at its field, as on hardware
     settings = _settings(BeamType.ION, hfw=40e-6)
     before = microscope.acquire_image(image_settings=settings)
-    assert microscope.get("hfw", BeamType.ION) == pytest.approx(40e-6)
+    assert microscope.get_field_of_view(BeamType.ION) == pytest.approx(40e-6)
 
     # two points, normalised image coordinates: a quarter in from the left
     # and right edges, on the horizontal centre line and a quarter down

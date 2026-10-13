@@ -58,7 +58,7 @@ def experiment(microscope, tmp_path_factory):
     directory = str(tmp_path_factory.mktemp("experiment"))
     save_beam_overview(microscope, directory, "SEM", BeamType.ELECTRON)
     save_beam_overview(microscope, directory, "MILLING", BeamType.ION)
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     return directory
 
 
@@ -80,7 +80,7 @@ def test_it_does_not_descend_into_the_tile_folders(microscope, experiment, tmp_p
     tiles = os.path.join(directory, "overview-image-MILLING")
     os.makedirs(tiles, exist_ok=True)
     save_beam_overview(microscope, tiles, "MILLING", BeamType.ION)
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     views = beam_overviews_in(directory, microscope)
 
@@ -95,7 +95,7 @@ def test_a_file_it_cannot_read_is_skipped_rather_than_fatal(
     save_beam_overview(microscope, directory, "MILLING", BeamType.ION)
     with open(os.path.join(directory, "not-an-image.tif"), "w") as handle:
         handle.write("nonsense")
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     assert beam_overviews_in(directory, microscope)
 
@@ -118,7 +118,7 @@ def test_an_image_with_no_beam_geometry_is_not_offered(microscope, tmp_path):
     stray = save_beam_overview(microscope, directory, "MILLING", BeamType.ION)
     stray.metadata.hardware_geometry = None
     stray.save(os.path.join(directory, "no-geometry"))
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     views = beam_overviews_in(directory, microscope)
 

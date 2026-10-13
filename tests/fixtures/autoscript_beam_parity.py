@@ -23,7 +23,6 @@ import autoscript_stage_parity as S  # noqa: E402  (installs the fake SDK)
 
 logging.disable(logging.NOTSET)
 
-from fibsem.devices.beam import BEAM_ROUTES  # noqa: E402
 from fibsem.drivers.autoscript.devices import bind_autoscript_beams  # noqa: E402
 from fibsem.structures import BeamType, FibsemRectangle, Point  # noqa: E402
 
@@ -75,6 +74,32 @@ def run(fn):
     return [result, copy.deepcopy(LOG), list(MESSAGES.records)]
 
 
+# The removed get/set keys the recording was made with, by the beam parameter each
+# is now. The cases read and write the parameter through the named methods' path
+# (``_read_beam``/``_write_beam``), which the old keys took.
+PARAMETERS = {
+    "voltage": "voltage",
+    "current": "current",
+    "plasma_gas": "plasma_gas",
+    "working_distance": "working_distance",
+    "hfw": "hfw",
+    "scan_rotation": "scan_rotation",
+    "blanked": "blanked",
+    "preset": "preset",
+    "detector_type": "detector_type",
+    "detector_mode": "detector_mode",
+    "detector_contrast": "detector_contrast",
+    "detector_brightness": "detector_brightness",
+    "resolution": "resolution",
+    "dwell_time": "dwell_time",
+    "stigmation": "stigmation",
+    "shift": "shift",
+    "on": "on",
+    "scanning_mode": "scanning_mode",
+    "angular_correction_angle": "angular_correction",
+    "angular_correction_tilt_correction": "tilt_correction",
+}
+
 GETS = (
     "on",
     "blanked",
@@ -93,8 +118,6 @@ GETS = (
     "detector_brightness",
     "detector_contrast",
     "angular_correction_angle",
-    # set only: the old get never answered it, and the routed get leaves it to _get
-    "angular_correction_tilt_correction",
     # Thermo has no preset: None, as before
     "preset",
 )
@@ -162,20 +185,25 @@ def cases():
                 out.append({"key": f"{tag} {name}", "new": run(lambda: call(new))})
 
             for key in GETS:
-                add(f"get {key}", lambda m, k=key, b=beam_type: m.get(k, b))
+                add(
+                    f"get {key}",
+                    lambda m, n=PARAMETERS[key], b=beam_type: m._read_beam(n, b),
+                )
             for key, value in SETS:
                 # the write, then a read of it back, so what was written is checked
                 add(
                     f"set {key} {value!r}",
-                    lambda m, k=key, v=value, b=beam_type: (
-                        m.set(k, v, b),
-                        m.get(k, b),
+                    lambda m, n=PARAMETERS[key], v=value, b=beam_type: (
+                        m._write_beam(n, v, b),
+                        m._read_beam(n, b),
                     ),
                 )
             for key, value in SETS_ONLY:
                 add(
                     f"set {key} {value!r}",
-                    lambda m, k=key, v=value, b=beam_type: m.set(k, v, b),
+                    lambda m, n=PARAMETERS[key], v=value, b=beam_type: m._write_beam(
+                        n, v, b
+                    ),
                 )
             for name, scan in SCANS:
                 add(f"scan {name}", lambda m, s=scan, b=beam_type: s(m, b))
@@ -215,7 +243,9 @@ def facts():
         microscope = routed(plasma)
         for beam_type in (BeamType.ELECTRON, BeamType.ION):
             out[f"plasma={plasma} {beam_type.name}"]["routed"] = sorted(
-                key for key in BEAM_ROUTES if microscope._route(key, beam_type)
+                key
+                for key, name in PARAMETERS.items()
+                if name in microscope.beams[beam_type].parameters
             )
 
     # connect builds the beams before it resets the beam shifts through them
@@ -227,7 +257,7 @@ def facts():
 
     def reset_beam_shifts():
         seen["beams"] = sorted(bt.name for bt in microscope.beams)
-        seen["routed"] = microscope._route("shift", BeamType.ION) is not None
+        seen["routed"] = "shift" in microscope.beams[BeamType.ION].parameters
         raise _Stop
 
     microscope.reset_beam_shifts = reset_beam_shifts
@@ -250,15 +280,17 @@ def facts():
     # the scan mode, which nothing read before, and one with no ScanMode
     microscope = routed(plasma=False)
     vendor = microscope._connection.sdk.beams.electron_beam.scanning.mode
-    scan = {"full_frame": microscope.get("scanning_mode", BeamType.ELECTRON)}
+    scan = {"full_frame": microscope._read_beam("scanning_mode", BeamType.ELECTRON)}
     _preset(vendor, "value", 3)  # ScanningMode.SPOT
-    scan["spot"] = microscope.get("scanning_mode", BeamType.ELECTRON)
+    scan["spot"] = microscope._read_beam("scanning_mode", BeamType.ELECTRON)
     _preset(vendor, "value", 4)  # ScanningMode.REDUCED_AREA
-    scan["reduced_area"] = microscope.get("scanning_mode", BeamType.ELECTRON)
+    scan["reduced_area"] = microscope._read_beam("scanning_mode", BeamType.ELECTRON)
     _preset(vendor, "value", "ReducedArea")  # a name, should a version report one
-    scan["by_name"] = microscope.get("scanning_mode", BeamType.ELECTRON)
+    scan["by_name"] = microscope._read_beam("scanning_mode", BeamType.ELECTRON)
     _preset(vendor, "value", 2)  # ScanningMode.LINE
-    scan["line"] = run(lambda: microscope.get("scanning_mode", BeamType.ELECTRON))
+    scan["line"] = run(
+        lambda: microscope._read_beam("scanning_mode", BeamType.ELECTRON)
+    )
     out["scanning_mode"] = scan
 
     # a detector read selects its beam's channel under the imaging channel's lock
@@ -271,21 +303,16 @@ def facts():
         set_channel(beam_type)
 
     microscope._connection.set_channel = set_channel_recording
-    result = run(lambda: microscope.get("detector_type", BeamType.ION))
+    result = run(lambda: microscope._read_beam("detector_type", BeamType.ION))
     out["detector_read"] = {"selected": selected, "result": result[0]}
 
-    # the tilt correction, which could only be set before, reads on the new API; the
-    # old key's get still leaves it to _get, which returns None
+    # the tilt correction, which could only be set before, reads on the new API
     microscope = routed(plasma=False)
     beam = microscope.beams[BeamType.ELECTRON]
     tilt = {"before": beam.tilt_correction.get_value()}
     vendor = microscope._connection.sdk.beams.electron_beam.angular_correction.tilt_correction
     _preset(vendor, "is_on", True)
     tilt["after"] = beam.tilt_correction.get_value()
-    tilt["key"] = microscope.get(
-        "angular_correction_tilt_correction", BeamType.ELECTRON
-    )
-    tilt["ion"] = microscope.get("angular_correction_tilt_correction", BeamType.ION)
     out["tilt_correction"] = tilt
 
     # a disabled column is never built, and connect never touches it

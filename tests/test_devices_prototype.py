@@ -24,6 +24,7 @@ from fibsem.devices import (
     command,
 )
 from fibsem.devices.beam import DEFAULT_WORKING_DISTANCE_LIMITS
+from fibsem.drivers.demo.simulator import SIMULATOR_BEAM_CURRENTS
 from fibsem.structures import BeamType, FibsemImage, RangeLimit
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
@@ -64,9 +65,7 @@ def beams(microscope):
 def test_parameters_describe_themselves(beams):
     sem = beams[BeamType.ELECTRON]
     assert sem.voltage.unit == "V"
-    assert sem.current.choices == [
-        c for c in sem.parent.get_available_values("current", BeamType.ELECTRON)
-    ]
+    assert sem.current.choices == list(SIMULATOR_BEAM_CURRENTS[BeamType.ELECTRON])
     assert sem.scan_rotation.limits == RangeLimit(
         min=0.0, max=2 * math.pi
     )  # static, from the class
@@ -178,9 +177,7 @@ def test_dependent_metadata_is_refreshed_and_announced():
 
     fib.plasma_gas.set_value("Argon")
 
-    assert fib.current.choices == microscope.get_available_values(
-        "current", BeamType.ION
-    )
+    assert fib.current.choices == list(SIMULATOR_BEAM_CURRENTS[BeamType.ION]["Argon"])
     assert fib.current.choices != xenon
     assert metadatas == [fib.current.metadata]
     with pytest.raises(ValueError):
@@ -439,9 +436,9 @@ def test_needs_channel_is_declared_on_the_backend_class():
 # FibsemMicroscope.set routes a moved key to its device parameter.
 
 
-def test_routed_set_emits_the_parameter_change():
+def test_a_named_method_write_emits_the_parameter_change():
     microscope = _demo()
     seen = []
     microscope.beams[BeamType.ELECTRON].hfw.changed.connect(seen.append)
-    microscope.set("hfw", 150e-6, BeamType.ELECTRON)
+    microscope.set_field_of_view(150e-6, BeamType.ELECTRON)
     assert seen == [150e-6]

@@ -75,7 +75,7 @@ def _pose(microscope, tilt_deg, rotation_deg, scan_rotation):
     )
     microscope.stage_device.sim_position = position
     for beam_type in (BeamType.ELECTRON, BeamType.ION):
-        microscope.set("scan_rotation", scan_rotation, beam_type)
+        microscope.set_scan_rotation(scan_rotation, beam_type)
     return microscope.get_stage_position()
 
 
@@ -306,7 +306,7 @@ class TestStableMoveRestoresTheWorkingDistanceOfALinkedStage:
 
         microscope.stable_move(10e-6, 5e-6, BeamType.ELECTRON)
 
-        assert microscope.get("stage_linked") is not compustage
+        assert microscope._stage_value("linked") is not compustage
         assert len(restored) == (0 if compustage else 1)
 
     def test_an_unlinked_offset_stage_is_left_alone(self):

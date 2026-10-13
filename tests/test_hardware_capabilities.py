@@ -231,11 +231,11 @@ def test_a_gas_the_configuration_states_is_left_alone(microscope, monkeypatch):
 def test_reading_the_gas_does_not_set_one(microscope, monkeypatch):
     """Recording the gas is a read: no call reaches the instrument's setter."""
     calls = []
-    original_set = microscope.set
+    original_write = microscope._write_beam
     monkeypatch.setattr(
         microscope,
-        "set",
-        lambda key, *a, **k: calls.append(key) or original_set(key, *a, **k),
+        "_write_beam",
+        lambda name, *a, **k: calls.append(name) or original_write(name, *a, **k),
     )
     microscope.system.ion.plasma_gas = None
     monkeypatch.setattr(

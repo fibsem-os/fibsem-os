@@ -3,14 +3,11 @@ from __future__ import annotations
 import logging
 import os
 from copy import deepcopy
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
 
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
-from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.odemis import add_odemis_path
 from fibsem.drivers.tescan.microscope import TescanMicroscope
@@ -226,7 +223,7 @@ ODEMIS_CHAMBER_STATES = {
 # TODO: load default system settings?
 
 
-# The devices Odemis builds by itself. There is no other code for their keys, so
+# The devices Odemis builds by itself. There is no other code for what they do, so
 # each is required: one that cannot be built fails the connection. One the
 # configuration switches off (`enabled: false`) is not built.
 ODEMIS_DEVICES = (
@@ -301,12 +298,11 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def _build_devices(self) -> None:
         """Build the beam, stage and chamber devices from the configuration's
         ``hardware.devices`` entries over ``ODEMIS_DEVICES``, then any other device it
-        adds, and route their keys to them.
+        adds.
 
         The moves, ``home``, ``link``, ``pump`` and ``vent`` then go through the
-        devices; a false ``stage_link``, ``pump_chamber`` or ``vent_chamber`` runs
-        nothing. There is no other code for these keys, so a device that cannot be
-        built fails the connection, and one switched off has no keys to answer.
+        devices. There is no other code for them, so a device that cannot be built
+        fails the connection, and one switched off is unsupported.
         """
         resolved = resolve_system_devices(
             self.system,
@@ -318,23 +314,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         for name, device in built.items():
             self._set_device(name, device)
         self._bind_device_roles()
-
-        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
-        self._device_routes = MappingProxyType(
-            {
-                **{key: ("stage", name) for key, name in STAGE_ROUTES.items()},
-                **{key: ("chamber_device", n) for key, n in CHAMBER_ROUTES.items()},
-            }
-        )
-        self._command_routes = MappingProxyType(
-            {
-                **{key: ("stage", n) for key, n in STAGE_COMMAND_ROUTES.items()},
-                **{
-                    key: ("chamber_device", n)
-                    for key, n in CHAMBER_COMMAND_ROUTES.items()
-                },
-            }
-        )
 
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
