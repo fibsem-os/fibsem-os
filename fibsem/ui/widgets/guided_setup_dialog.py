@@ -358,13 +358,15 @@ class StageDiagram(QtWidgets.QWidget):
     SHUTTLE_COLOURS = (PRIMARY_COLOR, "#0a5c9e")
     GRID_COLOUR = "#d9dde3"
     WEDGE_COLOUR = WEDGE_COLOUR
-    # Degrees from vertical, and drawn to the right of the SEM column.
-    FIB_ANGLE = 52.0
-    # The offset FM objective's own axis. It coincides with the ion column today, but it
-    # is a separate mount and not obliged to: kept as its own constant so the day it
-    # differs is one edit here rather than a hunt through code that assumed they were
+    # Degrees from vertical, and drawn to the right of the SEM column. The instrument's
+    # ion column tilt: every host sets it (`set_column_tilt`), from the system or, in
+    # the wizard, from the chosen driver's defaults. Zero until then.
+    FIB_ANGLE = 0.0
+    # The offset FM objective's own axis. None draws it along the ion column, which it
+    # coincides with today; it is a separate mount and not obliged to, so the day it
+    # differs is one assignment rather than a hunt through code that assumed they were
     # the same number.
-    FM_ANGLE = 52.0
+    FM_ANGLE: Optional[float] = None
 
     def effective_stage_tilt(self) -> float:
         """The stage tilt to draw: what was read, or the SEM orientation."""
@@ -420,7 +422,7 @@ class StageDiagram(QtWidgets.QWidget):
 
     def __init__(
         self,
-        pre_tilt: float = 35.0,
+        pre_tilt: float = 0.0,
         stage_tilt=None,
         mirrored: bool = False,
         show_fm: bool = False,
@@ -478,10 +480,10 @@ class StageDiagram(QtWidgets.QWidget):
         self.update()
 
     def set_column_tilt(self, degrees: float) -> None:
-        """Draw the ion column at the system's angle rather than the 52 degree default.
+        """Draw the ion column at the instrument's angle, in degrees from vertical.
 
-        The class constant is right for a Thermo column and wrong for a Tescan one
-        (55); a diagram that follows a live instrument has to use that instrument's.
+        Columns differ between instruments, so a diagram that follows one has to use
+        that instrument's angle.
         """
         self.FIB_ANGLE = float(degrees)
         self.update()
@@ -566,7 +568,7 @@ class StageDiagram(QtWidgets.QWidget):
                 painter,
                 cx,
                 cy,
-                self.FM_ANGLE,
+                self.FIB_ANGLE if self.FM_ANGLE is None else self.FM_ANGLE,
                 from_below=False,
                 inserted=self._objective_inserted,
             )
@@ -1149,6 +1151,14 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         values = wizard.shipped_stage_values(self.choices.model)
         self._rotation_spin.setValue(values["rotation_reference"])
         self._pre_tilt_spin.setValue(values["shuttle_pre_tilt"])
+        if hasattr(self, "_stage_diagram"):
+            # The column tilt the configuration will be written with: the chosen
+            # driver's (`build_configuration`), or the diagram's own when it has none.
+            defaults = cfg.DEFAULT_CONFIGURATION_VALUES.get(
+                self.choices.manufacturer.config_value
+            )
+            if defaults and "ion-column-tilt" in defaults:
+                self._stage_diagram.set_column_tilt(defaults["ion-column-tilt"])
 
     # -- step 2: computer and connection ------------------------------------
 
@@ -1396,7 +1406,6 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         self._pre_tilt_spin.setRange(-90.0, 90.0)
         self._pre_tilt_spin.setDecimals(1)
         self._pre_tilt_spin.setSuffix("°")
-        self._pre_tilt_spin.setValue(35.0)
         self._pre_tilt_spin.setFixedWidth(110)
         self._pre_tilt_spin.valueChanged.connect(self._on_pre_tilt_changed)
         tilt_row = QtWidgets.QHBoxLayout()
@@ -1408,6 +1417,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         # Its own panel rather than inside one: it paints its background and border.
         self._stage_diagram = StageDiagram(self._pre_tilt_spin.value())
         column.addWidget(self._stage_diagram)
+        self._prefill_stage_from_model()
         column.addStretch()
         return page
 
@@ -1452,8 +1462,8 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         if not editable:
             self.button_read_stage.setEnabled(False)
             self._rotation_blurb.setText(
-                f"A {self.choices.model.label} has a compustage: it reaches the other "
-                "side of the sample by tilting rather than rotating, so there is no "
+                f"The {self.choices.model.label} stage reaches the other side of the "
+                "sample by tilting rather than rotating, so there is no "
                 "reference rotation to measure. It comes from the configuration."
             )
             self._pre_tilt_blurb.setText(
@@ -1575,7 +1585,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         caption = _label("Configuration name", 11, TEXT_COLOR)
         caption.setFixedWidth(140)
         self._name_edit = QtWidgets.QLineEdit()
-        self._name_edit.setPlaceholderText("e.g. Arctis Bay 2")
+        self._name_edit.setPlaceholderText("e.g. FIB-SEM, bay 2")
         self._name_edit.textChanged.connect(self._update_review)
         row.addWidget(caption)
         row.addWidget(self._name_edit, 1)

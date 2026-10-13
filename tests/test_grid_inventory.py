@@ -15,7 +15,7 @@ from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.drivers.demo import devices as demo_devices
 from fibsem.services import sample_handling as stage_module
 from fibsem.services.sample_handling import (
-    COMPUSTAGE_HOLDER_NAME,
+    BUILTIN_HOLDER_NAME,
     DeviceGridMagazine,
     GridMagazine,
     GridSlotState,
@@ -363,8 +363,10 @@ class TestCreateSampleStage:
         ]
 
     @staticmethod
-    def _captured_working_slot(microscope, x=150e-6, pre_tilt=None):
-        """A CompuStage Holder in the configuration, its slot captured at x."""
+    def _captured_working_slot(
+        microscope, x=150e-6, pre_tilt=None, name=BUILTIN_HOLDER_NAME
+    ):
+        """The built-in holder in the configuration, its slot captured at x."""
         stage = microscope.system.stage
         slot = GridSlot(
             name="Slot-01",
@@ -381,9 +383,9 @@ class TestCreateSampleStage:
             ),
         )
         stage.holders = {
-            COMPUSTAGE_HOLDER_NAME: SampleHolder(
+            name: SampleHolder(
                 pre_tilt=float(stage.shuttle_pre_tilt),
-                name=COMPUSTAGE_HOLDER_NAME,
+                name=name,
                 capacity=1,
                 slots={"Slot-01": slot},
             )
@@ -395,12 +397,25 @@ class TestCreateSampleStage:
         assert (slot.position.x, slot.position.y, slot.position.z) == (0.0, 0.0, 0.0)
         assert slot.calibration.is_builtin
 
+    def test_a_working_slot_saved_under_the_old_name_is_kept(self):
+        """Configurations written before the neutral name keyed the built-in holder
+        "CompuStage Holder"; its calibration is read and renamed, not dropped."""
+        microscope, _ = demo_session(compustage=True)
+        self._captured_working_slot(microscope, name="CompuStage Holder")
+        stage = bind_sample_handling(microscope)
+        (slot,) = stage.holder.slots.values()
+        assert stage.holder.name == BUILTIN_HOLDER_NAME
+        assert stage.holder_is_builtin
+        assert slot.position.x == 150e-6
+        assert not slot.calibration.is_builtin
+        assert set(microscope.system.stage.holders) == {BUILTIN_HOLDER_NAME}
+
     def test_compustage_uses_a_captured_working_slot(self):
         microscope, _ = demo_session(compustage=True)
         self._captured_working_slot(microscope)
         stage = bind_sample_handling(microscope)
         (slot,) = stage.holder.slots.values()
-        assert stage.holder.name == COMPUSTAGE_HOLDER_NAME
+        assert stage.holder.name == BUILTIN_HOLDER_NAME
         assert (slot.position.x, slot.position.y, slot.position.z) == (
             150e-6,
             -50e-6,

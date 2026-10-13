@@ -9,9 +9,9 @@ import fibsem.constants as constants
 from fibsem import manufacturers
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.tescan.connection import TescanConnection
+from fibsem.drivers.tescan.devices import STAGE_FRAME_TESCAN
 from fibsem.microscope import (
     FibsemMicroscope,
-    _records_beam_shift,
 )
 
 TESCAN_API_AVAILABLE = False
@@ -62,7 +62,6 @@ except Exception as e:
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
-    STAGE_FRAME_TESCAN,
     BeamSystemSettings,
     BeamType,
     CrossSectionPattern,
@@ -464,29 +463,6 @@ class TescanMicroscope(FibsemMicroscope):
     def set_detector_mode(self, mode: str, beam_type: BeamType) -> Optional[str]:
         logging.debug("The Tescan API has no detector mode; not set.")
         return None
-
-    @_records_beam_shift
-    def beam_shift(
-        self, dx: float, dy: float, beam_type: BeamType = BeamType.ION
-    ) -> None:
-        """Adjusts the beam shift based on relative values that are provided.
-
-        Args:
-            self (FibsemMicroscope): Fibsem microscope object
-            dx (float): the relative x term
-            dy (float): the relative y term
-        """
-        # invert direction for scan rotated images...
-        if np.isclose(self.get_scan_rotation(beam_type), np.pi):
-            dx *= -1.0
-            dy *= -1.0
-
-        logging.info(f"{beam_type.name} shifting by ({dx}, {dy})")
-        new_beam_shift = self.get_beam_shift(beam_type) + Point(dx, dy)
-        self.set_beam_shift(new_beam_shift, beam_type)
-        logging.debug(
-            {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
-        )
 
     @property
     def stage_frame(self) -> str:

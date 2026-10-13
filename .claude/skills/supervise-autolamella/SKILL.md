@@ -62,11 +62,9 @@ status bar. Every launch starts at Watch; nothing in a file raises it.
 - **Assist** is not offered yet. **Off** refuses everything, `/capabilities`
   included (`403 agent_off`).
 
-At Drive with the microscope's devices served (`routers.microscope` in
-`/capabilities`), the hardware tools work too: moving the stage, acquiring,
-milling directly. Supervising doesn't need them. Use them only when the
-operator asks. While a run is in control they are refused with
-`409 microscope_busy`; don't retry, say so.
+At Drive, with the microscope's devices served, you can also use the
+microscope directly (see *Using the microscope*). Supervising doesn't need
+it.
 
 A refusal names its reason in `detail.error_type`:
 
@@ -178,12 +176,15 @@ message; it may be a position instruction ("double click to move… press
 Continue") — for an already-placed item, Continue is safe; for a *new*
 placement, that is the operator's decision (see the ladder).
 
-**`RunMillingTask`** — two distinct moments share this type:
-- *Start* (first appearance for an item): yes runs the mill with the config
-  as shown; check `task_name` and `num_stages` look right first.
-- *Inspect re-ask* (after a mill pass): **yes mills AGAIN, no accepts.** Pull
-  the fresh post-mill image (rules 2–3), judge it, and answer no to accept.
-  Do not re-mill without a reason you can state.
+**`RunMillingTask`** — two distinct moments share this type; `passes` in
+the payload tells them apart:
+- *Start* (`passes: 0`): yes runs the mill with the config as shown; check
+  `task_name` and `num_stages` look right first. **No continues without
+  milling.** That is the operator's call; escalate rather than answer no
+  here.
+- *Inspect re-ask* (`passes` ≥ 1, after a mill pass): **yes mills AGAIN, no
+  accepts.** Pull the fresh post-mill image (rules 2–3), judge it, and answer
+  no to accept. Do not re-mill without a reason you can state.
 
 **`EditAlignmentArea`** — the payload's `current` is the live rectangle
 (fractions of the frame), and `image` is the frame it sits on (the post-mill
@@ -297,6 +298,42 @@ The argument selects a variation on the same loop:
   first.
 - `POST /app/queue/requeue {"item_name", "task_name"}` — re-runs a completed
   pair inside a running workflow.
+
+## Using the microscope (Drive)
+
+Moving the stage, acquiring images, autocontrast, and device parameters and
+commands. Supervising never needs these: use them only when the operator asks
+for something on the microscope, and say what you are about to do first.
+
+**Check before you start.** In `/capabilities`, `level` must be `drive` and
+`routers.microscope` true. If either is not, say plainly which, and that the
+operator changes it (the Agent chip for the level; Preferences → App Server,
+*Serve the microscope's devices*, for the devices). Don't look for another
+way in. A hardware tool missing from your tool list means the same thing.
+
+**Read the microscope before each step, not once.** The operator, a run or
+a script may have moved it since you last looked. Before a move, read
+`get_stage_position`; before judging what is under the beam, take a fresh
+image (`acquire_image_preview`) rather than trusting the last one. Say what
+you read when you act on it.
+
+**`409 microscope_busy` is someone else working.** Its
+`detail.in_control` names who (`workflow`, `script`, or another command)
+and what. Treat it as a person would: say who has the microscope and what you
+wanted to do, then wait for that to finish or ask the operator. Never retry
+it in a loop, and never try the same thing through another tool. While a run
+waits on a question, it lends control, so your command can go through; when
+the question is answered the run takes it back.
+
+**Stop agent stops you mid-action.** If the operator presses it, your mill,
+spot burn, auto focus or live imaging is stopped and you drop to Watch
+(`agent_stopped`). Report where the microscope was left (read the stage
+position; take no new image) and stop acting.
+
+The operator's own buttons don't take control yet, so nothing refuses your
+command while they are working at the microscope by hand. If the events
+show them acting (a `stage_position_changed` or acquisition event with
+`actor: operator`), stop and ask before your next command.
 
 ## Editing configuration (Drive)
 
