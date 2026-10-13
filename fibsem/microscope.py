@@ -221,8 +221,7 @@ class FibsemMicroscope(ABC):
     # position p on one side of the stage is at 2c - p on the other. A property of the
     # hardware, so the driver sets it (ThermoFisher adds the configured
     # `rotation_centre_correction` to xT's centre). None means no rotating stage is
-    # known: stage moves assume the stage origin, and images record
-    # LEGACY_ROTATION_CENTRE for reprojection (FIB-1081).
+    # known: stage moves and image reprojection assume the stage origin (FIB-1081).
     rotation_centre: Optional[Tuple[float, float]] = None
 
     # live acquisition
@@ -2886,6 +2885,11 @@ class FibsemMicroscope(ABC):
         * ``stage_moved`` -- from the stage device's moves and the stage movement
           service's, the outermost only (`Stage.recording_move`)
         * ``beam_shifted`` -- from the beam device's ``shift_by``
+        * ``milling`` -- from ``FibsemMillingTask``, how a run ended, stage by
+          stage; and from a task that milled nothing, why
+        * ``spot_burn_started`` -- from ``run_spot_burn``, with the field of view
+        * ``stage_moved`` -- from each backend's stage moves, the outermost only
+        * ``beam_shifted`` -- from each backend's ``beam_shift``
         * ``fm_image_acquired`` -- from ``fm.acquisition``, a z-stack, image or
           stitched overview, with the saved path
         * ``fm_autofocus`` -- from ``run_coarse_fine_autofocus``
