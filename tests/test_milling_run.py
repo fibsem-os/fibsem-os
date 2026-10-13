@@ -162,7 +162,7 @@ def test_a_set_stop_event_stops_the_beam_and_cancels(microscope):
 
 def test_a_stop_from_elsewhere_just_ends_the_run(scripted):
     service = scripted([RUNNING, RUNNING, IDLE])
-    service.run()  # no stop event: nothing to cancel
+    assert service.run() == "completed"  # no stop event: nothing to cancel
     assert service.steps == [
         "before",
         "start",
@@ -172,6 +172,22 @@ def test_a_stop_from_elsewhere_just_ends_the_run(scripted):
         "after",
         "clear",
     ]
+
+
+def test_a_run_stopped_from_elsewhere_answers_cancelled(scripted):
+    """A stopped mill must not answer like a finished one (FIB-1377)."""
+    service = scripted([RUNNING, RUNNING, RUNNING, RUNNING])
+    waits = service._wait
+
+    def stop_on_the_first_wait(seconds):
+        if "stop" not in service.steps:
+            service.stop()  # as the operator's, or Stop agent's, from another thread
+        waits(seconds)
+
+    service._wait = stop_on_the_first_wait
+    assert service.run() == "cancelled"
+    assert service.steps[-2:] == ["after", "clear"]
+    assert service.run() == "completed"  # the next run starts unstopped
 
 
 def test_paused_time_does_not_count(scripted):

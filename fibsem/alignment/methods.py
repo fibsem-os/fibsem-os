@@ -32,7 +32,9 @@ if TYPE_CHECKING:
 # the skimage output so all three methods share the same sign convention.
 # ---------------------------------------------------------------------------
 
-USE_SUBPIXEL_PEAK = False        # True → parabolic sub-pixel refinement; False → integer argmax
+USE_SUBPIXEL_PEAK = (
+    False  # True → parabolic sub-pixel refinement; False → integer argmax
+)
 
 
 def _subpixel_peak(xcorr: np.ndarray, row: int, col: int) -> Tuple[float, float]:
@@ -99,8 +101,9 @@ def shift_from_crosscorrelation(
             limit the search range and improve the accuracy of the shift. Defaults to None.
 
     Returns:
-        A tuple (x_shift, y_shift, xcorr), where x_shift and y_shift are the shifts along x and y (in meters),
-        and xcorr is the cross-correlation map between the images.
+        A tuple (x_shift, y_shift, xcorr, score), where x_shift and y_shift are the shifts along x and y
+        (in meters), xcorr is the cross-correlation map between the images, and score is the normalised
+        correlation at the peak: 1 for identical images, about 0 for unrelated ones.
     """
     # get pixel_size
     pixelsize_x = new_image.metadata.pixel_size.x
@@ -108,9 +111,10 @@ def shift_from_crosscorrelation(
 
     if new_image.data.shape != ref_image.data.shape:
         from skimage.transform import resize
-        new_image.data = resize(new_image.data, ref_image.data.shape, preserve_range=True).astype(
-            np.uint8
-        )
+
+        new_image.data = resize(
+            new_image.data, ref_image.data.shape, preserve_range=True
+        ).astype(np.uint8)
 
     # normalise both images
     ref_data_norm = image_utils.normalise_image(ref_image)
@@ -137,24 +141,36 @@ def shift_from_crosscorrelation(
     if xcorr_limit:
         xcorr = masks.apply_circular_mask(xcorr, xcorr_limit)
 
-    # normalised cross-correlation peak: bounded [0, 1]
-    energy = np.linalg.norm(ref_data_norm) * np.linalg.norm(new_data_norm)
-    ncc_peak = xcorr.max() / (energy + 1e-10)
-    score = float(np.clip((ncc_peak + 1) / 2, 0.0, 1.0))
+    # How alike the images are where they line up: the normalised correlation
+    # at the peak, 1 for identical images, about 0 for unrelated ones, the same
+    # scale as phase correlation's response. crosscorrelation_v2 scales both
+    # spectra to the same energy, so a perfect match peaks at the pixel count.
+    # Dividing by the masked images' norms instead read above 1 for every
+    # match under the rectangular mask the alignment uses, so every step
+    # scored 1.00; and (ncc + 1) / 2 put unrelated images at 0.5 (FIB-1299).
+    score = _ncc_score(xcorr)
 
     # np.unravel_index returns (row, col); row=Y, col=X
     maxRow, maxCol = np.unravel_index(np.argmax(xcorr), xcorr.shape)
     if USE_SUBPIXEL_PEAK:
         maxRow, maxCol = _subpixel_peak(xcorr, maxRow, maxCol)
     cen = np.asarray(xcorr.shape) / 2
-    err = cen - np.array([maxRow, maxCol])  # float when USE_SUBPIXEL_PEAK, int-valued otherwise
+    err = cen - np.array(
+        [maxRow, maxCol]
+    )  # float when USE_SUBPIXEL_PEAK, int-valued otherwise
 
     # err[1] = col error → dx;  err[0] = row error → dy
     dx = err[1] * pixelsize_x
     dy = err[0] * pixelsize_y
 
-    msgd = {"msg": "cross-correlation", "pixelsize": (pixelsize_x, pixelsize_y),
-        "max": (maxRow, maxCol), "centre": cen, "shift": (err[1], err[0]), "shift_meters": (dx, dy)}
+    msgd = {
+        "msg": "cross-correlation",
+        "pixelsize": (pixelsize_x, pixelsize_y),
+        "max": (maxRow, maxCol),
+        "centre": cen,
+        "shift": (err[1], err[0]),
+        "shift_meters": (dx, dy),
+    }
     logging.debug(msgd)
 
     if save:
@@ -176,6 +192,33 @@ def shift_from_crosscorrelation(
         )
 
     return dx, dy, xcorr, score
+
+
+def _ncc_score(xcorr: np.ndarray) -> float:
+    """The peak of a ``crosscorrelation_v2`` map as a normalised correlation in
+    [0, 1]: 1 for identical images, about 0 for unrelated ones. Anticorrelated
+    images are 0 too: no match either way."""
+    return float(np.clip(xcorr.max() / xcorr.size, 0.0, 1.0))
+
+
+def _phase_correlation_peak(ref: np.ndarray, new: np.ndarray) -> float:
+    """The height of the phase-correlation peak, in [0, 1]: 1 when one image is
+    a shifted copy of the other, about 0 for unrelated images. The inverse
+    transform of the normalised cross-power spectrum, which skimage finds the
+    peak of but does not return.
+
+    Summed over the 5 x 5 pixels around the maximum, as cv2.phaseCorrelate
+    reads its response: a shift that is not a whole number of pixels, and the
+    noise between two acquisitions, spread the peak over its neighbours. On
+    real alignment steps the single pixel read 0.04-0.05 and the 5 x 5 sum
+    0.52-0.68, with unrelated images about 0.01 either way."""
+    cross = np.fft.fft2(ref) * np.conj(np.fft.fft2(new))
+    cross /= np.maximum(np.abs(cross), 1e-12)
+    surface = np.fft.ifft2(cross).real
+    row, col = np.unravel_index(np.argmax(surface), surface.shape)
+    rows = np.arange(row - 2, row + 3) % surface.shape[0]  # the surface wraps
+    cols = np.arange(col - 2, col + 3) % surface.shape[1]
+    return float(np.clip(surface[np.ix_(rows, cols)].sum(), 0.0, 1.0))
 
 
 def shift_from_crosscorrelation_v2(
@@ -217,12 +260,14 @@ def shift_from_crosscorrelation_v2(
 
     shift_x, shift_y, response = crosscorrelation_cv2(ref_image.data, new_image.data)
 
-    logging.debug({
-        "msg": "cross-correlation-v2",
-        "pixelsize": (pixelsize_x, pixelsize_y),
-        "shift_px": (shift_x, shift_y),
-        "response": response,
-    })
+    logging.debug(
+        {
+            "msg": "cross-correlation-v2",
+            "pixelsize": (pixelsize_x, pixelsize_y),
+            "shift_px": (shift_x, shift_y),
+            "response": response,
+        }
+    )
 
     if minimum_response is not None and response < minimum_response:
         logging.warning(
@@ -340,12 +385,21 @@ def _save_alignment_data(
         tff.imwrite(fname + "_ref_mask.tif", ref_mask)
 
     info = {
-        "lowpass": lowpass, "highpass": highpass, "sigma": sigma,
-        "pixelsize_x": pixelsize_x, "pixelsize_y": pixelsize_y,
-        "use_rect_mask": use_rect_mask, "xcorr_limit": xcorr_limit, "ref_mask": ref_mask is not None,
-        "dx": dx, "dy": dy, "fname": fname, "timestamp": ts }
+        "lowpass": lowpass,
+        "highpass": highpass,
+        "sigma": sigma,
+        "pixelsize_x": pixelsize_x,
+        "pixelsize_y": pixelsize_y,
+        "use_rect_mask": use_rect_mask,
+        "xcorr_limit": xcorr_limit,
+        "ref_mask": ref_mask is not None,
+        "dx": dx,
+        "dy": dy,
+        "fname": fname,
+        "timestamp": ts,
+    }
 
-    df = pd.DataFrame.from_dict(info, orient='index').T
+    df = pd.DataFrame.from_dict(info, orient="index").T
 
     # save the dataframe to a csv file, append if the file already exists
     DATAFRAME_PATH = os.path.join(cfg.DATA_CC_PATH, "data.csv")
@@ -389,9 +443,11 @@ def shift_from_skimage_phase_correlation(
     pixelsize_x = new_image.metadata.pixel_size.x
     pixelsize_y = new_image.metadata.pixel_size.y
 
+    ref_data = ref_image.data.astype(np.float32)
+    new_data = new_image.data.astype(np.float32)
     shift, error, _ = phase_cross_correlation(
-        ref_image.data.astype(np.float32),
-        new_image.data.astype(np.float32),
+        ref_data,
+        new_data,
         upsample_factor=upsample_factor,
         normalization="phase",
     )
@@ -400,7 +456,11 @@ def shift_from_skimage_phase_correlation(
     # rest of the alignment pipeline uses displacement (how far new moved from ref).
     # Negate to match cv2 / bandpass convention: positive = moved right/down.
     dy_px, dx_px = -float(shift[0]), -float(shift[1])
-    score = float(np.clip(1.0 - error, 0.0, 1.0))
+    # Not 1 - error: with normalization="phase", skimage's error compares the
+    # phase-normalised peak with the raw images' energy, so it is about 1 for
+    # every pair and the score was 0 for every pair, a perfect match included
+    # (FIB-1299). The height of the phase-correlation peak is the measure.
+    score = _phase_correlation_peak(ref_data, new_data)
 
     success = True
     if minimum_response is not None and score < minimum_response:
@@ -414,13 +474,15 @@ def shift_from_skimage_phase_correlation(
     dx = dx_px * pixelsize_x
     dy = dy_px * pixelsize_y
 
-    logging.debug({
-        "msg": "skimage-phase-cross-correlation",
-        "pixelsize": (pixelsize_x, pixelsize_y),
-        "shift_px": (dx_px, dy_px),
-        "error": error,
-        "score": score,
-    })
+    logging.debug(
+        {
+            "msg": "skimage-phase-cross-correlation",
+            "pixelsize": (pixelsize_x, pixelsize_y),
+            "shift_px": (dx_px, dy_px),
+            "error": error,
+            "score": score,
+        }
+    )
 
     return AlignmentIteration(
         shift=Point(dx, dy),

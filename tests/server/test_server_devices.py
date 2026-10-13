@@ -17,7 +17,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.client import FibsemClient  # noqa: E402
-from fibsem.structures import BeamType, FibsemImage, Point  # noqa: E402
+from fibsem.structures import (  # noqa: E402
+    BeamType,
+    FibsemImage,
+    FibsemStagePosition,
+    Point,
+)
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -166,7 +171,24 @@ def test_beam_settings_put_is_hardware_scope(read_client):
 
 
 def test_unknown_beam_is_422(read_client):
-    assert read_client.get("/beams/proton/beam_settings").status_code == 422
+    resp = read_client.get("/beams/proton/beam_settings")
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["parameter"] == "beam_type"
+
+
+def test_a_move_past_the_stage_limits_is_refused_not_a_500(armed_client, microscope):
+    """The microscope routes refuse as the device routes do: a 4xx in the one
+    refusal shape, not a 500 (FIB-1377)."""
+    before = microscope.stage.position.get_value()
+    target = FibsemStagePosition(x=before.x, y=1.0, z=before.z, r=before.r, t=before.t)
+    resp = armed_client.post(
+        "/move_stage_absolute", json={"position": target.to_dict()}
+    )
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "StageLimitError"
+    assert detail["message"]
+    assert microscope.stage.position.get_value() == before  # nothing moved
 
 
 def test_client_wrappers_go_through_the_devices(fibsem_client, microscope):

@@ -750,8 +750,6 @@ class GridTaskManager(BaseTaskManager):
                 parent_ui=self.parent_ui,
                 task_manager=self,
             )
-            self.experiment.save()
-            return None
         except Exception as e:
             # The task records its own outcome before re-raising; this is the
             # fallback for what fails before a task exists -- an unknown task name,
@@ -776,6 +774,12 @@ class GridTaskManager(BaseTaskManager):
                 self._record_unstarted(grid, task_name)
             self.experiment.save()
             return e
+        try:
+            self.experiment.save()
+        except Exception as e:
+            self._result_not_saved(grid, task_name, e)
+            raise
+        return None
 
     def _record_unstarted(self, grid: GridRecord, task_name: str) -> None:
         """The history entry for a task that failed before it was constructed.

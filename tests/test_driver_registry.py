@@ -184,10 +184,6 @@ class _Recorder:
     def connect_to_microscope(self, ip_address, port):
         _Recorder.connected.append((ip_address, port))
 
-    @staticmethod
-    def estimate_stage_milling_time(*args, **kwargs):
-        return 0.0
-
 
 @pytest.mark.parametrize("port,expected", [(1234, [("10.0.0.1", 1234)]), (None, [])])
 def test_setup_session_connects_on_the_registered_port(

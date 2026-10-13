@@ -208,7 +208,7 @@ sem.commands["acquire"].signature    # its arguments, as a string
 docstring, and whether it is available on this instrument right now. Check
 `available` before calling a command that not every instrument has.
 
-The beam's commands are `acquire`, `last_image`, `autocontrast`, `auto_focus`,
+The beam's commands are `acquire`, `autocontrast`, `auto_focus`,
 `start_live`/`stop_live` (each frame on `beam.live_frame`), `blank`/`unblank`, and the
 scan modes `spot(point)`, `reduced_area(rectangle)` and `full_frame()`.
 `beam.acquire()` returns the frame as the instrument gives it. To apply
