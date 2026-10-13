@@ -108,3 +108,38 @@ def test_decide_on_the_main_thread_is_a_direct_call(qapp, tmp_path):
     )
     assert result.applied is True
     assert lamella.poi == Point(2e-6, 0.0)
+
+
+def test_an_error_on_the_main_thread_is_raised_in_the_worker(qapp, tmp_path):
+    """FIB-1352: a save that fails inside the main-thread call used to raise
+    in a Qt slot, which aborts the process, with the worker still waiting.
+    It is the worker's error now, and the experiment says it is unsaved."""
+    exp = _experiment(tmp_path)
+    lamella = exp.positions[0]
+    proposal = lamella.proposals[SETUP][0]
+    proposal.values = {"poi": Point(3e-6, 0.0)}
+    # A directory where the file goes: the open fails, whoever runs the test.
+    blocker = os.path.join(exp.path, "experiment.yaml")
+    os.makedirs(blocker)
+    seen = {}
+
+    def worker():
+        try:
+            exp.apply_proposed(lamella.id, SETUP, proposal.id)
+        except Exception as e:  # noqa: BLE001 - the error under test
+            seen["error"] = e
+        seen["done"] = True
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    _spin_until(qapp, lambda: "done" in seen)
+    t.join(5)
+
+    assert isinstance(seen.get("error"), IsADirectoryError)
+    assert exp.unsaved
+    assert "IsADirectoryError" in exp.save_error
+    assert lamella.poi == Point(3e-6, 0.0), "memory keeps what was applied"
+
+    os.rmdir(blocker)
+    exp.save()
+    assert not exp.unsaved, "the next save that works catches the file up"
