@@ -5,9 +5,8 @@ Odemis and Demo used to call ThermoMicroscope's `run_milling`, `finish_milling`,
 the borrowed body reaches something the borrower lacks (FIB-1154). The milling methods
 are the base class's now, over each backend's milling service, and this pins that no
 backend has its own. Application files are a ThermoFisher setting, so
-their matching stays off the base class: it is
-`fibsem.util.application_file.match_application_file`, which ThermoFisher and Demo (a
-simulated ThermoFisher system) both call.
+their matching lives in the AutoScript driver:
+`fibsem.drivers.autoscript.services.match_application_file`.
 """
 
 import pytest
@@ -75,7 +74,7 @@ def test_the_milling_methods_go_to_each_backend_s_service():
 
 def test_an_application_file_falls_back_to_the_closest_match():
     from fibsem import utils
-    from fibsem.util.application_file import match_application_file
+    from fibsem.drivers.autoscript.services import match_application_file
 
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
     available = microscope._connection.milling_system.application_files

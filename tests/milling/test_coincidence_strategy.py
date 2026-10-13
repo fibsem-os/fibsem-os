@@ -158,13 +158,21 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
             ticks.append(progress)
             stop_event.set()
 
+    milling = []
+
+    def _milling(kind, payload):
+        if kind == "milling":
+            milling.append(payload)
+
     fm_microscope.milling_progress_signal.connect(_stop_on_first_tick)
+    fm_microscope.record_signal.connect(_milling)
     try:
         started = time.time()
         task = run_milling_task(fm_microscope, config, stop_event=stop_event)
         elapsed = time.time() - started
     finally:
         fm_microscope.milling_progress_signal.disconnect(_stop_on_first_tick)
+        fm_microscope.record_signal.disconnect(_milling)
 
     # the task runs its own copy of the config; that copy's strategy is the one that ran
     strategy = task.config.stages[0].strategy
@@ -177,6 +185,14 @@ def test_headless_run_stops_on_the_callers_stop_event(fm_microscope, tmp_path):
     assert elapsed < 30
     # finalised: FM acquisition stopped
     assert not fm_microscope.fm.is_acquiring
+    # and the stage's record says why the mill ended, as the strategy saw it (FIB-1257)
+    (run,) = milling
+    said = run["stages"][0]["strategy"]
+    assert said["name"] == CoincidenceMillingStrategy.name
+    assert said["end_reason"] == "stopped by the operator"
+    assert 0 < said["facts"]["Mill time (s)"] < 30
+    assert said["facts"]["Intensity drop seen"] is False
+    assert os.path.isfile(said["figure"])
 
 
 def test_headless_run_never_starts_on_a_preset_stop_event(fm_microscope, tmp_path):

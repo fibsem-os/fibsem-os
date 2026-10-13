@@ -26,7 +26,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.manufacturers import THERMOFISHER
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import SessionInfo
 from fibsem.util.timestamps import now, utc_offset_of
@@ -273,7 +272,7 @@ def test_an_instrument_session_records_its_zone(
     microscope: FibsemMicroscope, tmp_path: Path
 ) -> None:
     """So a POSIX time can be read on the instrument's clock on another machine."""
-    microscope.system.info.manufacturer = THERMOFISHER
+    microscope.system.info.manufacturer = "ThermoFisher"
     experiment = _experiment(tmp_path)
 
     experiment.register_metadata(microscope)
@@ -313,7 +312,7 @@ def test_a_demo_session_keeps_the_instruments_zone(
 def test_the_zone_survives_a_round_trip(
     microscope: FibsemMicroscope, tmp_path: Path
 ) -> None:
-    microscope.system.info.manufacturer = THERMOFISHER
+    microscope.system.info.manufacturer = "ThermoFisher"
     experiment = _experiment(tmp_path)
     experiment.save()
     experiment.register_metadata(microscope)

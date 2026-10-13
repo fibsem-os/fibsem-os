@@ -117,7 +117,7 @@ def test_the_predicate_reads_the_microscope_rather_than_being_told(config_path: 
     assert after is True
 
 
-def _at_fm_pose(microscope, z: float = 5.0e-3) -> None:
+def _at_fm_pose(microscope, z: float = 0.5e-3) -> None:
     fm = microscope.get_orientation("FM")
     microscope.move_stage_absolute(
         FibsemStagePosition(x=0.0, y=0.0, z=z, r=fm.r, t=fm.t, coordinate_system="RAW")
@@ -138,7 +138,7 @@ def test_leaving_the_fluorescence_pose_with_the_objective_out_is_not_restricted(
     once the objective is retracted, so the move out carries its z and lands on the
     first press. Asking the stage's current pose here is what dropped it."""
     microscope = _microscope(ARCTIS_CONFIG)
-    _at_fm_pose(microscope, z=5.0e-3)
+    _at_fm_pose(microscope, z=0.5e-3)
 
     target = _pose(microscope, "MILLING", z=12.0e-3)
     assert microscope._axis_restrictions_apply(target) is False

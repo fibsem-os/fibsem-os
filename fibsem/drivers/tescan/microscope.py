@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 import fibsem.constants as constants
-from fibsem import manufacturers
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.devices import STAGE_FRAME_TESCAN
@@ -250,6 +249,7 @@ class TescanMicroscope(FibsemMicroscope):
     to the TESCAN FIB-SEM microscope.
     """
 
+    driver_name = "Tescan"
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
     #: fibsem does not drive the Tescan Nanomanipulator (its support was removed), so
@@ -276,7 +276,6 @@ class TescanMicroscope(FibsemMicroscope):
         # initialise system settings
         self.system: SystemSettings = system_settings
         self.milling_channel: BeamType = BeamType.ION
-        self._last_imaging_settings: ImageSettings = ImageSettings()
 
         # user, experiment metadata
         # TODO: remove once db integrated
@@ -329,7 +328,7 @@ class TescanMicroscope(FibsemMicroscope):
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
         # Tescan's own driver has no FM; one on its own PC is built from its entry.
-        self.fm = self._build_fluorescence(manufacturers.TESCAN)
+        self.fm = self._build_fluorescence(self.driver_name)
         self._apply_fluorescence_calibration()
         self._bind_device_roles()
 
@@ -343,7 +342,7 @@ class TescanMicroscope(FibsemMicroscope):
 
         # system info: the hardware reports "TESCAN" in image headers; store the
         # canonical spelling so downstream comparisons never meet the raw form
-        self.system.info.manufacturer = manufacturers.TESCAN
+        self.system.info.manufacturer = self.driver_name
         info = self.system.info
         logging.info(
             f"Microscope client connected to model {info.model} with serial number {info.serial_number} and software version {info.software_version}."
@@ -378,7 +377,7 @@ class TescanMicroscope(FibsemMicroscope):
         the configuration's ``hardware.devices`` entries of *types* over them
         (``fibsem.devices.entries``), and put them in ``devices``."""
         resolved = resolve_system_devices(
-            self.system, defaults, types, exclude_types, manufacturers.TESCAN
+            self.system, defaults, types, exclude_types, self.driver_name
         )
         built = build_device_entries(resolved, self)
         for name, device in built.items():
@@ -430,10 +429,6 @@ class TescanMicroscope(FibsemMicroscope):
         the stage cannot be read or moved.
         """
         self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
-
-    @property
-    def manufacturer(self) -> str:
-        return manufacturers.TESCAN
 
     def is_working_distance_settable(self, beam_type: BeamType) -> bool:
         """ION working distance is not settable: the SDK's FIB class has no WD or

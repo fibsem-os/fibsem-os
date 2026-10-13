@@ -128,12 +128,11 @@ class StageMovement(Service):
     def _move_stage(
         self, position: FibsemStagePosition, relative: bool = False
     ) -> FibsemStagePosition:
-        """One stage move, without the limit check the old API never had.
+        """One stage move, refused outside the stage limits.
 
-        Through the microscope's raw move, which goes to the stage device: it is the
-        one place a backend's raw stage move is recorded and its position published,
-        and what every existing pin of these moves records. It goes straight to the
-        stage device once the old raw moves are retired.
+        Through the microscope's raw move, which goes to the stage device's checked
+        move: it is the one place a backend's raw stage move is recorded and its
+        position published, and what every existing pin of these moves records.
         """
         if relative:
             return self.parent.move_stage_relative(position)

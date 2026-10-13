@@ -301,6 +301,8 @@ def make_lifecycle_hook(buffer: EventBuffer):
                 "tasks_total": context.tasks_total,
                 "error": context.error,
                 "skip_reason": context.skip_reason,
+                "missing_prereqs": context.missing_prereqs,
+                "task_counts": context.task_counts,
                 "timestamp": to_plain(context.timestamp),
                 "task_state": to_plain(task_state) if task_state is not None else None,
             },

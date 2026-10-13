@@ -144,9 +144,9 @@ class AutoscriptStage(Stage):
     - ``_move_relative``: ``move_stage_relative``;
     - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
 
-    The old moves end by reading the position back; ``Stage.move_through`` does the
-    same read, so a move here is the same calls end to end. Limits and positions share
-    one unit: radians for r and t.
+    The old moves end by reading the position back; ``Stage.move_absolute`` and
+    ``move_relative`` do the same read, so a move here is the same calls end to end.
+    Limits and positions share one unit: radians for r and t.
     """
 
     compustage = False
@@ -678,7 +678,7 @@ class AutoscriptBeam(Beam):
         name = self.beam_type.name
         if image_settings is None:
             # acquire_image(beam_type=...): the beam's current settings
-            settings = microscope.get_imaging_settings(beam_type=self.beam_type)
+            settings = self.image_settings()
             logging.debug(f"acquiring new {name} image.")
             with self.claim_channel():
                 adorned = self.connection.sdk.imaging.grab_frame(None)
@@ -726,8 +726,6 @@ class AutoscriptBeam(Beam):
         image = images.fibsem_image_from_adorned_image(
             copy.deepcopy(adorned), copy.deepcopy(settings), copy.deepcopy(state)
         )
-        if image_settings is not None:
-            microscope._last_imaging_settings = image_settings
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
         return image
 
@@ -818,7 +816,7 @@ class AutoscriptBeam(Beam):
         """A live frame as a FibsemImage, with the beam's current state."""
         microscope = self.parent
         state = microscope.get_microscope_state(beam_type=self.beam_type)
-        image_settings = microscope.get_imaging_settings(beam_type=self.beam_type)
+        image_settings = self.image_settings()
 
         image = images.fibsem_image_from_adorned_image(
             copy.deepcopy(adorned_image),

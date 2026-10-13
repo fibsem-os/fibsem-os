@@ -221,10 +221,16 @@ class Stage(Device):
 
     @command
     def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        """Move to a position. Axes that are None stay where they are."""
+        """Move to a position. Axes that are None stay where they are.
+
+        Claims the stage, moves, and reads back the position, which updates the cache
+        and emits ``position.changed`` and each moved axis's ``changed``.
+        """
         with recording_move(self.session, self, "move_absolute", position=position):
             self.check_limits(position)
-            return self.move_through(position)
+            with self.resources.claim(STAGE_RESOURCE):
+                self._move_absolute(position)
+                return self.position.get_value()
 
     @command
     def move_relative(self, delta: FibsemStagePosition) -> FibsemStagePosition:
@@ -232,7 +238,8 @@ class Stage(Device):
         with recording_move(self.session, self, "move_relative", position=delta):
             with self.resources.claim(STAGE_RESOURCE):
                 self.check_limits(self.position.get_value() + delta)
-                return self.move_through(delta, relative=True)
+                self._move_relative(delta)
+                return self.position.get_value()
 
     @command(available=lambda stage: "homed" in stage.parameters)
     def home(self) -> bool:
@@ -255,25 +262,6 @@ class Stage(Device):
         """``poses()`` as a command, so a stage on another computer can be asked for
         its poses. It moves nothing."""
         return self.poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
-
-    def move_through(
-        self, position: FibsemStagePosition, relative: bool = False
-    ) -> FibsemStagePosition:
-        """The old API's move: the same path with no limit check, so nothing changes.
-
-        Today no backend refuses an out-of-limit move before the vendor does; the
-        old ``move_stage_absolute``/``move_stage_relative`` keep that by calling this.
-        Claims the stage, moves, and reads back the position, which updates the cache
-        and emits ``position.changed`` and each moved axis's ``changed``.
-        """
-        move = "move_relative" if relative else "move_absolute"
-        with recording_move(self.session, self, move, position=position):
-            with self.resources.claim(STAGE_RESOURCE):
-                if relative:
-                    self._move_relative(position)
-                else:
-                    self._move_absolute(position)
-                return self.position.get_value()
 
     def check_limits(self, position: FibsemStagePosition) -> None:
         """Raise ``StageLimitError`` naming every axis of *position* out of limits."""

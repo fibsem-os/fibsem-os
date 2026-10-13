@@ -362,7 +362,6 @@ class OdemisBeam(Beam):
             client.set_full_frame_scan_mode(channel=channel)
         if tmp_resolution is not None:
             image_settings.resolution = tmp_resolution
-        microscope._last_imaging_settings = image_settings
         return self._image(image, image_settings)
 
     def _last_image(self) -> FibsemImage:
@@ -375,7 +374,7 @@ class OdemisBeam(Beam):
 
     def _current_image_settings(self, image: np.ndarray) -> ImageSettings:
         """The beam's current imaging settings, at the resolution of the frame it gave."""
-        image_settings = self.parent.get_imaging_settings(self.beam_type)
+        image_settings = self.image_settings()
         image_settings.resolution = [image.shape[1], image.shape[0]]
         return image_settings
 
@@ -458,8 +457,8 @@ class OdemisStage(Stage):
       ``move_stage_relative``, each waiting on the move's future;
     - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
 
-    The old moves end by reading the position back; ``Stage.move_through`` does the
-    same read.
+    The old moves end by reading the position back; ``Stage.move_absolute`` and
+    ``move_relative`` do the same read.
     """
 
     def __init__(

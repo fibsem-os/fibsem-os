@@ -47,8 +47,8 @@ def stage_start(stage_name="Rough Mill", current_stage=0, total_stages=3):
     return MillingProgress(
         status=MillingProgressStatus.STAGE_STARTED,
         message=None,
-        task_id="task-1",
-        task_name="Trench",
+        milling_run_id="task-1",
+        milling_task_name="Trench",
         stage_name=stage_name,
         current_stage=current_stage,
         total_stages=total_stages,
@@ -83,8 +83,8 @@ def task_finished():
     """`MillingTask.run`'s `finally`, once per task."""
     return MillingProgress(
         status=MillingProgressStatus.TASK_FINISHED,
-        task_id="task-1",
-        task_name="Trench",
+        milling_run_id="task-1",
+        milling_task_name="Trench",
     )
 
 

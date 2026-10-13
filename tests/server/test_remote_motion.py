@@ -129,9 +129,9 @@ def test_a_remote_stage_refuses_a_move_outside_the_limits(served):
     before = local["stage"].position.get_value()
     with pytest.raises(StageLimitError):
         remote["stage"].move_absolute(FibsemStagePosition(x=1.0))
-    # the server checks too: the old API's unchecked path is refused there
+    # the server checks too: a move that skips the client's check is refused there
     with pytest.raises(StageLimitError):
-        remote["stage"].move_through(FibsemStagePosition(x=1.0))
+        remote["stage"]._move_absolute(FibsemStagePosition(x=1.0))
     assert local["stage"].position.get_value() == before
 
 

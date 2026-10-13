@@ -42,6 +42,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
 )
 from fibsem.applications.autolamella.workflows.tasks.status import WorkflowStatusEvent
 from fibsem.cancellation import OperationCancelledError
+from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 
 GRIDS = ["Grid-01", "Grid-02", "Grid-03"]  # what the sim magazine holds
@@ -199,7 +200,7 @@ class TestOrderAndLoading:
         for name in ("Grid-01", "Grid-02"):
             (entry,) = load_entries(experiment.get_grid_by_name(name))
             assert entry.status is Status.Completed
-            assert "Slot-01" in entry.status_message
+            assert BUILTIN_SLOT_NAME in entry.status_message
             assert entry.end_timestamp is not None
         # the last grid is left loaded; nothing unloads at the end of a run
         assert microscope.sample_handling.loaded_grids[0].name == "Grid-02"
@@ -510,7 +511,7 @@ class TestStopAndStatus:
         assert [g.name for g in stage.loaded_grids] == ["Grid-02"]
         (entry,) = load_entries(experiment.get_grid_by_name("Grid-02"))
         assert entry.status is Status.Completed
-        assert entry.status_message == "Loaded into Slot-01."
+        assert entry.status_message == f"Loaded into {BUILTIN_SLOT_NAME}."
         load_item, task_item = manager.queue.items
         assert load_item.status is Status.Completed
         assert task_item.status is Status.NotStarted

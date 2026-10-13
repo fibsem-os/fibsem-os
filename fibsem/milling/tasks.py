@@ -21,7 +21,7 @@ from fibsem.cancellation import (
     raise_if_cancelled,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.milling.base import FibsemMillingStage
+from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.milling import report_progress
 from fibsem.structures import (
@@ -269,7 +269,10 @@ class FibsemMillingTask:
         report_progress(
             self.microscope,
             MillingProgress(
-                status=status, task_id=self.task_id, task_name=self.name, **fields
+                status=status,
+                milling_run_id=self.task_id,
+                milling_task_name=self.name,
+                **fields,
             ),
         )
 
@@ -437,14 +440,17 @@ class FibsemMillingTask:
             "index": idx,
             "milling_current": stage.milling.milling_current,
             "started_at": now_iso(),
+            # which strategy milled it, and what it said about the run
+            "strategy": {"name": stage.strategy.name},
         }
         self._stage_records.append(record)
         try:
-            self._run_stage(stage, idx, start_time)
+            result = self._run_stage(stage, idx, start_time)
         except BaseException as e:
             record.update(ended_by(e), ended_at=now_iso())
             raise
         record.update(status=COMPLETED, ended_at=now_iso())
+        record["strategy"].update(_strategy_result(stage, result))
 
         # optionally acquire images after milling
         if self.config.acquisition.enabled:
@@ -462,8 +468,8 @@ class FibsemMillingTask:
 
     def _run_stage(
         self, stage: FibsemMillingStage, idx: int, start_time: float
-    ) -> None:
-        """Set the stage up from the task and mill it."""
+    ) -> Optional[MillingStrategyResult]:
+        """Set the stage up from the task and mill it; what the strategy said."""
         self._emit(
             MillingProgressStatus.STAGE_STARTED,
             start_time=start_time,
@@ -485,7 +491,7 @@ class FibsemMillingTask:
         stage.imaging = self.config.acquisition.imaging
         stage.alignment = self.config.alignment
         self._record_stage_started(stage, idx)
-        stage.strategy.run(
+        result = stage.strategy.run(
             microscope=self.microscope,
             stage=stage,
             stop_event=self._stop_event,
@@ -503,6 +509,7 @@ class FibsemMillingTask:
             "timestamp": now_iso(),
         }
         logging.debug(f"{msgd}")
+        return result
 
     def _record_run(self, started_at: str) -> None:
         """Record how this run ended: one ``milling`` event, with how each stage
@@ -522,8 +529,8 @@ class FibsemMillingTask:
             if ended["status"] == COMPLETED and not self.stages:
                 ended = {"status": SKIPPED, "reason": _TURNED_OFF}
             payload = {
-                "task_id": self.task_id,
-                "task_name": self.name,
+                "milling_run_id": self.task_id,
+                "milling_task_name": self.name,
                 "started_at": started_at,
                 "path": self.output_dir,
                 "stages": self._stages_as_ended(ended["status"]),
@@ -575,8 +582,8 @@ class FibsemMillingTask:
         """
         try:
             payload = {
-                "task_id": self.task_id,
-                "task_name": self.name,
+                "milling_run_id": self.task_id,
+                "milling_task_name": self.name,
                 "stage_index": idx,
                 "total_stages": len(self.stages),
                 "stage": stage.to_dict(),
@@ -640,9 +647,8 @@ class FibsemMillingTask:
         )  # force field of view to match task
 
         if self.config.acquisition.imaging.path is None:
-            self.config.acquisition.imaging.path = (
-                self.microscope._last_imaging_settings.path
-            )
+            # Where this run saves, not wherever the microscope's last image went.
+            self._configure_path()
 
         # support specifying acquiring sem and/or fib images only
         sem_image, fib_image = acquire.acquire_channels(
@@ -659,6 +665,25 @@ class FibsemMillingTask:
                 self.microscope.fib_acquisition_signal.emit(fib_image)  # ion image
         except Exception as e:
             logging.error(f"Error emitting acquisition signals: {e}")
+
+
+def _strategy_result(stage: FibsemMillingStage, result: Any) -> Dict[str, Any]:
+    """What the stage's strategy said about its run, as its record holds it.
+    Anything but a MillingStrategyResult or None is a plugin's mistake: logged
+    and left out, never a reason to fail a mill that finished."""
+    if result is None:
+        return {}
+    if not isinstance(result, MillingStrategyResult):
+        logging.warning(
+            f"{stage.strategy.name} returned {type(result).__name__} for "
+            f"{stage.name}, not a MillingStrategyResult; it is not recorded"
+        )
+        return {}
+    try:
+        return result.to_dict()
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug(f"could not record {stage.name}'s strategy result", exc_info=True)
+        return {}
 
 
 # How a run ended, as its recorded event says it.
@@ -678,7 +703,7 @@ def record_milling_skipped(
     a run's, every stage ``skipped`` (FIB-1257). Never raises."""
     try:
         payload = {
-            "task_name": config.name,
+            "milling_task_name": config.name,
             "status": SKIPPED,
             "reason": reason,
             "stages": [

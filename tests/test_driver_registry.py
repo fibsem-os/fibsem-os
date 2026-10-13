@@ -9,31 +9,31 @@ port the chain did, and that ``setup_session`` connects through the registry.
 import pytest
 
 from fibsem import config as cfg
-from fibsem import manufacturers, utils
+from fibsem import utils
 from fibsem.drivers import registry
 from fibsem.drivers.registry import DriverEntry, get_driver, register_driver
 from fibsem.structures import BeamType, DeviceEntry
 
 # What the old chain in setup_session did, per manufacturer.
 BUILT_IN = {
-    manufacturers.THERMOFISHER: (
+    "ThermoFisher": (
         "fibsem.drivers.autoscript.microscope:ThermoMicroscope",
         7520,
     ),
-    manufacturers.TESCAN: ("fibsem.drivers.tescan.microscope:TescanMicroscope", 8300),
-    manufacturers.ODEMIS: (
+    "Tescan": ("fibsem.drivers.tescan.microscope:TescanMicroscope", 8300),
+    "Odemis": (
         "fibsem.drivers.odemis.microscope:OdemisThermoMicroscope",
         None,
     ),
-    manufacturers.DEMO: ("fibsem.drivers.demo.microscope:DemoMicroscope", 7520),
+    "Demo": ("fibsem.drivers.demo.microscope:DemoMicroscope", 7520),
 }
 
 
 # The column tilts config.DEFAULT_CONFIGURATION_VALUES listed before the registry.
 COLUMN_TILTS = {
-    manufacturers.THERMOFISHER: {"ion-column-tilt": 52, "electron-column-tilt": 0},
-    manufacturers.TESCAN: {"ion-column-tilt": 55, "electron-column-tilt": 0},
-    manufacturers.DEMO: {"ion-column-tilt": 52, "electron-column-tilt": 0},
+    "ThermoFisher": {"ion-column-tilt": 52, "electron-column-tilt": 0},
+    "Tescan": {"ion-column-tilt": 55, "electron-column-tilt": 0},
+    "Demo": {"ion-column-tilt": 52, "electron-column-tilt": 0},
 }
 
 
@@ -91,7 +91,7 @@ def test_the_default_configuration_values_come_from_the_registry():
     ):
         assert list(values)[: len(COLUMN_TILTS)] == list(COLUMN_TILTS)
         assert _tilts({m: values[m] for m in COLUMN_TILTS}) == COLUMN_TILTS
-    assert cfg.DEFAULT_CONFIGURATION_VALUES[manufacturers.TESCAN]["port"] == 8300
+    assert cfg.DEFAULT_CONFIGURATION_VALUES["Tescan"]["port"] == 8300
 
 
 def test_the_configuration_constants_import_no_driver():
@@ -114,7 +114,7 @@ def test_the_available_manufacturers_are_the_drivers_with_defaults():
     """Odemis has a driver but no defaults, as it had no column tilts before."""
     available = cfg.AVAILABLE_MANUFACTURERS
     assert available[: len(COLUMN_TILTS)] == list(COLUMN_TILTS)
-    assert manufacturers.ODEMIS not in available
+    assert "Odemis" not in available
 
 
 def test_a_registered_driver_brings_its_defaults(restore_registry):
@@ -149,13 +149,13 @@ def test_listing_the_drivers_imports_no_driver():
 
 @pytest.mark.parametrize("spelling", ["Thermo", "thermo fisher", "ThermoFisher"])
 def test_any_known_spelling_finds_the_driver(spelling):
-    assert get_driver(spelling).manufacturer == manufacturers.THERMOFISHER
+    assert get_driver(spelling).manufacturer == "ThermoFisher"
 
 
 def test_the_demo_driver_loads_its_class():
     from fibsem.drivers.demo.microscope import DemoMicroscope
 
-    assert get_driver(manufacturers.DEMO).load() is DemoMicroscope
+    assert get_driver("Demo").load() is DemoMicroscope
 
 
 def test_an_unknown_manufacturer_is_refused_as_before():
@@ -208,16 +208,13 @@ def test_setup_session_connects_on_the_registered_port(
     assert _Recorder.connected == expected
 
 
-@pytest.mark.parametrize("spelling", ["tescan", manufacturers.TESCAN])
+@pytest.mark.parametrize("spelling", ["tescan", "Tescan"])
 def test_a_runtime_driver_cannot_take_a_built_in_manufacturer(
     restore_registry, spelling
 ):
     """The order patterns, strategies and tasks have: built-ins come first."""
     register_driver(DriverEntry(spelling, f"{__name__}:_Recorder", {"port": 1}))
-    assert (
-        get_driver(manufacturers.TESCAN).microscope_class
-        == (BUILT_IN[manufacturers.TESCAN][0])
-    )
+    assert get_driver("Tescan").microscope_class == (BUILT_IN["Tescan"][0])
     assert registry.registered_manufacturers()[: len(BUILT_IN)] == list(BUILT_IN)
 
 
@@ -321,11 +318,8 @@ def test_a_plugin_cannot_take_a_built_in_manufacturer(restore_registry, monkeypa
     )
 
     assert records["thermo"].loaded
-    assert records["thermo"].name == manufacturers.THERMOFISHER
-    assert (
-        get_driver(manufacturers.THERMOFISHER).microscope_class
-        == (BUILT_IN[manufacturers.THERMOFISHER][0])
-    )
+    assert records["thermo"].name == "ThermoFisher"
+    assert get_driver("ThermoFisher").microscope_class == (BUILT_IN["ThermoFisher"][0])
 
 
 def test_a_runtime_driver_comes_before_a_plugin(restore_registry, monkeypatch):
@@ -408,7 +402,7 @@ def test_a_driver_offers_a_builder_by_device_type():
     for spelling in ("Demo", "demo"):
         builder = registry.device_builder(spelling, "stage")
         assert builder.build == "fibsem.drivers.demo.devices:build_demo_stage"
-    assert registry.device_builder(manufacturers.DEMO, "laser") is None
+    assert registry.device_builder("Demo", "laser") is None
     with pytest.raises(NotImplementedError, match="Manufacturer acme not supported."):
         registry.device_builder("acme", "stage")
 
@@ -441,7 +435,7 @@ def test_the_demo_builders_build_each_device_from_its_entry():
         (t, t) for t in DEMO_DEVICE_TYPES[1:]
     ]:
         entry = DeviceEntry.from_dict({"name": name, "type": device_type})
-        build = registry.device_builder(manufacturers.DEMO, device_type).load()
+        build = registry.device_builder("Demo", device_type).load()
         built[name] = build(entry, context)
 
     assert isinstance(built["electron"], demo.DemoBeam)
@@ -454,11 +448,11 @@ def test_the_demo_builders_build_each_device_from_its_entry():
     resources, start = context.shared["Demo"]
     assert built["electron"].resources is built["ion"].resources is resources
     # A device is named after its entry, so a second manipulator is told apart.
-    manipulator = registry.device_builder(manufacturers.DEMO, "manipulator").load()
+    manipulator = registry.device_builder("Demo", "manipulator").load()
     entry = DeviceEntry.from_dict({"name": "manipulator_2", "type": "manipulator"})
     assert manipulator(entry, context).name == "manipulator_2"
     with pytest.raises(ValueError, match="'electron' or 'ion'"):
-        beam = registry.device_builder(manufacturers.DEMO, "beam").load()
+        beam = registry.device_builder("Demo", "beam").load()
         beam(DeviceEntry(name="third", type="beam"), context)
 
 
@@ -510,7 +504,145 @@ def test_a_device_only_driver_builds_an_added_entry(restore_registry):
     resolved = resolve_device_entries(
         [DeviceEntry(name="stage", type="stage")],
         {"needle": DeviceEntry(name="needle", type="manipulator", driver="Oxford")},
-        manufacturers.DEMO,
+        "Demo",
     )
     built = build_device_entries(resolved[1:], microscope=None)
     assert built["needle"][0] == "needle"
+
+
+# ---------------------------------------------------------------------------
+# Names and their spellings (FIB-300): the registry's normalize_name, which
+# configuration files, image headers and the command line all go through.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw, name",
+    [
+        # ThermoFisher: the spellings configs, the driver and session setup use
+        ("Thermo", "ThermoFisher"),
+        ("ThermoFisher", "ThermoFisher"),
+        ("thermo fisher", "ThermoFisher"),
+        ("Thermo Fisher Scientific", "ThermoFisher"),
+        ("THERMOFISHER", "ThermoFisher"),
+        # Tescan: the config spelling and the live image-header spelling
+        ("Tescan", "Tescan"),
+        ("TESCAN", "Tescan"),
+        ("  tescan  ", "Tescan"),
+        ("DEMO", "Demo"),
+        ("odemis", "Odemis"),
+        ("Remote", "remote"),
+    ],
+)
+def test_every_spelling_normalises_to_the_drivers_name(raw, name):
+    assert registry.normalize_name(raw) == name
+
+
+@pytest.mark.parametrize("raw", ["Hitachi", "", "  ", "Unknown", None, 42])
+def test_anything_unknown_passes_through_unchanged(raw):
+    """Lenient on purpose: reading an old or foreign file never fails here."""
+    assert registry.normalize_name(raw) == raw
+
+
+def test_each_built_in_names_itself():
+    for name in BUILT_IN:
+        assert registry.normalize_name(name) == name
+        assert get_driver(name).manufacturer == name
+
+
+def test_a_plugin_brings_its_own_spellings(restore_registry, monkeypatch):
+    entry = DriverEntry("JEOL", f"{__name__}:_Recorder", aliases=("jeol ltd",))
+    _install(monkeypatch, _EntryPoint("jeol", lambda: entry))
+
+    assert registry.normalize_name("JEOL Ltd") == "JEOL"
+    assert registry.normalize_name("jeol") == "JEOL"
+    assert get_driver("jeol ltd") is entry
+
+
+def test_a_plugin_cannot_take_a_built_in_spelling(restore_registry, monkeypatch):
+    """A built-in's alias wins over a plugin claiming the same spelling, in the usual
+    built-in, registered, plugin order."""
+    entry = DriverEntry("Thermo2", f"{__name__}:_Recorder", aliases=("thermo",))
+    _install(monkeypatch, _EntryPoint("thermo2", lambda: entry))
+
+    assert registry.normalize_name("thermo") == "ThermoFisher"
+    assert registry.normalize_name("Thermo2") == "Thermo2"
+
+
+def test_each_microscope_class_names_its_own_driver():
+    """A driver's class names its builds and answers ``manufacturer`` with
+    ``driver_name``, so it must be its package's ``DRIVER.manufacturer``."""
+    for name in BUILT_IN:
+        driver = get_driver(name)
+        cls = driver.load()
+        assert cls.driver_name == driver.manufacturer
+        assert cls.manufacturer.fget(object.__new__(cls)) == name
+
+
+def test_a_class_without_a_driver_name_does_not_claim_one():
+    """The base used to answer ThermoFisher for every class that did not say."""
+    from fibsem.microscope import FibsemMicroscope
+
+    class Nameless(FibsemMicroscope):
+        pass
+
+    Nameless.__abstractmethods__ = frozenset()
+    with pytest.raises(NotImplementedError, match="Nameless sets no driver_name"):
+        FibsemMicroscope.manufacturer.fget(object.__new__(Nameless))
+
+
+@pytest.mark.parametrize(
+    "stored, expected",
+    [
+        ("TESCAN", "Tescan"),  # live image header
+        ("Thermo", "ThermoFisher"),  # config file spelling
+        ("Demo", "Demo"),
+        ("Hitachi", "Hitachi"),  # unknown: kept verbatim, never dropped
+    ],
+)
+def test_system_info_normalises_the_manufacturer_on_read(stored, expected):
+    from fibsem.structures import SystemInfo
+
+    info = SystemInfo.from_dict({"manufacturer": stored})
+    assert info.manufacturer == expected
+    assert SystemInfo.from_dict(info.to_dict()).manufacturer == expected
+
+
+def test_system_info_without_a_manufacturer_reads_unknown():
+    from fibsem.structures import SystemInfo
+
+    assert SystemInfo.from_dict({}).manufacturer == "Unknown"
+
+
+def test_setup_session_accepts_any_demo_spelling(tmp_path):
+    microscope, settings = utils.setup_session(
+        session_path=str(tmp_path), manufacturer="DEMO", setup_logging=False
+    )
+    assert type(microscope).__name__ == "DemoMicroscope"
+    assert microscope.manufacturer == "Demo"
+    assert settings.system.info.manufacturer == "Demo"
+    microscope.disconnect()
+
+
+def test_the_available_manufacturers_are_registry_names():
+    assert all(registry.normalize_name(m) == m for m in cfg.AVAILABLE_MANUFACTURERS)
+
+
+def test_the_setup_wizard_writes_registry_names():
+    """The guided setup writes config_value into configurations and keys the column
+    tilt defaults with it, so another spelling would miss both."""
+    from fibsem.guided_setup import MANUFACTURERS
+
+    for m in MANUFACTURERS:
+        assert registry.normalize_name(m.config_value) == m.config_value
+
+
+def test_the_cli_offers_a_plugin_driver(restore_registry, monkeypatch):
+    from fibsem import cli
+
+    _install(
+        monkeypatch,
+        _EntryPoint("jeol", lambda: DriverEntry("JEOL", f"{__name__}:_Recorder")),
+    )
+    args = cli._build_parser().parse_args(["--manufacturer", "jeol", "info"])
+    assert args.manufacturer == "JEOL"
