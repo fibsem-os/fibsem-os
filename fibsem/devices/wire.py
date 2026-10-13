@@ -98,10 +98,29 @@ def from_wire(type_: type, value: Any) -> Any:
         items = [from_wire(args[0], item) if args else item for item in value]
         return tuple(items) if origin is tuple else items
     if isinstance(type_, type) and issubclass(type_, Enum) and value is not None:
-        return value if isinstance(value, type_) else type_(value)
+        return value if isinstance(value, type_) else _enum_member(type_, value)
     if isinstance(value, dict) and hasattr(type_, "from_dict"):
         return type_.from_dict(value)
     return value
+
+
+def _enum_member(type_: type, value: Any) -> Any:
+    """The member with this value, or with this name: an agent reading
+    ``<BeamType.ELECTRON: 1>`` in a signature sends ``"ELECTRON"``."""
+    try:
+        return type_(value)
+    except ValueError:
+        if isinstance(value, str) and value in type_.__members__:
+            return type_.__members__[value]
+        raise
+
+
+class ArgumentError(ValueError):
+    """A command's argument that does not decode as its declared type."""
+
+    def __init__(self, parameter: str, error: Exception):
+        super().__init__(f"{parameter}: {error}")
+        self.parameter = parameter
 
 
 def _declared_type(hint: Any) -> Any:
@@ -135,9 +154,19 @@ def type_hints(func: Callable[..., Any]) -> Dict[str, Any]:
 def decode_kwargs(func: Callable[..., Any], kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """A command's arguments as its signature declares them: a ``Point`` argument
     sent as a dict arrives as a ``Point``. Arguments without a usable hint pass as
-    they came."""
+    they came.
+
+    Raises:
+        ArgumentError: an argument does not decode; it names which.
+    """
     hints = type_hints(func)
-    return {
-        name: from_wire(_declared_type(hints[name]), value) if name in hints else value
-        for name, value in kwargs.items()
-    }
+    decoded = {}
+    for name, value in kwargs.items():
+        if name not in hints:
+            decoded[name] = value
+            continue
+        try:
+            decoded[name] = from_wire(_declared_type(hints[name]), value)
+        except Exception as error:
+            raise ArgumentError(name, error) from error
+    return decoded

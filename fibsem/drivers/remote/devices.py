@@ -64,6 +64,7 @@ import numpy as np
 import requests
 from psygnal import Signal
 
+from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
@@ -125,6 +126,7 @@ _ERRORS: Dict[str, Callable[[str], Exception]] = {
     "ValueError": ValueError,
     "NotImplementedError": NotImplementedError,
     "StageLimitError": StageLimitError,
+    "OperationCancelledError": OperationCancelledError,
 }
 
 
