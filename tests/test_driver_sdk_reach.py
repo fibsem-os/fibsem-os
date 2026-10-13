@@ -26,8 +26,6 @@ from tests.fixtures.fake_drivers import built_in_packages
 DRIVERS = sorted(set(built_in_packages().values()))
 
 ALLOWED = {
-    "_last_imaging_settings",
-    "_set_additional_metadata",
     "_write_beam",
     "_without_blocked_axes",
 }

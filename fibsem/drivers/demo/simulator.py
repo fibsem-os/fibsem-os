@@ -506,10 +506,8 @@ class DemoSimulator:
             x1, y1 = x0 + width, y0 + height
             image.data = image.data[y0:y1, x0:x1]
 
-        # store last image, and imaging settings (only if image_settings was provided)
+        # store the last image
         self.imaging_system.last_image[effective_beam_type] = image
-        if image_settings is not None:
-            self.microscope._last_imaging_settings = image_settings
 
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
 
