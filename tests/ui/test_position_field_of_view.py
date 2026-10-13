@@ -16,6 +16,7 @@ one alone passes with the other half deleted.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_position_field_of_view.py
 """
+
 from __future__ import annotations
 
 import os
@@ -79,7 +80,9 @@ def _canvas(pixel_size: float = PIXEL_SIZE) -> FibsemRealSpaceCanvas:
 
 class TestTheBoxIsTheFieldOfView:
     def test_the_box_is_the_extent_it_was_given(self):
-        overlay = FieldOfViewOverlay(color="#ffffff", marker="+", extent=(100e-6, 60e-6))
+        overlay = FieldOfViewOverlay(
+            color="#ffffff", marker="+", extent=(100e-6, 60e-6)
+        )
         canvas = _canvas()
         canvas.add_overlay(overlay)
 
@@ -125,7 +128,9 @@ class TestTheBoxIsTheFieldOfView:
 
         (box,) = _boxes(overlay)
         assert box.get_linewidth() == FOV_BOX_LINEWIDTH
-        assert box.get_edgecolor()[:3] == pytest.approx((0x26 / 255, 0xC6 / 255, 0xDA / 255), abs=0.01)
+        assert box.get_edgecolor()[:3] == pytest.approx(
+            (0x26 / 255, 0xC6 / 255, 0xDA / 255), abs=0.01
+        )
         assert box.get_fill() is False, "a filled box would hide the sample it frames"
         assert _labels(overlay)[0].get_fontsize() == FOV_LABEL_FONTSIZE
 
@@ -247,7 +252,9 @@ class TestCoversIsTheBoxThatIsDrawn:
         _canvas().add_overlay(overlay)
 
         assert not overlay.covers((0.0, 0.0), 51.0, 0.0)
-        assert not overlay.covers((0.0, 0.0), 0.0, 31.0), "tested the width for both axes"
+        assert not overlay.covers((0.0, 0.0), 0.0, 31.0), (
+            "tested the width for both axes"
+        )
 
     def test_it_is_measured_from_the_point_it_is_given(self):
         overlay = FieldOfViewOverlay(extent=(100e-6, 60e-6))
@@ -331,7 +338,9 @@ def _frame_canvas_units(widget, span):
 
 
 class TestTheBeamTabBoxesItsPositions:
-    def test_the_box_is_a_hundred_microns_at_the_standard_aspect(self, widget, microscope):
+    def test_the_box_is_a_hundred_microns_at_the_standard_aspect(
+        self, widget, microscope
+    ):
         """Fixed rather than the current imaging settings: the box says how much sample
         a lamella occupies, and one that resized itself when somebody changed the HFW
         would look like the positions had moved."""
@@ -452,7 +461,9 @@ class TestPickingIsTheUnionOfBoxAndRadius:
         )
         assert widget._position_at(*probe) == "Lamella-02"
 
-    def test_a_click_outside_every_box_and_radius_picks_nothing(self, widget, microscope):
+    def test_a_click_outside_every_box_and_radius_picks_nothing(
+        self, widget, microscope
+    ):
         base = _loaded(widget, microscope, ("Lamella-01", 0.0, 0.0))
         frame = widget._frame()
 
@@ -512,7 +523,9 @@ class TestTheFluorescenceTabBoxesItsPositions:
 
         fm_widget.set_positions([])
 
-    def test_the_box_is_drawn_and_the_stage_position_is_not_boxed(self, qapp, fm_widget):
+    def test_the_box_is_drawn_and_the_stage_position_is_not_boxed(
+        self, qapp, fm_widget
+    ):
         fm_widget.set_positions([_fm_named("Lamella-01", 120e-6, 90e-6)])
         qapp.processEvents()
 

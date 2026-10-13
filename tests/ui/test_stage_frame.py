@@ -8,6 +8,7 @@ The property that matters is that the two directions are exact inverses. Everyth
 the canvas is placed by one and clicked through the other, so a gap between them is the
 distance between what you point at and what you get.
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -68,7 +69,11 @@ def _frame(canvas=None, origin=None, **geometry):
 
 def _offset(base, dx=0.0, dy=0.0):
     return FibsemStagePosition(
-        x=base.x + dx, y=base.y + dy, z=base.z, r=base.r, t=base.t,
+        x=base.x + dx,
+        y=base.y + dy,
+        z=base.z,
+        r=base.r,
+        t=base.t,
         coordinate_system=base.coordinate_system,
     )
 
@@ -76,7 +81,9 @@ def _offset(base, dx=0.0, dy=0.0):
 # ── the round trip ───────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("point", [(0.0, 0.0), (2500.0, 0.0), (0.0, -1750.0), (-3200.0, 4100.0)])
+@pytest.mark.parametrize(
+    "point", [(0.0, 0.0), (2500.0, 0.0), (0.0, -1750.0), (-3200.0, 4100.0)]
+)
 def test_a_canvas_point_round_trips_through_stage_space(point):
     frame = _frame()
 
@@ -126,8 +133,12 @@ def test_the_scale_cancels_out_of_the_round_trip():
     measure in pixels, not inputs to the geometry -- so a canvas at a wildly different
     scale must resolve a click to the same stage position."""
     origin = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(-180))
-    fine = StageFrame(_FakeCanvas(1e-9), origin, FMStageProjection(_geometry(), 1e-9, SHAPE))
-    coarse = StageFrame(_FakeCanvas(1e-9), origin, FMStageProjection(_geometry(), 27e-6, SHAPE))
+    fine = StageFrame(
+        _FakeCanvas(1e-9), origin, FMStageProjection(_geometry(), 1e-9, SHAPE)
+    )
+    coarse = StageFrame(
+        _FakeCanvas(1e-9), origin, FMStageProjection(_geometry(), 27e-6, SHAPE)
+    )
 
     a, b = fine.to_stage(1500.0, -900.0), coarse.to_stage(1500.0, -900.0)
 
@@ -202,9 +213,9 @@ def test_a_projection_read_off_an_image_uses_the_image_geometry():
 def test_a_camera_flip_reverses_the_axis_it_names():
     origin = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(-180))
     plain = _frame(origin=origin).to_canvas(_offset(origin, dx=100e-6))
-    flipped = _frame(
-        origin=origin, transform=CameraImageTransform.FLIP_X
-    ).to_canvas(_offset(origin, dx=100e-6))
+    flipped = _frame(origin=origin, transform=CameraImageTransform.FLIP_X).to_canvas(
+        _offset(origin, dx=100e-6)
+    )
 
     assert flipped[0] == pytest.approx(-plain[0])
     assert flipped[1] == pytest.approx(plain[1])
