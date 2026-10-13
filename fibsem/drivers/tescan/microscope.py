@@ -505,8 +505,3 @@ class TescanMicroscope(FibsemMicroscope):
         """The ion column is set by preset: setting its voltage or current directly
         is refused by the Tescan API."""
         return beam_type is BeamType.ION
-
-    def home(self) -> Optional[bool]:
-        """A Tescan cannot home from here, so whether it is homed is unknown."""
-        logging.warning("No homing available, please use native UI.")
-        return None

@@ -267,7 +267,7 @@ def test_demo_moves_its_stage_device():
         setattr(stage, name, counted(name))
     microscope.move_stage_absolute(FibsemStagePosition(x=1e-3))
     microscope.move_stage_relative(FibsemStagePosition(y=1e-3))
-    microscope.home()
+    microscope.stage.home()
     assert calls == ["_move_absolute", "_move_relative", "_home"]
     assert np.allclose(
         _xyzrt(microscope.get_stage_position()), _xyzrt(stage.position.cached)
@@ -279,7 +279,7 @@ def test_demo_stage_keeps_its_own_state():
     microscope = _connect("Demo")
     stage = microscope.stage_device
     stage.sim_homed = False
-    microscope.home()
+    microscope.stage.home()
     microscope.link_stage()
     microscope.move_stage_absolute(FibsemStagePosition(x=1e-3, t=0.1))
     assert stage.homed.get_value() is True
@@ -837,13 +837,24 @@ def test_vent_and_pump(microscope):
 
 
 def test_home_homes_and_says_so(microscope):
-    """`home` returns whether the stage is homed afterwards, or None where the stage
-    cannot say (a Tescan's cannot home from here)."""
+    """`stage.home` returns whether the stage is homed afterwards. A stage that cannot
+    home from here (a Tescan's) has no `homed` and lists `home` as unavailable."""
     if not _stage_has("homed")(microscope):
-        assert microscope.home() is None
+        assert microscope.stage.commands["home"].available is False
         return
-    assert microscope.home() is True
+    assert microscope.stage.home() is True
     assert microscope.stage.homed.get_value() is True
+
+
+def test_microscope_home_is_deprecated(microscope):
+    """`microscope.home()` warns, naming `microscope.stage.home()`, at the caller's
+    line, and still homes as it did: None where the stage cannot say."""
+    with pytest.warns(
+        DeprecationWarning, match=r"use microscope\.stage\.home\(\)"
+    ) as record:
+        homed = microscope.home()
+    assert record[0].filename == __file__
+    assert homed is (True if _stage_has("homed")(microscope) else None)
 
 
 def test_link_stage(microscope):

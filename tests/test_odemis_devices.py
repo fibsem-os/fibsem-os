@@ -384,7 +384,7 @@ STAGE_CASES = (
         "move relative",
         lambda m: m.move_stage_relative(FibsemStagePosition(x=1e-5, z=-1e-5)),
     ),
-    ("home", lambda m: m.home()),
+    ("home", lambda m: m.stage.home()),
     ("link", lambda m: m.link_stage()),
 )
 
@@ -560,7 +560,7 @@ def test_the_calls_go_through_the_devices(odemis_cls):
             setattr(device, hook, counted)
     microscope.move_stage_absolute(FibsemStagePosition(x=0.0))
     microscope.move_stage_relative(FibsemStagePosition(x=1e-6))
-    microscope.home()
+    microscope.stage.home()
     microscope.pump()
     microscope.vent()
     assert used == ["_move_absolute", "_move_relative", "_home", "_pump", "_vent"]

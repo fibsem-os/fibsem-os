@@ -18,8 +18,9 @@ def auto_home_and_link_v2(
     if state is None:
         state = microscope.get_microscope_state()
 
-    # home the stage
-    microscope.home()
+    # home the stage, where it can home from here
+    if microscope.stage.commands["home"].available:
+        microscope.stage.home()
 
     # move to saved linked state
     microscope.set_microscope_state(state)

@@ -471,7 +471,7 @@ def cases():
                 lambda m: m.link_stage(),
                 lambda s, m: (s._link(), s.linked.get_value())[1],
             )
-        add("home()", lambda m: m.home(), lambda s, m: (s._home(), True)[1])
+        add("home()", lambda m: m.stage.home(), lambda s, m: (s._home(), True)[1])
 
         for i, position in enumerate(positions(compustage)):
             add(

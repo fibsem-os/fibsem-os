@@ -1967,7 +1967,16 @@ class FibsemMicroscope(ABC):
 
     def home(self) -> Optional[bool]:
         """Home the stage. A stage that cannot home is left alone; returns whether
-        it is homed (None when it cannot say)."""
+        it is homed (None when it cannot say).
+
+        Deprecated: call ``microscope.stage.home()``.
+        """
+        warnings.warn(
+            "microscope.home() is deprecated and will be removed in the next minor "
+            "release; use microscope.stage.home() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self.stage is not None and self.stage.commands["home"].available:
             return self.stage.home()
         return self._stage_value("homed")
