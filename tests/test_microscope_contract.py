@@ -541,7 +541,7 @@ def test_demo_reads_its_configuration():
 
 def test_demo_sets_its_milling_recipe():
     microscope = _connect("Demo")
-    files = microscope.milling_system.application_files
+    files = microscope._connection.milling_system.application_files
     microscope.setup_milling(
         FibsemMillingSettings(
             milling_channel=BeamType.ELECTRON,
@@ -549,7 +549,7 @@ def test_demo_sets_its_milling_recipe():
             patterning_mode="Parallel",
         )
     )
-    milling = microscope.milling_system
+    milling = microscope._connection.milling_system
     assert milling.default_application_file == files[-1]
     assert milling.patterning_mode == "Parallel"
     assert milling.default_beam_type is BeamType.ELECTRON

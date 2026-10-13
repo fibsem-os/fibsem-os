@@ -88,21 +88,21 @@ def test_prepare_applies_the_recipe_and_draws(microscope):
     milling = microscope.milling
     milling.prepare(_recipe(patterning_mode="Parallel"), _patterns())
     assert _conditions(microscope) == (30e3, 7.6e-9, 80e-6)
-    assert microscope.milling_system.patterning_mode == "Parallel"
-    assert len(microscope.milling_system.patterns) == 3
+    assert microscope._connection.milling_system.patterning_mode == "Parallel"
+    assert len(microscope._connection.milling_system.patterns) == 3
     assert milling.estimate() == microscope.estimate_milling_time() == 15
 
 
 def test_a_setup_clears_what_was_drawn(microscope):
     microscope.milling.prepare(_recipe(), _patterns())
     microscope.setup_milling(_recipe())
-    assert microscope.milling_system.patterns == []
+    assert microscope._connection.milling_system.patterns == []
 
 
 def test_the_old_methods_go_through_the_service(microscope):
     microscope.setup_milling(_recipe())
     microscope.draw_patterns(_patterns())
-    assert len(microscope.milling_system.patterns) == 3
+    assert len(microscope._connection.milling_system.patterns) == 3
 
     seen = []
     microscope.milling.state.get_value()
@@ -122,7 +122,7 @@ def test_the_old_methods_go_through_the_service(microscope):
         MillingState.IDLE,
     ]
     microscope.clear_patterns()
-    assert microscope.milling_system.patterns == []
+    assert microscope._connection.milling_system.patterns == []
 
 
 def test_run_milling_mills_what_the_service_drew(microscope):
@@ -130,7 +130,7 @@ def test_run_milling_mills_what_the_service_drew(microscope):
     microscope.draw_patterns([_rectangle()])
     microscope.run_milling()
     assert microscope.get_milling_state() is MillingState.IDLE
-    assert microscope.milling_system.patterns == []
+    assert microscope._connection.milling_system.patterns == []
 
 
 def test_restore_goes_through_the_beam_device(microscope):
@@ -162,7 +162,7 @@ def test_without_an_ion_beam_the_demo_does_not_mill(microscope):
     assert electron_only.milling is None
     with pytest.raises(ValueError, match="ION beam is not enabled"):
         electron_only.draw_patterns([_rectangle()])
-    assert electron_only.milling_system.patterns == []
+    assert electron_only._connection.milling_system.patterns == []
     with pytest.raises(ValueError, match="ION beam is not enabled"):
         electron_only.clear_patterns()
     electron_only.stop_milling()
@@ -183,7 +183,7 @@ def test_the_demo_says_which_settings_it_mills_with(microscope):
     # a beam's own parameter carries the beam's metadata, not a copy
     assert supported["milling_current"] is ion.parameters["current"].metadata
     assert list(supported["application_file"].choices) == list(
-        microscope.milling_system.application_files
+        microscope._connection.milling_system.application_files
     )
     assert supported["patterning_mode"].choices == ("Serial", "Parallel")
     assert supported["milling_channel"].choices == (BeamType.ION, BeamType.ELECTRON)
