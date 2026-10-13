@@ -7,7 +7,6 @@ import inspect
 import logging
 import threading
 import time
-import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
@@ -3512,25 +3511,3 @@ class FibsemMicroscope(ABC):
                 "DRIVER.manufacturer."
             )
         return name
-
-
-# `ThermoMicroscope` moved to `fibsem.drivers.autoscript.microscope`. These names are served
-# lazily so `from fibsem.microscope import ThermoMicroscope` keeps working for external
-# scripts and plugins, without this module importing the AutoScript backend at load.
-_MOVED_TO_AUTOSCRIPT = frozenset(
-    {"ThermoMicroscope", "THERMO_API_AVAILABLE", "AutoScriptException"}
-)
-
-
-def __getattr__(name: str) -> Any:
-    if name in _MOVED_TO_AUTOSCRIPT:
-        warnings.warn(
-            f"fibsem.microscope.{name} has moved to fibsem.drivers.autoscript.microscope; "
-            "import it from there.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        from fibsem.drivers.autoscript import microscope as autoscript
-
-        return getattr(autoscript, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

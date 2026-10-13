@@ -170,7 +170,6 @@ def load_yaml(fname):
 
 
 DEFAULT_IP_ADDRESS = "192.168.0.1"
-SUPPORTED_PLASMA_GASES = ["Argon", "Oxygen", "Nitrogen", "Xenon"]
 
 
 # user configurations -> move to fibsem.db eventually
