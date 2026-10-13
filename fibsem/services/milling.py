@@ -37,9 +37,9 @@ failure stops it and clears the patterns before it is raised.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import (
-    TYPE_CHECKING,
     Any,
     Dict,
     Optional,
@@ -50,7 +50,9 @@ from typing import (
     Union,
 )
 
-from fibsem.cancellation import raise_if_cancelled
+# At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
+# from its type hints (a FibsemMillingSettings sent as a dict).
+from fibsem.cancellation import AnyStopEvent, raise_if_cancelled
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -63,11 +65,6 @@ from fibsem.structures import (
     MillingState,
     get_fields_with_metadata,
 )
-
-if TYPE_CHECKING:
-    import threading
-
-    from fibsem.cancellation import AnyStopEvent
 
 # The beam conditions milling changes and `restore` puts back, in the order they are
 # written back: a preset first, since it sets the others on a column that has one,

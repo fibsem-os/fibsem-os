@@ -1681,6 +1681,8 @@ class FibsemPatternSettings(ABC):
     def from_dict(
         cls: Type[TFibsemPatternSettings], data: Dict[str, Any]
     ) -> TFibsemPatternSettings:
+        if cls is FibsemPatternSettings:  # abstract: the dict names its shape
+            return cls._subclass_named(data.get("type")).from_dict(data)
         kwargs = {}
         for f in fields(cls):
             if f.name in data:
@@ -1692,6 +1694,24 @@ class FibsemPatternSettings(ABC):
             kwargs["cross_section"] = CrossSectionPattern[cross_section]
 
         return cls(**kwargs)
+
+    @classmethod
+    def _subclass_named(cls, type_name: Any) -> Type[FibsemPatternSettings]:
+        """The shape a pattern dict names in its ``type``, as the App Server's
+        ``draw_patterns`` takes it: ``"Rectangle"`` (or ``"FibsemRectangleSettings"``)."""
+        shapes: Dict[str, Type[FibsemPatternSettings]] = {}
+        pending = list(cls.__subclasses__())
+        while pending:
+            sub = pending.pop()
+            pending += sub.__subclasses__()
+            shapes[sub.__name__] = sub
+            shapes[sub.__name__.replace("Fibsem", "").replace("Settings", "")] = sub
+        if type_name not in shapes:
+            available = sorted(name for name in shapes if not name.startswith("Fibsem"))
+            raise ValueError(
+                f"Unknown pattern type: {type_name!r}. Available: {available}"
+            )
+        return shapes[type_name]
 
     @property
     @abstractmethod

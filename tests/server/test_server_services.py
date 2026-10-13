@@ -187,3 +187,87 @@ def test_an_agent_runs_a_focus_sweep(armed_client, microscope):
     assert beam.working_distance.get_value() == pytest.approx(
         result["working_distance"]
     )
+
+
+def test_every_service_command_and_query_hint_resolves(microscope):
+    """The routes decode arguments from these hints; one that names a type imported
+    only for type checking would leave its arguments as raw JSON (FIB-1354)."""
+    import typing
+
+    for service in microscope.services.values():
+        for name in [*service.commands, *getattr(service, "queries", {})]:
+            typing.get_type_hints(getattr(service, name))  # raises if one doesn't
+
+
+def test_hints_resolve_one_at_a_time():
+    """A hint that can't resolve is left out; the others still decode."""
+    from fibsem.devices.wire import decode_kwargs
+    from fibsem.structures import Point
+
+    def move(point: Point, stop_event: "OnlyForTypeChecking" = None):  # noqa: F821
+        pass
+
+    kwargs = decode_kwargs(move, {"point": {"x": 1.0, "y": 2.0}, "stop_event": None})
+    assert kwargs["point"] == Point(1.0, 2.0)
+
+
+def test_sequences_decode_each_element():
+    from typing import List, Sequence, Tuple
+
+    from fibsem.devices.wire import from_wire
+    from fibsem.structures import Point
+
+    points = [{"x": 1.0, "y": 2.0}, {"x": 3.0, "y": 4.0}]
+    assert from_wire(Sequence[Point], points) == [Point(1.0, 2.0), Point(3.0, 4.0)]
+    assert from_wire(List[Point], points) == [Point(1.0, 2.0), Point(3.0, 4.0)]
+    assert from_wire(Tuple[Point, ...], points) == (Point(1.0, 2.0), Point(3.0, 4.0))
+    assert from_wire(Tuple[BeamType, float], [1, 2.0]) == (BeamType.ELECTRON, 2.0)
+
+
+def test_a_pattern_dict_names_its_shape():
+    from fibsem.structures import FibsemPatternSettings, FibsemRectangleSettings
+
+    rectangle = FibsemRectangleSettings(
+        width=1e-6, height=2e-6, depth=1e-6, centre_x=0.0, centre_y=0.0
+    )
+    for type_name in ("Rectangle", "FibsemRectangleSettings"):
+        data = {**rectangle.to_dict(), "type": type_name}
+        assert FibsemPatternSettings.from_dict(data) == rectangle
+    with pytest.raises(ValueError, match="Unknown pattern type: 'Square'"):
+        FibsemPatternSettings.from_dict({**rectangle.to_dict(), "type": "Square"})
+
+
+def test_an_agent_runs_a_spot_burn(armed_client, microscope):
+    from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.structures import Point
+
+    settings = SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time=0.01)
+    resp = armed_client.post(
+        "/services/spot_burn/commands/run",
+        json={"kwargs": {"settings": settings.to_dict()}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"] == "finished"
+
+
+def test_an_agent_prepares_milling_with_patterns(armed_client, microscope):
+    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+
+    rectangle = FibsemRectangleSettings(
+        width=1e-6, height=2e-6, depth=1e-6, centre_x=0.0, centre_y=0.0
+    )
+    try:
+        resp = armed_client.post(
+            "/services/milling/commands/prepare",
+            json={
+                "kwargs": {
+                    "settings": FibsemMillingSettings().to_dict(),
+                    "patterns": [{**rectangle.to_dict(), "type": "Rectangle"}],
+                }
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert microscope.milling_system.patterns == [rectangle]
+    finally:
+        microscope.milling.clear()
+        microscope.milling.restore()
