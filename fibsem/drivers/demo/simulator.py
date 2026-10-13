@@ -215,7 +215,6 @@ class MillingSystem:
 class ImagingSystem:
     active_view: int = BeamType.ELECTRON.value
     active_device: int = BeamType.ELECTRON.value
-    last_image: Dict[BeamType, Optional[FibsemImage]] = field(default_factory=dict)
     image_iterators: Dict[BeamType, Iterator[str]] = field(
         default_factory=dict
     )  # Image filename iterators
@@ -349,7 +348,7 @@ class DemoImaging:
 
     It reads and changes the beams only through the microscope's beam methods, so it
     images through the beam devices.
-    Its own state is the imaging channel and last images (``imaging_system``), the
+    Its own state is the imaging channel (``imaging_system``), the
     image sequence and the sample scene, which the demo sets up at construction.
     """
 
@@ -499,8 +498,7 @@ class DemoImaging:
             x1, y1 = x0 + width, y0 + height
             image.data = image.data[y0:y1, x0:x1]
 
-        # store last image, and imaging settings (only if image_settings was provided)
-        self.imaging_system.last_image[effective_beam_type] = image
+        # store the imaging settings (only if image_settings was provided)
         if image_settings is not None:
             self._last_imaging_settings = image_settings
 
@@ -630,26 +628,6 @@ class DemoImaging:
         logging.info(
             f"Image iterators initialized: {len(self._sem_filenames)} SEM images, {len(self._fib_filenames)} FIB images"
         )
-
-    def _demo_last_image(self, beam_type: BeamType) -> Optional[FibsemImage]:
-        # `ThermoMicroscope.last_image` sets the channel and then reads the *active
-        # view's* buffer -- `imaging.get_image` "retrieves a microscope image currently
-        # present in the active view" -- so it is FIB-542's pair on the retrieval path
-        # (FIB-569). Claimed and checked here for the same reason, though the simulator
-        # has no window between the two: it reads a dict rather than making a second
-        # round trip, so only a caller that already lost the channel can trip the check.
-        with self._threading_lock:
-            self.set_channel(beam_type)
-            self._warn_if_channel_moved(beam_type, "last_image")
-            image = self.imaging_system.last_image.get(beam_type)
-        logging.debug(
-            {
-                "msg": "last_image",
-                "beam_type": beam_type.name,
-                "metadata": image.metadata.to_dict(),
-            }
-        )
-        return image
 
     def _demo_chamber_frame(self) -> np.ndarray:
         """A frame of the chamber, for the ``chamber_camera`` device."""

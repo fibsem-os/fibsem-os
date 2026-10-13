@@ -342,9 +342,6 @@ class DemoBeam(Beam):
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
         return self.parent._demo_acquire(image_settings, self.beam_type)
 
-    def _last_image(self) -> FibsemImage:
-        return self.parent._demo_last_image(self.beam_type)
-
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         self.parent._demo_autocontrast(self.beam_type, reduced_area)
 

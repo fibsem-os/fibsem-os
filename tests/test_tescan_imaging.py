@@ -1,7 +1,7 @@
 """Tescan imaging and the autofunctions as beam commands make the SDK calls they make today.
 
-``TescanBeam``'s ``acquire``, ``last_image``, ``autocontrast``, ``auto_focus`` and live
-view are ``TescanMicroscope``'s ``acquire_image``, ``last_image``, ``autocontrast``,
+``TescanBeam``'s ``acquire``, ``autocontrast``, ``auto_focus`` and live
+view are ``TescanMicroscope``'s ``acquire_image``, ``autocontrast``,
 ``auto_focus`` and acquisition worker moved onto the beam. Each case runs an old call on
 a microscope connected as the app connects it, over a recording fake of the SDK
 (``tests/fixtures/tescan_sdk.py``), and requires the result, the SDK calls in order and
@@ -161,11 +161,6 @@ def _cases():
             f"{n} acquire both",  # settings win, as before
             lambda m, b=b, o=other: m.acquire_image(_settings(b), beam_type=o),
         )
-        yield (
-            f"{n} last image",
-            lambda m, b=b: (m.acquire_image(_settings(b)), m.last_image(b))[1],
-        )
-        yield f"{n} last image none", lambda m, b=b: m.last_image(b)
         yield f"{n} autocontrast", lambda m, b=b: m.autocontrast(b)
         yield f"{n} autocontrast area", lambda m, b=b: m.autocontrast(b, AREA)
         yield f"{n} auto focus", lambda m, b=b: m.auto_focus(b)
@@ -205,7 +200,7 @@ def test_imaging_goes_through_the_beam_commands(connected):
     microscope, _ = connected
     used = []
     for beam in microscope.beams.values():
-        for name in ("acquire", "last_image", "autocontrast", "auto_focus"):
+        for name in ("acquire", "autocontrast", "auto_focus"):
             original = getattr(beam, name)
 
             def wrapper(*args, _name=f"{beam.name}.{name}", _f=original, **kw):
@@ -216,14 +211,12 @@ def test_imaging_goes_through_the_beam_commands(connected):
     sem, fib = microscope.beams[E], microscope.beams[I]
     microscope.acquire_image(_settings(E))
     microscope.acquire_image(beam_type=I)
-    microscope.last_image(I)
     microscope.autocontrast(E)
     microscope.auto_focus(E)
     microscope.auto_focus(I)  # no ion focus: the old warning, not the beam
     assert used == [
         f"{sem.name}.acquire",
         f"{fib.name}.acquire",
-        f"{fib.name}.last_image",
         f"{sem.name}.autocontrast",
         f"{sem.name}.auto_focus",
     ]
@@ -233,7 +226,7 @@ def test_the_ion_beam_has_no_auto_focus(connected):
     microscope, _ = connected
     sem, fib = microscope.beams[E], microscope.beams[I]
     for beam in (sem, fib):
-        for name in ("acquire", "last_image", "autocontrast", "start_live"):
+        for name in ("acquire", "autocontrast", "start_live"):
             assert beam.commands[name].available, (beam.name, name)
     assert sem.commands["auto_focus"].available
     assert not fib.commands["auto_focus"].available
@@ -282,4 +275,3 @@ def test_an_image_records_the_headers_time_with_this_machines_offset(
     image = microscope.acquire_image(_settings(beam_type))
     expected = datetime(2026, 10, 5, 12, 0, 0).astimezone()
     assert image.metadata.acquisition_datetime == expected
-    assert microscope.last_image(beam_type).metadata.acquisition_datetime == expected

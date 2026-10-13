@@ -269,7 +269,7 @@ class Beam(Device):
     def _full_frame(self) -> None:
         raise NotImplementedError
 
-    # Imaging and the autofunctions. A driver implements _acquire, _last_image,
+    # Imaging and the autofunctions. A driver implements _acquire,
     # _autocontrast and _auto_focus, claiming the imaging channel for the vendor call
     # (claim_channel), and builds the FibsemImage as its backend does today. A beam
     # whose driver lacks a hook doesn't have that command. auto_focus is the
@@ -302,14 +302,6 @@ class Beam(Device):
         ):
             metadata.acquisition_datetime = started
         self.session.stamp(image)
-        return image
-
-    @command(available=lambda beam: implements(beam, "_last_image"))
-    def last_image(self) -> FibsemImage:
-        """The last image this beam acquired, read back from the instrument."""
-        image = self._last_image()
-        if image is not None:
-            self.session.stamp(image)
         return image
 
     @command(available=lambda beam: implements(beam, "_autocontrast"))
@@ -368,9 +360,6 @@ class Beam(Device):
                 pixel_size=Point(settings.hfw / width, settings.hfw / width),
             ),
         )
-
-    def _last_image(self) -> FibsemImage:
-        raise NotImplementedError
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         raise NotImplementedError

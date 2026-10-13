@@ -118,13 +118,6 @@ def test_hardware_route_refused_when_not_armed(read_client):
     assert detail["scope"] == "hardware"
 
 
-def test_last_image_is_hardware_scope(read_client):
-    # ThermoMicroscope.last_image switches the active imaging channel, so it is
-    # a command, not a read (see the FIB-852 review).
-    resp = read_client.post("/last_image", headers=AUTH, json={"beam_type": "ION"})
-    assert resp.status_code == 403
-
-
 def test_stop_milling_needs_a_scope_that_acts(read_client):
     # Read alone is watching, and a watching agent stops nothing (FIB-1035).
     resp = read_client.post("/stop_milling", headers=AUTH)

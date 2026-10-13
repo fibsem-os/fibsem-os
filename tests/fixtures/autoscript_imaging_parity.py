@@ -36,7 +36,7 @@ from fibsem.structures import (  # noqa: E402
 
 S, LOG = B.S, B.LOG
 
-# last_image names its settings by the time; one name, so both sides agree
+# an image names its settings by the time; one name, so both sides agree
 fibsem.utils.current_timestamp = lambda: "now"
 
 
@@ -167,7 +167,6 @@ def _calls(beam_type):
                 m._last_imaging_settings.filename,
             )[1],
         ),
-        ("last image", lambda m: _image(m.last_image(beam_type))),
         ("autocontrast", lambda m: m.autocontrast(beam_type)),
         ("autocontrast area", lambda m: m.autocontrast(beam_type, AREA)),
         ("auto focus", lambda m: m.auto_focus(beam_type)),
@@ -243,7 +242,7 @@ def facts():
     microscope = make()
     used = []
     for beam in microscope.beams.values():
-        for command in ("acquire", "last_image", "autocontrast", "auto_focus"):
+        for command in ("acquire", "autocontrast", "auto_focus"):
             original = getattr(beam, command)
 
             def wrapper(*args, _name=f"{beam.name}.{command}", _f=original, **kw):
@@ -253,7 +252,6 @@ def facts():
             setattr(beam, command, wrapper)
     microscope.acquire_image(_settings(BeamType.ELECTRON))
     microscope.acquire_image(beam_type=BeamType.ION)
-    microscope.last_image(BeamType.ION)
     microscope.autocontrast(BeamType.ELECTRON)
     microscope.auto_focus(BeamType.ION)
     out["used"] = list(used)
@@ -278,7 +276,6 @@ def facts():
     beam = microscope.beams[BeamType.ION]
     beam.acquire()
     beam.acquire(_settings(BeamType.ION))
-    beam.last_image()
     beam.autocontrast()
     beam.auto_focus(AREA)
     out["held"] = held

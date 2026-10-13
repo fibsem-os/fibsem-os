@@ -366,7 +366,7 @@ class TescanBeam(Beam):
             logging.debug(f"{self.beam_type.name} {key} set to {value}.")
 
     # -- imaging and the autofunctions -----------------------------------------------
-    # TescanMicroscope's acquire_image, last_image, autocontrast, auto_focus and live
+    # TescanMicroscope's acquire_image, autocontrast, auto_focus and live
     # view worker, moved as they are: the image is built from the frame's header, as
     # before, and the SDK call holds the connection lock for the whole frame (FIB-786).
 
@@ -430,13 +430,11 @@ class TescanBeam(Beam):
         fibsem_image = images.image_from_tescan(image, settings, microscope.stage)
         fibsem_image.metadata.image_settings.beam_type = deepcopy(beam_type)
 
-        # the last image, for last_image and for what the API cannot read
+        # the image's beam state, for what the API cannot read
         state = fibsem_image.metadata.microscope_state
         if beam_type is BeamType.ELECTRON:
-            microscope.last_image_eb = fibsem_image
             beam_state = state.electron_beam
         else:
-            microscope.last_image_ib = fibsem_image
             beam_state = state.ion_beam
         cache = self._cache
         cache.dwell_time = settings.dwell_time
@@ -455,15 +453,6 @@ class TescanBeam(Beam):
             info.software_version = image.Header["MAIN"]["SoftwareVersion"]
 
         return fibsem_image
-
-    def _last_image(self) -> Optional[FibsemImage]:
-        # The last image this session acquired: the API has no read of it.
-        microscope = self.parent
-        if self.beam_type is BeamType.ELECTRON:
-            image = microscope.last_image_eb
-        else:
-            image = microscope.last_image_ib
-        return image
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         # The SDK's AutoSignal works on the whole frame: the area is not used.

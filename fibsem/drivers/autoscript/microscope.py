@@ -431,9 +431,6 @@ class ThermoMicroscope(FibsemMicroscope):
         acquire_image(self, image_settings: ImageSettings) -> FibsemImage:
             Acquire a new image with the specified settings.
 
-        last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
-            Get the last previously acquired image.
-
         autocontrast(self, beam_type: BeamType) -> None:
             Automatically adjust the microscope image contrast for the specified beam type.
 
@@ -665,7 +662,7 @@ class ThermoMicroscope(FibsemMicroscope):
         """Build the beam devices.
 
         The scan-mode methods then use the beam's scan commands, and acquire_image,
-        last_image, autocontrast and auto_focus its imaging commands. A disabled column
+        autocontrast and auto_focus its imaging commands. A disabled column
         gets no device: its wrappers read None, and its imaging raises.
         """
         self._build_devices(

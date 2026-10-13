@@ -317,10 +317,6 @@ class FibsemMicroscope(ABC):
         target = image_settings.beam_type if image_settings is not None else beam_type
         return self._beam_device(target).acquire(image_settings)
 
-    def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
-        """The last image `beam_type` acquired, read back from the instrument."""
-        return self._beam_device(beam_type).last_image()
-
     @property
     def is_acquiring(self) -> bool:
         """Check if the microscope is currently acquiring an image."""

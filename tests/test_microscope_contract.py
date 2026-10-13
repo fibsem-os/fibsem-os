@@ -87,7 +87,6 @@ def test_every_built_in_driver_has_a_fake():
 # backend without them does not implement them, and the base class raises
 # NotImplementedError.
 OPTIONAL_METHODS = {
-    "last_image",
     "acquire_chamber_image",
     "insert_manipulator",
     "retract_manipulator",
@@ -342,7 +341,6 @@ def test_demo_images_through_its_beam_devices(beam_type):
         state.electron_beam if beam_type is BeamType.ELECTRON else state.ion_beam
     )
     assert beam_state.hfw == 50e-6
-    assert microscope.last_image(beam_type) is image
     microscope.autocontrast(beam_type)
     assert beam.sim_detector.contrast == microscope.get_detector_contrast(beam_type)
     microscope.auto_focus(beam_type)

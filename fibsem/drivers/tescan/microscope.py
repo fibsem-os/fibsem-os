@@ -283,10 +283,6 @@ class TescanMicroscope(FibsemMicroscope):
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
 
-        # initialise last images
-        self.last_image_eb: Optional[FibsemImage] = None
-        self.last_image_ib: Optional[FibsemImage] = None
-
         # logging
         logging.debug(
             {

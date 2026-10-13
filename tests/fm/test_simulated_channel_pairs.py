@@ -1,14 +1,13 @@
 """The other operations that take the shared imaging channel (FIB-569, FIB-545).
 
 FIB-542 locked the beam's set-and-grab. Sweeping `ThermoMicroscope` for the same shape
-found three more places where the action is documented as operating on the *active view*
+found two more places where the action is documented as operating on the *active view*
 and the pair is unguarded, plus one that takes the channel and never gives it back:
 
 | operation | the vendor doc's words | why it matters |
 | -- | -- | -- |
 | `auto_focus` | "Runs the automatic focus routine in the active view" | a **write** -- focuses the wrong column and leaves it there |
 | `autocontrast` | "optimizes contrast and brightness of the active detector in the active view" | a **write**, same |
-| `last_image` | "Retrieves a microscope image currently present in the active view" | FIB-542's twin on the retrieval path |
 | `acquire_chamber_image` | takes view 4 / device 3 | never restores, so it strands whoever had the channel |
 
 The autofunctions are the dangerous pair: a stolen grab returns one wrong image, a stolen
@@ -125,19 +124,6 @@ class TestTheAutofunctionsHoldTheChannel:
         assert got_in.is_set(), "the thief never ran -- the test proved nothing"
         assert blocked == [True], "the scoped form got the channel mid-routine"
         assert STOLEN not in caplog.text
-
-
-class TestLastImageClaimsTheChannel:
-    def test_it_takes_the_channel_before_reading(self, microscope):
-        """`get_image` reads the active view's buffer, so a `last_image` that does not
-        set the channel first returns whoever owns it."""
-        settings_beam = BeamType.ION
-        microscope.acquire_image(beam_type=settings_beam)
-        microscope.fm.set_active_channel()
-
-        microscope.last_image(settings_beam)
-
-        assert microscope.imaging_system.active_view == settings_beam.value
 
 
 class TestTheChamberCameraGivesTheChannelBack:
