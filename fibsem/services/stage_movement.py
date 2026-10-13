@@ -29,7 +29,7 @@ from typing import Any, Optional, Tuple, Type, TypeVar
 import numpy as np
 
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Role, command
+from fibsem.devices.core import Role, command, query
 from fibsem.devices.fm import FM, mount_transform_from_name
 from fibsem.devices.stage import Stage
 from fibsem.geometry.movement import (
@@ -245,6 +245,7 @@ class StageMovement(Service):
         )
         return self._position()
 
+    @query
     def project_stable_move(
         self,
         dx: float,
@@ -411,6 +412,7 @@ class StageMovement(Service):
         dx, dy = self._display_transform(fm).apply_to_delta(dx, dy)
         return self._view_stage_delta(dx, dy, view_tilt=np.deg2rad(self.camera_tilt))
 
+    @query
     def project_fm_stable_move(
         self, dx: float, dy: float, base_position: FibsemStagePosition
     ) -> FibsemStagePosition:

@@ -282,6 +282,16 @@ class FibsemClient:
             return FibsemImage.load(io.BytesIO(resp.content))  # a beam's acquire
         return resp.json()["result"]
 
+    def call_query(self, device: str, query: str, **kwargs: Any) -> Any:
+        """Ask a device a query: a read that takes arguments and moves nothing."""
+        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        return self._post(f"devices/{device}/queries/{query}", body)["result"]
+
+    def call_service_query(self, service: str, query: str, **kwargs: Any) -> Any:
+        """Ask a service a query, e.g. ``stage_movement``'s ``project_stable_move``."""
+        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        return self._post(f"services/{service}/queries/{query}", body)["result"]
+
     # --- Microscope state ---
 
     def get_microscope_state(self) -> MicroscopeState:

@@ -14,6 +14,8 @@ The far side of a remote device (the METEOR PC, say). It wraps any
                                                or np.save bytes for an array, with a
                                                frame's metadata as JSON in the
                                                X-Frame-Metadata header
+    POST /devices/{device}/queries/{query}     {"kwargs": {...}} -> {"result": ...},
+                                               a read that moves nothing
     WS   /events                               {"device", "parameter", "kind", "value"},
                                                with pings as a heartbeat
 
@@ -152,6 +154,10 @@ def describe_device(device: Device) -> Dict[str, Any]:
             name: {"signature": info.signature, "available": info.available}
             for name, info in device.commands.items()
         },
+        "queries": {
+            name: {"signature": info.signature, "available": info.available}
+            for name, info in getattr(device, "queries", {}).items()
+        },
         "facts": _facts(device),
     }
 
@@ -256,7 +262,8 @@ def build_device_router(
     the microscope's services with the same routes under ``prefix="/services"``
     (*noun* names them in a 404). *read*, *write* and *command* are FastAPI
     dependencies for the reads, the parameter writes and the commands: the device
-    server passes none, the App Server its token, scopes and hardware lock.
+    server passes none, the App Server its token, scopes and hardware lock. A query
+    moves nothing, so it takes the *read* dependencies, not the hardware lock.
     """
     router = APIRouter()
 
@@ -338,6 +345,15 @@ def build_device_router(
             )
         # A structure with to_dict answers that (an autofocus result, its summary).
         return {"result": jsonable_encoder(to_wire(result))}
+
+    @router.post(prefix + "/{device}/queries/{query}", dependencies=list(read))
+    def ask(device: str, query: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        d = lookup(device)
+        if query not in getattr(d, "queries", {}):
+            raise HTTPException(404, f"'{device}' has no query '{query}'")
+        method = getattr(d, query)
+        kwargs = decode_kwargs(method, body.get("kwargs", {}))
+        return {"result": jsonable_encoder(to_wire(run(lambda: method(**kwargs))))}
 
     return router
 
