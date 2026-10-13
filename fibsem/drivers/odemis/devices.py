@@ -1024,6 +1024,18 @@ class OdemisFMObjective(Objective):
         self._focuser.moveAbs({"z": position}).result()
 
     def _move_relative(self, delta: float) -> None:
+        # the user-defined safety limit holds for a step too: it ends at the limit
+        # at most, as an absolute move is clipped (and never moves away from it)
+        position = self._focuser.position.value["z"]
+        if position + delta > self._limit_position:
+            clipped = max(self._limit_position - position, 0.0)
+            logging.warning(
+                f"Clipping relative move {delta * 1e6:.3f} um to {clipped * 1e6:.3f} "
+                f"um: user-defined limit {self._limit_position * 1e3:.3f} mm"
+            )
+            if clipped < 1e-9:  # at the limit already, to rounding
+                return
+            delta = clipped
         self._focuser.moveRel({"z": delta}).result()
 
     def _insert(self) -> Optional[bool]:
@@ -1196,7 +1208,13 @@ def bind_odemis_fm(
     }
     parts["camera"].configure(config)
     group = OdemisFM(stream, **common).fill_roles(**parts)
-    return {device.name: device.connect() for device in [group, *parts.values()]}
+    devices = {device.name: device.connect() for device in [group, *parts.values()]}
+    # Full power is the selected source's (each LED has its own maximum), and the
+    # stream's power range follows the excitation: read the power's scale again.
+    devices["filter_set"].excitation_wavelength.changed.connect(
+        lambda _: devices["light_source"].power.refresh_metadata()
+    )
+    return devices
 
 
 def build_odemis_fm(
