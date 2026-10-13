@@ -51,8 +51,7 @@ def _legacy_estimation_by_default():
 
 
 def use_tescan_model() -> None:
-    # the model needs no instrument: a service with no connection estimates
-    set_milling_time_estimator(TescanMilling(connection=None).estimate_stage)
+    set_milling_time_estimator(TescanMilling.estimate_stage)
 
 
 def make_stage(
@@ -187,7 +186,7 @@ def test_dose_model_ignores_the_dead_milling_current_field():
 
 def test_the_base_service_is_identical_to_the_legacy_estimate():
     stage = make_stage()
-    set_milling_time_estimator(Milling().estimate_stage)
+    set_milling_time_estimator(Milling.estimate_stage)
     assert estimate_stage_milling_time(stage) == estimate_milling_time(
         stage.pattern, stage.milling.milling_current
     )

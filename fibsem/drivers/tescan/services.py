@@ -83,7 +83,8 @@ class TescanMilling(Milling):
         # The DrawBeam layer the last setup made, which the patterns are drawn on.
         self.layer: Any = None
 
-    def estimate_stage(self, stage: FibsemMillingStage) -> float:
+    @classmethod
+    def estimate_stage(cls, stage: FibsemMillingStage) -> float:
         # Tescan milling is preset-driven: the dose model (stage rate x preset
         # current), not the shared table keyed on the unused milling_current. A
         # preset the model can't read falls back to the table.

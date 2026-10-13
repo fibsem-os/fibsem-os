@@ -389,12 +389,15 @@ class Milling(Service):
         """How long milling what is drawn takes, in seconds."""
         return self._estimate()
 
-    def estimate_stage(self, stage: FibsemMillingStage) -> float:
+    @classmethod
+    def estimate_stage(cls, stage: FibsemMillingStage) -> float:
         """How long milling *stage* would take on this instrument, in seconds,
         before anything is drawn: for planning (task and workflow ETAs).
 
         By default the shared sputter-rate table, keyed on the recipe's milling
-        current. A driver with its own model overrides it.
+        current. A driver with its own model overrides it. A model of the driver,
+        not of one connection: the session keeps it after a disconnect, so it
+        holds no reference to the microscope.
         """
         return estimate_milling_time(stage.pattern, stage.milling.milling_current)
 
