@@ -271,3 +271,50 @@ def test_an_agent_prepares_milling_with_patterns(armed_client, microscope):
     finally:
         microscope.milling.clear()
         microscope.milling.restore()
+
+
+def _projected_move(beam_type):
+    base = FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=0.0, t=0.0)
+    return {
+        "kwargs": {
+            "dx": 10e-6,
+            "dy": -5e-6,
+            "beam_type": beam_type,
+            "base_position": to_wire(base),
+        }
+    }
+
+
+def test_an_enum_is_sent_by_name_or_value(read_client):
+    """``list_services`` shows ``<BeamType.ELECTRON: 1>``, so an agent sends the
+    name (FIB-1355)."""
+    path = "/services/stage_movement/queries/project_stable_move"
+    by_value = read_client.post(path, json=_projected_move(1))
+    by_name = read_client.post(path, json=_projected_move("ELECTRON"))
+    assert by_name.status_code == 200, by_name.text
+    assert by_name.json() == by_value.json()
+
+
+def test_an_argument_that_does_not_decode_is_422_naming_it(read_client):
+    path = "/services/stage_movement/queries/project_stable_move"
+    resp = read_client.post(path, json=_projected_move("PROTON"))
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert detail["parameter"] == "beam_type"
+    assert "PROTON" in detail["detail"]
+
+
+def test_a_cancelled_command_is_409_cancelled(armed_client, microscope, monkeypatch):
+    from fibsem.cancellation import OperationCancelledError
+
+    def cancelled_sweep() -> None:
+        raise OperationCancelledError("AutoFocus cancelled by user.")
+
+    monkeypatch.setattr(microscope.imaging, "focus_sweep", cancelled_sweep)
+    resp = armed_client.post("/services/imaging/commands/focus_sweep", json={})
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == {
+        "error": "OperationCancelledError",
+        "detail": "AutoFocus cancelled by user.",
+        "status": "cancelled",
+    }
