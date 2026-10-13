@@ -506,6 +506,7 @@ class TescanMicroscope(FibsemMicroscope):
         is refused by the Tescan API."""
         return beam_type is BeamType.ION
 
-    def home(self) -> bool:
+    def home(self) -> Optional[bool]:
+        """A Tescan cannot home from here, so whether it is homed is unknown."""
         logging.warning("No homing available, please use native UI.")
-        return False
+        return None
