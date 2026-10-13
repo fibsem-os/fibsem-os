@@ -52,7 +52,7 @@ def widget(qapp):
 # set here anyway, so all four come from one place.
 #
 # "NONE" is what `get_stage_orientation` returns for a pose it cannot name at all.
-_TILT_DEG = {"FM": -180.0, "SEM": 0.0, "MILLING": 20.0, "NONE": -90.0}
+_TILT_DEG = {"FM": -180.0, "SEM": 0.0, "MILLING": -23.0, "NONE": -90.0}
 
 
 def _pose(widget, orientation: str) -> None:

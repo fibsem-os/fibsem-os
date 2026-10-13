@@ -7,11 +7,10 @@ for it (``fibsem.drivers.registry``), and imports nothing from the package, so l
 or looking up the drivers stays cheap and never needs the vendor SDK.
 """
 
-from fibsem import manufacturers
 from fibsem.drivers.registry import DeviceBuilder, DriverEntry
 
 DRIVER = DriverEntry(
-    manufacturer=manufacturers.TESCAN,
+    manufacturer="Tescan",
     microscope_class="fibsem.drivers.tescan.microscope:TescanMicroscope",
     config={"port": 8300, "ion-column-tilt": 55, "electron-column-tilt": 0},
     devices={

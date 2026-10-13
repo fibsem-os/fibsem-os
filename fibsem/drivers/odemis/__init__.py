@@ -14,12 +14,11 @@ import gc
 import logging
 import sys
 
-from fibsem import manufacturers
 from fibsem.drivers.registry import DeviceBuilder, DriverEntry
 
 # No port: Odemis reaches the instrument through its own back end.
 DRIVER = DriverEntry(
-    manufacturer=manufacturers.ODEMIS,
+    manufacturer="Odemis",
     microscope_class="fibsem.drivers.odemis.microscope:OdemisThermoMicroscope",
     devices={
         device_type: DeviceBuilder(

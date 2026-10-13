@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
 
-from fibsem import manufacturers
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.odemis import add_odemis_path
 from fibsem.drivers.odemis.connection import OdemisConnection
@@ -241,6 +240,8 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
 
+    driver_name = "Odemis"
+
     #: An Odemis system has no manipulator: the base class's manipulator methods
     #: raise. Nothing here can ask the instrument, so this is the backend's own answer.
     DEFAULT_FITTED = {
@@ -286,7 +287,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self._build_spot_burn()
         self._build_imaging()
 
-        self.fm = self._build_fluorescence(manufacturers.ODEMIS)
+        self.fm = self._build_fluorescence(self.driver_name)
         self._apply_fluorescence_calibration()
 
         try:
@@ -307,7 +308,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             self.system,
             ODEMIS_DEVICES,
             exclude_types=_FM_TYPES,
-            driver=manufacturers.ODEMIS,
+            driver=self.driver_name,
         )
         built: Dict[str, Any] = build_device_entries(resolved, self)
         for name, device in built.items():

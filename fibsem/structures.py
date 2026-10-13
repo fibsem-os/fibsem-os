@@ -40,7 +40,6 @@ from fibsem.config import (
     METADATA_VERSION,
     UNVERSIONED_METADATA,
 )
-from fibsem.manufacturers import DEMO, normalize_manufacturer
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
     now,
@@ -2978,15 +2977,16 @@ class SystemInfo:
 
     @staticmethod
     def from_dict(settings: dict):
+        # Here, not at the top: keeps `structures` light for what imports only it.
+        from fibsem.drivers.registry import normalize_name
+
         return SystemInfo(
             name=settings.get("name", "Unknown"),
             ip_address=settings.get("ip_address", "Unknown"),
             port=settings.get("port"),
             # normalise on read: configs and old experiments carry "Thermo"/"TESCAN"
             # etc.; everything downstream compares against the canonical spellings
-            manufacturer=normalize_manufacturer(
-                settings.get("manufacturer", "Unknown")
-            ),
+            manufacturer=normalize_name(settings.get("manufacturer", "Unknown")),
             model=settings.get("model", "Unknown"),
             serial_number=settings.get("serial_number", "Unknown"),
             hardware_version=settings.get("hardware_version", "Unknown"),
@@ -4161,10 +4161,11 @@ class SessionInfo:
 
         # Lazy: `report` imports all three registries, so importing it here would
         # cycle straight back through this module.
+        from fibsem.drivers.registry import normalize_name
         from fibsem.plugins.report import installed_plugin_versions
 
         info = getattr(getattr(microscope, "system", None), "info", None)
-        if normalize_manufacturer(getattr(info, "manufacturer", None)) == DEMO:
+        if normalize_name(getattr(info, "manufacturer", None)) == "Demo":
             utc_offset = previous.utc_offset if previous is not None else None
             zone_name = previous.zone_name if previous is not None else None
         else:

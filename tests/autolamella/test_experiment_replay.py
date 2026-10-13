@@ -523,17 +523,24 @@ def test_a_recorded_path_is_found_in_a_copied_and_renamed_experiment(tmp_path):
     assert image.image_path == tmp_path / "01-test" / "ref_ib.tif"
 
 
-def test_milling_stages_started_in_the_same_clock_tick_keep_their_order(tmp_path):
+@pytest.mark.parametrize(
+    # The milling run's id and config name, and a pre-FIB-1356 file's names for them.
+    "run_key,name_key",
+    [("milling_run_id", "milling_task_name"), ("task_id", "task_name")],
+)
+def test_milling_stages_started_in_the_same_clock_tick_keep_their_order(
+    tmp_path, run_key, name_key
+):
     """Each stage is placed at its own start, so a coarse clock only makes a tie."""
     t = "2026-09-21T14:00:00.000+10:00"
 
     def started(idx, name):
         stage = {"name": name, "milling": {}, "pattern": {}}
-        payload = {"task_id": "m1", "task_name": "Trench", "stage": stage}
+        payload = {run_key: "m1", name_key: "Trench", "stage": stage}
         return _record(t, "milling_stage_started", {**payload, "stage_index": idx})
 
     def finished(name):
-        payload = {"task_id": "m1", "stage_name": name, "status": "stage-finished"}
+        payload = {run_key: "m1", "stage_name": name, "status": "stage-finished"}
         return _record(t, "milling_progress", payload)
 
     _write_events(
@@ -546,6 +553,7 @@ def test_milling_stages_started_in_the_same_clock_tick_keep_their_order(tmp_path
     replay = load_replay(tmp_path)
     assert [e.data["stage"]["name"] for e in replay.events] == ["Rough", "Polish"]
     assert [e.duration for e in replay.events] == [0.0, 0.0]
+    assert {e.data["milling_task_name"] for e in replay.events} == {"Trench"}
 
 
 def test_a_cancelled_spot_burn_replays_only_the_points_it_reached(tmp_path):
