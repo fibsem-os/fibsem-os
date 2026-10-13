@@ -761,12 +761,15 @@ class LamellaTaskImageWidget(QWidget):
         text.addWidget(
             _text(name, f"font-size: 14px; font-weight: bold; color: {NEUTRAL_200};")
         )
+        # the lamella's runs: operations outside a task are not one
+        own = [run for run in self._runs if not run.outside_task]
         if flt.active:
-            line = f"Filtered · {len(runs)} of {len(self._runs)} runs"
+            shown = sum(1 for run in runs if not run.outside_task)
+            line = f"Filtered · {shown} of {len(own)} runs"
             color = ACCENT_COLOR
         else:
-            total = sum(run.duration or 0.0 for run in self._runs)
-            count = len(self._runs)
+            total = sum(run.duration or 0.0 for run in own)
+            count = len(own)
             line = f"{count} run{'' if count == 1 else 's'}"
             if total:
                 line += f" · {_duration(total)}"
@@ -836,8 +839,9 @@ class LamellaTaskImageWidget(QWidget):
         if when:
             top.addWidget(_text(when, _CAPTION_STYLE))
         top.addStretch(1)
-        top.addWidget(_icon_label(icon, colour, 12))
-        top.addWidget(_text(word, f"font-size: 11px; color: {colour};"))
+        if not run.outside_task:  # not a run: nothing ended
+            top.addWidget(_icon_label(icon, colour, 12))
+            top.addWidget(_text(word, f"font-size: 11px; color: {colour};"))
         layout.addLayout(top)
         if run.status_message and run.status in (
             AutoLamellaTaskStatus.Failed,
@@ -861,7 +865,7 @@ class LamellaTaskImageWidget(QWidget):
                     )
                 )
 
-        if flt.show != "operations":
+        if flt.show != "operations" and not run.outside_task:
             if filenames:
                 layout.addWidget(self._image_grid(filenames))
             elif run.images_replaced_by is not None:
