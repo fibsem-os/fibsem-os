@@ -111,6 +111,22 @@ ERROR_STATUS = {
 }
 
 
+def refusal(error: Exception, what: str) -> HTTPException:
+    """The answer to an expected error (one of ``ERROR_STATUS``), in the shape every
+    App Server refusal has: ``error_type`` and ``message``, with ``parameter`` for
+    an argument that did not decode and ``status: cancelled`` for a stop
+    (FIB-1377). Logged as one line, no traceback."""
+    status = next(s for t, s in ERROR_STATUS.items() if isinstance(error, t))
+    detail = {"error_type": type(error).__name__, "message": str(error)}
+    if isinstance(error, OperationCancelledError):
+        detail["status"] = "cancelled"
+    parameter = getattr(error, "parameter", None)
+    if parameter is not None:
+        detail["parameter"] = parameter
+    logging.info(f"{what}: {status} {detail['error_type']}: {error}")
+    return HTTPException(status, detail)
+
+
 def _choices_to_wire(choices: Any) -> Any:
     return None if choices is None else [to_wire(choice) for choice in choices]
 
@@ -288,15 +304,7 @@ def build_device_router(
         except HTTPException:
             raise
         except tuple(ERROR_STATUS) as error:
-            status = next(s for t, s in ERROR_STATUS.items() if isinstance(error, t))
-            detail = {"error": type(error).__name__, "detail": str(error)}
-            if isinstance(error, OperationCancelledError):
-                detail["status"] = "cancelled"
-            parameter = getattr(error, "parameter", None)
-            if parameter is not None:
-                detail["parameter"] = parameter
-            logging.info(f"{what}: {status} {detail['error']}: {error}")
-            raise HTTPException(status, detail) from None
+            raise refusal(error, what) from None
 
     @router.get(prefix, dependencies=list(read))
     def list_devices() -> Dict[str, Any]:
