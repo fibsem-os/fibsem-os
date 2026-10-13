@@ -364,14 +364,6 @@ class OdemisBeam(Beam):
             image_settings.resolution = tmp_resolution
         return self._image(image, image_settings)
 
-    def _last_image(self) -> FibsemImage:
-        image = self._client.get_last_image(channel=self.channel)
-        # The client is annotated as returning (image, metadata), but the AutoScript
-        # adapter (1.16.0) returns the bare array.
-        if isinstance(image, tuple):
-            image = image[0]
-        return self._image(image, self._current_image_settings(image))
-
     def _current_image_settings(self, image: np.ndarray) -> ImageSettings:
         """The beam's current imaging settings, at the resolution of the frame it gave."""
         image_settings = self.image_settings()

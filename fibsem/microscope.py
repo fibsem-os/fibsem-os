@@ -4,6 +4,7 @@ import dataclasses
 import datetime
 import logging
 import threading
+import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
@@ -324,10 +325,6 @@ class FibsemMicroscope(ABC):
             )
         target = image_settings.beam_type if image_settings is not None else beam_type
         return self._beam_device(target).acquire(image_settings)
-
-    def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
-        """The last image `beam_type` acquired, read back from the instrument."""
-        return self._beam_device(beam_type).last_image()
 
     @property
     def is_acquiring(self) -> bool:
@@ -1870,7 +1867,16 @@ class FibsemMicroscope(ABC):
 
     def home(self) -> Optional[bool]:
         """Home the stage. A stage that cannot home is left alone; returns whether
-        it is homed (None when it cannot say)."""
+        it is homed (None when it cannot say).
+
+        Deprecated: call ``microscope.stage.home()``.
+        """
+        warnings.warn(
+            "microscope.home() is deprecated and will be removed in the next minor "
+            "release; use microscope.stage.home() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if self.stage is not None and self.stage.commands["home"].available:
             return self.stage.home()
         return self._stage_value("homed")

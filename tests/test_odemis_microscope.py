@@ -46,7 +46,7 @@ class FakeOdemisClient:
     """The subset of ``autoscript_client.SEM`` the microscope uses, by its real names.
 
     Return values follow the AutoScript adapter (xtadapter 1.16.0): ion currents as
-    choices and electron currents as a range, `get_last_image` as a bare array.
+    choices and electron currents as a range.
     """
 
     def __init__(self):
@@ -61,7 +61,6 @@ class FakeOdemisClient:
             for channel in ("electron", "ion")
         }
         self.chamber_state = "Pumped"
-        self.last_image = np.zeros(FRAME_SHAPE, dtype=np.uint8)
 
     def _record(self, name, *args):
         self.calls.append((name, *args))
@@ -71,10 +70,6 @@ class FakeOdemisClient:
         self._record("acquire_image", channel, frame_settings)
         width, height = self.settings[channel]["resolution"]
         return np.zeros((height, width), dtype=np.uint8), {}
-
-    def get_last_image(self, channel, wait_for_frame=True):
-        self._record("get_last_image", channel)
-        return self.last_image
 
     def set_full_frame_scan_mode(self, channel):
         self._record("set_full_frame_scan_mode", channel)
@@ -310,17 +305,6 @@ def test_there_is_no_chamber_camera(microscope):
         NotImplementedError, match="does not support acquire_chamber_image"
     ):
         microscope.acquire_chamber_image()
-
-
-@pytest.mark.parametrize("returns_tuple", [False, True])
-def test_last_image(microscope, returns_tuple):
-    frame = np.full((512, 768), 7, dtype=np.uint8)
-    microscope._connection.sdk.last_image = (frame, {}) if returns_tuple else frame
-
-    image = microscope.last_image(BeamType.ELECTRON)
-
-    assert np.array_equal(image.data, frame)
-    assert image.metadata.image_settings.resolution == [768, 512]
 
 
 def test_auto_focus_runs_the_working_distance_sweep(microscope):

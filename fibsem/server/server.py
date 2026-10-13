@@ -286,14 +286,6 @@ def build_server(
             microscope.acquire_image(image_settings=image_settings, beam_type=bt)
         )
 
-    # hardware, not read: on Thermo this switches the active imaging channel
-    # (shared-view state) before pulling the frame from the vendor server.
-    @hw.post("/last_image")
-    def last_image(body: BeamTypeRequest) -> Response:
-        return _image_response(
-            microscope.last_image(beam_type=_beam_type(body.beam_type))
-        )
-
     @hw.post("/acquire_chamber_image")
     def acquire_chamber_image() -> Response:
         return _image_response(microscope.acquire_chamber_image())
@@ -309,11 +301,6 @@ def build_server(
             else None
         )
         image = microscope.acquire_image(image_settings=image_settings, beam_type=bt)
-        return preview_payload(image)
-
-    @hw.post("/last_image_preview")
-    def last_image_preview(body: BeamTypeRequest):
-        image = microscope.last_image(beam_type=_beam_type(body.beam_type))
         return preview_payload(image)
 
     @hw.post("/autocontrast")

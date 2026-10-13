@@ -314,7 +314,7 @@ class AutoscriptBeam(Beam):
     are the old ``angular_correction_angle`` and ``angular_correction_tilt_correction``
     keys; the tilt correction could only be set before, and now reads too.
 
-    ``acquire``, ``last_image``, ``autocontrast`` and ``auto_focus`` are the old
+    ``acquire``, ``autocontrast`` and ``auto_focus`` are the old
     methods, claiming the imaging channel for the vendor call.
 
     Not here: ``preset`` (Thermo has none), whose key reads None.
@@ -666,7 +666,7 @@ class AutoscriptBeam(Beam):
         )
 
     # Imaging and the autofunctions: ThermoMicroscope's acquire_image (and
-    # acquire_image3's current-settings path), last_image, autocontrast and auto_focus,
+    # acquire_image3's current-settings path), autocontrast and auto_focus,
     # moved as they are. The vendor call runs with this beam's channel claimed
     # (claim_channel), which is the old `_threading_lock` + `set_channel` pair, and the
     # FibsemImage is built from get_microscope_state as before.
@@ -728,24 +728,6 @@ class AutoscriptBeam(Beam):
         )
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
         return image
-
-    def _last_image(self) -> FibsemImage:
-        from fibsem.drivers.autoscript import microscope as thermo
-
-        microscope = self.parent
-        with self.claim_channel():
-            image = self.connection.sdk.imaging.get_image()
-        image = thermo.AdornedImage(
-            data=image.data.astype(np.uint8), metadata=image.metadata
-        )
-        state = microscope.get_microscope_state(beam_type=self.beam_type)
-        fibsem_image = images.fibsem_image_from_adorned_image(
-            adorned=image, image_settings=None, state=state, beam_type=self.beam_type
-        )
-        logging.debug(
-            {"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()}
-        )
-        return fibsem_image
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         # The routine optimises the active detector in the active view, so the channel
