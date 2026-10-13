@@ -1,7 +1,11 @@
 import pytest
 
 from fibsem import utils
-from fibsem.services.sample_handling import SampleHandling, bind_sample_handling
+from fibsem.services.sample_handling import (
+    BUILTIN_SLOT_NAME,
+    SampleHandling,
+    bind_sample_handling,
+)
 from fibsem.structures import FibsemStagePosition, GridSlot, SampleGrid, SampleHolder
 from tests.fixtures.demo_stage import demo_session
 
@@ -342,7 +346,7 @@ class TestCreateSampleStage:
         stage = bind_sample_handling(microscope)
         assert stage.holder.capacity == 1
         assert len(stage.holder.slots) == 1
-        assert "Slot-01" in stage.holder.slots
+        assert BUILTIN_SLOT_NAME in stage.holder.slots
 
     def test_compustage_has_loader(self):
         microscope, _ = demo_session(compustage=True)

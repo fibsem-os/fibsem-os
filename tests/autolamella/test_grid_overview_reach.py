@@ -31,6 +31,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     run_grid_tasks,
 )
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
+from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
 
 ROWS_OUT_OF_REACH = "(0,0), (0,1), (0,2), (0,3), (3,0), (3,1), (3,2), (3,3)"
@@ -140,7 +141,7 @@ def test_a_mask_already_set_is_kept_and_not_counted(microscope):
     question's answers are reported, on top of the mask already there."""
     settings = _beam(4, 4, 300e-6)
     settings.tile_mask = disable_tiles(None, 4, 4, [(1, 1)])
-    centre = microscope.sample_handling.holder.slots["Slot-01"].position
+    centre = microscope.sample_handling.holder.slots[BUILTIN_SLOT_NAME].position
     masked, skipped = reachable_overview(microscope, settings, centre)
     assert len(skipped) == 8 and (1, 1) not in skipped
     assert sum(not on for row in masked.tile_mask for on in row) == 9

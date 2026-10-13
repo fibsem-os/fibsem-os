@@ -319,7 +319,7 @@ def _grid_stage_position(grid_position) -> FibsemStagePosition:
     """Where the simulated autoloader puts a grid, as a stage position at the
     working slot's pose (the SEM orientation, r = t = 0)."""
     x, y, z = (float(v) for v in grid_position)
-    return FibsemStagePosition(name="Slot-01", x=x, y=y, z=z, r=0.0, t=0.0)
+    return FibsemStagePosition(name="Shuttle", x=x, y=y, z=z, r=0.0, t=0.0)
 
 
 class DemoSimulator:
