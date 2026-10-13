@@ -28,27 +28,14 @@ from fibsem.services.milling import Milling, bind_milling, progress_update
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
-    FibsemBitmapSettings,
-    FibsemCircleSettings,
-    FibsemLineSettings,
     FibsemMillingSettings,
     FibsemPatternSettings,
-    FibsemPolygonSettings,
-    FibsemRectangleSettings,
     MillingState,
 )
 
 if TYPE_CHECKING:
     from fibsem.drivers.demo.microscope import DemoMicroscope
 
-# The patterns the Demo draws, in the order `FibsemMicroscope.draw_pattern` checks them.
-_DRAWN = (
-    FibsemRectangleSettings,
-    FibsemLineSettings,
-    FibsemCircleSettings,
-    FibsemBitmapSettings,
-    FibsemPolygonSettings,
-)
 _PATTERNING_MODES = ("Serial", "Parallel")
 # simulated seconds each pattern takes
 _PATTERN_TIME = 5
@@ -106,12 +93,12 @@ class DemoMilling(Milling):
         self._clear()
         logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
 
-    def _draw(self, pattern: FibsemPatternSettings) -> None:
-        if not isinstance(pattern, _DRAWN):
-            logging.warning(f"The Demo does not draw {type(pattern).__name__}.")
-            return
+    def _add(self, pattern: FibsemPatternSettings) -> None:
         logging.debug({"msg": "draw_pattern", "pattern_settings": pattern.to_dict()})
         self.parent.milling_system.patterns.append(pattern)
+
+    # The Demo draws every pattern type, by adding it to the simulated list.
+    _draw_rectangle = _draw_line = _draw_circle = _draw_bitmap = _draw_polygon = _add
 
     def read_state(self) -> MillingState:
         return self.parent.milling_system.state

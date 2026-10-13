@@ -13,12 +13,14 @@ from fibsem import utils
 from fibsem.devices.core import Device
 from fibsem.drivers.demo.services import DemoMilling
 from fibsem.services import Service
-from fibsem.services.milling import Milling
+from fibsem.services.milling import DRAW_HOOKS, Milling, UnsupportedPattern
 from fibsem.structures import (
     BeamType,
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemMillingSettings,
+    FibsemPatternSettings,
+    FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
 )
@@ -143,8 +145,69 @@ def test_restore_goes_through_the_beam_device(microscope):
 
 
 def test_the_service_needs_its_hooks():
-    for hook in ("_setup", "_draw", "_start", "_estimate", "_clear"):
+    for hook in ("_setup", "_start", "_estimate", "_clear"):
         assert getattr(DemoMilling, hook) is not getattr(Milling, hook), hook
+
+
+def test_the_demo_draws_every_pattern_type():
+    assert set(DemoMilling.supported_pattern_types()) == set(DRAW_HOOKS)
+
+
+class _Unknown(FibsemPatternSettings):
+    """A pattern type no driver draws."""
+
+    volume = 0.0
+
+
+def test_a_pattern_type_the_driver_does_not_draw_raises(microscope):
+    microscope.setup_milling(_recipe())
+    with pytest.raises(UnsupportedPattern, match="cannot draw _Unknown patterns"):
+        microscope.draw_pattern(_Unknown())
+    assert microscope.milling_system.patterns == []
+
+
+def test_nothing_is_drawn_when_one_pattern_cannot_be(microscope):
+    """Every pattern is checked first, so a stage is never half drawn."""
+    microscope.setup_milling(_recipe())
+    with pytest.raises(UnsupportedPattern):
+        microscope.draw_patterns(_patterns()[:2] + [_Unknown()])
+    assert microscope.milling_system.patterns == []
+
+
+def test_a_subclass_of_a_drawn_type_is_drawn_as_it(microscope):
+    class Notched(FibsemRectangleSettings):
+        pass
+
+    microscope.setup_milling(_recipe())
+    microscope.draw_pattern(
+        Notched(width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0)
+    )
+    assert len(microscope.milling_system.patterns) == 1
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        FibsemRectangleSettings(
+            width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0, rotation=0.5
+        ),
+        FibsemCircleSettings(
+            centre_x=0, centre_y=0, radius=1e-6, depth=1e-6, rotation=np.pi / 2
+        ),
+    ],
+    ids=["rectangle", "circle"],
+)
+def test_a_driver_that_cannot_rotate_refuses_a_rotated_pattern(
+    microscope, monkeypatch, pattern
+):
+    monkeypatch.setattr(microscope.milling, "rotates_patterns", False)
+    microscope.setup_milling(_recipe())
+    with pytest.raises(UnsupportedPattern, match="cannot rotate"):
+        microscope.draw_patterns([_rectangle(), pattern])
+    assert microscope.milling_system.patterns == []
+
+    microscope.draw_patterns(_patterns())
+    assert len(microscope.milling_system.patterns) == 3
 
 
 def test_without_an_ion_beam_the_demo_does_not_mill(microscope):
@@ -227,3 +290,18 @@ def test_building_the_service_reports_nothing_and_a_report_reaches_the_microscop
     report = progress_update(MillingState.RUNNING)
     milling.progress.report(report)
     assert seen == [report]
+
+
+@pytest.mark.parametrize(
+    "version, polygons", [("4.11", False), ("4.12", True)], ids=["4.11", "4.12"]
+)
+def test_autoscript_draws_polygons_from_4_12(monkeypatch, version, polygons):
+    from packaging.version import parse as parse_version
+
+    from fibsem.drivers.autoscript import microscope as autoscript
+    from fibsem.drivers.autoscript.services import AutoScriptMilling
+
+    monkeypatch.setattr(autoscript, "AUTOSCRIPT_VERSION", parse_version(version))
+    types = AutoScriptMilling.supported_pattern_types()
+    assert (FibsemPolygonSettings in types) is polygons
+    assert set(types) | {FibsemPolygonSettings} == set(DRAW_HOOKS)

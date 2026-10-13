@@ -2,12 +2,21 @@
 beam put back as it was found.
 
 `Milling` is what every backend shares. A driver subclasses it and implements the
-hooks (``_setup``, ``_draw``, ``_start``, ``_stop``, ``_pause``, ``_resume``,
-``_estimate``, ``_clear`` and ``read_state``) the way the instrument mills: an
-instrument queue on ThermoFisher and Odemis, a DrawBeam layer on Tescan, a list on the
-Demo. The driver also chooses the per-pattern application file and applies the
-recipe's beam conditions, since which recipe fields a backend uses differs (Tescan
-mills with a preset, the others with a current and voltage).
+hooks (``_setup``, ``_start``, ``_stop``, ``_pause``, ``_resume``, ``_estimate``,
+``_clear`` and ``read_state``) the way the instrument mills: an instrument queue on
+ThermoFisher and Odemis, a DrawBeam layer on Tescan, a list on the Demo.
+
+Drawing is dispatched here, by pattern type, to one hook per type the driver draws
+(``_draw_rectangle``, ``_draw_line``, ``_draw_circle``, ``_draw_bitmap``,
+``_draw_polygon``). The types a driver draws are the hooks it implements, and
+``supported_pattern_types`` lists them. ``draw`` checks every pattern before drawing
+any: a type the driver doesn't draw, or a rotated shape on a driver that can't rotate
+(``rotates_patterns``), raises `UnsupportedPattern` with nothing drawn, rather than
+milling without it.
+
+The driver also chooses the per-pattern application file and applies the recipe's
+beam conditions, since which recipe fields a backend uses differs (Tescan mills with
+a preset, the others with a current and voltage).
 
 What it does the same everywhere is put the beam back. The first ``setup`` saves the
 milling beam's conditions (its preset where it has one, voltage, current and field of
@@ -58,8 +67,13 @@ from fibsem.services.core import Service, forward_to, save_beam_conditions
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamType,
+    FibsemBitmapSettings,
+    FibsemCircleSettings,
+    FibsemLineSettings,
     FibsemMillingSettings,
     FibsemPatternSettings,
+    FibsemPolygonSettings,
+    FibsemRectangleSettings,
     MillingState,
     get_fields_with_metadata,
 )
@@ -75,6 +89,21 @@ if TYPE_CHECKING:
 SAVED_BEAM_CONDITIONS = ("preset", "voltage", "current", "hfw")
 
 _M = TypeVar("_M", bound="Milling")
+
+# The hook that draws each pattern type. A driver draws the types whose hook it
+# implements.
+DRAW_HOOKS: Dict[Type[FibsemPatternSettings], str] = {
+    FibsemRectangleSettings: "_draw_rectangle",
+    FibsemLineSettings: "_draw_line",
+    FibsemCircleSettings: "_draw_circle",
+    FibsemBitmapSettings: "_draw_bitmap",
+    FibsemPolygonSettings: "_draw_polygon",
+}
+
+
+class UnsupportedPattern(NotImplementedError):
+    """A pattern this instrument can't draw as given: a type its driver doesn't draw,
+    or a rotated shape on one that can't rotate."""
 
 
 class Milling(Service):
@@ -111,6 +140,9 @@ class Milling(Service):
     setting_names: Tuple[str, ...] = ()
     # The directions this driver can scan a pattern in. A driver sets it.
     scan_directions: Tuple[str, ...] = ()
+    # Whether this driver draws a pattern's ``rotation``. One that can't refuses a
+    # rotated pattern instead of milling it unrotated.
+    rotates_patterns: bool = True
 
     def __init__(self, name: str = "milling", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -179,6 +211,16 @@ class Milling(Service):
             return {}
         return {"scan_direction": ParameterMetadata(choices=self.scan_directions)}
 
+    @classmethod
+    def supported_pattern_types(cls) -> Tuple[Type[FibsemPatternSettings], ...]:
+        """The pattern types this instrument draws: those whose draw hook its driver
+        implements."""
+        return tuple(
+            kind
+            for kind, hook in DRAW_HOOKS.items()
+            if getattr(cls, hook) is not getattr(Milling, hook)
+        )
+
     def _metadata_of(self, name: str) -> ParameterMetadata:
         """The driver's metadata for its field *name*, asked for once."""
         if name not in self._driver_settings:
@@ -213,11 +255,36 @@ class Milling(Service):
 
     @command
     def draw(self, patterns: Sequence[FibsemPatternSettings]) -> None:
-        """Add ``patterns`` to what the next run mills."""
-        for pattern in patterns:
-            if not isinstance(pattern, FibsemPatternSettings):
-                raise TypeError(f"Expected FibsemPatternSettings, got {type(pattern)}")
-            self._draw(pattern)
+        """Add ``patterns`` to what the next run mills.
+
+        Every pattern is checked before any is drawn, so a pattern this instrument
+        can't draw raises `UnsupportedPattern` with nothing drawn.
+        """
+        patterns = list(patterns)
+        hooks = [self._hook_for(pattern) for pattern in patterns]
+        for pattern, hook in zip(patterns, hooks):
+            self._draw(pattern, hook)
+
+    def _hook_for(self, pattern: FibsemPatternSettings) -> str:
+        """The draw hook for *pattern*, or a raise when this instrument can't draw it."""
+        if not isinstance(pattern, FibsemPatternSettings):
+            raise TypeError(f"Expected FibsemPatternSettings, got {type(pattern)}")
+        kind = type(pattern)
+        drawn = next((base for base in kind.__mro__ if base in DRAW_HOOKS), None)
+        if drawn is None or drawn not in self.supported_pattern_types():
+            raise UnsupportedPattern(
+                f"{self._driver_name()} cannot draw {kind.__name__} patterns."
+            )
+        if not self.rotates_patterns and getattr(pattern, "rotation", 0):
+            raise UnsupportedPattern(
+                f"{self._driver_name()} cannot rotate patterns: {kind.__name__} has "
+                f"rotation {pattern.rotation}."
+            )
+        return DRAW_HOOKS[drawn]
+
+    def _driver_name(self) -> str:
+        parent = self.parent
+        return type(parent).__name__ if parent is not None else type(self).__name__
 
     @command
     def prepare(
@@ -370,7 +437,24 @@ class Milling(Service):
         file) and clear the patterns."""
         raise NotImplementedError
 
-    def _draw(self, pattern: FibsemPatternSettings) -> None:
+    def _draw(self, pattern: FibsemPatternSettings, hook: str) -> None:
+        """Draw one checked pattern with its *hook*. A driver extends it for what goes
+        around every pattern, such as an application file of its own."""
+        getattr(self, hook)(pattern)
+
+    def _draw_rectangle(self, pattern: FibsemRectangleSettings) -> None:
+        raise NotImplementedError
+
+    def _draw_line(self, pattern: FibsemLineSettings) -> None:
+        raise NotImplementedError
+
+    def _draw_circle(self, pattern: FibsemCircleSettings) -> None:
+        raise NotImplementedError
+
+    def _draw_bitmap(self, pattern: FibsemBitmapSettings) -> None:
+        raise NotImplementedError
+
+    def _draw_polygon(self, pattern: FibsemPolygonSettings) -> None:
         raise NotImplementedError
 
     def _start(self) -> None:
