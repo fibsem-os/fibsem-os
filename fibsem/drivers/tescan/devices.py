@@ -676,7 +676,7 @@ class TescanStage(Stage):
     Fibsem has never read the Tescan stage's limits, so every axis is unlimited and
     the instrument refuses what it cannot reach. ``home()`` refers to the native UI, so
     ``homed`` is absent (its key reads None). z is not linked to
-    the working distance, so ``linked`` reads False.
+    the working distance, so ``linked`` reads False and ``link`` changes nothing.
     """
 
     def __init__(
@@ -722,6 +722,11 @@ class TescanStage(Stage):
 
     def read_linked(self) -> bool:
         return False
+
+    def _link(self) -> None:
+        # Nothing to link: ``link`` leaves the stage as it is and reports False, as
+        # ``link_stage`` did before the stage was a device.
+        logging.info("The Tescan stage is not linked to the working distance.")
 
     def _native(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """``position`` in Tescan's frame, with None where the move leaves an axis."""
