@@ -29,6 +29,7 @@ without the ``[ui]`` extra.
 
 from __future__ import annotations
 
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, Tuple
@@ -180,11 +181,18 @@ def style_legend(legend: Any, theme: PlotTheme = DARK) -> None:
         text.set_color(theme.text)
 
 
+# rc_context changes matplotlib's global defaults and puts back what it found.
+# Two threads in it at once can each put back the other's theme, leaving it on
+# for every figure after; so one thread at a time. Re-entrant, for a themed
+# helper called inside another.
+_THEME_LOCK = threading.RLock()
+
+
 @contextmanager
 def plot_theme(theme: PlotTheme = DARK) -> Iterator[PlotTheme]:
     """Build and save a figure in ``theme``; yields it, for the colours that
     mean something."""
     from matplotlib import rc_context
 
-    with rc_context(theme.rc()):
+    with _THEME_LOCK, rc_context(theme.rc()):
         yield theme
