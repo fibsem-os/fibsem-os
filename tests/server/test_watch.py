@@ -170,6 +170,33 @@ def test_task_lines_name_the_task(app):
     assert lines[0] == "EVENT task_started 01-alive-dory Rough Milling"
 
 
+def test_a_skip_line_says_why_and_which_requirement(app):
+    def run():
+        app.buffer.append(
+            "task_skipped",
+            {
+                "item_name": "01-alive-dory",
+                "task_name": "Rough Milling",
+                "skip_reason": "missing_prereqs",
+                "missing_prereqs": ["Mill Fiducial"],
+            },
+        )
+        app.buffer.append(
+            "task_skipped",
+            {"item_name": "02", "task_name": "Rough Milling", "skip_reason": "failure"},
+        )
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert code == 0
+    assert lines[:2] == [
+        "EVENT task_skipped 01-alive-dory Rough Milling"
+        " (missing_prereqs: Mill Fiducial)",
+        "EVENT task_skipped 02 Rough Milling (failure)",
+    ]
+
+
 def test_watch_is_found_after_the_shared_options():
     from fibsem.mcp.sidecar import _watch_argv
 
@@ -199,6 +226,16 @@ def test_quiet_polls_keep_watching(app):
             "workflow_failed",
             {"error": "cannot represent an object"},
             "RUN ENDED (workflow_failed: cannot represent an object)",
+        ),
+        (
+            "workflow_completed",
+            {"task_counts": {"completed": 0, "failed": 0, "skipped": 1}},
+            "RUN ENDED (workflow_completed: nothing ran, 1 skipped)",
+        ),
+        (
+            "workflow_completed",
+            {"task_counts": {"completed": 3, "failed": 1, "skipped": 0}},
+            "RUN ENDED (workflow_completed: 3 completed, 1 failed)",
         ),
     ],
 )
