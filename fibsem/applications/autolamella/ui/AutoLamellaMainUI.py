@@ -1035,8 +1035,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         notification_type: str = "info",
         duration: int = 5000,
         temporary: bool = False,
+        action=None,
     ):
-        """Show a toast notification.
+        """Show a toast notification, with an optional (text, callback) link.
 
         Unconditional: there is no longer a preference for turning toasts off, so the
         branch that used to route a suppressed message to the notification bell has
@@ -1044,7 +1045,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         non-temporary message in the bell itself.
         """
         self.toast_manager.show_toast(
-            message, notification_type, duration, temporary=temporary
+            message, notification_type, duration, temporary=temporary, action=action
         )
 
     def _on_connect_microscope(self):
@@ -2246,6 +2247,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # responder emits these where the lifecycle already runs.
         self.autolamella_ui.ui_responder.add_question_observer(self._on_question_event)
         notification_service._get_service().toast.connect(self._on_notification_service)
+        notification_service._get_service().toast_action.connect(
+            self._on_notification_service_action
+        )
         self.autolamella_ui.system_widget.connected_signal.connect(
             self._on_microscope_connected
         )
@@ -4161,6 +4165,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self, message: str, notification_type: str, temporary: bool
     ) -> None:
         self.show_toast(message, notification_type, temporary=temporary)
+
+    def _on_notification_service_action(
+        self,
+        message: str,
+        notification_type: str,
+        temporary: bool,
+        action_text: str,
+        callback,
+    ) -> None:
+        self.show_toast(
+            message,
+            notification_type,
+            temporary=temporary,
+            action=(action_text, callback),
+        )
 
     def _confirm_close_during_workflow(self) -> bool:
         """Ask before closing ends a workflow in progress; True to go ahead.

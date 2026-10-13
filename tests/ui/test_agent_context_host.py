@@ -95,45 +95,93 @@ def test_an_adopted_experiment_is_visible_through_the_facade(ui, tmp_path):
     assert ctx.task_outputs(exp.positions[0].name)["available"] is True
 
 
-def test_run_summary_survives_the_post_run_dialog(ui, monkeypatch):
+def test_run_summary_survives_the_run_end_toast(ui, monkeypatch):
     # The live-run regression: _show_workflow_summary used to consume
     # _last_run_summary to make the dialog once-only, so a remote read after
-    # the run always found nothing. The dialog stays once-only; the record
-    # stays readable.
+    # the run always found nothing. The run-end toast stays once-only; the
+    # record stays readable.
     import pandas as pd
 
     from fibsem.applications.autolamella.ui import AutoLamellaUI as ui_module
 
-    shown = []
-
-    class _Dialog:
-        def __init__(self, summary, note="", parent=None):
-            shown.append(summary)
-
-        def exec_(self):
-            return 0
-
-    monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _Dialog)
+    toasts = []
+    monkeypatch.setattr(
+        ui_module.notification_service,
+        "show",
+        lambda message, notification_type="info", temporary=False, action=None: (
+            toasts.append((message, notification_type, action))
+        ),
+    )
     ui._last_run_summary = pd.DataFrame(
         [
             {
                 "lamella_name": "01",
                 "task_name": "Rough Milling",
-                "task_status": "Finished",
+                "task_status": "Completed",
             }
         ]
     )
 
     ui._show_workflow_summary()
     ui._show_workflow_summary()  # a second finished-signal must not re-show
-    assert len(shown) == 1
+    assert len(toasts) == 1
+    message, notification_type, action = toasts[0]
+    assert message == "Run ended: 1 completed"
+    assert notification_type == "success"
+    assert action[0] == "Show summary"
 
     payload = AutoLamellaAppContext(ui).run_summary()
     assert payload["available"] is True
     assert payload["items"][0]["task_name"] == "Rough Milling"
     json.dumps(payload)
 
-    # The next run's capture is a new object: the dialog shows again.
+    # The next run's capture is a new object: the toast shows again.
     ui._last_run_summary = pd.DataFrame([{"task_name": "Polishing"}])
     ui._show_workflow_summary()
-    assert len(shown) == 2
+    assert len(toasts) == 2
+
+
+def test_the_summary_link_opens_the_dialog_without_blocking(ui, monkeypatch):
+    # FIB-1376: the dialog blocked the window at every run's end. Now it only
+    # opens from the toast's link, and with show(), never exec_().
+    import pandas as pd
+
+    from fibsem.applications.autolamella.ui import AutoLamellaUI as ui_module
+
+    opened = []
+
+    class _Dialog:
+        def __init__(self, summary, note="", parent=None):
+            opened.append((summary, note))
+
+        def setAttribute(self, *args):
+            pass
+
+        def show(self):
+            opened.append("show")
+
+        def exec_(self):
+            raise AssertionError("the run summary must not block the window")
+
+    monkeypatch.setattr(ui_module, "WorkflowSummaryDialog", _Dialog)
+    toasts = []
+    monkeypatch.setattr(
+        ui_module.notification_service,
+        "show",
+        lambda message, notification_type="info", temporary=False, action=None: (
+            toasts.append((message, notification_type, action))
+        ),
+    )
+    summary = pd.DataFrame(
+        [{"lamella_name": "01", "task_name": "Polishing", "task_status": "Failed"}]
+    )
+    ui._last_run_summary = summary
+    ui._last_run_note = ""
+
+    ui._show_workflow_summary()
+    assert opened == []  # nothing opens by itself
+    _message, notification_type, (_text, callback) = toasts[0]
+    assert notification_type == "warning"  # a failure is not a plain finish
+
+    callback()
+    assert opened == [(summary, ""), "show"]
