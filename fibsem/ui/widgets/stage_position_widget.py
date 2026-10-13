@@ -182,8 +182,8 @@ class StagePositionWidget(QWidget):
     def get_position(self) -> FibsemStagePosition:
         """What is currently typed in, in the units the stage takes.
 
-        ``RAW`` because the boxes are labelled with stage axes: what the operator reads
-        off the box is the raw axis value, not one re-expressed in a linked frame.
+        No coordinate system is named: the boxes are the stage's own axes, and the
+        stage device knows which frame those are.
         """
         return FibsemStagePosition(
             x=self.spinbox_x.value() * constants.MILLI_TO_SI,
@@ -191,5 +191,4 @@ class StagePositionWidget(QWidget):
             z=self.spinbox_z.value() * constants.MILLI_TO_SI,
             r=np.radians(self.spinbox_rotation.value()),
             t=np.radians(self.spinbox_tilt.value()),
-            coordinate_system="RAW",
         )
