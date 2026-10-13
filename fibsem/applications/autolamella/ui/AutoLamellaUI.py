@@ -3053,13 +3053,15 @@ class AutoLamellaUI(QMainWindow):
         self._show_workflow_summary()
 
     def _show_workflow_summary(self) -> None:
-        """Toast the end of the last workflow, its summary one click away.
+        """Toast the end of the last workflow, and open its summary unless the
+        workflow's "Show summary after completion" is off.
 
-        A toast, not a modal dialog (FIB-1376): the dialog blocked the window
-        at the end of every run, which an agent starting many short runs, or
-        a run ending overnight, left standing over the app. The toast goes in
-        the notification bell too, link and all, so the summary of any run
-        this session stays a click away after the toast fades.
+        The toast always comes, with a Show summary link, and stays in the
+        notification bell, so any run's summary is a click away after it
+        fades. The dialog opens without blocking the window (FIB-1376): as a
+        modal it held the window at the end of every run, which an agent
+        starting many short runs, or a run ending overnight, left standing
+        over the app. That is also when to turn it off.
 
         Show-once, but never consume: ``_last_run_summary`` is also the
         record the App Server's ``run_summary`` endpoint reads after the
@@ -3087,6 +3089,9 @@ class AutoLamellaUI(QMainWindow):
                 lambda: self._open_workflow_summary(summary, note),
             ),
         )
+        protocol = self.protocol
+        if protocol is None or protocol.options.show_run_summary:
+            self._open_workflow_summary(summary, note)
 
     def _open_workflow_summary(self, summary: "pd.DataFrame", note: str) -> None:
         """Open a run's summary dialog, without blocking the window."""

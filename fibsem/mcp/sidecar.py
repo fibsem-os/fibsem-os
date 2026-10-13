@@ -552,6 +552,11 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/workflow/grids/start", payload)
         return err if err else data
 
+    def set_workflow_options(show_run_summary: bool):
+        payload = {"show_run_summary": bool(show_run_summary)}
+        data, err = _call(client, "POST", "/app/workflow/options", payload)
+        return err if err else data
+
     def set_task_supervision(task_name: str, supervise: bool):
         payload = {"task_name": task_name, "supervise": bool(supervise)}
         data, err = _call(client, "POST", "/app/supervision", payload)
@@ -685,6 +690,7 @@ def build_sidecar(client, capabilities):
             plan_grid_workflow,
             start_grid_workflow,
             set_task_supervision,
+            set_workflow_options,
             requeue_task,
             start_workflow,
         )
