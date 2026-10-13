@@ -159,7 +159,7 @@ def test_offset_is_metres_and_to_canvas_is_pixels():
 
 
 def test_a_projection_can_be_read_off_the_live_microscope():
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     projection = FMStageProjection.from_microscope(build_microscope())
 
