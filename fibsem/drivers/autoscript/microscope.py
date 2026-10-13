@@ -405,7 +405,7 @@ def manipulator_position_from_autoscript(
 # The FM is built on its own path; any other type a configuration adds is built last.
 _BEAM_TYPES = ("beam",)
 _STAGE_TYPES = ("stage",)
-_PART_TYPES = ("chamber", "manipulator")
+_PART_TYPES = ("chamber", "chamber_camera", "manipulator")
 _LOADER_TYPES = ("sample_loader",)
 _OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + _PART_TYPES + _LOADER_TYPES + ("fm",)
 
@@ -700,8 +700,9 @@ class ThermoMicroscope(FibsemMicroscope):
         self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
 
     def _build_parts(self) -> None:
-        """Build the chamber and the manipulator, and keep the manipulator only when
-        it says it is fitted. Then build any other device the configuration adds.
+        """Build the chamber, its camera and the manipulator, and keep the
+        manipulator only when it says it is fitted. Then build any other device the
+        configuration adds.
 
         ``pump``, ``vent`` and the manipulator's raw moves then go through the
         devices. The corrected and offset needle moves stay here and move through
@@ -710,6 +711,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self._build_devices(
             [
                 DeviceEntry(name="chamber", type="chamber"),
+                DeviceEntry(name="chamber_camera", type="chamber_camera"),
                 DeviceEntry(name="manipulator", type="manipulator"),
             ],
             _PART_TYPES,
@@ -766,26 +768,6 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         self._connection.set_channel(channel)
 
-    def acquire_chamber_image(self) -> FibsemImage:
-        """Acquire an image of the chamber inside."""
-        # The chamber camera is a third device on the channel the beams and the FM
-        # share, so a glance at it takes the microscope away from whatever had it.
-        # Captured and put back in a `finally`: leaving the connection on the chamber
-        # camera strands whoever was mid-operation, which is FIB-517 with a different
-        # thief (FIB-545). Restores the view alone -- `set_active_device` changes the
-        # device *in the active view*, so the device comes back with it.
-        imaging = self._connection.sdk.imaging
-        with self._threading_lock:
-            restore_view = imaging.get_active_view()
-            imaging.set_active_view(4)
-            imaging.set_active_device(3)
-            try:
-                image = imaging.get_image()
-            finally:
-                imaging.set_active_view(restore_view)
-        logging.debug({"msg": "acquire_chamber_image"})
-        return FibsemImage(data=image.data, metadata=None)
-
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.
 
@@ -794,125 +776,13 @@ class ThermoMicroscope(FibsemMicroscope):
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
 
-    def _x_corrected_needle_movement(
-        self, expected_x: float
-    ) -> FibsemManipulatorPosition:
-        """Calculate the corrected needle movement to move in the x-axis.
-
-        Args:
-            expected_x (float): distance along the x-axis (image coordinates)
-        Returns:
-            FibsemManipulatorPosition: x-corrected needle movement (relative position)
-        """
-        return FibsemManipulatorPosition(x=expected_x, y=0, z=0)  # no adjustment needed
-
-    def _y_corrected_needle_movement(
-        self, expected_y: float, stage_tilt: float
-    ) -> FibsemManipulatorPosition:
-        """Calculate the corrected needle movement to move in the y-axis.
-
-        Args:
-            expected_y (float): distance along the y-axis (image coordinates)
-            stage_tilt (float, optional): stage tilt.
-
-        Returns:
-            FibsemManipulatorPosition: y-corrected needle movement (relative position)
-        """
-        y_move = +np.cos(stage_tilt) * expected_y
-        z_move = +np.sin(stage_tilt) * expected_y
-        return FibsemManipulatorPosition(x=0, y=y_move, z=z_move)
-
-    def _z_corrected_needle_movement(
-        self, expected_z: float, stage_tilt: float
-    ) -> FibsemManipulatorPosition:
-        """Calculate the corrected needle movement to move in the z-axis.
-
-        Args:
-            expected_z (float): distance along the z-axis (image coordinates)
-            stage_tilt (float, optional): stage tilt.
-
-        Returns:
-            FibsemManipulatorPosition: z-corrected needle movement (relative position)
-        """
-        y_move = -np.sin(stage_tilt) * expected_z
-        z_move = +np.cos(stage_tilt) * expected_z
-        return FibsemManipulatorPosition(x=0, y=y_move, z=z_move)
-
-    def move_manipulator_corrected(
-        self,
-        dx: float = 0,
-        dy: float = 0,
-        beam_type: BeamType = BeamType.ELECTRON,
-    ) -> FibsemManipulatorPosition:
-        """Calculate the required corrected needle movements based on the BeamType to move in the desired image coordinates.
-        Then move the needle relatively. Manipulator movement axis is based on stage tilt, so we need to adjust for that
-        with corrected movements, depending on the stage tilt and imaging perspective.
-
-        BeamType.ELECTRON:  move in x, y (raw coordinates)
-        BeamType.ION:       move in x, z (raw coordinates)
-
-        Args:
-            microscope (FibsemMicroscope)
-            dx (float): distance along the x-axis (image coordinates)
-            dy (float): distance along the y-axis (image corodinates)
-            beam_type (BeamType, optional): the beam type to move in. Defaults to BeamType.ELECTRON.
-        """
-        if self.manipulator_device is None:
-            raise self._unsupported("move_manipulator_corrected")
-        stage_tilt = self.get_stage_position().t
-
-        # xy
-        if beam_type is BeamType.ELECTRON:
-            x_move = self._x_corrected_needle_movement(expected_x=dx)
-            yz_move = self._y_corrected_needle_movement(dy, stage_tilt=stage_tilt)
-
-        # xz,
-        if beam_type is BeamType.ION:
-            x_move = self._x_corrected_needle_movement(expected_x=dx)
-            yz_move = self._z_corrected_needle_movement(
-                expected_z=dy, stage_tilt=stage_tilt
-            )
-
-        # explicitly set the coordinate system
-        self._connection.sdk.specimen.manipulator.set_default_coordinate_system(
-            ManipulatorCoordinateSystem.STAGE
-        )
-        manipulator_position = FibsemManipulatorPosition(
-            x=x_move.x, y=yz_move.y, z=yz_move.z, r=0.0, coordinate_system="STAGE"
-        )
-
-        # move manipulator
-        return self.move_manipulator_relative(manipulator_position)
-
     def move_manipulator_to_position_offset(
         self, offset: FibsemManipulatorPosition, name: str = None
     ) -> FibsemManipulatorPosition:
         """Move the manipulator to the specified coordinates, offset by the provided offset."""
-        saved_position = self._get_saved_manipulator_position(name)
-
-        # calculate corrected manipulator movement
-        stage_tilt = self.get_stage_position().t
-        yz_move = self._z_corrected_needle_movement(offset.z, stage_tilt)
-
-        # adjust for offset
-        saved_position.x += offset.x
-        saved_position.y += yz_move.y + offset.y
-        saved_position.z += yz_move.z  # RAW, up = negative, STAGE: down = negative
-        saved_position.r = None  # rotation is not supported
-
-        logging.debug(
-            {
-                "msg": "move_manipulator_to_position_offset",
-                "name": name,
-                "offset": offset.to_dict(),
-                "saved_position": saved_position.to_dict(),
-            }
-        )
-
-        # move manipulator absolute
-        return self.move_manipulator_absolute(saved_position)
-
-    manipulator_move_types = ("relative", "corrected")
+        if self.manipulator_device is None:
+            raise self._unsupported("move_manipulator_to_position_offset")
+        return self.manipulator_device.move_to_offset(offset, name)
 
     @property
     def rotation_centre(self) -> Optional[Tuple[float, float]]:

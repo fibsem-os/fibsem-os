@@ -66,6 +66,7 @@ from psygnal import Signal
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
+from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     Device,
     ParameterMetadata,
@@ -688,6 +689,13 @@ class RemoteChamber(RemoteDevice, Chamber):
         self.call_command("vent", timeout=UNTIL_DONE)
 
 
+class RemoteChamberCamera(RemoteDevice, ChamberCamera):
+    """The frame comes back as the array the server's camera gave."""
+
+    def _acquire(self) -> np.ndarray:
+        return self.call_command("acquire")
+
+
 class RemoteManipulator(RemoteDevice, Manipulator):
     """A needle on another computer. Its axes and named positions are read when it
     binds; a saved position is read from the server each time, since where a named
@@ -796,11 +804,12 @@ REMOTE_DEVICE_TYPES: Dict[str, type] = {
     **{name: part for name, part in REMOTE_FM_PARTS.items() if name != "fm"},
     "stage": RemoteStage,
     "chamber": RemoteChamber,
+    "chamber_camera": RemoteChamberCamera,
     "manipulator": RemoteManipulator,
 }
 
 # The types whose device has one name, its type's, on every backend.
-_NAMED_AS_TYPE = ("stage", "chamber", "manipulator")
+_NAMED_AS_TYPE = ("stage", "chamber", "chamber_camera", "manipulator")
 
 
 def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device:

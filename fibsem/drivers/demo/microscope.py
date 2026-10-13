@@ -79,6 +79,7 @@ DEMO_DEVICES = (
     DeviceEntry(name="ion", type="beam"),
     DeviceEntry(name="stage", type="stage"),
     DeviceEntry(name="chamber", type="chamber"),
+    DeviceEntry(name="chamber_camera", type="chamber_camera"),
     DeviceEntry(name="manipulator", type="manipulator"),
 )
 
@@ -132,9 +133,6 @@ class DemoMicroscope(
     # ThermoFisher constant, and the overview draws a position from the other side of
     # the stage about 1.6 mm from where a move there goes (FIB-1081, FIB-655).
     rotation_centre = (0.0, 0.0)
-    # The needle moves as the Demo's did before devices, with no correction on a corrected
-    # move (``move_manipulator_corrected``); its named positions are the device's.
-    manipulator_move_types = ("relative", "corrected")
     # The simulated sample loader's magazine is free to read, so the sample handling
     # service reads it when it is built.
     _read_magazine_at_connect = True
@@ -184,18 +182,6 @@ class DemoMicroscope(
     ) -> Tuple[Union[None, Point, FibsemRectangle], BeamSettings]:
         beam = self.beams[beam_type]
         return beam.sim_scanning_mode_value, beam.sim_beam
-
-    def move_manipulator_corrected(
-        self, dx: float, dy: float, beam_type: BeamType
-    ) -> FibsemManipulatorPosition:
-        # Demo applies no correction: dx and dy go straight onto x and y.
-        logging.info(
-            f"Moving manipulator: dx={dx:.2e}, dy={dy:.2e}, "
-            f"beam_type = {beam_type.name} (Corrected)"
-        )
-        return self.manipulator_device.move_relative(
-            FibsemManipulatorPosition(x=dx, y=dy)
-        )
 
     def move_manipulator_to_position_offset(
         self, offset: FibsemManipulatorPosition, name: Optional[str] = None

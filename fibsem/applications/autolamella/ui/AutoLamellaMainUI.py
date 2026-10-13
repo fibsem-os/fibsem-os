@@ -3716,19 +3716,26 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     def _on_stop_agent(self) -> None:
         """GUI thread, from the chip: the brake. Down to Watch at once, without
-        asking; the agent's next action is refused as stopped. A running
-        workflow is left running -- runs are the app's, with their own Stop."""
+        asking; the agent's next action is refused as stopped, and what it is
+        doing on the microscope is stopped (FIB-1267). A running workflow is
+        left running -- runs are the app's, with their own Stop."""
         host = self._running_app_server()
         if host is not None:
             previous = host.auth.level
-            host.auth.stop_agent()
-            logging.warning("Agent stopped by the operator: level set to watch")
+            stopped = host.stop_agent(self.autolamella_ui.microscope)
+            logging.warning(
+                "Agent stopped by the operator: level set to watch%s",
+                f"; stopped {stopped}" if stopped else "",
+            )
             self._record_agent_event(
-                "agent_stopped", previous=previous, level=host.auth.level
+                "agent_stopped",
+                previous=previous,
+                level=host.auth.level,
+                stopped=stopped,
             )
         self._refresh_agent_chip()
 
-    def _record_agent_event(self, kind: str, previous, level) -> None:
+    def _record_agent_event(self, kind: str, previous, level, **extra) -> None:
         """Put a level change on the session's record (events.jsonl). Emitted
         here, on the GUI thread, so the recorder names the operator."""
         recorder = getattr(self.autolamella_ui, "_event_recorder", None)
@@ -3739,6 +3746,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             {
                 "previous": previous.value if previous is not None else None,
                 "level": level.value,
+                **extra,
             },
         )
 
