@@ -161,7 +161,9 @@ seconds = microscope.estimate_milling_time() # float
 
 Every device the microscope built (`microscope.devices`: `electron`, `ion`,
 `stage`, `chamber`, `manipulator`, FM parts) is served generically, the same
-routes the device server (`fibsem/server/devices.py`) serves:
+routes the device server (`fibsem/server/devices.py`) serves. The one exception
+is the chamber's `pump` and `vent`: the server refuses them (`403
+command_not_served`) whatever is armed, as the operator's to do at the microscope.
 
 ```python
 microscope.list_devices()                               # parameters + commands per device
