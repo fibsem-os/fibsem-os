@@ -342,7 +342,7 @@ class Harness:
         from fibsem.structures import BeamType
 
         microscope = self.connection.microscope
-        scene = microscope._sample_scene
+        scene = microscope._connection.sample_scene
         projection = BeamStageProjection.from_microscope(
             microscope, beam_type=BeamType.ELECTRON
         )
@@ -883,7 +883,7 @@ def render_movement(h: Harness) -> None:
     # the FIB by the boot height error; Alt + double-click on it in the FIB
     # brings the two views into coincidence
     microscope.system.sim["sample"]["fiducial"] = True
-    microscope._setup_sample_scene()
+    microscope._connection.setup_sample_scene()
     iw.acquire_reference_images()
     h.wait_acquisition(iw)
     h.shot("coincidence-before")
@@ -891,7 +891,7 @@ def render_movement(h: Harness) -> None:
     # ion column's angle (vertical_move inverts exactly this), below centre
     ib_image = iw.ib_image
     hgt, wid = ib_image.data.shape[:2]
-    dy = microscope._sample_scene.coincidence_offset * np.sin(
+    dy = microscope._connection.sample_scene.coincidence_offset * np.sin(
         np.radians(microscope.system.ion.column_tilt)
     )
     y_cross = int(hgt / 2 + dy / ib_image.metadata.pixel_size.y)
@@ -911,7 +911,7 @@ def render_movement(h: Harness) -> None:
 
     # eucentricity: coincident, but with the surface 30 um above the tilt
     # axis, a tilt to the MILLING orientation swings the cross off centre
-    scene = microscope._sample_scene
+    scene = microscope._connection.sample_scene
     scene.tilt_axis_offset = 30e-6
     ctrl.move_to_orientation("MILLING")
     h.wait_move(ctrl, iw)
@@ -920,7 +920,7 @@ def render_movement(h: Harness) -> None:
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
     microscope.system.sim["sample"]["fiducial"] = False
-    microscope._setup_sample_scene()
+    microscope._connection.setup_sample_scene()
 
 
 @page("milling")
@@ -1222,7 +1222,7 @@ def render_sample_holder(h: Harness) -> None:
 
     # with a grid at every calibrated, occupied slot, a slot move shows the
     # other grid (and the holder between them) at a wide field of view
-    microscope._sample_scene.grids_from_holder = True
+    microscope._connection.sample_scene.grids_from_holder = True
     iw.image_settings_widget.hfw_spinbox.setValue(2000.0)
     holder = hw.current_holder
     slots = sorted(holder.slots.values(), key=lambda s_: s_.index)
@@ -1232,7 +1232,7 @@ def render_sample_holder(h: Harness) -> None:
         iw.acquire_reference_images()
         h.wait_acquisition(iw)
         h.shot(f"at-{name}")
-    microscope._sample_scene.grids_from_holder = False
+    microscope._connection.sample_scene.grids_from_holder = False
     iw.image_settings_widget.hfw_spinbox.setValue(150.0)
     hw._on_move_slot(slots[0])
     h.wait_move(ctrl, iw)
@@ -2688,7 +2688,7 @@ def render_correlation(h: Harness) -> None:
         reflection frame with the marks in the scene and one without, at the
         pose and objective position the stack was taken at."""
         microscope = h.ui.microscope
-        scene = microscope._sample_scene
+        scene = microscope._connection.sample_scene
         pose = lamellae[0].fluorescence_pose
         microscope.safe_absolute_stage_movement(pose.stage_position)
         fm.objective.insert()
@@ -2734,7 +2734,7 @@ def render_correlation(h: Harness) -> None:
         between a frame with the marks in the scene and one without, at the
         pose and field the reference was taken at."""
         microscope = h.ui.microscope
-        scene = microscope._sample_scene
+        scene = microscope._connection.sample_scene
         microscope.move_stage_absolute(lamellae[0].milling_pose.stage_position)
         settings = ImageSettings(
             hfw=float(reference.metadata.image_settings.hfw),

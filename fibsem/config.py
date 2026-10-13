@@ -54,48 +54,10 @@ REFERENCE_HFW_HIGH = 150e-6
 REFERENCE_HFW_SUPER = 80e-6
 REFERENCE_HFW_ULTRA = 50e-6
 
-REFERENCE_RES_SQUARE = [1024, 1024]
-REFERENCE_RES_LOW = [768, 512]
-REFERENCE_RES_MEDIUM = [1536, 1024]
-REFERENCE_RES_HIGH = [3072, 2048]
-REFERENCE_RES_SUPER = [6144, 4096]
-
-# standard imaging resolutions
-STANDARD_RESOLUTIONS = [
-    "384x256",
-    "768x512",
-    "1536x1024",
-    "3072x2048",
-    "6144x4096",
-]
-SQUARE_RESOLUTIONS = [
-    "256x256",
-    "512x512",
-    "1024x1024",
-    "2048x2048",
-    "4096x4096",
-    "8192x8192",
-]
-STANDARD_RESOLUTIONS_LIST = [
-    [int(x) for x in res.split("x")] for res in STANDARD_RESOLUTIONS
-]
-SQUARE_RESOLUTIONS_LIST = [
-    [int(x) for x in res.split("x")] for res in SQUARE_RESOLUTIONS
-]
-AVAILABLE_RESOLUTIONS = SQUARE_RESOLUTIONS + STANDARD_RESOLUTIONS
-DEFAULT_STANDARD_RESOLUTION = "1536x1024"
-DEFAULT_SQUARE_RESOLUTION = "1024x1024"
-DEFAULT_STANDARD_RESOLUTION_LIST = [
-    int(px) for px in DEFAULT_STANDARD_RESOLUTION.split("x")
-]
-SQUARE_RESOLUTIONS_ZIP = list(zip(SQUARE_RESOLUTIONS, SQUARE_RESOLUTIONS_LIST))
-STANDARD_RESOLUTIONS_ZIP = list(zip(STANDARD_RESOLUTIONS, STANDARD_RESOLUTIONS_LIST))
-AVAILABLE_RESOLUTIONS_ZIP = list(
-    zip(
-        AVAILABLE_RESOLUTIONS,
-        [[int(x) for x in r.split("x")] for r in AVAILABLE_RESOLUTIONS],
-    )
-)
+# The resolution the overview widgets default to; the driver snaps it to one its beam
+# lists. A beam's own resolutions are its `resolution` choices
+# (`fibsem.devices.beam.STANDARD_RESOLUTIONS` for a driver that reports none).
+DEFAULT_STANDARD_RESOLUTION_LIST = [1536, 1024]
 
 
 BASE_PATH = os.path.dirname(fibsem.__path__[0])

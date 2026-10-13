@@ -20,12 +20,10 @@ from fibsem.services.milling import Milling, bind_milling
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     CrossSectionPattern,
-    FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemMillingSettings,
     FibsemPatternSettings,
-    FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
 )
@@ -96,28 +94,6 @@ class OdemisMilling(Milling):
             )
         self._connection.set_patterning_mode(mode)
         logging.debug({"msg": "set_patterning_mode", "mode": mode})
-
-    def _draw(self, pattern: FibsemPatternSettings) -> None:
-        if isinstance(pattern, FibsemRectangleSettings):
-            self._draw_rectangle(pattern)
-        elif isinstance(pattern, FibsemLineSettings):
-            self._draw_line(pattern)
-        elif isinstance(pattern, FibsemCircleSettings):
-            self._draw_circle(pattern)
-        # Raised rather than skipped. Drawing nothing left a stage with no patterns,
-        # which never leaves IDLE, so the milling run waited on it indefinitely;
-        # raising inside the milling task fails the task with this message and still
-        # restores the beams.
-        elif isinstance(pattern, FibsemBitmapSettings):
-            raise NotImplementedError(
-                f"{type(self.parent).__name__} cannot draw bitmap patterns: the "
-                "Delmic AutoScript adapter has no bitmap patterning."
-            )
-        elif isinstance(pattern, FibsemPolygonSettings):
-            raise NotImplementedError(
-                f"{type(self.parent).__name__} cannot draw polygon patterns: the "
-                "Delmic AutoScript adapter has no polygon patterning."
-            )
 
     def _warn_dropped_pattern_settings(self, pattern: FibsemPatternSettings) -> None:
         """Warn about the settings the Delmic adapter ignores (xtadapter 1.16.0).

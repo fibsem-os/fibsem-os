@@ -108,7 +108,7 @@ if TYPE_CHECKING:
         DemoFluorescenceMicroscope,
         DemoMicroscope,
     )
-    from fibsem.drivers.demo.simulator import DemoParts
+    from fibsem.drivers.demo.simulator import DemoParts, DemoSimulator
     from fibsem.drivers.registry import BuildContext
     from fibsem.structures import DeviceEntry
 
@@ -132,10 +132,12 @@ class DemoBeam(Beam):
         self,
         beam_type: BeamType,
         parent: DemoMicroscope,
+        connection: DemoSimulator,
         resources: Optional[Resources],
         start: DemoParts,
     ):
         super().__init__(beam_type, parent=parent, resources=resources)
+        self.connection = connection
         start = (
             start.electron_system
             if beam_type is BeamType.ELECTRON
@@ -222,7 +224,7 @@ class DemoBeam(Beam):
     def write_blanked(self, value: bool) -> None:
         self.sim_blanked = value
         if not value and self.sim_scanning_mode == "spot":
-            self.parent._burn_into_sample_scene(self.beam_type)  # the spot burn
+            self.connection.burn_into_sample_scene(self.beam_type)  # the spot burn
 
     def read_detector_type(self) -> str:
         return self.sim_detector.type
@@ -335,24 +337,23 @@ class DemoBeam(Beam):
     def metadata_plasma_gas(self) -> ParameterMetadata:
         return self._choices("plasma_gas")
 
-    # Imaging, the autofunctions and live view run the Demo's own code (the
-    # ``_demo_*`` methods of ``DemoImaging``), so both demos image alike and the
-    # contract suite still compares like with like.
+    # Imaging, the autofunctions and live view run on the simulator
+    # (``DemoSimulator``), so the contract suite still compares like with like.
 
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
-        return self.parent._demo_acquire(image_settings, self.beam_type)
+        return self.connection.acquire(image_settings, self.beam_type)
 
     def _last_image(self) -> FibsemImage:
-        return self.parent._demo_last_image(self.beam_type)
+        return self.connection.last_image(self.beam_type)
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
-        self.parent._demo_autocontrast(self.beam_type, reduced_area)
+        self.connection.autocontrast(self.beam_type, reduced_area)
 
     def _auto_focus(self, reduced_area: Optional[FibsemRectangle]) -> None:
-        self.parent._demo_auto_focus(self.beam_type, reduced_area)
+        self.connection.auto_focus(self.beam_type, reduced_area)
 
     def _live(self, stop: threading.Event) -> None:
-        self.parent._demo_live(self.beam_type, stop, self.live_frame.emit)
+        self.connection.live(self.beam_type, stop, self.live_frame.emit)
 
     # "preset" is not implemented: Demo has no presets, so it is absent on the new
     # API while the old set("preset", ...) stays a logged no-op.
@@ -422,6 +423,10 @@ class DemoStage(Stage):
     def has_builtin_shuttle(self) -> bool:
         return self.compustage
 
+    # The simulated compustage mirrors its back views as the instrument it stands for.
+    def mirrors_back_view(self) -> bool:
+        return self.compustage
+
     # The simulator is a compustage or an offset stage by its configuration.
     def poses(
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
@@ -477,14 +482,21 @@ def _insertable_state(inserted: bool) -> InsertableDeviceState:
 
 
 class DemoChamberCamera(ChamberCamera):
-    """The Demo chamber camera: the Demo's own chamber frame (``_demo_chamber_frame``
-    of ``DemoImaging``), which takes the simulated imaging channel as Thermo's does."""
+    """The Demo chamber camera: the simulator's chamber frame
+    (``DemoSimulator.chamber_frame``), which takes the simulated imaging channel as
+    Thermo's does."""
 
-    def __init__(self, parent: DemoMicroscope, resources: Optional[Resources]):
+    def __init__(
+        self,
+        parent: DemoMicroscope,
+        connection: DemoSimulator,
+        resources: Optional[Resources],
+    ):
         super().__init__(parent=parent, resources=resources)
+        self.connection = connection
 
     def _acquire(self) -> np.ndarray:
-        return self.parent._demo_chamber_frame()
+        return self.connection.chamber_frame()
 
 
 class DemoChamber(Chamber):
@@ -835,7 +847,10 @@ def build_demo_beam(entry: "DeviceEntry", context: "BuildContext") -> DemoBeam:
         raise ValueError("a Demo beam is named 'electron' or 'ion'")
     beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
     resources, start = _demo_start(context)
-    return DemoBeam(beam_type, context.microscope, resources, start).connect()
+    microscope = context.microscope
+    return DemoBeam(
+        beam_type, microscope, microscope._connection, resources, start
+    ).connect()
 
 
 def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> DemoStage:
@@ -850,7 +865,10 @@ def build_demo_chamber_camera(
     entry: "DeviceEntry", context: "BuildContext"
 ) -> DemoChamberCamera:
     resources, _ = _demo_start(context)
-    return _named(DemoChamberCamera(context.microscope, resources), entry)
+    microscope = context.microscope
+    return _named(
+        DemoChamberCamera(microscope, microscope._connection, resources), entry
+    )
 
 
 def build_demo_manipulator(
@@ -1156,22 +1174,22 @@ class DemoFMChannel:
     """The FM's share of the Demo's one imaging channel, which the FM and the beams
     share as on a TFS system (FIB-518): ``AutoscriptFMChannel``, simulated.
 
-    The Demo has one active view and one active device (``imaging_system``), and
-    whoever sets them last owns the microscope. This takes them the way the Thermo
-    FM's channel takes the AutoScript connection's: the same depth count, the same
-    lock (the microscope's ``_threading_lock``), the same restore and the same fast
-    path, so a test written against the Demo says something about the hardware.
-    Without a microscope (an FM served on its own) there is no channel to share.
+    The Demo has one active view and one active device (the simulator's
+    ``imaging_system``), and whoever sets them last owns the microscope. This takes
+    them the way the Thermo FM's channel takes the AutoScript connection's: the same
+    depth count, the same lock (the simulator's, which is the microscope's
+    ``_threading_lock``), the same restore and the same fast path, so a test written
+    against the Demo says something about the hardware. Without a simulator (an FM
+    served on its own, or on a microscope that is not a demo) there is no channel to
+    share.
     """
 
-    def __init__(self, microscope: Optional[DemoMicroscope] = None):
-        # A microscope with no imaging system (not a demo) has no channel to share.
-        if getattr(microscope, "imaging_system", None) is None:
-            microscope = None
-        self._microscope = microscope
-        # The microscope's lock, as the Thermo channel takes it: an FM scope and a beam
-        # acquisition then queue against each other rather than interleaving.
-        self.lock = getattr(microscope, "_threading_lock", None) or threading.RLock()
+    def __init__(self, simulator: Optional[DemoSimulator] = None):
+        self._simulator = simulator
+        # The simulator's lock, as the Thermo channel takes the connection's: an FM
+        # scope and a beam acquisition then queue against each other rather than
+        # interleaving.
+        self.lock = simulator.lock if simulator is not None else threading.RLock()
         self._depth = 0
         self._restore_view: Optional[int] = None
         self._restore_device: Optional[int] = None
@@ -1179,9 +1197,9 @@ class DemoFMChannel:
     def set_active_channel(self) -> None:
         """Point the channel at the FM and leave it there, as
         ``AutoscriptFMChannel.set_active_channel`` does."""
-        if self._microscope is None:
+        if self._simulator is None:
             return
-        imaging = self._microscope.imaging_system
+        imaging = self._simulator.imaging_system
         imaging.active_view = FM_ACTIVE_VIEW
         imaging.active_device = FM_ACTIVE_DEVICE
 
@@ -1189,7 +1207,7 @@ class DemoFMChannel:
         """Whether the channel is already on the FM: the view alone answers it, as on
         the driver, where the device follows the view. Read outside the lock on
         purpose (``AutoscriptFMChannel._is_ours``)."""
-        return self._microscope.imaging_system.active_view == FM_ACTIVE_VIEW
+        return self._simulator.imaging_system.active_view == FM_ACTIVE_VIEW
 
     @contextmanager
     def scope(self) -> Iterator[None]:
@@ -1205,7 +1223,7 @@ class DemoFMChannel:
         are two fields, and restoring only the view would leave ``active_device`` on
         the FM for the rest of the session.
         """
-        if self._microscope is None:
+        if self._simulator is None:
             yield
             return
 
@@ -1213,7 +1231,7 @@ class DemoFMChannel:
             yield
             return
 
-        imaging = self._microscope.imaging_system
+        imaging = self._simulator.imaging_system
         with self.lock:
             if self._depth == 0:
                 self._restore_view = imaging.active_view
@@ -1238,9 +1256,10 @@ class DemoFM(FM):
         self,
         parent: Optional[DemoMicroscope] = None,
         resources: Optional[Resources] = None,
+        simulator: Optional[DemoSimulator] = None,
     ):
         super().__init__(name="fm", parent=parent, resources=resources)
-        self.channel = DemoFMChannel(parent)
+        self.channel = DemoFMChannel(simulator)
 
     def _acquire_channel(self, channel: Optional[Dict[str, Any]]) -> np.ndarray:
         self._apply_channel(channel)
@@ -1267,6 +1286,15 @@ class DemoFM(FM):
                 camera.gain.write_through(settings.gain)
 
 
+def _demo_simulator(microscope: Optional[Any]) -> Optional[DemoSimulator]:
+    """The Demo simulator *microscope* runs on, or None when it is not a Demo (an FM
+    on its own, or one fitted to another driver's microscope)."""
+    from fibsem.drivers.demo.simulator import DemoSimulator
+
+    simulator = getattr(microscope, "_connection", None)
+    return simulator if isinstance(simulator, DemoSimulator) else None
+
+
 def bind_demo_fm(
     microscope: Optional[DemoMicroscope] = None,
     resources: Optional[Resources] = None,
@@ -1283,7 +1311,9 @@ def bind_demo_fm(
         "objective": DemoObjective(microscope, resources),
     }
     parts["camera"].configure(config)
-    group = DemoFM(microscope, resources).fill_roles(**parts)
+    group = DemoFM(microscope, resources, _demo_simulator(microscope)).fill_roles(
+        **parts
+    )
     return {device.name: device.connect() for device in [group, *parts.values()]}
 
 

@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import fibsem.config as cfg
@@ -19,11 +20,14 @@ from fibsem import utils
 from fibsem.drivers.tescan import connection as tescan_connection
 from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.drivers.tescan.services import TescanMilling
+from fibsem.services.milling import UnsupportedPattern
 from fibsem.structures import (
     BeamType,
+    FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemMillingSettings,
+    FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
 )
@@ -96,6 +100,44 @@ def test_tescan_builds_its_milling_service(connect):
     microscope, _ = connect()
     assert isinstance(microscope.milling, TescanMilling)
     assert microscope.milling.ion is microscope.beams[BeamType.ION]
+
+
+def test_tescan_draws_rectangles_lines_and_circles():
+    assert TescanMilling.supported_pattern_types() == (
+        FibsemRectangleSettings,
+        FibsemLineSettings,
+        FibsemCircleSettings,
+    )
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        FibsemBitmapSettings(
+            width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0
+        ),
+        FibsemPolygonSettings(
+            vertices=np.array([[0, 0], [1e-6, 0], [0, 1e-6]]), depth=1e-6
+        ),
+    ],
+    ids=["bitmap", "polygon"],
+)
+def test_a_pattern_drawbeam_has_no_shape_for_raises(connect, pattern):
+    """A bitmap used to be drawn as nothing, which mills nothing; now it raises,
+    before anything is added to the layer."""
+    microscope, fake = connect()
+    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET, hfw=80e-6))
+    fake.log.clear()
+    with pytest.raises(UnsupportedPattern, match="TescanMicroscope cannot draw"):
+        microscope.draw_patterns(
+            [
+                FibsemLineSettings(
+                    start_x=0, end_x=1e-6, start_y=0, end_y=0, depth=1e-6
+                ),
+                pattern,
+            ]
+        )
+    assert drawbeam(fake) == []
 
 
 with open(Path(__file__).parent / "fixtures" / "tescan_milling_calls.json") as f:

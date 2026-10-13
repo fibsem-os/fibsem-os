@@ -271,6 +271,10 @@ class AutoscriptCompustage(AutoscriptStage):
     def has_builtin_shuttle(self) -> bool:
         return True
 
+    def mirrors_back_view(self) -> bool:
+        # xT presents an image of the back of the grid mirrored, as if from the front
+        return True
+
     def poses(
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
     ) -> Dict[str, FibsemStagePosition]:
