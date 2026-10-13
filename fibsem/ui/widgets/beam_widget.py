@@ -62,7 +62,9 @@ class FibsemBeamWidget(QWidget):
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )
-        self.beam_group = TitledPanel("Beam", content=self.beam_settings_widget, collapsible=False)
+        self.beam_group = TitledPanel(
+            "Beam", content=self.beam_settings_widget, collapsible=False
+        )
         self.beam_group.add_header_widget(self._btn_advanced_beam)
         layout.addWidget(self.beam_group)
 
@@ -78,7 +80,9 @@ class FibsemBeamWidget(QWidget):
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )
-        self.detector_group = TitledPanel("Detector", content=self.detector_settings_widget, collapsible=False)
+        self.detector_group = TitledPanel(
+            "Detector", content=self.detector_settings_widget, collapsible=False
+        )
         self.detector_group.add_header_widget(self._btn_advanced_detector)
         layout.addWidget(self.detector_group)
 
@@ -90,9 +94,15 @@ class FibsemBeamWidget(QWidget):
 
     def _connect_signals(self):
         self.beam_settings_widget.settings_changed.connect(self.beam_settings_changed)
-        self.detector_settings_widget.settings_changed.connect(self.detector_settings_changed)
-        self._btn_advanced_beam.toggled.connect(self.beam_settings_widget.set_advanced_visible)
-        self._btn_advanced_detector.toggled.connect(self.detector_settings_widget.set_advanced_visible)
+        self.detector_settings_widget.settings_changed.connect(
+            self.detector_settings_changed
+        )
+        self._btn_advanced_beam.toggled.connect(
+            self.beam_settings_widget.set_advanced_visible
+        )
+        self._btn_advanced_detector.toggled.connect(
+            self.detector_settings_widget.set_advanced_visible
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -140,7 +150,9 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
 
-    microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
+    microscope, settings = utils.setup_session(
+        manufacturer="Demo", ip_address="localhost"
+    )
 
     main_widget = QWidget()
     main_layout = QHBoxLayout()
@@ -169,6 +181,7 @@ if __name__ == "__main__":
 
         def _print(checked=False, w=widget, bt=beam_type):
             from pprint import pprint
+
             print(f"--- {bt.name} beam ---")
             pprint(w.get_beam_settings().to_dict())
             pprint(w.get_detector_settings().to_dict())
