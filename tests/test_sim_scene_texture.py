@@ -70,7 +70,7 @@ def _blob_centre(frame: np.ndarray):
 
 def test_a_repeated_pose_renders_no_new_tiles(microscope):
     scene = _scene()
-    position = _pose(microscope, 18.0)
+    position = _pose(microscope, 12.0)
     _render(microscope, scene, BeamType.ELECTRON, 100e-6, position)
     texture = scene.texture()
     rendered = texture.renders
@@ -84,7 +84,7 @@ def test_the_blob_sits_at_the_same_world_point_at_every_level(microscope):
     """The pyramid levels agree: a view at 100 um and one at 800 um put the
     blob at the same world position (to a fine-view pixel)."""
     scene = _scene()
-    position = _pose(microscope, 18.0)
+    position = _pose(microscope, 12.0)
     fine = _render(microscope, scene, BeamType.ELECTRON, 100e-6, position)
     wide = _render(microscope, scene, BeamType.ELECTRON, 800e-6, position)
     assert len({k[0] for k in scene.texture().tiles}) == 2, "two levels expected"
@@ -102,7 +102,7 @@ def test_the_blob_sits_at_the_same_world_point_at_every_level(microscope):
 
 def test_swapping_the_feature_list_rebuilds_the_texture(microscope):
     scene = _scene()
-    position = _pose(microscope, 18.0)
+    position = _pose(microscope, 12.0)
     before = _render(microscope, scene, BeamType.ELECTRON, 100e-6, position)
     first = scene.texture()
     scene.features = []
@@ -138,7 +138,7 @@ def test_the_cache_is_byte_capped(microscope, monkeypatch):
         SceneFeature(x=x, y=0.0, sigma=2e-6, intensity=100.0)
         for x in np.arange(-300e-6, 300e-6, 20e-6)
     ]
-    position = _pose(microscope, 18.0)
+    position = _pose(microscope, 12.0)
     _render(microscope, scene, BeamType.ELECTRON, 700e-6, position)
     _render(microscope, scene, BeamType.ELECTRON, 60e-6, position)
     texture = scene.texture()

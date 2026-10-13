@@ -1918,6 +1918,11 @@ def _call_on_main_thread(func, *args, **kwargs):
 
     Lazy on purpose: superqt and PyQt are in the ``ui`` extra, and this module
     is imported everywhere.
+
+    What ``func`` raises is raised here, in the caller, as a plain call would
+    (FIB-1352). Left to escape on the main thread it would be raised inside a
+    Qt slot, where PyQt5 aborts the process, and the caller would still be
+    waiting for a result that never comes.
     """
     try:
         from PyQt5.QtCore import QCoreApplication, QThread
@@ -1927,7 +1932,17 @@ def _call_on_main_thread(func, *args, **kwargs):
     app = QCoreApplication.instance()
     if app is None or QThread.currentThread() is app.thread():
         return func(*args, **kwargs)
-    return ensure_main_thread(await_return=True)(func)(*args, **kwargs)
+
+    def carried():
+        try:
+            return func(*args, **kwargs), None
+        except BaseException as e:  # noqa: BLE001 - re-raised in the caller
+            return None, e
+
+    result, error = ensure_main_thread(await_return=True)(carried)()
+    if error is not None:
+        raise error
+    return result
 
 
 def _same_values(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
@@ -2038,6 +2053,15 @@ class Experiment:
         # microscope to ask; None until then, because creating an experiment happens
         # in a dialog that has no microscope. See FIB-451.
         self.session: Optional[SessionInfo] = None
+        # Why the last save failed, or None when the file holds what memory
+        # does. Not written: it describes the file, not the experiment.
+        self.save_error: Optional[str] = None
+
+    @property
+    def unsaved(self) -> bool:
+        """Whether the last save failed, so the file is behind memory and the
+        event log (FIB-1352). The next save that succeeds catches it up."""
+        return self.save_error is not None
 
     def to_dict(self, include_protocol: bool = False) -> dict:
 
@@ -2941,16 +2965,25 @@ class Experiment:
         return self.get_grid_by_id(lamella.grid_id)
 
     def save(self, save_protocol: bool = False) -> None:
-        """Save the sample data to yaml file"""
+        """Save the sample data to yaml file.
 
-        with EXPERIMENT_WRITE_LOCK:
-            data = self.to_dict()
-        # Serialised in full before the file is opened: dumping straight into it
-        # left a zero-byte experiment.yaml behind the moment the writer met a value
-        # it could not represent, and nothing then loaded.
-        text = yaml.safe_dump(data, indent=4)
-        with open(os.path.join(self.path, "experiment.yaml"), "w") as f:
-            f.write(text)
+        A save that fails raises, and leaves the experiment ``unsaved`` until
+        one succeeds: a read-only or locked file, a full disk, a value that
+        cannot be written. Nothing in memory is lost by it (FIB-1352).
+        """
+        try:
+            with EXPERIMENT_WRITE_LOCK:
+                data = self.to_dict()
+            # Serialised in full before the file is opened: dumping straight into
+            # it left a zero-byte experiment.yaml behind the moment the writer met
+            # a value it could not represent, and nothing then loaded.
+            text = yaml.safe_dump(data, indent=4)
+            with open(os.path.join(self.path, "experiment.yaml"), "w") as f:
+                f.write(text)
+        except Exception as e:
+            self.save_error = f"{type(e).__name__}: {e}"
+            raise
+        self.save_error = None
         if save_protocol:
             self.save_protocol()
 

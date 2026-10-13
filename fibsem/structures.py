@@ -40,7 +40,6 @@ from fibsem.config import (
     METADATA_VERSION,
     UNVERSIONED_METADATA,
 )
-from fibsem.manufacturers import DEMO, normalize_manufacturer
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
     now,
@@ -1673,6 +1672,8 @@ class FibsemPatternSettings(ABC):
     def from_dict(
         cls: Type[TFibsemPatternSettings], data: Dict[str, Any]
     ) -> TFibsemPatternSettings:
+        if cls is FibsemPatternSettings:  # abstract: the dict names its shape
+            return cls._subclass_named(data.get("type")).from_dict(data)
         kwargs = {}
         for f in fields(cls):
             if f.name in data:
@@ -1684,6 +1685,24 @@ class FibsemPatternSettings(ABC):
             kwargs["cross_section"] = CrossSectionPattern[cross_section]
 
         return cls(**kwargs)
+
+    @classmethod
+    def _subclass_named(cls, type_name: Any) -> Type[FibsemPatternSettings]:
+        """The shape a pattern dict names in its ``type``, as the App Server's
+        ``draw_patterns`` takes it: ``"Rectangle"`` (or ``"FibsemRectangleSettings"``)."""
+        shapes: Dict[str, Type[FibsemPatternSettings]] = {}
+        pending = list(cls.__subclasses__())
+        while pending:
+            sub = pending.pop()
+            pending += sub.__subclasses__()
+            shapes[sub.__name__] = sub
+            shapes[sub.__name__.replace("Fibsem", "").replace("Settings", "")] = sub
+        if type_name not in shapes:
+            available = sorted(name for name in shapes if not name.startswith("Fibsem"))
+            raise ValueError(
+                f"Unknown pattern type: {type_name!r}. Available: {available}"
+            )
+        return shapes[type_name]
 
     @property
     @abstractmethod
@@ -2958,15 +2977,16 @@ class SystemInfo:
 
     @staticmethod
     def from_dict(settings: dict):
+        # Here, not at the top: keeps `structures` light for what imports only it.
+        from fibsem.drivers.registry import normalize_name
+
         return SystemInfo(
             name=settings.get("name", "Unknown"),
             ip_address=settings.get("ip_address", "Unknown"),
             port=settings.get("port"),
             # normalise on read: configs and old experiments carry "Thermo"/"TESCAN"
             # etc.; everything downstream compares against the canonical spellings
-            manufacturer=normalize_manufacturer(
-                settings.get("manufacturer", "Unknown")
-            ),
+            manufacturer=normalize_name(settings.get("manufacturer", "Unknown")),
             model=settings.get("model", "Unknown"),
             serial_number=settings.get("serial_number", "Unknown"),
             hardware_version=settings.get("hardware_version", "Unknown"),
@@ -4141,10 +4161,11 @@ class SessionInfo:
 
         # Lazy: `report` imports all three registries, so importing it here would
         # cycle straight back through this module.
+        from fibsem.drivers.registry import normalize_name
         from fibsem.plugins.report import installed_plugin_versions
 
         info = getattr(getattr(microscope, "system", None), "info", None)
-        if normalize_manufacturer(getattr(info, "manufacturer", None)) == DEMO:
+        if normalize_name(getattr(info, "manufacturer", None)) == "Demo":
             utc_offset = previous.utc_offset if previous is not None else None
             zone_name = previous.zone_name if previous is not None else None
         else:

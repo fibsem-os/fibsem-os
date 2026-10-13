@@ -307,7 +307,7 @@ for something on the microscope, and say what you are about to do first.
 
 **Check before you start.** In `/capabilities`, `level` must be `drive` and
 `routers.microscope` true. If either is not, say plainly which, and that the
-operator changes it (the Agent chip for the level; Preferences → App Server,
+operator changes it (the Agent chip for the level; Tools → App Server,
 *Serve the microscope's devices*, for the devices). Don't look for another
 way in. A hardware tool missing from your tool list means the same thing.
 

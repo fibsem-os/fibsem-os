@@ -4,7 +4,6 @@ import dataclasses
 import datetime
 import logging
 import threading
-import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
@@ -14,6 +13,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     Mapping,
@@ -25,11 +25,16 @@ from typing import (
 import numpy as np
 from psygnal import Signal
 
-from fibsem import manufacturers
 from fibsem.control import Control
 from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import image_to_stage_delta
+from fibsem.geometry.orientations import (
+    classify_orientation,
+    compucentric_rotation,
+    milling_angle_from_tilt,
+    repose,
+)
 from fibsem.imaging.spot import SpotBurnProgress
 from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.milling.progress import MillingProgress
@@ -182,6 +187,10 @@ class FibsemMicroscope(ABC):
     tiled_acquisition_signal = Signal(TiledProgress)
     spot_burn_progress_signal = Signal(SpotBurnProgress)
     system: SystemSettings
+    #: The registry name of this class's driver, as its package's
+    #: ``DRIVER.manufacturer`` spells it (``"Tescan"``). Each driver's class sets it;
+    #: `manufacturer` answers it, and connect code names its own builds with it.
+    driver_name: ClassVar[str]
     milling_channel: BeamType = BeamType.ION
     #: The milling service over the beams (`fibsem.services.milling.Milling`); the
     #: milling methods go to it. None when no ion beam was built: they raise then,
@@ -633,13 +642,14 @@ class FibsemMicroscope(ABC):
         """Whether the configuration's entry for *name* names a driver other than
         this backend's own."""
         from fibsem.devices.entries import configured_device_entries
+        from fibsem.drivers.registry import normalize_name
 
         entry = configured_device_entries(self.system).get(name)
         if entry is None or not entry.driver:
             return False
 
         def canonical(driver: Optional[str]) -> str:
-            return str(manufacturers.normalize_manufacturer(driver)).strip().casefold()
+            return str(normalize_name(driver)).strip().casefold()
 
         return canonical(entry.driver) != canonical(self.system.info.manufacturer)
 
@@ -761,20 +771,19 @@ class FibsemMicroscope(ABC):
                 record.detector.type = detector.type
                 record.detector.mode = detector.mode
 
-    # The raw moves go through the stage device when the backend builds one, without
-    # its limit check (the old API never had one); a backend without one overrides
-    # them.
+    # The raw moves are the stage device's checked moves: a target outside the stage
+    # limits is refused with StageLimitError, never sent to the vendor.
 
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         if self.stage is None:
             raise self._unsupported("move_stage_absolute")
-        self.stage.move_through(position)
+        self.stage.move_absolute(position)
         return self.get_stage_position()
 
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         if self.stage is None:
             raise self._unsupported("move_stage_relative")
-        self.stage.move_through(position, relative=True)
+        self.stage.move_relative(position)
         return self.get_stage_position()
 
     # The view-corrected moves below are the stage movement service's
@@ -2183,35 +2192,22 @@ class FibsemMicroscope(ABC):
             return FibsemStagePosition(x=0, y=0)
         return FibsemStagePosition(x=-centre[0], y=-centre[1])
 
+    def _compucentric_centre(self) -> Tuple[float, float]:
+        """The centre a half turn is taken about: minus the compucentric offset."""
+        offset = self._get_compucentric_rotation_offset()
+        return (-offset.x, -offset.y)
+
     def _get_compucentric_rotation_position(
         self, position: FibsemStagePosition
     ) -> FibsemStagePosition:
-        """Get the compucentric rotation position for the given stage position.
-        Assumes 180deg rotation. TFS only"""
+        """`position` turned half way round about the compucentric centre.
 
-        # a stage with no rotation axis (a compustage) has no compucentric rotation
+        :func:`fibsem.geometry.orientations.compucentric_rotation`; a stage with no
+        rotation axis (a compustage) has no compucentric rotation, so it is returned as is.
+        """
         if not self.system.stage.rotation:
             return position
-
-        # get the compucentric rotation offset
-        offset = self._get_compucentric_rotation_offset()
-
-        # convert the raw stage position to specimen coordinates
-        specimen_position = deepcopy(position)
-        specimen_position.x += offset.x
-        specimen_position.y += offset.y
-
-        # apply "compucentric" rotation offset (invert x,y)
-        target_position = deepcopy(specimen_position)
-        target_position.r += np.radians(180)
-        target_position.x = -specimen_position.x
-        target_position.y = -specimen_position.y
-
-        # convert the target position to raw coordinates
-        target_position.x -= offset.x
-        target_position.y -= offset.y
-
-        return target_position
+        return compucentric_rotation(position, self._compucentric_centre())
 
     def _apply_device_translation(
         self, stage_position: FibsemStagePosition, source: str, target: str
@@ -2347,69 +2343,19 @@ class FibsemMicroscope(ABC):
                 stage_position, source_device, ROTATION_FRAME_DEVICE
             )
 
-        # One rule, in place of a branch per ordered pair.
-        #
-        # Re-posing between orientations is always a rewrite of r and t. What decides
-        # whether x and y move with it is whether the *rotation* changes: turning the
-        # sample half way round swings it about the compucentric centre, which is
-        # somewhere else entirely, so the coordinates have to be carried around with
-        # it. A change of tilt alone pivots about an axis through the sample and
-        # leaves x/y where they were.
-        #
-        # That is why SEM <-> MILLING needs no positional term -- both sit at
-        # `rotation_reference` -- while anything crossing to or from FIB, which sits at
-        # `rotation_180`, does.
-        #
-        # A compustage takes the same path and gets the same answer for free:
-        # `_get_compucentric_rotation_position` returns its argument untouched there
-        # (it has no rotation axis to be compucentric about), so no stage-type branch
-        # is needed here to say so.
-        #
-        # Read from the *orientations*, not from `stage_position.r`, and the difference
-        # matters. `get_stage_orientation` classifies within a 5 degree tolerance, so a
-        # position that reads as SEM is usually a fraction off the canonical rotation --
-        # a real stage never sits at exactly 0.000. Comparing the position's own r would
-        # then call a 4 degree discrepancy a "rotation change" and apply the correction
-        # below, which is not a small correction: `_get_compucentric_rotation_position`
-        # computes `p -> -p - 2 * offset` and says so in its own docstring ("Assumes
-        # 180deg rotation"). It is a half turn or nothing. Firing it for a few degrees
-        # of slop would throw the sample to the far side of the grid.
-        #
-        # So the test below asks whether the rotation **is a half turn**, not whether it
-        # changed at all. That is what the correction can express, and it makes the
-        # assumption safe rather than merely documented: every rotation between named
-        # orientations is a half turn today -- SEM and MILLING share
-        # `rotation_reference`, FIB sits at `rotation_180` -- and an orientation ever
-        # added at, say, 90 degrees gets **no** correction instead of the wrong one.
-        # Wrong by the offset beats wrong by the whole grid.
-        #
-        # Measured with `angle_difference`, which is wrap-aware -- a stage rotates
-        # continuously, so the same rotation is written many ways (270 and -90, 180 and
-        # -180, 360 and 0), and plain modulo breaks either side of zero. It is also what
-        # `get_stage_orientation` uses to decide which orientation a position is *at*,
-        # and this rule is keyed on that classifier's answer, so the two share one
-        # definition rather than agreeing by coincidence. Same 5 degree tolerance, for
-        # the same reason.
-        # Only when a pose was asked for. Relocating alone changes no rotation, so
-        # there is nothing for the compucentric correction to correct and nothing to
-        # write to r and t -- the bracket below collapses to a plain translation from
-        # one device to the other, which is exactly what a traverse is.
+        # The re-pose, at the beams: r and t become the target's, and x and y are
+        # carried round the compucentric centre only when the rotation between the two
+        # *poses* is a half turn (fibsem.geometry.orientations.repose says why).
+        # Relocating alone changes no rotation, so with no pose asked for the bracket
+        # collapses to a plain translation from one device to the other.
         if orientation is not None:
-            from fibsem import movement
-
-            rotation = movement.angle_difference(
-                self.get_orientation(currrent_orientation).r, orientation.r
+            stage_position = repose(
+                stage_position,
+                current=self.get_orientation(currrent_orientation),
+                target=orientation,
+                rotation_centre=self._compucentric_centre(),
+                has_rotation=bool(self.system.stage.rotation),
             )
-            rotation_is_half_turn = movement.rotation_angle_is_smaller(
-                rotation, np.pi, atol=5
-            )
-            if rotation_is_half_turn:
-                stage_position = self._get_compucentric_rotation_position(
-                    stage_position
-                )
-
-            stage_position.r = orientation.r
-            stage_position.t = orientation.t
 
         # ... and back out, to whichever device was asked for. `target_device` of None
         # means the one it started at, so an orientation-only conversion at the FM is
@@ -2431,74 +2377,17 @@ class FibsemMicroscope(ABC):
         Returns:
             str: current stage orientation ("SEM", "FIB", "MILLING", "NONE")
         """
-        # TODO: update this to an enum
-
-        # current stage position
         if stage_position is None:
             stage_position = self.get_stage_position()
         if stage_position.r is None or stage_position.t is None:
             raise ValueError(
                 "Stage position must have both rotation (r) and tilt (t) defined."
             )
-        stage_rotation = stage_position.r % (2 * np.pi)
-        stage_tilt = stage_position.t
-
-        from fibsem import movement
-
-        # TODO: also check xyz ranges?
-
-        sem = self.get_orientation("SEM")
-        fib = self.get_orientation("FIB")
-        milling = self.get_orientation("MILLING")
-        if sem is None or fib is None or milling is None:
-            raise ValueError(
-                "SEM, FIB or MILLING orientation not defined in the system."
-            )
-        if (
-            sem.r is None
-            or sem.t is None
-            or fib.r is None
-            or fib.t is None
-            or milling.r is None
-            or milling.t is None
-        ):
-            raise ValueError(
-                "SEM, FIB or MILLING orientation must have both rotation (r) and tilt (t) defined."
-            )
-
-        # The nearest declared pose, of those within tolerance: 5 degrees in r and
-        # 0.1 rad in t. Each pose the stage declares (SEM, FIB, and FM on a
-        # compustage) is a candidate; MILLING is not, because it is a range.
-        # Nearest rather than first-listed, so a stage whose poses sit close together
-        # gets the one it is actually at.
-        rotation_tolerance = np.deg2rad(5)
-        tilt_tolerance = 0.1
-        nearest, nearest_distance = None, np.inf
-        for name, pose in self.orientations.items():
-            if name == "MILLING":
-                continue
-            rotation_error = movement.angle_difference(stage_rotation, pose.r)
-            if rotation_error >= rotation_tolerance:
-                continue
-            if not np.isclose(stage_tilt, pose.t, atol=tilt_tolerance):
-                continue
-            distance = (rotation_error / rotation_tolerance) ** 2 + (
-                (stage_tilt - pose.t) / tilt_tolerance
-            ) ** 2
-            if distance < nearest_distance:
-                nearest, nearest_distance = name, distance
-        if nearest is not None:
-            return nearest
-
-        # MILLING: any tilt above -45 degrees at the SEM rotation that is not a
-        # declared pose.
-        if (
-            movement.rotation_angle_is_smaller(stage_rotation, sem.r, atol=5)
-            and np.radians(-45) < stage_tilt
-        ):
-            return "MILLING"
-
-        return "NONE"
+        if not hasattr(self, "orientations"):
+            self._update_orientations()
+        return classify_orientation(
+            stage_position.r, stage_position.t, self.orientations
+        )
 
     def get_orientation(self, orientation: str) -> FibsemStagePosition:
         """Get the orientation (r,t) for the given orientation string."""
@@ -2584,8 +2473,6 @@ class FibsemMicroscope(ABC):
     ) -> float:
         """Get the current milling angle in degrees based on the current stage tilt."""
 
-        from fibsem.transformations import convert_stage_tilt_to_milling_angle
-
         if stage_position is None:
             stage_position = self.get_stage_position()
 
@@ -2593,24 +2480,16 @@ class FibsemMicroscope(ABC):
         if self.get_stage_orientation(stage_position=stage_position) == "FIB":
             return 90  # stage-tilt + pre-tilt + 90 - column-tilt
 
-        stage_tilt = stage_position.t
-
-        if stage_tilt is None:
+        if stage_position.t is None:
             raise ValueError(
                 "Stage tilt is not available. Cannot calculate milling angle."
             )
-
-        if self._stage_turned_over(stage_tilt):
-            # past vertical the sample faces the other way, so unwind the half turn
-            stage_tilt += np.radians(180)
-
-        # Calculate the milling angle from the stage tilt
-        milling_angle = convert_stage_tilt_to_milling_angle(
-            stage_tilt=stage_tilt,
-            pretilt=np.radians(self.system.stage.shuttle_pre_tilt),
-            column_tilt=np.radians(self.system.ion.column_tilt),
+        return milling_angle_from_tilt(
+            stage_position.t,
+            pretilt=self.system.stage.shuttle_pre_tilt,
+            column_tilt=self.system.ion.column_tilt,
+            turned_over=self._stage_turned_over(stage_position.t),
         )
-        return float(np.degrees(milling_angle))
 
     def is_close_to_milling_angle(
         self, milling_angle: float, atol: float = 2.0
@@ -2873,7 +2752,8 @@ class FibsemMicroscope(ABC):
         * ``fm_autofocus`` -- from ``run_coarse_fine_autofocus``
         * ``alignment`` -- from ``multi_step_alignment_v2``, every step's shift
         * ``coincidence_measured`` -- from ``check_coincidence``
-        * ``autofocus`` -- from ``run_auto_focus``, the working distance it left
+        * ``autofocus`` -- from ``run_auto_focus``, the working distance it left;
+          and from a beam's own ``auto_focus`` (``method: instrument``)
         * ``grid_loaded`` / ``grid_unloaded`` -- from the sample handling service's
           magazine exchanges, with the grid, its magazine slot and the working slot
         """
@@ -3330,29 +3210,11 @@ class FibsemMicroscope(ABC):
 
     @property
     def manufacturer(self) -> str:
-        # NOTE: this base default means every backend that does not override the
-        # property (Demo, Zeiss, Odemis) reports ThermoFisher -- FIB-300 tracks
-        # whether it should serve self.system.info.manufacturer instead.
-        return manufacturers.THERMOFISHER
-
-
-# `ThermoMicroscope` moved to `fibsem.drivers.autoscript.microscope`. These names are served
-# lazily so `from fibsem.microscope import ThermoMicroscope` keeps working for external
-# scripts and plugins, without this module importing the AutoScript backend at load.
-_MOVED_TO_AUTOSCRIPT = frozenset(
-    {"ThermoMicroscope", "THERMO_API_AVAILABLE", "AutoScriptException"}
-)
-
-
-def __getattr__(name: str) -> Any:
-    if name in _MOVED_TO_AUTOSCRIPT:
-        warnings.warn(
-            f"fibsem.microscope.{name} has moved to fibsem.drivers.autoscript.microscope; "
-            "import it from there.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        from fibsem.drivers.autoscript import microscope as autoscript
-
-        return getattr(autoscript, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        """The registry name of the driver this class belongs to (its ``driver_name``)."""
+        name = getattr(type(self), "driver_name", None)
+        if name is None:
+            raise NotImplementedError(
+                f"{type(self).__name__} sets no driver_name: set it to its driver's "
+                "DRIVER.manufacturer."
+            )
+        return name

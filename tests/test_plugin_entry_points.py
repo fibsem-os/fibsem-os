@@ -345,7 +345,6 @@ def test_driver_plugin_connects_through_setup_session():
 
 
 def test_driver_plugins_record_what_they_could_not_register():
-    from fibsem import manufacturers
     from fibsem.drivers.registry import get_driver, get_driver_plugin_records
 
     records = {r.entry_point: r for r in get_driver_plugin_records()}
@@ -353,9 +352,9 @@ def test_driver_plugins_record_what_they_could_not_register():
     assert records["fixture_driver"].loaded
     assert records["fixture_driver"].distribution == "fibsem-test-plugin"
     # Loads, and the built-in is still the Demo driver.
-    assert records["clashing_driver"].name == manufacturers.DEMO
+    assert records["clashing_driver"].name == "Demo"
     assert records["not_a_record"].error == "returned str, not a DriverEntry"
-    assert get_driver(manufacturers.DEMO).microscope_class == (
+    assert get_driver("Demo").microscope_class == (
         "fibsem.drivers.demo.microscope:DemoMicroscope"
     )
 

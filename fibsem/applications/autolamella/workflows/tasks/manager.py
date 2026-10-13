@@ -124,17 +124,33 @@ class BaseTaskManager:
         self._decision_event = threading.Event()
         # Whether this run's end event has fired; no run, nothing to report.
         self._run_ended = True
+        # Whether workflow_started has fired: a run that dies before it is
+        # reported by end_unstarted_run (FIB-1353).
+        self._run_began = False
         # The third way a run ends: not completed, not cancelled -- drained with
         # work still waiting on a decision, and the wait ran out. Read after the
         # run by whoever launched it.
         self.stalled = False
         self.stall_reason = ""
 
-        # Stamp the experiment onto the images this run acquires. Done here rather
-        # than only in the UI so a headless run through run_tasks() records it too;
-        # the app also calls it when it adopts an experiment, and repeating it just
-        # re-sets the same two attributes. See FIB-449.
+    def _prepare(self) -> None:
+        """The run's own set-up, done inside the run, after workflow_started:
+        what fails here ends the run with workflow_failed like anything else
+        that escapes it. In the constructor, a failed save ended a run the
+        agent had been told was started with no event at all (FIB-1353).
+
+        Stamps the experiment onto the images this run acquires. Done here
+        rather than only in the UI so a headless run through run_tasks()
+        records it too; the app also calls it when it adopts an experiment,
+        and repeating it just re-sets the same two attributes. See FIB-449.
+
+        No task starts while the experiment cannot be saved (FIB-1352):
+        registering saves, and an experiment still unsaved after it is saved
+        here, so a file that cannot be written fails the run before any work.
+        """
         self.experiment.register_metadata(self.microscope)
+        if self.experiment.unsaved:
+            self.experiment.save()
 
     # --- Public API ---
 
@@ -502,6 +518,7 @@ class BaseTaskManager:
         # Workflow events used to carry nothing at all, so workflow_completed reached a
         # webhook with no way to tell which experiment had finished.
         if event == HookEvent.WORKFLOW_STARTED:
+            self._run_began = True
             self._run_ended = False
         elif event in _RUN_ENDS:
             self._run_ended = True
@@ -517,6 +534,26 @@ class BaseTaskManager:
         """
         if self._run_ended:
             return
+        self._fire_end_for(error)
+
+    def end_unstarted_run(self, error: BaseException) -> None:
+        """Report a run that died in the launcher's set-up, before it began.
+
+        Whoever launches the run (the app's workflow worker) does work of its
+        own between being asked and calling ``run``: taking control, turning
+        the beams on, the grid inventory. A failure there used to end a run
+        that start_workflow had already answered ``started`` for with no event
+        (FIB-1353). It ends with workflow_failed now, or workflow_cancelled
+        for a Stop, through this run's recording. A run that began reports
+        its own end, so this does nothing then.
+        """
+        if self._run_began:
+            return
+        self._run_began = True
+        with self._recording():
+            self._fire_end_for(error)
+
+    def _fire_end_for(self, error: BaseException) -> None:
         if self.should_abort or isinstance(
             error, (OperationCancelledError, InterruptedError)
         ):
@@ -698,6 +735,7 @@ class TaskManager(BaseTaskManager):
             self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
             self.experiment.decided.connect(self._on_decided)
             try:
+                self._prepare()
                 self._run_items()
             except Exception as e:
                 self._end_escaped_run(e)

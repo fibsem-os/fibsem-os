@@ -252,7 +252,7 @@ def build_server(
     def capabilities():
         return {
             "api_version": API_VERSION,
-            "manufacturer": type(microscope).__name__,
+            "manufacturer": microscope.manufacturer,
             "routers": {
                 "microscope": devices,
                 "devices": devices,
@@ -604,6 +604,10 @@ def build_server(
                 noun="service",
             )
         )
+    else:
+        # Off, the same paths answer why they are missing (FIB-1359): a bare
+        # "Not Found" reads as a wrong path, not as the operator's choice.
+        app.include_router(_devices_off_router(read, stop, hw))
     if app_context is not None:
         # Read scope applied here so auth stays in one place; the router itself
         # is a thin pass-through over the context's JSON-able snapshots. These
@@ -623,6 +627,36 @@ def build_server(
             dependencies=[Depends(require_scope(Scope.CONFIGURE))],
         )
     return app
+
+
+DEVICES_OFF_MESSAGE = (
+    "The microscope's devices aren't served: the operator turns them on in "
+    "Tools → App Server."
+)
+
+
+def _devices_off(request: Request) -> None:
+    raise HTTPException(
+        status_code=404,
+        detail={"error_type": "devices_off", "message": DEVICES_OFF_MESSAGE},
+    )
+
+
+def _devices_off_router(*routers: APIRouter) -> APIRouter:
+    """The instrument routes' paths, each answering a 404 that says the devices
+    are off. Behind the token like the routes they stand in for."""
+    off = APIRouter(dependencies=[Depends(require_scope(Scope.READ))])
+    paths = {route.path for router in routers for route in router.routes}
+    for prefix in ("/devices", "/services"):
+        paths.update((prefix, prefix + "/{rest:path}"))
+    for path in sorted(paths):
+        off.add_api_route(
+            path,
+            _devices_off,
+            methods=["GET", "POST", "PUT", "DELETE"],
+            include_in_schema=False,
+        )
+    return off
 
 
 class FibsemServer:

@@ -11,7 +11,7 @@ import os
 import pytest
 
 import fibsem.config as cfg
-from fibsem import manufacturers, utils
+from fibsem import utils
 from fibsem.devices.entries import DeviceBuildError
 from fibsem.drivers.registry import device_builder
 from fibsem.drivers.tescan.devices import TescanBeam, TescanStage
@@ -29,8 +29,8 @@ def _system(*entries):
 
 def test_the_tescan_driver_has_builders_for_its_beams_and_stage():
     for device_type in ("beam", "stage"):
-        assert device_builder(manufacturers.TESCAN, device_type) is not None
-    assert device_builder(manufacturers.TESCAN, "chamber") is None
+        assert device_builder("Tescan", device_type) is not None
+    assert device_builder("Tescan", "chamber") is None
 
 
 def test_connect_builds_both_beams_and_the_stage(monkeypatch):
