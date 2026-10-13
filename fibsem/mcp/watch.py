@@ -10,7 +10,8 @@ it would block the agent from acting on what it prints.
     python -m fibsem.mcp.sidecar watch   # where fibsem-mcp is not on PATH
 
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
-``QUESTION RELEASED``, task ``EVENT`` lines, ``GAP`` and ``RUN ENDED``.
+``QUESTION RELEASED``, ``REQUEST`` (the agent's request decided, finished or
+cancelled, FIB-1283), task ``EVENT`` lines, ``GAP`` and ``RUN ENDED``.
 Exits 0 when the run ends, 1 when the server cannot be watched. A run that
 stops without an end event still ends the watch: ``RUN ENDED (stopped
 without an end event)``, once ``/app/status`` says nothing is running.
@@ -150,6 +151,8 @@ def _print_events(events, since, out):
             out(line)
         elif kind == "prompt_cancelled":
             out(f"PROMPT WITHDRAWN question={data.get('question_id')}")
+        elif kind in ("request_decided", "request_finished", "request_cancelled"):
+            out(_request_line(kind, data))
         elif kind in TERMINAL:
             detail = data.get("error") or _counts(data.get("task_counts"))
             out(f"RUN ENDED ({kind}: {detail})" if detail else f"RUN ENDED ({kind})")
@@ -161,6 +164,22 @@ def _print_events(events, since, out):
             reason = _skip_reason(data) if kind == "task_skipped" else None
             out(f"{line} ({reason})" if reason else line)
     return since, run_ended
+
+
+def _request_line(kind, data):
+    """The agent's request moved on (FIB-1283): decided, finished, cancelled."""
+    head = f"REQUEST {data.get('request_id')}"
+    if kind == "request_cancelled":
+        return f"{head} cancelled: {data.get('why')}"
+    if kind == "request_finished":
+        return (
+            f"{head} {data.get('status')} "
+            f"({data.get('applied')} of {data.get('of')} applied)"
+        )
+    if data.get("outcome") == "rejected":
+        reason = data.get("reason")
+        return f"{head} rejected" + (f": {reason}" if reason else "")
+    return f"{head} approved"
 
 
 def _skip_reason(data):

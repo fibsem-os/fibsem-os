@@ -177,6 +177,37 @@ def test_an_answer_says_when_it_took_the_agent_s_suggestion(app):
     )
 
 
+def test_the_agent_s_request_is_followed_to_its_end(app):
+    def run():
+        app.buffer.append(
+            "request_decided",
+            {"request_id": "ab12", "outcome": "approved", "decided_by": "operator"},
+        )
+        app.buffer.append("request_applied", {"request_id": "ab12", "index": 0})
+        app.buffer.append(
+            "request_finished",
+            {"request_id": "ab12", "status": "failed", "applied": 1, "of": 2},
+        )
+        app.buffer.append(
+            "request_decided",
+            {"request_id": "cd34", "outcome": "rejected", "reason": "not now"},
+        )
+        app.buffer.append(
+            "request_cancelled",
+            {"request_id": "ef56", "why": "the operator stopped the agent"},
+        )
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[:4] == [
+        "REQUEST ab12 approved",
+        "REQUEST ab12 failed (1 of 2 applied)",
+        "REQUEST cd34 rejected: not now",
+        "REQUEST ef56 cancelled: the operator stopped the agent",
+    ]
+
+
 def test_task_lines_name_the_task(app):
     def run():
         app.buffer.append(

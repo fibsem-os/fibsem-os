@@ -59,8 +59,10 @@ status bar. Every launch starts at Watch; nothing in a file raises it.
   What you would answer goes on the record too (see *Write down why*).
 - **Drive** — you may answer questions, start and stop workflows, change
   supervision, re-queue, and edit configuration and schedules.
-- **Assist** is not offered yet. **Off** refuses everything, `/capabilities`
-  included (`403 agent_off`).
+- **Assist** — you ask before each action and the operator approves it on
+  the Agent chip; you suggest answers rather than answering. That is the
+  assist-autolamella skill's job: use it at Assist. **Off** refuses
+  everything, `/capabilities` included (`403 agent_off`).
 
 At Drive, with the microscope's devices served, you can also use the
 microscope directly (see *Using the microscope*). Supervising doesn't need
@@ -76,6 +78,8 @@ A refusal names its reason in `detail.error_type`:
   to continue.
 - `agent_off` — you are off. Report that once and stop; there is nothing to
   watch.
+- `ask_first` — you are at Assist: the operator wants to approve each
+  action. Switch to the assist-autolamella skill and ask through a request.
 
 If `level` drops from Drive to Watch mid-session for any reason, the rule is
 the same as `agent_stopped`: report and stop acting. Never treat a 403 as an
