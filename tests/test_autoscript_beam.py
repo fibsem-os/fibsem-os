@@ -171,6 +171,7 @@ def test_the_moved_keys_are_the_ones_routed(recording, plasma, beam):
         "full_frame",
         "last_image",
         "reduced_area",
+        "shift_by",
         "spot",
         "start_live",
         "stop_live",

@@ -324,6 +324,7 @@ def test_actions_are_plain_methods_that_describe_themselves(beams):
         "acquire",
         "blank",
         "unblank",
+        "shift_by",
         "spot",
         "reduced_area",
         "full_frame",
