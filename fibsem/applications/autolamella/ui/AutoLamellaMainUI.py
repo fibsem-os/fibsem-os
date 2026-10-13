@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -2678,7 +2679,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         protocol_splitter.addWidget(scroll_area)
         protocol_splitter.setSizes([700, 550])
 
-        right_tabs.addTab(protocol_splitter, "Protocol")
+        # With no card selected the editor has no lamella, so the page says so
+        # rather than leaving the last one up to be edited (FIB-1370).
+        protocol_empty = QLabel("Select a lamella card to edit its protocol.")
+        protocol_empty.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 12px;")
+        protocol_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._protocol_page = QStackedWidget()
+        self._protocol_page.addWidget(protocol_empty)
+        self._protocol_page.addWidget(protocol_splitter)
+
+        right_tabs.addTab(self._protocol_page, "Protocol")
         right_tabs.addTab(self.lamella_task_image_widget, "History")
 
         outer_splitter.addWidget(right_tabs)
@@ -3069,8 +3079,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.fm_overview_tab.set_selected(lamella)
         self.beam_overview_tab.set_selected(lamella)
         self.lamella_task_image_widget.set_lamella(lamella)
+        self.lamella_widget.select_lamella(lamella.name if lamella else None)
+        self._protocol_page.setCurrentIndex(0 if lamella is None else 1)
         if lamella is not None:
-            self.lamella_widget.select_lamella(lamella.name)
             if not self._syncing_selection:
                 self._syncing_selection = True
                 try:
