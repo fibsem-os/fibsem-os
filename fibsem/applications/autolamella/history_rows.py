@@ -40,8 +40,12 @@ OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
 _BEAM = {"ELECTRON": "SEM", "ION": "FIB"}
 
 # The figure each kind of run saves into its folder: AlignmentResult.save and
-# AutoFocusResult.save.
-_PLOT_FILES = {"alignment": "figure.png", "autofocus": "plot.png"}
+# AutoFocusResult.save, which the FM autofocus saves with too.
+_PLOT_FILES = {
+    "alignment": "figure.png",
+    "autofocus": "plot.png",
+    "fm_autofocus": "plot.png",
+}
 
 
 @dataclass

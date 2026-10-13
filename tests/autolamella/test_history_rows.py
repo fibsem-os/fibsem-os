@@ -580,3 +580,32 @@ def test_a_mill_that_did_not_complete_does_not_add_the_drift(tmp_path):
     (only,) = run.operations
     assert only.detail == "failed at Rough Mill 02: RuntimeError: rejected"
     assert milling_stages(only)[0].drift[0].label == "Align (Rough Mill 01)"
+
+
+def test_an_fm_autofocus_has_its_duration_and_figure(tmp_path):
+    """It records when it started and where it saved, as the beam autofocus
+    does (FIB-1257)."""
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run("Acquire Fluorescence Image", "f", 0)]
+    saved = tmp_path / "autofunctions" / "af"
+    saved.mkdir(parents=True)
+    (saved / "plot.png").write_bytes(b"")
+    event = _event(
+        lamella,
+        "f",
+        "fm_autofocus",
+        status="completed",
+        started_at=_at(4, 40),
+        passes=2,
+        completed_passes=2,
+        initial_position=1e-6,
+        position=3e-6,
+        path=str(saved),
+    )
+
+    (run,) = history_rows(lamella, [event])
+
+    (op,) = run.operations
+    assert op.label == "Autofocus (FM)" and op.detail == "objective +2.00 µm"
+    assert op.duration == pytest.approx(20.0)
+    assert op.plot == str(saved / "plot.png")
