@@ -87,6 +87,13 @@ class MillingStageLine:
     name: str
     text: str  # how it ended, how long it took, its current
     drift: List[HistoryOperation]  # the drift corrections it ran
+    # The strategy that milled it and what it said about the run (FIB-1257):
+    # why it stopped, then its facts. A strategy with only facts says them on
+    # the stage's own line (``text``), and these are empty; so are they for a
+    # record from before strategies were recorded.
+    strategy: str = ""
+    said: str = ""
+    figure: Optional[str] = None  # a figure the strategy saved, if still there
 
 
 @dataclass
@@ -326,7 +333,8 @@ def _fold_drift(operations: List[HistoryOperation]) -> List[HistoryOperation]:
 
 
 def _drift_summary(mill: HistoryOperation, completed: bool) -> str:
-    """`` · drift ≤ 0.07 µm``, or the first drift correction that went wrong:
+    """`` · alignment ≤ 0.07 µm``, or the first milling current alignment that
+    went wrong:
     folded, the mill's line is the only place a problem shows. A mill that did
     not complete already says why, so it adds only a problem."""
     names = [stage.get("name") for stage in _stages(mill.payload)]
@@ -335,11 +343,11 @@ def _drift_summary(mill: HistoryOperation, completed: bool) -> str:
         name = names[position] if position < len(names) else "a stage"
         for run in runs:
             if run.status == FAILED:
-                return f" · drift correction failed at {name}"
+                return f" · alignment failed at {name}"
             if any(step.get("success") is False for step in _steps(run.payload)):
-                return f" · drift correction too weak at {name}"
+                return f" · alignment too weak at {name}"
             largest = max(largest, _total_shift(run.payload))
-    return f" · drift ≤ {largest * 1e6:.2f} µm" if completed else ""
+    return f" · alignment ≤ {largest * 1e6:.2f} µm" if completed else ""
 
 
 def _steps(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -454,14 +462,52 @@ def milling_stages(operation: HistoryOperation) -> List[MillingStageLine]:
             parts.append(_short_duration(took))
         if status != SKIPPED and stage.get("milling_current") is not None:
             parts.append(_current(stage["milling_current"]))
+        strategy = (
+            stage.get("strategy") if isinstance(stage.get("strategy"), dict) else {}
+        )
+        name = _strategy_name(strategy.get("name"))
+        said = _strategy_said(strategy)
+        figure = strategy.get("figure")
+        figure = figure if figure and os.path.isfile(str(figure)) else None
+        own_line = bool(strategy.get("end_reason") or figure)
+        if name and not own_line:
+            # only facts: short enough for the stage's line
+            parts.extend(p for p in (name, said) if p)
         lines.append(
             MillingStageLine(
                 name=str(stage.get("name") or "Stage"),
                 text=" · ".join(parts),
                 drift=operation.drift.get(position, []),
+                strategy=name if own_line else "",
+                said=said if own_line else "",
+                figure=figure,
             )
         )
     return lines
+
+
+def _strategy_name(name: Any) -> str:
+    """``CoincidenceMilling`` as ``Coincidence Milling``: the strategy's
+    name, which is what the record has, read as words."""
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", str(name or ""))
+
+
+def _strategy_said(strategy: Dict[str, Any]) -> str:
+    """``intensity drop · Mill time (s) 250 · Intensity drop seen yes``: why
+    the strategy stopped, then each fact as it labelled it."""
+    parts = [str(strategy["end_reason"])] if strategy.get("end_reason") else []
+    facts = strategy.get("facts")
+    for label, value in facts.items() if isinstance(facts, dict) else []:
+        parts.append(f"{label} {_fact(value)}")
+    return " · ".join(parts)
+
+
+def _fact(value: Any) -> str:
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
 
 
 def _fm_autofocus_facts(payload: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -517,7 +563,14 @@ def _milling_detail(status: str, payload: Dict[str, Any]) -> str:
     stages = [s for s in _stages(payload) if s.get("reason") != _TURNED_OFF]
     milled = sum(1 for s in stages if s.get("status") == COMPLETED)
     if status == COMPLETED:
-        return f"{milled} stage{'' if milled == 1 else 's'}"
+        # why its strategies stopped, so a folded line still says it
+        reasons: List[str] = []
+        for stage in stages:
+            said = stage.get("strategy")
+            reason = said.get("end_reason") if isinstance(said, dict) else None
+            if reason and str(reason) not in reasons:
+                reasons.append(str(reason))
+        return " · ".join([f"{milled} stage{'' if milled == 1 else 's'}", *reasons])
     ended = next((s for s in stages if s.get("status") in (FAILED, CANCELLED)), None)
     if status == FAILED:
         at = f" at {ended.get('name')}" if ended is not None else ""
