@@ -68,12 +68,11 @@ _TIP_PROPOSE_REVIEW = (
     "allows a task to be set to Review. Early access."
 )
 _LBL_APP_SERVER = "Enable App Server"
-_LBL_APP_SERVER_DEVICES = "Serve the microscope's devices"
+_LBL_APP_SERVER_DEVICES = "Serve the microscope's devices at start-up"
 _TIP_APP_SERVER_DEVICES = (
-    "Also serve the routes that reach the instrument, local or on a Device "
-    "Server: its devices, stage, beams and milling state, reads included. Off, "
-    "clients see the session but cannot query the microscope. Moving it still "
-    "needs hardware permission. Changing this restarts the App Server."
+    "Whether a new session also serves the routes that reach the instrument: "
+    "its devices, stage, beams and milling state, reads included. Turn them on "
+    "or off for this session in Tools → App Server."
 )
 _TIP_APP_SERVER = (
     "Run the App Server when a microscope connects: a local, token-protected "
