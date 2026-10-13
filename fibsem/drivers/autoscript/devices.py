@@ -71,6 +71,7 @@ import numpy as np
 
 from fibsem.devices.beam import Beam, nearest_resolution
 from fibsem.devices.chamber import Chamber
+from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
     BoundParameter,
@@ -840,6 +841,45 @@ def bind_autoscript_beams(
 # -- the chamber and the manipulator --------------------------------------------------
 
 
+# The chamber camera's place on the channel the beams and the FM share.
+CHAMBER_CAMERA_VIEW = 4
+CHAMBER_CAMERA_DEVICE = 3
+
+
+class AutoscriptChamberCamera(ChamberCamera):
+    """The chamber camera: view 4, device 3 on the shared imaging channel.
+
+    A glance at it takes the channel away from whatever had it, so the frame is grabbed
+    under the channel lock and the view put back in a ``finally``: leaving the
+    connection on the chamber camera strands whoever was mid-operation, which is
+    FIB-517 with a different thief (FIB-545). It restores the view alone, because
+    ``set_active_device`` changes the device *in the active view*, so the device comes
+    back with it.
+    """
+
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(parent=parent, resources=resources)
+        self.connection = connection
+
+    def _acquire(self) -> np.ndarray:
+        imaging = self.connection.sdk.imaging
+        with self.connection.lock:
+            restore_view = imaging.get_active_view()
+            imaging.set_active_view(CHAMBER_CAMERA_VIEW)
+            imaging.set_active_device(CHAMBER_CAMERA_DEVICE)
+            try:
+                image = imaging.get_image()
+            finally:
+                imaging.set_active_view(restore_view)
+        logging.debug({"msg": "acquire_chamber_image"})
+        return image.data
+
+
 class AutoscriptChamber(Chamber):
     """The AutoScript vacuum, ``connection.vacuum``.
 
@@ -1030,8 +1070,9 @@ class AutoscriptManipulator(Manipulator):
     (``insert_manipulator``), ``_retract`` (``retract_manipulator``),
     ``_move_relative``/``_move_absolute`` (``move_manipulator_relative``/
     ``_absolute``) and ``saved_position`` (``_get_saved_manipulator_position``).
-    The corrected and offset moves depend on the stage tilt, so they stay
-    ``ThermoMicroscope``'s and move through this device.
+    The needle's axes tilt with the stage, so the corrected and offset moves
+    (``_move_corrected``, ``_offset_target``) correct for the tilt of the stage in its
+    ``stage`` role.
     """
 
     def __init__(
@@ -1155,6 +1196,74 @@ class AutoscriptManipulator(Manipulator):
             {"msg": "move_manipulator_absolute", "position": position.to_dict()}
         )
 
+    # -- corrected moves -----------------------------------------------------------
+    #
+    # The needle moves in stage coordinates, whose y and z tilt with the stage. In the
+    # electron view an image dy is along the tilted y; in the ion view it is along the
+    # tilted z. x needs no correction.
+
+    @staticmethod
+    def _y_corrected(expected_y: float, stage_tilt: float) -> FibsemManipulatorPosition:
+        """The needle move for an image dy in the electron view."""
+        y_move = +np.cos(stage_tilt) * expected_y
+        z_move = +np.sin(stage_tilt) * expected_y
+        return FibsemManipulatorPosition(x=0, y=y_move, z=z_move)
+
+    @staticmethod
+    def _z_corrected(expected_z: float, stage_tilt: float) -> FibsemManipulatorPosition:
+        """The needle move for an image dy in the ion view."""
+        y_move = -np.sin(stage_tilt) * expected_z
+        z_move = +np.cos(stage_tilt) * expected_z
+        return FibsemManipulatorPosition(x=0, y=y_move, z=z_move)
+
+    def _stage_tilt(self) -> float:
+        return self.stage.position.get_value().t
+
+    def _move_corrected(self, dx: float, dy: float, beam_type: BeamType) -> None:
+        """BeamType.ELECTRON moves in x, y and BeamType.ION in x, z (raw coordinates),
+        corrected for the stage tilt."""
+        from fibsem.drivers.autoscript.microscope import ManipulatorCoordinateSystem
+
+        stage_tilt = self._stage_tilt()
+        if beam_type is BeamType.ELECTRON:
+            yz_move = self._y_corrected(dy, stage_tilt)
+        elif beam_type is BeamType.ION:
+            yz_move = self._z_corrected(dy, stage_tilt)
+        else:
+            raise ValueError(f"Unknown beam type: {beam_type}")
+
+        # explicitly set the coordinate system
+        self._needle.set_default_coordinate_system(ManipulatorCoordinateSystem.STAGE)
+        self._move_relative(
+            FibsemManipulatorPosition(
+                x=dx, y=yz_move.y, z=yz_move.z, r=0.0, coordinate_system="STAGE"
+            )
+        )
+
+    def _offset_target(
+        self, offset: FibsemManipulatorPosition, name: str
+    ) -> FibsemManipulatorPosition:
+        saved_position = self.saved_position(name)
+
+        # calculate corrected manipulator movement
+        yz_move = self._z_corrected(offset.z, self._stage_tilt())
+
+        # adjust for offset
+        saved_position.x += offset.x
+        saved_position.y += yz_move.y + offset.y
+        saved_position.z += yz_move.z  # RAW, up = negative, STAGE: down = negative
+        saved_position.r = None  # rotation is not supported
+
+        logging.debug(
+            {
+                "msg": "move_manipulator_to_position_offset",
+                "name": name,
+                "offset": offset.to_dict(),
+                "saved_position": saved_position.to_dict(),
+            }
+        )
+        return saved_position
+
 
 def bind_autoscript_manipulator(
     microscope: ThermoMicroscope, resources: Optional[Resources] = None
@@ -1201,6 +1310,13 @@ def build_autoscript_chamber(
 ) -> AutoscriptChamber:
     microscope = context.microscope
     return _named(AutoscriptChamber(microscope, microscope._connection), entry)
+
+
+def build_autoscript_chamber_camera(
+    entry: DeviceEntry, context: BuildContext
+) -> AutoscriptChamberCamera:
+    microscope = context.microscope
+    return _named(AutoscriptChamberCamera(microscope, microscope._connection), entry)
 
 
 def build_autoscript_manipulator(

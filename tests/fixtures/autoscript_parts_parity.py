@@ -118,6 +118,7 @@ def make(build):
     microscope._build_stage()  # connect builds the stage first, and the moves read it
     if build:
         microscope._build_parts()
+        microscope._bind_device_roles()  # connect's last step: the needle's stage
     return microscope
 
 

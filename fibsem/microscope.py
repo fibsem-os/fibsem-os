@@ -449,7 +449,11 @@ class FibsemMicroscope(ABC):
             beam.stop_live()
 
     def acquire_chamber_image(self) -> FibsemImage:
-        raise self._unsupported("acquire_chamber_image")
+        """A frame from the ``chamber_camera`` device, as an image without metadata."""
+        camera = self.devices.get("chamber_camera")
+        if camera is None:
+            raise self._unsupported("acquire_chamber_image")
+        return FibsemImage(data=camera.acquire(), metadata=None)
 
     def autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
@@ -674,7 +678,14 @@ class FibsemMicroscope(ABC):
 
         Each backend calls this after its last device is built. The FM's roles are
         filled by the FM API, so an ``fm`` entry's bindings are not read here.
+
+        First it fills the roles every backend fills the same way: the manipulator's
+        ``stage`` is the microscope's stage. A binding in the configuration replaces it.
         """
+        manipulator, stage = self.manipulator_device, self.stage
+        if manipulator is not None and stage is not None:
+            manipulator.fill_roles(stage=stage)
+
         from fibsem.devices.entries import (
             ResolvedEntry,
             bind_device_roles,
@@ -1201,7 +1212,11 @@ class FibsemMicroscope(ABC):
     def move_manipulator_corrected(
         self, dx: float, dy: float, beam_type: BeamType
     ) -> Optional[FibsemManipulatorPosition]:
-        raise self._unsupported("move_manipulator_corrected")
+        """Move the needle by (dx, dy) in the image coordinates of *beam_type*'s view,
+        through the manipulator's ``move_corrected`` command."""
+        if "corrected" not in self.manipulator_move_types:
+            raise self._unsupported("move_manipulator_corrected")
+        return self.manipulator_device.move_corrected(dx, dy, beam_type)
 
     def move_manipulator_to_position_offset(
         self, offset: FibsemManipulatorPosition, name: str
@@ -1217,9 +1232,15 @@ class FibsemMicroscope(ABC):
     # manipulator widget asks these rather than checking the class. Whether the arm
     # rotates is `is_available("manipulator_rotation")`, from the device's axes.
 
-    #: The moves this backend offers: "relative" always, and "corrected" when it
-    #: can move the needle in a beam's image coordinates (`move_manipulator_corrected`).
-    manipulator_move_types: Tuple[str, ...] = ("relative",)
+    @property
+    def manipulator_move_types(self) -> Tuple[str, ...]:
+        """The moves this backend offers: "relative" always, and "corrected" when its
+        manipulator can move the needle in a beam's image coordinates
+        (`move_manipulator_corrected`)."""
+        device = self.manipulator_device
+        if device is not None and device.commands["move_corrected"].available:
+            return ("relative", "corrected")
+        return ("relative",)
 
     def manipulator_named_positions(self) -> List[str]:
         """The instrument's own named manipulator positions, if it has any."""

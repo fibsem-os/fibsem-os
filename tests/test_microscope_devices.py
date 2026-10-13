@@ -35,6 +35,7 @@ def test_every_device_is_in_the_map_by_name():
         "ion",
         "stage",
         "chamber",
+        "chamber_camera",
         "manipulator",
     }
 
