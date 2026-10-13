@@ -108,15 +108,14 @@ def test_drive_acts_on_the_session_and_the_hardware(client, auth):
     assert moved.status_code == 200, moved.text
 
 
-def test_no_level_vents_or_pumps_the_chamber(client, auth):
-    # Drive arms the hardware, but never the chamber's vacuum.
-    for level in AgentLevel:
-        auth.set_level(level)
-        for command in ("vent", "pump"):
-            resp = client.post(
-                f"/devices/chamber/commands/{command}", headers=AGENT, json={}
-            )
-            assert resp.status_code == 403, (level, command)
+def test_drive_cannot_vent_or_pump_the_chamber(client, auth):
+    # Drive arms the hardware, but the chamber is not served.
+    auth.set_level(AgentLevel.DRIVE)
+    for command in ("vent", "pump"):
+        resp = client.post(
+            f"/devices/chamber/commands/{command}", headers=AGENT, json={}
+        )
+        assert resp.status_code == 404, command
 
 
 def test_watch_refuses_a_hardware_command_naming_the_level(client, auth):

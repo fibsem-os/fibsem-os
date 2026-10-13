@@ -82,7 +82,7 @@ def test_lists_every_device_the_microscope_built(read_client, microscope):
     resp = read_client.get("/devices")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == set(microscope.devices)
+    assert set(body) == set(microscope.devices) - {"chamber"}
     assert "current" in body["ion"]["parameters"]
     assert "move_relative" in body["stage"]["commands"]
 
@@ -138,35 +138,15 @@ def test_command_is_hardware_scope(read_client):
     assert resp.status_code == 403
 
 
-@pytest.mark.parametrize("command", ["vent", "pump"])
-def test_chamber_vacuum_commands_are_refused_when_armed(
-    armed_client, microscope, command, monkeypatch
-):
-    # Pumping and venting are the operator's, at the microscope: refused
-    # whatever is armed, before the chamber is reached.
-    chamber = microscope.devices["chamber"]
-    reached = []
-    monkeypatch.setattr(chamber, "_vent", lambda: reached.append("vent"))
-    monkeypatch.setattr(chamber, "_pump", lambda: reached.append("pump"))
-    resp = armed_client.post(f"/devices/chamber/commands/{command}", json={})
-    assert resp.status_code == 403
-    detail = resp.json()["detail"]
-    assert detail["error_type"] == "command_not_served"
-    assert "operator" in detail["message"]
-    assert reached == []
-
-
-def test_chamber_vacuum_refusal_does_not_take_control(armed_client, microscope):
-    # Refused as not served, not as busy: the answer doesn't depend on a run.
-    with microscope.control.take("workflow", "a lamellae run"):
-        resp = armed_client.post("/devices/chamber/commands/vent", json={})
-    assert resp.status_code == 403
-    assert resp.json()["detail"]["error_type"] == "command_not_served"
-
-
-def test_chamber_reads_are_still_served(read_client):
-    assert read_client.get("/devices/chamber/state").status_code == 200
-    assert read_client.get("/devices/chamber/pressure").status_code == 200
+def test_the_chamber_is_not_served(read_client, armed_client, microscope):
+    # Pumping and venting are the operator's, at the microscope: the chamber
+    # is not served at all, whatever is armed.
+    assert "chamber" in microscope.devices
+    assert "chamber" not in read_client.get("/devices").json()
+    assert read_client.get("/devices/chamber/state").status_code == 404
+    for command in ("vent", "pump"):
+        resp = armed_client.post(f"/devices/chamber/commands/{command}", json={})
+        assert resp.status_code == 404
 
 
 def test_stop_commands_pass_with_read_scope_whoever_is_in_control(

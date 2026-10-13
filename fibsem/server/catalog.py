@@ -104,7 +104,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="list_devices",
         description=(
-            "Every device on the microscope (electron, ion, stage, chamber, ...): "
+            "Every device on the microscope (electron, ion, stage, manipulator, ...): "
             "its parameters with type, unit, limits, choices and whether settable, "
             "and its commands."
         ),

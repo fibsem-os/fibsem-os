@@ -177,45 +177,30 @@ class _RefusingRoute(APIRoute):
 # by the running move.
 STOP_COMMANDS = frozenset(("stop", "stop_live"))
 
-# Chamber commands the server never runs, whatever is armed: pumping and
-# venting take minutes, and break the vacuum a session depends on. They are the
-# operator's, at the microscope.
-CHAMBER_COMMANDS_NOT_SERVED = frozenset(("pump", "vent"))
-
-CHAMBER_NOT_SERVED_MESSAGE = (
-    "Pumping and venting the chamber aren't served: the operator does them at "
-    "the microscope."
-)
-
 _read_scope = require_scope(Scope.READ)
+
+
+def _served_devices(microscope: FibsemMicroscope) -> dict:
+    """The devices the server serves: all but the chamber. Pumping and venting
+    are the operator's, at the microscope, so the chamber is not served at all."""
+    return {
+        name: device
+        for name, device in microscope.devices.items()
+        if not isinstance(device, Chamber)
+    }
+
+
 _hardware_scope = require_scope(Scope.HARDWARE)
 
 
-def _refuse_chamber_vacuum(request: Request, command: str) -> None:
-    """403 for a chamber's pump or vent, in the refusal shape."""
-    if command not in CHAMBER_COMMANDS_NOT_SERVED:
-        return
-    name = request.path_params.get("device")
-    if isinstance(request.app.state.microscope.devices.get(name), Chamber):
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error_type": "command_not_served",
-                "message": CHAMBER_NOT_SERVED_MESSAGE,
-            },
-        )
-
-
 def _device_command_gate(request: Request, command: str):
-    """A device command's gate: a stop needs only a token, a chamber's pump or
-    vent is refused, anything else needs the hardware scope and control of the
-    microscope."""
+    """A device command's gate: a stop needs only a token, anything else the
+    hardware scope and control of the microscope."""
     if command in STOP_COMMANDS:
         _read_scope(request)
         yield
         return
     _hardware_scope(request)
-    _refuse_chamber_vacuum(request, command)
     yield from take_control(request)
 
 
@@ -638,12 +623,12 @@ def build_server(
         app.include_router(read)
         app.include_router(stop)
         app.include_router(hw)
-        # Every device's parameters and commands, as the device server serves
-        # them: reads are read scope, writes and commands hardware scope and
-        # control of the microscope.
+        # Every device's parameters and commands but the chamber's, as the
+        # device server serves them: reads are read scope, writes and commands
+        # hardware scope and control of the microscope.
         app.include_router(
             build_device_router(
-                lambda: microscope.devices,
+                lambda: _served_devices(microscope),
                 read=[Depends(require_scope(Scope.READ))],
                 write=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)],
                 command=[Depends(_device_command_gate)],
