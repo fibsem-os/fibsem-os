@@ -71,6 +71,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisco
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
+from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.core import (
     Device,
     ParameterMetadata,
@@ -98,12 +99,14 @@ WS_PROTOCOL = "websockets-sansio"
 
 """A command that returns an array (an image) answers with ``np.save`` bytes."""
 
-# An error keeps its type across the wire; anything else is a plain failure.
+# An error keeps its type across the wire; anything else is a plain failure. These
+# are refusals and outcomes, not faults: each is logged as one line, no traceback.
 ERROR_STATUS = {
     ParameterUnavailable: 404,
     ParameterReadOnly: 409,
+    OperationCancelledError: 409,  # stopped: a sweep, a mill (FIB-1355)
     TypeError: 422,
-    ValueError: 422,
+    ValueError: 422,  # an argument that does not decode names its parameter
     NotImplementedError: 501,  # a command this driver has no hook for (a needle's stop)
 }
 
@@ -279,16 +282,21 @@ def build_device_router(
             raise HTTPException(404, f"'{device}' declares no parameter '{name}'")
         return getattr(d, name)  # ParameterUnavailable when this backend lacks it
 
-    def run(call: Any) -> Any:
+    def run(call: Any, what: str) -> Any:
         try:
             return call()
         except HTTPException:
             raise
         except tuple(ERROR_STATUS) as error:
             status = next(s for t, s in ERROR_STATUS.items() if isinstance(error, t))
-            raise HTTPException(
-                status, {"error": type(error).__name__, "detail": str(error)}
-            ) from None
+            detail = {"error": type(error).__name__, "detail": str(error)}
+            if isinstance(error, OperationCancelledError):
+                detail["status"] = "cancelled"
+            parameter = getattr(error, "parameter", None)
+            if parameter is not None:
+                detail["parameter"] = parameter
+            logging.info(f"{what}: {status} {detail['error']}: {error}")
+            raise HTTPException(status, detail) from None
 
     @router.get(prefix, dependencies=list(read))
     def list_devices() -> Dict[str, Any]:
@@ -300,20 +308,29 @@ def build_device_router(
 
     @router.get(prefix + "/{device}/{parameter}", dependencies=list(read))
     def read_parameter(device: str, parameter: str) -> Dict[str, Any]:
-        value = run(lambda: parameter_of(device, parameter).get_value())
+        value = run(
+            lambda: parameter_of(device, parameter).get_value(),
+            f"{noun} {device}.{parameter}",
+        )
         return {"value": to_wire(value)}
 
     @router.put(prefix + "/{device}/{parameter}", dependencies=list(write))
     def write_parameter(
         device: str, parameter: str, body: Dict[str, Any]
     ) -> Dict[str, Any]:
-        param = run(lambda: parameter_of(device, parameter))
-        value = from_wire(param.type, body["value"])
-        return {"value": to_wire(run(lambda: param.set_value(value)))}
+        what = f"{noun} {device}.{parameter}"
+        param = run(lambda: parameter_of(device, parameter), what)
+        value = run(lambda: from_wire(param.type, body["value"]), what)
+        return {"value": to_wire(run(lambda: param.set_value(value), what))}
 
     @router.get(prefix + "/{device}/{parameter}/metadata", dependencies=list(read))
     def metadata(device: str, parameter: str) -> Dict[str, Any]:
-        return metadata_payload(run(lambda: parameter_of(device, parameter).metadata))
+        return metadata_payload(
+            run(
+                lambda: parameter_of(device, parameter).metadata,
+                f"{noun} {device}.{parameter}",
+            )
+        )
 
     @router.post(prefix + "/{device}/commands/{command}", dependencies=list(command))
     def call(device: str, command: str, body: Dict[str, Any]) -> Any:
@@ -321,8 +338,9 @@ def build_device_router(
         if command not in d.commands:
             raise HTTPException(404, f"'{device}' has no command '{command}'")
         method = getattr(d, command)
-        kwargs = decode_kwargs(method, body.get("kwargs", {}))
-        result = run(lambda: method(**kwargs))
+        what = f"{noun} {device}.{command}"
+        kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
+        result = run(lambda: method(**kwargs), what)
         headers = {}
         if isinstance(result, FibsemImage):  # a beam's image: TIFF, as /acquire_image
             return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
@@ -352,8 +370,10 @@ def build_device_router(
         if query not in getattr(d, "queries", {}):
             raise HTTPException(404, f"'{device}' has no query '{query}'")
         method = getattr(d, query)
-        kwargs = decode_kwargs(method, body.get("kwargs", {}))
-        return {"result": jsonable_encoder(to_wire(run(lambda: method(**kwargs))))}
+        what = f"{noun} {device}.{query}"
+        kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
+        result = run(lambda: method(**kwargs), what)
+        return {"result": jsonable_encoder(to_wire(result))}
 
     return router
 

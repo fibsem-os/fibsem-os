@@ -25,7 +25,6 @@ import logging
 import threading
 import time
 from typing import (
-    TYPE_CHECKING,
     Any,
     Dict,
     List,
@@ -37,14 +36,14 @@ from typing import (
     Union,
 )
 
+# At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
+# from its type hints (a SpotBurnSettings sent as a dict).
+from fibsem.cancellation import AnyStopEvent
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.services.core import Service, forward_to, save_beam_conditions
 from fibsem.structures import BeamType, Point
-
-if TYPE_CHECKING:
-    from fibsem.cancellation import AnyStopEvent
 
 _S = TypeVar("_S", bound="SpotBurn")
 
