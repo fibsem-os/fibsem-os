@@ -607,6 +607,14 @@ def bind_tescan_beams(
     }
 
 
+STAGE_FRAME_TESCAN = "tescan_native"
+"""Tescan's own stage frame, stamped on an image from a Tescan with no stage device.
+
+x and y run opposite the image, y rides on the tilt module and z is chamber-vertical,
++z down (FIB-1114). A stage device converts into fibsem's frame and stamps that.
+"""
+
+
 TILT_AXIS_Z = 29.8e-3
 """z′₀, in metres: the Tescan z reading at which the converted frame puts the tilt axis.
 
@@ -676,7 +684,7 @@ class TescanStage(Stage):
     Fibsem has never read the Tescan stage's limits, so every axis is unlimited and
     the instrument refuses what it cannot reach. ``home()`` refers to the native UI, so
     ``homed`` is absent (its key reads None). z is not linked to
-    the working distance, so ``linked`` reads False.
+    the working distance, so ``linked`` reads False and ``link`` changes nothing.
     """
 
     def __init__(
@@ -722,6 +730,11 @@ class TescanStage(Stage):
 
     def read_linked(self) -> bool:
         return False
+
+    def _link(self) -> None:
+        # Nothing to link: ``link`` leaves the stage as it is and reports False, as
+        # ``link_stage`` did before the stage was a device.
+        logging.info("The Tescan stage is not linked to the working distance.")
 
     def _native(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """``position`` in Tescan's frame, with None where the move leaves an axis."""

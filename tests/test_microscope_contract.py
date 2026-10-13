@@ -6,9 +6,17 @@ happens to use Demo. This file writes it down: the beam parameters (read and wri
 the named methods read and write them), the named methods, the stage, chamber and
 manipulator devices, stage moves, state, and image acquisition.
 
-It runs against `DemoMicroscope`, the demo backend built from devices. Until it
-replaced the Demo before devices (`LegacyDemoMicroscope`, since deleted), every test
-here ran against both, so what is pinned is what the Demo has always done.
+The tests that take the `microscope` fixture run on every driver with a fake SDK that
+connects a whole microscope (`tests/fixtures/fake_drivers.py`): the Demo, which stands
+in for ThermoFisher, and Tescan. A driver joins by adding its fake there. Not every
+instrument has every part: a test asks the microscope what it has (a beam parameter,
+whether it is settable, a chamber or manipulator device) and skips with the reason, or
+pins what the API does without it, rather than keeping a skip list per driver. The
+tests named `test_demo_*` (and the FM ones) pin the Demo's own simulation.
+
+Until the Demo built from devices replaced the one before them
+(`LegacyDemoMicroscope`, since deleted), every test here ran against both, so what is
+pinned on the Demo is what it has always done.
 
 What is pinned is today's behaviour, including the parts nobody would design on
 purpose (a beam parameter read without a beam type raises). Where a test pins such a
@@ -42,25 +50,37 @@ from fibsem.structures import (
     Point,
     ScanMode,
 )
-
-# The backends this suite runs against. Each is built the way a session builds it,
-# through `utils.setup_session`.
-BACKENDS = ["Demo"]
+from tests.fixtures import fake_drivers
+from tests.fixtures.fake_drivers import FAKE_DRIVERS
 
 BEAMS = [BeamType.ELECTRON, BeamType.ION]
 
 
 def _connect(backend: str, base: str = cfg.DEFAULT_CONFIGURATION_PATH):
+    """The Demo, built the way a session builds it, through `utils.setup_session`."""
+    assert backend == "Demo", "the other drivers connect through fake_drivers"
     microscope, _ = utils.setup_session(
         config_path=base, manufacturer="Demo", setup_logging=False
     )
     return microscope
 
 
-def test_backends_are_what_they_say():
+def test_backends_are_what_they_say(monkeypatch):
     from fibsem.drivers.demo.microscope import DemoMicroscope
+    from fibsem.drivers.registry import get_driver
 
     assert type(_connect("Demo")) is DemoMicroscope
+    for name in FAKE_DRIVERS:
+        microscope = fake_drivers.connect(name, monkeypatch)
+        assert type(microscope) is get_driver(name).load()
+
+
+def test_every_built_in_driver_has_a_fake():
+    """A built-in driver runs this suite over its fake SDK, or says why not yet."""
+    from fibsem.drivers.registry import _BUILT_IN
+
+    assert set(_BUILT_IN) == set(FAKE_DRIVERS) | set(fake_drivers.PENDING)
+    assert not set(FAKE_DRIVERS) & set(fake_drivers.PENDING)
 
 
 # The parts not every system has, and the patterns not every vendor can draw: a
@@ -110,9 +130,9 @@ def test_a_backend_without_an_optional_part_says_so():
         minimal.retract_manipulator()
 
 
-@pytest.fixture(params=BACKENDS)
-def microscope(request):
-    return _connect(request.param)
+@pytest.fixture(params=sorted(FAKE_DRIVERS))
+def microscope(request, monkeypatch):
+    return fake_drivers.connect(request.param, monkeypatch)
 
 
 def _is_real(value) -> bool:
@@ -139,8 +159,22 @@ def _write(microscope, name: str, value, beam_type) -> None:
 
 def _choices(microscope, name: str, beam_type) -> list:
     """A beam parameter's choices, or none where the beam does not have it."""
-    param = microscope.beams[beam_type].parameters.get(name)
+    param = _parameter(microscope, name, beam_type)
     return [] if param is None or param.choices is None else list(param.choices)
+
+
+def _parameter(microscope, name: str, beam_type):
+    """The beam's parameter, or None where the beam does not have it."""
+    return microscope.beams[beam_type].parameters.get(name)
+
+
+def _require(microscope, name: str, beam_type, settable: bool = False) -> None:
+    """Skip unless the beam has the parameter (and, if asked, it can be set)."""
+    param = _parameter(microscope, name, beam_type)
+    if param is None:
+        pytest.skip(f"the {beam_type.name} beam has no {name}")
+    if settable and not param.settable:
+        pytest.skip(f"the {beam_type.name} beam's {name} is not settable")
 
 
 def _chamber_state(microscope) -> str:
@@ -347,27 +381,52 @@ def test_demo_scans_through_its_beam_commands(beam_type):
 # What takes no beam type
 # ---------------------------------------------------------------------------
 
-# name -> (how to read it, what the read must answer with).
-GLOBAL_READS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], bool]]] = {
-    "chamber_state": (_chamber_state, lambda v: isinstance(v, str)),
-    "chamber_pressure": (lambda m: m.chamber_device.pressure.get_value(), _is_real),
+
+def _has_chamber(m) -> bool:
+    return m.chamber_device is not None
+
+
+def _has_manipulator(m) -> bool:
+    return m.manipulator_device is not None
+
+
+def _stage_has(name: str) -> Callable[[Any], bool]:
+    return lambda m: name in m.stage.parameters
+
+
+# name -> (whether the microscope has it, how to read it, what the read must answer
+# with).
+GLOBAL_READS: Dict[
+    str, Tuple[Callable[[Any], bool], Callable[[Any], Any], Callable[[Any], bool]]
+] = {
+    "chamber_state": (_has_chamber, _chamber_state, lambda v: isinstance(v, str)),
+    "chamber_pressure": (
+        _has_chamber,
+        lambda m: m.chamber_device.pressure.get_value(),
+        _is_real,
+    ),
     "stage_position": (
+        _stage_has("position"),
         lambda m: m.stage.position.get_value(),
         lambda v: isinstance(v, FibsemStagePosition),
     ),
     "stage_homed": (
+        _stage_has("homed"),
         lambda m: m.stage.homed.get_value(),
         lambda v: isinstance(v, bool),
     ),
     "stage_linked": (
+        _stage_has("linked"),
         lambda m: m.stage.linked.get_value(),
         lambda v: isinstance(v, bool),
     ),
     "manipulator_position": (
+        _has_manipulator,
         lambda m: m.manipulator_device.position.get_value(),
         lambda v: isinstance(v, FibsemManipulatorPosition),
     ),
     "manipulator_state": (
+        _has_manipulator,
         lambda m: m.get_manipulator_state(),
         lambda v: isinstance(v, bool),
     ),
@@ -376,7 +435,9 @@ GLOBAL_READS: Dict[str, Tuple[Callable[[Any], Any], Callable[[Any], bool]]] = {
 
 @pytest.mark.parametrize("name", sorted(GLOBAL_READS))
 def test_global_reads(microscope, name):
-    read, check = GLOBAL_READS[name]
+    has, read, check = GLOBAL_READS[name]
+    if not has(microscope):
+        pytest.skip(f"{type(microscope).__name__} has no {name}")
     assert check(read(microscope))
 
 
@@ -408,6 +469,10 @@ BEAM_KEYS: Dict[str, Tuple[Callable[[Any], bool], Any]] = {
 # Parameters that are read but not written (the scan commands change the mode).
 BEAM_READ_ONLY_KEYS = {"scanning_mode"}
 
+# A value to write where the parameter lists no choices to take one from (a Tescan's
+# electron voltage is set freely).
+UNLISTED_VALUES: Dict[str, Any] = {"voltage": 2000.0}
+
 
 def _new_value(microscope, key: str, beam_type: BeamType):
     """A valid value for `key` that differs from the one it has now."""
@@ -415,15 +480,47 @@ def _new_value(microscope, key: str, beam_type: BeamType):
     if value is not None:
         return value
     current = _read(microscope, key, beam_type)
-    choices = [c for c in _choices(microscope, key, beam_type) if c != current]
+    listed = _choices(microscope, key, beam_type)
+    if not listed and key in UNLISTED_VALUES:
+        assert UNLISTED_VALUES[key] != current
+        return UNLISTED_VALUES[key]
+    choices = [c for c in listed if c != current]
     assert choices, f"{key} offers nothing to change to on {beam_type.name}"
     return choices[0]
+
+
+def _image_settings(beam_type: BeamType) -> ImageSettings:
+    return ImageSettings(
+        beam_type=beam_type, hfw=50e-6, resolution=(64, 48), dwell_time=1e-6
+    )
 
 
 @pytest.mark.parametrize("key", sorted(BEAM_KEYS))
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_beam_key_reads(microscope, key, beam_type):
-    assert BEAM_KEYS[key][0](_read(microscope, key, beam_type))
+    """Every parameter the beam has reads as its type. One the instrument cannot set
+    or report (a Tescan's resolution, dwell time and stigmation) is the last image's,
+    so it reads once an image has been taken."""
+    _require(microscope, key, beam_type)
+    value = _read(microscope, key, beam_type)
+    if value is None and not _parameter(microscope, key, beam_type).settable:
+        microscope.acquire_image(_image_settings(beam_type))
+        value = _read(microscope, key, beam_type)
+    assert BEAM_KEYS[key][0](value)
+
+
+@pytest.mark.parametrize("beam_type", BEAMS)
+def test_a_beam_key_the_beam_lacks_reads_none(microscope, beam_type):
+    """Absent = unsupported: a parameter the beam does not have reads None, and
+    writing it changes nothing."""
+    lacks = [k for k in BEAM_KEYS if _parameter(microscope, k, beam_type) is None]
+    if not lacks:
+        pytest.skip(f"the {beam_type.name} beam has every parameter")
+    before = _readable_state(microscope)
+    for key in lacks:
+        _write(microscope, key, BEAM_KEYS[key][1], beam_type)
+        assert _read(microscope, key, beam_type) is None, key
+    assert _readable_state(microscope) == before
 
 
 @pytest.mark.parametrize("key", sorted(BEAM_KEYS))
@@ -440,6 +537,7 @@ def test_beam_key_without_beam_type_raises(microscope, key):
 )
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_beam_key_round_trips(microscope, key, beam_type):
+    _require(microscope, key, beam_type, settable=True)
     value = _new_value(microscope, key, beam_type)
     _write(microscope, key, value, beam_type)
     assert _read(microscope, key, beam_type) == value
@@ -464,6 +562,7 @@ def test_each_beam_can_be_disabled_on_its_own(microscope, beam_type, system):
 
 @pytest.mark.parametrize("key", sorted(set(BEAM_KEYS) - BEAM_READ_ONLY_KEYS))
 def test_beam_key_write_leaves_the_other_beam_alone(microscope, key):
+    _require(microscope, key, BeamType.ELECTRON, settable=True)
     before = _read(microscope, key, BeamType.ION)
     _write(
         microscope,
@@ -484,14 +583,20 @@ CHOICE_KEYS = ["current", "voltage", "detector_type", "detector_mode"]
 @pytest.mark.parametrize("key", CHOICE_KEYS)
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_current_value_is_one_of_the_choices(microscope, key, beam_type):
+    """A settable parameter that lists choices is at one of them. A Tescan's
+    voltage lists none (it is set freely); its current is not settable, and the list
+    it offers is a fixed one the instrument's current need not be on."""
+    _require(microscope, key, beam_type, settable=True)
     choices = _choices(microscope, key, beam_type)
-    assert choices
+    if not choices:
+        pytest.skip(f"the {beam_type.name} beam's {key} lists no choices")
     assert _read(microscope, key, beam_type) in choices
 
 
 @pytest.mark.parametrize("key", CHOICE_KEYS)
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_every_choice_can_be_set(microscope, key, beam_type):
+    _require(microscope, key, beam_type, settable=True)
     for choice in _choices(microscope, key, beam_type):
         _write(microscope, key, choice, beam_type)
         assert _read(microscope, key, beam_type) == choice
@@ -518,12 +623,11 @@ def test_demo_beams_own_their_choices():
     assert _read(microscope, "plasma_gas", BeamType.ION) == "Argon"
 
 
-@pytest.mark.parametrize("backend", BACKENDS)
-def test_ion_currents_follow_the_plasma_gas(backend):
+def test_demo_ion_currents_follow_the_plasma_gas():
     from fibsem.drivers.demo.simulator import SIMULATOR_BEAM_CURRENTS
 
     currents = SIMULATOR_BEAM_CURRENTS[BeamType.ION]
-    microscope = _connect(backend, _plasma_configuration())
+    microscope = _connect("Demo", _plasma_configuration())
     assert _read(microscope, "plasma_gas", BeamType.ION) == "Xenon"
     assert _choices(microscope, "current", BeamType.ION) == currents["Xenon"]
     _write(microscope, "plasma_gas", "Argon", BeamType.ION)
@@ -585,17 +689,19 @@ def test_a_ga_column_offers_no_plasma_gas(microscope, beam_type):
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_milling_choices_are_the_milling_services(microscope, beam_type):
     """The milling service lists the application files (``supported_settings``) and
-    scan directions (``supported_pattern_settings``); no beam parameter has them."""
+    scan directions (``supported_pattern_settings``) where the instrument has them (a
+    Tescan has no application files); no beam parameter has them."""
     milling = microscope.milling
-    for key, choices in (
-        ("application_file", milling.supported_settings()["application_file"].choices),
-        (
-            "scan_direction",
-            milling.supported_pattern_settings()["scan_direction"].choices,
-        ),
-    ):
+    offered = {
+        "application_file": milling.supported_settings(),
+        "scan_direction": milling.supported_pattern_settings(),
+    }
+    assert "scan_direction" in offered["scan_direction"]
+    for key, settings in offered.items():
         assert _choices(microscope, key, beam_type) == []
-        assert choices and all(isinstance(c, str) for c in choices)
+        if key in settings:
+            choices = settings[key].choices
+            assert choices and all(isinstance(c, str) for c in choices)
 
 
 # ---------------------------------------------------------------------------
@@ -606,7 +712,11 @@ def test_milling_choices_are_the_milling_services(microscope, beam_type):
 def _readable_state(microscope) -> Dict[str, Any]:
     """Everything the contract reads, for detecting a write that should change
     nothing."""
-    state = {name: read(microscope) for name, (read, _) in GLOBAL_READS.items()}
+    state = {
+        name: read(microscope)
+        for name, (has, read, _) in GLOBAL_READS.items()
+        if has(microscope)
+    }
     for beam_type in BEAMS:
         for key in BEAM_KEYS:
             state[(key, beam_type.name)] = _read(microscope, key, beam_type)
@@ -615,8 +725,10 @@ def _readable_state(microscope) -> Dict[str, Any]:
 
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_preset_is_a_silent_no_op(microscope, beam_type, caplog):
-    """The Demo beams have no preset: reading it is None and writing it does nothing,
-    without a warning (absent = unsupported)."""
+    """A beam with no preset (the Demo's): reading it is None and writing it does
+    nothing, without a warning (absent = unsupported)."""
+    if _parameter(microscope, "preset", beam_type) is not None:
+        pytest.skip(f"the {beam_type.name} beam has presets")
     before = _readable_state(microscope)
     with caplog.at_level(logging.WARNING):
         assert microscope.get_preset(beam_type) is None
@@ -652,6 +764,7 @@ BEAM_WRAPPERS = [
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_beam_wrappers_match_their_key(microscope, getter, setter, key, beam_type):
     assert getattr(microscope, getter)(beam_type) == _read(microscope, key, beam_type)
+    _require(microscope, key, beam_type, settable=True)
     value = _new_value(microscope, key, beam_type)
     returned = getattr(microscope, setter)(value, beam_type)
     assert returned == value
@@ -664,6 +777,11 @@ def test_on_off_and_blanking(microscope, beam_type):
     assert microscope.is_on(beam_type) is False
     assert microscope.turn_on(beam_type) is True
     assert microscope.is_on(beam_type) is True
+    if _parameter(microscope, "blanked", beam_type) is None:
+        # absent = unsupported: blanking does nothing and says nothing
+        assert microscope.blank(beam_type) is None
+        assert microscope.is_blanked(beam_type) is None
+        return
     assert microscope.blank(beam_type) is True
     assert microscope.is_blanked(beam_type) is True
     assert microscope.unblank(beam_type) is False
@@ -672,6 +790,7 @@ def test_on_off_and_blanking(microscope, beam_type):
 
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_scanning_modes(microscope, beam_type):
+    _require(microscope, "scanning_mode", beam_type)
     microscope.set_spot_scanning_mode(Point(0.5, 0.5), beam_type)
     assert _read(microscope, "scanning_mode", beam_type) == "spot"
     microscope.set_reduced_area_scanning_mode(
@@ -692,8 +811,9 @@ def test_beam_shift_adds_to_the_shift(microscope, beam_type):
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
-def test_the_spot_burn_reads_where_the_beam_is_parked(microscope, beam_type):
+def test_demo_spot_burn_reads_where_the_beam_is_parked(beam_type):
     """A spot burn marks the scene at the beam's spot, at its current field."""
+    microscope = _connect("Demo")
     point = Point(0.25, 0.75)
     microscope.set_field_of_view(100e-6, beam_type)
     microscope.set_spot_scanning_mode(point, beam_type)
@@ -704,6 +824,12 @@ def test_the_spot_burn_reads_where_the_beam_is_parked(microscope, beam_type):
 
 
 def test_vent_and_pump(microscope):
+    """A microscope with no chamber device says so rather than doing nothing."""
+    if not _has_chamber(microscope):
+        for method in (microscope.vent, microscope.pump):
+            with pytest.raises(NotImplementedError, match=method.__name__):
+                method()
+        return
     assert microscope.vent() == "Vented"
     assert _chamber_state(microscope) == "Vented"
     assert microscope.pump() == "Pumped"
@@ -711,13 +837,22 @@ def test_vent_and_pump(microscope):
 
 
 def test_home_homes_and_says_so(microscope):
-    """`home` returns whether the stage is homed afterwards, on every backend."""
+    """`home` returns whether the stage is homed afterwards, or None where the stage
+    cannot say (a Tescan's cannot home from here)."""
+    if not _stage_has("homed")(microscope):
+        assert microscope.home() is None
+        return
     assert microscope.home() is True
     assert microscope.stage.homed.get_value() is True
 
 
 def test_link_stage(microscope):
-    assert microscope.link_stage() is True
+    """`link_stage` returns whether the stage is linked afterwards: the Demo's
+    links; a Tescan's z is never linked to the working distance, so it stays False."""
+    if not _stage_has("linked")(microscope):
+        assert microscope.link_stage() is None
+        return
+    assert microscope.link_stage() is microscope.stage.linked.get_value()
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
@@ -788,7 +923,25 @@ def test_safe_absolute_stage_movement_arrives(microscope):
 # ---------------------------------------------------------------------------
 
 
-def test_manipulator_inserts_and_retracts(microscope):
+@pytest.fixture
+def manipulator_microscope(microscope):
+    if not _has_manipulator(microscope):
+        pytest.skip(f"{type(microscope).__name__} has no manipulator")
+    return microscope
+
+
+def test_no_manipulator_says_so(microscope):
+    """A microscope with no manipulator device raises on its manipulator methods."""
+    if _has_manipulator(microscope):
+        pytest.skip(f"{type(microscope).__name__} has a manipulator")
+    with pytest.raises(NotImplementedError, match="insert_manipulator"):
+        microscope.insert_manipulator("PARK")
+    with pytest.raises(NotImplementedError, match="move_manipulator_relative"):
+        microscope.move_manipulator_relative(FibsemManipulatorPosition(x=1e-6))
+
+
+def test_manipulator_inserts_and_retracts(manipulator_microscope):
+    microscope = manipulator_microscope
     inserted = microscope.insert_manipulator("PARK")
     assert isinstance(inserted, FibsemManipulatorPosition)
     assert _xyzrt(inserted) == _xyzrt(microscope.get_manipulator_position())
@@ -799,7 +952,8 @@ def test_manipulator_inserts_and_retracts(microscope):
     assert microscope.get_manipulator_state() is False
 
 
-def test_manipulator_moves_absolute_and_relative(microscope):
+def test_manipulator_moves_absolute_and_relative(manipulator_microscope):
+    microscope = manipulator_microscope
     target = FibsemManipulatorPosition(x=1e-6, y=2e-6, z=3e-6)
     moved = microscope.move_manipulator_absolute(deepcopy(target))
     assert np.allclose(_xyzrt(moved), _xyzrt(target))
@@ -809,13 +963,17 @@ def test_manipulator_moves_absolute_and_relative(microscope):
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
-def test_manipulator_corrected_move_returns_where_it_is(microscope, beam_type):
+def test_manipulator_corrected_move_returns_where_it_is(
+    manipulator_microscope, beam_type
+):
+    microscope = manipulator_microscope
     moved = microscope.move_manipulator_corrected(1e-6, -1e-6, beam_type)
     assert isinstance(moved, FibsemManipulatorPosition)
     assert _xyzrt(moved) == _xyzrt(microscope.get_manipulator_position())
 
 
-def test_manipulator_moves_to_an_offset_from_a_saved_position(microscope):
+def test_manipulator_moves_to_an_offset_from_a_saved_position(manipulator_microscope):
+    microscope = manipulator_microscope
     eucentric = microscope._get_saved_manipulator_position("EUCENTRIC")
     offset = FibsemManipulatorPosition(x=1e-6, z=-2e-6)
     moved = microscope.move_manipulator_to_position_offset(
@@ -824,7 +982,8 @@ def test_manipulator_moves_to_an_offset_from_a_saved_position(microscope):
     assert np.allclose(_xyzrt(moved), _xyzrt(eucentric + offset))
 
 
-def test_unknown_saved_manipulator_position_raises(microscope):
+def test_unknown_saved_manipulator_position_raises(manipulator_microscope):
+    microscope = manipulator_microscope
     with pytest.raises(ValueError):
         microscope._get_saved_manipulator_position("NOWHERE")
 
@@ -836,9 +995,9 @@ def test_unknown_saved_manipulator_position_raises(microscope):
 FM_CONFIGURATION = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 
-@pytest.fixture(params=BACKENDS)
-def fm_microscope(request):
-    return _connect(request.param, FM_CONFIGURATION)
+@pytest.fixture
+def fm_microscope():
+    return _connect("Demo", FM_CONFIGURATION)
 
 
 def test_a_compustage_is_never_linked_and_cannot_link(fm_microscope, caplog):
@@ -981,18 +1140,23 @@ def test_microscope_state_restores(microscope):
     before = _readable_state(microscope)
 
     microscope.move_stage_absolute(FibsemStagePosition(x=4e-3, y=4e-3))
-    for beam_type in BEAMS:
-        for key in ("working_distance", "hfw", "dwell_time", "detector_contrast"):
-            _write(microscope, key, _new_value(microscope, key, beam_type), beam_type)
+    written = [
+        (key, beam_type)
+        for beam_type in BEAMS
+        for key in ("working_distance", "hfw", "dwell_time", "detector_contrast")
+        if (param := _parameter(microscope, key, beam_type)) is not None
+        and param.settable
+    ]
+    for key, beam_type in written:
+        _write(microscope, key, _new_value(microscope, key, beam_type), beam_type)
     assert _readable_state(microscope) != before
 
     microscope.set_microscope_state(state)
     after = _readable_state(microscope)
-    for key in ("working_distance", "hfw", "dwell_time", "detector_contrast"):
-        for beam_type in BEAMS:
-            assert np.isclose(
-                after[(key, beam_type.name)], before[(key, beam_type.name)]
-            ), key
+    for key, beam_type in written:
+        assert np.isclose(
+            after[(key, beam_type.name)], before[(key, beam_type.name)]
+        ), key
     assert np.allclose(
         _xyzrt(after["stage_position"]), _xyzrt(before["stage_position"])
     )
@@ -1019,8 +1183,16 @@ def test_acquire_image(microscope, beam_type):
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_finish_milling_puts_the_beam_back(microscope, beam_type):
     """What the first setup_milling found comes back, with an imaging current
-    given still winning; a second finish has nothing left to put back."""
+    given still winning; a second finish has nothing left to put back.
+
+    Where the current is not settable (a Tescan's comes with the milling preset,
+    which the fake SDK does not model), only the putting back is checked."""
     from fibsem.structures import FibsemMillingSettings
+
+    channels = microscope.milling.supported_settings()["milling_channel"].choices
+    if channels and beam_type not in channels:
+        pytest.skip(f"{type(microscope).__name__} does not mill with {beam_type.name}")
+    sets_current = _parameter(microscope, "current", beam_type).settable
 
     def conditions():
         return [
@@ -1034,9 +1206,12 @@ def test_finish_milling_puts_the_beam_back(microscope, beam_type):
                 milling_channel=beam_type, milling_current=current, hfw=hfw
             )
         )
-    assert conditions() != before
+    if sets_current:
+        assert conditions() != before
     microscope.finish_milling()
     assert np.allclose(conditions(), before)
+    if not sets_current:
+        return
 
     microscope.setup_milling(FibsemMillingSettings(milling_channel=beam_type))
     microscope.finish_milling(imaging_current=3e-10)
