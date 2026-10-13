@@ -1,8 +1,10 @@
 """The Demo backend, built from devices.
 
 ``DemoMicroscope`` is the simulated microscope every Demo session gets. It is its
-devices plus the demo code in ``fibsem.drivers.demo.simulator`` (``DemoSession``,
-``DemoConfiguration``, ``DemoImaging`` and ``DemoScene``).
+devices and services, built over one simulator object (``DemoSimulator`` in
+``fibsem.drivers.demo.simulator``), which is the Demo's connection: the imaging
+channel, the image sequence, the sample scene and the milling patterns. The devices
+and services are handed it at build, as Thermo's are handed ``AutoScriptConnection``.
 ``fibsem.drivers.demo.simulator.DemoMicroscope`` is this class too.
 
 ``tests/test_microscope_contract.py`` pins its behaviour, which is what the Demo
@@ -23,10 +25,8 @@ which holds the Demo's milling code, and the milling methods go to it
 (``FibsemMicroscope``); ``finish_milling`` puts the milling beam back as
 ``setup_milling`` found it.
 
-The shared code answers what the configuration alone does (the fitted parts, the
-stage's limits, the grid loader and the constant value lists), and runs
-imaging and the sample scene, changing the beams only through the
-microscope's beam methods and so through the beam devices.
+The simulator runs imaging and the sample scene, changing the beams only through
+the microscope's beam methods and so through the beam devices.
 
 The FM is devices too: ``fm_devices`` are the Demo FM devices (``DemoCamera`` and
 the rest), and ``fm`` is the FM API over them (``DemoFluorescenceMicroscope``), so
@@ -41,32 +41,30 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
-from fibsem._timing import sim_sleep
 from fibsem.devices.core import Device, resources_of
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.demo.devices import bind_demo_fm
 from fibsem.drivers.demo.services import bind_demo_milling, bind_demo_spot_burn
 from fibsem.drivers.demo.simulator import (
     SIM_OBJECTIVE_FOCUS_POSITION,
-    DemoConfiguration,
-    DemoImaging,
     DemoParts,
-    DemoScene,
-    DemoSession,
+    DemoSimulator,
     initial_demo_parts,
     sim_is_compustage,
 )
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.microscope import FibsemMicroscope, _records_beam_shift
+from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamSettings,
     BeamType,
     DeviceEntry,
+    FibsemExperimentRef,
     FibsemManipulatorPosition,
     FibsemRectangle,
-    FibsemStagePosition,
+    FibsemUser,
+    ImageSettings,
     Point,
     SystemSettings,
 )
@@ -116,14 +114,8 @@ class DemoFluorescenceMicroscope(FluorescenceMicroscope):
             yield
 
 
-class DemoMicroscope(
-    DemoSession,
-    DemoConfiguration,
-    DemoImaging,
-    DemoScene,
-    FibsemMicroscope,
-):
-    """The demo microscope built from devices, with the shared demo code."""
+class DemoMicroscope(FibsemMicroscope):
+    """The demo microscope built from devices, over the Demo's simulator."""
 
     driver_name = "Demo"
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
@@ -137,11 +129,28 @@ class DemoMicroscope(
     # service reads it when it is built.
     _read_magazine_at_connect = True
 
+    _connection: DemoSimulator
+
     def __init__(self, system_settings: SystemSettings):
-        self._start_session(system_settings)
+        self.system = system_settings
+        self._connection = DemoSimulator(self)
         self._build_devices(initial_demo_parts(self.system))
         self._setup_fluorescence()
-        self._finish_session()
+
+        # user, experiment metadata
+        # TODO: remove once db integrated
+        self.user = FibsemUser.from_environment()
+        self.experiment = FibsemExperimentRef()
+
+        self._last_imaging_settings: ImageSettings = ImageSettings()
+        self.milling_channel: BeamType = BeamType.ION
+        self._connection.setup_sample_scene()
+        logging.debug(
+            {
+                "msg": "create_microscope_client",
+                "system_settings": self.system.to_dict(),
+            }
+        )
 
     def _build_devices(self, parts: DemoParts) -> None:
         """Build the devices the configuration asks for, from the starting parts.
@@ -175,15 +184,99 @@ class DemoMicroscope(
         self.spot_burn = bind_demo_spot_burn(self)
         self._build_imaging()
 
-    # The beam methods the shared demo code leaves to each demo, on the beam devices.
+    def _setup_fluorescence(self) -> None:
+        # fluorescence microscope
+        #
+        # `has_fm` stands in for a capability read, not for configuration. A real
+        # Thermo system has no `is_installed` for the FM -- every other subsystem has
+        # one -- so the only way to know is to try selecting it and see whether the
+        # microscope refuses, which `ThermoMicroscope.__init__` already does. The
+        # simulator has nothing to ask, so it is told what the pretend hardware would
+        # have answered, and that belongs in `sim:` rather than in a configuration
+        # block describing the instrument.
+        #
+        # Deliberately separate from the fluorescence *geometry*, so that "an FM is
+        # present but nothing is configured for it" stays representable -- that is the
+        # state an existing site hits on upgrade, and the one worth testing (FIB-830).
+        #
+        # Defaults to `sim.is_compustage`, which is what this branched on before, so
+        # every simulator configuration keeps its current behaviour without the key.
+        has_fm = bool(self.system.sim.get("has_fm", sim_is_compustage(self.system)))
 
-    @_records_beam_shift
-    def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
-        logging.debug(
-            {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
+        # Two independent questions, and the simulator is the only place both can be
+        # posed. `_fluorescence_is_configured` is whether the site said its instrument
+        # has an FM; `has_fm` is what the hardware probe would have answered. Both are
+        # required, which is what makes the middle row of the table below the sim
+        # configuration representable: an FM detected on a system nothing is
+        # configured for -- a site upgrading -- gets no FM, and that is the case worth
+        # being able to test.
+        # The probe only answers for the Demo's own FM; one on another driver (an FM
+        # on its own PC) is built as the configuration says.
+        if has_fm or not self._fluorescence_uses_own_driver():
+            self.fm = self._build_fluorescence(self.driver_name)
+        else:
+            self.fm = None
+        if self.fm is None:
+            logging.info("No fluorescence microscope in this simulated system.")
+
+        self._apply_fluorescence_calibration()
+        self._warn_on_fluorescence_geometry()
+
+    def connect_to_microscope(
+        self, ip_address: str, port: int = 8080, reset_beam_shift: bool = True
+    ) -> None:
+        """Connect to the microscope server.
+        Args:
+            ip_address: The IP address of the microscope server.
+            port: The port number of the microscope server.
+            reset_beam_shift: Whether to reset beam shifts on connect (default: True).
+        """
+        # connect to microscope
+        self._connection.connect(ip_address=ip_address, port=port)
+
+        # system information
+        self.system.info.model = "DemoMicroscope"
+        self.system.info.serial_number = "123456"
+        self.system.info.software_version = "0.1"
+        self.system.info.hardware_version = "v0.23"
+        self.system.info.ip_address = ip_address
+
+        # reset beam shifts
+        if reset_beam_shift:
+            self.reset_beam_shifts()
+
+        # user logging
+        info = self.system.info
+        logging.info(
+            f"Microscope client connected to {info.model} with serial number {info.serial_number} and software version {info.software_version}"
         )
-        shift = self.beams[beam_type].shift
-        shift.write_through(shift.get_value() + Point(float(dx), float(dy)))
+
+        # logging
+        logging.debug(
+            {
+                "msg": "connect_to_microscope",
+                "ip_address": ip_address,
+                "port": port,
+                "system_info": info.to_dict(),
+            }
+        )
+
+        try:
+            self._build_sample_handling()
+        except Exception as e:
+            logging.warning(f"Could not build the sample handling: {e}")
+
+        return
+
+    def disconnect(self) -> None:
+        """Disconnect from the microscope server."""
+        self._connection.disconnect()
+        logging.info("Disconnected from Demo Microscope")
+
+    def set_channel(self, channel: BeamType) -> None:
+        self._connection.set_channel(channel)
+
+    # The beam methods, on the beam devices.
 
     def _spot_and_beam(
         self, beam_type: BeamType

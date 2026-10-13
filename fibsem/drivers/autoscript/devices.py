@@ -270,6 +270,10 @@ class AutoscriptCompustage(AutoscriptStage):
     def has_builtin_shuttle(self) -> bool:
         return True
 
+    def mirrors_back_view(self) -> bool:
+        # xT presents an image of the back of the grid mirrored, as if from the front
+        return True
+
     def poses(
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
     ) -> Dict[str, FibsemStagePosition]:
@@ -448,6 +452,30 @@ class AutoscriptBeam(Beam):
 
         self._beam.beam_shift.value = ThermoPoint(value.x, value.y)
         self._set_log("shift", value, "")
+
+    def _shift_by(self, dx: float, dy: float) -> None:
+        # Clipped to the limits xT reports, warning when the asked shift is outside.
+        limits = self._beam.beam_shift.limits
+        current = self.shift.get_value()
+        new_shift = Point(x=current.x + dx, y=current.y + dy)
+        if new_shift.x < limits.limits_x.min or new_shift.x > limits.limits_x.max:
+            logging.warning(
+                f"Beam shift x value {new_shift.x} is out of bounds: {limits.limits_x}"
+            )
+        if new_shift.y < limits.limits_y.min or new_shift.y > limits.limits_y.max:
+            logging.warning(
+                f"Beam shift y value {new_shift.y} is out of bounds: {limits.limits_y}"
+            )
+        new_shift.x = float(
+            np.clip(new_shift.x, limits.limits_x.min, limits.limits_x.max)
+        )
+        new_shift.y = float(
+            np.clip(new_shift.y, limits.limits_y.min, limits.limits_y.max)
+        )
+        self.shift.write_through(new_shift)
+        logging.debug(
+            {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": self.beam_type.name}
+        )
 
     def read_stigmation(self) -> Point:
         beam = self._beam
@@ -697,7 +725,6 @@ class AutoscriptBeam(Beam):
         image = images.fibsem_image_from_adorned_image(
             copy.deepcopy(adorned), copy.deepcopy(settings), copy.deepcopy(state)
         )
-        microscope._set_additional_metadata(image)
         if image_settings is not None:
             microscope._last_imaging_settings = image_settings
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
@@ -716,7 +743,6 @@ class AutoscriptBeam(Beam):
         fibsem_image = images.fibsem_image_from_adorned_image(
             adorned=image, image_settings=None, state=state, beam_type=self.beam_type
         )
-        microscope._set_additional_metadata(fibsem_image)
         logging.debug(
             {"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()}
         )
@@ -799,7 +825,7 @@ class AutoscriptBeam(Beam):
             copy.deepcopy(state),
         )
 
-        microscope._set_additional_metadata(image)
+        self.session.stamp(image)
 
         return image
 

@@ -13,7 +13,6 @@ from fibsem.drivers.odemis.connection import OdemisConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import (
     FibsemMicroscope,
-    _records_beam_shift,
 )
 from fibsem.structures import (
     BeamSettings,
@@ -343,18 +342,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def set_channel(self, channel: BeamType):
         """Set the active channels for the microscope."""
         self._connection.set_channel(channel)
-
-    @_records_beam_shift
-    def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
-        """Move the beam shift by dx and dy in meters (relative movement).
-        Args:
-            dx (float): The x shift in meters.
-            dy (float): The y shift in meters.
-            beam_type (BeamType): The type of beam to shift (ELECTRON or ION).
-        """
-        current_shift = self.get_beam_shift(beam_type=beam_type)
-        new_shift = Point(x=current_shift.x + dx, y=current_shift.y + dy)
-        self.set_beam_shift(new_shift, beam_type=beam_type)
 
     def _fluorescence_default(self) -> bool:
         """The Odemis stack drives its own FM, and has always built one unasked."""

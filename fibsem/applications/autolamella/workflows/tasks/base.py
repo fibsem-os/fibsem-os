@@ -111,7 +111,12 @@ from fibsem.detection.detection import (
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning.utils import get_pattern_reduced_area
-from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.milling.tasks import (
+    FibsemMillingTaskConfig,
+    record_milling_skipped,
+    run_milling_task,
+)
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
     BeamType,
@@ -741,7 +746,15 @@ class AutoLamellaTask(ABC):
         sleep-poll, and the ``get_config()`` read-back across the seam.
         No timeout: milling takes as long as it takes, and a human may hold the
         prompt; ``abort`` keeps Stop working throughout.
+
+        Each run records how it ended (``FibsemMillingTask``). A task that mills
+        nothing records that too, as a skipped ``milling`` event: with milling
+        turned off, or when Continue is pressed without running (FIB-1257).
         """
+        if not milling_enabled:
+            record_milling_skipped(
+                self.microscope, milling_config, "milling is turned off for this task"
+            )
         # headless mode
         if self.parent_ui is None:
             if milling_enabled:
@@ -757,22 +770,37 @@ class AutoLamellaTask(ABC):
                 return milling_task.config
             return milling_config
 
-        config = ask(
-            self.parent_ui.ui_responder,
-            RunMillingTask(
-                # deepcopy kept from the signal days: the editor's copy must be
-                # the operator's to edit without the task's own moving under it.
-                config=deepcopy(milling_config),
-                enabled=milling_enabled,
-                # live, not a snapshot: validate re-reads the protocol's
-                # supervision each call, so a mid-mill flip takes effect at the
-                # next decision point — as the old loop's re-read did
-                confirm=lambda: self.validate,
-                message=msg,
-                output_dir=self.output_dir,
-            ),
-            abort=lambda: _abort_requested(self.parent_ui),
-        )
+        # The runs the question started: the prompt reruns the mill until Continue.
+        runs: List[str] = []
+
+        def _count_runs(progress: MillingProgress) -> None:
+            if progress.status is MillingProgressStatus.TASK_STARTED:
+                runs.append(progress.task_id)
+
+        self.microscope.milling_progress_signal.connect(_count_runs)
+        try:
+            config = ask(
+                self.parent_ui.ui_responder,
+                RunMillingTask(
+                    # deepcopy kept from the signal days: the editor's copy must be
+                    # the operator's to edit without the task's own moving under it.
+                    config=deepcopy(milling_config),
+                    enabled=milling_enabled,
+                    # live, not a snapshot: validate re-reads the protocol's
+                    # supervision each call, so a mid-mill flip takes effect at the
+                    # next decision point — as the old loop's re-read did
+                    confirm=lambda: self.validate,
+                    message=msg,
+                    output_dir=self.output_dir,
+                ),
+                abort=lambda: _abort_requested(self.parent_ui),
+            )
+        finally:
+            self.microscope.milling_progress_signal.disconnect(_count_runs)
+        if milling_enabled and not runs:
+            record_milling_skipped(
+                self.microscope, config, "Continue was pressed without running it"
+            )
         if milling_enabled and self.validate:
             # The operator watched the mill and pressed Continue.
             self._decided_in_the_workflow()

@@ -9,7 +9,7 @@ import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from itertools import cycle
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from skimage.transform import resize
@@ -24,13 +24,11 @@ from fibsem.structures import (
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
-    FibsemExperimentRef,
     FibsemImage,
     FibsemManipulatorPosition,
     FibsemPatternSettings,
     FibsemRectangle,
     FibsemStagePosition,
-    FibsemUser,
     ImageSettings,
     MillingState,
     Point,
@@ -38,6 +36,10 @@ from fibsem.structures import (
     SystemSettings,
 )
 from fibsem.util.draw_numbers import draw_text
+
+if TYPE_CHECKING:
+    from fibsem.drivers.demo.microscope import DemoMicroscope
+    from fibsem.drivers.demo.sim_scene import SampleScene
 
 ######################## SIMULATOR ########################
 
@@ -154,19 +156,6 @@ def sim_is_compustage(system: SystemSettings) -> bool:
     configuration, never from a flag set on the microscope afterwards.
     """
     return bool(system.sim.get("is_compustage", False))
-
-
-@dataclass
-class DemoMicroscopeClient:
-    connected: bool = False
-
-    def connect(self, ip_address: str, port: int = 8080):
-        logging.debug(f"Connecting to microscope at {ip_address}:{port}")
-        self.connected = True
-        logging.debug(f"Connected to microscope at {ip_address}:{port}")
-
-    def disconnect(self):
-        self.connected = False
 
 
 @dataclass
@@ -291,7 +280,8 @@ def render_fm_scene(
     the Demo FM camera device.
     """
     microscope = getattr(fm, "parent", None)
-    scene = getattr(microscope, "_sample_scene", None)
+    simulator = getattr(microscope, "_connection", None)
+    scene = getattr(simulator, "sample_scene", None)
     if scene is None:
         return None
     projection = FMStageProjection.from_microscope(microscope)
@@ -310,7 +300,7 @@ def render_fm_scene(
         pixel_size=pixel_size,
         shape=(resolution[1], resolution[0]),
     )
-    scene.holder_slots = microscope._scene_holder_slots()
+    scene.holder_slots = simulator.scene_holder_slots()
     frame = scene.render_fm(
         microscope.get_stage_position(),
         resolution,
@@ -332,27 +322,41 @@ def _grid_stage_position(grid_position) -> FibsemStagePosition:
     return FibsemStagePosition(name="Slot-01", x=x, y=y, z=z, r=0.0, t=0.0)
 
 
-class DemoConfiguration:
-    """What a demo configuration says the instrument has.
+class DemoSimulator:
+    """The Demo's simulated instrument: its "connection", as ``AutoScriptConnection``
+    is Thermo's.
 
-    Everything here reads only ``system`` (its ``sim:`` block and ``ion``), never a
-    simulated part (the beam keys' values go through ``get``), so it is the same whether
-    the parts are Demo's or devices.
+    It holds what the simulation keeps between calls: the imaging channel and the last
+    images (``imaging_system``), the milling patterns and state (``milling_system``),
+    the image sequence and the sample scene. The Demo devices and services are handed
+    it at build and call it, never the microscope's private methods.
+
+    It reads and changes the beams and the stage only through the microscope's API
+    (``microscope``), so it images and mills through the devices. ``lock`` is the
+    microscope's ``_threading_lock``, the one lock over the imaging channel.
     """
 
-    system: SystemSettings
+    def __init__(self, microscope: DemoMicroscope):
+        self.microscope = microscope
+        self.lock = microscope._threading_lock
+        self.connected = False
+        self.milling_system = MillingSystem(patterns=[])
+        self.imaging_system = ImagingSystem()
+        self.image_cache: dict = {}
+        self.sample_scene: Optional[SampleScene] = None
+        self.use_image_sequence = False
+        try:
+            self._setup_image_iterators()
+        except ValueError as e:
+            logging.error("Failed to set up sim image iterators: %s", str(e))
 
+    def connect(self, ip_address: str, port: int = 8080) -> None:
+        logging.debug(f"Connecting to microscope at {ip_address}:{port}")
+        self.connected = True
+        logging.debug(f"Connected to microscope at {ip_address}:{port}")
 
-class DemoImaging:
-    """Imaging on a demo: the beams' frames, the chamber camera and the shared channel.
-
-    It reads and changes the beams only through the microscope's beam methods, so it
-    images through the beam devices.
-    Its own state is the imaging channel and last images (``imaging_system``), the
-    image sequence and the sample scene, which the demo sets up at construction.
-    """
-
-    imaging_system: ImagingSystem
+    def disconnect(self) -> None:
+        self.connected = False
 
     def set_channel(self, beam_type: BeamType) -> None:
         self.imaging_system.active_view = beam_type.value
@@ -385,7 +389,7 @@ class DemoImaging:
         )
         return False
 
-    def _demo_acquire(
+    def acquire(
         self,
         image_settings: Optional[ImageSettings],
         beam_type: Optional[BeamType],
@@ -399,7 +403,7 @@ class DemoImaging:
         elif beam_type is not None:
             # Use current settings for the specified beam type
             effective_beam_type = beam_type
-            effective_image_settings = self.get_imaging_settings(
+            effective_image_settings = self.microscope.get_imaging_settings(
                 beam_type=effective_beam_type
             )
 
@@ -409,17 +413,21 @@ class DemoImaging:
         # the beam at the field it imaged, so anything that follows in image
         # coordinates - a spot burn parked at a normalised point - lands where
         # the reference image says (FIB-954)
-        self._write_beam("hfw", effective_image_settings.hfw, effective_beam_type)
+        self.microscope._write_beam(
+            "hfw", effective_image_settings.hfw, effective_beam_type
+        )
 
         # get state for image metadata
-        microscope_state = self.get_microscope_state(beam_type=effective_beam_type)
+        microscope_state = self.microscope.get_microscope_state(
+            beam_type=effective_beam_type
+        )
 
         # One lock over the channel and the frame, as `ThermoMicroscope.acquire_image`
         # holds it over `set_channel` + `grab_frame` (FIB-542): the grab reads the
         # active view's buffer, so a channel that is not still ours when the frame lands
         # returns whoever took it in between. Deliberately just that pair --
         # `_threading_lock` is shared by every caller on this microscope.
-        with self._threading_lock:
+        with self.lock:
             self.set_channel(effective_beam_type)
             # The frame. On hardware this is the one `grab_frame` RPC; here the sleep is
             # the only part of it with any duration, so it is the window an unguarded FM
@@ -439,21 +447,21 @@ class DemoImaging:
         )
 
         # shared-scene projection takes precedence when enabled (FIB-874)
-        if self._sample_scene is not None:
+        if self.sample_scene is not None:
             from fibsem.projection import BeamStageProjection
 
             projection = BeamStageProjection.from_microscope(
-                self, beam_type=effective_beam_type
+                self.microscope, beam_type=effective_beam_type
             )
-            shift = self.get_beam_shift(effective_beam_type)
+            shift = self.microscope.get_beam_shift(effective_beam_type)
             try:
-                current = float(self.get_beam_current(effective_beam_type))
+                current = float(self.microscope.get_beam_current(effective_beam_type))
             except Exception:
                 current = None
-            self._sample_scene.holder_slots = self._scene_holder_slots()
-            image.data = self._sample_scene.render(
+            self.sample_scene.holder_slots = self.scene_holder_slots()
+            image.data = self.sample_scene.render(
                 beam_type=effective_beam_type,
-                stage_position=self.get_stage_position(),
+                stage_position=self.microscope.get_stage_position(),
                 hfw=effective_image_settings.hfw,
                 resolution=effective_image_settings.resolution,
                 projection=projection,
@@ -474,19 +482,18 @@ class DemoImaging:
                 effective_image_settings.resolution[0],
             )
             cache_key = (char, resolution)
-            if cache_key not in self._image_cache:
-                self._image_cache[cache_key] = draw_text(
+            if cache_key not in self.image_cache:
+                self.image_cache[cache_key] = draw_text(
                     char, size=(256, 256), thickness=48, image_shape=resolution
                 )
 
-            num_image = self._image_cache[cache_key]
+            num_image = self.image_cache[cache_key]
             # use the image as an inverse mask for the noise
             image.data = np.where(num_image > 0, num_image, image.data)
 
         # add additional metadata
         image.metadata.image_settings = copy.deepcopy(effective_image_settings)
         image.metadata.microscope_state = microscope_state
-        self._set_additional_metadata(image)
 
         # crop the image data if reduced area is set
         if effective_image_settings.reduced_area is not None:
@@ -502,7 +509,7 @@ class DemoImaging:
         # store last image, and imaging settings (only if image_settings was provided)
         self.imaging_system.last_image[effective_beam_type] = image
         if image_settings is not None:
-            self._last_imaging_settings = image_settings
+            self.microscope._last_imaging_settings = image_settings
 
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
 
@@ -579,14 +586,14 @@ class DemoImaging:
         """
         self.use_image_sequence = False
 
-        if self.system.sim is None:
+        if self.microscope.system.sim is None:
             logging.debug(
                 "No simulator configuration found, using random noise generation"
             )
             return
 
-        sem_data_path = self.system.sim.get("sem", None)
-        fib_data_path = self.system.sim.get("fib", None)
+        sem_data_path = self.microscope.system.sim.get("sem", None)
+        fib_data_path = self.microscope.system.sim.get("fib", None)
 
         if sem_data_path is None or fib_data_path is None:
             logging.info(
@@ -610,7 +617,7 @@ class DemoImaging:
             raise ValueError(f"No .tif files found in FIB data path: {fib_data_path}")
 
         # create cycling iterators for continuous image sequences
-        use_cycle = self.system.sim.get("use_cycle", False)
+        use_cycle = self.microscope.system.sim.get("use_cycle", False)
         if use_cycle:
             self.imaging_system.image_iterators[BeamType.ELECTRON] = cycle(
                 self._sem_filenames
@@ -631,14 +638,14 @@ class DemoImaging:
             f"Image iterators initialized: {len(self._sem_filenames)} SEM images, {len(self._fib_filenames)} FIB images"
         )
 
-    def _demo_last_image(self, beam_type: BeamType) -> Optional[FibsemImage]:
+    def last_image(self, beam_type: BeamType) -> Optional[FibsemImage]:
         # `ThermoMicroscope.last_image` sets the channel and then reads the *active
         # view's* buffer -- `imaging.get_image` "retrieves a microscope image currently
         # present in the active view" -- so it is FIB-542's pair on the retrieval path
         # (FIB-569). Claimed and checked here for the same reason, though the simulator
         # has no window between the two: it reads a dict rather than making a second
         # round trip, so only a caller that already lost the channel can trip the check.
-        with self._threading_lock:
+        with self.lock:
             self.set_channel(beam_type)
             self._warn_if_channel_moved(beam_type, "last_image")
             image = self.imaging_system.last_image.get(beam_type)
@@ -651,13 +658,13 @@ class DemoImaging:
         )
         return image
 
-    def _demo_chamber_frame(self) -> np.ndarray:
+    def chamber_frame(self) -> np.ndarray:
         """A frame of the chamber, for the ``chamber_camera`` device."""
         # The chamber camera is a third device on the shared channel, so looking at it
         # takes the microscope away from whichever beam had it. Captured and put back in
         # a `finally`, because a glance at the chamber that strands a running beam
         # operation is FIB-517 with a different thief (FIB-545).
-        with self._threading_lock:
+        with self.lock:
             restore_view = self.imaging_system.active_view
             restore_device = self.imaging_system.active_device
             self.imaging_system.active_view = CHAMBER_ACTIVE_VIEW
@@ -672,7 +679,7 @@ class DemoImaging:
         logging.debug({"msg": "acquire_chamber_image"})
         return frame
 
-    def _demo_live(
+    def live(
         self,
         beam_type: BeamType,
         stop: threading.Event,
@@ -690,7 +697,7 @@ class DemoImaging:
                     break
 
                 # "acquire" image
-                image = self.acquire_image(beam_type=beam_type)
+                image = self.microscope.acquire_image(beam_type=beam_type)
 
                 # simulate acquisition time
                 dwell_time = image.metadata.image_settings.dwell_time
@@ -704,43 +711,43 @@ class DemoImaging:
         except Exception as e:
             logging.error(f"Error in acquisition worker: {e}")
 
-    def _demo_autocontrast(
+    def autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle]
     ) -> None:
         # Claims the channel and holds it for the routine, as `ThermoMicroscope`'s does:
         # `run_auto_cb` optimises "the active detector in the active view", so a channel
         # that is not still ours when it runs tunes the other column -- and unlike a
         # stolen grab, that damage persists (FIB-569).
-        with self._threading_lock:
+        with self.lock:
             self.set_channel(beam_type)
             if reduced_area is not None:
-                self.set_reduced_area_scanning_mode(reduced_area, beam_type)
+                self.microscope.set_reduced_area_scanning_mode(reduced_area, beam_type)
             # TODO: implement auto-contrast
             logging.debug(f"Autocontrasting {beam_type.name} beam.")
             sim_sleep(
                 random.uniform(0.5, 1.0)
             )  # simulate time taken to calculate auto-contrast
             self._warn_if_channel_moved(beam_type, "autocontrast")
-            self.set_detector_brightness(random.uniform(0.4, 0.6), beam_type)
-            self.set_detector_contrast(random.uniform(0.4, 0.6), beam_type)
+            self.microscope.set_detector_brightness(random.uniform(0.4, 0.6), beam_type)
+            self.microscope.set_detector_contrast(random.uniform(0.4, 0.6), beam_type)
 
         if reduced_area:
-            self.set_full_frame_scanning_mode(beam_type)
+            self.microscope.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "autocontrast", "beam_type": beam_type.name})
 
-    def _demo_auto_focus(
+    def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle]
     ) -> None:
         # Same claim as `autocontrast`, for the same reason: `run_auto_focus` runs "in
         # the active view", so losing the channel focuses the other column and leaves it
         # that way. `imaging/tiled.py` calls this once per tile of an unattended run.
-        with self._threading_lock:
+        with self.lock:
             self.set_channel(beam_type)
             if reduced_area is not None:
-                self.set_reduced_area_scanning_mode(reduced_area, beam_type)
+                self.microscope.set_reduced_area_scanning_mode(reduced_area, beam_type)
             # TODO: implement auto-focus
             logging.debug(f"Auto-focusing {beam_type.name} beam.")
-            wd: float = self._beam_config(
+            wd: float = self.microscope._beam_config(
                 "eucentric_height", beam_type
             ).eucentric_height
             sim_sleep(
@@ -749,33 +756,13 @@ class DemoImaging:
             self._warn_if_channel_moved(beam_type, "auto_focus")
             focus_adjustment = random.uniform(-100e-6, 100e-6)
             new_wd = wd + focus_adjustment
-            self.set_working_distance(new_wd, beam_type)
+            self.microscope.set_working_distance(new_wd, beam_type)
 
         if reduced_area:
-            self.set_full_frame_scanning_mode(beam_type)
+            self.microscope.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
 
-    def _set_imaging_key(self, key: str, value) -> bool:
-        """Set the imaging channel's view or device; False for any other key."""
-        if key == "active_view":
-            self.imaging_system.active_view = value.value
-        elif key == "active_device":
-            self.imaging_system.active_device = value.value
-        else:
-            return False
-        return True
-
-
-class DemoScene:
-    """The demo's synthetic sample (FIB-874).
-
-    The scene is set up from the ``sim: sample`` block; milling and spot burns
-    mark it. It reads the beams and stage only through the microscope's API,
-    and the parked spot through ``_spot_and_beam``, which each demo answers from
-    its own parts.
-    """
-
-    def _setup_sample_scene(self) -> None:
+    def setup_sample_scene(self) -> None:
         """Opt-in synthetic-sample imaging (FIB-874), default off.
 
         `sim: sample: {enabled: true, ...}` makes both beams (and the FM,
@@ -788,8 +775,8 @@ class DemoScene:
         """
         from fibsem.drivers.demo.sim_scene import SampleScene
 
-        self._sample_scene: Optional[SampleScene] = None
-        sim = self.system.sim
+        self.sample_scene = None
+        sim = self.microscope.system.sim
         config = sim.get("sample")
         if config is None:
             if not sim.get("coincidence_projection", False):
@@ -800,14 +787,14 @@ class DemoScene:
             }
         elif not config.get("enabled", False):
             return
-        self._sample_scene = SampleScene.from_config(
+        self.sample_scene = SampleScene.from_config(
             {k: v for k, v in config.items() if k != "enabled"}
         )
         try:
             # anchor the world NOW, at the connect pose - so moving straight
             # to a saved position and acquiring shows that position's
             # surroundings rather than anchoring the world there
-            self._sample_scene.anchor(self.get_stage_position())
+            self.sample_scene.anchor(self.microscope.get_stage_position())
         except Exception as e:
             logging.warning(
                 "Could not anchor the sample scene at connect (%s); "
@@ -817,24 +804,24 @@ class DemoScene:
         logging.info(
             "Simulator sample scene enabled (coincidence offset %.2f um, "
             "tilt axis offset %.1f um)",
-            self._sample_scene.coincidence_offset * 1e6,
-            self._sample_scene.tilt_axis_offset * 1e6,
+            self.sample_scene.coincidence_offset * 1e6,
+            self.sample_scene.tilt_axis_offset * 1e6,
         )
 
-    def _scene_holder_slots(self) -> list:
+    def scene_holder_slots(self) -> list:
         """The holder's occupied slots with a position, for the scene to put
         a grid at each: (grid name, grid radius, stage position)."""
-        scene = getattr(self, "_sample_scene", None)
+        scene = self.sample_scene
         if scene is None or not scene.grids_from_holder:
             return []
-        handling = getattr(self, "sample_handling", None)
+        handling = getattr(self.microscope, "sample_handling", None)
         holder = getattr(handling, "holder", None)
         if holder is None:
             return []
         # Where the simulated autoloader really puts a grid, if it is told: the
         # scene draws the grid there whatever the working slot is calibrated to,
         # as on a real Arctis, where a loaded grid sits off the origin (FIB-1144).
-        device = self.devices.get("sample_loader")
+        device = self.microscope.devices.get("sample_loader")
         grid_position = getattr(device, "sim_grid_position", None)
         try:
             return [
@@ -851,51 +838,55 @@ class DemoScene:
         except Exception:
             return []
 
-    def _mill_into_sample_scene(self, milling_current: float) -> None:
+    def mill_into_sample_scene(self, milling_current: float) -> None:
         """Commit the drawn patterns to the sample scene, when there is one:
         from now on every view shows them as trenches (FIB-877). Done when
         milling starts, so an asynchronous run stamps too."""
-        scene = getattr(self, "_sample_scene", None)
+        scene = self.sample_scene
         if scene is None or not self.milling_system.patterns:
             return
         from fibsem.projection import BeamStageProjection
 
-        beam = self.milling_channel
-        projection = BeamStageProjection.from_microscope(self, beam_type=beam)
+        beam = self.microscope.milling_channel
+        projection = BeamStageProjection.from_microscope(
+            self.microscope, beam_type=beam
+        )
         if projection is None:
             return
-        shift = self.get_beam_shift(beam)
+        shift = self.microscope.get_beam_shift(beam)
         scene.mill(
             list(self.milling_system.patterns),
             beam,
-            self.get_stage_position(),
+            self.microscope.get_stage_position(),
             projection,
             beam_shift=(float(shift.x), float(shift.y)),
             beam_current=float(milling_current) if milling_current else None,
         )
 
-    def _burn_into_sample_scene(self, beam_type: BeamType) -> None:
+    def burn_into_sample_scene(self, beam_type: BeamType) -> None:
         """Commit the parked beam's spot to the sample scene, when there is
         one: from now on every view shows a small mark there (FIB-954). The
         spot is the 0-1 image coordinate run_spot_burn parked the beam on;
         it becomes metres from the view centre (y up) at the beam's current
         field of view, the same convention the milling patterns use."""
-        scene = getattr(self, "_sample_scene", None)
+        scene = self.sample_scene
         if scene is None:
             return
-        point, beam = self._spot_and_beam(beam_type)
+        point, beam = self.microscope._spot_and_beam(beam_type)
         if point is None:
             return
         from fibsem.projection import BeamStageProjection
 
-        projection = BeamStageProjection.from_microscope(self, beam_type=beam_type)
+        projection = BeamStageProjection.from_microscope(
+            self.microscope, beam_type=beam_type
+        )
         if projection is None:
             return
         width, height = beam.resolution
         hfw = float(beam.hfw)
         dx = (float(point.x) - 0.5) * hfw
         dy = (0.5 - float(point.y)) * hfw * (height / width)
-        shift = self.get_beam_shift(beam_type)
+        shift = self.microscope.get_beam_shift(beam_type)
         logging.debug(
             {
                 "msg": "sim_spot_burn",
@@ -909,7 +900,7 @@ class DemoScene:
         scene.burn(
             [(dx, dy)],
             beam_type,
-            self.get_stage_position(),
+            self.microscope.get_stage_position(),
             projection,
             beam_shift=(float(shift.x), float(shift.y)),
             beam_current=float(beam.beam_current) if beam.beam_current else None,
@@ -1007,134 +998,6 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         electron_system=electron_system,
         ion_system=ion_system,
     )
-
-
-class DemoSession:
-    """Building and connecting a demo.
-
-    A demo's ``__init__`` is ``_start_session``, then its devices, then
-    ``_setup_fluorescence`` (which builds its FM from the configuration's ``fm``
-    entry) and ``_finish_session``.
-    """
-
-    def _start_session(self, system_settings: SystemSettings) -> None:
-        # initialise system
-        self.connection = DemoMicroscopeClient()
-        self.system = system_settings
-        self.milling_system = MillingSystem(patterns=[])
-        self.imaging_system = ImagingSystem()
-
-        # setup image iterators
-        try:
-            self._setup_image_iterators()
-        except ValueError as e:
-            logging.error("Failed to set up sim image iterators: %s", str(e))
-
-    def _setup_fluorescence(self) -> None:
-        # fluorescence microscope
-        #
-        # `has_fm` stands in for a capability read, not for configuration. A real
-        # Thermo system has no `is_installed` for the FM -- every other subsystem has
-        # one -- so the only way to know is to try selecting it and see whether the
-        # microscope refuses, which `ThermoMicroscope.__init__` already does. The
-        # simulator has nothing to ask, so it is told what the pretend hardware would
-        # have answered, and that belongs in `sim:` rather than in a configuration
-        # block describing the instrument.
-        #
-        # Deliberately separate from the fluorescence *geometry*, so that "an FM is
-        # present but nothing is configured for it" stays representable -- that is the
-        # state an existing site hits on upgrade, and the one worth testing (FIB-830).
-        #
-        # Defaults to `sim.is_compustage`, which is what this branched on before, so
-        # every simulator configuration keeps its current behaviour without the key.
-        has_fm = bool(self.system.sim.get("has_fm", sim_is_compustage(self.system)))
-
-        # Two independent questions, and the simulator is the only place both can be
-        # posed. `_fluorescence_is_configured` is whether the site said its instrument
-        # has an FM; `has_fm` is what the hardware probe would have answered. Both are
-        # required, which is what makes the middle row of the table below the sim
-        # configuration representable: an FM detected on a system nothing is
-        # configured for -- a site upgrading -- gets no FM, and that is the case worth
-        # being able to test.
-        # The probe only answers for the Demo's own FM; one on another driver (an FM
-        # on its own PC) is built as the configuration says.
-        if has_fm or not self._fluorescence_uses_own_driver():
-            self.fm = self._build_fluorescence(self.driver_name)
-        else:
-            self.fm = None
-        if self.fm is None:
-            logging.info("No fluorescence microscope in this simulated system.")
-
-        self._apply_fluorescence_calibration()
-        self._warn_on_fluorescence_geometry()
-
-    def _finish_session(self) -> None:
-        # user, experiment metadata
-        # TODO: remove once db integrated
-        self.user = FibsemUser.from_environment()
-        self.experiment = FibsemExperimentRef()
-
-        self._last_imaging_settings: ImageSettings = ImageSettings()
-        self.milling_channel: BeamType = BeamType.ION
-        self._image_cache: dict = {}
-        self._setup_sample_scene()
-        logging.debug(
-            {
-                "msg": "create_microscope_client",
-                "system_settings": self.system.to_dict(),
-            }
-        )
-
-    def connect_to_microscope(
-        self, ip_address: str, port: int = 8080, reset_beam_shift: bool = True
-    ) -> None:
-        """Connect to the microscope server.
-        Args:
-            ip_address: The IP address of the microscope server.
-            port: The port number of the microscope server.
-            reset_beam_shift: Whether to reset beam shifts on connect (default: True).
-        """
-        # connect to microscope
-        self.connection.connect(ip_address=ip_address, port=port)
-
-        # system information
-        self.system.info.model = "DemoMicroscope"
-        self.system.info.serial_number = "123456"
-        self.system.info.software_version = "0.1"
-        self.system.info.hardware_version = "v0.23"
-        self.system.info.ip_address = ip_address
-
-        # reset beam shifts
-        if reset_beam_shift:
-            self.reset_beam_shifts()
-
-        # user logging
-        info = self.system.info
-        logging.info(
-            f"Microscope client connected to {info.model} with serial number {info.serial_number} and software version {info.software_version}"
-        )
-
-        # logging
-        logging.debug(
-            {
-                "msg": "connect_to_microscope",
-                "ip_address": ip_address,
-                "port": port,
-                "system_info": info.to_dict(),
-            }
-        )
-
-        try:
-            self._build_sample_handling()
-        except Exception as e:
-            logging.warning(f"Could not build the sample handling: {e}")
-
-        return
-
-    def disconnect(self) -> None:
-        """Disconnect from the microscope server."""
-        self.connection.disconnect()
-        logging.info("Disconnected from Demo Microscope")
 
 
 def __getattr__(name: str):

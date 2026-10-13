@@ -175,9 +175,7 @@ def test_get_target_position_milling_to_fm_non_compustage_raises():
     microscope._update_orientations()
 
     milling_pos = FibsemStagePosition(r=np.radians(0), t=np.radians(12))
-    with pytest.raises(
-        ValueError, match="Cannot move to FM position on non-compustage"
-    ):
+    with pytest.raises(ValueError, match="reaches the FM by travelling"):
         microscope.get_target_position(milling_pos, target_orientation="FM")
 
 

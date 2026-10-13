@@ -56,8 +56,11 @@ def calculate_reprojected_stage_position(
         px_delta.x *= -1.0
         px_delta.y *= -1.0
 
-    # account for compustage tilt, when mounted upside down
-    if np.isclose(
+    # turned over, on an instrument that mirrors its images of the back of the grid
+    # (an image with no geometry recorded keeps the flip it always had)
+    geometry = image.metadata.hardware_geometry
+    mirrors = geometry is None or geometry.mirrors_back_view
+    if mirrors and np.isclose(
         image.metadata.stage_position.t, np.radians(-180), atol=np.radians(5)
     ):
         px_delta.y *= -1.0
