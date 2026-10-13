@@ -10,13 +10,11 @@ from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
-from fibsem.detection import detection
 from fibsem.detection import utils as det_utils
 from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.model import load_model
 from fibsem.structures import (
     BeamType,
-    FibsemImage,
     Point,
 )
 from fibsem.versioning import get_version_string
@@ -261,34 +259,3 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         )
 
         return self.det
-
-
-def main():
-    # load model
-    checkpoint = "autolamella-mega-20240107.pt"
-    model = load_model(checkpoint=checkpoint)
-
-    # load image
-    image = FibsemImage.load(
-        os.path.join(os.path.dirname(detection.__file__), "test_image_2.tif")
-    )
-
-    pixelsize = image.metadata.pixel_size.x if image.metadata is not None else 25e-9
-
-    # detect features
-    features = [detection.LamellaRightEdge(), detection.LandingPost()]
-    det = detection.detect_features(
-        deepcopy(image.data), model, features=features, pixelsize=pixelsize
-    )
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    det_widget_ui = FibsemEmbeddedDetectionUI()
-    det_widget_ui.set_detected_features(det)
-    det_widget_ui.show()
-    app.exec_()
-
-    det = det_widget_ui.det
-
-
-if __name__ == "__main__":
-    main()

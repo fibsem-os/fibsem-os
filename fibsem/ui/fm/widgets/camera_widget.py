@@ -1,4 +1,3 @@
-import logging
 from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtCore import pyqtSignal
@@ -188,21 +187,3 @@ class CameraWidget(QWidget):
     def transform(self) -> Optional[CameraImageTransform]:
         """Get current transform value."""
         return self.comboBox_transform.currentData()
-
-
-if __name__ == "__main__":
-    # Example usage
-    from PyQt5.QtWidgets import QApplication
-
-    from fibsem import utils
-
-    microscope, settings = utils.setup_session()
-
-    if microscope.fm is None:
-        logging.error("FluorescenceMicroscope is not initialized.")
-        raise RuntimeError("FluorescenceMicroscope is not initialized.")
-
-    app = QApplication([])
-    widget = CameraWidget(fm=microscope.fm)
-    widget.show()
-    app.exec_()
