@@ -99,6 +99,11 @@ def test_a_real_run_reads_back_as_one_row_per_run_with_its_alignment(tmp_path):
         f"Align ({name})" for name in stages
     }
     assert " µm · 3 steps" in align.detail
+    # the mill, before the drift corrections it ran (FIB-1257)
+    (mill,) = [op for op in rough.operations if op.kind == "milling"]
+    assert mill.label == "Mill" and mill.status == "completed"
+    assert rough.operations.index(mill) < rough.operations.index(drift[0])
+    assert mill.detail == f"{len(stages)} stages"
     assert align.duration is not None and align.path and os.path.isdir(align.path)
     assert rough.images and all(os.path.isfile(p) for p in rough.images)
     assert rough.duration is not None and rough.duration >= align.duration
@@ -236,14 +241,15 @@ def test_each_operation_says_how_it_ended(tmp_path):
 
     (run,) = history_rows(lamella, events)
 
+    # in the order they started; all end at once, and only one says when it began
     assert [(op.status, op.detail) for op in run.operations] == [
+        ("completed", "1.00 µm · 2 steps"),
         ("skipped", "skipped: reference image x does not exist"),
         ("failed", "failed: RuntimeError: no signal"),
         ("cancelled", "cancelled"),
-        ("completed", "1.00 µm · 2 steps"),
         ("completed", "SEM WD 4.000 → 4.120 mm · 11 probes"),
     ]
-    assert run.operations[3].duration == pytest.approx(5.0)
+    assert run.operations[0].duration == pytest.approx(5.0)
 
 
 def test_an_expanded_operation_lists_each_step_and_why_it_stopped(tmp_path):
@@ -354,3 +360,119 @@ def test_a_saved_filter_round_trips_and_anything_unknown_shows_everything():
     )
     assert HistoryFilter.from_dict(None) == HistoryFilter()
     assert not HistoryFilter().active
+
+
+# --- milling (FIB-1257) -------------------------------------------------------
+
+
+def _at(minute, second=0):
+    return (T0 + timedelta(minutes=minute, seconds=second)).isoformat()
+
+
+def _stage(name, index, status, start, end, **more):
+    return {
+        "name": name,
+        "index": index,
+        "status": status,
+        "started_at": start,
+        "ended_at": end,
+        "milling_current": 7.4e-10,
+        **more,
+    }
+
+
+def test_a_mill_says_how_it_ended_and_each_stage_is_a_line(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    turned_off = {
+        "name": "Notch",
+        "status": "skipped",
+        "reason": "turned off in the protocol",
+    }
+    completed = _event(
+        lamella,
+        "r",
+        "milling",
+        status="completed",
+        started_at=_at(1),
+        stages=[
+            _stage("Rough Mill 01", 0, "completed", _at(1), _at(3, 13)),
+            turned_off,
+            _stage("Rough Mill 02", 1, "completed", _at(3, 13), _at(3, 40)),
+        ],
+    )
+    failed = _event(
+        lamella,
+        "r",
+        "milling",
+        status="failed",
+        error="RuntimeError: rejected",
+        started_at=_at(6),
+        stages=[
+            _stage("Rough Mill 01", 0, "failed", _at(6), _at(6, 2)),
+            {
+                "name": "Rough Mill 02",
+                "index": 1,
+                "status": "skipped",
+                "reason": "the run failed before this stage",
+            },
+        ],
+    )
+    stopped = _event(
+        lamella,
+        "r",
+        "milling",
+        status="cancelled",
+        started_at=_at(7),
+        stages=[
+            _stage("Rough Mill 01", 0, "completed", _at(7), _at(7, 30)),
+            _stage("Rough Mill 02", 1, "cancelled", _at(7, 30), _at(7, 31)),
+        ],
+    )
+    skipped = _event(
+        lamella,
+        "r",
+        "milling",
+        status="skipped",
+        reason="Continue was pressed without running it",
+        stages=[{"name": "Rough Mill 01", "status": "skipped"}],
+    )
+    events = [completed, failed, stopped, skipped]
+    for event, minute in zip(events, (4, 6, 8, 9)):
+        event["t"] = _at(minute)
+
+    (run,) = history_rows(lamella, events)
+
+    assert [(op.label, op.status, op.detail) for op in run.operations] == [
+        ("Mill", "completed", "2 stages"),
+        ("Mill", "failed", "failed at Rough Mill 01: RuntimeError: rejected"),
+        ("Mill", "cancelled", "stopped at Rough Mill 02 · 1 of 2 stages milled"),
+        ("Mill", "skipped", "skipped: Continue was pressed without running it"),
+    ]
+    assert operation_facts(run.operations[0]) == [
+        ("Rough Mill 01", "completed · 2 m 13 s · 740 pA"),
+        ("Notch", "skipped: turned off in the protocol"),
+        ("Rough Mill 02", "completed · 27 s · 740 pA"),
+    ]
+    assert operation_facts(run.operations[1]) == [
+        ("Error", "RuntimeError: rejected"),
+        ("Rough Mill 01", "failed · 2 s · 740 pA"),
+        ("Rough Mill 02", "skipped: the run failed before this stage"),
+    ]
+
+
+def test_a_mill_comes_before_the_drift_corrections_it_ran(tmp_path):
+    """Recorded after them, as it ends after them; listed first, as it started
+    first."""
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    drift = _event(
+        lamella, "r", "alignment", name="Rough Mill 01-18-01-05", started_at=_at(1, 1)
+    )
+    drift["t"] = _at(1, 4)
+    mill = _event(lamella, "r", "milling", status="completed", started_at=_at(1))
+    mill["t"] = _at(3)
+
+    (run,) = history_rows(lamella, [drift, mill])
+
+    assert [op.label for op in run.operations] == ["Mill", "Align (Rough Mill 01)"]

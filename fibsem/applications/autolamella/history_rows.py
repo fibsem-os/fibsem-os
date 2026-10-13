@@ -35,7 +35,7 @@ from fibsem.util.timestamps import to_datetime
 # The event kinds that are a run's operations. A record written before
 # operations said how they ended has no status: it was only ever written for a
 # run that completed.
-OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus")
+OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
 
 _BEAM = {"ELECTRON": "SEM", "ION": "FIB"}
 
@@ -49,7 +49,7 @@ class HistoryOperation:
     """One operation a run performed, as the row shows it."""
 
     kind: str
-    label: str  # "Align", "Autofocus"
+    label: str  # "Align", "Autofocus", "Mill"
     status: str  # completed | skipped | failed | cancelled
     detail: str  # the one line: what it measured, or why it did not run
     started_at: Optional[datetime]
@@ -187,6 +187,11 @@ def history_rows(
         if item.get("id") != lamella.id or not task.get("id"):
             continue
         operations.setdefault(task["id"], []).append(_operation(record, lamella.name))
+    # In the order they started: a mill ends after the drift corrections it ran,
+    # and is recorded after them, but it is what started them. A record with no
+    # start (a skip) goes where it ended.
+    for ops in operations.values():
+        ops.sort(key=_started)
 
     images, replaced_by = _images_by_run(lamella, runs)
     return [
@@ -240,7 +245,7 @@ def _operation(record: Dict[str, Any], lamella_name: str) -> HistoryOperation:
     kind = record["kind"]
     payload = record.get("payload") or {}
     status = payload.get("status") or COMPLETED
-    label = {"alignment": "Align", "autofocus": "Autofocus"}.get(kind, "Autofocus (FM)")
+    label = _LABELS.get(kind, kind)
     if kind == "alignment":
         label = _alignment_label(payload, lamella_name)
     return HistoryOperation(
@@ -253,6 +258,21 @@ def _operation(record: Dict[str, Any], lamella_name: str) -> HistoryOperation:
         path=payload.get("path"),
         payload=payload,
     )
+
+
+_LABELS = {
+    "alignment": "Align",
+    "autofocus": "Autofocus",
+    "fm_autofocus": "Autofocus (FM)",
+    "milling": "Mill",
+}
+
+
+def _started(operation: HistoryOperation) -> float:
+    """When it started, as a number: an aware and a naive time do not compare.
+    One that recorded neither end goes last."""
+    when = operation.started_at or operation.ended_at
+    return when.timestamp() if when is not None else math.inf
 
 
 def _alignment_label(payload: Dict[str, Any], lamella_name: str) -> str:
@@ -287,6 +307,8 @@ def operation_facts(operation: HistoryOperation) -> List[Tuple[str, str]]:
         facts.extend(_alignment_facts(payload))
     elif operation.kind == "autofocus":
         facts.extend(_autofocus_facts(payload))
+    elif operation.kind == "milling":
+        facts.extend(_milling_facts(payload))
     else:
         facts.extend(_fm_autofocus_facts(payload))
     return facts
@@ -338,6 +360,25 @@ def _autofocus_facts(payload: Dict[str, Any]) -> List[Tuple[str, str]]:
     return facts
 
 
+def _milling_facts(payload: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """One line a stage, in the protocol's order: how it ended, how long it
+    took, at what current. The run's error is its own line above, so a failed
+    stage only says it failed."""
+    facts = []
+    for stage in _stages(payload):
+        status = str(stage.get("status") or COMPLETED)
+        parts = [status]
+        if status == SKIPPED and stage.get("reason"):
+            parts = [f"skipped: {stage['reason']}"]
+        took = _seconds_between(stage.get("started_at"), stage.get("ended_at"))
+        if took is not None:
+            parts.append(_short_duration(took))
+        if status != SKIPPED and stage.get("milling_current") is not None:
+            parts.append(_current(stage["milling_current"]))
+        facts.append((str(stage.get("name") or "Stage"), " · ".join(parts)))
+    return facts
+
+
 def _fm_autofocus_facts(payload: Dict[str, Any]) -> List[Tuple[str, str]]:
     facts = []
     if payload.get("passes") is not None:
@@ -360,6 +401,8 @@ def _detail(kind: str, status: str, payload: Dict[str, Any]) -> str:
     """The operation's one line."""
     if status == SKIPPED:
         return f"skipped: {payload.get('reason') or 'no reason recorded'}"
+    if kind == "milling":
+        return _milling_detail(status, payload)
     if status == FAILED:
         return f"failed: {payload.get('error') or 'no error recorded'}"
     if status == CANCELLED and not payload.get("results"):
@@ -382,6 +425,53 @@ def _alignment_detail(payload: Dict[str, Any], cancelled: bool) -> str:
     if cancelled:
         text += " · stopped"
     return text
+
+
+def _milling_detail(status: str, payload: Dict[str, Any]) -> str:
+    """``3 stages``; ``failed at Rough Mill 02: <error>``; ``stopped at Polishing
+    · 1 of 2 stages milled``. Stages turned off in the protocol are not counted:
+    they were never going to mill."""
+    stages = [s for s in _stages(payload) if s.get("reason") != _TURNED_OFF]
+    milled = sum(1 for s in stages if s.get("status") == COMPLETED)
+    if status == COMPLETED:
+        return f"{milled} stage{'' if milled == 1 else 's'}"
+    ended = next((s for s in stages if s.get("status") in (FAILED, CANCELLED)), None)
+    if status == FAILED:
+        at = f" at {ended.get('name')}" if ended is not None else ""
+        return f"failed{at}: {payload.get('error') or 'no error recorded'}"
+    at = f" at {ended.get('name')}" if ended is not None else ""
+    return f"stopped{at} · {milled} of {len(stages)} stages milled"
+
+
+def _stages(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [s for s in payload.get("stages") or [] if isinstance(s, dict)]
+
+
+# As fibsem.milling.tasks records a stage turned off in the protocol.
+_TURNED_OFF = "turned off in the protocol"
+
+
+def _seconds_between(start: Any, end: Any) -> Optional[float]:
+    started, ended = to_datetime(start), to_datetime(end)
+    if started is None or ended is None:
+        return None
+    return max(0.0, (ended - started).total_seconds())
+
+
+def _short_duration(seconds: float) -> str:
+    """As the tab writes an operation's duration."""
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds} s"
+    minutes, seconds = divmod(seconds, 60)
+    return f"{minutes} m {seconds:02d} s"
+
+
+def _current(amps: Any) -> str:
+    value = _number(amps)
+    if value >= 1e-9:
+        return f"{value * 1e9:g} nA"
+    return f"{value * 1e12:g} pA"
 
 
 def _autofocus_detail(payload: Dict[str, Any]) -> str:
