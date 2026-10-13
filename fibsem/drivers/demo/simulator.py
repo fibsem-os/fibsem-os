@@ -499,10 +499,8 @@ class DemoImaging:
             x1, y1 = x0 + width, y0 + height
             image.data = image.data[y0:y1, x0:x1]
 
-        # store last image, and imaging settings (only if image_settings was provided)
+        # store the last image
         self.imaging_system.last_image[effective_beam_type] = image
-        if image_settings is not None:
-            self._last_imaging_settings = image_settings
 
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
 
@@ -1074,7 +1072,6 @@ class DemoSession:
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
 
-        self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
         self._image_cache: dict = {}
         self._setup_sample_scene()

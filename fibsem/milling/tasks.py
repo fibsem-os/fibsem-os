@@ -640,9 +640,8 @@ class FibsemMillingTask:
         )  # force field of view to match task
 
         if self.config.acquisition.imaging.path is None:
-            self.config.acquisition.imaging.path = (
-                self.microscope._last_imaging_settings.path
-            )
+            # Where this run saves, not wherever the microscope's last image went.
+            self._configure_path()
 
         # support specifying acquiring sem and/or fib images only
         sem_image, fib_image = acquire.acquire_channels(
