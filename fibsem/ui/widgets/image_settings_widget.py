@@ -16,7 +16,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
@@ -126,7 +125,8 @@ class ImageSettingsWidget(QWidget):
         # Resolution
         self.resolution_label = QLabel(_META["resolution"]["label"])
         self.resolution_combo = QComboBox()
-        for width, height in STANDARD_RESOLUTIONS:
+        # What every beam declares until `use_beam` names one.
+        for width, height in _field("resolution").get("items") or ():
             self.resolution_combo.addItem(
                 str(Resolution(width, height)), (width, height)
             )

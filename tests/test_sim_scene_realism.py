@@ -38,7 +38,7 @@ def microscope():
         "coincidence_offset": 8e-6,
         "fiducial": True,
     }
-    microscope._setup_sample_scene()
+    microscope._connection.setup_sample_scene()
     pose = microscope.get_stage_position()
     pose.t = MILLING_TILT
     microscope.move_stage_absolute(pose)
@@ -52,7 +52,7 @@ def _scene(microscope, **kwargs) -> SampleScene:
     kwargs = {"ice_density": 0.0, "rip_fraction": 0.0, "fiducial": True, **kwargs}
     scene = SampleScene(noise_sigma=0.0, noise_fraction=0.0, **kwargs)
     scene.anchor(microscope.get_stage_position())
-    microscope._sample_scene = scene
+    microscope._connection.sample_scene = scene
     return scene
 
 
@@ -95,7 +95,7 @@ def test_contamination_adds_fine_aperiodic_structure(microscope):
 
     clean, dirty = speckle(0.0), speckle(30.0)
     assert dirty > 3 * clean and dirty - clean > 15, (clean, dirty)
-    scene = microscope._sample_scene
+    scene = microscope._connection.sample_scene
     assert sum(f.kind == "contamination" for f in scene.features) == int(
         30.0 * (scene.extent / 100e-6) ** 2
     )
@@ -485,7 +485,7 @@ def test_milled_patterns_persist_in_the_world(microscope):
     )
     microscope.run_milling()
     after = microscope.acquire_image(image_settings=settings)
-    assert len(microscope._sample_scene.milled) == 1
+    assert len(microscope._connection.sample_scene.milled) == 1
 
     def trench_pixels(image):
         """The trench: the largest dark connected region (the fiducial's

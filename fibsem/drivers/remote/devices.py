@@ -630,11 +630,13 @@ class RemoteStage(RemoteDevice, Stage):
     server, which moves and answers when the stage has stopped."""
 
     _shuttle = False
+    _mirrors = False
     _devices_at_pose: Dict[str, Optional[str]] = {}
 
     def _apply_facts(self, facts: Dict[str, Any]) -> None:
         self.frame = facts.get("frame", self.frame)
         self._shuttle = bool(facts.get("has_builtin_shuttle", False))
+        self._mirrors = bool(facts.get("mirrors_back_view", False))
         self._devices_at_pose = dict(facts.get("device_at_pose", {}))
         self._poses: Dict[Tuple[float, float, float], Any] = {}
         if "position" in self.parameters:
@@ -642,6 +644,9 @@ class RemoteStage(RemoteDevice, Stage):
 
     def has_builtin_shuttle(self) -> bool:
         return self._shuttle
+
+    def mirrors_back_view(self) -> bool:
+        return self._mirrors
 
     def device_at_pose(self, orientation: str) -> Optional[str]:
         return self._devices_at_pose.get(orientation)
