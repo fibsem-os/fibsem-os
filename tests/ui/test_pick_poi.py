@@ -245,10 +245,10 @@ def test_echoing_the_marker_is_not_an_adjustment(window, ui, qapp):
     thread, outcome = _pick_on_worker_thread(
         ui, qapp, image, initial=Point(x=1e-6, y=2e-6)
     )
-    nonce, live = ui.ui_responder._live_answer()
+    question_id, live = ui.ui_responder._live_answer()
 
     result = _answer_with_value_on_worker(
-        ui, qapp, True, nonce, {"x": live.x, "y": live.y}
+        ui, qapp, True, question_id, {"x": live.x, "y": live.y}
     )
     _finish(thread, qapp)
 
