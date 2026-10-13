@@ -23,8 +23,10 @@ import inspect
 import logging
 import math
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from enum import Enum
 from typing import (
     Any,
     Callable,
@@ -516,9 +518,89 @@ def resources_of(owner: Any) -> Resources:
     return resources if isinstance(resources, Resources) else Resources()
 
 
+class Session:
+    """What a device or service reports to the experiment it runs in: events for the
+    experiment's record, and the stamp on each image (who, which run, which instrument).
+
+    The microscope builds one (`FibsemMicroscope.session`) and every device and service
+    it builds reports through it, as they claim its `Resources`. A device with no
+    microscope (standalone, in a test, or a device server's own) gets an empty one,
+    which records and stamps nothing.
+    """
+
+    def __init__(
+        self,
+        record: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        stamp: Optional[Callable[[Any], None]] = None,
+    ):
+        self._record = record
+        self._stamp = stamp
+        self._open = threading.local()
+
+    def record(self, kind: str, payload: Dict[str, Any]) -> None:
+        """Put one event on the record. Never raises: a failure to record must cost
+        the record, never the work."""
+        if self._record is None:
+            return
+        try:
+            self._record(kind, payload)
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug(f"could not record a {kind} event", exc_info=True)
+
+    def stamp(self, image: Any) -> None:
+        """Stamp the experiment's metadata onto an image."""
+        if self._stamp is not None:
+            self._stamp(image)
+
+    @contextmanager
+    def recording(self, kind: str, **payload: Any) -> Iterator[Dict[str, Any]]:
+        """Record what the block does as one ``kind`` event when it ends, with its
+        ``duration`` and ``error``, and re-raise anything it raised.
+
+        Yields the payload, for the block to add what it found (where a move ended).
+        Inside another recording of the same kind on the same thread it records
+        nothing: the outer one records the whole, so a stable move is one
+        ``stage_moved``, not one for each stage move it makes.
+        """
+        open_kinds = self._open.__dict__.setdefault("kinds", set())
+        if kind in open_kinds:
+            yield payload
+            return
+        open_kinds.add(kind)
+        began = time.monotonic()
+        error: Optional[BaseException] = None
+        try:
+            yield payload
+        except BaseException as e:
+            error = e
+            raise
+        finally:
+            open_kinds.discard(kind)
+            payload["duration"] = time.monotonic() - began
+            payload["error"] = (
+                None if error is None else f"{type(error).__name__}: {error}"
+            )
+            self.record(kind, payload)
+
+
+def session_of(owner: Any) -> Session:
+    """The session ``owner`` (usually the microscope) reports to, or an empty one."""
+    session = getattr(owner, "session", None)
+    return session if isinstance(session, Session) else Session()
+
+
+def plain(value: Any) -> Any:
+    """A value as the record holds it: an enum by name, a position or point as a dict."""
+    if isinstance(value, Enum):
+        return value.name
+    if hasattr(value, "to_dict"):
+        return value.to_dict()
+    return value
+
+
 class _Controllable:
     """What a device and a service share: a name, a parent, parameters, commands,
-    roles, change events and the parent's resources.
+    roles, change events, and the parent's resources and session.
 
     Private: code names `Device` (a piece of hardware) or
     `fibsem.services.Service` (a capability that uses devices over time, such as
@@ -536,11 +618,14 @@ class _Controllable:
         name: str,
         parent: Any = None,
         resources: Optional[Resources] = None,
+        session: Optional[Session] = None,
     ):
         self.name = name
         self.parent = parent
-        # Without one given, a device claims its parent microscope's resources.
+        # Without one given, a device claims its parent microscope's resources, and
+        # reports to its session.
         self.resources = resources if resources is not None else resources_of(parent)
+        self.session = session if session is not None else session_of(parent)
         self._bound: Dict[str, BoundParameter] = {}
         self._roles: Dict[str, Device] = {}
         self._select_channel: Optional[Callable[[], None]] = None

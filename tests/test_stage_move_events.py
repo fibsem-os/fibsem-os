@@ -3,7 +3,11 @@
 Each test drives the real backend methods on Demo, with a real ``EventRecorder``
 writing a real ``events.jsonl``, and reads back what it wrote -- except the TESCAN
 one, which has no simulator and runs its real move methods on a stubbed connection,
-and the last, which checks that every backend is decorated at all.
+and the last, which checks that no backend steps around the devices that record.
+
+The devices record, through the session the microscope gives them
+(`fibsem.devices.core.Session`): the stage's moves, the stage movement service's moves
+(one record each, the outermost only) and the beam's ``shift_by``.
 """
 
 import importlib
@@ -18,21 +22,16 @@ import pytest
 
 import fibsem.config as cfg
 import fibsem.drivers
-from fibsem import microscope as microscope_module
 from fibsem import utils
 from fibsem.applications.autolamella.event_recording import (
     EVENTS_FILENAME,
     EventRecorder,
     read_events,
 )
-from fibsem.drivers.autoscript.microscope import ThermoMicroscope
-from fibsem.drivers.tescan.microscope import TescanMicroscope
-from fibsem.microscope import (
-    FibsemMicroscope,
-    _records_beam_shift,
-    _records_stage_move,
-)
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.devices import stage as stage_module
+from fibsem.devices.core import Session
+from fibsem.microscope import FibsemMicroscope
+from fibsem.structures import BeamType, FibsemStagePosition, Point
 
 
 @pytest.fixture
@@ -148,8 +147,25 @@ def test_moves_made_one_after_another_are_each_recorded(microscope, recorded):
     microscope.move_stage_absolute(FibsemStagePosition(x=0, y=0))
 
     moves = recorded("stage_moved")
-    assert [m["move"] for m in moves] == ["move_stage_relative", "move_stage_absolute"]
+    assert [m["move"] for m in moves] == ["move_relative", "move_absolute"]
+    assert moves[0]["request"] == {"position": FibsemStagePosition(x=1e-6).to_dict()}
     assert moves[1]["start"] == moves[0]["end"]
+
+
+def test_a_move_made_on_the_stage_device_is_recorded(microscope, recorded):
+    start = microscope.get_stage_position()
+    end = microscope.stage.move_relative(FibsemStagePosition(x=1e-6))
+
+    (move,) = recorded("stage_moved")
+    assert move["move"] == "move_relative"
+    assert move["start"] == start.to_dict()
+    assert move["end"] == end.to_dict()
+
+
+def test_a_move_on_the_movement_service_is_one_event(microscope, recorded):
+    microscope.stage_movement.stable_move(dx=1e-6, dy=0, beam_type=BeamType.ION)
+
+    assert [m["move"] for m in recorded("stage_moved")] == ["stable_move"]
 
 
 def test_a_failed_move_is_recorded_with_why_and_the_caller_still_hears(
@@ -163,25 +179,21 @@ def test_a_failed_move_is_recorded_with_why_and_the_caller_still_hears(
     assert failed["move"] == "move_to_orientation"
     assert failed["error"] == "ValueError: Orientation SIDEWAYS not supported."
     assert failed["end"] == failed["start"]  # it failed before moving
-    assert after["move"] == "move_stage_relative"
+    assert after["move"] == "move_relative"
 
 
 def test_a_move_on_another_thread_is_its_own_event(microscope, recorded):
     # One thread's move in progress must not make another thread's move look like
     # a step of it.
     inside, release = threading.Event(), threading.Event()
-    stable_move = type(microscope).stable_move
 
-    def slow_move(self, *args, **kwargs):
-        inside.set()
-        release.wait(5)
-        return stable_move(self, *args, **kwargs)
+    def slow_move():
+        with microscope.stage.recording_move("slow_move"):
+            inside.set()
+            release.wait(5)
+            microscope.stable_move(dx=1e-6, dy=0, beam_type=BeamType.ION)
 
-    worker = threading.Thread(
-        target=lambda: microscope_module._records_stage_move(slow_move)(
-            microscope, dx=1e-6, dy=0, beam_type=BeamType.ION
-        )
-    )
+    worker = threading.Thread(target=slow_move)
     worker.start()
     assert inside.wait(5)
     try:
@@ -191,31 +203,61 @@ def test_a_move_on_another_thread_is_its_own_event(microscope, recorded):
         worker.join(5)
 
     moves = recorded("stage_moved")
-    assert sorted(m["move"] for m in moves) == ["move_stage_relative", "slow_move"]
+    assert sorted(m["move"] for m in moves) == ["move_relative", "slow_move"]
 
 
-def test_a_move_that_cannot_be_recorded_still_moves(microscope, recorded, monkeypatch):
+def test_a_move_that_cannot_be_described_still_moves(microscope, recorded, monkeypatch):
     def broken(*args, **kwargs):
         raise RuntimeError("cannot describe it")
 
-    monkeypatch.setattr(microscope_module, "_call_arguments", broken)
+    monkeypatch.setattr(stage_module, "plain", broken)
     end = microscope.move_stage_relative(FibsemStagePosition(x=5e-6))
 
     assert end.x == pytest.approx(microscope.get_stage_position().x)
-    assert recorded("stage_moved") == []
+    (move,) = recorded("stage_moved")  # recorded, without what it can't describe
+    assert move["move"] == "move_relative"
+    assert move["request"] is None and move["end"] is None
+    assert move["error"] is None
 
 
 def test_a_beam_shift_is_recorded_as_asked(microscope, recorded):
-    microscope.beam_shift(1e-6, -2e-6, BeamType.ION)
+    before = microscope.get_beam_shift(BeamType.ION)
+    after = microscope.beam_shift(1e-6, -2e-6, BeamType.ION)
 
+    assert after == before + Point(1e-6, -2e-6)
     (shift,) = recorded("beam_shifted")
     assert shift == {
         "dx": 1e-6,
         "dy": -2e-6,
         "beam_type": "ION",
-        "shift": None,  # Demo's beam_shift returns nothing
+        "shift": after.to_dict(),
+        "duration": shift["duration"],
         "error": None,
     }
+
+
+def test_a_shift_made_on_the_beam_device_is_recorded(microscope, recorded):
+    microscope.beams[BeamType.ELECTRON].shift_by(1e-6, 0)
+
+    (shift,) = recorded("beam_shifted")
+    assert shift["beam_type"] == "ELECTRON"
+    assert shift["dx"] == 1e-6
+
+
+def test_an_image_from_the_beam_device_is_stamped(microscope):
+    microscope.user.name = "someone"
+    image = microscope.beams[BeamType.ELECTRON].acquire()
+
+    assert image.metadata.user.name == "someone"
+    assert image.metadata.system_info is not None
+
+
+def test_a_device_with_no_microscope_records_nothing():
+    session = Session()
+    assert session.record("stage_moved", {}) is None
+    with session.recording("stage_moved", move="m") as entry:
+        pass
+    assert entry["error"] is None and entry["duration"] >= 0
 
 
 def test_a_tescan_stable_move_is_one_event_not_three(monkeypatch):
@@ -241,10 +283,10 @@ def test_a_tescan_stable_move_is_one_event_not_three(monkeypatch):
     ]
 
 
-# ── every backend records ─────────────────────────────────────────────────────
+# ── no backend steps around the devices ───────────────────────────────────────
 #
-# Nothing fails when a backend's move is not decorated: its moves are just missing
-# from events.jsonl. So a new backend is found here by itself, not by a list
+# Nothing fails when a backend makes its own move or beam shift: its moves are just
+# missing from events.jsonl. So a new backend is found here by itself, not by a list
 # someone has to remember to extend.
 
 
@@ -271,15 +313,19 @@ def _backends():
 
 BACKENDS = _backends()
 
-# Every wrapper a decorator makes runs the same code.
-_WRAPPER_CODE = {
-    decorator: decorator(lambda self: None).__code__
-    for decorator in (_records_stage_move, _records_beam_shift)
-}
-
-
-def _records(method, decorator) -> bool:
-    return getattr(method, "__code__", None) is _WRAPPER_CODE[decorator]
+# The base class's, which go through the stage device, the stage movement service
+# and the beam device, which record.
+_RECORDED = (
+    "move_stage_absolute",
+    "move_stage_relative",
+    "stable_move",
+    "vertical_move",
+    "safe_absolute_stage_movement",
+    "move_to_orientation",
+    "move_to_milling_angle",
+    "move_to_device",
+    "beam_shift",
+)
 
 
 def test_every_backend_is_found():
@@ -288,20 +334,9 @@ def test_every_backend_is_found():
 
 
 @pytest.mark.parametrize("backend", BACKENDS, ids=lambda cls: cls.__name__)
-def test_every_backend_records_its_moves_and_beam_shifts(backend):
-    # The moves every other move is made of, so none goes unrecorded.
-    for name in ("move_stage_absolute", "move_stage_relative"):
-        assert _records(getattr(backend, name), _records_stage_move), name
-    assert _records(backend.beam_shift, _records_beam_shift)
-
-    # A composite move is recorded as itself: decorated, or handed to
-    # ThermoMicroscope's, which is (Demo and Odemis do this).
-    for name in ("stable_move", "vertical_move", "safe_absolute_stage_movement"):
-        method = getattr(backend, name)
-        hands_on = "ThermoMicroscope" in method.__code__.co_names and _records(
-            getattr(ThermoMicroscope, name), _records_stage_move
-        )
-        assert _records(method, _records_stage_move) or hands_on, name
+def test_no_backend_makes_its_own_moves_or_beam_shifts(backend):
+    for name in _RECORDED:
+        assert getattr(backend, name) is getattr(FibsemMicroscope, name), name
 
 
 @pytest.mark.parametrize("backend", BACKENDS, ids=lambda cls: cls.__name__)

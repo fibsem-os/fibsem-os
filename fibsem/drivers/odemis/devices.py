@@ -380,12 +380,10 @@ class OdemisBeam(Beam):
         return image_settings
 
     def _image(self, data: np.ndarray, image_settings: ImageSettings) -> FibsemImage:
-        """A FibsemImage with the microscope's metadata, as every backend stamps it."""
+        """A FibsemImage with the microscope's state; the beam's acquire stamps it."""
         microscope = self.parent
         state = microscope.get_microscope_state(beam_type=image_settings.beam_type)
-        image = images.fibsem_image_from_frame(data, image_settings, state)
-        microscope._set_additional_metadata(image)
-        return image
+        return images.fibsem_image_from_frame(data, image_settings, state)
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         client, channel = self._client, self.channel

@@ -25,7 +25,6 @@ from fibsem.drivers.autoscript.connection import AutoScriptConnection
 from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
-    _records_beam_shift,
 )
 from fibsem.structures import (
     BeamType,
@@ -40,7 +39,6 @@ from fibsem.structures import (
     GridSlot,
     ImageSettings,
     MicroscopeState,
-    Point,
     RangeLimit,
     SampleGrid,
     SystemSettings,
@@ -787,47 +785,6 @@ class ThermoMicroscope(FibsemMicroscope):
                 imaging.set_active_view(restore_view)
         logging.debug({"msg": "acquire_chamber_image"})
         return FibsemImage(data=image.data, metadata=None)
-
-    @_records_beam_shift
-    def beam_shift(
-        self, dx: float, dy: float, beam_type: BeamType = BeamType.ION
-    ) -> Point:
-        """
-        Adjusts the beam shift based on relative values that are provided.
-
-        Args:
-            dx: the relative x term
-            dy: the relative y term
-            beam_type: the beam to shift
-        Return:
-            Point: the current beam shift of the requested beam_type, as this can now be clipped.
-        """
-        # beam shift limits
-        beam = self._connection.beam(beam_type)
-        limits: Limits2d = beam.beam_shift.limits
-
-        # check if requested shift is outside limits
-        current_shift = self.get_beam_shift(beam_type=beam_type)
-        new_shift = Point(x=current_shift.x + dx, y=current_shift.y + dy)
-        if new_shift.x < limits.limits_x.min or new_shift.x > limits.limits_x.max:
-            logging.warning(
-                f"Beam shift x value {new_shift.x} is out of bounds: {limits.limits_x}"
-            )
-        if new_shift.y < limits.limits_y.min or new_shift.y > limits.limits_y.max:
-            logging.warning(
-                f"Beam shift y value {new_shift.y} is out of bounds: {limits.limits_y}"
-            )
-
-        # clip the requested shift to the limits
-        new_shift.x = np.clip(new_shift.x, limits.limits_x.min, limits.limits_x.max)
-        new_shift.y = np.clip(new_shift.y, limits.limits_y.min, limits.limits_y.max)
-        self.set_beam_shift(shift=new_shift, beam_type=beam_type)
-
-        logging.debug(
-            {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
-        )
-
-        return self.get_beam_shift(beam_type=beam_type)
 
     def move_coincident_from_sem(self, dx: float, dy: float) -> FibsemStagePosition:
         """Correct coincident point from SEM to FIB stage position.

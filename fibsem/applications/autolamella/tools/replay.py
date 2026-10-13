@@ -1070,9 +1070,11 @@ def _move_summary(payload: Dict[str, Any]) -> str:
     """A stage move, in the words the log's reader uses where it has them."""
     move = payload.get("move")
     request = payload.get("request") or {}
-    if move == "move_stage_absolute":
+    # The stage device's names, and the microscope wrappers' that recorded before
+    # the devices did.
+    if move in ("move_absolute", "move_stage_absolute"):
         text = f"Move stage to {_describe_position(request.get('position') or {})}"
-    elif move == "move_stage_relative":
+    elif move in ("move_relative", "move_stage_relative"):
         text = f"Move stage by {_describe_position(request.get('position') or {})}"
     elif move in ("stable_move", "vertical_move"):
         text = _beam_move_summary(move, request)

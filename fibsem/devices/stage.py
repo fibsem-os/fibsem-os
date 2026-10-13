@@ -32,11 +32,13 @@ milling angle setting, so the microscope builds it from the SEM rotation.
 
 from __future__ import annotations
 
+import logging
 import math
-from typing import Any, Dict, Mapping, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, Mapping, Optional
 
 from fibsem.constants import DEGREE_SYMBOL
-from fibsem.devices.core import Axes, Axis, Device, Parameter, command
+from fibsem.devices.core import Axes, Axis, Device, Parameter, command, plain
 from fibsem.devices.display import Display
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
@@ -211,15 +213,17 @@ class Stage(Device):
     @command
     def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move to a position. Axes that are None stay where they are."""
-        self.check_limits(position)
-        return self.move_through(position)
+        with self.recording_move("move_absolute", position=position):
+            self.check_limits(position)
+            return self.move_through(position)
 
     @command
     def move_relative(self, delta: FibsemStagePosition) -> FibsemStagePosition:
         """Move by an offset. Axes that are None don't move."""
-        with self.resources.claim(STAGE_RESOURCE):
-            self.check_limits(self.position.get_value() + delta)
-            return self.move_through(delta, relative=True)
+        with self.recording_move("move_relative", position=delta):
+            with self.resources.claim(STAGE_RESOURCE):
+                self.check_limits(self.position.get_value() + delta)
+                return self.move_through(delta, relative=True)
 
     @command(available=lambda stage: "homed" in stage.parameters)
     def home(self) -> bool:
@@ -253,12 +257,42 @@ class Stage(Device):
         Claims the stage, moves, and reads back the position, which updates the cache
         and emits ``position.changed`` and each moved axis's ``changed``.
         """
-        with self.resources.claim(STAGE_RESOURCE):
-            if relative:
-                self._move_relative(position)
-            else:
-                self._move_absolute(position)
-            return self.position.get_value()
+        move = "move_relative" if relative else "move_absolute"
+        with self.recording_move(move, position=position):
+            with self.resources.claim(STAGE_RESOURCE):
+                if relative:
+                    self._move_relative(position)
+                else:
+                    self._move_absolute(position)
+                return self.position.get_value()
+
+    @contextmanager
+    def recording_move(self, move: str, **request: Any) -> Iterator[None]:
+        """Record the moves inside as one ``stage_moved`` event named ``move``, with
+        ``request`` (the arguments it was given), and where the stage was before and
+        after. A stage move inside another records nothing of its own (see
+        `Session.recording`), so a service's move is recorded under the service's name.
+
+        ``start`` and ``end`` are the position last read, not new reads: a move ends
+        by reading where it got to, and a move that failed first ends where it began.
+        """
+        with self.session.recording(
+            "stage_moved", move=move, request=None, start=None
+        ) as entry:
+            try:
+                entry["request"] = {
+                    name: plain(value) for name, value in request.items()
+                }
+                entry["start"] = plain(self.position.cached)
+            except Exception:  # noqa: BLE001 - recording must not matter
+                logging.debug(f"could not describe a {move} stage move", exc_info=True)
+            try:
+                yield
+            finally:
+                try:
+                    entry["end"] = plain(self.position.cached)
+                except Exception:  # noqa: BLE001 - recording must not matter
+                    entry["end"] = None
 
     def check_limits(self, position: FibsemStagePosition) -> None:
         """Raise ``StageLimitError`` naming every axis of *position* out of limits."""

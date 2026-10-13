@@ -210,6 +210,24 @@ class Beam(Device):
         """Unblank the beam."""
         self.blanked.set_value(False)
 
+    @command(available=lambda beam: "shift" in beam.parameters)
+    def shift_by(self, dx: float, dy: float) -> Point:
+        """Shift the beam by (dx, dy) metres from where it is, as a beam image
+        measured it. Returns the shift afterwards, which a driver may have clipped to
+        its limits. Recorded as one ``beam_shifted`` event, with dx and dy as asked."""
+        with self.session.recording(
+            "beam_shifted", dx=dx, dy=dy, beam_type=self.beam_type.name, shift=None
+        ) as entry:
+            self._shift_by(float(dx), float(dy))
+            shift = self.shift.get_value()
+            entry["shift"] = shift.to_dict() if isinstance(shift, Point) else None
+            return shift
+
+    def _shift_by(self, dx: float, dy: float) -> None:
+        """Add (dx, dy) to the shift, unvalidated. A driver whose instrument needs
+        more (its own limits, a flipped scan) overrides this."""
+        self.shift.write_through(self.shift.get_value() + Point(dx, dy))
+
     # The scan area. Each command changes scanning_mode; a backend implements
     # _spot, _reduced_area and _full_frame, and a beam that can't set the scan area
     # has no scanning_mode, so the commands are unavailable. A driver that can set
@@ -283,12 +301,16 @@ class Beam(Device):
             and not metadata.acquisition_datetime
         ):
             metadata.acquisition_datetime = started
+        self.session.stamp(image)
         return image
 
     @command(available=lambda beam: implements(beam, "_last_image"))
     def last_image(self) -> FibsemImage:
         """The last image this beam acquired, read back from the instrument."""
-        return self._last_image()
+        image = self._last_image()
+        if image is not None:
+            self.session.stamp(image)
+        return image
 
     @command(available=lambda beam: implements(beam, "_autocontrast"))
     def autocontrast(self, reduced_area: Optional[FibsemRectangle] = None) -> None:
