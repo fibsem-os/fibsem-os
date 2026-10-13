@@ -102,7 +102,7 @@ def test_a_non_compustage_stage_is_refused(geometry):
     """There is no FM pose to re-express into; a translating stage would be off by the
     offset between the two instruments, and still produce a plausible grid."""
     projection, base = beam_view(geometry["microscope"])
-    with pytest.raises(ValueError, match="non-compustage"):
+    with pytest.raises(ValueError, match="reaches the FM by travelling"):
         plan_sparse_fm_overview(
             [region(0.0, 0.0, 1e-4, 1e-4)],
             base,

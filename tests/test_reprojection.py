@@ -102,7 +102,13 @@ class TestCalculateReprojectedStagePosition:
         assert (rotated.y - centre.y) == pytest.approx(-(plain.y - centre.y))
 
     def test_compustage_pose_inverts_y(self, image):
-        """At t = -180 the grid is imaged from behind, so in-image y flips."""
+        """At t = -180 the grid is imaged from behind, so in-image y flips on an
+        instrument that mirrors its back views."""
+        from dataclasses import replace
+
+        image.metadata.hardware_geometry = replace(
+            image.metadata.hardware_geometry, mirrors_back_view=True
+        )
         pos = _base(image) + FibsemStagePosition(x=0, y=10e-6, z=0)
 
         image.metadata.stage_position.t = 0.0
