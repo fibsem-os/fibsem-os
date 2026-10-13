@@ -120,14 +120,16 @@ class _Steered(watch_mod._UrllibClient):
         return super().request(method, path, json=json, timeout=timeout)
 
 
-def _watch(steps, sleeps=None):
+def _watch(steps, sleeps=None, since=None):
     """Watch the discovered server, running ``steps[n]`` before request n."""
     client_type = type("Steered", (_Steered,), {"steps": steps, "requests": 0})
     client = watch_mod.connect(client_factory=client_type)
     assert client is not None
     lines = []
     sleep_fn = sleeps.append if sleeps is not None else (lambda s: None)
-    code = watch_mod.watch(client, out=lines.append, sleep_fn=sleep_fn, poll_s=POLL_S)
+    code = watch_mod.watch(
+        client, out=lines.append, sleep_fn=sleep_fn, poll_s=POLL_S, since=since
+    )
     return code, lines
 
 
@@ -155,6 +157,19 @@ def test_seeds_at_the_tail_and_ends_with_the_run(app):
         "ANSWERED question=2 by=operator response=None",
         "RUN ENDED (workflow_completed)",
     ]
+
+
+def test_since_resumes_where_the_last_watch_left_off(app):
+    # A bounded watch returned at seq 1; what landed before the next one
+    # started is still printed, and nothing from before seq 1 is.
+    app.buffer.append("prompt_raised", {"question_id": 1, "type": "Confirm"})
+    app.buffer.append("request_decided", {"request_id": "ab12", "outcome": "approved"})
+    app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({}, since=1)
+
+    assert code == 0
+    assert lines == ["REQUEST ab12 approved", "RUN ENDED (workflow_completed)"]
 
 
 def test_an_answer_says_when_it_took_the_agent_s_suggestion(app):

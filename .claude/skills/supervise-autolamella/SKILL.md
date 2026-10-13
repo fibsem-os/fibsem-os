@@ -117,7 +117,8 @@ If your harness cannot keep a background process alive while you are idle
 line will ever wake you), do not go idle expecting one. Hold the watch in
 the foreground of a single bounded command instead: run the watcher with
 your tool timeout as the cap, act on whatever lines it printed when the
-command returns, and run it again. A stalled watch looks exactly like a
+command returns, and run it again with `--since <the last seq you saw>`
+(`latest_seq` from `get_events`) so the gap between runs is not lost. A stalled watch looks exactly like a
 quiet run — when in doubt, read `/app/prompt` directly.
 
 ## Answer — the rules that are never optional

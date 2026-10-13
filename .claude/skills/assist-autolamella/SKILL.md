@@ -30,7 +30,9 @@ Read `get_capabilities` first:
 
 - `level: "assist"` is the level this skill is for. Tell the operator in a
   sentence what that means: you read and suggest, you ask before acting,
-  and you stop without asking only if something is going wrong.
+  and you stop without asking only if something is going wrong. `scopes`
+  shows `control`, `configure` and `hardware` false at Assist. That is
+  what you can call directly, not what you can ask for.
 - `level: "watch"`: you can read and add notes, and suggest nothing. Work
   as the observe skill says (`.claude/skills/observe-autolamella`). If they
   want your help acting, they raise you to Assist from the Agent chip.
@@ -38,13 +40,39 @@ Read `get_capabilities` first:
   for that.
 - `403 agent_off`: say so once and stop.
 
+The tools this skill uses, with their routes for plain HTTP:
+
+| Tool | Route |
+|---|---|
+| `request_actions` | `POST /app/agent/requests` |
+| `get_request` | `GET /app/agent/requests/{request_id}` |
+| `suggest_answer` | `POST /app/prompt/suggest` |
+| `add_note` | `POST /app/agent/notes` |
+| `stop_workflow`, `stop_milling` | `POST /app/workflow/stop`, `POST /stop_milling` |
+
+In a request, `tool` is the tool's name without the `mcp__fibsem__`
+prefix (`set_task_supervision`, `move_stage_relative`, `requeue_task`), and
+`arguments` are what that tool takes. Any tool that acts can go in a
+request; the server says so when it can't (`not_an_action`).
+
 ## Watch the session
 
-Run the watcher as a background monitor, as the supervise skill says:
+Run the watcher as a background monitor, as the supervise skill says,
+and start it before you file anything. The operator often decides within
+seconds.
 
 ```
 fibsem-mcp watch
 ```
+
+If you can only run it bounded in the foreground, every restart passes the
+last event you saw, so nothing that happened in between is lost:
+
+```
+fibsem-mcp watch --since 42
+```
+
+The seq is in `get_events` (`latest_seq`). Read it just before you file.
 
 Besides the run's lines (`PROMPT`, `QUESTION`, `ANSWERED`, `EVENT`,
 `RUN ENDED`), it prints a `REQUEST` line each time your request moves:
@@ -56,6 +84,10 @@ Besides the run's lines (`PROMPT`, `QUESTION`, `ANSWERED`, `EVENT`,
 
 Don't poll `get_request` on a timer. Wait for the line, then read the
 request once.
+
+Keep watching until the run ends or the operator tells you to stop. A
+question nobody has answered is not a reason to leave; run questions have
+no timeout.
 
 ## Asking: `request_actions`
 
@@ -89,7 +121,13 @@ with the request, so you don't need a separate note for it.
 the stage position before filing, and pass the `version` you read. Until
 the operator approves, nothing is checked against the live state. A stale
 version is refused when the request runs (`409 stale_config`), which is
-correct. Read again and ask again.
+correct. Read again and ask again. A stage move has no version: a relative
+move runs from wherever the stage is when the operator approves it, so
+say in the reason where you read it from.
+
+**Ask for what was asked.** When the operator asks for one thing, the
+request is that thing. Don't add an image, a second move or a tidy-up they
+didn't ask for; offer it in chat instead.
 
 What happens next:
 
@@ -136,9 +174,19 @@ A **recorded question** (`QUESTION item=… task=…`, or a prompt saying
 refused (`409 not_suggestible`). At Assist, file the `decide_review` call
 as a request, with your reason.
 
-When you can't judge a question (an image you can't read, a type you
-haven't seen, anything that smells wrong), don't suggest. Tell the operator
-what you see and that it's theirs.
+A suggestion leaves the click to the operator, so the supervise skill's
+first-of-a-kind escalation is already met. Suggest when you can judge it.
+
+When you can't judge a question, don't suggest. Tell the operator what you
+see and that it's theirs, and put that on the record with `add_note`
+(nobody else will). Typical cases:
+
+- an image you can't read, or one with no `acquired_at` (treat it as
+  stale);
+- a type you haven't seen;
+- a question the record doesn't back up, such as "Task finished, continue?"
+  with no run going and nothing in the task history;
+- anything else that smells wrong.
 
 ## Stopping
 
@@ -156,7 +204,9 @@ setting (`routers.microscope` true). Without it they are refused when you
 file them (`not_available`). Follow the supervise skill's *Using the
 microscope* rules: read the stage before each move, take a fresh image
 before judging, and treat `409 microscope_busy` as someone else working.
-Put a move and the image that checks it in one request.
+An image costs dose on a real sample. If you need one to check a move,
+say so in chat first, and when the operator agrees put the move and the
+image in one request.
 
 ## Notes
 

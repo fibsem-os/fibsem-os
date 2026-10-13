@@ -7,6 +7,7 @@ it prints wakes the agent. It must never be the actor: run in the foreground,
 it would block the agent from acting on what it prints.
 
     fibsem-mcp watch
+    fibsem-mcp watch --since 42          # resume after event 42
     python -m fibsem.mcp.sidecar watch   # where fibsem-mcp is not on PATH
 
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
@@ -217,8 +218,11 @@ def _run_is_live(client):
         return None
 
 
-def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None):
+def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None):
     """Watch until the run ends (0) or the server cannot be watched (1).
+
+    ``since`` resumes after that event seq, so a watch restarted after the
+    last one returned misses nothing in between; None starts at the tail.
 
     ``client`` is httpx-style (``request(method, path, timeout=...)``), in
     practice the sidecar's reconnecting client: a 401 or a lost connection
@@ -242,7 +246,8 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None):
             "watch. Is an application hosted, not only a bench server?"
         )
         return 1
-    since = snapshot.get("latest_seq") or 0
+    if since is None:
+        since = snapshot.get("latest_seq") or 0
     # A run can end without an end event: one that dies outside a task fires
     # none (FIB-1331). So while a run is live, /app/status is the backstop.
     run_live = _run_is_live(client) is True
@@ -329,6 +334,12 @@ def main(argv=None):
     )
     parser.add_argument("--url", default=None, help="Server URL")
     parser.add_argument("--token", default=None, help="Bearer token")
+    parser.add_argument(
+        "--since",
+        type=int,
+        default=None,
+        help="Print events after this seq (default: only new ones)",
+    )
     args = parser.parse_args(argv)
 
     # Item names can carry operator-typed text; never let an exotic character
@@ -343,6 +354,6 @@ def main(argv=None):
         _print_line(f"NO SERVER: {_NO_SERVER_MSG}")
         return 1
     try:
-        return watch(client)
+        return watch(client, since=args.since)
     except KeyboardInterrupt:
         return 1
