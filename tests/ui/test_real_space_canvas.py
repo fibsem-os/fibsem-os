@@ -8,6 +8,7 @@ that draws nothing, because it looks like evidence.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python tests/ui/test_real_space_canvas.py
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -283,10 +284,18 @@ def test_one_dimensional_data_is_rejected():
 def test_rgb_and_rgba_are_placed_like_any_other_picture():
     """The composited path: an FM overview arrives here already blended to colour."""
     c = _canvas()
-    c.add_image(np.zeros((64, 128, 3), np.uint8), centre=(0.0, 0.0),
-                pixel_size=PIXEL_SIZE, key="rgb")
-    c.add_image(np.zeros((64, 128, 4), np.uint8), centre=(0.0, 0.0),
-                pixel_size=PIXEL_SIZE, key="rgba")
+    c.add_image(
+        np.zeros((64, 128, 3), np.uint8),
+        centre=(0.0, 0.0),
+        pixel_size=PIXEL_SIZE,
+        key="rgb",
+    )
+    c.add_image(
+        np.zeros((64, 128, 4), np.uint8),
+        centre=(0.0, 0.0),
+        pixel_size=PIXEL_SIZE,
+        key="rgba",
+    )
     rect = c._content_rect()
     assert (rect.width, rect.height) == (128, 64)  # the channel axis is not a dimension
     assert c._placed["rgb"].artist.get_array().shape[-1] == 3
@@ -294,7 +303,9 @@ def test_rgb_and_rgba_are_placed_like_any_other_picture():
 
 def test_the_display_cap_keeps_the_channel_axis():
     c = FibsemRealSpaceCanvas(display_max_px=128)
-    c.add_image(np.zeros((1024, 1024, 3), np.uint8), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
+    c.add_image(
+        np.zeros((1024, 1024, 3), np.uint8), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE
+    )
     assert c._ax.get_images()[0].get_array().shape == (128, 128, 3)
 
 
@@ -313,7 +324,9 @@ def test_a_rejected_image_does_not_destroy_the_one_it_would_have_replaced():
     c = _canvas()
     c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="keep")
     with pytest.raises(ValueError):
-        c.add_image(np.zeros((5, 64, 64)), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="keep")
+        c.add_image(
+            np.zeros((5, 64, 64)), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="keep"
+        )
     assert c.placed_keys == ["keep"]
     assert len(c._ax.get_images()) == 1
 
@@ -354,8 +367,14 @@ def _pan(canvas, dx_px=40, dy_px=0):
 
     def _event(x, y):
         return SimpleNamespace(
-            inaxes=canvas._ax, xdata=0.0, ydata=0.0, x=x, y=y,
-            button=1, dblclick=False, guiEvent=None,
+            inaxes=canvas._ax,
+            xdata=0.0,
+            ydata=0.0,
+            x=x,
+            y=y,
+            button=1,
+            dblclick=False,
+            guiEvent=None,
         )
 
     canvas._on_press(_event(100, 100))
@@ -424,7 +443,9 @@ def test_a_world_extent_frames_at_least_that_much_space():
     c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE)
     c.set_world_extent(200e-6)
     rect = c._content_rect()
-    assert (rect.width, rect.height) == pytest.approx((2000, 2000))  # 200 um at 100 nm/px
+    assert (rect.width, rect.height) == pytest.approx(
+        (2000, 2000)
+    )  # 200 um at 100 nm/px
     assert (rect.cx, rect.cy) == pytest.approx((0, 0))
 
 
@@ -458,7 +479,9 @@ def test_fit_frames_the_images_not_the_declared_working_area():
     xmin, xmax, _, _ = c._fit_extent()
     assert xmax - xmin < 5000  # nowhere near the 500 um working area
     c.clear_images()
-    assert c._fit_extent() is not None  # with nothing acquired, the area is all there is
+    assert (
+        c._fit_extent() is not None
+    )  # with nothing acquired, the area is all there is
 
 
 def test_a_rectangular_and_offset_working_area():
@@ -509,7 +532,9 @@ def test_a_long_thin_mosaic_still_fills_the_widget():
     for i in range(20):
         c.add_image(_img(), centre=(0.0, i * 20e-6), pixel_size=PIXEL_SIZE, key=str(i))
     images = c._image_extent()
-    assert (images[2] - images[3]) / (images[1] - images[0]) > 30  # genuinely degenerate
+    assert (images[2] - images[3]) / (
+        images[1] - images[0]
+    ) > 30  # genuinely degenerate
 
     fit = c._fit_extent()
     assert (fit[2] - fit[3]) / (fit[1] - fit[0]) == pytest.approx(900 / 1000, rel=0.01)
@@ -531,6 +556,7 @@ def test_the_geometry_survives_a_resize_with_nothing_acquired():
     axes would stretch to the widget — drawing a square grid as a rectangle. Overlays are
     drawn here before anything is acquired, so the frame has to be square from the start.
     """
+
     def _ratio(c):
         x0, x1 = c._ax.get_xlim()
         y0, y1 = c._ax.get_ylim()
@@ -626,14 +652,19 @@ def test_zorder_puts_a_coarse_overview_beneath_later_tiles():
     c.add_image(
         _img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE * 4, key="overview", zorder=-1
     )
-    assert c._placed["overview"].artist.get_zorder() < c._placed["tile"].artist.get_zorder()
+    assert (
+        c._placed["overview"].artist.get_zorder()
+        < c._placed["tile"].artist.get_zorder()
+    )
 
 
 def test_update_image_keeps_position_scale_and_draw_order():
     """A live preview refreshed by re-adding would climb over tiles it should sit under,
     because destroying the artist and making a new one puts it on top."""
     c = _canvas()
-    c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="preview", zorder=-1)
+    c.add_image(
+        _img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="preview", zorder=-1
+    )
     c.add_image(_img(), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE, key="tile")
     before = c._placed["preview"].extent
     artist = c._placed["preview"].artist
@@ -739,8 +770,12 @@ def test_covers_places_a_reduced_array_at_the_size_it_represents():
     c = _canvas()
     c.set_reference_pixel_size(PIXEL_SIZE)
     reduced = _img(100, 100)  # stands in for a 1000x1000 acquisition
-    c.add_image(reduced, centre=(0.0, 0.0), pixel_size=PIXEL_SIZE,
-                covers=(1000 * PIXEL_SIZE, 1000 * PIXEL_SIZE))
+    c.add_image(
+        reduced,
+        centre=(0.0, 0.0),
+        pixel_size=PIXEL_SIZE,
+        covers=(1000 * PIXEL_SIZE, 1000 * PIXEL_SIZE),
+    )
     xmin, xmax, ymax, ymin = c._content_extent()
     assert xmax - xmin == pytest.approx(1000)
     assert ymax - ymin == pytest.approx(1000)
@@ -758,11 +793,17 @@ def test_without_covers_the_ground_still_comes_from_shape_and_pixel_size():
 
 def _scroll(canvas, direction, n=1):
     from types import SimpleNamespace
+
     for _ in range(n):
-        canvas._on_scroll(SimpleNamespace(
-            inaxes=canvas._ax, xdata=0.0, ydata=0.0,
-            button="up" if direction > 0 else "down", guiEvent=None,
-        ))
+        canvas._on_scroll(
+            SimpleNamespace(
+                inaxes=canvas._ax,
+                xdata=0.0,
+                ydata=0.0,
+                button="up" if direction > 0 else "down",
+                guiEvent=None,
+            )
+        )
 
 
 def _span(canvas):
@@ -929,14 +970,15 @@ def _with_source(side=2048, display_max_px=256, widget=(800, 600)):
     src = Source(side)
     # `data` is the whole-image fallback: what a caller would have placed before.
     c.add_image(
-        downsample(src.full, display_max_px), centre=(0.0, 0.0),
-        pixel_size=PIXEL_SIZE, key="big",
-        covers=(side * PIXEL_SIZE, side * PIXEL_SIZE), detail=src,
+        downsample(src.full, display_max_px),
+        centre=(0.0, 0.0),
+        pixel_size=PIXEL_SIZE,
+        key="big",
+        covers=(side * PIXEL_SIZE, side * PIXEL_SIZE),
+        detail=src,
     )
     _app.processEvents()
     return c, src
-
-
 
 
 def _zoom_to(canvas, fraction, centre=(0.0, 0.0)):
@@ -1165,7 +1207,8 @@ def test_a_source_returning_a_region_outside_itself_is_refused():
     they did not come from — which looks exactly like a correctly placed image."""
     c, src = _with_source()
     c._placed["big"].detail = lambda region, max_px: (
-        np.zeros((16, 16), np.uint8), ImageRegion(0.5, 1.5, 0.0, 1.0)
+        np.zeros((16, 16), np.uint8),
+        ImageRegion(0.5, 1.5, 0.0, 1.0),
     )
     before = c._placed["big"].artist.get_extent()
 
@@ -1284,8 +1327,12 @@ def _one_source_canvas(side):
     _app.processEvents()
     src = Source(side)
     c.add_image(
-        downsample(src.full, 64), centre=(0.0, 0.0), pixel_size=PIXEL_SIZE,
-        key="one", covers=(100e-6, 100e-6), detail=src,
+        downsample(src.full, 64),
+        centre=(0.0, 0.0),
+        pixel_size=PIXEL_SIZE,
+        key="one",
+        covers=(100e-6, 100e-6),
+        detail=src,
     )
     _flush_detail(c)
     return c, src
@@ -1317,8 +1364,11 @@ def test_an_image_occupying_part_of_the_canvas_is_budgeted_for_that_part():
     for key, centre in (("left", -60e-6), ("right", 60e-6)):
         sources[key] = Source(2048)
         c.add_image(
-            downsample(sources[key].full, 64), centre=(centre, 0.0),
-            pixel_size=PIXEL_SIZE, key=key, covers=(100e-6, 100e-6),
+            downsample(sources[key].full, 64),
+            centre=(centre, 0.0),
+            pixel_size=PIXEL_SIZE,
+            key=key,
+            covers=(100e-6, 100e-6),
             detail=sources[key],
         )
     _flush_detail(c)
@@ -1360,13 +1410,17 @@ def test_a_forced_refresh_reaches_an_image_that_is_off_screen_later():
         def fetch(region, max_px):
             n = max(1, min(max_px, int(side * (region.right - region.left))))
             return np.full((n, n), shade[key], dtype=np.uint8), region
+
         return fetch
 
     for i, key in enumerate(("near", "far")):
         c.add_image(
             np.full((side, side), 40, dtype=np.uint8),
-            centre=(i * span * 1.5, 0.0), pixel_size=span / side,
-            key=key, covers=(span, span), detail=source(key),
+            centre=(i * span * 1.5, 0.0),
+            pixel_size=span / side,
+            key=key,
+            covers=(span, span),
+            detail=source(key),
         )
 
     def look_at(index):
