@@ -1,7 +1,6 @@
 from typing import List
 
 from fibsem import constants
-from fibsem.devices.beam import STANDARD_RESOLUTIONS
 from fibsem.structures import CrossSectionPattern, field_meta
 from fibsem.utils import format_resolution_as_str
 
@@ -69,7 +68,8 @@ DEFAULT_PASSES_METADATA = field_meta(
 DEFAULT_IMAGE_RESOLUTION_METADATA = field_meta(
     label="Image Resolution",
     type=List[int],
-    items=[list(r) for r in STANDARD_RESOLUTIONS],
+    items="dynamic",
+    microscope_parameter="resolution",
     tooltip="The imaging resolution in pixels (Width x Height).",
     format_fn=format_resolution_as_str,
 )

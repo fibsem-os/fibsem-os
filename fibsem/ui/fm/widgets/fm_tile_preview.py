@@ -112,7 +112,7 @@ class FMTilePreviewWidget(QWidget):
         self._origin = to_fm_pose(
             microscope.get_stage_position(),
             self._fm_orientation,
-            is_compustage=microscope._fm_is_a_pose(),
+            fm_is_pose=microscope._fm_is_a_pose(),
         )
 
         # Where the stage travels after the flip to put the beams' ground under the
@@ -228,7 +228,7 @@ class FMTilePreviewWidget(QWidget):
                 fov_x=self._fov[0],
                 fov_y=self._fov[1],
                 overlap=overlap,
-                is_compustage=self.microscope._fm_is_a_pose(),
+                fm_is_pose=self.microscope._fm_is_a_pose(),
                 fm_origin=self._fm_origin,
             )
         except ValueError as e:

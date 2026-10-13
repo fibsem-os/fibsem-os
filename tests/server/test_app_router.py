@@ -693,7 +693,8 @@ def test_fm_overview_previews_in_colour_and_places_markers(
             shuttle_pre_tilt=0,
             rotation_reference=0,
             rotation_180=0,
-            is_compustage=True,
+            fm_is_pose=True,
+            mirrors_back_view=True,
             camera_tilt=180.0,
         ),
     )

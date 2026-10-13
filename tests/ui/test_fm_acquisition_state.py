@@ -49,7 +49,7 @@ def _stop(fm) -> None:
 
 @pytest.fixture()
 def widget(qapp):
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     widget = FMOverviewWidget(build_microscope())
     # `build_microscope` leaves the objective retracted, which `acquire` refuses

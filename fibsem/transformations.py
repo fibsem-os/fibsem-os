@@ -121,12 +121,12 @@ def _image_y_flip(
 ) -> float:
     """-1 where the instrument mirrors the image, so image y runs against the geometry.
 
-    A compustage's instrument flips an image the beam takes of the back of the grid,
-    so it reads as if seen from the front (FIB-1101). Which side a view sees is the
-    model's (`fibsem.geometry.frames.views_back`); that the instrument mirrors it is
-    the compustage's. Other stages present the image as the beam sees it.
+    Some instruments flip an image the beam takes of the back of the grid, so it reads
+    as if seen from the front (FIB-1101). Which side a view sees is the model's
+    (`fibsem.geometry.frames.views_back`); that the instrument mirrors it is the
+    driver's fact, `mirrors_back_view`. Others present the image as the beam sees it.
     """
-    if not geometry.is_compustage:
+    if not geometry.mirrors_back_view:
         return 1.0
     model = StageModel.from_geometry(geometry)
     return -1.0 if views_back(model, view_tilt, stage_rotation, stage_tilt) else 1.0

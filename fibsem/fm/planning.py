@@ -84,15 +84,23 @@ class SparseOverviewPlan:
         return sum(sum(1 for on in row if on) for row in self.mask)
 
 
+# Raised where a position is re-posed for the FM on a stage that reaches the FM by
+# travelling instead.
+_FM_NOT_A_POSE = (
+    "Cannot move to the FM position: this stage reaches the FM by travelling, not "
+    "by re-posing."
+)
+
+
 def to_fm_pose(
     position: FibsemStagePosition,
     fm_orientation: FibsemStagePosition,
     *,
-    is_compustage: bool,
+    fm_is_pose: bool,
 ) -> FibsemStagePosition:
     """Re-pose a stage position for the fluorescence orientation.
 
-    On a compustage this is a re-tilt and nothing else: x, y and z name the same ground
+    Where the FM is a pose this is a re-tilt and nothing else: x, y and z name the same ground
     at either pose, so the re-posed position keeps them and writes only the target
     orientation's r and t. Everything here rests on that, which is why the guard is a
     raise rather than a comment -- on a stage that reaches fluorescence by a long
@@ -100,7 +108,7 @@ def to_fm_pose(
     instruments, and wrong in a way that still looks like a grid.
 
     It is the ground the beams saw, re-posed, and not yet where the stage stands to put
-    that ground under the objective: a compustage FM may have an origin, the offset of
+    that ground under the objective: an FM reached by re-posing may have an origin, the offset of
     the objective from the beams' coincidence point, which the stage travels by after
     the flip. Relative arithmetic (`project_regions_to_fm_plane`) needs only the pose;
     a position to drive to adds the origin (`plan_sparse_fm_overview`'s *fm_origin*).
@@ -108,16 +116,17 @@ def to_fm_pose(
     Args:
         position: Stage position at any orientation.
         fm_orientation: The FM orientation's (r, t), from `get_orientation("FM")`.
-        is_compustage: Whether the stage is a compustage.
+        fm_is_pose: Whether the stage reaches the FM by re-posing
+            (`microscope._fm_is_a_pose()`).
 
     Returns:
         The same translation, posed for fluorescence.
 
     Raises:
-        ValueError: on a non-compustage system.
+        ValueError: where the FM is not a pose of the stage.
     """
-    if not is_compustage:
-        raise ValueError("Cannot move to FM position on non-compustage systems.")
+    if not fm_is_pose:
+        raise ValueError(_FM_NOT_A_POSE)
     posed = deepcopy(position)
     posed.r = fm_orientation.r
     posed.t = fm_orientation.t
@@ -145,7 +154,7 @@ def project_regions_to_fm_plane(
     fm_projection: "StageProjection",
     fm_orientation: FibsemStagePosition,
     *,
-    is_compustage: bool,
+    fm_is_pose: bool,
 ) -> List[PlaneRegion]:
     """Carry regions from the beam overview's plane into the FM's.
 
@@ -173,12 +182,13 @@ def project_regions_to_fm_plane(
         beam_projection: Projection for the beam overview, from its own metadata.
         fm_projection: Projection for the fluorescence camera.
         fm_orientation: The FM orientation's (r, t).
-        is_compustage: Whether the stage is a compustage.
+        fm_is_pose: Whether the stage reaches the FM by re-posing
+            (`microscope._fm_is_a_pose()`).
 
     Returns:
         The same regions in the FM plane, measured from the FM-posed *beam_base*.
     """
-    fm_base = to_fm_pose(beam_base, fm_orientation, is_compustage=is_compustage)
+    fm_base = to_fm_pose(beam_base, fm_orientation, fm_is_pose=fm_is_pose)
     projected = []
     for region in regions:
         corners = [
@@ -208,7 +218,7 @@ def plan_sparse_fm_overview(
     fov_y: float,
     overlap: float,
     *,
-    is_compustage: bool,
+    fm_is_pose: bool,
     fm_origin: Optional[FibsemStagePosition] = None,
 ) -> SparseOverviewPlan:
     """Turn a selection on a beam overview into an FM overview run.
@@ -227,7 +237,8 @@ def plan_sparse_fm_overview(
             horizontal field width with the other axis inferred.
         fov_y: FM tile height, in metres.
         overlap: Fractional overlap between adjacent tiles, in [0, 1).
-        is_compustage: Whether the stage is a compustage.
+        fm_is_pose: Whether the stage reaches the FM by re-posing
+            (`microscope._fm_is_a_pose()`).
         fm_origin: The stage travel from the beams to the FM after the flip -- the
             objective's offset from the beams' coincidence point, at the FM pose. Added
             to the centre the stage is driven to; the regions are relative and do not
@@ -240,14 +251,14 @@ def plan_sparse_fm_overview(
         ValueError: if no region has any area, *overlap* is out of range, or the stage
             is not a compustage.
     """
-    fm_base = to_fm_pose(beam_base, fm_orientation, is_compustage=is_compustage)
+    fm_base = to_fm_pose(beam_base, fm_orientation, fm_is_pose=fm_is_pose)
     fm_regions = project_regions_to_fm_plane(
         regions,
         beam_base,
         beam_projection,
         fm_projection,
         fm_orientation,
-        is_compustage=is_compustage,
+        fm_is_pose=fm_is_pose,
     )
     plan = plan_grid_over_regions(fm_regions, fov_x, fov_y, overlap)
     centre_position = _travelled(

@@ -137,32 +137,3 @@ class TaskHistoryTableWidget(QWidget):
         """Clear the table."""
         self.table_widget.clear()
         self.experiment = None
-
-
-def main():
-    """Example usage of TaskHistoryTableWidget."""
-    import os
-    import sys
-
-    from PyQt5.QtWidgets import QApplication
-
-    # Load example experiment
-    PATH = "/home/patrick/github/fibsem/fibsem/applications/autolamella/log/AutoLamella-2025-12-14-16-27"
-    if os.path.exists(os.path.join(PATH, "experiment.yaml")):
-        exp = Experiment.load(os.path.join(PATH, "experiment.yaml"))
-
-        app = QApplication(sys.argv)
-
-        # Create and show widget
-        widget = TaskHistoryTableWidget(experiment=exp)
-        widget.setWindowTitle("Task History Table Widget Example")
-        widget.resize(1000, 600)
-        widget.show()
-
-        sys.exit(app.exec_())
-    else:
-        print(f"Example experiment not found at {PATH}")
-
-
-if __name__ == "__main__":
-    main()

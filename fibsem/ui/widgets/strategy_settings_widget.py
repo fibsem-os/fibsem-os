@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
@@ -14,11 +14,16 @@ from PyQt5.QtWidgets import (
 
 from fibsem.milling.base import MillingStrategy, get_strategy
 from fibsem.milling.strategy import get_strategy_names
+from fibsem.structures import BeamType
 from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui.utils import beam_field_metadata
 from fibsem.ui.widgets.custom_widgets import FormGrid, ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import Control, build_control
+
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
 
 
 @dataclass
@@ -44,8 +49,10 @@ class FibsemStrategySettingsWidget(QWidget):
         self,
         strategy: MillingStrategy[Any],
         parent: Optional[QWidget] = None,
+        microscope: Optional[FibsemMicroscope] = None,
     ) -> None:
         super().__init__(parent)
+        self.microscope = microscope
         self._strategy = strategy
         self._advanced_visible = False
         self._rows: List[_Row] = []
@@ -109,6 +116,14 @@ class FibsemStrategySettingsWidget(QWidget):
     # Control building
     # ------------------------------------------------------------------
 
+    def _dynamic_items(self, parameter: str) -> List[Any]:
+        """Resolve an `items: "dynamic"` field: the milling beam's choices for its
+        parameter, else what every beam declares (with no microscope)."""
+        metadata = beam_field_metadata(
+            {"microscope_parameter": parameter}, self.microscope, BeamType.ION
+        )
+        return list(metadata.get("items") or [])
+
     def _build_controls(self, strategy: MillingStrategy[Any]) -> None:
         """Clear and rebuild the config form for the given strategy."""
         # Clear rows BEFORE removing form widgets (same reason as pattern_settings_widget:
@@ -121,7 +136,11 @@ class FibsemStrategySettingsWidget(QWidget):
             if m.get("hidden", False):
                 continue
 
-            control = build_control(m, getattr(strategy.config, field_name))
+            control = build_control(
+                m,
+                getattr(strategy.config, field_name),
+                dynamic_items=self._dynamic_items,
+            )
             if control is None:
                 logging.warning("Control for '%s' is unsupported", field_name)
                 continue
