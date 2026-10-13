@@ -58,7 +58,7 @@ def zparams():
 @contextmanager
 def watching(microscope):
     """Record every moment the view returns to the beam while a routine runs."""
-    imaging = microscope.imaging_system
+    imaging = microscope._connection.imaging_system
     imaging.active_view = BEAM_VIEW
     fm_cls = type(microscope.fm)
     original = fm_cls.set_active_channel
@@ -124,11 +124,11 @@ class TestItStillGivesItBackAtTheEnd:
     def test_the_autofocus_sweep_restores_the_beam_view(self, microscope, channel):
         from fibsem.fm.calibration import run_autofocus
 
-        microscope.imaging_system.active_view = BEAM_VIEW
+        microscope._connection.imaging_system.active_view = BEAM_VIEW
 
         run_autofocus(microscope.fm, channel)
 
-        assert microscope.imaging_system.active_view == BEAM_VIEW, (
+        assert microscope._connection.imaging_system.active_view == BEAM_VIEW, (
             "the sweep left the connection on the FM — the next beam operation would "
             "read the FM's buffer (FIB-517)"
         )
@@ -136,23 +136,23 @@ class TestItStillGivesItBackAtTheEnd:
     def test_the_z_stack_restores_the_beam_view(self, microscope, channel, zparams):
         from fibsem.fm.acquisition import acquire_z_stack
 
-        microscope.imaging_system.active_view = BEAM_VIEW
+        microscope._connection.imaging_system.active_view = BEAM_VIEW
 
         acquire_z_stack(microscope.fm, [channel], zparams)
 
-        assert microscope.imaging_system.active_view == BEAM_VIEW
+        assert microscope._connection.imaging_system.active_view == BEAM_VIEW
 
     def test_a_cancelled_sweep_still_restores(self, microscope, channel):
         """The `with` covers the early returns too, which a manual claim would miss."""
         from fibsem.fm.calibration import run_autofocus
 
-        microscope.imaging_system.active_view = BEAM_VIEW
+        microscope._connection.imaging_system.active_view = BEAM_VIEW
         stop = threading.Event()
         stop.set()
 
         run_autofocus(microscope.fm, channel, stop_event=stop)
 
-        assert microscope.imaging_system.active_view == BEAM_VIEW
+        assert microscope._connection.imaging_system.active_view == BEAM_VIEW
 
 
 class TestTheClaimIsStructural:

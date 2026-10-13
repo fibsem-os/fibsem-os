@@ -28,7 +28,7 @@ def qapp():
 
 @pytest.fixture()
 def microscope(qapp):
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     return build_microscope()
 

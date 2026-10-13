@@ -442,32 +442,3 @@ class OverviewAcquisitionSettingsWidget(QWidget):
         )
         self.image_settings_widget.update_from_settings(settings.image_settings)
         self._update_total_fov_label()
-
-
-# ---------------------------------------------------------------------------
-# Quick test harness
-# ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    import sys
-
-    from PyQt5.QtWidgets import QApplication, QPushButton
-
-    app = QApplication(sys.argv)
-    w = QWidget()
-    layout = QVBoxLayout(w)
-
-    widget = OverviewAcquisitionSettingsWidget()
-    layout.addWidget(widget)
-
-    btn = QPushButton("Print settings")
-
-    def _print():
-        s = widget.get_settings()
-        print(s)
-
-    btn.clicked.connect(_print)
-    layout.addWidget(btn)
-
-    w.setWindowTitle("OverviewAcquisitionSettingsWidget test")
-    w.show()
-    sys.exit(app.exec_())
