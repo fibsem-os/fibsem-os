@@ -34,7 +34,7 @@ import yaml
 
 from fibsem import config as cfg
 from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
-from fibsem.devices.core import Role, command
+from fibsem.devices.core import Role, command, session_of
 from fibsem.devices.sample_loader import (
     GridExchangeError,
     Magazine,
@@ -198,7 +198,12 @@ class GridMagazine:
             return grid
         if working.loaded_grid is not None:
             self.unload_grid()
-        self._do_load(slot)
+        # On the record (FIB-1359), with how long the exchange took and why it
+        # failed, if it did.
+        with session_of(self.parent).recording(
+            "grid_loaded", grid=grid.name, slot=slot_name, working_slot=working.name
+        ):
+            self._do_load(slot)
         working.loaded_grid = grid
         logging.info(f"Loaded grid '{grid.name}' from {slot_name} into {working.name}.")
         return grid
@@ -209,7 +214,14 @@ class GridMagazine:
         if working.loaded_grid is None:
             return
         name = working.loaded_grid.name
-        self._do_unload(working)
+        home = self.find_grid(name)
+        with session_of(self.parent).recording(
+            "grid_unloaded",
+            grid=name,
+            slot=home.name if home is not None else None,
+            working_slot=working.name,
+        ):
+            self._do_unload(working)
         working.loaded_grid = None
         logging.info(f"Unloaded grid '{name}' from {working.name}.")
 
