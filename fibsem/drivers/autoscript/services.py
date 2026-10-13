@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
+from difflib import get_close_matches
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type
 
 import numpy as np
@@ -31,7 +32,6 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     MillingState,
 )
-from fibsem.util.application_file import match_application_file
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -40,6 +40,32 @@ if TYPE_CHECKING:
     from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 
 _PATTERNING_MODES = ("Serial", "Parallel")
+
+
+def match_application_file(
+    application_file: str, application_files: List[str], strict: bool = True
+) -> str:
+    """The application file to use for `application_file`, from those available.
+
+    With `strict`, a name that is not available raises; otherwise the closest
+    available name is used.
+
+    Raises:
+        ValueError: If no available application file matches.
+    """
+    if application_file not in application_files:
+        if strict:
+            raise ValueError(
+                f"Application file {application_file} not available. Available files: {application_files}"
+            )
+        closest_match = get_close_matches(application_file, application_files, n=1)
+        if not closest_match:
+            raise ValueError(
+                f"Application file {application_file} not available. Available files: {application_files}"
+            )
+        application_file = str(closest_match[0])
+
+    return application_file
 
 
 class AutoScriptMilling(Milling):
