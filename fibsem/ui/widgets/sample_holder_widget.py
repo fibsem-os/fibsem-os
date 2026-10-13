@@ -35,7 +35,6 @@ from fibsem.ui.icon import ICON_MOVE_TO_POSITION, fibsem_icon
 from fibsem.ui.tokens import (
     NEUTRAL_700,
     OK_COLOR,
-    SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
@@ -467,32 +466,3 @@ class SampleHolderWidget(QWidget):
         self.set_holder(holder)
         # The dialog already wrote the calibration; this tells hosts the slots moved.
         self.holder_changed.emit(holder)
-
-
-if __name__ == "__main__":
-    import sys
-
-    from PyQt5.QtWidgets import QApplication
-
-    from fibsem import utils
-
-    logging.basicConfig(level=logging.DEBUG)
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-
-    microscope, settings = utils.setup_session(config_path=None)
-    holder = microscope.sample_handling.holder
-
-    widget = SampleHolderWidget(microscope=microscope, move_directly=True)
-    widget.setStyleSheet(f"background: {SURFACE_COLOR}; color: #d1d2d4;")
-    widget.set_holder(holder)
-
-    def on_holder_changed(h: SampleHolder) -> None:
-        for slot in h.slots.values():
-            g = slot.loaded_grid.name if slot.loaded_grid else "Empty"
-            print(f"  {slot.name}: {g}  calibrated={slot.is_calibrated}")
-
-    widget.holder_changed.connect(on_holder_changed)
-    widget.resize(520, 320)
-    widget.show()
-    sys.exit(app.exec_())
