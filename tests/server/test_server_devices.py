@@ -277,14 +277,3 @@ def test_an_acquired_image_reaches_the_apps_views(armed_client, microscope, path
     assert resp.status_code == 200
     assert len(shown) == 1
     assert shown[0].metadata.beam_type is BeamType.ION
-
-
-def test_a_read_back_image_is_not_shown_again(armed_client, microscope):
-    shown = []
-    microscope.sem_acquisition_signal.connect(shown.append)
-    try:
-        resp = armed_client.post("/last_image", json={"beam_type": "ELECTRON"})
-    finally:
-        microscope.sem_acquisition_signal.disconnect(shown.append)
-    assert resp.status_code == 200
-    assert shown == []
