@@ -54,10 +54,13 @@ actor.
 
 While the agent is at Drive the chip's menu leads with **Stop agent**. It drops
 the agent to Watch at once, with no confirmation, and the agent is told it was
-stopped. A running workflow keeps running; its own Stop is beside the chip.
+stopped. If the agent is using the microscope, Stop agent also stops what it
+is doing: a mill, a spot burn, an auto focus or live imaging. A stage move
+already under way finishes. A running workflow keeps running; its own Stop is
+beside the chip.
 
 Using the microscope directly (moving the stage, acquiring, milling) needs
-Drive and *Serve the microscope's devices*. Stop agent ends it with the rest.
+Drive and *Serve the microscope's devices*.
 
 ## What the agent can see (Watch and above)
 
