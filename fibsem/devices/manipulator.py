@@ -7,9 +7,8 @@ describe it, ``position`` and ``state``, and the moves are commands:
 axes follow the stage tilt (Thermo), the driver reads the tilt from the device in the
 ``stage`` role, which the microscope fills with its stage.
 
-Named positions (``PARK``, ``EUCENTRIC``) are the instrument's, so the driver
-answers ``named_positions()`` and ``saved_position(name)``, and
-``move_to_offset`` moves relative to one. ``axes()`` says which axes the arm has, so
+Named positions are the instrument's, so the driver answers ``named_positions()``
+and ``saved_position(name)``, and ``move_to_offset`` moves relative to one. ``axes()`` says which axes the arm has, so
 whether it rotates or tilts is the device's to say, not the backend's.
 
 A backend implements the parameters with ``read_position``/``read_state`` and
@@ -50,8 +49,11 @@ class Manipulator(Device):
         super().__init__(name="manipulator", parent=parent, **kwargs)
 
     @command
-    def insert(self, name: str = "PARK") -> FibsemManipulatorPosition:
-        """Insert the needle to a named position. Returns where it is afterwards."""
+    def insert(self, name: Optional[str] = None) -> FibsemManipulatorPosition:
+        """Insert the needle to a named position, or to the instrument's own insert
+        position when no name is given. Returns where it is afterwards."""
+        if name is None:
+            name = self.default_insert_position()
         with self.resources.claim(MANIPULATOR_RESOURCE):
             self._insert(name)
             return self._read_back()
@@ -150,6 +152,12 @@ class Manipulator(Device):
         """The names `saved_position` answers, if the instrument has any."""
         return []
 
+    def default_insert_position(self) -> Optional[str]:
+        """The named position ``insert`` goes to when given none: the first of
+        `named_positions`, or None for an arm with no named positions."""
+        names = self.named_positions()
+        return names[0] if names else None
+
     def axes(self) -> Tuple[str, ...]:
         """The axes the arm moves on, of ``x``, ``y``, ``z``, ``r`` (rotation) and
         ``t`` (tilt)."""
@@ -159,7 +167,7 @@ class Manipulator(Device):
         """The instrument's named position. Raises ValueError for an unknown name."""
         raise NotImplementedError
 
-    def _insert(self, name: str) -> None:
+    def _insert(self, name: Optional[str]) -> None:
         raise NotImplementedError
 
     def _retract(self) -> None:

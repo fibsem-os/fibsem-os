@@ -28,7 +28,6 @@ from PyQt5.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
-    QFileDialog,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
@@ -1058,28 +1057,3 @@ def open_replay_window(
     widget.show()
     widget.activateWindow()
     return widget
-
-
-def main() -> None:
-    """``python -m fibsem.applications.autolamella.ui.experiment_replay_widget [DIR]``"""
-    import sys
-
-    from PyQt5.QtWidgets import QApplication
-
-    app = QApplication.instance() or QApplication(sys.argv)
-    path = (
-        sys.argv[1]
-        if len(sys.argv) > 1
-        else QFileDialog.getExistingDirectory(None, "Choose an experiment to replay")
-    )
-    if not path:
-        return
-    widget = open_replay_window(Path(path))
-    if widget is None:
-        print(f"Nothing to replay in {path}: no logfile.log")
-        sys.exit(1)
-    sys.exit(app.exec_())
-
-
-if __name__ == "__main__":
-    main()

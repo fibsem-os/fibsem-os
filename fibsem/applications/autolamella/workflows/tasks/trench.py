@@ -4,7 +4,6 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Optional, Type
 
-from fibsem import calibration
 from fibsem.applications.autolamella.protocol.constants import TRENCH_KEY
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows._default_milling_config import (

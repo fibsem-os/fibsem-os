@@ -638,32 +638,3 @@ def create_experiment_dialog(
     else:
         logging.info("Experiment creation cancelled")
         return None
-
-
-def main():
-    """Test the AutoLamellaCreateExperimentWidget."""
-    # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
-    # hosting the widget here (FIB-407).
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-
-    qwidget = QtWidgets.QWidget()
-    qwidget.show()
-
-    # Use the standalone function to create experiment
-    experiment = create_experiment_dialog(qwidget)
-
-    if experiment:
-        print(f"Experiment created: {experiment.name}")
-        print(f"Path: {experiment.path}")
-        print(f"Protocol: {experiment.task_protocol.name}")
-        print(f"Metadata: {experiment.metadata}")
-        print(f"Number of tasks: {len(experiment.task_protocol.task_config)}")
-    else:
-        print("Experiment creation cancelled")
-
-    app.exec_()
-    # sys.exit()
-
-
-if __name__ == "__main__":
-    main()
