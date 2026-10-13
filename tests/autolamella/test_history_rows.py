@@ -538,6 +538,22 @@ def test_each_stage_s_drift_correction_folds_under_its_mill(tmp_path):
     assert [d.label for d in two.drift] == ["Align (Rough Mill 02)"]
 
 
+def test_a_drift_correction_on_a_stage_boundary_goes_to_the_stage_it_starts(tmp_path):
+    """On a coarse clock (Windows, 15.6 ms) one stage's end, the next stage's
+    start and its drift correction's start read the same instant."""
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    first = _drift(lamella, "Rough Mill 01", _at(1), _at(1, 4))
+    second = _drift(lamella, "Rough Mill 02", _at(2), _at(2, 4))
+
+    (run,) = history_rows(lamella, [first, second, _mill(lamella)])
+
+    (mill,) = run.operations
+    one, two = milling_stages(mill)
+    assert [d.label for d in one.drift] == ["Align (Rough Mill 01)"]
+    assert [d.label for d in two.drift] == ["Align (Rough Mill 02)"]
+
+
 def test_a_drift_correction_that_went_wrong_shows_on_the_folded_line(tmp_path):
     lamella = _lamella(tmp_path)
     lamella.task_history = [_run(ROUGH, "r", 0)]
