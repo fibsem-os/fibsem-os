@@ -448,3 +448,52 @@ def test_an_opened_mill_lists_each_stage_with_its_drift_correction(qapp, tmp_pat
     finally:
         widget._cancel_worker()
         widget.deleteLater()
+
+
+def _append_outside_a_task(lamella, minute, kind, payload, actor="agent", item=None):
+    """An operation no task ran (FIB-1375): the agent's autofocus between runs."""
+    path = lamella.path.parent / EVENTS_FILENAME
+    with open(path, "a") as f:
+        record = {
+            "kind": kind,
+            "t": (T0 + timedelta(minutes=minute)).isoformat(),
+            "session": "s1",
+            "actor": actor,
+            "item": item,
+            "task": None,
+            "payload": payload,
+        }
+        f.write(json.dumps(record) + "\n")
+
+
+def test_operations_outside_a_task_are_a_row_among_the_runs(qapp, lamella):
+    _append_outside_a_task(
+        lamella,
+        15,
+        "autofocus",
+        {
+            "beam_type": "ION",
+            "initial_working_distance": 0.0165,
+            "working_distance": 0.0166,
+            "status": "completed",
+        },
+    )
+    # another lamella's, though outside a task, is that lamella's
+    _append_outside_a_task(
+        lamella, 16, "autofocus", {"status": "completed"}, item={"id": "other"}
+    )
+    widget = LamellaTaskImageWidget()
+    widget.resize(420, 1600)
+    widget.set_lamella(lamella)
+    widget.show()
+    try:
+        texts = _shown(_settled(widget))
+        rows = [t for t in texts if t in (ROUGH, POLISH, "Outside a task")]
+        assert rows == [ROUGH, POLISH, "Outside a task", ROUGH]
+        assert "Autofocus (agent)" in texts
+        assert texts.count("Autofocus (agent)") == 1
+        assert "3 runs · 4 m 30 s" in texts, "it is not a run"
+        assert texts.count("Completed") == 2, "and has no status of its own"
+    finally:
+        widget._cancel_worker()
+        widget.deleteLater()

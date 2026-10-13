@@ -17,6 +17,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
 from fibsem.applications.autolamella.history_rows import (
+    OUTSIDE_A_TASK,
     HistoryFilter,
     filter_runs,
     history_rows,
@@ -317,9 +318,49 @@ def test_only_this_lamellas_operations_are_its_own(tmp_path):
     unstamped = dict(_event(lamella, "r", "alignment"), task=None)
     not_an_operation = _event(lamella, "r", "stage_moved")
 
-    (run,) = history_rows(lamella, [other, unstamped, not_an_operation])
+    run, outside = history_rows(lamella, [other, unstamped, not_an_operation])
 
     assert run.operations == []
+    # no task ran it: a row of its own, not the run's (FIB-1375)
+    assert outside.outside_task and len(outside.operations) == 1
+
+
+def _outside(lamella, minute, kind="autofocus", actor="agent", session="s1"):
+    return dict(
+        _event(lamella, "", kind, status="completed"),
+        t=(T0 + timedelta(minutes=minute)).isoformat(),
+        item=None,
+        task=None,
+        actor=actor,
+        session=session,
+    )
+
+
+def test_operations_outside_a_task_are_a_row_per_session_among_the_runs(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(SETUP, "s", 0), _run(ROUGH, "r", 20)]
+    events = [
+        _outside(lamella, 12, actor="operator"),
+        _outside(lamella, 10),
+        _outside(lamella, 30, session="s2"),
+    ]
+
+    rows = history_rows(lamella, events)
+
+    assert [row.task_name for row in rows] == [
+        SETUP,
+        OUTSIDE_A_TASK,
+        ROUGH,
+        OUTSIDE_A_TASK,
+    ]
+    first = rows[1]
+    assert [op.label for op in first.operations] == [
+        "Autofocus (agent)",
+        "Autofocus (you)",
+    ]
+    assert first.started_at == T0 + timedelta(minutes=10)
+    assert first.ended_at == T0 + timedelta(minutes=12)
+    assert first.images == [] and rows[3].task_id == "session:s2"
 
 
 # --- the filter ---------------------------------------------------------------
