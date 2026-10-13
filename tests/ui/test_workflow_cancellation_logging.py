@@ -57,6 +57,9 @@ def _run_with_manager_raising(ui, monkeypatch, exc):
         def closing_note(self):
             return ""
 
+        def end_unstarted_run(self, error):
+            pass
+
     monkeypatch.setattr(module, "TaskManager", _RaisingManager)
     ui._run_tasks_worker(["Rough Milling"], ["01-test"])
 
