@@ -1562,7 +1562,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # server starts and stops with the microscope connection, from the other
         # window, and a poll a second is cheaper than threading that through.
         self.agent_chip = AgentLevelChip(
-            last_heard=self._agent_seconds_since_seen, parent=self.status_bar
+            last_heard=self._agent_seconds_since_seen,
+            parent=self.status_bar,
+            agent_client=self._agent_client,
         )
         self.agent_chip.hide()
         self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
@@ -3758,6 +3760,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return None
         try:
             return host.agent_seconds_since_seen()
+        except Exception:
+            return None
+
+    def _agent_client(self) -> Optional[str]:
+        """The MCP client the agent's sidecar named, or None."""
+        host = getattr(self.autolamella_ui, "_app_server_host", None)
+        if host is None:
+            return None
+        try:
+            return host.agent_client()
         except Exception:
             return None
 

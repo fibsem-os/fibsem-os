@@ -27,6 +27,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 from typing import Any, Optional, Tuple
 from urllib.parse import quote, urlencode
@@ -41,6 +42,30 @@ _NO_SERVER_MSG = (
     "FIBSEM_SERVER_URL/FIBSEM_SERVER_TOKEN, or start a fibsem server on "
     "this machine (it writes ~/.fibsem/app-server.json)."
 )
+
+
+def _product(name, version):
+    """One User-Agent product token, ``name/version``, with anything a token
+    can't carry made a hyphen."""
+
+    def clean(text):
+        return re.sub(r"[^A-Za-z0-9!#$%&'*+.^_`|~-]+", "-", str(text)).strip("-")
+
+    name = clean(name) or "unknown"
+    version = clean(version)
+    return f"{name}/{version}" if version else name
+
+
+def _user_agent(client_info=None):
+    """``fibsem-mcp/<version>``, then the MCP client it serves when known --
+    how the app names the agent beside "last heard"."""
+    from fibsem import __version__
+
+    agent = _product("fibsem-mcp", __version__)
+    name = getattr(client_info, "name", None)
+    if name:
+        agent += " " + _product(name, getattr(client_info, "version", None))
+    return agent
 
 
 def _try_resolve(url, token):
@@ -75,6 +100,17 @@ class _ReconnectingClient:
         self._token = token
         self._client = client
         self._resolved = resolved
+        self._user_agent = None
+
+    def set_user_agent(self, user_agent: str) -> None:
+        """Send *user_agent* from now on, through a reconnect too."""
+        self._user_agent = user_agent
+        self._apply_user_agent()
+
+    def _apply_user_agent(self) -> None:
+        headers = getattr(self._client, "headers", None)
+        if self._user_agent is not None and headers is not None:
+            headers["User-Agent"] = self._user_agent
 
     def request(self, method, path, **kwargs):
         try:
@@ -94,6 +130,7 @@ class _ReconnectingClient:
         self._client.close()
         self._client = self._factory(fresh[0], fresh[1])
         self._resolved = fresh
+        self._apply_user_agent()
         return True
 
     def close(self):
@@ -178,6 +215,32 @@ def _call(client, method, path, payload=None):
         )
 
 
+def _name_the_client(mcp, client):
+    """Once the MCP client has said who it is (clientInfo, in initialize),
+    name it in the User-Agent of every request after, so the app can show
+    which agent it is hearing from.
+
+    Middleware is provisional in the mcp SDK; if it is missing or changes
+    shape, the sidecar still works and the app shows "Agent"."""
+    middleware = getattr(mcp, "middleware", None)
+    if not isinstance(middleware, list):
+        return
+    named = []
+
+    async def name_client(ctx, call_next):
+        if not named:
+            try:
+                info = ctx.session.client_params.client_info
+            except AttributeError:
+                info = None
+            if info is not None and hasattr(client, "set_user_agent"):
+                client.set_user_agent(_user_agent(info))
+                named.append(True)
+        return await call_next(ctx)
+
+    middleware.append(name_client)
+
+
 def build_sidecar(client, capabilities):
     """Build the MCP server over an httpx-compatible client.
 
@@ -190,6 +253,7 @@ def build_sidecar(client, capabilities):
     from mcp.server.mcpserver import Image, MCPServer
 
     mcp = MCPServer("fibsem")
+    _name_the_client(mcp, client)
     armed = {t.name for t in tools_for_capabilities(capabilities)}
     by_name = {t.name: t for t in CATALOG}
 
@@ -763,7 +827,7 @@ def main(argv=None):
     def client_factory(url, token):
         return httpx.Client(
             base_url=url,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "User-Agent": _user_agent()},
             timeout=_TIMEOUT_S,
         )
 

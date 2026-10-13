@@ -90,11 +90,23 @@ class AuthConfig:
     # means nobody is on the other end (used to hand a parked question to the
     # operator without waiting out the full hand-over time).
     last_seen_monotonic: Optional[float] = None
+    # The MCP client behind the sidecar, as the sidecar names it in its
+    # User-Agent ("claude-code/2.1.3"); None until a sidecar request names one.
+    # Self-reported, so a label for the operator, not an identity: every client
+    # shares the one token.
+    agent_client: Optional[str] = None
 
-    def mark_seen(self) -> None:
+    def mark_seen(self, user_agent: Optional[str] = None) -> None:
         """Record that the token holder just made a request. Any thread —
-        a float rebind is atomic, and readers only ever want 'roughly now'."""
+        a float rebind is atomic, and readers only ever want 'roughly now'.
+
+        A request from the sidecar also records which client it serves.
+        Anything else (``fibsem-mcp watch``, curl) keeps the name already
+        known: those are the same agent's other hands."""
         self.last_seen_monotonic = time.monotonic()
+        client = client_from_user_agent(user_agent)
+        if client is not None:
+            self.agent_client = client
 
     def seconds_since_seen(self) -> Optional[float]:
         """Seconds since the token holder was last heard from, or None if never."""
@@ -159,6 +171,20 @@ class AuthConfig:
 
     def armed_scopes(self) -> Iterable[Scope]:
         return (s for s in Scope if self.is_armed(s))
+
+
+def client_from_user_agent(user_agent: Optional[str]) -> Optional[str]:
+    """The client the sidecar serves, from its User-Agent, or None.
+
+    The sidecar sends ``fibsem-mcp/<version> <client>/<version>``, the client
+    taken from the MCP initialize request's clientInfo; the product after its
+    own is the client."""
+    if not user_agent:
+        return None
+    products = user_agent.split()
+    if len(products) < 2 or not products[0].startswith("fibsem-mcp/"):
+        return None
+    return products[1]
 
 
 def _bearer_token(request: Request) -> Optional[str]:
@@ -234,7 +260,7 @@ def require_scope(scope: Scope, *alternatives: Scope):
             raise _unauthorized()
         # A valid token is proof of life whatever happens next — a scope
         # refusal below is still the agent talking.
-        auth.mark_seen()
+        auth.mark_seen(request.headers.get("User-Agent"))
         if auth.level is AgentLevel.OFF:
             raise HTTPException(
                 status_code=403,
