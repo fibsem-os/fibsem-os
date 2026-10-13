@@ -18,7 +18,6 @@ import numpy as np
 from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 
-from fibsem import manufacturers
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.drivers.autoscript.connection import AutoScriptConnection
@@ -495,6 +494,7 @@ class ThermoMicroscope(FibsemMicroscope):
             Initializes a new instance of the class.
     """
 
+    driver_name = "ThermoFisher"
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
     # The AutoScript client, from construction until disconnect. The devices and
@@ -627,7 +627,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
         # Its own FM leaves the shared imaging channel on the FM, as building it
         # selects the channel; any other outcome leaves it on the electron beam.
-        self.fm = self._build_fluorescence(manufacturers.THERMOFISHER)
+        self.fm = self._build_fluorescence(self.driver_name)
         if not isinstance(self.fm, ThermoFisherFluorescenceMicroscope):
             self.set_channel(BeamType.ELECTRON)
 
@@ -652,7 +652,7 @@ class ThermoMicroscope(FibsemMicroscope):
         the configuration's ``hardware.devices`` entries of *types* over them
         (``fibsem.devices.entries``), and put them in ``devices``."""
         resolved = resolve_system_devices(
-            self.system, defaults, types, exclude_types, manufacturers.THERMOFISHER
+            self.system, defaults, types, exclude_types, self.driver_name
         )
         built = build_device_entries(resolved, self)
         for name, device in built.items():

@@ -234,7 +234,7 @@ class TestExchange:
             ("grid_unloaded", "Grid-05", "Slot-05", kinds[-1][3]),
         ]
         assert kinds[-1][3].startswith("GridExchangeError")
-        working = microscope.sample_handling.holder.slots["Slot-01"].name
+        working = microscope.sample_handling.holder.slots["Shuttle"].name
         assert all(p["working_slot"] == working for _, p in recorded)
 
 

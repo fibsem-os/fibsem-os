@@ -760,6 +760,3 @@ def convert_image_coordinates_to_stage_positions(
         stage_position.name = f"Position {i:02d}"
         stage_positions.append(stage_position)
     return stage_positions
-
-
-##### THERMO ONLY

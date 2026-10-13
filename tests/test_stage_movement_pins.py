@@ -45,7 +45,12 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import BeamType, CameraImageTransform, FibsemStagePosition
+from fibsem.structures import (
+    BeamType,
+    CameraImageTransform,
+    FibsemStagePosition,
+    RangeLimit,
+)
 
 PINS_PATH = os.path.join(
     os.path.dirname(__file__), "fixtures", "stage_movement_pins.json"
@@ -136,6 +141,15 @@ def _demo(mount: str):
         )
     else:
         microscope, _ = utils.setup_session(config_path=path, setup_logging=False)
+    if mount == "arctis":
+        # The pins start 1 mm up and send targets a few mm out, past the compustage's
+        # +/-1 mm, which the moves now refuse. These pin the commands, so the Arctis
+        # stage reaches them here; the refusal is tested in test_devices_stage.py.
+        stage = microscope.devices["stage"]
+        stage._axis_limits = {
+            axis: RangeLimit(min=-np.inf, max=np.inf) for axis in stage._axis_limits
+        }
+        stage.position.refresh_metadata()
     return microscope, _Recorder(microscope)
 
 

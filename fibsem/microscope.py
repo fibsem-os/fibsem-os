@@ -4,7 +4,6 @@ import dataclasses
 import datetime
 import logging
 import threading
-import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
@@ -14,6 +13,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     Mapping,
@@ -25,7 +25,6 @@ from typing import (
 import numpy as np
 from psygnal import Signal
 
-from fibsem import manufacturers
 from fibsem.control import Control
 from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session
 from fibsem.fm.microscope import FluorescenceMicroscope
@@ -188,6 +187,10 @@ class FibsemMicroscope(ABC):
     tiled_acquisition_signal = Signal(TiledProgress)
     spot_burn_progress_signal = Signal(SpotBurnProgress)
     system: SystemSettings
+    #: The registry name of this class's driver, as its package's
+    #: ``DRIVER.manufacturer`` spells it (``"Tescan"``). Each driver's class sets it;
+    #: `manufacturer` answers it, and connect code names its own builds with it.
+    driver_name: ClassVar[str]
     milling_channel: BeamType = BeamType.ION
     #: The milling service over the beams (`fibsem.services.milling.Milling`); the
     #: milling methods go to it. None when no ion beam was built: they raise then,
@@ -639,13 +642,14 @@ class FibsemMicroscope(ABC):
         """Whether the configuration's entry for *name* names a driver other than
         this backend's own."""
         from fibsem.devices.entries import configured_device_entries
+        from fibsem.drivers.registry import normalize_name
 
         entry = configured_device_entries(self.system).get(name)
         if entry is None or not entry.driver:
             return False
 
         def canonical(driver: Optional[str]) -> str:
-            return str(manufacturers.normalize_manufacturer(driver)).strip().casefold()
+            return str(normalize_name(driver)).strip().casefold()
 
         return canonical(entry.driver) != canonical(self.system.info.manufacturer)
 
@@ -767,20 +771,19 @@ class FibsemMicroscope(ABC):
                 record.detector.type = detector.type
                 record.detector.mode = detector.mode
 
-    # The raw moves go through the stage device when the backend builds one, without
-    # its limit check (the old API never had one); a backend without one overrides
-    # them.
+    # The raw moves are the stage device's checked moves: a target outside the stage
+    # limits is refused with StageLimitError, never sent to the vendor.
 
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         if self.stage is None:
             raise self._unsupported("move_stage_absolute")
-        self.stage.move_through(position)
+        self.stage.move_absolute(position)
         return self.get_stage_position()
 
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         if self.stage is None:
             raise self._unsupported("move_stage_relative")
-        self.stage.move_through(position, relative=True)
+        self.stage.move_relative(position)
         return self.get_stage_position()
 
     # The view-corrected moves below are the stage movement service's
@@ -2749,7 +2752,8 @@ class FibsemMicroscope(ABC):
         * ``fm_autofocus`` -- from ``run_coarse_fine_autofocus``
         * ``alignment`` -- from ``multi_step_alignment_v2``, every step's shift
         * ``coincidence_measured`` -- from ``check_coincidence``
-        * ``autofocus`` -- from ``run_auto_focus``, the working distance it left
+        * ``autofocus`` -- from ``run_auto_focus``, the working distance it left;
+          and from a beam's own ``auto_focus`` (``method: instrument``)
         * ``grid_loaded`` / ``grid_unloaded`` -- from the sample handling service's
           magazine exchanges, with the grid, its magazine slot and the working slot
         """
@@ -3206,29 +3210,11 @@ class FibsemMicroscope(ABC):
 
     @property
     def manufacturer(self) -> str:
-        # NOTE: this base default means every backend that does not override the
-        # property (Demo, Zeiss, Odemis) reports ThermoFisher -- FIB-300 tracks
-        # whether it should serve self.system.info.manufacturer instead.
-        return manufacturers.THERMOFISHER
-
-
-# `ThermoMicroscope` moved to `fibsem.drivers.autoscript.microscope`. These names are served
-# lazily so `from fibsem.microscope import ThermoMicroscope` keeps working for external
-# scripts and plugins, without this module importing the AutoScript backend at load.
-_MOVED_TO_AUTOSCRIPT = frozenset(
-    {"ThermoMicroscope", "THERMO_API_AVAILABLE", "AutoScriptException"}
-)
-
-
-def __getattr__(name: str) -> Any:
-    if name in _MOVED_TO_AUTOSCRIPT:
-        warnings.warn(
-            f"fibsem.microscope.{name} has moved to fibsem.drivers.autoscript.microscope; "
-            "import it from there.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        from fibsem.drivers.autoscript import microscope as autoscript
-
-        return getattr(autoscript, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        """The registry name of the driver this class belongs to (its ``driver_name``)."""
+        name = getattr(type(self), "driver_name", None)
+        if name is None:
+            raise NotImplementedError(
+                f"{type(self).__name__} sets no driver_name: set it to its driver's "
+                "DRIVER.manufacturer."
+            )
+        return name
