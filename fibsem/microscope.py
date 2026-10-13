@@ -767,20 +767,19 @@ class FibsemMicroscope(ABC):
                 record.detector.type = detector.type
                 record.detector.mode = detector.mode
 
-    # The raw moves go through the stage device when the backend builds one, without
-    # its limit check (the old API never had one); a backend without one overrides
-    # them.
+    # The raw moves are the stage device's checked moves: a target outside the stage
+    # limits is refused with StageLimitError, never sent to the vendor.
 
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         if self.stage is None:
             raise self._unsupported("move_stage_absolute")
-        self.stage.move_through(position)
+        self.stage.move_absolute(position)
         return self.get_stage_position()
 
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
         if self.stage is None:
             raise self._unsupported("move_stage_relative")
-        self.stage.move_through(position, relative=True)
+        self.stage.move_relative(position)
         return self.get_stage_position()
 
     # The view-corrected moves below are the stage movement service's

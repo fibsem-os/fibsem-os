@@ -780,24 +780,24 @@ def test_acquire_multiple_overviews(fm_microscope):
     """Test acquire_multiple_overviews function with multiple FM positions."""
     microscope = fm_microscope
 
-    # Create test positions. Kept well inside the simulated stage limits (x +/-1 mm,
-    # y +/-0.378 mm) with room for the 2x2 grid around each: these were at y = 2, 5 and
+    # Create test positions. Kept well inside the simulated stage limits (x and z
+    # +/-1 mm, y +/-0.378 mm) with room for the 2x2 grid around each: these were at y = 2, 5 and
     # 8 mm, which no stage in the fixture can reach. That went unnoticed until the FM
     # runner started checking, since nothing on this path looked at the limits before.
     positions = [
         FMStagePosition(
             name="Region1",
-            stage_position=FibsemStagePosition(x=0.0001, y=0.0002, z=0.003),
+            stage_position=FibsemStagePosition(x=0.0001, y=0.0002, z=0.0003),
             objective_position=0.012,
         ),
         FMStagePosition(
             name="Region2",
-            stage_position=FibsemStagePosition(x=0.0004, y=-0.0001, z=0.006),
+            stage_position=FibsemStagePosition(x=0.0004, y=-0.0001, z=0.0006),
             objective_position=0.015,
         ),
         FMStagePosition(
             name="Region3",
-            stage_position=FibsemStagePosition(x=-0.0003, y=0.0001, z=0.009),
+            stage_position=FibsemStagePosition(x=-0.0003, y=0.0001, z=0.0009),
             objective_position=0.018,
         ),
     ]
