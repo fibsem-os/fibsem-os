@@ -13,11 +13,12 @@ stream idle and running.
 What has to match:
 
 - the result, or the exception, of every case;
-- for the parts, every odemis call in the same order, with three differences, each
+- for the parts, every odemis call in the same order, with five differences, each
   reads only: a device reads its limits and choices once, at connect; the excitation
-  write reads back the band odemis took (it snaps to the nearest band); and an objective
-  move doesn't read position and state back for a display, which the FM API does after
-  it, as for every driver;
+  write reads back the band odemis took (it snaps to the nearest band), then the power's
+  full scale, which is the selected source's; an objective move doesn't read position
+  and state back for a display, which the FM API does after it, as for every driver;
+  and a relative move reads the position first, to hold the user-defined limit;
 - for an acquisition and live view, every change (each write and call) in the same
   order, and the same settings read for the metadata, in another order. Live view pulls
   each frame (``data.get``) where the old one subscribed to the camera.
@@ -484,6 +485,15 @@ CACHED_AT_CONNECT = {
 GAIN_RANGE_READS = {"ccd.gain.range", "ccd.gain.choices"}
 GAIN_TOP = 1.0
 
+# Each source has its own full power and the stream's power range follows the
+# excitation, so the power's scale is read again after an excitation change; the old
+# class read it only to convert a power.
+POWER_SCALE_READS = {"stream.power.range", "stream.power.unit"}
+
+# A relative move reads where the objective is first, to hold the user-defined limit,
+# which the old one didn't apply to a relative move.
+LEADING_READS = {"objective move_relative": "focus.position.value"}
+
 
 def _gain_clipped(pinned):
     """A pinned log or result with its gains clipped to the fraction's top."""
@@ -538,9 +548,15 @@ def test_each_part_makes_the_old_calls(odemis, state, name, new, to_old):
     expected = _gain_clipped(pinned["log"])
     found = _pin(world.log)
     readback = READBACKS.get(next((k for k in READBACKS if k in name), None))
+    if "excitation" in name:
+        found = _without_reads_of(found, POWER_SCALE_READS)
     if readback:
         assert found[-1][:2] == ["get", readback]
         found = found[:-1]
+    leading = LEADING_READS.get(next((k for k in LEADING_READS if k in name), None))
+    if leading:
+        assert found[0][:2] == ["get", leading]
+        found = found[1:]
     assert _without_reads_of(
         found, CACHED_AT_CONNECT | GAIN_RANGE_READS
     ) == _without_reads_of(expected, CACHED_AT_CONNECT)
@@ -655,7 +671,8 @@ def test_an_acquisition_makes_the_same_changes(odemis, state, channel):
     assert [e[1] for e in _changes(old_log)].count("acquire") == 1
     readback = {"stream.excitation.value"}
     assert _changes(new_log) == _changes(old_log)
-    assert _reads(new_log) - readback - GAIN_RANGE_READS <= _reads(old_log)
+    known = readback | GAIN_RANGE_READS | POWER_SCALE_READS
+    assert _reads(new_log) - known <= _reads(old_log)
     assert _reads(old_log) <= _reads(new_log)
 
 
@@ -789,6 +806,45 @@ def test_gain_with_set_values_takes_the_nearest(odemis):
     assert camera.gain.get_value() == pytest.approx(0.5)
     camera.gain.write_through(0.9)  # 3.6 in camera units
     assert va.value == 4.0
+
+
+def _bound(drivers, state):
+    world = _World(_components(state))
+    _CURRENT.append(world)
+    try:
+        return drivers.bind_odemis_fm()
+    finally:
+        _CURRENT.pop()
+
+
+def test_full_power_is_the_selected_sources(odemis):
+    # each LED has its own maximum, and odemis changes the stream's power range with
+    # the excitation (a METEOR sim: 1.4 W at 400 nm, 0.525 W at 500 nm)
+    devices = _bound(odemis, "retracted")
+    stream = _unwrap(devices["fm"]._stream)
+
+    def follow(band):
+        stream.power.range = (0.0, 1.4 if band[2] < 500e-9 else 0.525)
+
+    stream.excitation._setter = follow
+    filter_set, power = devices["filter_set"], devices["light_source"].power
+
+    filter_set.excitation_wavelength.write_through(365)
+    assert power.metadata.native_max == 1.4
+    filter_set.excitation_wavelength.write_through(635)
+    assert power.metadata.native_max == 0.525
+
+
+def test_a_relative_move_stops_at_the_user_defined_limit(odemis):
+    objective = _bound(odemis, "inserted")["objective"]  # at 8 mm, range to 10 mm
+    objective.limit_position.write_through(8.05e-3)
+
+    objective.move_relative(1e-4)
+    assert objective.position.get_value() == pytest.approx(8.05e-3)
+    objective.move_relative(1e-4)  # at the limit: stays there
+    assert objective.position.get_value() == pytest.approx(8.05e-3)
+    objective.move_relative(-1e-4)
+    assert objective.position.get_value() == pytest.approx(7.95e-3)
 
 
 def test_gain_without_a_range_is_not_offered(odemis):
@@ -935,7 +991,8 @@ def test_the_api_makes_the_old_changes(odemis, state, name):
     assert _same(old_result, new_result), (old_result, new_result)
     assert _changes(new_log) == _changes(old_log)
     readbacks = set(READBACKS.values())
-    assert _reads(new_log) - readbacks - GAIN_RANGE_READS <= _reads(old_log)
+    known = readbacks | GAIN_RANGE_READS | POWER_SCALE_READS
+    assert _reads(new_log) - known <= _reads(old_log)
     assert _reads(old_log) - CACHED_AT_CONNECT <= _reads(new_log)
 
 

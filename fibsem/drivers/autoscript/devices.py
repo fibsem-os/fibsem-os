@@ -54,6 +54,7 @@ import math
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -268,6 +269,10 @@ class AutoscriptCompustage(AutoscriptStage):
         return False
 
     def has_builtin_shuttle(self) -> bool:
+        return True
+
+    def mirrors_back_view(self) -> bool:
+        # xT presents an image of the back of the grid mirrored, as if from the front
         return True
 
     def poses(
@@ -1084,6 +1089,15 @@ def autoloader_installed(microscope: ThermoMicroscope) -> bool:
 _MANIPULATOR_NAMES = ("PARK", "EUCENTRIC")
 
 
+def _in_raw_unless_named(
+    position: FibsemManipulatorPosition,
+) -> FibsemManipulatorPosition:
+    """A position that names no coordinate system moves in the needle's raw frame."""
+    if position.coordinate_system is not None:
+        return position
+    return replace(position, coordinate_system="RAW")
+
+
 class AutoscriptManipulator(Manipulator):
     """The AutoScript needle, ``connection.specimen.manipulator``.
 
@@ -1203,6 +1217,7 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
+        delta = _in_raw_unless_named(delta)
         logging.info(f"moving manipulator by {delta}")
         self._needle.relative_move(manipulator_position_to_autoscript(delta))
         logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
@@ -1212,6 +1227,7 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
+        position = _in_raw_unless_named(position)
         logging.info(f"moving manipulator to {position}")
         self._needle.absolute_move(manipulator_position_to_autoscript(position))
         logging.debug(

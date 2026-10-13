@@ -39,7 +39,7 @@ def microscope():
         "coincidence_offset": 0.0,
         "fiducial": True,
     }
-    microscope._setup_sample_scene()
+    microscope._connection.setup_sample_scene()
     microscope.move_to_device("FM")
     # the FM images with the objective inserted and at focus; it boots retracted
     microscope.fm.objective.move_absolute(microscope.fm.objective.focus_position)
@@ -57,7 +57,7 @@ def _fiducial_only(microscope) -> SampleScene:
         noise_fraction=0.0,
     )
     scene.anchor(microscope.get_stage_position())
-    microscope._sample_scene = scene
+    microscope._connection.sample_scene = scene
     return scene
 
 
@@ -77,7 +77,7 @@ def _predicted_fiducial(microscope) -> tuple:
         pixel_size=fm.camera.pixel_size[0],
         shape=(height, width),
     )
-    scene = microscope._sample_scene
+    scene = microscope._connection.sample_scene
     pose = microscope.get_stage_position()
     ax, ay = projection.to_plane(scene.reference_position, pose)
     return (

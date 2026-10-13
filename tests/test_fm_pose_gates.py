@@ -82,7 +82,7 @@ def test_a_compustage_that_declares_no_fm_pose_travels_to_it():
     )
 
     assert not microscope._fm_is_a_pose()
-    with pytest.raises(ValueError, match="FM position on non-compustage"):
+    with pytest.raises(ValueError, match="reaches the FM by travelling"):
         microscope.get_target_position(
             microscope.get_stage_position(), target_orientation="FM"
         )

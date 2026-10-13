@@ -137,7 +137,7 @@ def test_no_folder_reads_as_none_rather_than_an_empty_path(settings):
 
 @pytest.fixture(scope="module")
 def microscope():
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     return build_microscope()
 

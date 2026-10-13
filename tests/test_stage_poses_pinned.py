@@ -179,7 +179,7 @@ def _measure(stage_type: str) -> Dict[str, Any]:
 
     geometry = microscope.hardware_geometry()
     out["stamped rotation_180"] = geometry.rotation_180
-    out["stamped is_compustage"] = geometry.is_compustage
+    out["stamped fm_is_pose"] = geometry.fm_is_pose
 
     model = StageModel.from_geometry(geometry)
     views = (0.0, np.radians(geometry.fib_column_tilt))
@@ -261,7 +261,7 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "vertical_move FIB": (0.0, 0.371025, 1.213568),
         "vertical_move MILLING": (0.0, 0.263844, 1.241287),
         "stamped rotation_180": 180.0,
-        "stamped is_compustage": False,
+        "stamped fm_is_pose": False,
         "surface slope SEM": 35.0,
         "mirrored SEM": (False, False),
         "coincidence warns SEM": False,
@@ -313,7 +313,7 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "vertical_move FIB": (0.0, 1.0, 0.700208),
         "vertical_move MILLING": (0.0, -0.417529, 1.147153),
         "stamped rotation_180": 0.0,
-        "stamped is_compustage": False,
+        "stamped fm_is_pose": False,
         "surface slope SEM": 0.0,
         "mirrored SEM": (False, False),
         "coincidence warns SEM": False,
@@ -376,7 +376,7 @@ PINNED: Dict[str, Dict[str, Any]] = {
         "vertical_move MILLING": (0.0, -0.495845, 1.168137),
         "vertical_move FM": (0.0, 0.0, 1.269018),
         "stamped rotation_180": 0.0,
-        "stamped is_compustage": True,
+        "stamped fm_is_pose": True,
         "surface slope SEM": 0.0,
         "mirrored SEM": (False, False),
         "coincidence warns SEM": False,

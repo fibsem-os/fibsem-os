@@ -108,25 +108,90 @@ def test_an_overview_is_one_event_not_one_per_tile(microscope, tmp_path):
     assert event["payload"]["overview"] == {"rows": 2, "cols": 2, "overlap": 0.1}
 
 
-def test_fm_autofocus_records_where_it_moved_the_objective(microscope, tmp_path):
-    settings = AutoFocusSettings.from_coarse_fine(
+def _af_settings():
+    return AutoFocusSettings.from_coarse_fine(
         coarse_range=4e-6,
         coarse_step=2e-6,
         fine_range=2e-6,
         fine_step=1e-6,
         method=FocusMethod.LAPLACIAN,
     )
+
+
+def test_fm_autofocus_records_where_it_moved_the_objective(microscope, tmp_path):
     recorder = EventRecorder(microscope, experiment_path=tmp_path)
     try:
-        result = run_coarse_fine_autofocus(microscope.fm, settings, CHANNEL)
+        result = run_coarse_fine_autofocus(
+            microscope.fm,
+            _af_settings(),
+            CHANNEL,
+            path=str(tmp_path / "autofunctions"),
+            name="af",
+        )
     finally:
         recorder.close()
     (event,) = _recorded(tmp_path, "fm_autofocus")
-    assert event["payload"]["position"] == pytest.approx(result.working_distance)
-    assert event["payload"]["initial_position"] == pytest.approx(
-        result.initial_working_distance
-    )
-    assert event["payload"]["passes"] == event["payload"]["completed_passes"] == 2
+    payload = event["payload"]
+    assert payload["status"] == "completed"
+    assert payload["position"] == pytest.approx(result.working_distance)
+    assert payload["initial_position"] == pytest.approx(result.initial_working_distance)
+    assert payload["passes"] == payload["completed_passes"] == 2
+    # when it started, for its duration, and where it saved, for its figure (FIB-1257)
+    assert payload["started_at"] < event["t"]
+    assert payload["path"] == str(tmp_path / "autofunctions" / "af")
+    assert os.path.isfile(os.path.join(payload["path"], "plot.png"))
+
+
+def test_a_stopped_fm_autofocus_is_recorded_as_cancelled(microscope, tmp_path):
+    import threading
+
+    stop = threading.Event()
+    stop.set()
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        result = run_coarse_fine_autofocus(
+            microscope.fm, _af_settings(), CHANNEL, stop_event=stop
+        )
+    finally:
+        recorder.close()
+    assert result is None
+    (event,) = _recorded(tmp_path, "fm_autofocus")
+    assert event["payload"]["status"] == "cancelled"
+    assert event["payload"]["completed_passes"] == 0
+
+
+def test_a_failed_fm_autofocus_is_recorded_and_raised(
+    microscope, tmp_path, monkeypatch
+):
+    def broken(*args, **kwargs):
+        raise RuntimeError("the camera is not responding")
+
+    monkeypatch.setattr(microscope.fm, "acquire_image", broken)
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        with pytest.raises(RuntimeError, match="not responding"):
+            run_coarse_fine_autofocus(microscope.fm, _af_settings(), CHANNEL)
+    finally:
+        recorder.close()
+    (event,) = _recorded(tmp_path, "fm_autofocus")
+    assert event["payload"]["status"] == "failed"
+    assert event["payload"]["error"] == "RuntimeError: the camera is not responding"
+
+
+def test_an_fm_autofocus_with_no_pass_enabled_is_recorded_as_skipped(
+    microscope, tmp_path
+):
+    settings = _af_settings()
+    for sweep_pass in settings.passes:
+        sweep_pass.enabled = False
+    recorder = EventRecorder(microscope, experiment_path=tmp_path)
+    try:
+        assert run_coarse_fine_autofocus(microscope.fm, settings, CHANNEL) is None
+    finally:
+        recorder.close()
+    (event,) = _recorded(tmp_path, "fm_autofocus")
+    assert event["payload"]["status"] == "skipped"
+    assert event["payload"]["reason"] == "no autofocus pass is enabled"
 
 
 def test_the_objective_records_its_insert_and_retract_not_every_move(
