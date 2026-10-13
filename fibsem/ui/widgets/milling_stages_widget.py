@@ -102,6 +102,7 @@ class FibsemMillingStagesWidget(QWidget):
         # Strategy settings
         self._strategy_widget = FibsemStrategySettingsWidget(
             strategy=get_strategy("Standard"),
+            microscope=self.microscope,
         )
 
         self._strategy_panel = TitledPanel("Strategy", content=self._strategy_widget)
