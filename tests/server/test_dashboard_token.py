@@ -109,3 +109,19 @@ def test_the_discovery_file_carries_only_the_agent_token(tmp_path, auth):
     path = write_discovery_file("127.0.0.1", 8001, auth, path=tmp_path / "d.json")
     text = path.read_text()
     assert AGENT in text and DASHBOARD not in text
+
+
+def test_the_sidecar_names_the_agent_and_other_clients_keep_it(client, auth):
+    assert auth.agent_client is None
+    sidecar_ua = "fibsem-mcp/0.6.0 claude-code/2.1.3"
+    client.get("/app/status", headers={**_bearer(AGENT), "User-Agent": sidecar_ua})
+    assert auth.agent_client == "claude-code/2.1.3"
+    # fibsem-mcp watch and curl are the same agent's other hands.
+    client.get("/app/status", headers={**_bearer(AGENT), "User-Agent": "curl/8.5"})
+    assert auth.agent_client == "claude-code/2.1.3"
+    # The dashboard is never the agent.
+    client.get(
+        "/app/status",
+        headers={**_bearer(DASHBOARD), "User-Agent": "fibsem-mcp/0.6.0 x/1"},
+    )
+    assert auth.agent_client == "claude-code/2.1.3"

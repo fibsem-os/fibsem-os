@@ -119,6 +119,21 @@ def _image_response(image) -> Response:
     return Response(content=tiff_bytes(image), media_type=TIFF_MEDIA_TYPE)
 
 
+def _show_in_app(microscope: FibsemMicroscope, image) -> None:
+    """Send an image a route acquired to the microscope's acquisition signal, as
+    the workflow's one-shots do, so the app's SEM/FIB views show it (FIB-1375).
+
+    Before this, an agent's image went back to the agent only: the app kept the
+    frame from before the agent's move, and a question raised next showed that.
+    """
+    metadata = getattr(image, "metadata", None)
+    beam_type = getattr(metadata, "beam_type", None) if metadata is not None else None
+    if beam_type is BeamType.ELECTRON:
+        microscope.sem_acquisition_signal.emit(image)
+    elif beam_type is BeamType.ION:
+        microscope.fib_acquisition_signal.emit(image)
+
+
 def _beam_type(value: str) -> BeamType:
     try:
         return BeamType[value.upper()]
@@ -303,9 +318,9 @@ def build_server(
             if body.image_settings
             else None
         )
-        return _image_response(
-            microscope.acquire_image(image_settings=image_settings, beam_type=bt)
-        )
+        image = microscope.acquire_image(image_settings=image_settings, beam_type=bt)
+        _show_in_app(microscope, image)
+        return _image_response(image)
 
     @hw.post("/acquire_chamber_image")
     def acquire_chamber_image() -> Response:
@@ -322,6 +337,7 @@ def build_server(
             else None
         )
         image = microscope.acquire_image(image_settings=image_settings, beam_type=bt)
+        _show_in_app(microscope, image)
         return preview_payload(image)
 
     @hw.post("/autocontrast")
@@ -534,6 +550,7 @@ def build_server(
                 read=[Depends(require_scope(Scope.READ))],
                 write=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)],
                 command=[Depends(_device_command_gate)],
+                on_image=lambda image: _show_in_app(microscope, image),
             )
         )
         # The microscope's services (milling, stage movement, ...) have the
