@@ -4,13 +4,13 @@ loader's magazine, and the commands that make a grid reachable.
 `SampleHandling` is the same on every backend and every kind of system, and callers
 never ask which they have:
 
-- **No loader** (a flat stage, or a compustage whose grids are exchanged by hand): the
-  inventory is the holder's slots, their occupancy is what the operator declared (kept
-  in the session state), every present grid is already loaded, ``ensure_loaded`` only
-  checks its slot is calibrated and ``unload`` does nothing.
-- **A loader** (a compustage with an autoloader): the inventory is the loader's
-  magazine, ``ensure_loaded`` is an exchange through the ``sample_loader`` device, and
-  the holder is the compustage's one working slot.
+- **No loader** (a flat stage, or a stage with a built-in shuttle whose grids are
+  exchanged by hand): the inventory is the holder's slots, their occupancy is what the
+  operator declared (kept in the session state), every present grid is already loaded,
+  ``ensure_loaded`` only checks its slot is calibrated and ``unload`` does nothing.
+- **A loader** (a stage with a built-in shuttle and an autoloader): the inventory is
+  the loader's magazine, ``ensure_loaded`` is an exchange through the ``sample_loader``
+  device, and the holder is the built-in shuttle's one working slot.
 
 The holder is configuration and session state, not a device: which holder is on the
 stage and where its slots are come from the microscope configuration, and which grid is
@@ -376,6 +376,9 @@ class SampleHandling(Service):
         super().__init__(name, **kwargs)
         self.holder: Optional[SampleHolder] = None
         self.magazine: Optional[GridMagazine] = None
+        # Whether `holder` is the stage's built-in shuttle, which this built, rather
+        # than one the configuration describes.
+        self.holder_is_builtin = False
 
     def __repr__(self) -> str:
         return f"<SampleHandling: holder={self.holder}, magazine={self.magazine}>"
@@ -387,10 +390,11 @@ class SampleHandling(Service):
         super().connect()
         microscope = self.parent
         stage_settings = microscope.system.stage
-        if self.stage.has_builtin_shuttle():
-            slot01 = _compustage_working_slot(stage_settings)
+        builtin = self.stage.has_builtin_shuttle()
+        if builtin:
+            slot01 = _builtin_working_slot(stage_settings)
             holder = SampleHolder(
-                name=COMPUSTAGE_HOLDER_NAME,
+                name=BUILTIN_HOLDER_NAME,
                 capacity=1,
                 slots={"Slot-01": slot01},
                 # Built here rather than resolved from the configuration, so it has to
@@ -399,8 +403,9 @@ class SampleHandling(Service):
                 # one.
                 pre_tilt=float(stage_settings.shuttle_pre_tilt),
             )
-            # The compustage is the autoloader stage, so it is the only stage whose
-            # grids come from a magazine; without a loader they are exchanged by hand.
+            # A built-in shuttle is the only kind an autoloader loads, so it is the only
+            # stage whose grids come from a magazine; without a loader they are
+            # exchanged by hand.
             loader = self._roles.get("loader")
             magazine: Optional[GridMagazine] = None
             if loader is not None:
@@ -426,6 +431,7 @@ class SampleHandling(Service):
 
         holder._parent = microscope
         self.holder = holder
+        self.holder_is_builtin = builtin
         self.magazine = magazine
         # The grids in the slots are session state, so a restart does not forget what
         # is physically still in the shuttle. Restored here when the service is
@@ -762,14 +768,17 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
     return holder
 
 
-COMPUSTAGE_HOLDER_NAME = "CompuStage Holder"
+BUILTIN_HOLDER_NAME = "Built-in holder"
+# What configurations written before the built-in holder had a neutral name call it.
+# Read, then renamed to `BUILTIN_HOLDER_NAME`, so a calibration saved under it is kept.
+_LEGACY_BUILTIN_HOLDER_NAMES = ("CompuStage Holder",)
 
 
-def _compustage_working_slot(stage_settings) -> GridSlot:
-    """The compustage's one slot: where the autoloader puts every grid.
+def _builtin_working_slot(stage_settings) -> GridSlot:
+    """The built-in shuttle's one slot: where the autoloader puts every grid.
 
     Nominally the stage origin, and that is the slot until someone calibrates it.
-    A loaded grid on a real Arctis sits off the origin, in x, y and z, by the same
+    A loaded grid on a real instrument sits off the origin, in x, y and z, by the same
     amount on every load (FIB-1144), so a position captured with the calibration
     wizard and saved in the configuration replaces it -- once it passes the trust
     check a fixed holder's slots get: captured against this pre-tilt and reference
@@ -777,11 +786,17 @@ def _compustage_working_slot(stage_settings) -> GridSlot:
     """
     pre_tilt = float(stage_settings.shuttle_pre_tilt)
     rotation_reference = float(stage_settings.rotation_reference)
-    saved = stage_settings.holders.get(COMPUSTAGE_HOLDER_NAME)
+    for legacy in _LEGACY_BUILTIN_HOLDER_NAMES:
+        if legacy in stage_settings.holders:
+            old = stage_settings.holders.pop(legacy)
+            if BUILTIN_HOLDER_NAME not in stage_settings.holders:
+                old.name = BUILTIN_HOLDER_NAME
+                stage_settings.holders[BUILTIN_HOLDER_NAME] = old
+    saved = stage_settings.holders.get(BUILTIN_HOLDER_NAME)
     if saved is not None:
         for note in saved.discard_untrusted_positions(pre_tilt, rotation_reference):
             logging.warning(
-                f"Compustage working slot: {note}. Using the stage origin; "
+                f"Built-in shuttle working slot: {note}. Using the stage origin; "
                 "recalibrate it from the Sample view."
             )
         captured = saved.slots.get("Slot-01")

@@ -113,12 +113,16 @@ def test_run_then_continue_runs_once_and_answers_the_editor_config(ui, qapp):
 
     assert ui.pushButton_yes.text() == "Run Milling"
     assert ui.pushButton_no.text() == "Continue"
+    # The first ask, before any pass (FIB-1329).
+    assert ui.ui_responder.pending_question().passes == 0
     assert ui.hold is not None and ui.hold.kind is HoldKind.question
 
     ui.pushButton_yes.click()  # run
-    # The prompt is down while the mill runs, and comes back when it finishes.
+    # The prompt is down while the mill runs, and comes back when it finishes,
+    # as a re-ask that counts the pass.
     _wait_for_prompt(ui, qapp, MSG)
     assert len(ui._mill_runs) == 1
+    assert ui.ui_responder.pending_question().passes == 1
 
     ui.pushButton_no.click()  # continue
     _finish(thread, qapp)
@@ -148,6 +152,8 @@ def test_a_failed_mill_asks_again_with_the_error(ui, qapp):
     ui.pushButton_yes.click()  # retry, and it succeeds
     _wait_for_prompt(ui, qapp, MSG)
     assert len(ui._mill_runs) == 2
+    # A failed run counts as a pass too.
+    assert ui.ui_responder.pending_question().passes == 2
 
     ui.pushButton_no.click()
     _finish(thread, qapp)

@@ -140,7 +140,7 @@ def test_the_compustage_is_shown_the_step_but_cannot_edit_it(dialog):
     assert not dialog.button_read_stage.isEnabled()
     # The panels explain instead of instructing. Telling someone to "confirm it rather
     # than assume it" beside a field they cannot touch is worse than saying nothing.
-    assert "compustage" in dialog._rotation_blurb.text()
+    assert "tilting rather than rotating" in dialog._rotation_blurb.text()
     assert "Nothing to enter" in dialog._pre_tilt_blurb.text()
     # And the rail says so wherever you are, since it describes the step not the place.
     assert dialog._rail_rows[STEP_STAGE]._note.text() == "set by the configuration"
@@ -612,9 +612,11 @@ def test_the_milling_orientation_is_the_configured_milling_angle(qapp):
     from fibsem.ui.widgets.guided_setup_dialog import StageDiagram
 
     # Stage tilts read from microscope.orientations for a 35 deg shuttle and a
-    # compustage, both configured for the default 15 degree milling angle.
+    # compustage, both on a 52 degree ion column and configured for the default 15
+    # degree milling angle.
     for pre_tilt, stage_tilt in ((35.0, 12.0), (0.0, -23.0)):
         diagram = StageDiagram(pre_tilt, stage_tilt)
+        diagram.set_column_tilt(52.0)
         try:
             assert diagram.milling_angle() == pytest.approx(15.0, abs=0.05)
         finally:

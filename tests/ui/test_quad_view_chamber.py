@@ -133,8 +133,8 @@ def test_ion_column_drawn_at_the_systems_angle(controller, microscope):
     microscope.system.ion.column_tilt = 55
     chamber = _show(controller, microscope, "SEM")
     assert chamber.diagram.FIB_ANGLE == 55.0
-    # The class default is untouched for the wizard's own diagram.
-    assert type(chamber.diagram).FIB_ANGLE == 52.0
+    # Set on this diagram only: the class default is untouched for the others.
+    assert type(chamber.diagram).FIB_ANGLE == 0.0
 
 
 def test_a_position_without_tilt_keeps_the_last_drawing(controller, microscope):

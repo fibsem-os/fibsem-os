@@ -141,10 +141,28 @@ def serialize_request(request) -> Dict[str, Any]:
 
     if isinstance(request, RunMillingTask):
         config = request.config
+        if not request.enabled:
+            message = (
+                "Confirm this milling task (answering yes accepts the "
+                "configuration as currently shown; nothing is milled)."
+            )
+        elif request.passes == 0:
+            message = (
+                "Run this milling task? Answering yes runs the mill with the "
+                "configuration as currently shown; answering no continues "
+                "without milling."
+            )
+        else:
+            message = (
+                f"The mill has run {request.passes} time(s). Answering yes "
+                "mills again with the configuration as currently shown; "
+                "answering no accepts what was milled."
+            )
         payload.update(
             {
-                "message": "Confirm and run this milling task (answering yes "
-                "runs the mill with the configuration as currently shown).",
+                "message": message,
+                # 0 at the first ask, the runs so far at a re-ask (FIB-1329).
+                "passes": request.passes,
                 "enabled": request.enabled,
                 "task_name": to_plain(getattr(config, "name", None)),
                 "num_stages": len(getattr(config, "stages", []) or []),

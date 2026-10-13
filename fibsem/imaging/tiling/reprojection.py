@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -236,17 +236,40 @@ def reproject_stage_positions_onto_image2(
     return points
 
 
-def _rotation_centre(image: FibsemImage) -> Tuple[float, float]:
-    """The half-turn centre an image was acquired under; the legacy one if unrecorded."""
+def _rotation_centre(image: FibsemImage) -> Optional[Tuple[float, float]]:
+    """The half-turn centre an image was acquired under.
+
+    The legacy one for an image with no geometry at all (saved before it was
+    recorded); None when the driver reported no centre.
+    """
     geometry = getattr(image.metadata, "hardware_geometry", None)
     if geometry is None:
         return LEGACY_ROTATION_CENTRE
     return geometry.rotation_centre
 
 
+_warned_no_rotation_centre = False
+
+
+def _centre_or_origin(
+    rotation_centre: Optional[Tuple[float, float]],
+) -> Tuple[float, float]:
+    """The centre to turn about: the stage origin when none was recorded, said once."""
+    global _warned_no_rotation_centre
+    if rotation_centre is not None:
+        return rotation_centre
+    if not _warned_no_rotation_centre:
+        _warned_no_rotation_centre = True
+        logging.warning(
+            "No stage rotation centre was recorded for this image; positions from "
+            "the other side of the stage are drawn turned about the stage origin."
+        )
+    return (0.0, 0.0)
+
+
 def _transform_position(
     pos: FibsemStagePosition,
-    rotation_centre: Tuple[float, float] = LEGACY_ROTATION_CENTRE,
+    rotation_centre: Optional[Tuple[float, float]] = None,
 ) -> FibsemStagePosition:
     """This function takes in a position flat to a beam, and outputs the position if stage was rotated / tilted flat to the other beam).
 
@@ -255,13 +278,13 @@ def _transform_position(
 
     Args:
         pos: The position flat to the beam.
-        rotation_centre: where the half turn is centred, raw (x, y) in metres. The
-            default is the one this function always used (LEGACY_ROTATION_CENTRE);
-            callers holding an image pass the centre it was acquired under.
+        rotation_centre: where the half turn is centred, raw (x, y) in metres; callers
+            holding an image pass the centre it was acquired under. None (no centre
+            known) turns about the stage origin and warns once.
     Returns:
         The position flat to the other beam."""
 
-    cx, cy = rotation_centre
+    cx, cy = _centre_or_origin(rotation_centre)
     transformed_position = deepcopy(pos)
     transformed_position.x = 2 * cx - pos.x
     transformed_position.y = 2 * cy - pos.y

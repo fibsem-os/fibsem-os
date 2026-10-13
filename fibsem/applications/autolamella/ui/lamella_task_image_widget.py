@@ -38,6 +38,7 @@ from fibsem.applications.autolamella.history_rows import (
     HistoryRun,
     filter_runs,
     history_rows,
+    milling_stages,
     operation_facts,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus, Lamella
@@ -955,20 +956,29 @@ class LamellaTaskImageWidget(QWidget):
         facts = QGridLayout()
         facts.setHorizontalSpacing(12)
         facts.setVerticalSpacing(2)
-        for row, (name, value) in enumerate(operation_facts(operation)):
-            facts.addWidget(
-                _text(name, f"font-size: 11px; color: {NEUTRAL_550};"),
-                row,
-                0,
-                Qt.AlignmentFlag.AlignTop,
-            )
+        rows = list(operation_facts(operation))
+        if operation.kind == "milling":
+            # each stage, then the drift corrections it ran, indented (FIB-1351)
+            for stage in milling_stages(operation):
+                rows.append((stage.name, stage.text))
+                rows.extend(("drift correction", run) for run in stage.drift)
+        for row, (name, value) in enumerate(rows):
+            nested = not isinstance(value, str)
+            label = _text(name, f"font-size: 11px; color: {NEUTRAL_550};")
+            if nested:
+                label.setContentsMargins(12, 0, 0, 0)
+            facts.addWidget(label, row, 0, Qt.AlignmentFlag.AlignTop)
             text = _text(
-                value,
+                value.detail if nested else value,
                 f"font-family: {NUMBER_FONT}; font-size: 11px; color: {NEUTRAL_400};",
             )
             text.setWordWrap(True)
             text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             facts.addWidget(text, row, 1)
+            if nested and value.plot is not None:
+                link = _link("Figure", value.plot)
+                link.setToolTip(_figure_tooltip(value.plot))
+                facts.addWidget(link, row, 2, Qt.AlignmentFlag.AlignTop)
         facts.setColumnStretch(1, 1)
         layout.addLayout(facts)
 

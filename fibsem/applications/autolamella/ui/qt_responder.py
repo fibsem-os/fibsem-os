@@ -27,6 +27,7 @@ arrives belonged to a waiter that aborted and unwound, and is cancelled.
 import logging
 from concurrent.futures import InvalidStateError
 from copy import deepcopy
+from dataclasses import replace
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -747,6 +748,10 @@ class QtResponder(QObject):
             msg = request.message
             if error is not None:
                 msg = f"Milling failed: {error}\n\n{msg}"
+            # A re-ask, and says so: the pass count is what tells an agent this
+            # Continue accepts a mill rather than going on without one
+            # (FIB-1329).
+            request = replace(request, passes=request.passes + 1)
             self._park_question(request, future, msg, "Run Milling", "Continue")
             return
         if error is not None:
