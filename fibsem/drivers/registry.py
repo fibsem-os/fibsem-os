@@ -195,6 +195,7 @@ _BUILT_IN: Dict[str, str] = {
     "Tescan": "fibsem.drivers.tescan:DRIVER",
     "Odemis": "fibsem.drivers.odemis:DRIVER",
     "Demo": "fibsem.drivers.demo:DRIVER",
+    "JEOL": "fibsem.drivers.jeol:DRIVER",
 }
 
 # The built-in drivers that build devices and are no microscope, by name, with where

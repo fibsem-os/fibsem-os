@@ -1346,23 +1346,34 @@ class FibsemMicroscope(ABC):
         # any of these out -- a `defaults:` block with only the voltage in it is a
         # configuration -- and the readers default them to None, so each one is
         # pushed only when there is something to push.
+        # A read-only one is skipped too: the instrument reports it but cannot set
+        # it, so a state read from that instrument still puts back the rest.
         beam_type = beam_settings.beam_type
         setters = (
-            (self.set_working_distance, beam_settings.working_distance),
+            (
+                "working_distance",
+                self.set_working_distance,
+                beam_settings.working_distance,
+            ),
             # voltage before current: on some instruments the available currents
             # are calibrated per voltage.
-            (self.set_beam_voltage, beam_settings.voltage),
-            (self.set_beam_current, beam_settings.beam_current),
-            (self.set_field_of_view, beam_settings.hfw),
-            (self.set_resolution, beam_settings.resolution),
-            (self.set_dwell_time, beam_settings.dwell_time),
-            (self.set_stigmation, beam_settings.stigmation),
-            (self.set_beam_shift, beam_settings.shift),
-            (self.set_scan_rotation, beam_settings.scan_rotation),
+            ("voltage", self.set_beam_voltage, beam_settings.voltage),
+            ("current", self.set_beam_current, beam_settings.beam_current),
+            ("hfw", self.set_field_of_view, beam_settings.hfw),
+            ("resolution", self.set_resolution, beam_settings.resolution),
+            ("dwell_time", self.set_dwell_time, beam_settings.dwell_time),
+            ("stigmation", self.set_stigmation, beam_settings.stigmation),
+            ("shift", self.set_beam_shift, beam_settings.shift),
+            ("scan_rotation", self.set_scan_rotation, beam_settings.scan_rotation),
         )
-        for setter, value in setters:
-            if value is not None:
-                setter(value, beam_type)
+        for name, setter, value in setters:
+            if value is None:
+                continue
+            param = self._beam_parameter(name, beam_type)
+            if param is not None and not param.settable:
+                logging.debug(f"{name} is read-only here ({beam_type}), not restored.")
+                continue
+            setter(value, beam_type)
         if beam_settings.preset is not None:
             self.set_preset(beam_settings.preset, beam_type)
 
