@@ -38,6 +38,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME,
 )
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
+from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
@@ -104,7 +105,7 @@ def screened(tmp_path_factory):
             overview=OverviewParameters(rows=1, cols=2),
         )
     )
-    slot = microscope.sample_handling.holder.slots["Slot-01"]
+    slot = microscope.sample_handling.holder.slots[BUILTIN_SLOT_NAME]
 
     # grid-aspen: loaded, screened in full, two lamellae, judged good
     aspen = exp.add_grid(GridRecord(name="grid-aspen"))

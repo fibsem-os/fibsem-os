@@ -34,7 +34,7 @@ import yaml
 
 from fibsem import config as cfg
 from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
-from fibsem.devices.core import Role, command
+from fibsem.devices.core import Role, command, session_of
 from fibsem.devices.sample_loader import (
     GridExchangeError,
     Magazine,
@@ -198,7 +198,12 @@ class GridMagazine:
             return grid
         if working.loaded_grid is not None:
             self.unload_grid()
-        self._do_load(slot)
+        # On the record (FIB-1359), with how long the exchange took and why it
+        # failed, if it did.
+        with session_of(self.parent).recording(
+            "grid_loaded", grid=grid.name, slot=slot_name, working_slot=working.name
+        ):
+            self._do_load(slot)
         working.loaded_grid = grid
         logging.info(f"Loaded grid '{grid.name}' from {slot_name} into {working.name}.")
         return grid
@@ -209,7 +214,14 @@ class GridMagazine:
         if working.loaded_grid is None:
             return
         name = working.loaded_grid.name
-        self._do_unload(working)
+        home = self.find_grid(name)
+        with session_of(self.parent).recording(
+            "grid_unloaded",
+            grid=name,
+            slot=home.name if home is not None else None,
+            working_slot=working.name,
+        ):
+            self._do_unload(working)
         working.loaded_grid = None
         logging.info(f"Unloaded grid '{name}' from {working.name}.")
 
@@ -392,11 +404,11 @@ class SampleHandling(Service):
         stage_settings = microscope.system.stage
         builtin = self.stage.has_builtin_shuttle()
         if builtin:
-            slot01 = _builtin_working_slot(stage_settings)
+            working = _builtin_working_slot(stage_settings)
             holder = SampleHolder(
                 name=BUILTIN_HOLDER_NAME,
                 capacity=1,
-                slots={"Slot-01": slot01},
+                slots={working.name: working},
                 # Built here rather than resolved from the configuration, so it has to
                 # be given its pre-tilt explicitly -- it does not pass through
                 # `_resolve_configured_holder`, which is where every other holder gets
@@ -529,12 +541,20 @@ class SampleHandling(Service):
         """Move the stage to a specific slot. Refuses a slot that is not calibrated."""
         if self.holder is None:
             raise ValueError("No sample holder defined.")
+        slot_name = self._holder_slot_name(slot_name)
         if slot_name not in self.holder.slots:
             raise ValueError(f"Slot '{slot_name}' not found in sample holder.")
         slot = self.holder.slots[slot_name]
         if slot.position is None:
             raise ValueError(uncalibrated_message(slot_name))
         return self.parent.move_stage_absolute(slot.position)
+
+    def _holder_slot_name(self, slot_name: str) -> str:
+        """The shuttle's slot under the name a script written before it had its
+        own may still use ("Slot-01")."""
+        if self.holder_is_builtin and slot_name == _LEGACY_BUILTIN_SLOT_NAME:
+            return BUILTIN_SLOT_NAME
+        return slot_name
 
     @command
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
@@ -689,6 +709,14 @@ def load_holder_occupancy(holder: SampleHolder, state: SessionState) -> bool:
     data = state.load_section(HOLDER_OCCUPANCY, migrate=_import_occupancy)
     if data is None:
         return False
+    if (
+        BUILTIN_SLOT_NAME in holder.slots
+        and isinstance(data, dict)
+        and BUILTIN_SLOT_NAME not in data
+        and _LEGACY_BUILTIN_SLOT_NAME in data
+    ):
+        # Recorded before the shuttle's slot had its own name.
+        data = {**data, BUILTIN_SLOT_NAME: data[_LEGACY_BUILTIN_SLOT_NAME]}
     try:
         holder.apply_occupancy(data)
     except Exception as e:
@@ -769,6 +797,13 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
 
 
 BUILTIN_HOLDER_NAME = "Built-in holder"
+# The built-in shuttle's one slot. Its own name, not "Slot-01", which is also
+# the loader's first magazine slot: "loaded from Slot-01 into Slot-01" named two
+# places as one (FIB-1359).
+BUILTIN_SLOT_NAME = "Shuttle"
+# What it was called before it had its own name. A calibration saved under it is
+# read, and recorded occupancy under it restored.
+_LEGACY_BUILTIN_SLOT_NAME = "Slot-01"
 # What configurations written before the built-in holder had a neutral name call it.
 # Read, then renamed to `BUILTIN_HOLDER_NAME`, so a calibration saved under it is kept.
 _LEGACY_BUILTIN_HOLDER_NAMES = ("CompuStage Holder",)
@@ -799,19 +834,21 @@ def _builtin_working_slot(stage_settings) -> GridSlot:
                 f"Built-in shuttle working slot: {note}. Using the stage origin; "
                 "recalibrate it from the Sample view."
             )
-        captured = saved.slots.get("Slot-01")
+        captured = saved.slots.get(BUILTIN_SLOT_NAME) or saved.slots.get(
+            _LEGACY_BUILTIN_SLOT_NAME
+        )
         if captured is not None and captured.is_calibrated:
             return GridSlot(
-                name="Slot-01",
+                name=BUILTIN_SLOT_NAME,
                 index=0,
                 position=deepcopy(captured.position),
                 calibration=deepcopy(captured.calibration),
             )
     return GridSlot(
-        name="Slot-01",
+        name=BUILTIN_SLOT_NAME,
         index=0,
         position=FibsemStagePosition(
-            name="Slot-01", x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
+            name=BUILTIN_SLOT_NAME, x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
         ),
         calibration=SlotCalibration.builtin(pre_tilt, rotation_reference),
     )

@@ -11,7 +11,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.services.sample_handling import bind_sample_handling
+from fibsem.services.sample_handling import BUILTIN_SLOT_NAME, bind_sample_handling
 from fibsem.structures import FibsemStagePosition, SampleHolder
 from fibsem.ui.widgets.holder_calibration_dialog import (
     CALIBRATION_ORIENTATION,
@@ -365,12 +365,12 @@ def test_on_a_compustage_the_working_slot_is_calibrated_and_kept(qapp, tmp_path)
     path = str(_arctis_configuration(tmp_path))
     arctis, _ = utils.setup_session(config_path=path, manufacturer="Demo")
     holder = arctis.sample_handling.holder
-    assert holder.slots["Slot-01"].calibration.is_builtin
+    assert holder.slots[BUILTIN_SLOT_NAME].calibration.is_builtin
     dialog = HolderCalibrationDialog(arctis, holder, configuration_path=path)
     # one working slot, named for what it is: not the operator's to change
     assert dialog.name_edit.isReadOnly()
     assert not dialog.capacity_spin.isEnabled()
-    assert dialog.slot_names == ["Slot-01"]
+    assert dialog.slot_names == [BUILTIN_SLOT_NAME]
     dialog._show_step(2)
     assert "coincidence" in dialog._subtitle.text()
 
@@ -382,7 +382,7 @@ def test_on_a_compustage_the_working_slot_is_calibrated_and_kept(qapp, tmp_path)
 
     again, _ = utils.setup_session(config_path=path, manufacturer="Demo")
     try:
-        slot = again.sample_handling.holder.slots["Slot-01"]
+        slot = again.sample_handling.holder.slots[BUILTIN_SLOT_NAME]
         assert again.sample_handling.holder.name == "Built-in holder"
         assert not slot.calibration.is_builtin
         assert abs(slot.position.x - 150e-6) < 1e-9

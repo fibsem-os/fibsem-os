@@ -100,7 +100,7 @@ def test_a_real_run_reads_back_as_one_row_per_run_with_its_alignment(tmp_path):
         for stage in m.enabled_stages
     ]
     assert mill.label == "Mill" and mill.status == "completed"
-    assert mill.detail.startswith(f"{len(stages)} stages · drift ≤ ")
+    assert mill.detail.startswith(f"{len(stages)} stages · alignment ≤ ")
     lines = milling_stages(mill)
     assert [line.name for line in lines] == stages
     for line in lines:
@@ -532,7 +532,7 @@ def test_each_stage_s_drift_correction_folds_under_its_mill(tmp_path):
         "Align (something later)",
     ]
     mill = run.operations[1]
-    assert mill.detail == "2 stages · drift ≤ 0.07 µm"
+    assert mill.detail == "2 stages · alignment ≤ 0.07 µm"
     one, two = milling_stages(mill)
     assert [d.label for d in one.drift] == ["Align (Rough Mill 01)"]
     assert [d.label for d in two.drift] == ["Align (Rough Mill 02)"]
@@ -571,16 +571,10 @@ def test_a_drift_correction_that_went_wrong_shows_on_the_folded_line(tmp_path):
     failed["t"] = _at(2, 2)
 
     (run,) = history_rows(lamella, [weak, _mill(lamella)])
-    assert (
-        run.operations[0].detail
-        == "2 stages · drift correction too weak at Rough Mill 01"
-    )
+    assert run.operations[0].detail == "2 stages · alignment too weak at Rough Mill 01"
 
     (run,) = history_rows(lamella, [failed, _mill(lamella)])
-    assert (
-        run.operations[0].detail
-        == "2 stages · drift correction failed at Rough Mill 02"
-    )
+    assert run.operations[0].detail == "2 stages · alignment failed at Rough Mill 02"
 
 
 def test_a_mill_that_did_not_complete_does_not_add_the_drift(tmp_path):
@@ -625,3 +619,48 @@ def test_an_fm_autofocus_has_its_duration_and_figure(tmp_path):
     assert op.label == "Autofocus (FM)" and op.detail == "objective +2.00 µm"
     assert op.duration == pytest.approx(20.0)
     assert op.plot == str(saved / "plot.png")
+
+
+# --- what each stage's strategy said (FIB-1257) --------------------------------
+
+
+def test_a_strategy_with_only_facts_says_them_on_its_stage_s_line(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    mill = _mill(lamella)
+    for stage in mill["payload"]["stages"]:
+        stage["strategy"] = {"name": "Standard", "facts": {"Pattern": "Trench"}}
+
+    (run,) = history_rows(lamella, [mill])
+
+    (op,) = run.operations
+    assert op.detail == "2 stages"
+    first, _ = milling_stages(op)
+    assert first.text == "completed · 1 m 00 s · 740 pA · Standard · Pattern Trench"
+    assert first.strategy == "" and first.said == ""
+
+
+def test_a_strategy_that_says_why_it_stopped_has_its_own_line(tmp_path):
+    lamella = _lamella(tmp_path)
+    lamella.task_history = [_run(ROUGH, "r", 0)]
+    summary = tmp_path / "run_summary.png"
+    summary.write_bytes(b"")
+    mill = _mill(lamella)
+    mill["payload"]["stages"] = mill["payload"]["stages"][:1]
+    mill["payload"]["stages"][0]["strategy"] = {
+        "name": "CoincidenceMilling",
+        "end_reason": "intensity drop",
+        "facts": {"Mill time (s)": 250.0, "Intensity drop seen": True},
+        "figure": str(summary),
+    }
+
+    (run,) = history_rows(lamella, [mill])
+
+    (op,) = run.operations
+    # folded, the line still says why it stopped
+    assert op.detail == "1 stage · intensity drop"
+    (stage,) = milling_stages(op)
+    assert stage.text == "completed · 1 m 00 s · 740 pA"
+    assert stage.strategy == "Coincidence Milling"
+    assert stage.said == "intensity drop · Mill time (s) 250 · Intensity drop seen yes"
+    assert stage.figure == str(summary)

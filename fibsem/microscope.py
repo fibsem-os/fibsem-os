@@ -2879,6 +2879,8 @@ class FibsemMicroscope(ABC):
         * ``alignment`` -- from ``multi_step_alignment_v2``, every step's shift
         * ``coincidence_measured`` -- from ``check_coincidence``
         * ``autofocus`` -- from ``run_auto_focus``, the working distance it left
+        * ``grid_loaded`` / ``grid_unloaded`` -- from the sample handling service's
+          magazine exchanges, with the grid, its magazine slot and the working slot
         """
         try:
             self.record_signal.emit(kind, payload)
