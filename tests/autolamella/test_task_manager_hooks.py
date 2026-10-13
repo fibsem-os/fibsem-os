@@ -291,16 +291,17 @@ def test_a_save_that_fails_in_set_up_ends_the_run_with_workflow_failed(
     constructor, so a file that could not be written ended a run the agent
     had been told was started with no event at all."""
     hook_manager, fired = recorder
-    # A directory where the file goes: the save fails, whoever runs the test.
+    # A directory where the file goes: the save fails, whoever runs the test
+    # (IsADirectoryError on POSIX, PermissionError on Windows).
     Path(experiment.path, "experiment.yaml").mkdir(parents=True)
     manager = _manager(experiment, hook_manager)
     assert fired == [], "making the manager does nothing a run should report"
 
-    with pytest.raises(IsADirectoryError):
+    with pytest.raises(OSError) as raised:
         manager.run(task_names=["MillTrench"], required_lamella=[])
 
     assert _events(fired) == ["workflow_started", "workflow_failed"]
-    assert "Is a directory" in fired[-1].error
+    assert fired[-1].error == str(raised.value)
     assert experiment.unsaved
 
 
