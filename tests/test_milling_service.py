@@ -162,7 +162,7 @@ def test_a_pattern_type_the_driver_does_not_draw_raises(microscope):
     microscope.setup_milling(_recipe())
     with pytest.raises(UnsupportedPattern, match="cannot draw _Unknown patterns"):
         microscope.draw_pattern(_Unknown())
-    assert microscope.milling_system.patterns == []
+    assert microscope._connection.milling_system.patterns == []
 
 
 def test_nothing_is_drawn_when_one_pattern_cannot_be(microscope):
@@ -170,7 +170,7 @@ def test_nothing_is_drawn_when_one_pattern_cannot_be(microscope):
     microscope.setup_milling(_recipe())
     with pytest.raises(UnsupportedPattern):
         microscope.draw_patterns(_patterns()[:2] + [_Unknown()])
-    assert microscope.milling_system.patterns == []
+    assert microscope._connection.milling_system.patterns == []
 
 
 def test_a_subclass_of_a_drawn_type_is_drawn_as_it(microscope):
@@ -181,7 +181,7 @@ def test_a_subclass_of_a_drawn_type_is_drawn_as_it(microscope):
     microscope.draw_pattern(
         Notched(width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0)
     )
-    assert len(microscope.milling_system.patterns) == 1
+    assert len(microscope._connection.milling_system.patterns) == 1
 
 
 def test_without_an_ion_beam_the_demo_does_not_mill(microscope):
