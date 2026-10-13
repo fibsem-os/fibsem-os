@@ -156,3 +156,20 @@ def test_every_microscope_has_its_own_control():
     assert isinstance(first.control, Control)
     assert first.control is first.control
     assert first.control is not second.control
+
+
+def test_last_is_the_most_recent_take_and_outlives_release():
+    control = Control()
+    assert control.last is None
+    with control.take(AGENT, "POST /start_milling"):
+        pass
+    assert control.current is None
+    assert control.last.by == AGENT
+    with control.take(WORKFLOW, "run"), control.lend():
+        with control.take(OPERATOR, "acquire"):
+            assert control.last.by == OPERATOR
+    with pytest.raises(MicroscopeBusy):
+        with control.take(WORKFLOW, "run"):
+            with control.take(AGENT, "move"):
+                pass
+    assert control.last.by == WORKFLOW  # a refused take is not a take
