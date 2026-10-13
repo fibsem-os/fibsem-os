@@ -36,6 +36,7 @@ failure stops it and clears the patterns before it is raised.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import time
 from typing import (
@@ -73,6 +74,17 @@ if TYPE_CHECKING:
 # written back: a preset first, since it sets the others on a column that has one,
 # then the voltage before the current, as the instruments want.
 SAVED_BEAM_CONDITIONS = ("preset", "voltage", "current", "hfw")
+
+# What a stage update leaves out and the run's own reports said: which run, which
+# task config, which stage (FIB-1356). A backend's poll loop and a strategy's tick
+# know only the countdown.
+_RUN_CONTEXT = (
+    "milling_run_id",
+    "milling_task_name",
+    "stage_name",
+    "current_stage",
+    "total_stages",
+)
 
 _M = TypeVar("_M", bound="Milling")
 
@@ -120,6 +132,9 @@ class Milling(Service):
         # What the driver says about its own fields, asked once.
         self._driver_settings: Dict[str, ParameterMetadata] = {}
         self._progress = progress_update(state=MillingState.IDLE)
+        # The run and stage the last task or stage start named, for the stage
+        # updates that follow it; empty outside a milling task.
+        self._run_context: Dict[str, Any] = {}
 
     def connect(self: _M) -> _M:
         super().connect()
@@ -131,8 +146,39 @@ class Milling(Service):
         return self._progress
 
     def _report(self, progress: MillingProgress) -> None:
+        progress = self._in_run_context(progress)
         self._progress = progress
         self.progress.report(progress)
+
+    def _in_run_context(self, progress: MillingProgress) -> MillingProgress:
+        """``progress``, a stage update given the run and stage it belongs to.
+
+        A task's start and each stage's start name them; the ticks in between,
+        from a backend or a strategy, do not, so a reader of the event stream
+        saw a stage update with every name null. A milling run outside a task
+        (a bare ``run``) has nothing to fill in, and its updates stay as they are.
+        """
+        status = progress.status
+        if status in (
+            MillingProgressStatus.TASK_STARTED,
+            MillingProgressStatus.STAGE_STARTED,
+        ):
+            self._run_context = {
+                name: getattr(progress, name)
+                for name in _RUN_CONTEXT
+                if getattr(progress, name) is not None
+            }
+        elif status.is_terminal:
+            self._run_context = {}
+        elif status is MillingProgressStatus.STAGE_UPDATE and self._run_context:
+            missing = {
+                name: value
+                for name, value in self._run_context.items()
+                if getattr(progress, name) is None
+            }
+            if missing:
+                progress = dataclasses.replace(progress, **missing)
+        return progress
 
     def report(self, progress: MillingProgress) -> None:
         """Report ``progress`` for whoever is driving the mill: a strategy or a task
