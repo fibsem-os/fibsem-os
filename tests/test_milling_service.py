@@ -221,7 +221,7 @@ def test_building_the_service_reports_nothing_and_a_report_reaches_the_microscop
 
     seen = []
     microscope.milling_progress_signal.connect(seen.append)
-    milling = bind_milling(DemoMilling, microscope)
+    milling = bind_milling(DemoMilling, microscope, connection=microscope._connection)
     assert seen == []
 
     report = progress_update(MillingState.RUNNING)
