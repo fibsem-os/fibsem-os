@@ -202,3 +202,36 @@ def test_client_settings_round_trip(fibsem_client):
 def test_client_parameter_metadata_and_list(fibsem_client):
     assert "stage" in fibsem_client.list_devices()
     assert "choices" in fibsem_client.parameter_metadata("ion", "current")
+
+
+@pytest.mark.parametrize(
+    "path, body",
+    [
+        ("/acquire_image", {"beam_type": "ION"}),
+        ("/acquire_image_preview", {"beam_type": "ION"}),
+        ("/devices/ion/commands/acquire", {}),
+    ],
+)
+def test_an_acquired_image_reaches_the_apps_views(armed_client, microscope, path, body):
+    # FIB-1375: the app's FIB view listens on this signal, as for the workflow's
+    # images, so an agent's frame replaces the one from before its move.
+    shown = []
+    microscope.fib_acquisition_signal.connect(shown.append)
+    try:
+        resp = armed_client.post(path, json=body)
+    finally:
+        microscope.fib_acquisition_signal.disconnect(shown.append)
+    assert resp.status_code == 200
+    assert len(shown) == 1
+    assert shown[0].metadata.beam_type is BeamType.ION
+
+
+def test_a_read_back_image_is_not_shown_again(armed_client, microscope):
+    shown = []
+    microscope.sem_acquisition_signal.connect(shown.append)
+    try:
+        resp = armed_client.post("/last_image", json={"beam_type": "ELECTRON"})
+    finally:
+        microscope.sem_acquisition_signal.disconnect(shown.append)
+    assert resp.status_code == 200
+    assert shown == []
