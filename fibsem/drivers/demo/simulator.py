@@ -14,7 +14,6 @@ from typing import Callable, Dict, List, Optional, Tuple, Union
 import numpy as np
 from skimage.transform import resize
 
-from fibsem import manufacturers
 from fibsem._timing import sim_sleep
 from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.fm.microscope import (
@@ -1063,7 +1062,7 @@ class DemoSession:
         # The probe only answers for the Demo's own FM; one on another driver (an FM
         # on its own PC) is built as the configuration says.
         if has_fm or not self._fluorescence_uses_own_driver():
-            self.fm = self._build_fluorescence(manufacturers.DEMO)
+            self.fm = self._build_fluorescence(self.driver_name)
         else:
             self.fm = None
         if self.fm is None:

@@ -43,7 +43,6 @@ import logging
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from fibsem import manufacturers
 from fibsem._timing import sim_sleep
 from fibsem.devices.core import Device, resources_of
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
@@ -125,6 +124,7 @@ class DemoMicroscope(
 ):
     """The demo microscope built from devices, with the shared demo code."""
 
+    driver_name = "Demo"
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
     # The simulated stage turns about its origin: a move half a turn round reflects x and
     # y through zero, which is what the base class does for a driver that names no
@@ -158,13 +158,13 @@ class DemoMicroscope(
         resolved = [
             item
             for item in resolve_system_devices(
-                self.system, defaults, driver=manufacturers.DEMO
+                self.system, defaults, driver=self.driver_name
             )
             if item.type != "fm"
         ]
         # The builders start from this microscope's parts (``fibsem.drivers.demo
         # .devices``), so the devices and the shared demo code begin the same.
-        shared = {manufacturers.DEMO: (resources_of(self), parts)}
+        shared = {self.driver_name: (resources_of(self), parts)}
         built = build_device_entries(resolved, self, shared=shared)
         for name, device in built.items():
             self._set_device(name, device)

@@ -7,11 +7,11 @@ for it (``fibsem.drivers.registry``), and imports nothing from the package, so l
 or looking up the drivers stays cheap and never needs the vendor SDK.
 """
 
-from fibsem import manufacturers
 from fibsem.drivers.registry import DeviceBuilder, DriverEntry
 
 DRIVER = DriverEntry(
-    manufacturer=manufacturers.THERMOFISHER,
+    manufacturer="ThermoFisher",
+    aliases=("thermo", "thermo fisher", "thermo fisher scientific"),
     microscope_class="fibsem.drivers.autoscript.microscope:ThermoMicroscope",
     config={"port": 7520, "ion-column-tilt": 52, "electron-column-tilt": 0},
     devices={

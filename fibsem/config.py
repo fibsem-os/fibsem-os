@@ -10,7 +10,6 @@ import yaml
 
 import fibsem
 import fibsem.util.numpy_yaml  # noqa: F401  numpy scalars dump as numbers
-from fibsem import manufacturers
 from fibsem.drivers import registry
 from fibsem.util.timestamps import to_datetime
 
@@ -170,22 +169,8 @@ def load_yaml(fname):
     return config
 
 
-DEFAULT_MANUFACTURER = manufacturers.THERMOFISHER
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 SUPPORTED_PLASMA_GASES = ["Argon", "Oxygen", "Nitrogen", "Xenon"]
-
-
-def get_default_user_config() -> dict:
-    """Return the default configuration."""
-    return {
-        "name": "default-configuration",  # a descriptive name for your configuration
-        "ip_address": DEFAULT_IP_ADDRESS,  # the ip address of the microscope PC
-        "manufacturer": DEFAULT_MANUFACTURER,  # the microscope manufacturer: ThermoFisher, Tescan or Demo
-        "rotation-reference": 0,  # the reference rotation value (rotation when loading)  [degrees]
-        "shuttle-pre-tilt": 35,  # the pre-tilt of the shuttle                           [degrees]
-        "electron-beam-eucentric-height": 7.0e-3,  # the eucentric height of the electron beam             [metres]
-        "ion-beam-eucentric-height": 16.5e-3,  # the eucentric height of the ion beam                  [metres]
-    }
 
 
 # user configurations -> move to fibsem.db eventually
