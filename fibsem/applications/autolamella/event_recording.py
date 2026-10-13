@@ -233,6 +233,16 @@ def read_new_events(
     return records, offset + end + 1
 
 
+def milling_run_of(payload: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """A milling event's run id and milling task name: ``milling_run_id`` and
+    ``milling_task_name``, or ``task_id`` and ``task_name`` in a file recorded
+    before FIB-1356, when the payload used the names the envelope's task has."""
+    return (
+        payload.get("milling_run_id") or payload.get("task_id"),
+        payload.get("milling_task_name") or payload.get("task_name"),
+    )
+
+
 def _lifecycle_events() -> frozenset:
     from fibsem.hooks import HookEvent
 

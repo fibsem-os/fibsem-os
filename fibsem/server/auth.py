@@ -273,6 +273,24 @@ def require_monitoring():
     return dependency
 
 
+def action_name(request: Request) -> str:
+    """What a request does, in words, for the record, the log and the toast
+    (FIB-1359): "focus sweep", "move stage relative", "set electron imaging
+    settings". Not the route: an operator reads it."""
+    params = request.path_params
+    for key in ("command", "query"):
+        if key in params:
+            return params[key].replace("_", " ")
+    words = [
+        part.replace("_", " ")
+        for part in request.url.path.split("/")
+        if part and part not in ("beams", "devices", "services")
+    ]
+    if request.method == "PUT":
+        return " ".join(["set", *words])
+    return words[-1] if words else request.url.path
+
+
 def take_control(request: Request):
     """Take control of the microscope for this request (FIB-1270), or 409.
 
@@ -285,9 +303,7 @@ def take_control(request: Request):
     request borrows it.
     """
     control = request.app.state.microscope.control
-    taking = control.take(
-        current_actor() or AGENT, f"{request.method} {request.url.path}"
-    )
+    taking = control.take(current_actor() or AGENT, action_name(request))
     try:
         taking.__enter__()
     except MicroscopeBusy as busy:

@@ -621,12 +621,11 @@ def test_a_device_that_cannot_be_built_fails_the_connection(odemis_cls):
 
 
 def test_the_odemis_driver_has_builders_for_its_devices():
-    from fibsem import manufacturers
     from fibsem.drivers.registry import device_builder
 
     for device_type in ("beam", "stage", "chamber"):
-        assert device_builder(manufacturers.ODEMIS, device_type) is not None
-    assert device_builder(manufacturers.ODEMIS, "manipulator") is None
+        assert device_builder("Odemis", device_type) is not None
+    assert device_builder("Odemis", "manipulator") is None
 
 
 def _with(odemis_cls, *entries, stage=True):

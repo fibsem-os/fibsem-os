@@ -133,3 +133,39 @@ def test_no_beam_no_service(microscope):
     microscope.imaging = None
     with pytest.raises(ValueError, match="no imaging"):
         microscope.auto_focus(BeamType.ELECTRON)
+
+
+def test_the_beams_own_autofocus_is_recorded(microscope):
+    """It moves the working distance as the sweep does, so it is on the record too
+    (FIB-1355)."""
+    recorded = []
+    microscope.record_signal.connect(
+        lambda kind, payload: recorded.append((kind, payload))
+    )
+    beam = microscope.beams[BeamType.ELECTRON]
+    beam.auto_focus(FibsemRectangle(0.25, 0.25, 0.5, 0.5))
+    events = [payload for kind, payload in recorded if kind == "autofocus"]
+    assert len(events) == 1
+    event = events[0]
+    assert event["status"] == "completed"
+    assert event["method"] == "instrument"
+    assert event["beam_type"] == "ELECTRON"
+    assert event["reduced_area"] == FibsemRectangle(0.25, 0.25, 0.5, 0.5).to_dict()
+
+
+def test_a_failed_beam_autofocus_is_recorded_and_raised(microscope, monkeypatch):
+    recorded = []
+    microscope.record_signal.connect(
+        lambda kind, payload: recorded.append((kind, payload))
+    )
+    beam = microscope.beams[BeamType.ELECTRON]
+
+    def fails(self, area):
+        raise RuntimeError("no signal")
+
+    monkeypatch.setattr(type(beam), "_auto_focus", fails)
+    with pytest.raises(RuntimeError, match="no signal"):
+        beam.auto_focus()
+    (event,) = [payload for kind, payload in recorded if kind == "autofocus"]
+    assert event["status"] == "failed"
+    assert event["error"] == "RuntimeError: no signal"

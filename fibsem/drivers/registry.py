@@ -1,8 +1,9 @@
 """Which driver connects to which manufacturer's microscope (FIB-1123).
 
 Each driver package describes itself with a ``DRIVER`` record in its ``__init__``: the
-canonical manufacturer it answers to (as spelled in ``fibsem.manufacturers``), its
+canonical manufacturer name it answers to and the other spellings it accepts, its
 ``FibsemMicroscope`` class, and its configuration (the port it connects on, for one).
+:func:`normalize_name` turns any spelling into that name.
 ``utils.setup_session`` connects through ``connect_microscope`` instead of an
 ``if manufacturer == ...`` chain.
 
@@ -47,7 +48,6 @@ from typing import (
     Type,
 )
 
-from fibsem import manufacturers
 from fibsem.plugins.loader import PluginRegistry, PluginRejected
 
 if TYPE_CHECKING:
@@ -85,6 +85,12 @@ class DriverEntry:
     """How this driver builds a device, by the device entry's ``type`` (``beam``,
     ``stage``, ``chamber``, ...): what a ``hardware.devices`` entry naming this driver
     is built with. See :func:`device_builder`."""
+
+    aliases: Tuple[str, ...] = ()
+    """Other spellings of the name ("thermo", "thermo fisher scientific"), as
+    configuration files, image headers and the command line carry them.
+    :func:`normalize_name` maps each to :attr:`manufacturer`, ignoring case; the name
+    itself matches in any case without being listed."""
 
     @property
     def builds_microscope(self) -> bool:
@@ -145,17 +151,18 @@ def _import(target: str) -> Any:
 
 # The built-in drivers, by where each one's DRIVER record lives.
 _BUILT_IN: Dict[str, str] = {
-    manufacturers.THERMOFISHER: "fibsem.drivers.autoscript:DRIVER",
-    manufacturers.TESCAN: "fibsem.drivers.tescan:DRIVER",
-    manufacturers.ODEMIS: "fibsem.drivers.odemis:DRIVER",
-    manufacturers.DEMO: "fibsem.drivers.demo:DRIVER",
+    "ThermoFisher": "fibsem.drivers.autoscript:DRIVER",
+    "Tescan": "fibsem.drivers.tescan:DRIVER",
+    "Odemis": "fibsem.drivers.odemis:DRIVER",
+    "Demo": "fibsem.drivers.demo:DRIVER",
 }
 
 # The built-in drivers that build devices and are no microscope, by name, with where
 # their builders by type live. ``remote`` is a device on its own PC, reached through
 # its device server; it is named only on a device entry, never as a manufacturer.
+REMOTE_DRIVER = "remote"
 _DEVICE_DRIVERS: Dict[str, str] = {
-    "remote": "fibsem.drivers.remote.devices:DEVICE_BUILDERS",
+    REMOTE_DRIVER: "fibsem.drivers.remote.devices:DEVICE_BUILDERS",
 }
 
 
@@ -208,45 +215,62 @@ def register_driver(entry: DriverEntry) -> None:
     """Make *entry* the driver for its manufacturer, unless a built-in has it.
 
     Registering a manufacturer again replaces its registered driver. The name is
-    normalised, so an entry registered as "jeol" and one as "JEOL" are one driver
-    if ``fibsem.manufacturers`` knows them as one.
+    normalised (:func:`normalize_name`), so an entry registered as "jeol" replaces
+    one registered as "JEOL".
     """
     entry = _canonical(entry)
     DRIVER_PLUGINS.register(entry.manufacturer, entry)
 
 
 def _canonical(entry: DriverEntry) -> DriverEntry:
-    manufacturer = manufacturers.normalize_manufacturer(entry.manufacturer)
+    manufacturer = normalize_name(entry.manufacturer)
     if manufacturer != entry.manufacturer:
         entry = replace(entry, manufacturer=manufacturer)
     return entry
 
 
+def normalize_name(raw: Optional[str]) -> Optional[str]:
+    """The registry name of the driver *raw* names, in any spelling it accepts.
+
+    Matches a driver's name in any case, or one of its ``aliases``, ignoring
+    surrounding spaces, looking at the built-ins, then those registered at runtime,
+    then the plugins. ``remote`` stays ``remote``. Anything else (an unknown name,
+    an empty string, ``None``, a value that is not a string) passes through
+    unchanged, so reading an old file can never fail on its manufacturer.
+    """
+    if not isinstance(raw, str):
+        return raw
+    wanted = raw.strip().casefold()
+    if wanted == REMOTE_DRIVER:
+        return REMOTE_DRIVER
+    if not wanted:
+        return raw
+    for name in _BUILT_IN:
+        if _matches(name, DRIVER_PLUGINS.builtins[name], wanted):
+            return name
+    for drivers in (DRIVER_PLUGINS.registered, DRIVER_PLUGINS.plugins()):
+        for name, entry in drivers.items():
+            if _matches(name, entry, wanted):
+                return name
+    return raw
+
+
+def _matches(name: str, entry: DriverEntry, wanted: str) -> bool:
+    spellings = (name, *entry.aliases)
+    return any(wanted == spelling.strip().casefold() for spelling in spellings)
+
+
 def get_driver(manufacturer: Optional[str]) -> DriverEntry:
-    """The driver for *manufacturer*, in any known spelling.
+    """The driver for *manufacturer*, in any spelling it accepts.
 
     Raises ``NotImplementedError`` for a manufacturer no driver answers to, with the
     message ``setup_session`` has always given.
     """
-    name = manufacturers.normalize_manufacturer(manufacturer)
-    entry = DRIVER_PLUGINS.get(name)
-    if entry is None and isinstance(name, str):
-        entry = _get_ignoring_case(name)
+    name = normalize_name(manufacturer)
+    entry = DRIVER_PLUGINS.get(name) if isinstance(name, str) else None
     if entry is None:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
     return entry
-
-
-def _get_ignoring_case(name: str) -> Optional[DriverEntry]:
-    """A registered or plugin driver whose name differs from *name* only in case, so
-    ``driver: Oxford`` finds a plugin registered as ``oxford``. The built-ins need
-    none of this: ``fibsem.manufacturers`` already knows their spellings."""
-    wanted = name.strip().casefold()
-    for drivers in (DRIVER_PLUGINS.registered, DRIVER_PLUGINS.plugins()):
-        for key, entry in drivers.items():
-            if key.casefold() == wanted:
-                return entry
-    return None
 
 
 def device_builder(driver: Optional[str], type: str) -> Optional[DeviceBuilder]:
@@ -257,10 +281,10 @@ def device_builder(driver: Optional[str], type: str) -> Optional[DeviceBuilder]:
     ``NotImplementedError`` for a driver nothing is registered as, as
     :func:`get_driver` does.
     """
-    if isinstance(driver, str) and driver.strip().lower() in _DEVICE_DRIVERS:
-        builders = _import(_DEVICE_DRIVERS[driver.strip().lower()])
-        return builders.get(type)
-    return get_driver(driver).devices.get(type)
+    name = normalize_name(driver)
+    if name in _DEVICE_DRIVERS:
+        return _import(_DEVICE_DRIVERS[name]).get(type)
+    return get_driver(name).devices.get(type)
 
 
 def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":
