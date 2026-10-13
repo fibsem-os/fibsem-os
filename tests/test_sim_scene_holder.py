@@ -151,7 +151,7 @@ def _arctis(grid_position=GRID_POSITION, captured=None):
     """The Arctis simulator with its loader putting grids at *grid_position*
     and, if given, a captured working-slot position in its configuration."""
     from fibsem.services.sample_handling import (
-        COMPUSTAGE_HOLDER_NAME,
+        BUILTIN_HOLDER_NAME,
         bind_sample_handling,
     )
     from fibsem.structures import GridSlot, SampleHolder, SlotCalibration
@@ -174,9 +174,9 @@ def _arctis(grid_position=GRID_POSITION, captured=None):
             ),
         )
         stage_settings.holders = {
-            COMPUSTAGE_HOLDER_NAME: SampleHolder(
+            BUILTIN_HOLDER_NAME: SampleHolder(
                 pre_tilt=float(stage_settings.shuttle_pre_tilt),
-                name=COMPUSTAGE_HOLDER_NAME,
+                name=BUILTIN_HOLDER_NAME,
                 capacity=1,
                 slots={"Slot-01": slot},
             )

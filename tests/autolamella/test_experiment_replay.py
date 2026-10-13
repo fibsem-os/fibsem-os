@@ -731,6 +731,35 @@ def test_stage_moves_say_what_they_were_and_where_they_ended(tmp_path):
     assert replay.scene(1).stage_position == end
 
 
+def test_stage_device_moves_read_as_the_old_wrappers_did(tmp_path):
+    # The stage device records its moves as move_absolute/move_relative; runs from
+    # before it did say move_stage_absolute/move_stage_relative.
+    to = {"x": 1e-5, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.0}
+    by = {"x": 2e-6, "y": None, "z": None, "r": None, "t": None}
+    _write_events(
+        tmp_path,
+        _record(
+            _at(0),
+            "stage_moved",
+            {"move": "move_absolute", "request": {"position": to}},
+        ),
+        _record(
+            _at(1),
+            "stage_moved",
+            {"move": "move_relative", "request": {"position": by}},
+        ),
+        _record(
+            _at(2),
+            "stage_moved",
+            {"move": "move_stage_absolute", "request": {"position": to}},
+        ),
+    )
+    summaries = [e.summary for e in load_replay(tmp_path).events]
+    assert summaries[0] == summaries[2]
+    assert summaries[0].startswith("Move stage to")
+    assert summaries[1].startswith("Move stage by")
+
+
 def test_a_position_read_is_the_stage_track_not_a_row(tmp_path):
     read = {"x": 3e-6, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.0}
     _write_events(

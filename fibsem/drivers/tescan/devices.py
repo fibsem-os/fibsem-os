@@ -248,6 +248,13 @@ class TescanBeam(Beam):
             beam.Optics.SetImageShift(point.x, point.y)
             logging.debug(f"{self.beam_type.name} beam shift set to {value}.")
 
+    def _shift_by(self, dx: float, dy: float) -> None:
+        # invert direction for scan rotated images...
+        if np.isclose(self.scan_rotation.get_value(), np.pi):
+            dx, dy = -dx, -dy
+        logging.info(f"{self.beam_type.name} shifting by ({dx}, {dy})")
+        super()._shift_by(dx, dy)
+
     # -- read from the last image: the API cannot read or set these ------------------
 
     def read_resolution(self) -> Any:
@@ -447,7 +454,6 @@ class TescanBeam(Beam):
             info.serial_number = image.Header["MAIN"]["SerialNumber"]
             info.software_version = image.Header["MAIN"]["SoftwareVersion"]
 
-        microscope._set_additional_metadata(fibsem_image)
         return fibsem_image
 
     def _last_image(self) -> Optional[FibsemImage]:
@@ -457,8 +463,6 @@ class TescanBeam(Beam):
             image = microscope.last_image_eb
         else:
             image = microscope.last_image_ib
-        if image is not None:
-            microscope._set_additional_metadata(image)
         return image
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:

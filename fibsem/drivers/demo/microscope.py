@@ -56,7 +56,7 @@ from fibsem.drivers.demo.simulator import (
     sim_is_compustage,
 )
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.microscope import FibsemMicroscope, _records_beam_shift
+from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -277,14 +277,6 @@ class DemoMicroscope(FibsemMicroscope):
         self._connection.set_channel(channel)
 
     # The beam methods, on the beam devices.
-
-    @_records_beam_shift
-    def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:
-        logging.debug(
-            {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": beam_type.name}
-        )
-        shift = self.beams[beam_type].shift
-        shift.write_through(shift.get_value() + Point(float(dx), float(dy)))
 
     def _spot_and_beam(
         self, beam_type: BeamType

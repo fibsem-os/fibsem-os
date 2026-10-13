@@ -494,7 +494,6 @@ class DemoSimulator:
         # add additional metadata
         image.metadata.image_settings = copy.deepcopy(effective_image_settings)
         image.metadata.microscope_state = microscope_state
-        self.microscope._set_additional_metadata(image)
 
         # crop the image data if reduced area is set
         if effective_image_settings.reduced_area is not None:

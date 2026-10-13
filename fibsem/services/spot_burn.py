@@ -192,14 +192,33 @@ class SpotBurn(Service):
         current: float,
         dropped: int,
     ) -> None:
-        """Record what the run is about to burn, on the microscope's record."""
-        record = getattr(self.parent, "_record_spot_burn_started", None)
-        if record is None:
-            return
+        """Record what the run is about to burn, for the experiment's record.
+
+        The coordinates are fractions of the beam's scan field, so the field of view
+        is what places them on an image taken at another width. How the burn ends is
+        already on the progress. Never raises: a burn that cannot be described still
+        burns.
+        """
         # A driver that ignores the requested current records none.
         if "milling_current" not in self.setting_names:
             current = None
-        record(points, BeamType.ION, exposure_time, current, dropped)
+        field_of_view = None
+        try:
+            if "hfw" in self.ion.parameters:
+                field_of_view = self.ion.hfw.get_value()
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug("spot burn recorded without its field of view", exc_info=True)
+        self.session.record(
+            "spot_burn_started",
+            {
+                "beam_type": BeamType.ION.name,
+                "coordinates": [[point.x, point.y] for point in points],
+                "field_of_view": field_of_view,
+                "exposure_time": exposure_time,
+                "milling_current": current,
+                "dropped": dropped,
+            },
+        )
 
     def _report_end(self, status: SpotBurnStatus, points: int) -> None:
         self._report(
