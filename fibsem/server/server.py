@@ -36,6 +36,7 @@ from typing import Optional
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
+from fastapi.routing import APIRoute
 
 from fibsem import utils
 from fibsem.acting import AGENT, acting
@@ -48,11 +49,12 @@ from fibsem.server.app_routes import (
 from fibsem.server.auth import (
     AuthConfig,
     Scope,
+    action_name,
     require_monitoring,
     require_scope,
     take_control,
 )
-from fibsem.server.devices import build_device_router
+from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
 from fibsem.server.discovery import (
     DISCOVERY_FILE,
     read_discovery_file,
@@ -129,8 +131,29 @@ def _beam_type(value: str) -> BeamType:
     except KeyError:
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown beam_type: {value!r}. Use 'ELECTRON' or 'ION'.",
+            detail={
+                "error_type": "ValueError",
+                "message": f"Unknown beam_type: {value!r}. Use 'ELECTRON' or 'ION'.",
+                "parameter": "beam_type",
+            },
         )
+
+
+class _RefusingRoute(APIRoute):
+    """A microscope route whose expected errors (a stage limit, a bad value, a
+    stopped mill) are refusals, as on the device routes: a 4xx in the one refusal
+    shape, logged as one line, not a 500 with a traceback (FIB-1377)."""
+
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def refusing(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except tuple(ERROR_STATUS) as error:
+                raise refusal(error, action_name(request)) from None
+
+        return refusing
 
 
 # Device and service commands that stop something. Like POST /stop_milling,
@@ -212,17 +235,21 @@ def build_server(
     # /capabilities, which every client reads first, whatever is mounted, the
     # dashboard included.
     base = APIRouter(dependencies=[Depends(require_monitoring())])
-    read = APIRouter(dependencies=[Depends(require_scope(Scope.READ))])
+    read = APIRouter(
+        dependencies=[Depends(require_scope(Scope.READ))], route_class=_RefusingRoute
+    )
     # The always-allowed stop, for whoever can act: control (the App Server at
     # Drive) or hardware (the bench). Never takes control: a stop must not be
     # refused by the mill it stops.
     stop = APIRouter(
-        dependencies=[Depends(require_scope(Scope.CONTROL, Scope.HARDWARE))]
+        dependencies=[Depends(require_scope(Scope.CONTROL, Scope.HARDWARE))],
+        route_class=_RefusingRoute,
     )
     # Hardware routes also take control, so a command never interleaves with a
     # run, a script or another command.
     hw = APIRouter(
-        dependencies=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)]
+        dependencies=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)],
+        route_class=_RefusingRoute,
     )
 
     # --- Health / capabilities ---
@@ -522,8 +549,8 @@ def build_server(
     def draw_patterns(body: DrawPatternsRequest):
         try:
             patterns = [_pattern_from_dict(p) for p in body.patterns]
-        except (KeyError, ValueError) as e:
-            raise HTTPException(status_code=422, detail=str(e))
+        except KeyError as e:  # a field a pattern needs; refused as a bad value
+            raise ValueError(f"A pattern has a bad or missing field: {e}") from e
         microscope.draw_patterns(patterns)
         return {"status": "ok"}
 

@@ -238,8 +238,12 @@ class DeviceClient:
             detail = response.json().get("detail")
         except ValueError:  # not JSON: an unhandled server error
             detail = response.text
-        if isinstance(detail, dict) and detail.get("error") in _ERRORS:
-            raise _ERRORS[detail["error"]](detail["detail"])
+        if isinstance(detail, dict):
+            # error_type and message; a server from before FIB-1377 sends error
+            # and detail.
+            kind = detail.get("error_type", detail.get("error"))
+            if kind in _ERRORS:
+                raise _ERRORS[kind](detail.get("message", detail.get("detail")))
         raise RemoteDeviceError(f"{method} {path}: {response.status_code} {detail}")
 
     def health(self) -> Dict[str, Any]:
