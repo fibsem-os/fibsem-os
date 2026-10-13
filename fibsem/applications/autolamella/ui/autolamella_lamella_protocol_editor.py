@@ -620,11 +620,8 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             )
             self._overlay_wired = True
 
-        if (
-            self.parent_widget.experiment is not None
-            and self.parent_widget.experiment.positions
-        ):  # type: ignore
-            self._selected_lamella = self.parent_widget.experiment.positions[0]
+        # Built after the host selected a lamella: show it now.
+        if self._selected_lamella is not None:
             self._on_selected_lamella_changed()
 
     def refresh_if_showing(self, item_name: str) -> None:
@@ -645,22 +642,34 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         experiment = self.parent_widget.experiment
         if experiment is None:
             return
-        current_name = self._selected_lamella.name if self._selected_lamella else ""
-        self._selected_lamella = experiment.get_lamella_by_name(current_name) or (
-            experiment.positions[0] if experiment.positions else None
+        # Only the lamella already shown, never a stand-in: the editor shows what the
+        # host selected, and with nothing selected an edit here must have nowhere to
+        # land (FIB-1370).
+        if self._selected_lamella is None:
+            return
+        self._selected_lamella = experiment.get_lamella_by_name(
+            self._selected_lamella.name
         )
-        if self._selected_lamella is not None:
-            self._on_selected_lamella_changed()
+        self._on_selected_lamella_changed()
 
-    def select_lamella(self, name: str) -> None:
-        """Select a lamella by name and refresh the editor. Called externally (e.g. card click)."""
-        if self.parent_widget.experiment is None or not hasattr(
-            self, "label_lamella_name"
-        ):
+    def select_lamella(self, name: Optional[str]) -> None:
+        """Select a lamella by name and refresh the editor. Called externally (e.g. card click).
+
+        ``None`` clears the selection, so the editor holds no lamella to write to.
+        """
+        if name is None:
+            self.flush_pending_save()
+            self._selected_lamella = None
+            return
+        if self.parent_widget.experiment is None:
             return
         lamella = self.parent_widget.experiment.get_lamella_by_name(name)
-        if lamella is not None:
-            self._selected_lamella = lamella
+        if lamella is None:
+            return
+        self._selected_lamella = lamella
+        # Before the microscope connects there are no widgets yet; the selection
+        # is shown when they are built.
+        if hasattr(self, "label_lamella_name"):
             self._on_selected_lamella_changed()
 
     def _on_selected_lamella_changed(self):
