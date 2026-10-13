@@ -37,7 +37,7 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
 
         # quad-view: a "mask" MaskSpec + a modal "detection" PointsSpec on a beam
         # canvas, owned by the controller.
-        self._host_beam = None         # BeamType the detection overlays are hosted on
+        self._host_beam = None  # BeamType the detection overlays are hosted on
         self._detection_wired = False  # subscribed to controller.overlay_edited
 
         self.setup_connections()
@@ -57,7 +57,11 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         if self._view_controller() is None:
             return None
         fib = getattr(det, "fibsem_image", None)
-        beam = fib.metadata.beam_type if fib is not None and fib.metadata is not None else None
+        beam = (
+            fib.metadata.beam_type
+            if fib is not None and fib.metadata is not None
+            else None
+        )
         return beam if beam in (BeamType.ELECTRON, BeamType.ION) else BeamType.ION
 
     def _detach_detection(self, beam):
@@ -98,10 +102,16 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
                 points=[(f.px.x, f.px.y) for f in self.det.features],
                 colors=[f.color for f in self.det.features],
                 labels=[f.name for f in self.det.features],
-                marker="+", size=16, removable=False, add_on_right_click=False, modal=True,
+                marker="+",
+                size=16,
+                removable=False,
+                add_on_right_click=False,
+                modal=True,
             ),
         )
-        controller.arm_overlay(beam, "detection", label="Detection", icon="mdi:vector-point")
+        controller.arm_overlay(
+            beam, "detection", label="Detection", icon="mdi:vector-point"
+        )
         canvas = controller.get_canvas(beam)
         if canvas is not None:
             canvas.set_hint("drag features to correct  ·  Continue when done")
@@ -164,7 +174,10 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         # vertical spacer
         self.gridLayout.addItem(
             QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding),
-            4, 0, 1, 2,
+            4,
+            0,
+            1,
+            2,
         )
 
     def setup_connections(self):
@@ -186,8 +199,9 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         # normalise its dtype to uint8 (save_feature_data_to_csv -> PIL.Image.fromarray needs it).
         if self.det.mask is not None:
             self.det.mask = np.asarray(self.det.mask).astype(np.uint8)
-        det_utils.save_ml_feature_data(det=self.det,
-                                       initial_features=self._intial_det.features)
+        det_utils.save_ml_feature_data(
+            det=self.det, initial_features=self._intial_det.features
+        )
         self.clear_layers()
 
     def set_detected_features(self, det_features: DetectedFeatures):
@@ -204,19 +218,22 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         if beam is not None:
             self._update_features(beam)
         if self.det.checkpoint:
-            self.label_model.setText(f"Checkpoint: {os.path.basename(self.det.checkpoint)}")
+            self.label_model.setText(
+                f"Checkpoint: {os.path.basename(self.det.checkpoint)}"
+            )
 
     def update_info(self):
         """Update the info label with the feature information"""
         if len(self.det.features) > 2:
             self.label_info.setText("Info not available.")
             return
-        
+
         if len(self.det.features) == 1:
             self.label_info.setText(
-            f"""{self.det.features[0].name}: {self.det.features[0].px}
+                f"""{self.det.features[0].name}: {self.det.features[0].px}
             User Corrected: {self.has_user_corrected}
-            """)
+            """
+            )
             return
         if len(self.det.features) == 2:
             self.label_info.setText(
@@ -224,10 +241,10 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
                 {self.det.features[0].name}: {self.det.features[0].px}
                 to 
                 {self.det.features[1].name}: {self.det.features[1].px}
-                dx={self.det.distance.x*1e6:.2f}um, dy={self.det.distance.y*1e6:.2f}um
+                dx={self.det.distance.x * 1e6:.2f}um, dy={self.det.distance.y * 1e6:.2f}um
                 User Corrected: {self.has_user_corrected}
                 """
-                )
+            )
             return
 
     def _get_detected_features(self):
@@ -239,7 +256,9 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
                 feature.px, self.det.image.data, self.det.pixelsize
             )
 
-        logging.debug({"msg": "get_detected_features", "detected_features": self.det.to_dict()})
+        logging.debug(
+            {"msg": "get_detected_features", "detected_features": self.det.to_dict()}
+        )
 
         return self.det
 
@@ -248,9 +267,11 @@ def main():
     # load model
     checkpoint = "autolamella-mega-20240107.pt"
     model = load_model(checkpoint=checkpoint)
-    
+
     # load image
-    image = FibsemImage.load(os.path.join(os.path.dirname(detection.__file__), "test_image_2.tif"))
+    image = FibsemImage.load(
+        os.path.join(os.path.dirname(detection.__file__), "test_image_2.tif")
+    )
 
     pixelsize = image.metadata.pixel_size.x if image.metadata is not None else 25e-9
 
