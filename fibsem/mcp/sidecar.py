@@ -273,9 +273,6 @@ def build_sidecar(client, capabilities):
     def acquire_image_preview(beam_type: str = "ELECTRON"):
         return _image_tool("acquire_image_preview")[1](beam_type=beam_type)
 
-    def last_image_preview(beam_type: str = "ELECTRON"):
-        return _image_tool("last_image_preview")[1](beam_type=beam_type)
-
     def move_stage_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0):
         position = {
             "name": None,
@@ -663,7 +660,6 @@ def build_sidecar(client, capabilities):
             estimate_milling_time,
             stop_milling,
             acquire_image_preview,
-            last_image_preview,
             move_stage_relative,
             move_stage_absolute,
             move_to_milling_angle,

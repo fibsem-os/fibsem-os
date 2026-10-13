@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 def convert_milling_angle_to_stage_tilt(
-    milling_angle: float, pretilt: float, column_tilt: float = np.deg2rad(52)
+    milling_angle: float, pretilt: float, column_tilt: float
 ) -> float:
     """Convert the milling angle to the stage tilt angle, based on pretilt and column tilt.
         milling_angle = 90 - column_tilt + stage_tilt - pretilt
@@ -34,7 +34,7 @@ def convert_milling_angle_to_stage_tilt(
 
 
 def convert_stage_tilt_to_milling_angle(
-    stage_tilt: float, pretilt: float, column_tilt: float = np.deg2rad(52)
+    stage_tilt: float, pretilt: float, column_tilt: float
 ) -> float:
     """Convert the stage tilt angle to the milling angle, based on pretilt and column tilt.
         milling_angle = 90 - column_tilt + stage_tilt - pretilt

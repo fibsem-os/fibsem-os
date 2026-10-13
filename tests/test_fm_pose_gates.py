@@ -13,7 +13,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.devices.stage import compustage_poses, rotating_stage_poses
+from fibsem.devices.stage import flip_stage_poses, rotating_stage_poses
 from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
 from fibsem.structures import FibsemStagePosition
 
@@ -28,11 +28,13 @@ def _microscope(config_path: str):
 
 def _declare(microscope, poses):
     """Make the stage declare *poses*, whatever type it reported."""
-    microscope._stage_poses = lambda: poses(
+    movement = microscope.stage_movement
+    movement.stage_poses = lambda: poses(
         rotation_reference=microscope.system.stage.rotation_reference,
         shuttle_pre_tilt=microscope.system.stage.shuttle_pre_tilt,
         fib_column_tilt=microscope.system.ion.column_tilt,
     )
+    movement.update_orientations()
 
 
 def test_the_fm_is_a_pose_on_a_compustage_and_a_place_on_an_offset_mount():
@@ -45,7 +47,7 @@ def test_a_stage_that_declares_an_fm_pose_reaches_the_fm_by_re_posing():
     stage travels by after the flip (`test_device_moves_one_path.py`)."""
     microscope = _microscope(IFLM_CONFIG)
     assert not microscope._fm_is_a_pose()
-    _declare(microscope, compustage_poses)
+    _declare(microscope, flip_stage_poses)
     # and the tilt range that reaches them: the offset mount's stops at -10 degrees
     microscope.stage._axis_limits = {
         **microscope.stage._axis_limits,
@@ -76,7 +78,7 @@ def test_at_a_pose_there_is_no_parking_at_the_fm_to_refuse_a_rotation_at():
         microscope._refuse_rotation_at_the_fluorescence_microscope(half_turn)
 
     # ...a stage whose FM is a pose has nowhere to be parked.
-    _declare(microscope, compustage_poses)
+    _declare(microscope, flip_stage_poses)
     microscope._refuse_rotation_at_the_fluorescence_microscope(half_turn)
 
 

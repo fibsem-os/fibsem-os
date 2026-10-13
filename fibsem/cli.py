@@ -335,6 +335,28 @@ def cmd_info(microscope, _settings, _args) -> int:
     return 0
 
 
+def cmd_check(microscope, _settings, args) -> int:
+    """Run the hardware check and print its report. Exits 1 if a step failed."""
+    import json
+
+    from fibsem.hardware_check import Level, run_hardware_check
+
+    level = Level(args.level)
+    on_frame = None
+    if args.save_frame is not None:
+
+        def on_frame(image) -> None:
+            image.save(str(args.save_frame))
+            print(f"frame saved: {args.save_frame}")
+
+    report = run_hardware_check(microscope, level, on_frame=on_frame)
+    print(report.format())
+    if args.json is not None:
+        args.json.write_text(json.dumps(report.to_dict(), indent=2))
+        print(f"report saved: {args.json}")
+    return 0 if report.passed else 1
+
+
 def cmd_plugins(args) -> int:
     """Print what resolved under each entry point group.
 
@@ -581,6 +603,44 @@ def _add_autocontrast_parser(sub, conn) -> None:
 def _add_info_parser(sub, conn) -> None:
     p = sub.add_parser("info", parents=[conn], help="Print full microscope state")
     p.set_defaults(func=cmd_info)
+
+
+def _add_check_parser(sub, conn) -> None:
+    p = sub.add_parser(
+        "check",
+        parents=[conn],
+        help="Check that fibsemOS drives the hardware correctly (fluorescence only)",
+        description="Check each fluorescence device: read every parameter (read); "
+        "also change each setting, read it back and put it back (settings); also "
+        "take one frame, which turns the light on (acquire). No level moves the "
+        "objective or the stage.",
+    )
+    p.add_argument(
+        "--level",
+        choices=["read", "settings", "acquire"],
+        default="read",
+        help="How far to go (default: read, which changes nothing)",
+    )
+    p.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm the acquire level: the light comes on and exposes the sample",
+    )
+    p.add_argument(
+        "--json",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Also save the report as JSON",
+    )
+    p.add_argument(
+        "--save-frame",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Save the frame the acquire level takes, as a TIFF",
+    )
+    p.set_defaults(func=cmd_check)
 
 
 def _add_mill_angle_parser(sub, conn) -> None:
@@ -863,6 +923,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_autofocus_parser(sub, conn)
     _add_autocontrast_parser(sub, conn)
     _add_info_parser(sub, conn)
+    _add_check_parser(sub, conn)
     _add_mill_angle_parser(sub, conn)
     _add_set_beam_parser(sub, conn)
     _add_experiments_parser(sub)
@@ -887,6 +948,15 @@ def main() -> None:
             parser.error(
                 "move: at least one of --x, --y, --z, --rotation, --tilt must be specified"
             )
+
+    if args.subcommand == "check":
+        if args.level == "acquire" and not args.yes:
+            parser.error(
+                "check: the acquire level turns the light on and exposes whatever "
+                "is under the objective; add --yes to run it"
+            )
+        if args.save_frame is not None and args.level != "acquire":
+            parser.error("check: --save-frame needs --level acquire")
 
     # Subcommands that answer a question about this install rather than about a
     # microscope run before the connection attempt. `plugins` in particular has

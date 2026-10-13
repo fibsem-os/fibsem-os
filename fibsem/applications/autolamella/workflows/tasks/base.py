@@ -91,6 +91,7 @@ from fibsem.applications.autolamella.workflows.tasks.proposing import (
     LAMELLA_RESULT_IMAGES,
     settle,
 )
+from fibsem.applications.autolamella.workflows.tasks.status import take_back_finish
 from fibsem.applications.autolamella.workflows.ui import (
     INSTRUCTION_TIMEOUT_S,
     _abort_requested,
@@ -321,8 +322,31 @@ class AutoLamellaTask(ABC):
             # a supervision step -- would be stamped with the task that just failed.
             # That is silently wrong, and wrong exactly when the record matters most.
             self.microscope.experiment.clear_workflow_metadata()
-        self.post_task()
-        self._settle()
+        try:
+            self.post_task()
+            self._settle()
+        except Exception as e:
+            # The work finished, but what follows it failed: settling its result
+            # can save the experiment, and a save that fails leaves nothing on
+            # disk to say so. It did not complete (FIB-1374).
+            cancelled = self._is_cancellation(e)
+            try:
+                take_back_finish(
+                    self.lamella,
+                    self.task_id,
+                    AutoLamellaTaskStatus.Cancelled
+                    if cancelled
+                    else AutoLamellaTaskStatus.Failed,
+                    "Cancelled by user."
+                    if cancelled
+                    else f"Finished, but its result could not be recorded: {e}",
+                )
+            except Exception:
+                logging.exception(f"Could not record the outcome of {self.task_name}")
+            self._fire_hook(
+                "task_cancelled" if cancelled else "task_failed", error=str(e)
+            )
+            raise
         self._fire_hook("task_completed")
 
     def _record_outcome(self) -> None:

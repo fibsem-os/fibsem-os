@@ -144,6 +144,12 @@ class FibsemMillingWidget2(QWidget):
             )
 
         elif report.status is MillingProgressStatus.STAGE_UPDATE:
+            if self.progressBar_milling.isHidden():
+                # A mill with no stage start before it: a service run, the agent's
+                # (FIB-1375). Its countdown gets the bar; it has no stages to count.
+                self.progressBar_milling.setRange(0, 100)
+                self.progressBar_milling.setValue(0)
+                self.progressBar_milling.setVisible(True)
             remaining_time = report.remaining_time
             # Falsy rather than `is None`, so an estimate of zero takes this branch
             # instead of dividing by it. That division runs inside a queued Qt slot, and

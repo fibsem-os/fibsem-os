@@ -331,11 +331,16 @@ def fake_beams(connection):
 
 
 def connect(microscope):
-    """Build the beams and the stage as connect does: an absolute move on an offset
-    stage restores the working distance through the electron beam."""
+    """Build the beams, the stage and its movement service as connect does: an
+    absolute move on an offset stage restores the working distance through the
+    electron beam, and the stage's orientation is the service's to read."""
     fake_beams(microscope._connection.sdk)
     microscope._build_beams()
     microscope._build_stage()
+    # The stand-in FM (`_FM`) is only an objective to read, not a device to bind.
+    fm, microscope.fm = microscope.fm, None
+    microscope._build_stage_movement()
+    microscope.fm = fm
 
 
 def _value(value):
@@ -481,7 +486,7 @@ def cases():
                 lambda m: m.link_stage(),
                 lambda s, m: (s._link(), s.linked.get_value())[1],
             )
-        add("home()", lambda m: m.home(), lambda s, m: (s._home(), True)[1])
+        add("home()", lambda m: m.stage.home(), lambda s, m: (s._home(), True)[1])
 
         for i, position in enumerate(positions(compustage)):
             add(

@@ -261,12 +261,6 @@ class TescanMicroscope(FibsemMicroscope):
     # are handed it; nothing else reaches the SDK.
     _connection: Optional[TescanConnection] = None
 
-    @staticmethod
-    def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
-        # TESCAN milling is preset-driven: the dose model (stage rate x preset
-        # current), not the shared table keyed on the unused milling_current.
-        return estimate_preset_milling_time(stage)
-
     def __init__(self, system_settings: SystemSettings):
         if not TESCAN_API_AVAILABLE:
             raise ImportError(
@@ -281,10 +275,6 @@ class TescanMicroscope(FibsemMicroscope):
         # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
-
-        # initialise last images
-        self.last_image_eb: Optional[FibsemImage] = None
-        self.last_image_ib: Optional[FibsemImage] = None
 
         # logging
         logging.debug(
@@ -476,8 +466,3 @@ class TescanMicroscope(FibsemMicroscope):
         """The ion column is set by preset: setting its voltage or current directly
         is refused by the Tescan API."""
         return beam_type is BeamType.ION
-
-    def home(self) -> Optional[bool]:
-        """A Tescan cannot home from here, so whether it is homed is unknown."""
-        logging.warning("No homing available, please use native UI.")
-        return None

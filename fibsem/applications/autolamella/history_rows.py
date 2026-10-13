@@ -235,6 +235,42 @@ def history_rows(
     ]
 
 
+def operations_need_a_look(run: HistoryRun) -> bool:
+    """Whether a run's operations should be open without a click (FIB-1361):
+    one did not complete (skipped, failed, stopped), or an alignment -- its
+    own, or one a mill's stage ran -- failed or had a step too weak to apply.
+    What routinely differs between runs ("methods disagree" on the Demo, a
+    coincidence mill's time limit) does not count."""
+    for operation in run.operations:
+        alignments = [r for runs in operation.drift.values() for r in runs]
+        if operation.kind == "alignment":
+            alignments.append(operation)
+        if operation.status != COMPLETED or any(
+            a.status != COMPLETED
+            or any(s.get("success") is False for s in _steps(a.payload))
+            for a in alignments
+        ):
+            return True
+    return False
+
+
+def operations_summary(run: HistoryRun) -> str:
+    """``3 operations · all completed``, or what did not, worst first: ``3
+    operations · 1 failed · 1 skipped``. The folded line, so it names any
+    problem."""
+    count = len(run.operations)
+    text = f"{count} operation{'' if count == 1 else 's'}"
+    statuses = [op.status for op in run.operations]
+    ended = [
+        f"{statuses.count(status)} {status}"
+        for status in (FAILED, CANCELLED, SKIPPED)
+        if status in statuses
+    ]
+    if not ended:
+        return f"{text} · all completed" if count > 1 else f"{text} · completed"
+    return " · ".join([text, *ended])
+
+
 def _images_by_run(
     lamella: Lamella, runs: List[AutoLamellaTaskState]
 ) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
