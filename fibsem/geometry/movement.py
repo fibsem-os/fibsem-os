@@ -62,7 +62,7 @@ def image_to_stage_delta(
         stage_tilt: stage tilt, in radians.
 
     Returns:
-        FibsemStagePosition: relative movement in the RAW coordinate system.
+        FibsemStagePosition: relative movement along the stage axes.
     """
     y_move, z_move = view_corrected_stage_movement(
         expected_y=dy,
@@ -71,9 +71,7 @@ def image_to_stage_delta(
         stage_rotation=stage_rotation,
         stage_tilt=stage_tilt,
     )
-    return FibsemStagePosition(
-        x=dx, y=y_move, z=z_move, r=0, t=0, coordinate_system="RAW"
-    )
+    return FibsemStagePosition(x=dx, y=y_move, z=z_move, r=0, t=0)
 
 
 def vertical_move_delta(
@@ -121,7 +119,6 @@ def vertical_move_delta(
         x=dx,
         y=z_move * np.sin(stage_tilt),
         z=z_move * np.cos(stage_tilt),
-        coordinate_system="RAW",
     )
 
 

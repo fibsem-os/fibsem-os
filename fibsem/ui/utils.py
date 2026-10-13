@@ -448,38 +448,3 @@ def tile_nested_squares(
     # Use np.tile to replicate the tile
     tiled_grid = np.tile(tile, (tile_rows, tile_cols))
     return tiled_grid
-
-
-# Example usage:
-if __name__ == "__main__":
-    gridbar_thickness = 200
-    mesh_size = 700
-    keepout = 100
-    pixelsize = 1e-6
-
-    array_size = gridbar_thickness + mesh_size
-    orange_size = mesh_size
-    green_size = mesh_size - 2 * keepout
-    # Create a 3x3 grid of nested squares
-    grid = tile_nested_squares(
-        tile_rows=5,
-        tile_cols=5,
-        array_size=array_size,
-        orange_size=orange_size,
-        green_size=green_size,
-    )
-    # Standalone harness: matplotlib rather than a napari labels layer (FIB-407).
-    # Extent is in metres so the axes carry the same scale the napari scale bar did.
-    import matplotlib.pyplot as plt
-    from matplotlib.colors import BoundaryNorm, ListedColormap
-
-    cmap = ListedColormap(["red", "orange", "green"])
-    norm = BoundaryNorm([0, 1, 2, 3], cmap.N)
-
-    extent = (0, grid.shape[1] * pixelsize, grid.shape[0] * pixelsize, 0)
-    fig, ax = plt.subplots()
-    ax.imshow(grid, cmap=cmap, norm=norm, extent=extent, interpolation="nearest")
-    ax.set_title("Grid Overlay")
-    ax.set_xlabel("m")
-    ax.set_ylabel("m")
-    plt.show()

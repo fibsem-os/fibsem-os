@@ -133,7 +133,7 @@ def test_it_reads_back_in_si_units(widget):
 
 
 def test_it_reads_raw_coordinates(widget):
-    assert widget.get_position().coordinate_system == "RAW"
+    assert widget.get_position().coordinate_system is None
 
 
 def test_the_units_are_on_the_boxes(widget):
