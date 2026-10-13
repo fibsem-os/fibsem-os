@@ -61,7 +61,12 @@ from typing import (
 
 # At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
 # from its type hints (a FibsemMillingSettings sent as a dict).
-from fibsem.cancellation import AnyStopEvent, raise_if_cancelled
+from fibsem.cancellation import (
+    CANCELLED,
+    COMPLETED,
+    AnyStopEvent,
+    raise_if_cancelled,
+)
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -159,6 +164,8 @@ class Milling(Service):
         # The run and stage the last task or stage start named, for the stage
         # updates that follow it; empty outside a milling task.
         self._run_context: Dict[str, Any] = {}
+        # Set by ``stop`` while a run is on, so the run can say it was stopped.
+        self._stop_requested = threading.Event()
 
     def connect(self: _M) -> _M:
         super().connect()
@@ -337,7 +344,8 @@ class Milling(Service):
 
     @command
     def stop(self) -> None:
-        """Stop milling."""
+        """Stop milling. A ``run`` in progress ends and answers ``cancelled``."""
+        self._stop_requested.set()
         self._stop()
 
     @command
@@ -353,14 +361,16 @@ class Milling(Service):
     @command
     def run(
         self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
-    ) -> None:
-        """Mill what is drawn and return when it is done, reporting ``progress``.
+    ) -> str:
+        """Mill what is drawn and return how it ended, reporting ``progress``.
 
         The patterns are cleared at the end, however the run ends. A ``stop_event``
         set while it runs stops the beam, and the run then raises
-        `OperationCancelledError`; ``stop`` from another thread just ends it. A
-        failure stops the beam before it is raised.
+        `OperationCancelledError`; ``stop`` from another thread ends it, and it
+        answers ``cancelled`` rather than ``completed`` (FIB-1377). A failure stops
+        the beam before it is raised.
         """
+        self._stop_requested.clear()
         self._before_run()
         try:
             total = float(self._estimate() or 0.0)
@@ -375,6 +385,7 @@ class Milling(Service):
             finally:
                 self._clear()
         raise_if_cancelled(stop_event, "Milling stopped.")
+        return CANCELLED if self._stop_requested.is_set() else COMPLETED
 
     def _monitor(
         self,

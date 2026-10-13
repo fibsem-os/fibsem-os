@@ -280,7 +280,12 @@ def action_name(request: Request) -> str:
     params = request.path_params
     for key in ("command", "query"):
         if key in params:
-            return params[key].replace("_", " ")
+            name = params[key].replace("_", " ")
+            # A one-word command says too little on its own: "milling run", not
+            # "run" (FIB-1377).
+            if " " not in name and "device" in params:
+                return f"{params['device'].replace('_', ' ')} {name}"
+            return name
     words = [
         part.replace("_", " ")
         for part in request.url.path.split("/")
