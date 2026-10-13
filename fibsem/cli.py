@@ -339,7 +339,7 @@ def cmd_check(microscope, _settings, args) -> int:
     """Run the hardware check and print its report. Exits 1 if a step failed."""
     import json
 
-    from fibsem.hardware_check import Level, run_hardware_check
+    from fibsem.tools.hardware_check import Level, run_hardware_check
 
     level = Level(args.level)
     on_frame = None
