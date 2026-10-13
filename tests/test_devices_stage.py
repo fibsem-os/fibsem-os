@@ -43,7 +43,7 @@ def test_the_driver_lists_the_axes_with_their_limits_in_si_units(stage):
     assert stage.axes["z"] is stage.axes.z
     # the simulator's table gives r and t in degrees; the axes carry radians
     t = stage.axes.t.limits
-    assert (t.min, t.max) == pytest.approx((math.radians(-10), math.radians(90)))
+    assert (t.min, t.max) == pytest.approx((math.radians(-60), math.radians(90)))
     r = stage.position.limits["r"]
     assert (r.min, r.max) == pytest.approx((-2 * math.pi, 2 * math.pi))
     assert stage.describe()["position"]["limits"]["z"] == {"min": -40e-3, "max": 40e-3}

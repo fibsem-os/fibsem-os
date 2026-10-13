@@ -132,13 +132,15 @@ STAGE_MOVEMENT_SLEEP_TIME = 1.0
 SIM_ASYNC_MILLING_EXTRA_TIME = 300  # seconds
 
 # z reaches below 0: the Demo stage starts at z = 0, and a floor of 0 refused every
-# stage move that dips z.
+# stage move that dips z. t reaches -60 degrees so the Demo can take the milling pose
+# of the shipped configurations it is run with (-20 on Tescan, -23 on tfs-arctis, and
+# lower at smaller milling angles).
 STAGE_LIMITS_DEFAULT = {
     "x": RangeLimit(min=-100.0e-3, max=100.0e-3),
     "y": RangeLimit(min=-100.0e-3, max=100.0e-3),
     "z": RangeLimit(min=-40.0e-3, max=40.0e-3),
     "r": RangeLimit(min=-360.0, max=360.0),
-    "t": RangeLimit(min=-10.0, max=90.0),
+    "t": RangeLimit(min=-60.0, max=90.0),
 }
 STAGE_LIMITS_COMPUSTAGE = {
     "x": RangeLimit(min=-999.9e-6, max=999.9e-6),
