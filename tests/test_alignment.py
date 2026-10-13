@@ -572,3 +572,59 @@ def test_alignment_run_save_load_round_trip(demo_session, tmp_path):
     assert np.isclose(
         reloaded.validation.max_disagreement_px, run.validation.max_disagreement_px
     )
+
+
+# ---------------------------------------------------------------------------
+# the cross-correlation score says how good the match is (FIB-1299)
+# ---------------------------------------------------------------------------
+
+
+def _textured(seed: int, shape=(384, 512)) -> FibsemImage:
+    """A blurred noise field: texture at the scales the bandpass keeps, like a
+    sample surface, so a match is a match and not a single bright block."""
+    from scipy import ndimage as ndi
+
+    image = FibsemImage.generate_blank_image(resolution=(shape[1], shape[0]), hfw=50e-6)
+    field = ndi.gaussian_filter(np.random.default_rng(seed).random(shape), 3)
+    field = (field - field.min()) / (field.max() - field.min())
+    image.data = (field * 255).astype(np.uint8)
+    return image
+
+
+def _score(ref: FibsemImage, new: FibsemImage) -> float:
+    # as the alignment calls it, rectangular mask included
+    *_, score = shift_from_crosscorrelation(
+        ref, new, lowpass=50, highpass=4, sigma=5, use_rect_mask=True
+    )
+    return score
+
+
+def test_a_good_match_scores_high_but_not_a_flat_one():
+    """Under the rectangular mask every match used to score exactly 1.00, so a
+    shifted, noisier view of the same surface read as perfect."""
+    ref = _textured(0)
+    moved = FibsemImage.generate_blank_image(resolution=(512, 384), hfw=50e-6)
+    noisy = np.roll(ref.data.astype(float), (6, -9), axis=(0, 1))
+    noisy += np.random.default_rng(1).normal(0, 20, noisy.shape)
+    moved.data = np.clip(noisy, 0, 255).astype(np.uint8)
+
+    assert _score(ref, ref) > 0.99
+    assert 0.7 < _score(ref, moved) < 0.99
+
+
+def test_unrelated_images_score_near_zero():
+    """Not 0.5, as (ncc + 1) / 2 had it: 0 means no match, as for phase
+    correlation's response."""
+    assert _score(_textured(0), _textured(1)) < 0.2
+
+
+def test_the_skimage_score_says_how_good_the_match_is():
+    """It was 0 for every pair, a perfect match included: skimage's error is
+    not a measure with phase normalisation (FIB-1299)."""
+    ref = _textured(0)
+    moved = FibsemImage.generate_blank_image(resolution=(512, 384), hfw=50e-6)
+    moved.data = np.roll(ref.data, (6, -9), axis=(0, 1))
+
+    assert shift_from_skimage_phase_correlation(ref, ref).score > 0.99
+    assert shift_from_skimage_phase_correlation(ref, moved).score > 0.5
+    assert shift_from_skimage_phase_correlation(ref, _textured(1)).score < 0.2
