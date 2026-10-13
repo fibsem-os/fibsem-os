@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.devices.wire import to_wire  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import MillingState  # noqa: E402
+from fibsem.structures import BeamType, FibsemStagePosition, MillingState  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -104,6 +104,41 @@ def test_command_takes_control(armed_client, microscope):
         resp = armed_client.post("/services/milling/commands/estimate", json={})
     assert resp.status_code == 409
     assert resp.json()["detail"]["error_type"] == "microscope_busy"
+
+
+def test_queries_are_listed_apart_from_commands(read_client):
+    stage_movement = read_client.get("/services/stage_movement").json()
+    assert "project_stable_move" in stage_movement["queries"]
+    assert "project_stable_move" not in stage_movement["commands"]
+    assert "stable_move" not in stage_movement["queries"]
+
+
+def test_query_is_read_scope_and_takes_no_control(read_client, microscope):
+    base = FibsemStagePosition(x=1e-3, y=2e-3, z=3e-3, r=0.0, t=0.0)
+    body = {
+        "kwargs": {
+            "dx": 10e-6,
+            "dy": -5e-6,
+            "beam_type": to_wire(BeamType.ELECTRON),
+            "base_position": to_wire(base),
+        }
+    }
+    with microscope.control.take("workflow", "a lamellae run"):
+        resp = read_client.post(
+            "/services/stage_movement/queries/project_stable_move", json=body
+        )
+    assert resp.status_code == 200, resp.text
+    expected = microscope.stage_movement.project_stable_move(
+        dx=10e-6, dy=-5e-6, beam_type=BeamType.ELECTRON, base_position=base
+    )
+    assert resp.json()["result"] == to_wire(expected)
+
+
+def test_unknown_query_or_a_command_asked_as_one_is_404(read_client):
+    resp = read_client.post("/services/stage_movement/queries/nope", json={})
+    assert resp.status_code == 404
+    resp = read_client.post("/services/stage_movement/queries/stable_move", json={})
+    assert resp.status_code == 404
 
 
 def test_stop_needs_only_the_token_and_is_never_refused(read_client, microscope):

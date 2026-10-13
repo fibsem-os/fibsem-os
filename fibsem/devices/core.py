@@ -458,6 +458,24 @@ def command(
     return mark(fn) if fn is not None else mark
 
 
+def query(
+    fn: Optional[Callable] = None, *, available: Optional[Callable[[Any], bool]] = None
+) -> Any:
+    """Mark a method as a query: it takes arguments and answers, and moves nothing.
+
+    A command acts on the hardware, so the servers run it under the hardware lock with
+    hardware scope. A query only reads (where would this move land, which orientation
+    is this position), so they serve it with read scope and no lock. It stays a plain
+    method, listed like a command.
+    """
+
+    def mark(method: Callable) -> Callable:
+        method.__device_query__ = available  # type: ignore[attr-defined]
+        return method
+
+    return mark(fn) if fn is not None else mark
+
+
 class Resources:
     """Named shared resources, each a re-entrant lock.
 
@@ -699,11 +717,19 @@ class _Controllable:
 
     @property
     def commands(self) -> Dict[str, CommandInfo]:
+        return self._marked("__device_command__")
+
+    @property
+    def queries(self) -> Dict[str, CommandInfo]:
+        """The methods marked `query`: reads that take arguments and move nothing."""
+        return self._marked("__device_query__")
+
+    def _marked(self, mark: str) -> Dict[str, CommandInfo]:
         found = {}
         for name, attr in inspect.getmembers(type(self), inspect.isfunction):
-            if not hasattr(attr, "__device_command__"):
+            if not hasattr(attr, mark):
                 continue
-            available = attr.__device_command__
+            available = getattr(attr, mark)
             signature = inspect.signature(attr)
             arguments = list(signature.parameters.values())[1:]  # without self
             found[name] = CommandInfo(
