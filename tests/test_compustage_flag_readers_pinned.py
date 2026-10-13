@@ -86,7 +86,7 @@ def test_the_milling_angle_unwinds_a_turned_over_compustage(scope, which):
 
 def test_images_stamp_the_stage_type(scope):
     compustage = _compustage(scope)
-    assert scope[1].hardware_geometry().is_compustage is compustage
+    assert scope[1].hardware_geometry().fm_is_pose is compustage
 
 
 # --- fm/microscope.py -------------------------------------------------------------

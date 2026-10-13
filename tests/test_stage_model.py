@@ -63,7 +63,7 @@ def _poses_to_check(geometry, poses):
 
 
 def _mirror(geometry, model, view_tilt, r, t) -> float:
-    if geometry.is_compustage and views_back(model, view_tilt, r, t):
+    if geometry.mirrors_back_view and views_back(model, view_tilt, r, t):
         return -1.0
     return 1.0
 
@@ -79,7 +79,7 @@ def _rules_before_the_model(geometry, r, t):
     half_turn = np.deg2rad(geometry.rotation_180) % (2 * np.pi)
     r = r % (2 * np.pi)
     at_fib = bool(
-        geometry.is_compustage
+        geometry.fm_is_pose
         and np.isclose(
             t,
             np.deg2rad(geometry.fib_column_tilt - geometry.shuttle_pre_tilt - 180),
@@ -162,7 +162,7 @@ def test_the_mirror_is_the_named_one_at_every_declared_pose(stage):
         if _mirror(geometry, model, view_tilt, pose.r, pose.t)
         != _named_fib_pose_mirror(geometry, pose.r, pose.t)
     }
-    assert differs == (MIRROR_DIFFERS_AT if geometry.is_compustage else set())
+    assert differs == (MIRROR_DIFFERS_AT if geometry.mirrors_back_view else set())
 
 
 def test_where_the_mirror_differs_from_the_named_one(stage):
@@ -178,7 +178,7 @@ def test_where_the_mirror_differs_from_the_named_one(stage):
         != _named_fib_pose_mirror(geometry, r, np.deg2rad(tilt))
     }
     expected = set()
-    if geometry.is_compustage:
+    if geometry.fm_is_pose:
         expected = {("SEM", t) for t in (-180, -160, -100)}
         expected |= {("FIB", t) for t in (-180, -160, -100, -90, -60)}
     assert differs == expected

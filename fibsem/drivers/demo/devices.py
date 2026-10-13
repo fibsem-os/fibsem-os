@@ -423,6 +423,10 @@ class DemoStage(Stage):
     def has_builtin_shuttle(self) -> bool:
         return self.compustage
 
+    # The simulated compustage mirrors its back views as the instrument it stands for.
+    def mirrors_back_view(self) -> bool:
+        return self.compustage
+
     # The simulator is a compustage or an offset stage by its configuration.
     def poses(
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float

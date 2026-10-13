@@ -53,7 +53,8 @@ def _geometry(**overrides):
         shuttle_pre_tilt=0.0,
         rotation_reference=0.0,
         rotation_180=180.0,
-        is_compustage=True,
+        fm_is_pose=True,
+        mirrors_back_view=True,
     )
     fields.update(overrides)
     return FibsemHardwareGeometry(**fields)
@@ -94,7 +95,7 @@ def test_a_canvas_point_round_trips_through_stage_space(point):
 def test_the_round_trip_holds_on_a_pre_tilted_mount(pretilt):
     """A pre-tilt puts a real z on every sideways move, which is the case a compustage
     hides -- z stays 0 there, so an error in the y/z split cannot show up."""
-    frame = _frame(shuttle_pre_tilt=pretilt, is_compustage=False)
+    frame = _frame(shuttle_pre_tilt=pretilt, fm_is_pose=False, mirrors_back_view=False)
 
     resolved = frame.to_stage(2500.0, 4000.0)
 
@@ -105,7 +106,9 @@ def test_a_sideways_click_carries_z_on_a_tilted_mount():
     """What keeps the sample in focus when you click across it. Zero here would mean
     the focal plane was being ignored, which a compustage would never reveal."""
     flat = _frame().to_stage(0.0, 2500.0)
-    tilted = _frame(shuttle_pre_tilt=35.0, is_compustage=False).to_stage(0.0, 2500.0)
+    tilted = _frame(
+        shuttle_pre_tilt=35.0, fm_is_pose=False, mirrors_back_view=False
+    ).to_stage(0.0, 2500.0)
 
     assert flat.z == pytest.approx(0.0, abs=1e-15)
     assert abs(tilted.z) > 1e-9
