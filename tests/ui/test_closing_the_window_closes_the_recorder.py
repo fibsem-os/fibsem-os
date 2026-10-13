@@ -61,6 +61,7 @@ def test_closing_the_window_writes_the_last_edit_and_stops_the_writer(window, tm
     ui._adopt_experiment(experiment)
     editor = window.lamella_widget
     editor.set_experiment()
+    editor.select_lamella(experiment.positions[0].name)
     editor.listWidget_selected_task.set_tasks([TASK], preferred=TASK)
     recorder = ui._event_recorder
     microscope = ui.microscope

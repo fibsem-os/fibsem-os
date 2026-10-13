@@ -78,17 +78,6 @@ def test_acquire_image_preview_endpoint(armed_client):
     assert body["pixelsize"]["x"] == pytest.approx(body["hfw"] / body["full_width"])
 
 
-def test_last_image_preview_endpoint(armed_client):
-    armed_client.post(
-        "/acquire_image_preview", headers=AUTH, json={"beam_type": "ELECTRON"}
-    )
-    resp = armed_client.post(
-        "/last_image_preview", headers=AUTH, json={"beam_type": "ELECTRON"}
-    )
-    assert resp.status_code == 200
-    assert resp.json()["image_b64_jpeg"]
-
-
 def test_preview_requires_hardware_scope(armed_client):
     # Same app, wrong scope story is covered in test_server_factory; here just
     # assert the endpoint rejects a missing token so it is provably gated.

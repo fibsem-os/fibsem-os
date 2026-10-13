@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -118,8 +119,9 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
 )
 from fibsem.server.levels import AgentLevel
 from fibsem.structures import BeamType
+from fibsem.tools.app_identity import set_app_identity
 from fibsem.ui import notification_service
-from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.icon import autolamella_icon, fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
     GRAY_ICON_COLOR,
@@ -2678,7 +2680,16 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         protocol_splitter.addWidget(scroll_area)
         protocol_splitter.setSizes([700, 550])
 
-        right_tabs.addTab(protocol_splitter, "Protocol")
+        # With no card selected the editor has no lamella, so the page says so
+        # rather than leaving the last one up to be edited (FIB-1370).
+        protocol_empty = QLabel("Select a lamella card to edit its protocol.")
+        protocol_empty.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 12px;")
+        protocol_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._protocol_page = QStackedWidget()
+        self._protocol_page.addWidget(protocol_empty)
+        self._protocol_page.addWidget(protocol_splitter)
+
+        right_tabs.addTab(self._protocol_page, "Protocol")
         right_tabs.addTab(self.lamella_task_image_widget, "History")
 
         outer_splitter.addWidget(right_tabs)
@@ -3069,8 +3080,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.fm_overview_tab.set_selected(lamella)
         self.beam_overview_tab.set_selected(lamella)
         self.lamella_task_image_widget.set_lamella(lamella)
+        self.lamella_widget.select_lamella(lamella.name if lamella else None)
+        self._protocol_page.setCurrentIndex(0 if lamella is None else 1)
         if lamella is not None:
-            self.lamella_widget.select_lamella(lamella.name)
             if not self._syncing_selection:
                 self._syncing_selection = True
                 try:
@@ -4309,8 +4321,11 @@ def run_ui(argv: Optional[List[str]] = None):
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
     init_sentry()  # inert unless crash reporting is enabled in preferences
+    set_app_identity("AutoLamella", windows_app_id="fibsemOS.AutoLamella")
     app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("AutoLamella")
     app.setStyle("Fusion")
+    app.setWindowIcon(autolamella_icon())
     # Cyclic garbage must only ever be collected on this thread: worker-thread GC
     # finalizes Qt/vispy objects off the GUI thread and hard-crashes Windows GL
     # drivers (access violation in glDrawArrays). See fibsem/ui/qt/gc.py.

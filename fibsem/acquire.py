@@ -111,19 +111,6 @@ def acquire_current_image(
     return image
 
 
-def last_image(microscope: FibsemMicroscope, beam_type: BeamType) -> FibsemImage:
-    """_summary_
-
-    Args:
-        microscope (FibsemMicroscope): microscope instance
-        beam_type (BeamType): beam type for image
-
-    Returns:
-        FibsemImage: last image acquired by the microscope
-    """
-    return microscope.last_image(beam_type=beam_type)
-
-
 def take_reference_images(
     microscope: FibsemMicroscope, image_settings: ImageSettings
 ) -> tuple[FibsemImage, FibsemImage]:

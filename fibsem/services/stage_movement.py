@@ -23,14 +23,15 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import Any, Optional, Tuple, Type, TypeVar
+from typing import Any, Dict, Optional, Tuple, Type, TypeVar
 
 import numpy as np
 
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Role, command, query
+from fibsem.devices.core import Parameter, Role, command, query
 from fibsem.devices.fm import FM, mount_transform_from_name
 from fibsem.devices.stage import Stage, recording_move
+from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
 from fibsem.geometry.movement import (
     apply_delta,
     fib_offset_after_sem_move,
@@ -38,6 +39,7 @@ from fibsem.geometry.movement import (
     undo_scan_rotation,
     vertical_move_delta,
 )
+from fibsem.geometry.orientations import classify_orientation, milling_angle_from_tilt
 from fibsem.services.core import Service
 from fibsem.structures import (
     BeamType,
@@ -45,6 +47,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     InsertableDeviceState,
 )
+from fibsem.transformations import get_stage_tilt_from_milling_angle
 
 _S = TypeVar("_S", bound="StageMovement")
 
@@ -91,8 +94,141 @@ class StageMovement(Service):
         (`FibsemMicroscope.vertical_move_views`)."""
         return tuple(self.parent.vertical_move_views)
 
+    milling_angle = Parameter(
+        float,
+        unit="deg",
+        doc="The stored milling angle the MILLING orientation is built from, in "
+        "degrees. The configuration gives its value at connect.",
+    )
+
     def __init__(self, name: str = "stage_movement", **kwargs: Any):
         super().__init__(name, **kwargs)
+        # The orientation table, built from the stage's poses and the milling angle
+        # on first use, and again whenever either changes.
+        self._orientations: Optional[Dict[str, FibsemStagePosition]] = None
+
+    # -- orientations --------------------------------------------------------------------
+
+    def read_milling_angle(self) -> float:
+        return float(self.parent.system.stage.milling_angle)
+
+    def write_milling_angle(self, value: float) -> None:
+        self.parent.system.stage.milling_angle = value
+        self.update_orientations()
+
+    @property
+    def orientations(self) -> Dict[str, FibsemStagePosition]:
+        """Each orientation's pose (r and t), by name: SEM, FIB, MILLING, and FM on a
+        compustage."""
+        if self._orientations is None:
+            self.update_orientations()
+        return self._orientations
+
+    @orientations.setter
+    def orientations(self, table: Dict[str, FibsemStagePosition]) -> None:
+        self._orientations = table
+
+    def turned_over(self, tilt: float) -> bool:
+        """Whether the stage has the sample turned over at this tilt, in radians.
+
+        The stage device says (FIB-1124); with no stage, nothing is turned over.
+        """
+        stage = self.parent.stage_device
+        return False if stage is None else stage.turned_over(tilt)
+
+    def stage_poses(self) -> Dict[str, FibsemStagePosition]:
+        """The stage's pose for each orientation name, from the configured geometry.
+
+        The stage device declares them (FIB-1101). With no stage there are none.
+        """
+        stage = self.parent.stage_device
+        if stage is None:
+            return {}
+        system = self.parent.system
+        return stage.poses(
+            rotation_reference=system.stage.rotation_reference,
+            shuttle_pre_tilt=system.stage.shuttle_pre_tilt,
+            fib_column_tilt=system.ion.column_tilt,
+        )
+
+    def fm_is_a_pose(self) -> bool:
+        """Does the stage reach the FM by re-posing rather than by travelling?
+
+        True where the stage declares an FM pose (FIB-1101): the objective is under
+        the grid and the stage turns the grid over to face it, so the beams and the
+        FM are one place. False on an offset mount, where the FM is a place the stage
+        travels to in whatever pose it holds. Today it is true exactly on a compustage.
+        """
+        return "FM" in self.stage_poses()
+
+    def update_orientations(self) -> None:
+        """Rebuild the orientation table from the stage's poses and the milling angle."""
+        poses = self.stage_poses()
+        if not poses:  # with no stage there is nothing to orient
+            self._orientations = {}
+            return
+        # MILLING sits between FIB and the rest: it is the SEM rotation at the tilt
+        # the milling angle needs, so it is not the stage's to declare.
+        milling_tilt = get_stage_tilt_from_milling_angle(
+            self.parent, np.radians(self.parent.system.stage.milling_angle)
+        )
+        sem = poses.pop("SEM")
+        fib = poses.pop("FIB")
+        self._orientations = {
+            "SEM": sem,
+            "FIB": fib,
+            "MILLING": FibsemStagePosition(r=sem.r, t=milling_tilt),
+            **poses,
+        }
+
+    @query
+    def orientation(self, name: str) -> FibsemStagePosition:
+        """The pose (r and t) of the orientation called ``name``."""
+        if name not in self.orientations:
+            raise ValueError(f"Orientation {name} not supported.")
+        return self.orientations[name]
+
+    @query
+    def stage_orientation(self, position: Optional[FibsemStagePosition] = None) -> str:
+        """The orientation a stage position is in ("SEM", "FIB", "MILLING", "FM" or
+        "NONE"), the stage's own when ``position`` is None."""
+        if position is None:
+            position = self._position()
+        if position.r is None or position.t is None:
+            raise ValueError(
+                "Stage position must have both rotation (r) and tilt (t) defined."
+            )
+        return classify_orientation(position.r, position.t, self.orientations)
+
+    @query
+    def current_milling_angle(
+        self, position: Optional[FibsemStagePosition] = None
+    ) -> float:
+        """The milling angle a stage position gives, in degrees, the stage's own when
+        ``position`` is None. 90 at the FIB orientation."""
+        if position is None:
+            position = self._position()
+        # NOTE: this is only valid for sem orientation
+        if self.stage_orientation(position) == "FIB":
+            return 90  # stage-tilt + pre-tilt + 90 - column-tilt
+        if position.t is None:
+            raise ValueError(
+                "Stage tilt is not available. Cannot calculate milling angle."
+            )
+        return milling_angle_from_tilt(
+            position.t,
+            pretilt=self.parent.system.stage.shuttle_pre_tilt,
+            column_tilt=self.parent.system.ion.column_tilt,
+            turned_over=self.turned_over(position.t),
+        )
+
+    @query
+    def is_close_to_milling_angle(
+        self, milling_angle: float, atol: float = 2.0
+    ) -> bool:
+        """Whether the stage's milling angle is within ``atol`` of ``milling_angle``,
+        both in degrees."""
+        return bool(np.isclose(self.current_milling_angle(), milling_angle, atol=atol))
 
     # -- reading and writing through the roles -------------------------------------------
 
@@ -379,10 +515,8 @@ class StageMovement(Service):
     def camera_tilt(self) -> float:
         """Tilt of the FM camera's optical axis from the SEM column, in degrees.
 
-        The FM entry's ``camera_tilt`` where the configuration states one (FIB-335).
-        Otherwise from the mount: an FM the stage reaches by turning the grid over (a
-        compustage) looks up at it from the opposite side to the SEM, 180 degrees; an
-        offset FM sits parallel to the FIB column and shares its tilt.
+        The FM entry's ``camera_tilt`` where the configuration states one (FIB-335),
+        else derived from the mount (`fibsem.geometry.frames.fm_camera_tilt`).
         """
         return fm_camera_tilt(self.parent)
 
@@ -769,6 +903,6 @@ def fm_camera_tilt(microscope: Any) -> float:
     configured = microscope.system.fm.camera_tilt
     if configured is not None:
         return float(configured)
-    if microscope._fm_is_a_pose():
-        return 180.0
-    return microscope.system.ion.column_tilt
+    return derived_camera_tilt(
+        microscope._fm_is_a_pose(), microscope.system.ion.column_tilt
+    )

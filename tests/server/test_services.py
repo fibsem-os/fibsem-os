@@ -54,9 +54,29 @@ def test_devices_off_registers_no_instrument_route(microscope):
     assert capabilities["routers"]["devices"] is False
 
 
+def test_devices_off_says_why(microscope):
+    """FIB-1359: a bare "Not Found" read as a wrong path; the 404 names the
+    operator's switch instead."""
+    client = _client(microscope, devices=False)
+    for method, path in INSTRUMENT_ROUTES + [
+        ("POST", "/services/imaging/commands/focus_sweep"),
+        ("PUT", "/devices/electron/voltage"),
+    ]:
+        response = client.request(method, path, headers=AUTH)
+        assert response.status_code == 404, (method, path)
+        detail = response.json()["detail"]
+        assert detail["error_type"] == "devices_off", (method, path)
+        assert "Tools → App Server" in detail["message"]
+    # A path that never existed is still a plain 404.
+    missing = client.get("/no_such_route", headers=AUTH)
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "Not Found"
+
+
 def test_devices_off_still_needs_the_token(microscope):
     client = _client(microscope, devices=False)
     assert client.get("/capabilities").status_code == 401
+    assert client.get("/stage_position").status_code == 401
 
 
 def test_the_agent_is_offered_no_instrument_tool_with_devices_off(microscope):

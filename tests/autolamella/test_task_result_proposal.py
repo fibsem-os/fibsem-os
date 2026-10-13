@@ -364,3 +364,83 @@ def test_a_rerun_supersedes_a_decided_result(microscope, tmp_path):
     fresh = lamella.proposal(ROUGH)
     assert fresh is not decided and fresh.pending
     assert lamella.proposals[ROUGH] == [decided, fresh]
+
+
+# ---------------------------------------------------------------------------
+# A result that cannot be saved (FIB-1374)
+# ---------------------------------------------------------------------------
+
+
+def _record_events(task) -> list:
+    from fibsem.hooks import FunctionHook, HookEvent, HookManager
+
+    fired = []
+    hooks = HookManager()
+    hooks.register(
+        FunctionHook(name="seen", events=list(HookEvent), callback=fired.append)
+    )
+    task.task_manager.hook_manager = hooks
+    return fired
+
+
+def _block_the_save(exp: Experiment) -> str:
+    """A directory where experiment.yaml goes: every save fails, whoever runs
+    the test (IsADirectoryError on POSIX, PermissionError on Windows)."""
+    blocker = os.path.join(exp.path, "experiment.yaml")
+    os.makedirs(blocker)
+    return blocker
+
+
+def test_a_task_whose_result_cannot_be_saved_ends_failed(microscope, tmp_path):
+    """Applying an automated task's value saves the experiment. That save
+    failing came after post_task had recorded the run Completed, so the run
+    stayed Completed, no task_failed fired, and the next good save wrote the
+    success."""
+    exp = _experiment(tmp_path, microscope)
+    lamella = exp.positions[0]
+    task = _task(microscope, exp)
+    fired = _record_events(task)
+    blocker = _block_the_save(exp)
+    type(task).proposer = _SitePicker({"poi": Point(1e-6, 2e-6)})
+    try:
+        with pytest.raises(OSError):
+            task.run()
+    finally:
+        type(task).proposer = TaskResultProposer()
+
+    assert lamella.task_state.status is AutoLamellaTaskStatus.Failed
+    assert "could not be recorded" in lamella.task_state.status_message
+    runs = [t for t in lamella.task_history if t.task_id == task.task_id]
+    assert [t.status for t in runs] == [AutoLamellaTaskStatus.Failed], "one entry"
+    assert [c.event for c in fired] == ["task_started", "task_failed"]
+
+    os.rmdir(blocker)
+    exp.save()
+    saved = Experiment.load(os.path.join(exp.path, "experiment.yaml"))
+    last = saved.positions[0].task_history[-1]
+    assert last.task_id == task.task_id
+    assert last.status is AutoLamellaTaskStatus.Failed, "the file says it failed"
+
+
+def test_a_task_the_run_cannot_save_after_ends_failed(
+    microscope, tmp_path, monkeypatch
+):
+    """The run's own save after a finished task: failing, the task is not
+    left Completed, and task_failed says so before the run ends."""
+    exp = _experiment(tmp_path, microscope)
+    lamella = exp.positions[0]
+    task = _task(microscope, exp)
+    manager = task.task_manager
+    fired = _record_events(task)
+    _block_the_save(exp)
+
+    from fibsem.applications.autolamella.workflows.tasks import manager as module
+
+    monkeypatch.setattr(module, "run_task", lambda **_kwargs: task.run())
+    with pytest.raises(OSError):
+        manager._run_single_task(ROUGH, lamella)
+
+    assert lamella.task_state.status is AutoLamellaTaskStatus.Failed
+    assert "could not be saved" in lamella.task_state.status_message
+    assert lamella.task_history[-1].status is AutoLamellaTaskStatus.Failed
+    assert [c.event for c in fired] == ["task_started", "task_completed", "task_failed"]

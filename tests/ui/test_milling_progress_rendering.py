@@ -356,6 +356,18 @@ class TestTheCountdown:
         assert milling_widget.progressBar_milling.value() == 75
         assert "remaining" in milling_widget.progressBar_milling.format()
 
+    def test_a_run_with_no_stage_start_still_shows_its_bar(self, milling_widget):
+        """A service run (the agent's mill, FIB-1375) reports only its ticks: the
+        countdown gets the bar, and there are no stages to count."""
+        milling_widget._on_milling_progress(
+            backend_tick(remaining_time=45.0, estimated_time=60.0)
+        )
+        assert not milling_widget.progressBar_milling.isHidden()
+        assert milling_widget.progressBar_milling.value() == 25
+        assert milling_widget.progressBar_milling_stages.isHidden()
+        milling_widget._on_milling_progress(task_finished())
+        assert milling_widget.progressBar_milling.isHidden()
+
     def test_an_estimate_of_zero_does_not_take_the_process_down(self, milling_widget):
         """`milling_widget` divided by `estimated_time` after checking only that it was
         not `None`, unlike the other two consumers. That division runs inside a queued Qt
