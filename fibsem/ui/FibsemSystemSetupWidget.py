@@ -629,28 +629,3 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                 self._last_connection_error or "No microscope connected"
             )
             self._button_disconnect.setVisible(False)
-
-
-def main():
-    """Standalone harness: show the widget in a plain Qt window.
-
-    napari was only ever hosting the widget here (FIB-407). It also supplied the
-    QApplication and the dark theme, so both are set up explicitly — this widget
-    paints itself in the dark palette (PANEL_COLOR, BORDER_COLOR, the status
-    icons), which needs NAPARI_STYLE underneath it to read correctly.
-    """
-    import sys
-
-    app = QtWidgets.QApplication(sys.argv)
-    app.setStyleSheet(stylesheets.NAPARI_STYLE)
-
-    system_widget = FibsemSystemSetupWidget()
-    system_widget.setWindowTitle("Microscope Setup")
-    system_widget.resize(400, 300)
-    system_widget.show()
-
-    sys.exit(app.exec_())
-
-
-if __name__ == "__main__":
-    main()
