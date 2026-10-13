@@ -350,6 +350,22 @@ class TestTheTwoScales:
         assert all(r.milling_task_name == "Trench" for r in from_task)
         assert len({r.milling_run_id for r in from_task}) == 1
 
+    def test_a_stage_update_says_which_run_and_stage(self, microscope):
+        """The backend's ticks name neither; the milling service gives them the run
+        and stage the last stage start named (FIB-1356)."""
+        task = _task(microscope, [_stage("Rough Mill")], name="Trench")
+        emitted = _collect(microscope)
+        task.run()
+
+        updates = [r for r in emitted if r.status is MillingProgressStatus.STAGE_UPDATE]
+        assert updates, "no stage update was reported"
+        for update in updates:
+            assert update.milling_run_id == task.task_id
+            assert update.milling_task_name == "Trench"
+            assert update.stage_name == "Rough Mill"
+            assert update.current_stage == 0
+            assert update.total_stages == 1
+
 
 def test_the_relay_no_longer_exists():
     """`_handle_progress` was a pass-through that emitted whatever it was handed,
