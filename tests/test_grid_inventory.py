@@ -209,6 +209,29 @@ class TestExchange:
         assert working.loaded_grid.name == "Grid-01"
         assert loader.device.fail_next_exchange is False
 
+    def test_exchanges_are_on_the_record(self):
+        """FIB-1359: a load and an unload are events, as a stage move is."""
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        recorded = []
+        microscope.record_signal.connect(lambda k, p: recorded.append((k, p)))
+        loader.load_grid("Slot-01")
+        loader.load_grid("Slot-05")  # an exchange: unload Grid-01, load Grid-05
+        loader.load_grid("Slot-05")  # already loaded: nothing to record
+        loader.device.fail_next_exchange = True
+        with pytest.raises(GridExchangeError):
+            loader.unload_grid()
+        kinds = [(k, p["grid"], p["slot"], p["error"]) for k, p in recorded]
+        assert kinds == [
+            ("grid_loaded", "Grid-01", "Slot-01", None),
+            ("grid_unloaded", "Grid-01", "Slot-01", None),
+            ("grid_loaded", "Grid-05", "Slot-05", None),
+            ("grid_unloaded", "Grid-05", "Slot-05", kinds[-1][3]),
+        ]
+        assert kinds[-1][3].startswith("GridExchangeError")
+        working = microscope.sample_handling.holder.slots["Slot-01"].name
+        assert all(p["working_slot"] == working for _, p in recorded)
+
 
 # ---------------------------------------------------------------------------
 # Stage.grid_inventory()
