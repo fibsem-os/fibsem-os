@@ -10349,7 +10349,7 @@
   }
  },
  "default target FM @SEM": {
-  "error": "ValueError: Cannot move to FM position on non-compustage systems.",
+  "error": "ValueError: Cannot move to the FM position: this stage reaches the FM by travelling, not by re-posing.",
   "result": null
  },
  "default target MILLING device=FIBSEM @FIB+0r+0.0t": {
@@ -15551,7 +15551,7 @@
   }
  },
  "iflm target FM @SEM": {
-  "error": "ValueError: Cannot move to FM position on non-compustage systems.",
+  "error": "ValueError: Cannot move to the FM position: this stage reaches the FM by travelling, not by re-posing.",
   "result": null
  },
  "iflm target MILLING device=FIBSEM @FIB+0r+0.0t": {
@@ -20717,7 +20717,7 @@
   }
  },
  "tescan target FM @SEM": {
-  "error": "ValueError: Cannot move to FM position on non-compustage systems.",
+  "error": "ValueError: Cannot move to the FM position: this stage reaches the FM by travelling, not by re-posing.",
   "result": null
  },
  "tescan target MILLING device=FIBSEM @FIB+0r+0.0t": {

@@ -1246,6 +1246,15 @@ class AutoLamellaUI(QMainWindow):
             if self.microscope is None or self.experiment is None:
                 logging.error("No microscope or experiment loaded.")
                 return
+            # Made before the set-up below, as for a lamella run (FIB-1353).
+            self._task_manager = GridTaskManager(
+                microscope=self.microscope,
+                experiment=self.experiment,
+                parent_ui=self,
+                hook_manager=self.setup_hooks(),
+                unload_at_end=unload_at_end,
+                report_at_end=report_at_end,
+            )
             # In control for the whole run, the inventory included (FIB-1270).
             with self.microscope.control.take(WORKFLOW, "a grid run"):
                 if not self.microscope.is_on(BeamType.ELECTRON):
@@ -1257,23 +1266,18 @@ class AutoLamellaUI(QMainWindow):
                 logging.info(
                     f"Starting grid tasks: {task_names}, for grids: {grid_names}"
                 )
-                self._task_manager = GridTaskManager(
-                    microscope=self.microscope,
-                    experiment=self.experiment,
-                    parent_ui=self,
-                    hook_manager=self.setup_hooks(),
-                    unload_at_end=unload_at_end,
-                    report_at_end=report_at_end,
-                )
                 if self._workflow_stop_event.is_set():
                     self._task_manager.stop()
                 self._task_manager.run(task_names, grid_names)
         except MicroscopeBusy as e:
             logging.warning(f"Grid workflow not started: {e}")
+            self._end_unstarted_run(e)
         except (InterruptedError, OperationCancelledError) as e:
             logging.info(f"Grid workflow cancelled: {e}")
+            self._end_unstarted_run(e)
         except Exception as e:
             logging.error(f"Error during grid workflow: {e}", exc_info=True)
+            self._end_unstarted_run(e)
         finally:
             cancelled = self._task_manager is not None and self._task_manager.is_stopped
             if self._task_manager is not None:
@@ -1288,6 +1292,17 @@ class AutoLamellaUI(QMainWindow):
             self._task_manager = None
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
+
+    def _end_unstarted_run(self, error: BaseException) -> None:
+        """Workflow thread. End a run that died in the set-up above before it
+        began, so whoever was told it started sees it end (FIB-1353)."""
+        manager = self._task_manager
+        if manager is None:
+            return
+        try:
+            manager.end_unstarted_run(error)
+        except Exception:
+            logging.exception("reporting the end of a run that never began failed")
 
     def _marshal(self, apply, *args) -> None:
         """Run ``apply(*args)`` on the GUI thread as whoever called this."""
@@ -2056,6 +2071,14 @@ class AutoLamellaUI(QMainWindow):
                 logging.error("No microscope or experiment loaded.")
                 return
 
+            # Made before the set-up below, so a failure in it still ends the
+            # run with an event (FIB-1353).
+            self._task_manager = TaskManager(
+                microscope=self.microscope,
+                experiment=self.experiment,
+                parent_ui=self,
+                hook_manager=self.setup_hooks(),
+            )
             # In control for the whole run, beams on included (FIB-1270).
             with self.microscope.control.take(WORKFLOW, "a lamella run"):
                 # turn beams on if required
@@ -2067,14 +2090,8 @@ class AutoLamellaUI(QMainWindow):
                 logging.info(
                     f"Starting tasks: {task_names}, for lamella: {lamella_names}"
                 )
-                self._task_manager = TaskManager(
-                    microscope=self.microscope,
-                    experiment=self.experiment,
-                    parent_ui=self,
-                    hook_manager=self.setup_hooks(),
-                )
-                # Honor a stop requested before the manager existed (e.g. clicked
-                # during beam-on, while _task_manager was still None).
+                # Honor a stop requested before the manager existed (clicked
+                # as the worker started, while _task_manager was still None).
                 if self._workflow_stop_event.is_set():
                     self._task_manager.stop()
                 self._task_manager.run(
@@ -2083,14 +2100,17 @@ class AutoLamellaUI(QMainWindow):
                 )
         except MicroscopeBusy as e:
             logging.warning(f"Workflow not started: {e}")
+            self._end_unstarted_run(e)
         except (InterruptedError, OperationCancelledError) as e:
             # A user Stop, not a failure: both cancellation types unwind through
             # here, and anyone scanning the log for problems (or filtering on
             # ERROR) must not see one per Stop press. The task layer has already
             # recorded the outcome as Cancelled; this is the worker's exit note.
             logging.info(f"Workflow cancelled: {e}")
+            self._end_unstarted_run(e)
         except Exception as e:
             logging.error(f"Error during running tasks: {e}", exc_info=True)
+            self._end_unstarted_run(e)
 
         finally:
             cancelled = self._task_manager is not None and self._task_manager.is_stopped

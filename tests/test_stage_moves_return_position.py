@@ -81,8 +81,9 @@ def test_a_tescan_absolute_move_returns_where_the_stage_ended():
     assert stage.reads == 2
 
 
-def test_a_tescan_relative_move_reads_the_stage_once_before_and_twice_after():
-    # Where it is, to add the offset to; then the absolute move's two reads after.
+def test_a_tescan_relative_move_reads_the_stage_twice_before_and_twice_after():
+    # Where it is, for the limit check; where it is, to add the offset to; then the
+    # absolute move's two reads after.
     microscope, stage = _tescan()
     microscope.move_stage_absolute(TARGET)
     stage.reads = 0
@@ -92,7 +93,7 @@ def test_a_tescan_relative_move_reads_the_stage_once_before_and_twice_after():
     )
 
     assert moved.x == pytest.approx(TARGET.x + 1e-6)
-    assert stage.reads == 3
+    assert stage.reads == 4
 
 
 def test_a_tescan_safe_move_records_where_it_ended():
