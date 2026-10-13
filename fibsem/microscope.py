@@ -1110,7 +1110,7 @@ class FibsemMicroscope(ABC):
     # beam geometry, which differs by backend, so they stay the backend's.
 
     def insert_manipulator(
-        self, name: str = "PARK"
+        self, name: Optional[str] = None
     ) -> Optional[FibsemManipulatorPosition]:
         if self.manipulator_device is None:
             raise self._unsupported("insert_manipulator")
