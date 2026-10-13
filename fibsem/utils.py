@@ -443,10 +443,12 @@ def setup_session(
     microscope = connect_microscope(settings.system)
 
     # The planning stack estimates milling time without a microscope in scope, so
-    # the driver's model is installed for the session here, on connect.
+    # the milling service's model is installed for the session here, on connect.
+    # Without a milling service (no ion beam) stages use the shared table.
     from fibsem.milling.base import set_milling_time_estimator
 
-    set_milling_time_estimator(type(microscope).estimate_stage_milling_time)
+    milling = getattr(microscope, "milling", None)
+    set_milling_time_estimator(milling.estimate_stage if milling is not None else None)
 
     # set default image_settings path
     settings.image.path = session_path

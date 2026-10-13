@@ -327,8 +327,8 @@ def get_protocol_from_stages(
 # The connected backend's milling-time model, if it has its own. The planning stack
 # (task ETAs, confirmation dialogs) reaches estimates through the
 # FibsemMillingStage.estimated_time property, which has no microscope in scope, so
-# the model is session-level: utils.setup_session installs the driver's
-# FibsemMicroscope.estimate_stage_milling_time here on connect. It is kept after a
+# the model is session-level: utils.setup_session installs the connected
+# microscope's milling service's estimate_stage here on connect. It is kept after a
 # disconnect (ETAs quoted then still describe the instrument this session plans
 # for); connecting another backend replaces it. None means every stage uses the
 # shared sputter-rate table.

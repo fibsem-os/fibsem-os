@@ -7,12 +7,12 @@ wrong material). The dose model ``t = volume / (rate × current)`` uses the same
 inputs DrawBeam computes the real exposure from: the stage's own etch rate and
 the current parsed from the preset name.
 
-The TESCAN driver supplies the model (``TescanMicroscope.estimate_stage_milling_time``)
-and ``utils.setup_session`` installs it for the session on connect
-(``set_milling_time_estimator``): the planning stack estimates through the
+The TESCAN milling service supplies the model (``TescanMilling.estimate_stage``)
+and ``utils.setup_session`` installs the connected microscope's for the session on
+connect (``set_milling_time_estimator``): the planning stack estimates through the
 ``FibsemMillingStage.estimated_time`` property with no microscope in scope, so
 it cannot be a call-site parameter. The hard requirement locked in here is that
-nothing changes for any other backend: no estimator, or the base class default,
+nothing changes for any other backend: no estimator, or the base service's,
 must be byte-identical to the legacy behaviour, and so must every preset the
 model cannot read.
 """
@@ -23,7 +23,7 @@ import pytest
 
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope, parse_current_from_preset
-from fibsem.microscope import FibsemMicroscope
+from fibsem.drivers.tescan.services import TescanMilling
 from fibsem.milling.base import (
     FibsemMillingStage,
     estimate_milling_time,
@@ -33,6 +33,7 @@ from fibsem.milling.base import (
     using_milling_time_estimator,
 )
 from fibsem.milling.patterning.patterns import RectanglePattern
+from fibsem.services.milling import Milling
 from fibsem.structures import CrossSectionPattern, FibsemMillingSettings
 
 RATE = 1.3e-8  # m3/A/s (the cryo-lamella default)
@@ -50,7 +51,8 @@ def _legacy_estimation_by_default():
 
 
 def use_tescan_model() -> None:
-    set_milling_time_estimator(TescanMicroscope.estimate_stage_milling_time)
+    # the model needs no instrument: a service with no connection estimates
+    set_milling_time_estimator(TescanMilling(connection=None).estimate_stage)
 
 
 def make_stage(
@@ -179,13 +181,13 @@ def test_dose_model_ignores_the_dead_milling_current_field():
 
 
 # ---------------------------------------------------------------------------
-# the driver supplies the model; connecting installs it
+# the milling service supplies the model; connecting installs it
 # ---------------------------------------------------------------------------
 
 
-def test_base_class_default_is_identical_to_the_legacy_estimate():
+def test_the_base_service_is_identical_to_the_legacy_estimate():
     stage = make_stage()
-    set_milling_time_estimator(FibsemMicroscope.estimate_stage_milling_time)
+    set_milling_time_estimator(Milling().estimate_stage)
     assert estimate_stage_milling_time(stage) == estimate_milling_time(
         stage.pattern, stage.milling.milling_current
     )
@@ -210,7 +212,26 @@ def test_connecting_installs_the_drivers_model():
     assert estimate_stage_milling_time(stage) == estimate_milling_time(
         stage.pattern, stage.milling.milling_current
     )
+    assert microscope.milling.estimate_stage(stage) == estimate_stage_milling_time(
+        stage
+    )
     microscope.disconnect()
+
+
+def test_a_connected_tescan_estimates_with_the_dose_model(monkeypatch):
+    """A connected TESCAN's milling service is what setup_session installs."""
+    import os
+
+    import fibsem.config as cfg
+    from fibsem import utils
+    from tests.fixtures import tescan_sdk
+
+    config_path = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+    system = utils.load_microscope_configuration(config_path).system
+    microscope, _ = tescan_sdk.connect(monkeypatch, system)
+    assert isinstance(microscope.milling, TescanMilling)
+    set_milling_time_estimator(microscope.milling.estimate_stage)
+    assert estimate_stage_milling_time(make_stage()) == DOSE_MODEL_SECONDS
 
 
 def _make_tescan(monkeypatch) -> TescanMicroscope:

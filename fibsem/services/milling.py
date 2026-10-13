@@ -61,6 +61,7 @@ from typing import (
 from fibsem.cancellation import raise_if_cancelled
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
+from fibsem.milling.base import estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.core import Service, forward_to, save_beam_conditions
 from fibsem.structures import (
@@ -81,6 +82,7 @@ if TYPE_CHECKING:
     import threading
 
     from fibsem.cancellation import AnyStopEvent
+    from fibsem.milling.base import FibsemMillingStage
 
 # The beam conditions milling changes and `restore` puts back, in the order they are
 # written back: a preset first, since it sets the others on a column that has one,
@@ -390,6 +392,15 @@ class Milling(Service):
     def estimate(self) -> float:
         """How long milling what is drawn takes, in seconds."""
         return self._estimate()
+
+    def estimate_stage(self, stage: FibsemMillingStage) -> float:
+        """How long milling *stage* would take on this instrument, in seconds,
+        before anything is drawn: for planning (task and workflow ETAs).
+
+        By default the shared sputter-rate table, keyed on the recipe's milling
+        current. A driver with its own model overrides it.
+        """
+        return estimate_milling_time(stage.pattern, stage.milling.milling_current)
 
     @command
     def clear(self) -> None:

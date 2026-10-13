@@ -56,6 +56,7 @@ if TYPE_CHECKING:
 
     from fibsem.drivers.tescan.connection import TescanConnection
     from fibsem.drivers.tescan.microscope import TescanMicroscope
+    from fibsem.milling.base import FibsemMillingStage
 
 
 class TescanMilling(Milling):
@@ -81,6 +82,15 @@ class TescanMilling(Milling):
         self.connection = connection
         # The DrawBeam layer the last setup made, which the patterns are drawn on.
         self.layer: Any = None
+
+    def estimate_stage(self, stage: FibsemMillingStage) -> float:
+        # Tescan milling is preset-driven: the dose model (stage rate x preset
+        # current), not the shared table keyed on the unused milling_current. A
+        # preset the model can't read falls back to the table.
+        estimate = tescan.estimate_preset_milling_time(stage)
+        if estimate is None:
+            return super().estimate_stage(stage)
+        return estimate
 
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "milling_channel":
