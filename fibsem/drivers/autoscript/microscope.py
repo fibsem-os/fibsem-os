@@ -37,7 +37,6 @@ from fibsem.structures import (
     FibsemStagePosition,
     FibsemUser,
     GridSlot,
-    ImageSettings,
     MicroscopeState,
     RangeLimit,
     SampleGrid,
@@ -622,7 +621,6 @@ class ThermoMicroscope(FibsemMicroscope):
             # AutoScript needs a valid application file before a pattern is made
             self.milling._set_application_file("Si", default=True)
 
-        self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
 
         from fibsem.drivers.autoscript.devices import ThermoFisherFluorescenceMicroscope

@@ -271,6 +271,11 @@ class AutoLamellaUI(QMainWindow):
         # The embedded App Server (FIB-845): built on microscope connect when the
         # App Server preference is on; None means the feature is off.
         self._app_server_host = None
+        # Whether this session serves the microscope's devices (FIB-1359): the
+        # operator's choice in Tools → App Server, per session like the agent
+        # level. None until the server first starts, which reads the
+        # preference's start-up default.
+        self._app_server_devices: Optional[bool] = None
         # The app's event stream (FIB-1031): built on microscope connect, always,
         # and recorded to events.jsonl in the experiment directory. The agent
         # server reads it when it runs; None only while disconnected.
@@ -754,8 +759,12 @@ class AutoLamellaUI(QMainWindow):
         if preference.enabled:
             from fibsem.applications.autolamella.server.hosting import AppServerHost
 
+            if self._app_server_devices is None:
+                self._app_server_devices = preference.devices
             if self._app_server_host is None:
-                self._app_server_host = AppServerHost(self, devices=preference.devices)
+                self._app_server_host = AppServerHost(
+                    self, devices=self._app_server_devices
+                )
             recorder = self._event_recorder
             self._app_server_host.start(
                 self.microscope,
@@ -773,20 +782,41 @@ class AutoLamellaUI(QMainWindow):
         server wraps it); without one this is a no-op and the connect path
         picks the preference up as before.
 
-        The services are fixed when the server starts, so a changed devices
-        setting restarts it. The token is new after that, and a connected agent
-        reconnects as it would after any restart.
+        The devices preference is only the start-up default: this session's
+        choice is made in Tools → App Server (``set_app_server_devices``).
         """
         host = self._app_server_host
         preference = fibsem_cfg.load_user_preferences().app_server
-        if host is not None and host.devices != preference.devices:
-            host.stop()
-            self._app_server_host = host = None
         if preference.enabled:
             if self.microscope is not None and (host is None or not host.running):
                 self._start_app_server()
         elif host is not None and host.running:
             host.stop()
+
+    def set_app_server_devices(self, devices: bool) -> None:
+        """Serve the microscope's devices this session, or stop serving them
+        (FIB-1359), from Tools → App Server.
+
+        The services are fixed when the server starts, so a change restarts a
+        running server. The agent's token and level are the session's and
+        carry over, so a connected agent carries on.
+        """
+        devices = bool(devices)
+        if devices == self._app_server_devices:
+            return
+        self._app_server_devices = devices
+        logging.info(
+            "App Server: the microscope's devices %s by the operator",
+            "served" if devices else "no longer served",
+        )
+        host = self._app_server_host
+        if host is None or host.devices == devices:
+            return
+        was_running = host.running
+        host.stop()
+        self._app_server_host = None
+        if was_running and self.microscope is not None:
+            self._start_app_server()
 
     def disconnect_from_microscope(self):
         if self._app_server_host is not None:

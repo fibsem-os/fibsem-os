@@ -7,6 +7,7 @@ beam. Nothing here is cached: every answer is re-derived from the slots.
 """
 
 import logging
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,7 @@ from fibsem.drivers.demo import devices as demo_devices
 from fibsem.services import sample_handling as stage_module
 from fibsem.services.sample_handling import (
     BUILTIN_HOLDER_NAME,
+    BUILTIN_SLOT_NAME,
     DeviceGridMagazine,
     GridMagazine,
     GridSlotState,
@@ -154,7 +156,7 @@ class TestExchange:
         microscope = _compustage_demo()
         loader = _with_magazine(microscope)
         grid = loader.load_grid("Slot-02")
-        working = microscope.sample_handling.holder.slots["Slot-01"]
+        working = microscope.sample_handling.holder.slots[BUILTIN_SLOT_NAME]
         assert working.loaded_grid is grid
         # the magazine slot is the grid's home; it keeps the grid while it is loaded
         assert loader.slots["Slot-02"].loaded_grid is grid
@@ -164,7 +166,7 @@ class TestExchange:
         loader = _with_magazine(microscope)
         loader.load_grid("Slot-01")
         loader.load_grid("Slot-05")
-        working = microscope.sample_handling.holder.slots["Slot-01"]
+        working = microscope.sample_handling.holder.slots[BUILTIN_SLOT_NAME]
         assert working.loaded_grid.name == "Grid-05"
         assert loader.slots["Slot-01"].loaded_grid.name == "Grid-01"  # still present
 
@@ -181,7 +183,10 @@ class TestExchange:
         loader = _with_magazine(microscope)
         loader.load_grid("Slot-02")
         loader.unload_grid()
-        assert microscope.sample_handling.holder.slots["Slot-01"].loaded_grid is None
+        assert (
+            microscope.sample_handling.holder.slots[BUILTIN_SLOT_NAME].loaded_grid
+            is None
+        )
         assert loader.slots["Slot-02"].loaded_grid is not None
 
     def test_unload_when_empty_is_a_noop(self):
@@ -204,10 +209,33 @@ class TestExchange:
         loader.device.fail_next_exchange = True
         with pytest.raises(GridExchangeError):
             loader.load_grid("Slot-02")
-        working = microscope.sample_handling.holder.slots["Slot-01"]
+        working = microscope.sample_handling.holder.slots[BUILTIN_SLOT_NAME]
         # the unload half of the exchange failed, so Grid-01 is still loaded
         assert working.loaded_grid.name == "Grid-01"
         assert loader.device.fail_next_exchange is False
+
+    def test_exchanges_are_on_the_record(self):
+        """FIB-1359: a load and an unload are events, as a stage move is."""
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        recorded = []
+        microscope.record_signal.connect(lambda k, p: recorded.append((k, p)))
+        loader.load_grid("Slot-01")
+        loader.load_grid("Slot-05")  # an exchange: unload Grid-01, load Grid-05
+        loader.load_grid("Slot-05")  # already loaded: nothing to record
+        loader.device.fail_next_exchange = True
+        with pytest.raises(GridExchangeError):
+            loader.unload_grid()
+        kinds = [(k, p["grid"], p["slot"], p["error"]) for k, p in recorded]
+        assert kinds == [
+            ("grid_loaded", "Grid-01", "Slot-01", None),
+            ("grid_unloaded", "Grid-01", "Slot-01", None),
+            ("grid_loaded", "Grid-05", "Slot-05", None),
+            ("grid_unloaded", "Grid-05", "Slot-05", kinds[-1][3]),
+        ]
+        assert kinds[-1][3].startswith("GridExchangeError")
+        working = microscope.sample_handling.holder.slots["Slot-01"].name
+        assert all(p["working_slot"] == working for _, p in recorded)
 
 
 # ---------------------------------------------------------------------------
@@ -238,9 +266,9 @@ class TestInventoryWithLoader:
         loader = _with_magazine(microscope)
         loader.load_grid("Slot-02")
         # an operator hand-loads something else: the inventory must say so
-        microscope.sample_handling.holder.slots["Slot-01"].loaded_grid = loader.slots[
-            "Slot-05"
-        ].loaded_grid
+        microscope.sample_handling.holder.slots[
+            BUILTIN_SLOT_NAME
+        ].loaded_grid = loader.slots["Slot-05"].loaded_grid
         assert _entry(microscope, "Slot-02").loaded is False
         assert _entry(microscope, "Slot-05").loaded is True
 
@@ -393,7 +421,7 @@ class TestCreateSampleStage:
 
     def test_compustage_working_slot_is_the_origin_until_calibrated(self):
         microscope = _compustage_demo()
-        slot = microscope.sample_handling.holder.slots["Slot-01"]
+        slot = microscope.sample_handling.holder.slots[BUILTIN_SLOT_NAME]
         assert (slot.position.x, slot.position.y, slot.position.z) == (0.0, 0.0, 0.0)
         assert slot.calibration.is_builtin
 
@@ -424,6 +452,25 @@ class TestCreateSampleStage:
         assert not slot.calibration.is_builtin
         assert slot.loaded_grid is None  # occupancy is the session's, not copied
 
+    def test_the_shuttle_slot_has_its_own_name(self):
+        """FIB-1359: not "Slot-01", the loader's first magazine slot too."""
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        assert list(microscope.sample_handling.holder.slots) == [BUILTIN_SLOT_NAME]
+        assert BUILTIN_SLOT_NAME not in loader.slots
+        # A script that names it the old way still reaches it.
+        microscope.sample_handling.ensure_loaded("Grid-01")
+        microscope.sample_handling.move_to_slot("Slot-01")
+        assert microscope.sample_handling.current_slot.name == BUILTIN_SLOT_NAME
+
+    def test_occupancy_recorded_under_the_old_name_comes_back(self):
+        microscope = _compustage_demo()
+        holder = microscope.sample_handling.holder
+        recorded = {"Slot-01": SampleGrid(name="grid-aspen").to_dict()}
+        state = SimpleNamespace(load_section=lambda section, migrate=None: recorded)
+        assert stage_module.load_holder_occupancy(holder, state)
+        assert holder.slots[BUILTIN_SLOT_NAME].loaded_grid.name == "grid-aspen"
+
     def test_compustage_drops_a_working_slot_captured_at_another_pre_tilt(self, caplog):
         microscope, _ = demo_session(compustage=True)
         self._captured_working_slot(microscope, pre_tilt=12.0)
@@ -433,7 +480,7 @@ class TestCreateSampleStage:
             stage = bind_sample_handling(microscope)
         finally:
             logging.getLogger().removeHandler(caplog.handler)
-        slot = stage.holder.slots["Slot-01"]
+        slot = stage.holder.slots[BUILTIN_SLOT_NAME]
         assert slot.position.x == 0.0 and slot.calibration.is_builtin
         assert "Using the stage origin" in caplog.text
 
@@ -652,7 +699,7 @@ def test_current_grid_is_none_before_the_first_position_read():
     assert stage.current_grid is None
 
     microscope.get_stage_position()  # the first read fills the cache
-    stage.move_to_slot("Slot-01")
+    stage.move_to_slot(BUILTIN_SLOT_NAME)
     assert stage.current_grid is not None
     assert stage.current_grid.name == "Grid-01"
 

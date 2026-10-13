@@ -54,6 +54,32 @@ def test_the_dialog_shows_status_services_and_the_agent(qapp):
     dialog.deleteLater()
 
 
+def test_the_dialog_serves_the_devices_this_session(qapp):
+    """FIB-1359: the devices toggle is here, per session, not in Preferences."""
+    hosts = [_Host(devices=False)]
+    chosen = []
+
+    def set_devices(on):
+        chosen.append(on)
+        hosts.append(_Host(devices=on))  # the restarted server
+
+    dialog = AppServerDialog(lambda: hosts[-1], set_devices=set_devices)
+    assert dialog._chk_devices.isEnabled() and not dialog._chk_devices.isChecked()
+    dialog._chk_devices.setChecked(True)
+    assert chosen == [True]
+    assert dialog._services_label.text() == "Services: monitoring · devices on"
+    # A refresh that reads the box back sets nothing.
+    dialog.refresh()
+    assert chosen == [True]
+    dialog.deleteLater()
+
+
+def test_the_devices_toggle_waits_for_a_running_server(qapp):
+    dialog = AppServerDialog(lambda: None, set_devices=lambda on: None)
+    assert not dialog._chk_devices.isEnabled()
+    dialog.deleteLater()
+
+
 def test_the_dialog_has_no_token_and_no_arming(qapp, host):
     # The agent's level is the chip's; its token is Connect an agent's.
     dialog = AppServerDialog(lambda: host)

@@ -4,6 +4,7 @@ The TestClient is an httpx.Client, so the sidecar's HTTP layer runs unchanged
 against the in-process ASGI app — full stack minus the socket."""
 
 import asyncio
+import json
 import os
 
 import pytest
@@ -133,6 +134,29 @@ def test_hardware_refusal_is_readable_text_not_an_error():
     result = asyncio.run(sidecar.call_tool("move_stage_relative", {"dx": 1e-6}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert "scope_not_armed" in text
+
+
+def test_service_query_tool_round_trip(armed_sidecar):
+    """FIB-1359: a service query was reachable over raw HTTP only."""
+    here = asyncio.run(armed_sidecar.call_tool("get_stage_position", {}))
+    position = json.loads("".join(getattr(c, "text", "") for c in _contents(here)))
+    result = asyncio.run(
+        armed_sidecar.call_tool(
+            "call_service_query",
+            {
+                "service": "stage_movement",
+                "query": "project_stable_move",
+                "kwargs": {
+                    "dx": 0.0,
+                    "dy": 0.0,
+                    "beam_type": 1,
+                    "base_position": position["position"],
+                },
+            },
+        )
+    )
+    answer = json.loads("".join(getattr(c, "text", "") for c in _contents(result)))
+    assert answer["result"]["x"] == pytest.approx(position["position"]["x"])
 
 
 def _contents(result):

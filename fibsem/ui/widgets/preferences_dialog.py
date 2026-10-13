@@ -50,7 +50,8 @@ _TIP_DEV_MODE = (
 _LBL_COINCIDENCE = "Enable Coincidence Milling Viewer"
 _TIP_COINCIDENCE = (
     "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
-    "Restricted to ThermoFisher Arctis with the modified sample holder."
+    "Only for an instrument whose FM objective sits under the grid while the FIB mills, "
+    "with a sample holder modified to allow it."
 )
 _LBL_CONNECTION_CHIP = "Enable Connection Chip"
 _TIP_CONNECTION_CHIP = (
@@ -67,12 +68,11 @@ _TIP_PROPOSE_REVIEW = (
     "allows a task to be set to Review. Early access."
 )
 _LBL_APP_SERVER = "Enable App Server"
-_LBL_APP_SERVER_DEVICES = "Serve the microscope's devices"
+_LBL_APP_SERVER_DEVICES = "Serve the microscope's devices at start-up"
 _TIP_APP_SERVER_DEVICES = (
-    "Also serve the routes that reach the instrument, local or on a Device "
-    "Server: its devices, stage, beams and milling state, reads included. Off, "
-    "clients see the session but cannot query the microscope. Moving it still "
-    "needs hardware permission. Changing this restarts the App Server."
+    "Whether a new session also serves the routes that reach the instrument: "
+    "its devices, stage, beams and milling state, reads included. Turn them on "
+    "or off for this session in Tools → App Server."
 )
 _TIP_APP_SERVER = (
     "Run the App Server when a microscope connects: a local, token-protected "
@@ -302,9 +302,10 @@ class PreferencesDialog(QDialog):
         QMessageBox.warning(
             self,
             "Coincidence Milling — Restricted Use",
-            "This mode can only be used on the ThermoFisher Arctis that has the modified "
-            "sample holder. It also requires disabling the software restrictions related to "
-            "running the fluorescence microscope while milling.",
+            "This mode can only be used on an instrument whose FM objective sits under "
+            "the grid while the FIB mills, with a sample holder modified to allow it. It "
+            "also requires disabling the software restrictions related to running the "
+            "fluorescence microscope while milling.",
         )
 
     def get_preferences(self) -> UserPreferences:

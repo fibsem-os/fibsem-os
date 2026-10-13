@@ -187,8 +187,16 @@ class HookContext:
     # Why a task was skipped, on TASK_SKIPPED. The producer decides the vocabulary;
     # AutoLamella uses not_required / failure / missing_prereqs / lamella_not_found.
     skip_reason: Optional[str] = None
+    # The requirements that stopped it, on a TASK_SKIPPED for missing_prereqs: the
+    # tasks whose latest run did not complete. A reason alone left an agent guessing
+    # which requirement it was (FIB-1357).
+    missing_prereqs: Optional[List[str]] = None
     # How many proposals were awaiting a decision, on WORKFLOW_STALLED.
     decisions_pending: Optional[int] = None
+    # How the run's tasks ended, by status ("completed", "failed", "skipped"), on
+    # WORKFLOW_COMPLETED. A run in which everything was skipped still completes, and
+    # this is what says nothing ran (FIB-1357).
+    task_counts: Optional[Dict[str, int]] = None
     timestamp: float = field(default_factory=time.time)
 
     def __post_init__(self):

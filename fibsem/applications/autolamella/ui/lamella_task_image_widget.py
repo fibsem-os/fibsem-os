@@ -956,28 +956,35 @@ class LamellaTaskImageWidget(QWidget):
         facts = QGridLayout()
         facts.setHorizontalSpacing(12)
         facts.setVerticalSpacing(2)
-        rows = list(operation_facts(operation))
+        # (name, text, indented, figure): the facts, then for a mill each stage
+        # with, indented under it, what its strategy said (FIB-1257) and the
+        # drift corrections it ran (FIB-1351)
+        rows: List[Tuple[str, str, bool, Optional[str]]] = [
+            (name, value, False, None) for name, value in operation_facts(operation)
+        ]
         if operation.kind == "milling":
-            # each stage, then the drift corrections it ran, indented (FIB-1351)
             for stage in milling_stages(operation):
-                rows.append((stage.name, stage.text))
-                rows.extend(("drift correction", run) for run in stage.drift)
-        for row, (name, value) in enumerate(rows):
-            nested = not isinstance(value, str)
+                rows.append((stage.name, stage.text, False, None))
+                if stage.strategy:
+                    rows.append((stage.strategy, stage.said, True, stage.figure))
+                rows.extend(
+                    ("alignment", run.detail, True, run.plot) for run in stage.drift
+                )
+        for row, (name, value, nested, figure) in enumerate(rows):
             label = _text(name, f"font-size: 11px; color: {NEUTRAL_550};")
             if nested:
                 label.setContentsMargins(12, 0, 0, 0)
             facts.addWidget(label, row, 0, Qt.AlignmentFlag.AlignTop)
             text = _text(
-                value.detail if nested else value,
+                value,
                 f"font-family: {NUMBER_FONT}; font-size: 11px; color: {NEUTRAL_400};",
             )
             text.setWordWrap(True)
             text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             facts.addWidget(text, row, 1)
-            if nested and value.plot is not None:
-                link = _link("Figure", value.plot)
-                link.setToolTip(_figure_tooltip(value.plot))
+            if figure is not None:
+                link = _link("Figure", figure)
+                link.setToolTip(_figure_tooltip(figure))
                 facts.addWidget(link, row, 2, Qt.AlignmentFlag.AlignTop)
         facts.setColumnStretch(1, 1)
         layout.addLayout(facts)

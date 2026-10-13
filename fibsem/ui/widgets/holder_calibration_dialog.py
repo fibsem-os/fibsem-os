@@ -181,6 +181,11 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
 
     @property
     def slot_names(self) -> List[str]:
+        if self._builtin:  # the shuttle's slot has a name of its own
+            return [
+                slot.name
+                for slot in sorted(self._holder.slots.values(), key=lambda s: s.index)
+            ]
         return [f"Slot-{i + 1:02d}" for i in range(self._capacity)]
 
     @property

@@ -270,7 +270,6 @@ class TescanMicroscope(FibsemMicroscope):
         # initialise system settings
         self.system: SystemSettings = system_settings
         self.milling_channel: BeamType = BeamType.ION
-        self._last_imaging_settings: ImageSettings = ImageSettings()
 
         # user, experiment metadata
         # TODO: remove once db integrated

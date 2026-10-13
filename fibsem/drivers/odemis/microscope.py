@@ -247,7 +247,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         "manipulator": False,
     }
 
-    _last_imaging_settings: ImageSettings
     _connection: Optional[OdemisConnection] = None
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
@@ -277,7 +276,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
         # internal parameters
         self.milling_channel: BeamType = BeamType.ION
-        self._last_imaging_settings: ImageSettings = ImageSettings()
 
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()

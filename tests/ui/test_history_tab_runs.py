@@ -7,6 +7,7 @@ reads them. Preferences go to a throwaway file.
 
 import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -134,12 +135,26 @@ def _shown(widget):
     ]
 
 
+def _settled(widget):
+    """Let the re-fit a show starts run out. It rebuilds the rows 150 ms later,
+    and rows rebuilt during a test's last pass of the event loop are not yet
+    shown, so a test that read them then found its opened lines missing."""
+    deadline = time.monotonic() + 5
+    while widget._refit.isActive() and time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    QApplication.processEvents()
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    return widget
+
+
 @pytest.fixture
 def widget(qapp, lamella):
     widget = LamellaTaskImageWidget()
     widget.resize(420, 1600)
     widget.set_lamella(lamella)
     widget.show()
+    _settled(widget)
     yield widget
     widget._cancel_worker()
     widget.deleteLater()
@@ -414,15 +429,16 @@ def test_an_opened_mill_lists_each_stage_with_its_drift_correction(qapp, tmp_pat
     widget.resize(420, 1600)
     widget.set_lamella(lamella)
     widget.show()
+    _settled(widget)
     try:
         (mill,) = _operation_lines(widget)  # the alignment is not a line
-        assert "1 stage · drift ≤ 0.07 µm" in _shown(widget)
+        assert "1 stage · alignment ≤ 0.07 µm" in _shown(widget)
 
         mill.clicked.emit()
 
         texts = _shown(widget)
         assert texts[texts.index("Rough Mill 01") + 1] == "completed · 20 s · 740 pA"
-        assert texts[texts.index("drift correction") + 1] == "0.07 µm · 1 step"
+        assert texts[texts.index("alignment") + 1] == "0.07 µm · 1 step"
         (link,) = [
             b
             for b in widget._content.findChildren(QPushButton)

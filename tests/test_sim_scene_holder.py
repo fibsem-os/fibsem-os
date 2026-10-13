@@ -10,6 +10,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings, SampleGrid
 
 TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -200,7 +201,7 @@ def _arctis(grid_position=GRID_POSITION, captured=None):
 
 
 def _image_at(microscope, orientation: str, beam: BeamType) -> np.ndarray:
-    slot = microscope.sample_handling.holder.slots["Slot-01"]
+    slot = microscope.sample_handling.holder.slots[BUILTIN_SLOT_NAME]
     target = microscope.get_target_position(slot.position, orientation)
     microscope.safe_absolute_stage_movement(target)
     settings = _settings()
@@ -251,7 +252,7 @@ def test_a_working_slot_off_the_grid_misses_it_and_a_captured_one_finds_it():
     assert reference["SEM"] is not None and reference["FIB"] is not None
 
     missed = _arctis()
-    assert missed.sample_handling.holder.slots["Slot-01"].calibration.is_builtin
+    assert missed.sample_handling.holder.slots[BUILTIN_SLOT_NAME].calibration.is_builtin
     assert not _close(_fiducials(missed)["SEM"], reference["SEM"])
 
     at = _sem_pose()
@@ -259,7 +260,7 @@ def test_a_working_slot_off_the_grid_misses_it_and_a_captured_one_finds_it():
     captured = _arctis(
         captured=FibsemStagePosition(name="Slot-01", x=x, y=y, z=z, r=at.r, t=at.t)
     )
-    slot = captured.sample_handling.holder.slots["Slot-01"]
+    slot = captured.sample_handling.holder.slots[BUILTIN_SLOT_NAME]
     assert not slot.calibration.is_builtin
     found = _fiducials(captured)
     assert _close(found["SEM"], reference["SEM"])
