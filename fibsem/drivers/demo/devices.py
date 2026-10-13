@@ -49,8 +49,8 @@ from fibsem.devices.scanner import Scanner
 from fibsem.devices.stage import (
     Stage,
     axis_limits_from_degrees,
-    compustage_device_at_pose,
-    compustage_poses,
+    flip_stage_device_at_pose,
+    flip_stage_poses,
 )
 from fibsem.drivers.demo.simulator import (
     BINNING_VALUES,
@@ -432,14 +432,14 @@ class DemoStage(Stage):
         self, rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
     ) -> Dict[str, FibsemStagePosition]:
         if self.compustage:
-            return compustage_poses(
+            return flip_stage_poses(
                 rotation_reference, shuttle_pre_tilt, fib_column_tilt
             )
         return super().poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
 
     def device_at_pose(self, orientation: str) -> Optional[str]:
         if self.compustage:
-            return compustage_device_at_pose(orientation)
+            return flip_stage_device_at_pose(orientation)
         return super().device_at_pose(orientation)
 
     def read_linked(self) -> bool:

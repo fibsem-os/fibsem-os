@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Optional, Tuple
 import numpy as np
 
 from fibsem.fm.reprojection import project_image_point
+from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
 from fibsem.projection import BeamStageProjection
 from fibsem.structures import (
     BeamType,
@@ -149,8 +150,8 @@ def fm_geometry_for(
     FM configuration in force at the time).
     """
     if camera_tilt is None:
-        camera_tilt = (
-            180.0 if fib_geometry.fm_is_pose else float(fib_geometry.fib_column_tilt)
+        camera_tilt = derived_camera_tilt(
+            fib_geometry.fm_is_pose, fib_geometry.fib_column_tilt
         )
     return dataclasses.replace(
         fib_geometry, camera_tilt=float(camera_tilt), transform=transform

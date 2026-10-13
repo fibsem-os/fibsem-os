@@ -13,7 +13,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.devices.stage import compustage_poses, rotating_stage_poses
+from fibsem.devices.stage import flip_stage_poses, rotating_stage_poses
 from fibsem.structures import FibsemStagePosition
 
 IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -44,7 +44,7 @@ def test_a_stage_that_declares_an_fm_pose_reaches_the_fm_by_re_posing():
     stage travels by after the flip (`test_device_moves_one_path.py`)."""
     microscope = _microscope(IFLM_CONFIG)
     assert not microscope._fm_is_a_pose()
-    _declare(microscope, compustage_poses)
+    _declare(microscope, flip_stage_poses)
     microscope.system.stage.devices["FM"].origin = FibsemStagePosition(x=0.0)
     microscope.system.stage.devices["FM"].available_orientations = ["FM"]
     start = microscope.get_stage_position()
@@ -69,7 +69,7 @@ def test_at_a_pose_there_is_no_parking_at_the_fm_to_refuse_a_rotation_at():
         microscope._refuse_rotation_at_the_fluorescence_microscope(half_turn)
 
     # ...a stage whose FM is a pose has nowhere to be parked.
-    _declare(microscope, compustage_poses)
+    _declare(microscope, flip_stage_poses)
     microscope._refuse_rotation_at_the_fluorescence_microscope(half_turn)
 
 
