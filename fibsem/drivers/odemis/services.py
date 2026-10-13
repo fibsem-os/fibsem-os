@@ -31,6 +31,7 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
+    from fibsem.drivers.odemis.connection import OdemisConnection
     from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
 _PATTERNING_MODES = ("Serial", "Parallel")
@@ -51,14 +52,16 @@ class OdemisMilling(Milling):
     )
     scan_directions = ODEMIS_SCAN_DIRECTIONS
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, connection: OdemisConnection, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.connection = connection
         # the recipe's application file, which each draw puts back after its own
         self._application_file = "Si"
 
     @property
     def _connection(self):
-        return self.parent.connection
+        """The odemis client."""
+        return self.connection.sdk
 
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "application_file":
@@ -73,7 +76,7 @@ class OdemisMilling(Milling):
         channel = settings.milling_channel
         self._application_file = settings.application_file
         microscope.milling_channel = channel
-        microscope.set_channel(channel)
+        self.connection.set_channel(channel)
         odemis_channel = beam_type_to_odemis[channel]
         self._connection.set_default_patterning_beam_type(odemis_channel)
         logging.info(f"Patterning beam type set to {channel} - {odemis_channel} .")
@@ -193,8 +196,8 @@ class OdemisMilling(Milling):
         # The patterning state is that of the active view, so the milling channel is
         # selected first, under the microscope's lock.
         microscope = self.parent
-        with microscope._threading_lock:
-            microscope.set_channel(microscope.milling_channel)
+        with self.connection.lock:
+            self.connection.set_channel(microscope.milling_channel)
             return MillingState[self._connection.get_patterning_state().upper()]
 
     def _start(self) -> None:
@@ -235,4 +238,4 @@ def bind_odemis_milling(
     microscope: OdemisThermoMicroscope,
 ) -> Optional[OdemisMilling]:
     """Build ``milling`` for an Odemis microscope whose beams are built."""
-    return bind_milling(OdemisMilling, microscope)
+    return bind_milling(OdemisMilling, microscope, connection=microscope._connection)

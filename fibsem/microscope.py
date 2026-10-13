@@ -1463,8 +1463,7 @@ class FibsemMicroscope(ABC):
             self._set_device(name, (beams or {}).get(beam_type))
 
     # The stage as a device (fibsem.devices.Stage), once a backend builds one. A
-    # backend keeps its vendor stage object private (`_vendor_stage` on Thermo and
-    # Odemis).
+    # backend keeps its vendor stage object private, on its driver's connection.
     @property
     def stage(self) -> Optional[Any]:
         return self._devices.get("stage")

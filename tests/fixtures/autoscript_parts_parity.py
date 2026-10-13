@@ -109,7 +109,7 @@ def make(build):
     """A ThermoMicroscope over the fake SDK, with its parts built as connect builds
     them when *build*, else as before."""
     microscope = S.make(compustage=False)
-    connection = microscope.connection
+    connection = microscope._connection.sdk
     object.__setattr__(connection.vacuum, "chamber_state", "Pumped")
     object.__setattr__(connection.vacuum.chamber_pressure, "value", 2.5e-4)
     object.__setattr__(
@@ -229,7 +229,7 @@ def facts():
 
     # without a manipulator, none is built
     microscope = S.make(compustage=False)
-    needle = microscope.connection.specimen.manipulator
+    needle = microscope._connection.sdk.specimen.manipulator
     object.__setattr__(needle, "is_installed", False)  # what the instrument says
     microscope._build_parts()
     out["none_fitted"] = {

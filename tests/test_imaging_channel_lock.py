@@ -58,8 +58,9 @@ def _calls_named(node: ast.AST, name: str) -> list:
 
 
 def _locked_blocks(node: ast.AST) -> list:
-    """Every `with self._threading_lock:` or `with self.claim_channel():` block
-    anywhere under `node`."""
+    """Every `with self._threading_lock:`, `with self.connection.lock:` (the same
+    lock, handed to the devices) or `with self.claim_channel():` block anywhere under
+    `node`."""
     return [
         child
         for child in ast.walk(node)
@@ -67,6 +68,7 @@ def _locked_blocks(node: ast.AST) -> list:
         and any(
             "_threading_lock" in ast.dump(item.context_expr)
             or "claim_channel" in ast.dump(item.context_expr)
+            or _attr_chain(item.context_expr)[-2:] == ["connection", "lock"]
             for item in child.items
         )
     ]

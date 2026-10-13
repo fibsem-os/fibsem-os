@@ -215,7 +215,9 @@ def test_the_thermo_backend_reports_a_compustage_without_a_rotation_axis():
     """
     from fibsem.drivers.autoscript.devices import AutoscriptCompustage
 
-    limits = AutoscriptCompustage(parent=None).metadata_position().limits
+    limits = (
+        AutoscriptCompustage(parent=None, connection=None).metadata_position().limits
+    )
 
     assert set(limits) == set(STAGE_LIMITS_COMPUSTAGE)
     assert "r" not in limits

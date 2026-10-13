@@ -34,7 +34,7 @@ def record():
     for plasma in (False, True):
         microscope = P.routed(plasma)
         P._preset(
-            microscope.connection,
+            microscope._connection.sdk,
             "patterning.list_all_application_files",
             lambda: ["Si", "Si-multipass", "C"],
         )

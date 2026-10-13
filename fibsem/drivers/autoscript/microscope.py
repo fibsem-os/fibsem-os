@@ -21,6 +21,7 @@ from packaging.version import parse as parse_version
 from fibsem import manufacturers
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.devices.sample_loader import GridExchangeError
+from fibsem.drivers.autoscript.connection import AutoScriptConnection
 from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
@@ -402,125 +403,6 @@ def manipulator_position_from_autoscript(
     )
 
 
-def image_settings_from_adorned_image(
-    image: "AdornedImage",
-    beam_type: Optional["BeamType"] = None,
-) -> "ImageSettings":
-    """Create ImageSettings from an AutoScript AdornedImage.
-
-    Args:
-        image: AutoScript AdornedImage.
-        beam_type: Beam type for the image settings.
-
-    Returns:
-        ImageSettings: Converted image settings.
-
-    Raises:
-        ImportError: If AutoScript libraries are not available.
-    """
-    if not THERMO_API_AVAILABLE:
-        raise ImportError(
-            "AutoScript libraries not available. Cannot convert from AdornedImage."
-        )
-
-    from fibsem.structures import BeamType, ImageSettings
-    from fibsem.utils import current_timestamp
-
-    if beam_type is None:
-        beam_type = BeamType.ELECTRON
-
-    return ImageSettings(
-        resolution=(image.width, image.height),
-        dwell_time=image.metadata.scan_settings.dwell_time,
-        hfw=image.width * image.metadata.binary_result.pixel_size.x,
-        autocontrast=True,
-        beam_type=beam_type,
-        save=False,
-        path="path",
-        filename=current_timestamp(),
-        reduced_area=None,
-    )
-
-
-def fibsem_image_from_adorned_image(
-    adorned: "AdornedImage",
-    image_settings: Optional["ImageSettings"] = None,
-    state: Optional["MicroscopeState"] = None,
-    beam_type: Optional["BeamType"] = None,
-) -> "FibsemImage":
-    """Create a FibsemImage from an AutoScript AdornedImage.
-
-    Args:
-        adorned: AutoScript AdornedImage.
-        image_settings: Image settings. Defaults to None (derived from adorned).
-        state: Microscope state. Defaults to None (derived from adorned).
-        beam_type: Beam type for the image. Defaults to BeamType.ELECTRON.
-
-    Returns:
-        FibsemImage: Converted image.
-
-    Raises:
-        ImportError: If AutoScript libraries are not available.
-    """
-    if not THERMO_API_AVAILABLE:
-        raise ImportError(
-            "AutoScript libraries not available. Cannot convert from AdornedImage."
-        )
-
-    from fibsem.structures import (
-        BeamSettings,
-        BeamType,
-        FibsemImage,
-        FibsemImageMetadata,
-        FibsemStagePosition,
-        MicroscopeState,
-        Point,
-    )
-
-    if beam_type is None:
-        beam_type = BeamType.ELECTRON
-
-    # AutoScript's acquisition_datetime is the instrument PC's clock time with no zone
-    # (`07/16/2026 11:07:27` in a saved file). Read as this machine's local time --
-    # the instrument PC's, or one in the same building -- and recorded with its offset
-    # (FIB-1190). A state passed in keeps its own timestamp, when it was read:
-    # overwriting it with this string is what put a string in a float field (FIB-487).
-    acquired = to_datetime(adorned.metadata.acquisition.acquisition_datetime)
-    if acquired is not None:
-        acquired = acquired.astimezone()
-
-    if state is None:
-        state = MicroscopeState(
-            # Built from the frame's own metadata, so read when the frame was.
-            timestamp=acquired.timestamp() if acquired is not None else time.time(),
-            stage_position=FibsemStagePosition(
-                adorned.metadata.stage_settings.stage_position.x,
-                adorned.metadata.stage_settings.stage_position.y,
-                adorned.metadata.stage_settings.stage_position.z,
-                adorned.metadata.stage_settings.stage_position.r,
-                adorned.metadata.stage_settings.stage_position.t,
-            ),
-            electron_beam=BeamSettings(beam_type=BeamType.ELECTRON),
-            ion_beam=BeamSettings(beam_type=BeamType.ION),
-        )
-
-    if image_settings is None:
-        image_settings = image_settings_from_adorned_image(adorned, beam_type)
-
-    pixel_size = Point(
-        adorned.metadata.binary_result.pixel_size.x,
-        adorned.metadata.binary_result.pixel_size.y,
-    )
-
-    metadata = FibsemImageMetadata(
-        image_settings=image_settings,
-        pixel_size=pixel_size,
-        microscope_state=state,
-        acquisition_datetime=acquired,
-    )
-    return FibsemImage(data=adorned.data, metadata=metadata)
-
-
 # The device types each connect step builds (``ThermoMicroscope._build_devices``).
 # The FM is built on its own path; any other type a configuration adds is built last.
 _BEAM_TYPES = ("beam",)
@@ -618,9 +500,9 @@ class ThermoMicroscope(FibsemMicroscope):
 
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
-    # What connect found: the compustage rather than the stage. The Thermo paths that
-    # depend on the vendor stage read this; everything else asks the stage device.
-    _compustage_installed: bool = False
+    # The AutoScript client, from construction until disconnect. The devices and
+    # services are handed it; nothing else reaches the SDK.
+    _connection: Optional[AutoScriptConnection] = None
 
     # Specimen minus raw coordinates, (x, y) metres: where xT centres its compucentric
     # rotation, as an offset. Read once at connect, since xT does not change it while
@@ -636,7 +518,7 @@ class ThermoMicroscope(FibsemMicroscope):
             raise Exception(autoscript_unavailable_message())
 
         # create microscope client
-        self.connection = SdbMicroscopeClient()
+        self._connection = self._new_connection()
 
         # initialise system settings
         self.system: SystemSettings = system_settings
@@ -654,9 +536,13 @@ class ThermoMicroscope(FibsemMicroscope):
             }
         )
 
+    def _new_connection(self) -> AutoScriptConnection:
+        """A client, sharing the imaging channel lock with the devices."""
+        return AutoScriptConnection(SdbMicroscopeClient(), self._threading_lock)
+
     def reconnect(self):
         """Attempt to reconnect to the microscope client."""
-        if self.connection is None:
+        if self._connection is None:
             raise ConnectionError("Please connect to the microscope first")
 
         self.disconnect()
@@ -667,13 +553,12 @@ class ThermoMicroscope(FibsemMicroscope):
 
     def disconnect(self):
         """Disconnect from the microscope client."""
-        if self.connection is None:
+        if self._connection is None:
             logging.warning("Microscope client is not connected.")
             return
 
-        self.connection.disconnect()
-        del self.connection
-        self.connection = None
+        self._connection.disconnect()
+        self._connection = None
 
     def connect_to_microscope(
         self, ip_address: str, port: int = 7520, reset_beam_shift: bool = True
@@ -698,33 +583,28 @@ class ThermoMicroscope(FibsemMicroscope):
             >>> microscope = ThermoMicroscope()
             >>> microscope.connect_to_microscope("192.168.0.10", 7520)
         """
-        if self.connection is None:
-            self.connection = SdbMicroscopeClient()
+        if self._connection is None:
+            self._connection = self._new_connection()
+        sdk = self._connection.sdk
 
         logging.info(f"Microscope client connecting to [{ip_address}:{port}]")
-        self.connection.connect(host=ip_address, port=port)
+        self._connection.connect(host=ip_address, port=port)
         self._port = port
         logging.info(f"Microscope client connected to [{ip_address}:{port}]")
 
         # system information
-        self.system.info.model = self.connection.service.system.name
-        self.system.info.serial_number = self.connection.service.system.serial_number
-        self.system.info.hardware_version = self.connection.service.system.version
-        self.system.info.software_version = (
-            self.connection.service.autoscript.client.version
-        )
+        self.system.info.model = sdk.service.system.name
+        self.system.info.serial_number = sdk.service.system.serial_number
+        self.system.info.hardware_version = sdk.service.system.version
+        self.system.info.software_version = sdk.service.autoscript.client.version
         info = self.system.info
         logging.info(
             f"Microscope client connected to model {info.model} with serial number {info.serial_number} and software version {info.software_version}."
         )
 
         # autoscript information
-        logging.info(
-            f"Autoscript Client: {self.connection.service.autoscript.client.version}"
-        )
-        logging.info(
-            f"Autoscript Server: {self.connection.service.autoscript.server.version}"
-        )
+        logging.info(f"Autoscript Client: {sdk.service.autoscript.client.version}")
+        logging.info(f"Autoscript Server: {sdk.service.autoscript.server.version}")
 
         self._build_beams()
         self._build_milling()
@@ -734,27 +614,9 @@ class ThermoMicroscope(FibsemMicroscope):
         if reset_beam_shift:
             self.reset_beam_shifts()
 
-        # assign stage
-        if self.connection.specimen.compustage.is_installed:
-            self._vendor_stage = self.connection.specimen.compustage
-            self._compustage_installed = True
-            self._default_stage_coordinate_system = CoordinateSystem.SPECIMEN
-        elif self.connection.specimen.stage.is_installed:
-            self._vendor_stage = self.connection.specimen.stage
-            self._compustage_installed = False
-            self._default_stage_coordinate_system = CoordinateSystem.RAW
-        else:
-            raise Exception(
-                "No stage installed. Please check the microscope configuration."
-            )
-
-        # set default coordinate system
-        self._vendor_stage.set_default_coordinate_system(
-            self._default_stage_coordinate_system
-        )
-        self._compucentric_offset = (
-            None if self._compustage_installed else self._read_compucentric_offset()
-        )
+        # the stage, in its default coordinate system from now on
+        self._connection.find_stage()
+        self._compucentric_offset = self._connection.read_compucentric_offset()
         self._build_stage()
         self._build_stage_movement()
         # TODO: set default move settings, is this dependent on the stage type?
@@ -904,10 +766,7 @@ class ThermoMicroscope(FibsemMicroscope):
         Args:
             channel (BeamType): The beam type to set as the active channel.
         """
-        # TODO: create mapping for the other channels/devices
-        self.connection.imaging.set_active_view(channel.value)
-        self.connection.imaging.set_active_device(channel.value)
-        logging.debug(f"Set active channel to {channel.name}")
+        self._connection.set_channel(channel)
 
     def acquire_chamber_image(self) -> FibsemImage:
         """Acquire an image of the chamber inside."""
@@ -917,34 +776,17 @@ class ThermoMicroscope(FibsemMicroscope):
         # camera strands whoever was mid-operation, which is FIB-517 with a different
         # thief (FIB-545). Restores the view alone -- `set_active_device` changes the
         # device *in the active view*, so the device comes back with it.
+        imaging = self._connection.sdk.imaging
         with self._threading_lock:
-            restore_view = self.connection.imaging.get_active_view()
-            self.connection.imaging.set_active_view(4)
-            self.connection.imaging.set_active_device(3)
+            restore_view = imaging.get_active_view()
+            imaging.set_active_view(4)
+            imaging.set_active_device(3)
             try:
-                image = self.connection.imaging.get_image()
+                image = imaging.get_image()
             finally:
-                self.connection.imaging.set_active_view(restore_view)
+                imaging.set_active_view(restore_view)
         logging.debug({"msg": "acquire_chamber_image"})
         return FibsemImage(data=image.data, metadata=None)
-
-    def _construct_image(
-        self, adorned_image: AdornedImage, beam_type: BeamType
-    ) -> FibsemImage:
-        """Construct a FibsemImage from an AdornedImage and the current microscope state."""
-        # get the required metadata, convert to FibsemImage
-        state = self.get_microscope_state(beam_type=beam_type)
-        image_settings = self.get_imaging_settings(beam_type=beam_type)
-
-        image = fibsem_image_from_adorned_image(
-            copy.deepcopy(adorned_image),
-            copy.deepcopy(image_settings),
-            copy.deepcopy(state),
-        )
-
-        self._set_additional_metadata(image)
-
-        return image
 
     @_records_beam_shift
     def beam_shift(
@@ -961,7 +803,7 @@ class ThermoMicroscope(FibsemMicroscope):
             Point: the current beam shift of the requested beam_type, as this can now be clipped.
         """
         # beam shift limits
-        beam = self._get_beam(beam_type=beam_type)
+        beam = self._connection.beam(beam_type)
         limits: Limits2d = beam.beam_shift.limits
 
         # check if requested shift is outside limits
@@ -1075,7 +917,7 @@ class ThermoMicroscope(FibsemMicroscope):
             )
 
         # explicitly set the coordinate system
-        self.connection.specimen.manipulator.set_default_coordinate_system(
+        self._connection.sdk.specimen.manipulator.set_default_coordinate_system(
             ManipulatorCoordinateSystem.STAGE
         )
         manipulator_position = FibsemManipulatorPosition(
@@ -1115,19 +957,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
     manipulator_move_types = ("relative", "corrected")
 
-    def _get_beam(self, beam_type: BeamType) -> Union["ElectronBeam", "IonBeam"]:
-        """Get the beam connection api for the given beam type.
-        Args:
-            beam_type (BeamType): The type of beam to get (ELECTRON or ION).
-        Returns:
-            Union['ElectronBeam', 'IonBeam']: The autoscript beam connection object for the given beam type."""
-        if beam_type is BeamType.ELECTRON:
-            return self.connection.beams.electron_beam
-        elif beam_type is BeamType.ION:
-            return self.connection.beams.ion_beam
-        else:
-            raise ValueError(f"Unknown beam type: {beam_type}")
-
     @property
     def rotation_centre(self) -> Optional[Tuple[float, float]]:
         """Where a half turn is centred, raw (x, y) in metres (FIB-655).
@@ -1141,23 +970,3 @@ class ThermoMicroscope(FibsemMicroscope):
         ox, oy = self._compucentric_offset
         cx, cy = self.system.stage.rotation_centre_correction
         return (-ox + cx, -oy + cy)
-
-    def _read_compucentric_offset(self) -> Tuple[float, float]:
-        """Specimen minus raw stage coordinates, (x, y) metres, as xT reports them."""
-        try:
-            self._vendor_stage.set_default_coordinate_system(CoordinateSystem.SPECIMEN)
-            specimen = stage_position_from_autoscript(
-                self._vendor_stage.current_position
-            )
-            self._vendor_stage.set_default_coordinate_system(CoordinateSystem.RAW)
-            raw = stage_position_from_autoscript(self._vendor_stage.current_position)
-        finally:
-            self._vendor_stage.set_default_coordinate_system(
-                self._default_stage_coordinate_system
-            )
-        offset = (specimen.x - raw.x, specimen.y - raw.y)
-        logging.info(
-            f"Compucentric rotation offset (specimen - raw): "
-            f"x={offset[0] * 1e6:.2f} um, y={offset[1] * 1e6:.2f} um."
-        )
-        return offset

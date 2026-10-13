@@ -36,6 +36,7 @@ from fibsem.util.application_file import match_application_file
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
+    from fibsem.drivers.autoscript.connection import AutoScriptConnection
     from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 
 _PATTERNING_MODES = ("Serial", "Parallel")
@@ -56,8 +57,11 @@ class AutoScriptMilling(Milling):
     )
     scan_directions = tuple(TFS_SCAN_DIRECTIONS)
 
-    def __init__(self, name: str = "milling", **kwargs: Any):
+    def __init__(
+        self, connection: AutoScriptConnection, name: str = "milling", **kwargs: Any
+    ):
         super().__init__(name, **kwargs)
+        self.connection = connection
         # The patterns drawn since the last clear: their times are the estimate.
         self._patterns: List = []
         # The recipe's application file, which each pattern's own is reset to after
@@ -66,12 +70,12 @@ class AutoScriptMilling(Milling):
         self._current_application_file = self._default_application_file
 
     @property
-    def _connection(self) -> Any:
-        return self.parent.connection
+    def _sdk(self) -> Any:
+        return self.connection.sdk
 
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "application_file":
-            files = self._connection.patterning.list_all_application_files()
+            files = self._sdk.patterning.list_all_application_files()
             return ParameterMetadata(choices=tuple(files))
         return super()._setting_metadata(name)
 
@@ -81,8 +85,8 @@ class AutoScriptMilling(Milling):
         microscope = self.parent
         channel = settings.milling_channel
         microscope.milling_channel = channel
-        microscope.set_channel(channel)
-        self._connection.patterning.set_default_beam_type(channel.value)
+        self.connection.set_channel(channel)
+        self._sdk.patterning.set_default_beam_type(channel.value)
         self._set_application_file(settings.application_file, default=True)
         self._set_patterning_mode(settings.patterning_mode)
         self._clear()  # clear any existing patterns
@@ -100,10 +104,10 @@ class AutoScriptMilling(Milling):
         before a pattern is made."""
         application_file = match_application_file(
             application_file,
-            self._connection.patterning.list_all_application_files(),
+            self._sdk.patterning.list_all_application_files(),
             strict,
         )
-        self._connection.patterning.set_default_application_file(application_file)
+        self._sdk.patterning.set_default_application_file(application_file)
         self._current_application_file = application_file
         if default:
             self._default_application_file = application_file
@@ -121,7 +125,7 @@ class AutoScriptMilling(Milling):
             raise ValueError(
                 f"Patterning mode {mode} not supported. Supported modes: Serial, Parallel"
             )
-        self._connection.patterning.mode = mode
+        self._sdk.patterning.mode = mode
         logging.debug({"msg": "set_patterning_mode", "mode": mode})
         return mode
 
@@ -164,7 +168,7 @@ class AutoScriptMilling(Milling):
         """
 
         # get patterning api
-        patterning_api = self._connection.patterning
+        patterning_api = self._sdk.patterning
         if pattern_settings.cross_section is CrossSectionPattern.RegularCrossSection:
             create_pattern_function = patterning_api.create_regular_cross_section
             self._set_patterning_mode(
@@ -254,7 +258,7 @@ class AutoScriptMilling(Milling):
         Raises:
             autoscript.exceptions.InvalidArgumentException: if any of the pattern parameters are invalid.
         """
-        pattern = self._connection.patterning.create_line(
+        pattern = self._sdk.patterning.create_line(
             start_x=pattern_settings.start_x,
             start_y=pattern_settings.start_y,
             end_x=pattern_settings.end_x,
@@ -290,7 +294,7 @@ class AutoScriptMilling(Milling):
 
         fallback_application_file = "Si"
         try:
-            pattern = self._connection.patterning.create_circle(
+            pattern = self._sdk.patterning.create_circle(
                 center_x=pattern_settings.centre_x,
                 center_y=pattern_settings.centre_y,
                 outer_diameter=outer_diameter,
@@ -306,7 +310,7 @@ class AutoScriptMilling(Milling):
                 fallback_application_file,
             )
             self._set_application_file(fallback_application_file)
-            pattern = self._connection.patterning.create_circle(
+            pattern = self._sdk.patterning.create_circle(
                 center_x=pattern_settings.centre_x,
                 center_y=pattern_settings.centre_y,
                 outer_diameter=outer_diameter,
@@ -343,7 +347,7 @@ class AutoScriptMilling(Milling):
             if pattern_settings.interpolate is not None:
                 points = self._resize_bitmap_to_pattern(pattern_settings)
             bitmap_pattern.points = points
-            pattern = self._connection.patterning.create_bitmap(
+            pattern = self._sdk.patterning.create_bitmap(
                 center_x=pattern_settings.centre_x,
                 center_y=pattern_settings.centre_y,
                 width=pattern_settings.width,
@@ -364,7 +368,7 @@ class AutoScriptMilling(Milling):
             if pattern_settings.interpolate is not None:
                 points = self._resize_bitmap_to_pattern(pattern_settings)
             bitmap_pattern.points = points
-            pattern = self._connection.patterning.create_bitmap(
+            pattern = self._sdk.patterning.create_bitmap(
                 center_x=pattern_settings.centre_x,
                 center_y=pattern_settings.centre_y,
                 width=pattern_settings.width,
@@ -428,7 +432,7 @@ class AutoScriptMilling(Milling):
             )
 
         # Get pitch to calculate expected pixel size
-        rectangle = self._connection.patterning.create_rectangle(
+        rectangle = self._sdk.patterning.create_rectangle(
             center_x=pattern_settings.centre_x,
             center_y=pattern_settings.centre_y,
             width=pattern_settings.width,
@@ -482,7 +486,7 @@ class AutoScriptMilling(Milling):
                 "Polygon patterning is only supported in Autoscript 4.12 or higher."
             )
 
-        pattern = self._connection.patterning.create_polygon(
+        pattern = self._sdk.patterning.create_polygon(
             pattern_settings.vertices, depth=pattern_settings.depth
         )
         pattern.is_exclusion_zone = pattern_settings.is_exclusion
@@ -494,43 +498,42 @@ class AutoScriptMilling(Milling):
         return pattern
 
     def read_state(self) -> MillingState:
-        microscope = self.parent
-        with microscope._threading_lock:
-            microscope.set_channel(channel=microscope.milling_channel)
-            return MillingState[self._connection.patterning.state.upper()]
+        with self.connection.lock:
+            self.connection.set_channel(self.parent.milling_channel)
+            return MillingState[self._sdk.patterning.state.upper()]
 
     def _start(self) -> None:
-        with self.parent._threading_lock:
+        with self.connection.lock:
             if self.read_state() is MillingState.IDLE:
-                self._connection.patterning.start()
+                self._sdk.patterning.start()
                 logging.info("Starting milling...")
 
     def _stop(self) -> None:
-        with self.parent._threading_lock:
+        with self.connection.lock:
             if self.read_state() in ACTIVE_MILLING_STATES:
                 logging.info("Stopping milling...")
-                self._connection.patterning.stop()
+                self._sdk.patterning.stop()
                 logging.info("Milling stopped.")
 
     def _pause(self) -> None:
-        with self.parent._threading_lock:
+        with self.connection.lock:
             if self.read_state() == MillingState.RUNNING:
                 logging.info("Pausing milling...")
-                self._connection.patterning.pause()
+                self._sdk.patterning.pause()
                 logging.info("Milling paused.")
 
     def _resume(self) -> None:
-        with self.parent._threading_lock:
+        with self.connection.lock:
             if self.read_state() == MillingState.PAUSED:
                 logging.info("Resuming milling...")
-                self._connection.patterning.resume()
+                self._sdk.patterning.resume()
                 logging.info("Milling resumed.")
 
     def _estimate(self) -> float:
         return sum(pattern.time for pattern in self._patterns)
 
     def _clear(self) -> None:
-        self._connection.patterning.clear_patterns()
+        self._sdk.patterning.clear_patterns()
         self._patterns = []
 
     def _restore(self) -> None:
@@ -543,4 +546,6 @@ def bind_autoscript_milling(
     microscope: ThermoMicroscope,
 ) -> Optional[AutoScriptMilling]:
     """Build ``milling`` for a connected Thermo microscope whose beams are built."""
-    return bind_milling(AutoScriptMilling, microscope)
+    return bind_milling(
+        AutoScriptMilling, microscope, connection=microscope._connection
+    )

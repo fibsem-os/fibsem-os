@@ -155,13 +155,14 @@ class _OdemisStage:
 
 
 def _odemis(cls):
+    from fibsem.drivers.odemis.connection import OdemisConnection
     from fibsem.drivers.odemis.devices import bind_odemis_stage
 
     microscope = object.__new__(cls)  # skip __init__ (requires odemis)
     microscope.system = utils.load_microscope_configuration(
         os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
     ).system
-    microscope._vendor_stage = _OdemisStage()
+    microscope._connection = OdemisConnection(None, _OdemisStage(), None)
     microscope.stage = bind_odemis_stage(microscope)
     return microscope
 

@@ -54,7 +54,7 @@ LAYOUTS = {
 
 def run_case(microscope, case, args):
     mode, patterning_mode, layout, wait = CASES[case]
-    patterning = microscope.connection.patterning
+    patterning = microscope.milling.connection.sdk.patterning
     rtm = patterning.real_time_monitor
 
     microscope.setup_milling(

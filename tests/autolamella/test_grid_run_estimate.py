@@ -158,7 +158,9 @@ def test_each_loader_declares_what_an_exchange_costs():
         demo_grid_loader(SimpleNamespace(), exchange_delay=5.0).exchange_seconds == 10
     )
     assert (
-        AutoscriptSampleLoader(SimpleNamespace()).connect().exchange_time.get_value()
+        AutoscriptSampleLoader(SimpleNamespace(), None)
+        .connect()
+        .exchange_time.get_value()
         == 180
     )
 
@@ -268,7 +270,9 @@ def test_the_estimate_is_not_shorter_than_the_arctis_bench_run():
     )
 
     assert (
-        AutoscriptSampleLoader(SimpleNamespace()).connect().exchange_time.get_value()
+        AutoscriptSampleLoader(SimpleNamespace(), None)
+        .connect()
+        .exchange_time.get_value()
         >= 3 * 60
     )
     assert sem.estimated_duration >= 3 * 60

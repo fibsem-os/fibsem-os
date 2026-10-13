@@ -52,7 +52,7 @@ def make(plasma, ion=True):
     microscope.system.electron.enabled = True
     microscope.system.ion.enabled = ion
     microscope.system.ion.plasma_gas = "Xenon" if plasma else None
-    fake_beams(microscope.connection)
+    fake_beams(microscope._connection.sdk)
     return microscope
 
 
@@ -279,7 +279,7 @@ def facts():
 
     # the scan mode, which nothing read before, and one with no ScanMode
     microscope = routed(plasma=False)
-    vendor = microscope.connection.beams.electron_beam.scanning.mode
+    vendor = microscope._connection.sdk.beams.electron_beam.scanning.mode
     scan = {"full_frame": microscope._read_beam("scanning_mode", BeamType.ELECTRON)}
     _preset(vendor, "value", 3)  # ScanningMode.SPOT
     scan["spot"] = microscope._read_beam("scanning_mode", BeamType.ELECTRON)
@@ -296,13 +296,13 @@ def facts():
     # a detector read selects its beam's channel under the imaging channel's lock
     microscope = routed(plasma=False)
     selected = []
-    set_channel = microscope.set_channel
+    set_channel = microscope._connection.set_channel
 
     def set_channel_recording(beam_type):
         selected.append([beam_type.name, microscope._threading_lock._is_owned()])
         set_channel(beam_type)
 
-    microscope.set_channel = set_channel_recording
+    microscope._connection.set_channel = set_channel_recording
     result = run(lambda: microscope._read_beam("detector_type", BeamType.ION))
     out["detector_read"] = {"selected": selected, "result": result[0]}
 
@@ -310,9 +310,7 @@ def facts():
     microscope = routed(plasma=False)
     beam = microscope.beams[BeamType.ELECTRON]
     tilt = {"before": beam.tilt_correction.get_value()}
-    vendor = (
-        microscope.connection.beams.electron_beam.angular_correction.tilt_correction
-    )
+    vendor = microscope._connection.sdk.beams.electron_beam.angular_correction.tilt_correction
     _preset(vendor, "is_on", True)
     tilt["after"] = beam.tilt_correction.get_value()
     out["tilt_correction"] = tilt

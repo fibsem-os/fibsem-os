@@ -254,8 +254,11 @@ def odemis_microscope_cls():
 def microscope(odemis_microscope_cls):
     microscope = object.__new__(odemis_microscope_cls)  # skip __init__ (hardware)
     microscope.system = utils.load_microscope_configuration(ODEMIS_CONFIG_PATH).system
-    microscope.connection = FakeOdemisClient()
-    microscope._vendor_stage = FakeStage()
+    from fibsem.drivers.odemis.connection import OdemisConnection
+
+    microscope._connection = OdemisConnection(
+        FakeOdemisClient(), FakeStage(), microscope._threading_lock
+    )
     microscope.fm = None
     microscope.user = FibsemUser()
     microscope.experiment = FibsemExperimentRef()
@@ -264,7 +267,7 @@ def microscope(odemis_microscope_cls):
     microscope._build_devices()
     microscope._build_milling()
     microscope._build_imaging()
-    microscope.connection.calls.clear()
+    microscope._connection.sdk.calls.clear()
     return microscope
 
 
@@ -285,7 +288,7 @@ def test_acquire_image_with_settings_stamps_the_shared_metadata(microscope):
 
 
 def test_acquire_image_with_beam_type_uses_the_current_settings(microscope):
-    microscope.connection.settings["ion"]["hfw"] = 80e-6
+    microscope._connection.sdk.settings["ion"]["hfw"] = 80e-6
 
     image = microscope.acquire_image(beam_type=BeamType.ION)
 
@@ -293,9 +296,9 @@ def test_acquire_image_with_beam_type_uses_the_current_settings(microscope):
     assert image.metadata.image_settings.hfw == pytest.approx(80e-6)
     assert image.metadata.image_settings.resolution == [1536, 1024]
     # nothing about the beam was changed to take it
-    names = [call[0] for call in microscope.connection.calls]
+    names = [call[0] for call in microscope._connection.sdk.calls]
     assert names == ["acquire_image"]
-    assert microscope.connection.calls[0] == ("acquire_image", "ion", None)
+    assert microscope._connection.sdk.calls[0] == ("acquire_image", "ion", None)
 
 
 def test_acquire_image_needs_settings_or_a_beam(microscope):
@@ -313,7 +316,7 @@ def test_there_is_no_chamber_camera(microscope):
 @pytest.mark.parametrize("returns_tuple", [False, True])
 def test_last_image(microscope, returns_tuple):
     frame = np.full((512, 768), 7, dtype=np.uint8)
-    microscope.connection.last_image = (frame, {}) if returns_tuple else frame
+    microscope._connection.sdk.last_image = (frame, {}) if returns_tuple else frame
 
     image = microscope.last_image(BeamType.ELECTRON)
 
@@ -324,7 +327,7 @@ def test_last_image(microscope, returns_tuple):
 def test_auto_focus_runs_the_working_distance_sweep(microscope):
     microscope.auto_focus(BeamType.ELECTRON)
 
-    names = [call[0] for call in microscope.connection.calls]
+    names = [call[0] for call in microscope._connection.sdk.calls]
     assert "set_working_distance" in names
     assert "acquire_image" in names
 
@@ -339,7 +342,7 @@ def test_auto_focus_runs_the_working_distance_sweep(microscope):
     ],
 )
 def test_chamber_state(microscope, reported, expected):
-    microscope.connection.chamber_state = reported
+    microscope._connection.sdk.chamber_state = reported
     assert _chamber_state_name(microscope.chamber_device.state.get_value()) == expected
 
 
@@ -383,7 +386,7 @@ def test_voltage_choices(microscope):
 def test_finish_milling_restores_the_beam_and_the_patterning_mode(microscope):
     microscope.finish_milling(imaging_current=20e-12, imaging_voltage=30e3)
 
-    calls = microscope.connection.calls
+    calls = microscope._connection.sdk.calls
     assert ("clear_patterns",) in calls
     assert ("set_high_voltage", 30e3, "ion") in calls
     assert ("set_beam_current", 20e-12, "ion") in calls
@@ -398,7 +401,7 @@ def test_set_patterning_mode_refuses_unknown_modes(microscope):
 def test_milling_state_is_read_on_the_milling_channel(microscope):
     assert microscope.get_milling_state() is MillingState.IDLE
 
-    names = [call[0] for call in microscope.connection.calls]
+    names = [call[0] for call in microscope._connection.sdk.calls]
     assert names.index("set_active_view") < names.index("get_patterning_state")
 
 
@@ -442,8 +445,8 @@ def test_a_task_with_an_unsupported_pattern_fails_and_cleans_up(microscope):
     assert MillingProgressStatus.STAGE_FINISHED not in statuses
     assert statuses[-1] is MillingProgressStatus.TASK_FAILED
     assert isinstance(task.error, NotImplementedError)
-    assert ("set_patterning_mode", "Serial") in microscope.connection.calls
-    assert "start_milling" not in [call[0] for call in microscope.connection.calls]
+    assert ("set_patterning_mode", "Serial") in microscope._connection.sdk.calls
+    assert "start_milling" not in [call[0] for call in microscope._connection.sdk.calls]
 
 
 def test_dropped_pattern_settings_are_warned_about(microscope, caplog):
@@ -470,7 +473,9 @@ def test_an_annulus_is_drawn_with_its_inner_diameter(microscope):
         )
     )
     (parameters,) = [
-        call[1] for call in microscope.connection.calls if call[0] == "create_circle"
+        call[1]
+        for call in microscope._connection.sdk.calls
+        if call[0] == "create_circle"
     ]
     assert parameters["outer_diameter"] == pytest.approx(10e-6)
     assert parameters["inner_diameter"] == pytest.approx(8e-6)

@@ -8,7 +8,7 @@ from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 
 def _microscope(monkeypatch, port):
     microscope = object.__new__(ThermoMicroscope)
-    microscope.connection = object()
+    microscope._connection = object()
     microscope.system = types.SimpleNamespace(
         info=types.SimpleNamespace(ip_address="10.0.0.1")
     )

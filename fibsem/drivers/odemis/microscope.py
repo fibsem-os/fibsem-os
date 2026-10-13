@@ -10,6 +10,7 @@ import numpy as np
 from fibsem import manufacturers
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.odemis import add_odemis_path
+from fibsem.drivers.odemis.connection import OdemisConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import (
     FibsemMicroscope,
@@ -248,6 +249,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     }
 
     _last_imaging_settings: ImageSettings
+    _connection: Optional[OdemisConnection] = None
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
     def __init__(self, system_settings: SystemSettings):
@@ -255,16 +257,16 @@ class OdemisThermoMicroscope(FibsemMicroscope):
             raise ImportError("Odemis is not installed, so its driver cannot connect.")
         self.system: SystemSettings = system_settings
 
-        self.connection: OdemisAutoscriptClient = model.getComponent(role="fibsem")
-
-        # stage
-        self._vendor_stage: model.Actuator = model.getComponent(role="stage-bare")
+        # the fibsem client and the stage-bare stage, which every device is handed
+        client: OdemisAutoscriptClient = model.getComponent(role="fibsem")
+        vendor_stage: model.Actuator = model.getComponent(role="stage-bare")
+        self._connection = OdemisConnection(client, vendor_stage, self._threading_lock)
 
         logging.info("OdemisThermoMicroscope initialized")
 
         # system information # TODO: split this version info properly
-        software_version = self.connection.get_software_version()
-        hardware_version = self.connection.get_hardware_version()
+        software_version = client.get_software_version()
+        hardware_version = client.get_hardware_version()
         self.system.info.model = hardware_version
         self.system.info.serial_number = hardware_version
         self.system.info.hardware_version = software_version
@@ -339,33 +341,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
     def set_channel(self, channel: BeamType):
         """Set the active channels for the microscope."""
-        self.connection.set_active_view(channel.value)
-        self.connection.set_active_device(channel.value)
-
-    def _current_image_settings(
-        self, beam_type: BeamType, image: np.ndarray
-    ) -> ImageSettings:
-        """The beam's current imaging settings, at the resolution of the frame it gave."""
-        image_settings = self.get_imaging_settings(beam_type)
-        image_settings.resolution = [image.shape[1], image.shape[0]]
-        return image_settings
-
-    def _construct_image(
-        self, data: np.ndarray, image_settings: ImageSettings
-    ) -> FibsemImage:
-        """A FibsemImage with the microscope's metadata, as every backend stamps it."""
-        # TODO: retrieve the full image metadata from image md, rather than reconstruct
-        pixel_size = image_settings.hfw / image_settings.resolution[0]
-        md = FibsemImageMetadata(
-            image_settings=image_settings,
-            pixel_size=Point(pixel_size, pixel_size),
-            microscope_state=self.get_microscope_state(
-                beam_type=image_settings.beam_type
-            ),
-        )
-        image = FibsemImage(data, md)
-        self._set_additional_metadata(image)
-        return image
+        self._connection.set_channel(channel)
 
     @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:

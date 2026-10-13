@@ -8,10 +8,10 @@ Hydra), ``AutoscriptBeam`` for the beam keys, and ``AutoscriptChamber`` and
 them at connect and routes its keys and moves to them; the old code they replaced is
 deleted.
 
-The vendor stage is ``microscope._vendor_stage``, which the Thermo backend sets at
-connect to ``specimen.stage`` or ``specimen.compustage`` (``microscope.stage`` is the
-stage device); the vendor beams are under
-``microscope.connection.beams``. This module imports the SDK only through
+Each device is handed the microscope's `AutoScriptConnection` and makes its SDK calls
+through it. The vendor stage is ``connection.vendor_stage``, which connect sets to
+``specimen.stage`` or ``specimen.compustage`` (``microscope.stage`` is the stage
+device); the vendor beams are under ``connection.sdk.beams``. This module imports the SDK only through
 ``fibsem.drivers.autoscript.microscope``, which is where the guarded import lives, apart from
 the SDK's ``Point`` inside a write, which the old branch imports there too.
 
@@ -32,7 +32,7 @@ so whoever sets the view last owns it (FIB-517). ``AutoscriptFMChannel`` is the 
 class's ``active_channel()`` as it was: point the connection at the FM for a block, put
 the view back after the outermost block, count the depth so a run isn't undone by each
 step inside it, and take the microscope's ``imaging_channel`` lock (its
-``_threading_lock``) for that bookkeeping only. A parameter in ``needs_channel`` runs in
+``_threading_lock``, which is the connection's ``lock``) for that bookkeeping only. A parameter in ``needs_channel`` runs in
 that scope. The generic claim isn't used because it holds the lock through the read and
 always takes it; the old scope skips the lock when the FM already has the view, which is
 what keeps the objective movable while live view re-takes the lock every frame.
@@ -96,6 +96,7 @@ from fibsem.devices.stage import (
     compustage_poses,
 )
 from fibsem.devices.wire import Frame
+from fibsem.drivers.autoscript import images
 from fibsem.fm import microscope as fm_api
 from fibsem.fm.structures import (
     REFLECTION,
@@ -120,6 +121,7 @@ from fibsem.structures import (
 )
 
 if TYPE_CHECKING:
+    from fibsem.drivers.autoscript.connection import AutoScriptConnection
     from fibsem.drivers.autoscript.microscope import ThermoMicroscope
     from fibsem.drivers.registry import BuildContext
     from fibsem.fm.structures import CameraSettings
@@ -147,13 +149,19 @@ class AutoscriptStage(Stage):
 
     compustage = False
 
-    def __init__(self, parent: ThermoMicroscope, resources: Optional[Resources] = None):
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        resources: Optional[Resources] = None,
+    ):
         super().__init__(parent=parent, resources=resources)
+        self.connection = connection
 
     @property
     def _stage(self):
         """The vendor stage, looked up on each call as the old methods do."""
-        return self.parent._vendor_stage
+        return self.connection.vendor_stage
 
     def _to_autoscript(self, position: FibsemStagePosition):
         from fibsem.drivers.autoscript.microscope import stage_position_to_autoscript
@@ -166,7 +174,7 @@ class AutoscriptStage(Stage):
         from fibsem.drivers.autoscript.microscope import stage_position_from_autoscript
 
         self._stage.set_default_coordinate_system(
-            self.parent._default_stage_coordinate_system
+            self.connection.default_stage_coordinate_system
         )
         return stage_position_from_autoscript(self._stage.current_position)
 
@@ -272,14 +280,16 @@ class AutoscriptCompustage(AutoscriptStage):
 
 def autoscript_stage_class(microscope: ThermoMicroscope) -> Type[AutoscriptStage]:
     """The driver class for the stage the Thermo backend found at connect."""
-    return AutoscriptCompustage if microscope._compustage_installed else AutoscriptStage
+    compustage = microscope._connection.compustage_installed
+    return AutoscriptCompustage if compustage else AutoscriptStage
 
 
 def bind_autoscript_stage(
     microscope: ThermoMicroscope, resources: Optional[Resources] = None
 ) -> AutoscriptStage:
     """Build ``stage`` for a connected Thermo microscope."""
-    return autoscript_stage_class(microscope)(microscope, resources).connect()
+    stage = autoscript_stage_class(microscope)
+    return stage(microscope, microscope._connection, resources).connect()
 
 
 class AutoscriptBeam(Beam):
@@ -312,15 +322,17 @@ class AutoscriptBeam(Beam):
         self,
         beam_type: BeamType,
         parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
         resources: Optional[Resources] = None,
     ):
         super().__init__(beam_type, parent=parent, resources=resources)
-        self.bind_channel(lambda: parent.set_channel(beam_type))
+        self.connection = connection
+        self.bind_channel(lambda: connection.set_channel(beam_type))
 
     @property
     def _beam(self) -> Any:
         """The vendor beam, looked up on every call, as the old branches do."""
-        return self.parent._get_beam(self.beam_type)
+        return self.connection.beam(self.beam_type)
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
         logging.debug(
@@ -466,7 +478,7 @@ class AutoscriptBeam(Beam):
 
     @property
     def _detector(self) -> Any:
-        return self.parent.connection.detector
+        return self.connection.sdk.detector
 
     def read_detector_type(self) -> str:
         return self._detector.type.value
@@ -481,8 +493,8 @@ class AutoscriptBeam(Beam):
 
     def metadata_detector_type(self) -> ParameterMetadata:
         # read outside a parameter's claim, so it selects the channel itself
-        with self.parent._threading_lock:
-            self.parent.set_channel(self.beam_type)
+        with self.connection.lock:
+            self.connection.set_channel(self.beam_type)
             return ParameterMetadata(choices=list(self._detector.type.available_values))
 
     def read_detector_mode(self) -> str:
@@ -499,8 +511,8 @@ class AutoscriptBeam(Beam):
     def metadata_detector_mode(self) -> ParameterMetadata:
         # the detector type's modes, read again when the type changes; read outside a
         # parameter's claim, so it selects the channel itself
-        with self.parent._threading_lock:
-            self.parent.set_channel(self.beam_type)
+        with self.connection.lock:
+            self.connection.set_channel(self.beam_type)
             return ParameterMetadata(choices=list(self._detector.mode.available_values))
 
     def read_detector_brightness(self) -> float:
@@ -639,7 +651,7 @@ class AutoscriptBeam(Beam):
             settings = microscope.get_imaging_settings(beam_type=self.beam_type)
             logging.debug(f"acquiring new {name} image.")
             with self.claim_channel():
-                adorned = microscope.connection.imaging.grab_frame(None)
+                adorned = self.connection.sdk.imaging.grab_frame(None)
             logging.debug(f"acquiring new {name} image.")
         else:
             settings = image_settings
@@ -676,12 +688,12 @@ class AutoscriptBeam(Beam):
                 drift_correction=settings.drift_correction,
             )
             with self.claim_channel():
-                adorned = microscope.connection.imaging.grab_frame(frame_settings)
+                adorned = self.connection.sdk.imaging.grab_frame(frame_settings)
             if settings.reduced_area is not None:
                 self.full_frame()
 
         state = microscope.get_microscope_state(beam_type=self.beam_type)
-        image = thermo.fibsem_image_from_adorned_image(
+        image = images.fibsem_image_from_adorned_image(
             copy.deepcopy(adorned), copy.deepcopy(settings), copy.deepcopy(state)
         )
         microscope._set_additional_metadata(image)
@@ -695,12 +707,12 @@ class AutoscriptBeam(Beam):
 
         microscope = self.parent
         with self.claim_channel():
-            image = microscope.connection.imaging.get_image()
+            image = self.connection.sdk.imaging.get_image()
         image = thermo.AdornedImage(
             data=image.data.astype(np.uint8), metadata=image.metadata
         )
         state = microscope.get_microscope_state(beam_type=self.beam_type)
-        fibsem_image = thermo.fibsem_image_from_adorned_image(
+        fibsem_image = images.fibsem_image_from_adorned_image(
             adorned=image, image_settings=None, state=state, beam_type=self.beam_type
         )
         microscope._set_additional_metadata(fibsem_image)
@@ -716,7 +728,7 @@ class AutoscriptBeam(Beam):
         with self.claim_channel():
             if reduced_area is not None:
                 self.reduced_area(reduced_area)
-            self.parent.connection.auto_functions.run_auto_cb()
+            self.connection.sdk.auto_functions.run_auto_cb()
         if reduced_area is not None:
             self.full_frame()
         logging.debug({"msg": "autocontrast", "beam_type": self.beam_type.name})
@@ -727,7 +739,7 @@ class AutoscriptBeam(Beam):
         with self.claim_channel():
             if reduced_area is not None:
                 self.reduced_area(reduced_area)
-            self.parent.connection.auto_functions.run_auto_focus()
+            self.connection.sdk.auto_functions.run_auto_focus()
         if reduced_area is not None:
             self.full_frame()
         logging.debug({"msg": "auto_focus", "beam_type": self.beam_type.name})
@@ -737,7 +749,7 @@ class AutoscriptBeam(Beam):
     # signal (which forwards it) and the stop event the beam gives.
 
     def _live(self, stop: threading.Event) -> None:
-        self.parent.set_channel(channel=self.beam_type)
+        self.connection.set_channel(self.beam_type)
         try:
             while True:
                 if stop.is_set():
@@ -754,7 +766,7 @@ class AutoscriptBeam(Beam):
     def _live_fast(self, stop: threading.Event) -> None:
         from fibsem.drivers.autoscript import microscope as thermo
 
-        imaging = self.parent.connection.imaging
+        imaging = self.connection.sdk.imaging
         try:
             with self.claim_channel():
                 imaging.start_acquisition()
@@ -766,15 +778,29 @@ class AutoscriptBeam(Beam):
                     adorned_image = imaging.get_image(
                         thermo.GetImageSettings(wait_for_frame=True)
                     )
-                    image = self.parent._construct_image(
-                        adorned_image, beam_type=self.beam_type
-                    )
+                    image = self._image_from_adorned(adorned_image)
                     logging.debug(f"Acquired Image: {image.data.shape}")
                     self.live_frame.emit(image)
         except Exception as e:
             logging.error(f"Exception occurred during fast acquisition: {e}")
         finally:
             imaging.stop_acquisition()
+
+    def _image_from_adorned(self, adorned_image: Any) -> FibsemImage:
+        """A live frame as a FibsemImage, with the beam's current state."""
+        microscope = self.parent
+        state = microscope.get_microscope_state(beam_type=self.beam_type)
+        image_settings = microscope.get_imaging_settings(beam_type=self.beam_type)
+
+        image = images.fibsem_image_from_adorned_image(
+            copy.deepcopy(adorned_image),
+            copy.deepcopy(image_settings),
+            copy.deepcopy(state),
+        )
+
+        microscope._set_additional_metadata(image)
+
+        return image
 
 
 # The vendor's scan mode names (FullFrame, ReducedArea, Spot), lower-cased.
@@ -803,7 +829,9 @@ def bind_autoscript_beams(
         BeamType.ION: microscope.system.ion.enabled,
     }
     return {
-        beam_type: AutoscriptBeam(beam_type, microscope, resources).connect()
+        beam_type: AutoscriptBeam(
+            beam_type, microscope, microscope._connection, resources
+        ).connect()
         for beam_type, on in enabled.items()
         if on
     }
@@ -821,12 +849,18 @@ class AutoscriptChamber(Chamber):
     vendor's name for the state ("Pumped"); the device reads it as a ``ChamberState``.
     """
 
-    def __init__(self, parent: ThermoMicroscope, resources: Optional[Resources] = None):
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        resources: Optional[Resources] = None,
+    ):
         super().__init__(parent=parent, resources=resources)
+        self.connection = connection
 
     @property
     def _vacuum(self) -> Any:
-        return self.parent.connection.vacuum
+        return self.connection.sdk.vacuum
 
     def read_state(self) -> ChamberState:
         return ChamberState.from_name(self._vacuum.chamber_state)
@@ -849,7 +883,7 @@ def bind_autoscript_chamber(
     microscope: ThermoMicroscope, resources: Optional[Resources] = None
 ) -> AutoscriptChamber:
     """Build ``chamber`` for a connected Thermo microscope."""
-    return AutoscriptChamber(microscope, resources).connect()
+    return AutoscriptChamber(microscope, microscope._connection, resources).connect()
 
 
 class AutoscriptSampleLoader(SampleLoader):
@@ -874,13 +908,19 @@ class AutoscriptSampleLoader(SampleLoader):
     # How many slots until the magazine is first read; the Arctis magazine has 12.
     DEFAULT_CAPACITY = 12
 
-    def __init__(self, parent: ThermoMicroscope, resources: Optional[Resources] = None):
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        resources: Optional[Resources] = None,
+    ):
         super().__init__(parent=parent, resources=resources)
+        self.connection = connection
         self._capacity = self.DEFAULT_CAPACITY
 
     @property
     def _autoloader(self) -> Any:
-        return self.parent.connection.specimen.autoloader
+        return self.connection.sdk.specimen.autoloader
 
     def read_magazine(self) -> Magazine:
         return self._magazine(list(self._autoloader.get_slots(False)))
@@ -974,7 +1014,7 @@ def _describe_hw(hw: Any) -> str:
 def autoloader_installed(microscope: ThermoMicroscope) -> bool:
     """Whether the instrument has an autoloader; False when AutoScript can't say."""
     try:
-        return bool(microscope.connection.specimen.autoloader.is_installed)
+        return bool(microscope._connection.sdk.specimen.autoloader.is_installed)
     except Exception:  # noqa: BLE001 - device absent, or not ready
         return False
 
@@ -994,12 +1034,18 @@ class AutoscriptManipulator(Manipulator):
     ``ThermoMicroscope``'s and move through this device.
     """
 
-    def __init__(self, parent: ThermoMicroscope, resources: Optional[Resources] = None):
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        resources: Optional[Resources] = None,
+    ):
         super().__init__(parent=parent, resources=resources)
+        self.connection = connection
 
     @property
     def _needle(self) -> Any:
-        return self.parent.connection.specimen.manipulator
+        return self.connection.sdk.specimen.manipulator
 
     def is_installed(self) -> Optional[bool]:
         """``specimen.manipulator.is_installed``: documented, read-only, a bool."""
@@ -1114,7 +1160,9 @@ def bind_autoscript_manipulator(
     microscope: ThermoMicroscope, resources: Optional[Resources] = None
 ) -> AutoscriptManipulator:
     """Build ``manipulator`` for a connected Thermo microscope that has one."""
-    return AutoscriptManipulator(microscope, resources).connect()
+    return AutoscriptManipulator(
+        microscope, microscope._connection, resources
+    ).connect()
 
 
 # -- Builders by entry --------------------------------------------------------------
@@ -1136,32 +1184,37 @@ def build_autoscript_beam(entry: DeviceEntry, context: BuildContext) -> Autoscri
     if entry.name not in ("electron", "ion"):
         raise ValueError("a Thermo beam is named 'electron' or 'ion'")
     beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
-    return AutoscriptBeam(beam_type, context.microscope).connect()
+    microscope = context.microscope
+    return AutoscriptBeam(beam_type, microscope, microscope._connection).connect()
 
 
 def build_autoscript_stage(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptStage:
     microscope = context.microscope
-    return _named(autoscript_stage_class(microscope)(microscope), entry)
+    stage = autoscript_stage_class(microscope)
+    return _named(stage(microscope, microscope._connection), entry)
 
 
 def build_autoscript_chamber(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptChamber:
-    return _named(AutoscriptChamber(context.microscope), entry)
+    microscope = context.microscope
+    return _named(AutoscriptChamber(microscope, microscope._connection), entry)
 
 
 def build_autoscript_manipulator(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptManipulator:
-    return _named(AutoscriptManipulator(context.microscope), entry)
+    microscope = context.microscope
+    return _named(AutoscriptManipulator(microscope, microscope._connection), entry)
 
 
 def build_autoscript_sample_loader(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptSampleLoader:
-    return _named(AutoscriptSampleLoader(context.microscope), entry)
+    microscope = context.microscope
+    return _named(AutoscriptSampleLoader(microscope, microscope._connection), entry)
 
 
 # The FM.
@@ -1250,16 +1303,16 @@ class AutoscriptFMChannel:
     devices: the old ``ThermoFisherFluorescenceMicroscope.active_channel()``, moved.
     ``scope()`` says why it works as it does."""
 
-    def __init__(self, microscope: ThermoMicroscope, lock: Any):
-        self._microscope = microscope
+    def __init__(self, connection: AutoScriptConnection, lock: Any):
+        self._autoscript = connection
         self.lock = lock
         self._depth = 0
         self._restore_view: Optional[int] = None
 
     @property
     def connection(self) -> Any:
-        """The microscope's AutoScript client, looked up on each call."""
-        return self._microscope.connection
+        """The AutoScript client (``SdbMicroscopeClient``), looked up on each call."""
+        return self._autoscript.sdk
 
     def set_active_channel(self) -> None:
         """Point the connection at the FM and leave it there (the old method)."""
@@ -1847,7 +1900,9 @@ def bind_autoscript_fm(
     name. They share the microscope's ``imaging_channel`` lock with the beams.
     *config* is the fm entry's own keys (``mount_transform``)."""
     resources = resources if resources is not None else resources_of(microscope)
-    channel = AutoscriptFMChannel(microscope, resources.lock(IMAGING_CHANNEL))
+    channel = AutoscriptFMChannel(
+        microscope._connection, resources.lock(IMAGING_CHANNEL)
+    )
     common = {"parent": microscope, "resources": resources}
     filter_set = AutoscriptFMFilterSet(channel, **common)
     parts: Dict[str, Device] = {

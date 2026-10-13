@@ -93,7 +93,7 @@ class FakeImaging(S.Node):
 def make():
     microscope = B.make(plasma=False)
     object.__setattr__(
-        microscope.connection, "imaging", FakeImaging("connection.imaging")
+        microscope._connection.sdk, "imaging", FakeImaging("connection.imaging")
     )
     microscope._last_imaging_settings = ImageSettings(path="/data", filename="last")
 
@@ -193,7 +193,7 @@ def _live(microscope, beam_type, frames=4):
     """Live view on *beam_type* until the old signal has had *frames* images: two
     from the fast path, then one per pass of the loop (a fast path that finds the
     imaging idle, then a grab)."""
-    object.__setattr__(microscope.connection.imaging, "_acquiring", 2)
+    object.__setattr__(microscope._connection.sdk.imaging, "_acquiring", 2)
     seen, done = [], threading.Event()
     stop = microscope.beams[beam_type]._live_stop
 
@@ -261,8 +261,8 @@ def facts():
 
     # each vendor call runs with the beam's channel selected under the lock
     held = []
-    imaging = microscope.connection.imaging
-    auto = microscope.connection.auto_functions
+    imaging = microscope._connection.sdk.imaging
+    auto = microscope._connection.sdk.auto_functions
 
     def recording(path):
         def call(*args, **kwargs):
@@ -285,7 +285,7 @@ def facts():
 
     # live view through the microscope: the beam is live, and stop stops it
     microscope = make()
-    object.__setattr__(microscope.connection.imaging, "_acquiring", 10**9)
+    object.__setattr__(microscope._connection.sdk.imaging, "_acquiring", 10**9)
     sem = microscope.beams[BeamType.ELECTRON]
     microscope.start_acquisition(BeamType.ELECTRON)
     live = {"live": sem.is_live, "acquiring": bool(microscope.is_acquiring)}

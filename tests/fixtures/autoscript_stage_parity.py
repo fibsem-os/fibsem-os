@@ -208,6 +208,7 @@ class FakeStage(Node):
 import fibsem.config as cfg  # noqa: E402
 import fibsem.drivers.autoscript.microscope as A  # noqa: E402
 from fibsem import utils  # noqa: E402
+from fibsem.drivers.autoscript.connection import AutoScriptConnection  # noqa: E402
 from fibsem.drivers.autoscript.devices import (  # noqa: E402
     AutoscriptCompustage,
     bind_autoscript_stage,
@@ -243,9 +244,7 @@ class _FM:
 def make(compustage, fm_inserted=False):
     """A ThermoMicroscope as connect leaves it, over the fake SDK."""
     microscope = object.__new__(A.ThermoMicroscope)
-    microscope._connection_lock = threading.RLock()
     microscope.system = copy.deepcopy(SYSTEM)
-    microscope._compustage_installed = compustage
     microscope.fm = _FM() if fm_inserted else None
     microscope._stage_position = None
     connection = Node("connection")
@@ -254,7 +253,7 @@ def make(compustage, fm_inserted=False):
         position = STRUCTS.CompustagePosition(
             x=1e-4, y=2e-4, z=3e-5, a=np.radians(-10), coordinate_system="Specimen"
         )
-        microscope._default_stage_coordinate_system = "Specimen"
+        coordinate_system = "Specimen"
         stage = FakeStage("specimen.compustage", position, OFFSET_LIMITS)
     else:
         position = STRUCTS.StagePosition(
@@ -265,10 +264,14 @@ def make(compustage, fm_inserted=False):
             t=np.radians(18),
             coordinate_system="Raw",
         )
-        microscope._default_stage_coordinate_system = "Raw"
+        coordinate_system = "Raw"
         stage = FakeStage("specimen.stage", position, OFFSET_LIMITS)
-    microscope.connection = connection
-    microscope._vendor_stage = stage
+    microscope._connection = AutoScriptConnection(
+        connection, microscope._threading_lock
+    )
+    microscope._connection.compustage_installed = compustage
+    microscope._connection.default_stage_coordinate_system = coordinate_system
+    microscope._connection.vendor_stage = stage
     return microscope
 
 
@@ -330,7 +333,7 @@ def fake_beams(connection):
 def connect(microscope):
     """Build the beams and the stage as connect does: an absolute move on an offset
     stage restores the working distance through the electron beam."""
-    fake_beams(microscope.connection)
+    fake_beams(microscope._connection.sdk)
     microscope._build_beams()
     microscope._build_stage()
 
@@ -408,14 +411,14 @@ def cases():
                 STAGE_LIMITS_DEFAULT,
             )
 
-            if m._compustage_installed:
+            if m._connection.compustage_installed:
                 limits = STAGE_LIMITS_COMPUSTAGE
-            elif not hasattr(m._vendor_stage, "get_axis_limits"):
+            elif not hasattr(m._connection.vendor_stage, "get_axis_limits"):
                 limits = STAGE_LIMITS_DEFAULT
             else:
                 limits = {}
                 for axis in ("x", "y", "z", "t"):
-                    raw = m._vendor_stage.get_axis_limits(axis)
+                    raw = m._connection.vendor_stage.get_axis_limits(axis)
                     scale = np.degrees if axis == "t" else float
                     limits[axis] = A.RangeLimit(min=scale(raw.min), max=scale(raw.max))
                 limits["r"] = A.RangeLimit(min=-360, max=360)
@@ -434,7 +437,7 @@ def cases():
         add("limits", old_limits, new_limits)
         add(
             "class",
-            lambda m: "compustage" if m._compustage_installed else "stage",
+            lambda m: "compustage" if m._connection.compustage_installed else "stage",
             lambda s, m: (
                 "compustage" if isinstance(s, AutoscriptCompustage) else "stage"
             ),

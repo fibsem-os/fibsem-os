@@ -9,8 +9,9 @@ are not checked.
 
 Drivers join the list as their SDK code moves (FIB-1316). ``ALLOWED`` names what is left
 on the microscope for a later step, not the SDK: the shared image bookkeeping, which the
-base acquire implementation takes over, and services writing a beam through the
-microscope rather than their role.
+base acquire implementation takes over, services writing a beam through the
+microscope rather than their role, and the Thermo stage asking the microscope which
+axes the configuration blocks.
 """
 
 import ast
@@ -19,9 +20,14 @@ import inspect
 
 import pytest
 
-DRIVERS = ["tescan"]
+DRIVERS = ["tescan", "autoscript", "odemis"]
 
-ALLOWED = {"_last_imaging_settings", "_set_additional_metadata", "_write_beam"}
+ALLOWED = {
+    "_last_imaging_settings",
+    "_set_additional_metadata",
+    "_write_beam",
+    "_without_blocked_axes",
+}
 
 
 def _reaches(tree: ast.AST):

@@ -80,7 +80,9 @@ class FakePatterning(S.Node):
 def make():
     microscope = B.make(plasma=False)
     object.__setattr__(
-        microscope.connection, "patterning", FakePatterning("connection.patterning")
+        microscope._connection.sdk,
+        "patterning",
+        FakePatterning("connection.patterning"),
     )
     microscope.milling_channel = BeamType.ION
     microscope._build_beams()
@@ -90,7 +92,7 @@ def make():
 
 def _state(microscope, state):
     """The patterning state the next reads see, set without recording a write."""
-    object.__setattr__(microscope.connection.patterning, "_state", state)
+    object.__setattr__(microscope._connection.sdk.patterning, "_state", state)
 
 
 RECIPE = FibsemMillingSettings(
@@ -173,7 +175,7 @@ def cases():
 
 
 def _conditions(microscope):
-    beam = microscope.connection.beams.ion_beam
+    beam = microscope._connection.sdk.beams.ion_beam
     return [
         beam.high_voltage.value,
         beam.beam_current.value,
