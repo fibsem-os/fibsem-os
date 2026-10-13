@@ -448,3 +448,47 @@ def test_an_opened_mill_lists_each_stage_with_its_drift_correction(qapp, tmp_pat
     finally:
         widget._cancel_worker()
         widget.deleteLater()
+
+
+def test_a_run_s_operations_fold_unless_one_needs_a_look(qapp, tmp_path):
+    """A run that went to plan is one line; one with a skip shows its lines;
+    a click opens a fold, and a refresh keeps it open (FIB-1361)."""
+    lamella = Lamella(path=tmp_path / "exp" / "01-lam", number=1, petname="lam")
+    lamella.path.mkdir(parents=True)
+    lamella.task_history = [_run(ROUGH, "r1", 0), _run(POLISH, "p1", 10)]
+    done = {"results": [{"shift": {"x": 1e-8, "y": 0.0}}], "status": "completed"}
+    _write_events(
+        lamella,
+        ("r1", "alignment", {**done, "name": "lam - Rough Milling-18-00-30"}),
+        ("r1", "autofocus", {"status": "completed", "beam_type": "ION"}),
+        ("p1", "alignment", {"status": "skipped", "reason": "no reference image"}),
+        ("p1", "autofocus", {"status": "completed", "beam_type": "ION"}),
+    )
+    widget = LamellaTaskImageWidget()
+    widget.resize(420, 1600)
+    widget.set_lamella(lamella)
+    widget.show()
+    _settled(widget)
+    try:
+        texts = _shown(widget)
+        assert "2 operations · all completed" in texts
+        assert "2 operations · 1 skipped" in texts
+        # only the skipped run's lines show: its summary and two operations
+        assert "skipped: no reference image" in texts
+        assert len([t for t in texts if t == "Align"]) == 1
+
+        (folded,) = [
+            line
+            for line in _operation_lines(widget)
+            if line.toolTip() == "Click to show or hide the operations"
+            and "2 operations · all completed"
+            in [label.text() for label in line.findChildren(QLabel)]
+        ]
+        folded.clicked.emit()
+        assert len([t for t in _shown(widget) if t == "Align"]) == 2
+
+        widget.refresh()  # as after a task finishes
+        assert len([t for t in _shown(widget) if t == "Align"]) == 2
+    finally:
+        widget._cancel_worker()
+        widget.deleteLater()

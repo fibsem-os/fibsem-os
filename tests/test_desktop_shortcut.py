@@ -40,3 +40,18 @@ def test_create_desktop_shortcut_refuses_then_overwrites(tmp_path):
         desktop_shortcut.create_desktop_shortcut(directory=tmp_path)
     again = desktop_shortcut.create_desktop_shortcut(directory=tmp_path, overwrite=True)
     assert again == first
+
+
+def test_shortcut_icons_ship_with_the_package():
+    ico = desktop_shortcut.WINDOWS_ICON_PATH.read_bytes()
+    assert ico[:4] == b"\0\0\1\0"  # an .ico, not a renamed PNG
+    count = int.from_bytes(ico[4:6], "little")
+    sizes = [ico[6 + 16 * i] or 256 for i in range(count)]
+    assert sizes == [16, 24, 32, 48, 64, 128, 256]
+    assert desktop_shortcut.LINUX_ICON_PATH.is_file()
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux .desktop")
+def test_linux_desktop_entry_names_its_icon(tmp_path):
+    created = desktop_shortcut.create_desktop_shortcut(directory=tmp_path)
+    assert f"Icon={desktop_shortcut.LINUX_ICON_PATH}\n" in created.read_text()

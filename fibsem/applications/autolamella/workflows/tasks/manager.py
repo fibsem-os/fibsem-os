@@ -18,6 +18,7 @@ from fibsem.applications.autolamella.workflows.tasks.status import (
     HoldKind,
     WorkflowStatusEvent,
     WorkflowStatusUpdate,
+    take_back_finish,
 )
 from fibsem.applications.autolamella.workflows.ui import update_status_ui
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
@@ -583,6 +584,32 @@ class BaseTaskManager:
             item_id=item_id,
             skip_reason=skip_reason,
             missing_prereqs=missing_prereqs,
+            **self.hook_run_context(),
+        )
+
+    def _result_not_saved(self, item: Any, task_name: str, error: Exception) -> None:
+        """A task that finished, whose result the save after it could not
+        write: it did not complete (FIB-1374). Recorded Failed on the item and
+        its history entry, and announced with task_failed, so the record and
+        the event stream agree that it failed; the caller re-raises, which
+        ends the run."""
+        state = item.task_state
+        take_back_finish(
+            item,
+            state.task_id,
+            AutoLamellaTaskStatus.Failed,
+            f"Finished, but its result could not be saved: {error}",
+        )
+        fire_event(
+            self.hook_manager,
+            HookEvent.TASK_FAILED,
+            task_name=task_name,
+            task_type=state.task_type,
+            item_name=item.name,
+            item_id=item.id,
+            task_id=state.task_id,
+            task_state=state,
+            error=str(error),
             **self.hook_run_context(),
         )
 
@@ -1158,8 +1185,6 @@ class TaskManager(BaseTaskManager):
                 parent_ui=self.parent_ui,
                 task_manager=self,
             )
-            self.experiment.save()
-            return None
         except Exception as e:
             # A user Stop surfaces as OperationCancelledError (milling) or InterruptedError
             # (_check_for_abort); either way self.is_stopped is set by TaskManager.stop().
@@ -1188,6 +1213,12 @@ class TaskManager(BaseTaskManager):
                 lamella.task_state.status_message = str(e)
             self.experiment.save()
             return e
+        try:
+            self.experiment.save()
+        except Exception as e:
+            self._result_not_saved(lamella, task_name, e)
+            raise
+        return None
 
 
 def run_tasks(

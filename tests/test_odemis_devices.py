@@ -119,7 +119,6 @@ READS = {
 # The frames the fake client's imaging calls return.
 FRAME = np.full((4, 6), 7, dtype=np.uint8)
 READS["acquire_image"] = (FRAME, {})
-READS["get_last_image"] = FRAME
 
 
 class FakeClient:
@@ -363,7 +362,6 @@ def _imaging_cases():
                 m.beams[b]._last_image_settings,
             )[1],
         )
-        yield (f"last image {name}", lambda m, b=b: m.last_image(b))
         yield (f"autocontrast {name}", lambda m, b=b: m.autocontrast(b))
         yield (f"autocontrast area {name}", lambda m, b=b: m.autocontrast(b, AREA))
     yield ("acquire nothing", lambda m: m.acquire_image())
@@ -384,7 +382,7 @@ STAGE_CASES = (
         "move relative",
         lambda m: m.move_stage_relative(FibsemStagePosition(x=1e-5, z=-1e-5)),
     ),
-    ("home", lambda m: m.home()),
+    ("home", lambda m: m.stage.home()),
     ("link", lambda m: m.link_stage()),
 )
 
@@ -560,7 +558,7 @@ def test_the_calls_go_through_the_devices(odemis_cls):
             setattr(device, hook, counted)
     microscope.move_stage_absolute(FibsemStagePosition(x=0.0))
     microscope.move_stage_relative(FibsemStagePosition(x=1e-6))
-    microscope.home()
+    microscope.stage.home()
     microscope.pump()
     microscope.vent()
     assert used == ["_move_absolute", "_move_relative", "_home", "_pump", "_vent"]
@@ -578,7 +576,7 @@ def test_imaging_goes_through_the_beam_commands(odemis_cls):
     microscope = make(odemis_cls)
     used = []
     for beam in microscope.beams.values():
-        for command in ("acquire", "last_image", "autocontrast"):
+        for command in ("acquire", "autocontrast"):
             original = getattr(beam, command)
 
             def wrapper(*args, _name=f"{beam.name}.{command}", _f=original, **kw):
@@ -589,16 +587,14 @@ def test_imaging_goes_through_the_beam_commands(odemis_cls):
     sem, fib = microscope.beams[BeamType.ELECTRON], microscope.beams[BeamType.ION]
     microscope.acquire_image(_image_settings(BeamType.ELECTRON))
     microscope.acquire_image(beam_type=BeamType.ION)
-    microscope.last_image(BeamType.ION)
     microscope.autocontrast(BeamType.ELECTRON, AREA)
     assert used == [
         f"{sem.name}.acquire",
         f"{fib.name}.acquire",
-        f"{fib.name}.last_image",
         f"{sem.name}.autocontrast",
     ]
     available = {n for n, info in sem.commands.items() if info.available}
-    assert {"acquire", "last_image", "autocontrast"} <= available
+    assert {"acquire", "autocontrast"} <= available
     # the working-distance sweep is not the instrument's routine, and there is no
     # live view: both stay on the microscope
     assert not sem.commands["auto_focus"].available

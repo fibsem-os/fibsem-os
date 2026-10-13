@@ -12,7 +12,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.devices.stage import Axes, compustage_poses, rotating_stage_poses
+from fibsem.devices.stage import Axes, flip_stage_poses, rotating_stage_poses
 from fibsem.drivers.autoscript.devices import AutoscriptCompustage, AutoscriptStage
 
 
@@ -40,7 +40,7 @@ def test_a_stage_without_a_rotation_axis_stays_at_the_reference():
 
 
 def test_a_compustage_tilts_over_and_has_an_fm_pose():
-    poses = compustage_poses(0.0, 0.0, 52.0)
+    poses = flip_stage_poses(0.0, 0.0, 52.0)
     assert _deg(poses) == {
         "SEM": (0.0, 0.0),
         "FIB": (0.0, -128.0),
@@ -59,7 +59,7 @@ def _unconnected(cls, axes):
     "cls, axes, expected",
     [
         (AutoscriptStage, "xyzrt", rotating_stage_poses(0.0, 35.0, 52.0)),
-        (AutoscriptCompustage, "xyzt", compustage_poses(0.0, 35.0, 52.0)),
+        (AutoscriptCompustage, "xyzt", flip_stage_poses(0.0, 35.0, 52.0)),
     ],
 )
 def test_each_autoscript_stage_declares_its_own(cls, axes, expected):
