@@ -173,3 +173,11 @@ def test_the_demo_needle_stops_where_it_is():
     position = needle.insert("PARK")
     assert needle.stop() == position
     assert "stop" in needle.commands
+
+
+def test_insert_without_a_name_goes_to_the_instruments_own_position(monkeypatch):
+    """No name means the device's default insert position, its first named one."""
+    microscope, _ = _tescan(monkeypatch, ENTRY)
+
+    assert microscope.manipulator_device.default_insert_position() == "PARK"
+    assert microscope.insert_manipulator() == PARK

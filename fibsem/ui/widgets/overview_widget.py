@@ -4277,30 +4277,3 @@ class FibsemOverviewWidget(QWidget):
             except (TypeError, RuntimeError, ValueError, KeyError):
                 pass
         super().closeEvent(event)
-
-
-def main():  # pragma: no cover - manual harness
-    """Open the overview against a simulator.
-
-    Deliberately does NOT style the QApplication: this widget is hosted in a tab, and a
-    harness that styles the app proves nothing about how it looks there. See
-    `feedback_harness_friendlier_than_reality` -- a render script that supplied an
-    app-level stylesheet hid a defect that shipped.
-    """
-    import sys
-
-    from PyQt5.QtWidgets import QApplication
-
-    from fibsem import utils
-
-    app = QApplication(sys.argv)
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    widget = FibsemOverviewWidget(microscope)
-    widget.setStyleSheet(stylesheets.NAPARI_STYLE)
-    widget.resize(1400, 900)
-    widget.show()
-    sys.exit(app.exec_())
-
-
-if __name__ == "__main__":  # pragma: no cover
-    main()

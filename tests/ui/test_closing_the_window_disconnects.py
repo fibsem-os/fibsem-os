@@ -36,11 +36,11 @@ def test_closing_autolamella_disconnects_the_microscope(no_quit):
     window = module.AutoLamellaSingleWindowUI()
     window.autolamella_ui.system_widget.connect_to_microscope()
     microscope = window.autolamella_ui.microscope
-    assert microscope.connection.connected
+    assert microscope._connection.connected
 
     window.close()
 
-    assert not microscope.connection.connected
+    assert not microscope._connection.connected
 
 
 def test_closing_fibsem_disconnects_the_microscope(qapp):
@@ -49,11 +49,11 @@ def test_closing_fibsem_disconnects_the_microscope(qapp):
     window = FibsemUI()
     window.system_widget.connect_to_microscope()
     microscope = window.microscope
-    assert microscope.connection.connected
+    assert microscope._connection.connected
 
     window.close()
 
-    assert not microscope.connection.connected
+    assert not microscope._connection.connected
     window.deleteLater()
     qapp.processEvents()
 
@@ -126,7 +126,7 @@ def test_closing_during_a_workflow_can_be_cancelled(running):
     assert running.isVisible()
     assert ui.is_workflow_running
     assert not ui._workflow_stop_event.is_set()
-    assert ui.microscope.connection.connected
+    assert ui.microscope._connection.connected
     assert ui._event_recorder is not None
 
 
@@ -141,4 +141,4 @@ def test_confirming_the_close_stops_the_workflow_and_disconnects(running):
 
     assert not running.isVisible()
     assert ui._workflow_stop_event.is_set()
-    assert not microscope.connection.connected
+    assert not microscope._connection.connected

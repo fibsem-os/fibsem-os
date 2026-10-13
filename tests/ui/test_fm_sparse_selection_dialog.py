@@ -34,7 +34,7 @@ def qapp():
 
 @pytest.fixture(scope="module")
 def microscope(qapp):
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     return build_microscope()
 
@@ -42,7 +42,7 @@ def microscope(qapp):
 @pytest.fixture(scope="module")
 def views(microscope):
     """Beam overviews, acquired once -- they cost a couple of seconds each."""
-    from fibsem.ui.fm.sparse_selection_app import acquire_beam_overviews
+    from tests.fixtures.fm_microscope import acquire_beam_overviews
 
     acquired = acquire_beam_overviews(microscope)
     microscope.move_to_device("FM")

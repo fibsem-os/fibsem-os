@@ -30,7 +30,7 @@ from typing import (
 
 import numpy as np
 
-from fibsem import acquire, alignment, calibration, constants, utils
+from fibsem import acquire, alignment, constants, utils
 from fibsem import config as fcfg
 from fibsem.acting import AGENT, TASK, acting
 from fibsem.applications.autolamella.proposals import (

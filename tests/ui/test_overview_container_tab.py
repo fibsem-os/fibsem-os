@@ -46,7 +46,7 @@ def _ui(microscope=None, experiment=None):
 
 
 def _fm_microscope():
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     return build_microscope()
 
