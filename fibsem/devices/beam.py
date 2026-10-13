@@ -14,6 +14,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 from psygnal import Signal
 
+from fibsem.cancellation import COMPLETED, ended_by
 from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.core import Device, Parameter, Role, command
 from fibsem.devices.display import Display
@@ -325,8 +326,27 @@ class Beam(Device):
     )
     def auto_focus(self, reduced_area: Optional[FibsemRectangle] = None) -> None:
         """Run the instrument's autofocus routine, optionally on a rectangle of the
-        frame (0 to 1); the beam scans the full frame after."""
-        self._auto_focus(reduced_area)
+        frame (0 to 1); the beam scans the full frame after.
+
+        Recorded as one ``autofocus`` event, as the focus sweep is: it moves the
+        working distance too. ``method`` is ``instrument``. The working distance
+        it left is not read for the record, which would be an instrument call the
+        focus did not make.
+        """
+        from fibsem.util.timestamps import now_iso
+
+        record: Dict[str, Any] = {
+            "beam_type": self.beam_type.name,
+            "method": "instrument",
+            "reduced_area": None if reduced_area is None else reduced_area.to_dict(),
+            "started_at": now_iso(),
+        }
+        try:
+            self._auto_focus(reduced_area)
+        except Exception as error:
+            self.session.record("autofocus", {**record, **ended_by(error)})
+            raise
+        self.session.record("autofocus", {**record, "status": COMPLETED})
 
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
         # Not the microscope's acquire_image: that goes through this beam, so it
