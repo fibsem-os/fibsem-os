@@ -70,6 +70,9 @@ class App:
     def buffer(self):
         return self.context._event_buffer
 
+    def set_running(self, running):
+        self.context._host.is_workflow_running = running
+
 
 def _serve(microscope, tmp_path, event_buffer):
     host = Host()
@@ -131,13 +134,15 @@ def _watch(steps, sleeps=None):
 def test_seeds_at_the_tail_and_ends_with_the_run(app):
     # History from before the watch: replaying it would raise a stale PROMPT
     # and end the watch on the earlier run's completion.
-    app.buffer.append("prompt_raised", {"nonce": 1, "type": "Confirm"})
+    app.buffer.append("prompt_raised", {"question_id": 1, "type": "Confirm"})
     app.buffer.append("workflow_completed", {})
 
     def run():
         app.buffer.append("task_started", {"item_name": "lamella-01"})
-        app.buffer.append("prompt_raised", {"nonce": 2, "type": "Confirm"})
-        app.buffer.append("prompt_answered", {"nonce": 2, "answered_by": "operator"})
+        app.buffer.append("prompt_raised", {"question_id": 2, "type": "Confirm"})
+        app.buffer.append(
+            "prompt_answered", {"question_id": 2, "answered_by": "operator"}
+        )
         app.buffer.append("milling_progress", {})  # not worth a wake-up
         app.buffer.append("workflow_completed", {})
 
@@ -146,16 +151,112 @@ def test_seeds_at_the_tail_and_ends_with_the_run(app):
     assert code == 0
     assert lines == [
         "EVENT task_started lamella-01",
-        "PROMPT nonce=2 type=Confirm",
-        "ANSWERED nonce=2 by=operator response=None",
+        "PROMPT question=2 type=Confirm",
+        "ANSWERED question=2 by=operator response=None",
         "RUN ENDED (workflow_completed)",
     ]
+
+
+def test_task_lines_name_the_task(app):
+    def run():
+        app.buffer.append(
+            "task_started", {"item_name": "01-alive-dory", "task_name": "Rough Milling"}
+        )
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert code == 0
+    assert lines[0] == "EVENT task_started 01-alive-dory Rough Milling"
+
+
+def test_watch_is_found_after_the_shared_options():
+    from fibsem.mcp.sidecar import _watch_argv
+
+    assert _watch_argv(["watch", "--help"]) == ["--help"]
+    assert _watch_argv(["--url", "http://x", "watch", "--help"]) == [
+        "--url",
+        "http://x",
+        "--help",
+    ]
+    assert _watch_argv(["--token=t", "watch"]) == ["--token=t"]
+    assert _watch_argv(["--check"]) is None
+    assert _watch_argv(["--wait", "5", "watch"]) is None
+    assert _watch_argv([]) is None
 
 
 def test_quiet_polls_keep_watching(app):
     code, lines = _watch({4: lambda: app.buffer.append("workflow_cancelled", {})})
     assert code == 0
     assert lines == ["RUN ENDED (workflow_cancelled)"]
+
+
+@pytest.mark.parametrize(
+    "kind, payload, line",
+    [
+        ("workflow_stalled", {}, "RUN ENDED (workflow_stalled)"),
+        (
+            "workflow_failed",
+            {"error": "cannot represent an object"},
+            "RUN ENDED (workflow_failed: cannot represent an object)",
+        ),
+    ],
+)
+def test_a_stalled_or_failed_run_ends_the_watch(app, kind, payload, line):
+    code, lines = _watch({3: lambda: app.buffer.append(kind, payload)})
+    assert code == 0
+    assert lines == [line]
+
+
+def test_a_run_that_stops_without_an_end_event_ends_the_watch(app):
+    # FIB-1331: the run died outside a task, so no end event was recorded;
+    # only /app/status knows it is over.
+    app.set_running(True)
+
+    def crash():
+        app.buffer.append("task_completed", {"item_name": "03-stable-owl"})
+        app.set_running(False)
+
+    code, lines = _watch({3: crash})
+
+    assert code == 0
+    assert lines == [
+        "EVENT task_completed 03-stable-owl",
+        "RUN ENDED (stopped without an end event)",
+    ]
+
+
+def test_a_watch_started_before_the_run_waits_for_it(app):
+    # Nothing running at the start is not an end: the agent starts the
+    # watch, then the run.
+    def start():
+        app.set_running(True)
+        app.buffer.append("workflow_started", {})
+
+    def crash():
+        app.set_running(False)
+
+    code, lines = _watch({4: start, 7: crash})
+
+    assert code == 0
+    assert lines == [
+        "EVENT workflow_started ",
+        "RUN ENDED (stopped without an end event)",
+    ]
+
+
+def test_an_end_event_beats_the_fallback(app):
+    # The status already says stopped when the end event lands: the watch
+    # reports the event, not the fallback.
+    app.set_running(True)
+
+    def finish():
+        app.set_running(False)
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({4: finish})
+    assert code == 0
+    assert lines == ["RUN ENDED (workflow_completed)"]
 
 
 def test_evicted_events_print_a_gap_then_carry_on(microscope, tmp_path, discovery):

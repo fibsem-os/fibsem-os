@@ -1,8 +1,7 @@
-"""The Beam device, and the old get/set keys it answers.
+"""The Beam device.
 
 One ``Beam`` class serves both columns; a parameter one column lacks is simply not
-bound on it. ``FibsemMicroscope.get``/``set`` route a key that has moved to a device
-to its parameter (``BEAM_ROUTES``), and every other key to the backend's chain.
+bound on it.
 """
 
 from __future__ import annotations
@@ -177,6 +176,29 @@ class Beam(Device):
         self._live_lock = threading.Lock()
         self._live_stop = threading.Event()
         self._live_thread: Optional[threading.Thread] = None
+
+    def facts(self) -> Dict[str, Any]:
+        """The gas the column's source reports running, if any."""
+        return {"installed_plasma_gas": self._installed_gas_or_none()}
+
+    def _installed_gas_or_none(self) -> Optional[str]:
+        # A Ga column refuses the question the same way a sick connection does.
+        try:
+            return self.installed_plasma_gas() or None
+        except Exception as error:
+            logging.debug(f"{self.name}: installed_plasma_gas: {error}")
+            return None
+
+    def installed_plasma_gas(self) -> Optional[str]:
+        """The gas the column's source reports running, read from the instrument
+        whatever the configuration says, or None if it cannot say (a Ga column, an
+        electron beam, a backend that cannot ask).
+
+        It is how connect finds the gas when the configuration names none
+        (`FibsemMicroscope._read_plasma_source`), which then binds the ``plasma_gas``
+        parameter the column did not have.
+        """
+        return None
 
     @command(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:
@@ -399,52 +421,3 @@ class Beam(Device):
 def implements(beam: Beam, hook: str) -> bool:
     """Whether the beam's driver overrides *hook*."""
     return getattr(type(beam), hook) is not getattr(Beam, hook)
-
-
-# Old key -> parameter name. Every beam key keeps its old name here, so the table is
-# also the list of what has moved. A key missing from it has not moved yet.
-BEAM_ROUTES: Dict[str, str] = {
-    "voltage": "voltage",
-    "current": "current",
-    "plasma_gas": "plasma_gas",
-    "working_distance": "working_distance",
-    "hfw": "hfw",
-    "scan_rotation": "scan_rotation",
-    "blanked": "blanked",
-    "preset": "preset",
-    "detector_type": "detector_type",
-    "detector_mode": "detector_mode",
-    "detector_contrast": "detector_contrast",
-    "detector_brightness": "detector_brightness",
-    "resolution": "resolution",
-    "dwell_time": "dwell_time",
-    "stigmation": "stigmation",
-    "shift": "shift",
-    "on": "on",
-    "scanning_mode": "scanning_mode",
-    "angular_correction_angle": "angular_correction",
-    "angular_correction_tilt_correction": "tilt_correction",
-}
-
-
-# Old set keys that are verbs, moved to the beam's scan commands: key -> command. The
-# value is the command's argument (none for full_frame, which ignores it).
-BEAM_COMMAND_ROUTES: Dict[str, str] = {
-    "spot_mode": "spot",
-    "reduced_area": "reduced_area",
-    "full_frame": "full_frame",
-}
-
-
-# Stage keys take no beam type. A get key routes to a parameter; a set key that is a
-# verb ("home", "link") routes to a command, which ignores the value as the old
-# branches do.
-STAGE_ROUTES: Dict[str, str] = {
-    "stage_position": "position",
-    "stage_homed": "homed",
-    "stage_linked": "linked",
-}
-STAGE_COMMAND_ROUTES: Dict[str, str] = {
-    "stage_home": "home",
-    "stage_link": "link",
-}

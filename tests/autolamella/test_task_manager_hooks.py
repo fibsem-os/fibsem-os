@@ -219,3 +219,61 @@ def test_cancelled_run_keeps_its_own_message(experiment, recorder, monkeypatch):
     manager.run(task_names=["MillTrench"], required_lamella=[])
 
     assert messages[-1] == "Workflow cancelled by user."
+
+
+# ---------------------------------------------------------------------------
+# workflow_failed: exactly one end event on every path (FIB-1327)
+# ---------------------------------------------------------------------------
+
+
+class _RaisingMicroscope:
+    """Raises when the run reaches the objective retract after the queue: an
+    error outside any one task's own handling."""
+
+    def __init__(self, error: BaseException):
+        self._error = error
+
+    @property
+    def fm(self):
+        raise self._error
+
+
+def test_a_run_that_dies_outside_a_task_fires_workflow_failed(experiment, recorder):
+    hook_manager, fired = recorder
+    manager = _manager(experiment, hook_manager)
+    manager.microscope = _RaisingMicroscope(RuntimeError("objective lost"))
+
+    with pytest.raises(RuntimeError, match="objective lost"):
+        manager.run(task_names=["MillTrench"], required_lamella=[])
+
+    assert _events(fired) == ["workflow_started", "workflow_failed"]
+    assert fired[-1].error == "objective lost"
+    assert fired[-1].experiment_name == "test-exp"
+
+
+def test_a_stop_that_unwinds_the_run_fires_workflow_cancelled(experiment, recorder):
+    hook_manager, fired = recorder
+    manager = _manager(experiment, hook_manager)
+    manager.microscope = _RaisingMicroscope(InterruptedError("stopped"))
+
+    with pytest.raises(InterruptedError):
+        manager.run(task_names=["MillTrench"], required_lamella=[])
+
+    assert _events(fired) == ["workflow_started", "workflow_cancelled"]
+
+
+def test_an_error_after_the_end_event_adds_no_second_end(
+    experiment, recorder, monkeypatch
+):
+    hook_manager, fired = recorder
+    manager = _manager(experiment, hook_manager)
+
+    def report_fails():
+        raise RuntimeError("summary failed")
+
+    monkeypatch.setattr(manager, "_maybe_fire_experiment_completed", report_fails)
+
+    with pytest.raises(RuntimeError):
+        manager.run(task_names=["MillTrench"], required_lamella=[])
+
+    assert _events(fired) == ["workflow_started", "workflow_completed"]

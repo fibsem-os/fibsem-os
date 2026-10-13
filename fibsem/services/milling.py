@@ -134,6 +134,13 @@ class Milling(Service):
         self._progress = progress
         self.progress.report(progress)
 
+    def report(self, progress: MillingProgress) -> None:
+        """Report ``progress`` for whoever is driving the mill: a strategy or a task
+        with words of its own, or its own countdown (coincidence milling). The
+        microscope's ``milling_progress_signal`` sends on what ``progress`` reports,
+        so this is how a report reaches it."""
+        self._report(progress)
+
     def beam(self, channel: BeamType = BeamType.ION) -> Beam:
         """The beam that mills on ``channel``."""
         return self.electron if channel is BeamType.ELECTRON else self.ion
@@ -409,14 +416,15 @@ def _settable(beam: Optional[Beam], name: str) -> bool:
     return beam is not None and name in beam.parameters and getattr(beam, name).settable
 
 
-def bind_milling(service: Type[_M], microscope: Any) -> Optional[_M]:
+def bind_milling(service: Type[_M], microscope: Any, **kwargs: Any) -> Optional[_M]:
     """Build a microscope's milling service of class *service* over its beams, or
     None when it has no ion beam (the column is disabled), which leaves the
-    microscope's own milling code in charge."""
+    microscope's own milling code in charge. *kwargs* go to the service's
+    constructor, such as the driver's connection."""
     beams = microscope.beams
     if BeamType.ION not in beams:
         return None
-    milling = service(parent=microscope)
+    milling = service(parent=microscope, **kwargs)
     milling.fill_roles(ion=beams[BeamType.ION])
     if BeamType.ELECTRON in beams:
         milling.fill_roles(electron=beams[BeamType.ELECTRON])
@@ -425,6 +433,14 @@ def bind_milling(service: Type[_M], microscope: Any) -> Optional[_M]:
     if signal is not None:
         milling.progress.changed.connect(forward_to(signal))
     return milling
+
+
+def report_progress(microscope: Any, progress: MillingProgress) -> None:
+    """Report ``progress`` on *microscope*'s milling service; without one (no ion
+    beam) nothing mills, so there is nothing to report."""
+    milling = getattr(microscope, "milling", None)
+    if milling is not None:
+        milling.report(progress)
 
 
 def progress_update(

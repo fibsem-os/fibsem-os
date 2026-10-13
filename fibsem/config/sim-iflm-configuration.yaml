@@ -6,7 +6,7 @@
 # objective is off to the side, and the stage travels to reach it.
 #
 # That difference is the whole point of the file. Every offset-mount code path
-# (`fibsem/microscope.py:move_to_microscope`, the device transform, the fluorescence
+# (`FibsemMicroscope.move_to_device`, the device transform, the fluorescence
 # pose derivation) is currently unreachable without hardware, because
 # `microscope.fm` is refused on any non-compustage system. This config is where those
 # paths can be exercised, and where they can be seen to fail while they are still

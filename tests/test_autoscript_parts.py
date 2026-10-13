@@ -44,6 +44,8 @@ def recording(tmp_path_factory):
     recording = load(out.read_text())
     # the old code's side, recorded before it was deleted
     old = load(RECORDED.read_text())["parts"]
+    # a false pump_chamber did nothing but warn; with the keys gone there is no call
+    old = {k: v for k, v in old.items() if k != "set pump_chamber False"}
     assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
     for case in recording["cases"]:
         case["old"] = old[case["key"]]
@@ -62,20 +64,8 @@ def test_the_recording_makes_sdk_calls(recording):
 
 
 def test_the_devices_make_the_same_sdk_calls_logs_and_results(recording):
-    different = [
-        c
-        for c in recording["cases"]
-        if c["old"] != c["new"] and c["key"] != "set pump_chamber False"
-    ]
+    different = [c for c in recording["cases"] if c["old"] != c["new"]]
     assert different == [], json.dumps(different[:3], indent=1)
-
-
-def test_a_false_pump_does_nothing_without_a_warning(recording):
-    """The old ``_set`` warned on a false pump; with no ``_set`` of Thermo's own it
-    is the chamber's key with nothing to do, and logs at debug level."""
-    case = _case(recording, "set pump_chamber False")
-    assert case["old"][2] == [["WARNING", "Invalid value for pump_chamber: False."]]
-    assert case["new"] == [None, [], []]
 
 
 def test_the_old_errors_are_kept(recording):
@@ -102,7 +92,9 @@ def test_connect_builds_the_chamber_and_the_manipulator(recording):
     assert devices["manipulator_parameters"] == ["position", "state"]
 
 
-def test_nothing_unfitted_is_built(recording):
+def test_nothing_unfitted_is_kept(recording):
+    """The needle says it is not installed, so its device is taken out again and
+    its keys are not routed."""
     assert recording["facts"]["none_fitted"] == {
         "manipulator": True,
         "routed": False,
@@ -124,37 +116,3 @@ def test_a_configured_device_that_cannot_be_built_fails_connect(recording):
         "Device 'laser' was not built: driver 'ThermoFisher' has no builder for a "
         "'laser' device."
     )
-
-
-def test_connect_builds_the_parts_after_it_reads_what_is_fitted():
-    """Whether a manipulator is fitted is read in
-    ``_build_sample_handling``, so the parts are built after it."""
-    import ast
-
-    import fibsem
-
-    source = (
-        Path(fibsem.__file__).parent / "drivers" / "autoscript" / "microscope.py"
-    ).read_text(encoding="utf-8")
-    connect = next(
-        node
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.FunctionDef) and node.name == "connect_to_microscope"
-    )
-    order = [
-        node.func.attr
-        for node in ast.walk(connect)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr
-        in ("_build_beams", "_build_stage", "_build_sample_handling", "_build_parts")
-    ]
-    lines = {
-        node.func.attr: node.lineno
-        for node in ast.walk(connect)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    }
-    assert sorted(order) == sorted(
-        ["_build_beams", "_build_stage", "_build_sample_handling", "_build_parts"]
-    )
-    assert lines["_build_sample_handling"] < lines["_build_parts"]

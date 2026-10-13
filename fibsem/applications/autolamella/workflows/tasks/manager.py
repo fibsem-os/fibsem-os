@@ -27,6 +27,16 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import InsertableDeviceState
 from fibsem.util.durations import format_duration_precise, format_duration_rounded
 
+# Exactly one of these ends every run (FIB-1327).
+_RUN_ENDS = frozenset(
+    {
+        HookEvent.WORKFLOW_COMPLETED,
+        HookEvent.WORKFLOW_CANCELLED,
+        HookEvent.WORKFLOW_STALLED,
+        HookEvent.WORKFLOW_FAILED,
+    }
+)
+
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
@@ -111,6 +121,8 @@ class BaseTaskManager:
         # Set by Experiment.decide (via _on_decided) so a run parked on a review
         # wakes and rescans; cleared at the top of every scan.
         self._decision_event = threading.Event()
+        # Whether this run's end event has fired; no run, nothing to report.
+        self._run_ended = True
         # The third way a run ends: not completed, not cancelled -- drained with
         # work still waiting on a decision, and the wait ran out. Read after the
         # run by whoever launched it.
@@ -387,12 +399,7 @@ class BaseTaskManager:
         pending = sum(
             1 for _i, reason in self.deferred_items() if reason == "awaiting_decision"
         )
-        fire_event(
-            self.hook_manager,
-            HookEvent.WORKFLOW_STALLED,
-            decisions_pending=pending,
-            **self.hook_run_context(),
-        )
+        self._fire_workflow_hook(HookEvent.WORKFLOW_STALLED, decisions_pending=pending)
         logging.warning(f"Workflow stalled: {self.stall_reason}")
         update_status_ui(
             self.parent_ui,
@@ -490,10 +497,31 @@ class BaseTaskManager:
             "tasks_total": total,
         }
 
-    def _fire_workflow_hook(self, event: HookEvent) -> None:
+    def _fire_workflow_hook(self, event: HookEvent, **fields) -> None:
         # Workflow events used to carry nothing at all, so workflow_completed reached a
         # webhook with no way to tell which experiment had finished.
-        fire_event(self.hook_manager, event, **self.hook_run_context())
+        if event == HookEvent.WORKFLOW_STARTED:
+            self._run_ended = False
+        elif event in _RUN_ENDS:
+            self._run_ended = True
+        fire_event(self.hook_manager, event, **fields, **self.hook_run_context())
+
+    def _end_escaped_run(self, error: BaseException) -> None:
+        """Report the end of a run an exception escaped, unless it was reported.
+
+        Every run ends with exactly one of the run-end events (FIB-1327): one
+        that dies outside a task's own handling -- a save that fails, the
+        objective retract -- used to end with none, and anything waiting for
+        the end waited forever. A Stop that unwinds this far is a cancellation.
+        """
+        if self._run_ended:
+            return
+        if self.should_abort or isinstance(
+            error, (OperationCancelledError, InterruptedError)
+        ):
+            self._fire_workflow_hook(HookEvent.WORKFLOW_CANCELLED)
+        else:
+            self._fire_workflow_hook(HookEvent.WORKFLOW_FAILED, error=str(error))
 
     def _fire_skipped_hook(
         self,
@@ -668,6 +696,9 @@ class TaskManager(BaseTaskManager):
             self.experiment.decided.connect(self._on_decided)
             try:
                 self._run_items()
+            except Exception as e:
+                self._end_escaped_run(e)
+                raise
             finally:
                 self.experiment.decided.disconnect(self._on_decided)
 
@@ -1098,7 +1129,8 @@ class TaskManager(BaseTaskManager):
                 lamella.task_state.status_message = "Cancelled by user."
             else:
                 logging.warning(
-                    f"Error running task {task_name} for lamella {lamella.name}: {e}"
+                    f"Error running task {task_name} for lamella {lamella.name}: {e}",
+                    exc_info=True,
                 )
                 lamella.task_state.status = AutoLamellaTaskStatus.Failed
                 lamella.task_state.status_message = str(e)

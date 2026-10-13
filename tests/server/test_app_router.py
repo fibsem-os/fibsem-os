@@ -134,6 +134,67 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
     assert unknown.json()["detail"]["filenames"] == [fname]
 
 
+def test_every_listed_output_is_served_and_only_completed_runs_count(client, host):
+    # FIB-1330: start images are listed by get_task_outputs, so they are
+    # served too; a cancelled run is listed with its status, not as completed.
+    import numpy as np
+    import tifffile
+
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+    )
+
+    lamella = host.experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    start = "ref_Rough Milling_start_ib.tif"
+    tifffile.imwrite(
+        os.path.join(lamella.path, start),
+        (np.random.rand(64, 96) * 65535).astype(np.uint16),
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name="Rough Milling",
+            status=AutoLamellaTaskStatus.Completed,
+            outputs={"start_fib": [start]},
+        )
+    )
+    lamella.task_history.append(
+        AutoLamellaTaskState(name="Polishing", status=AutoLamellaTaskStatus.Cancelled)
+    )
+
+    listed = client.get(f"/app/task_outputs/{lamella.name}", headers=AUTH).json()
+    assert listed["completed_tasks"] == ["Rough Milling"]
+    assert [(t["name"], t["status"]) for t in listed["tasks"]] == [
+        ("Rough Milling", "Completed"),
+        ("Polishing", "Cancelled"),
+    ]
+    assert listed["tasks"][0]["files"] == {"start_fib": [start]}
+    served = client.get(f"/app/items/{lamella.name}/outputs/{start}", headers=AUTH)
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/jpeg"
+
+
+def test_task_history_is_in_time_order(client, host):
+    from datetime import datetime, timedelta
+
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    host.experiment.add_new_lamella(MicroscopeState(), EventedDict())
+    first, second = host.experiment.positions[:2]
+    t0 = datetime(2026, 10, 12, 9).timestamp()
+    # The second item ran first: listing by item would put it last.
+    first.task_history.append(
+        AutoLamellaTaskState(name="Polishing", start_timestamp=t0 + 60)
+    )
+    second.task_history.append(
+        AutoLamellaTaskState(name="Rough Milling", start_timestamp=t0)
+    )
+
+    items = client.get("/app/task_history", headers=AUTH).json()["items"]
+    assert [i["task_name"] for i in items] == ["Rough Milling", "Polishing"]
+
+
 def test_sidecar_returns_a_saved_output_as_image_content(client, host):
     """The Observer's saved-image gap (FIB-848): the JPEG route reaches the
     agent as MCP image content, with the basename's spaces encoded."""
@@ -358,6 +419,7 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
         note = [e for e in events if e["kind"] == "agent_note"][-1]
         assert note["payload"]["item_name"] == item
+        assert note["payload"]["item_id"] == host.experiment.positions[0].id
 
         unknown = client.post(
             "/app/agent/notes",

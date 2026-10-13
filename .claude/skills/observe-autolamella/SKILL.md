@@ -75,7 +75,7 @@ and stop.
 | What's on screen? | `get_display_images` (previews, with `acquired_at`) |
 | What's it asking? | `get_pending_prompt`, `get_pending_reviews` |
 | How has the run gone? | `get_task_history`; `get_run_summary` for the last run started in this app session |
-| One lamella | `get_item_detail`, `get_task_outputs` |
+| One lamella | `get_item_detail`, `get_task_outputs`, `get_item_output_image` |
 | The plan | `get_protocol`, `get_item_task_config`, `get_protocol_task_config` |
 | Grids | `get_grids`, `get_grid_detail`, `get_grid_markers` |
 
@@ -84,17 +84,16 @@ microscope PC you can read the record from there with the offline reader
 below, while the run is going: it is the quickest way to answer "what
 happened to lamella 2?" or "why did Mill Fiducial fail?" mid-run.
 
-**Images of a lamella's saved outputs.** There's no MCP tool for these yet.
-Fetch one by its basename from `get_task_outputs` over HTTP, into your
-scratch folder, and look at it. Basenames have spaces in them
+**Images of a lamella's saved outputs.** `get_item_output_image` with a
+basename from `get_task_outputs` (start and final images alike) gives you the
+image to look at, as a 768 px JPEG preview. Without MCP, fetch the same
+preview over HTTP into your scratch folder. Basenames have spaces in them
 (`ref_Mill Fiducial_start_ib.tif`), so URL-encode them:
 
 ```bash
 curl -s -o out.jpg -H "Authorization: Bearer $TOKEN" \
   "http://127.0.0.1:8001/app/items/01-tough-mako/outputs/ref_Mill%20Fiducial_start_ib.tif"
 ```
-
-It comes back as a JPEG preview.
 
 On the microscope PC, `read_record.py --preview` on the TIFF works too.
 
@@ -112,7 +111,10 @@ fibsem-mcp watch
 Its `PROMPT` and `QUESTION` lines mean the run is waiting on a person. You
 don't answer them. Read the question, say what it is asking and what you'd
 answer and why, and remind the operator it is waiting on them. `RUN ENDED`
-means summarise (below) and stop watching. If your harness can't keep a
+means summarise (below) and stop watching. When it says
+`workflow_failed: <error>` or `stopped without an end event`, the run died:
+read `get_log` with the run's `task_id` and `level=WARNING` first and say
+why. If your harness can't keep a
 background process alive while you're idle, run the watcher in the
 foreground with your tool timeout as the cap and run it again after each
 return.

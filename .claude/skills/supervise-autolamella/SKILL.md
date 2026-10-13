@@ -62,8 +62,11 @@ status bar. Every launch starts at Watch; nothing in a file raises it.
 - **Assist** is not offered yet. **Off** refuses everything, `/capabilities`
   included (`403 agent_off`).
 
-Hardware (moving the stage, acquiring, milling directly) is never part of a
-level. Milling happens only inside a workflow's own steps.
+At Drive with the microscope's devices served (`routers.microscope` in
+`/capabilities`), the hardware tools work too: moving the stage, acquiring,
+milling directly. Supervising doesn't need them. Use them only when the
+operator asks. While a run is in control they are refused with
+`409 microscope_busy`; don't retry, say so.
 
 A refusal names its reason in `detail.error_type`:
 
@@ -97,11 +100,14 @@ It comes with fibsem and finds the app the way the MCP tools do. If
 with the Python fibsem is installed in.
 
 Wake and act on its lines: `PROMPT` (a question is standing, with its
-nonce), `QUESTION` (the run is stopped on a recorded question — rule 5),
+`question_id`), `QUESTION` (the run is stopped on a recorded question — rule 5),
 `ANSWERED` (check who — if the operator answered, your read of that
 question is stale), task lifecycle `EVENT` lines, `GAP` (events were lost:
 re-read `/app/prompt` and `/app/status`), and `RUN ENDED` (report and stop
-watching). It exits 1 when the app cannot be watched; say so rather than
+watching). A run that ended badly says how: `workflow_stalled` (decisions
+are pending), `workflow_failed: <error>`, or `stopped without an end event`
+(it died without saying so). For the last two, read `get_log` with the
+run's `task_id` and `level=WARNING` before you report. It exits 1 when the app cannot be watched; say so rather than
 going idle.
 
 If your harness cannot keep a background process alive while you are idle
@@ -114,11 +120,11 @@ quiet run — when in doubt, read `/app/prompt` directly.
 
 ## Answer — the rules that are never optional
 
-1. **Name the question.** Read `GET /app/prompt`, take its `nonce`, echo it in
-   `POST /app/prompt/answer {"response": ..., "nonce": N}`. A `409
+1. **Name the question.** Read `GET /app/prompt`, take its `question_id`, echo it in
+   `POST /app/prompt/answer {"response": ..., "question_id": N}`. A `409
    stale_prompt` means the question changed under you (usually: the operator
    answered first) — that refusal is correct behaviour; re-read and continue.
-   Never retry the same nonce.
+   Never retry the same `question_id`.
 2. **Separate reading from acting.** Freshness check, *then* look, *then*
    answer — three tool calls, never one chained command. A chained
    guard-and-answer once fired an accept before a stale reading could stop it.
@@ -188,7 +194,7 @@ FIB view). Sanity-check against the image: in bounds, non-degenerate size,
 covering the fiducial, consistent with previous items. Yes accepts it as
 shown. In a fiducial task this prompt arrives at the task's *end*, not its
 start. An answer may carry a **corrected rectangle**:
-`{"response": true, "nonce": N, "value": {"left", "top", "width", "height"}}`
+`{"response": true, "question_id": N, "value": {"left", "top", "width", "height"}}`
 (fractions of the frame, origin top-left). The server validates it and
 places it on the operator's screen through the same widget they would drag,
 then accepts it — use this for a small correction you can justify from your

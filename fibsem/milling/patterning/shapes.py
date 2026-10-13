@@ -26,10 +26,8 @@ import numpy as np
 from skimage.transform import resize
 
 from fibsem.conversions import microscope_image_to_image_coordinates
-from fibsem.milling.patterning.patterns2 import (
-    BasePattern,
-    FiducialPattern,
-)
+from fibsem.milling.patterning.base import BasePattern
+from fibsem.milling.patterning.patterns import FiducialPattern
 from fibsem.structures import (
     FibsemBitmapSettings,
     FibsemCircleSettings,

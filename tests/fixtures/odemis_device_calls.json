@@ -2,16 +2,34 @@
  "acquire both ELECTRON": {
   "calls": [
    [
-    "acquire_image",
+    "set_full_frame_scan_mode",
     [],
     {
-     "channel": "electron",
-     "frame_settings": null
+     "channel": "electron"
     }
+   ],
+   [
+    "set_resolution",
+    [
+     [
+      1536,
+      1024
+     ],
+     "electron"
+    ],
+    {}
    ],
    [
     "get_resolution",
     [
+     "electron"
+    ],
+    {}
+   ],
+   [
+    "set_dwell_time",
+    [
+     2e-07,
      "electron"
     ],
     {}
@@ -24,11 +42,27 @@
     {}
    ],
    [
+    "set_field_of_view",
+    [
+     8e-05,
+     "electron"
+    ],
+    {}
+   ],
+   [
     "get_field_of_view",
     [
      "electron"
     ],
     {}
+   ],
+   [
+    "acquire_image",
+    [],
+    {
+     "channel": "electron",
+     "frame_settings": null
+    }
    ],
    [
     "get_working_distance",
@@ -122,27 +156,36 @@
     {}
    ]
   ],
-  "log": [],
+  "log": [
+   [
+    "INFO",
+    "ELECTRON dwell time set to 2e-07 s."
+   ],
+   [
+    "INFO",
+    "ELECTRON HFW set to 8e-05 m."
+   ]
+  ],
   "result": {
    "pixel_size": [
     "Point",
-    2.4999999999999998e-05,
-    2.4999999999999998e-05
+    5.208333333333334e-08,
+    5.208333333333334e-08
    ],
    "settings": {
     "autocontrast": false,
     "beam_type": "ELECTRON",
     "drift_correction": false,
-    "dwell_time": 1e-06,
-    "filename": "default_image",
+    "dwell_time": 2e-07,
+    "filename": "img",
     "frame_integration": null,
-    "hfw": 0.00015,
+    "hfw": 8e-05,
     "line_integration": null,
-    "path": null,
+    "path": "/data",
     "reduced_area": null,
     "resolution": [
-     6,
-     4
+     1536,
+     1024
     ],
     "save": false,
     "scan_interlacing": null
@@ -156,16 +199,34 @@
  "acquire both ION": {
   "calls": [
    [
-    "acquire_image",
+    "set_full_frame_scan_mode",
     [],
     {
-     "channel": "ion",
-     "frame_settings": null
+     "channel": "ion"
     }
+   ],
+   [
+    "set_resolution",
+    [
+     [
+      1536,
+      1024
+     ],
+     "ion"
+    ],
+    {}
    ],
    [
     "get_resolution",
     [
+     "ion"
+    ],
+    {}
+   ],
+   [
+    "set_dwell_time",
+    [
+     2e-07,
      "ion"
     ],
     {}
@@ -178,11 +239,27 @@
     {}
    ],
    [
+    "set_field_of_view",
+    [
+     8e-05,
+     "ion"
+    ],
+    {}
+   ],
+   [
     "get_field_of_view",
     [
      "ion"
     ],
     {}
+   ],
+   [
+    "acquire_image",
+    [],
+    {
+     "channel": "ion",
+     "frame_settings": null
+    }
    ],
    [
     "get_working_distance",
@@ -276,27 +353,36 @@
     {}
    ]
   ],
-  "log": [],
+  "log": [
+   [
+    "INFO",
+    "ION dwell time set to 2e-07 s."
+   ],
+   [
+    "INFO",
+    "ION HFW set to 8e-05 m."
+   ]
+  ],
   "result": {
    "pixel_size": [
     "Point",
-    0.00015,
-    0.00015
+    5.208333333333334e-08,
+    5.208333333333334e-08
    ],
    "settings": {
     "autocontrast": false,
     "beam_type": "ION",
     "drift_correction": false,
-    "dwell_time": 1e-06,
-    "filename": "default_image",
+    "dwell_time": 2e-07,
+    "filename": "img",
     "frame_integration": null,
-    "hfw": 0.0009,
+    "hfw": 8e-05,
     "line_integration": null,
-    "path": null,
+    "path": "/data",
     "reduced_area": null,
     "resolution": [
-     6,
-     4
+     1536,
+     1024
     ],
     "save": false,
     "scan_interlacing": null
@@ -1008,7 +1094,7 @@
  "acquire nothing": {
   "calls": [],
   "log": [],
-  "result": "EXC ValueError: Must provide image_settings to acquire a new image if beam_type is not specified."
+  "result": "EXC ValueError: Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
  },
  "acquire reduced ELECTRON": {
   "calls": [

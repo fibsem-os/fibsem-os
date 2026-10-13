@@ -3,15 +3,11 @@ from __future__ import annotations
 import logging
 import os
 from copy import deepcopy
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
-from psygnal import Signal
 
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
-from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.odemis import add_odemis_path
 from fibsem.drivers.tescan.microscope import TescanMicroscope
@@ -19,7 +15,6 @@ from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
 )
-from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -228,7 +223,7 @@ ODEMIS_CHAMBER_STATES = {
 # TODO: load default system settings?
 
 
-# The devices Odemis builds by itself. There is no other code for their keys, so
+# The devices Odemis builds by itself. There is no other code for what they do, so
 # each is required: one that cannot be built fails the connection. One the
 # configuration switches off (`enabled: false`) is not built.
 ODEMIS_DEVICES = (
@@ -252,7 +247,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         "manipulator": False,
     }
 
-    milling_progress_signal = Signal(MillingProgress)
     _last_imaging_settings: ImageSettings
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
@@ -291,6 +285,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self._build_milling()
         self._build_stage_movement()
         self._build_spot_burn()
+        self._build_imaging()
 
         self.fm = self._build_fluorescence(manufacturers.ODEMIS)
         self._apply_fluorescence_calibration()
@@ -303,12 +298,11 @@ class OdemisThermoMicroscope(FibsemMicroscope):
     def _build_devices(self) -> None:
         """Build the beam, stage and chamber devices from the configuration's
         ``hardware.devices`` entries over ``ODEMIS_DEVICES``, then any other device it
-        adds, and route their keys to them.
+        adds.
 
         The moves, ``home``, ``link``, ``pump`` and ``vent`` then go through the
-        devices; a false ``stage_link``, ``pump_chamber`` or ``vent_chamber`` runs
-        nothing. There is no other code for these keys, so a device that cannot be
-        built fails the connection, and one switched off has no keys to answer.
+        devices. There is no other code for them, so a device that cannot be built
+        fails the connection, and one switched off is unsupported.
         """
         resolved = resolve_system_devices(
             self.system,
@@ -320,23 +314,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         for name, device in built.items():
             self._set_device(name, device)
         self._bind_device_roles()
-
-        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
-        self._device_routes = MappingProxyType(
-            {
-                **{key: ("stage", name) for key, name in STAGE_ROUTES.items()},
-                **{key: ("chamber_device", n) for key, n in CHAMBER_ROUTES.items()},
-            }
-        )
-        self._command_routes = MappingProxyType(
-            {
-                **{key: ("stage", n) for key, n in STAGE_COMMAND_ROUTES.items()},
-                **{
-                    key: ("chamber_device", n)
-                    for key, n in CHAMBER_COMMAND_ROUTES.items()
-                },
-            }
-        )
 
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
@@ -365,33 +342,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.connection.set_active_view(channel.value)
         self.connection.set_active_device(channel.value)
 
-    def acquire_image(
-        self,
-        image_settings: Optional[ImageSettings] = None,
-        beam_type: Optional[BeamType] = None,
-    ) -> FibsemImage:
-        """Acquire an image with `image_settings`, or with the current settings of
-        `beam_type` when that is given instead."""
-        # The beam's acquire command; a beam_type takes precedence and means the
-        # current settings.
-        if beam_type is not None:
-            return self._beam_device(beam_type).acquire(None)
-        if image_settings is None:
-            raise ValueError(
-                "Must provide image_settings to acquire a new image if beam_type is not specified."
-            )
-        return self._beam_device(image_settings.beam_type).acquire(image_settings)
-
-    def last_image(self, beam_type: BeamType) -> FibsemImage:
-        return self._beam_device(beam_type).last_image()
-
-    def _beam_device(self, beam_type: BeamType):
-        """The beam device for ``beam_type``; a column disabled in the config has none."""
-        device = self.beams.get(beam_type)
-        if device is None:
-            raise ValueError(f"The {beam_type.name} beam is not enabled.")
-        return device
-
     def _current_image_settings(
         self, beam_type: BeamType, image: np.ndarray
     ) -> ImageSettings:
@@ -416,31 +366,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         image = FibsemImage(data, md)
         self._set_additional_metadata(image)
         return image
-
-    def autocontrast(
-        self, beam_type: BeamType, reduced_area: FibsemRectangle = None
-    ) -> None:
-        self._beam_device(beam_type).autocontrast(reduced_area)
-
-    def auto_focus(
-        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
-    ) -> None:
-        """An image-based working-distance sweep, at the beam's current field of view.
-
-        The odemis client exposes no autofocus call (the AutoScript adapter has one,
-        but odemis does not forward it), so the microscope's own focus routine is out
-        of reach from here.
-        """
-        from fibsem.autofunctions.autofocus import AutoFocusSettings, run_auto_focus
-
-        # acquire_image writes resolution, dwell time and field of view to the beam;
-        # run_auto_focus puts them back when the sweep ends.
-        run_auto_focus(
-            self,
-            beam_type=beam_type,
-            hfw=self.get_field_of_view(beam_type),
-            settings=AutoFocusSettings(reduced_area=reduced_area),
-        )
 
     @_records_beam_shift
     def beam_shift(self, dx: float, dy: float, beam_type: BeamType) -> None:

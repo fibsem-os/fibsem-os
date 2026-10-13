@@ -21,23 +21,15 @@ emit ``changed``; its commands are plain methods it lists in ``commands``:
 
 This package is vendor-neutral and never imports a driver; each driver's device
 classes and builders are in ``fibsem.drivers.<driver>.devices``. ``docs/developers/devices.md``
-is the guide, including where each deprecated ``get``/``set`` key went.
+is the guide, including where each removed ``get``/``set`` key went.
 """
 
-from fibsem.devices.beam import (
-    BEAM_ROUTES,
-    STAGE_COMMAND_ROUTES,
-    STAGE_ROUTES,
-    Beam,
-)
-from fibsem.devices.chamber import (
-    CHAMBER_COMMAND_ROUTES,
-    CHAMBER_RESOURCE,
-    CHAMBER_ROUTES,
-    Chamber,
-)
+from fibsem.devices.beam import Beam
+from fibsem.devices.chamber import CHAMBER_RESOURCE, Chamber
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
+    Axes,
+    Axis,
     BoundParameter,
     CommandInfo,
     Device,
@@ -48,17 +40,11 @@ from fibsem.devices.core import (
     Resources,
     command,
 )
-from fibsem.devices.manipulator import (
-    MANIPULATOR_RESOURCE,
-    MANIPULATOR_ROUTES,
-    Manipulator,
-)
+from fibsem.devices.manipulator import MANIPULATOR_RESOURCE, Manipulator
 from fibsem.devices.stage import (
     AXIS_UNITS,
     STAGE_RESOURCE,
     UNLIMITED,
-    Axes,
-    Axis,
     Stage,
     StageLimitError,
 )
@@ -67,17 +53,11 @@ __all__ = [
     "AXIS_UNITS",
     "Axes",
     "Axis",
-    "BEAM_ROUTES",
-    "CHAMBER_COMMAND_ROUTES",
     "CHAMBER_RESOURCE",
-    "CHAMBER_ROUTES",
     "Chamber",
-    "STAGE_COMMAND_ROUTES",
     "STAGE_RESOURCE",
-    "STAGE_ROUTES",
     "IMAGING_CHANNEL",
     "MANIPULATOR_RESOURCE",
-    "MANIPULATOR_ROUTES",
     "Manipulator",
     "CommandInfo",
     "Beam",

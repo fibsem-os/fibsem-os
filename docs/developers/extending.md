@@ -36,8 +36,8 @@ configuration by default) and returns the microscope and its settings. The
 higher-level operations, and every `FibsemMicroscope` method is available
 directly. The microscope's beams, stage and other hardware are devices
 (`microscope.devices`), whose parameters describe their own limits and choices;
-[Devices](devices.md) covers them. Do not use the string-key
-`microscope.get("key")` and `microscope.set(...)`: they are deprecated. Use `acquire.acquire_image(microscope, settings)` rather than the
+[Devices](devices.md) covers them (the string-key `microscope.get("key")` and
+`microscope.set(...)` were removed in 0.6.0). Use `acquire.acquire_image(microscope, settings)` rather than the
 microscope's own `acquire_image`: the method returns the raw frame and
 ignores `save=True`; the module function applies autocontrast and gamma and
 writes the file.
@@ -94,7 +94,7 @@ it. Its "When nothing shows up" section covers the diagnostic steps.
 Each group contributes one kind of object:
 
 - **A pattern** (`fibsem.patterns`): a subclass of `BasePattern` from
-  `fibsem.milling.patterning.patterns2` whose `define()` returns the shapes
+  `fibsem.milling.patterning.base` whose `define()` returns the shapes
   to mill. It appears in the pattern list of every milling stage.
 - **A strategy** (`fibsem.strategies`): how a pattern is milled, for example
   in N passes. It appears in the strategy list of every stage.
@@ -117,8 +117,9 @@ Three constraints on loading. Each produces no error when violated, so the
 example's tests check them:
 
 1. **Pattern modules are imported while `fibsem.milling.base` is only
-   partly initialised.** Import `BasePattern` from `patterns2`, not from the
-   `fibsem.milling.patterning` package, and import nothing that depends on
+   partly initialised.** Import `BasePattern` from
+   `fibsem.milling.patterning.base`, not from the `fibsem.milling.patterning`
+   package (the older `patterns2` path still works), and import nothing that depends on
    `fibsem.milling.base`, which includes everything under
    `fibsem.applications`. A pattern and a task defined in the same module
    breaks the pattern. Strategies and tasks have no such restriction.
@@ -191,10 +192,8 @@ work unchanged.
   microscope class builds its devices from the configuration's
   `hardware.devices` entries with `fibsem.devices.entries`
   (`resolve_system_devices`, then `build_device_entries`), as
-  `DemoMicroscope._build_devices` does. A string key the backend's devices
-  cover is routed to them. A new backend needs no `_get`/`_set`: the base
-  class's read a key no device answers as None and do nothing for a write (the
-  Demo has none); do not add keys to them.
+  `DemoMicroscope._build_devices` does. The named methods read and write the
+  devices; a parameter a device lacks reads None and a write to it does nothing.
 
 - **Reference implementations.** `DemoMicroscope` in
   `fibsem/drivers/demo/microscope.py` is the complete, hardware-free

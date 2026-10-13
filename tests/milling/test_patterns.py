@@ -10,15 +10,12 @@ from fibsem.milling.patterning import (
     MILLING_PATTERNS,
     get_pattern,
 )
-from fibsem.milling.patterning.patterns2 import (
+from fibsem.milling.patterning.base import BasePattern
+from fibsem.milling.patterning.patterns import (
     ArrayPattern,
-    BasePattern,
     CirclePattern,
     CircularSuspensionPattern,
     CloverPattern,
-    FibsemCircleSettings,
-    FibsemLineSettings,
-    FibsemRectangleSettings,
     FiducialPattern,
     LinePattern,
     RectanglePattern,
@@ -27,6 +24,9 @@ from fibsem.milling.patterning.patterns2 import (
 )
 from fibsem.structures import (
     CrossSectionPattern,
+    FibsemCircleSettings,
+    FibsemLineSettings,
+    FibsemRectangleSettings,
     Point,
 )
 

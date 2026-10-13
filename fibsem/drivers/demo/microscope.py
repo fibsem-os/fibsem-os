@@ -12,19 +12,11 @@ Devices, from ``fibsem.drivers.demo.devices``: the beams (``DemoBeam``), the sta
 (``DemoStage``), the chamber (``DemoChamber``) and the manipulator
 (``DemoManipulator``), as ``beams``, ``stage``, ``chamber_device`` and
 ``manipulator_device``. They are built at construction from the parts a demo starts
-with (``initial_demo_parts``), and each keeps its own simulated part. Every key and
-method that reads or changes a part goes to its device:
-
-- the beam keys (``_beam_routes``), and ``beam_shift``, the scan-mode keys
-  (``spot_mode``, ``reduced_area``, ``full_frame``) and the spot burn's read of
-  where the beam is parked;
-- ``stage_position``, ``stage_homed`` and ``stage_linked``, and the
-  ``stage_home`` and ``stage_link`` commands; a compustage has no ``linked``, so
-  its ``stage_linked`` reads the stage's own flag, which nothing changes there;
-- ``chamber_state`` and ``chamber_pressure``, and the ``pump_chamber`` and
-  ``vent_chamber`` commands (a false value does nothing, as before devices);
-- ``manipulator_position`` and ``manipulator_state`` (a bool, as before devices);
-  the old API moves the needle with methods, which use the device.
+with (``initial_demo_parts``), and each keeps its own simulated part. Every
+method that reads or changes a part goes to its device: the beam wrappers,
+``beam_shift``, the scan modes and the spot burn's read of where the beam is parked;
+the stage moves, ``home`` and ``link_stage`` (a compustage has no ``linked``);
+``pump`` and ``vent``; and the manipulator moves.
 
 Milling is a service, ``milling`` (``fibsem.drivers.demo.services.DemoMilling``),
 which holds the Demo's milling code, and the milling methods go to it
@@ -49,16 +41,12 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fibsem import manufacturers
 from fibsem._timing import sim_sleep
-from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
-from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.core import Device, resources_of
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
-from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.drivers.demo.devices import bind_demo_fm
 from fibsem.drivers.demo.services import bind_demo_milling, bind_demo_spot_burn
 from fibsem.drivers.demo.simulator import (
@@ -96,11 +84,6 @@ DEMO_DEVICES = (
 
 # A simulated compustage also has an autoloader, as an Arctis does.
 DEMO_SAMPLE_LOADER = DeviceEntry(name="sample_loader", type="sample_loader")
-
-
-def _routes(device: str, routes: Dict[str, str]) -> Dict[str, Tuple[str, str]]:
-    """Old keys -> (the microscope's device attribute, the device's name for them)."""
-    return {key: (device, name) for key, name in routes.items()}
 
 
 class DemoFluorescenceMicroscope(FluorescenceMicroscope):
@@ -158,26 +141,18 @@ class DemoMicroscope(
 
     def __init__(self, system_settings: SystemSettings):
         self._start_session(system_settings)
-        # The ion beam's plasma gas is read before its device is built, which only
-        # offers a gas on a plasma column, so it is read at connect.
-        self._read_plasma_source()
         self._build_devices(initial_demo_parts(self.system))
         self._setup_fluorescence()
         self._finish_session()
 
     def _build_devices(self, parts: DemoParts) -> None:
-        """Build the devices the configuration asks for, from the starting parts,
-        and route their keys to them.
+        """Build the devices the configuration asks for, from the starting parts.
 
         The Demo has every device in ``DEMO_DEVICES``; ``hardware.devices`` switches
         one off, or adds one (``fibsem.devices.entries``). The FM is built in
         ``_setup_fluorescence``.
         """
         defaults = DEMO_DEVICES
-        # A simulated instrument with no manipulator has no manipulator device, so
-        # `is_available("manipulator")` says so (`sim.has_manipulator`).
-        if not self._is_fitted("manipulator"):
-            defaults = tuple(d for d in defaults if d.name != "manipulator")
         if sim_is_compustage(self.system):
             defaults = (*defaults, DEMO_SAMPLE_LOADER)
         resolved = [
@@ -193,24 +168,14 @@ class DemoMicroscope(
         built = build_device_entries(resolved, self, shared=shared)
         for name, device in built.items():
             self._set_device(name, device)
+        # A simulated instrument with no manipulator keeps no manipulator device, so
+        # `is_available("manipulator")` says so (`sim.has_manipulator`).
+        self._keep_if_fitted("manipulator")
         self._bind_device_roles()
-        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
-        self._device_routes = MappingProxyType(
-            {
-                **_routes("stage", STAGE_ROUTES),
-                **_routes("chamber_device", CHAMBER_ROUTES),
-                **_routes("manipulator_device", MANIPULATOR_ROUTES),
-            }
-        )
-        self._command_routes = MappingProxyType(
-            {
-                **_routes("stage", STAGE_COMMAND_ROUTES),
-                **_routes("chamber_device", CHAMBER_COMMAND_ROUTES),
-            }
-        )
         self.milling = bind_demo_milling(self)
         self._build_stage_movement()
         self.spot_burn = bind_demo_spot_burn(self)
+        self._build_imaging()
 
     # The beam methods the shared demo code leaves to each demo, on the beam devices.
 

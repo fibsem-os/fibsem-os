@@ -306,21 +306,6 @@ def test_a_compustage_keeps_its_default_landing_poses():
     assert microscope.get_stage_orientation() == "SEM"
 
 
-# ── the deprecated names still work ──────────────────────────────────
-
-
-def test_move_to_microscope_is_a_shim():
-    """~15 production call sites and ~40 in tests keep working unchanged."""
-    microscope = _microscope()
-    microscope.move_to_orientation("FIB")
-
-    microscope.move_to_microscope("FM")
-    assert microscope.get_current_device() == "FM"
-
-    microscope.move_to_microscope("FIBSEM")
-    assert microscope.get_current_device() == "FIBSEM"
-
-
 # ── the FM orientation no longer exists where it never was one ───────
 
 

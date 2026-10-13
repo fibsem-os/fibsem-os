@@ -35,6 +35,9 @@ class HookEvent(str, Enum):
     # decision nobody has made, and the run gave up waiting. Neither completed
     # (work remains) nor cancelled (nobody pressed Stop).
     WORKFLOW_STALLED = "workflow_stalled"
+    # The run died: an exception escaped the run itself, outside any one task's
+    # own handling (FIB-1037). Carries ``error``.
+    WORKFLOW_FAILED = "workflow_failed"
     EXPERIMENT_COMPLETED = "experiment_completed"
 
 
@@ -69,6 +72,7 @@ EVENT_CATEGORIES: Dict[str, List[HookEvent]] = {
     # there to cancel it, you already know.
     "any_failure": [
         HookEvent.TASK_FAILED,
+        HookEvent.WORKFLOW_FAILED,
     ],
     "any_cancellation": [
         HookEvent.TASK_CANCELLED,

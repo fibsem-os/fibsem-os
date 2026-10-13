@@ -56,7 +56,7 @@ def _recipe(**kwargs) -> FibsemMillingSettings:
 
 def _conditions(microscope, beam_type=BeamType.ION):
     return tuple(
-        microscope.get(key, beam_type) for key in ("voltage", "current", "hfw")
+        microscope._read_beam(key, beam_type) for key in ("voltage", "current", "hfw")
     )
 
 

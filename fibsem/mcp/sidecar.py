@@ -183,8 +183,9 @@ def build_sidecar(client, capabilities):
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
     its router is mounted (an app tool exists only when the server hosts an
-    application), whatever the agent's level, and hardware tools only when
-    the hardware scope is armed. The server enforces regardless.
+    application), whatever the agent's level; on a bench server, which has no
+    level, hardware tools only when the hardware scope is armed. The server
+    enforces regardless.
     """
     from mcp.server.mcpserver import Image, MCPServer
 
@@ -332,6 +333,22 @@ def build_sidecar(client, capabilities):
             client,
             "POST",
             f"/devices/{device}/commands/{command}",
+            {"kwargs": dict(kwargs or {})},
+        )
+        return err if err else data
+
+    def list_services():
+        return _json_tool("list_services")[1]()
+
+    def get_service_parameter(service: str, parameter: str):
+        data, err = _call(client, "GET", f"/services/{service}/{parameter}")
+        return err if err else data
+
+    def call_service_command(service: str, command: str, kwargs: Optional[dict] = None):
+        data, err = _call(
+            client,
+            "POST",
+            f"/services/{service}/commands/{command}",
             {"kwargs": dict(kwargs or {})},
         )
         return err if err else data
@@ -592,8 +609,8 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/decide", body)
         return err if err else data
 
-    def answer_prompt(response: bool, nonce: int, value: Optional[dict] = None):
-        body = {"response": bool(response), "nonce": int(nonce)}
+    def answer_prompt(response: bool, question_id: int, value: Optional[dict] = None):
+        body = {"response": bool(response), "question_id": int(question_id)}
         if value is not None:
             body["value"] = dict(value)
         data, err = _call(client, "POST", "/app/prompt/answer", body)
@@ -620,6 +637,9 @@ def build_sidecar(client, capabilities):
             get_parameter,
             set_parameter,
             call_command,
+            list_services,
+            get_service_parameter,
+            call_service_command,
             autocontrast,
             get_app_status,
             get_app_queue,
@@ -670,13 +690,34 @@ def build_sidecar(client, capabilities):
     return mcp
 
 
+def _watch_argv(argv):
+    """``argv`` minus the ``watch`` subcommand, or None when it is not one.
+
+    ``watch`` takes the same --url/--token as the sidecar, so they may come
+    before it (``fibsem-mcp --url ... watch --help``) and still reach it.
+    """
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "watch":
+            return argv[:i] + argv[i + 1 :]
+        if arg in ("--url", "--token"):
+            i += 2
+        elif arg.startswith(("--url=", "--token=")):
+            i += 1
+        else:
+            return None
+    return None
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv[:1] == ["watch"]:
+    watch_argv = _watch_argv(argv)
+    if watch_argv is not None:
         # Before the mcp import: watching needs only HTTP (FIB-1269).
         from fibsem.mcp.watch import main as watch_main
 
-        sys.exit(watch_main(argv[1:]))
+        sys.exit(watch_main(watch_argv))
     try:
         import mcp  # noqa: F401
     except ImportError:
@@ -685,7 +726,11 @@ def main(argv=None):
         )
     import httpx
 
-    parser = argparse.ArgumentParser(description="MCP sidecar for a fibsem server")
+    parser = argparse.ArgumentParser(
+        description="MCP sidecar for a fibsem server",
+        epilog="fibsem-mcp watch: print one line per app event worth waking "
+        "an agent for (fibsem-mcp watch --help).",
+    )
     parser.add_argument(
         "--url", default=None, help="Server URL, e.g. http://127.0.0.1:8001"
     )

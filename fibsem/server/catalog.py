@@ -9,8 +9,9 @@ Scopes mirror the server's enforcement (fibsem/server/auth.py). The sidecar
 registers every tool the server's mounted routers serve, whatever the agent's
 level (FIB-1035): the level changes mid-session, and an MCP client may never
 re-read its tool list, so the server's 403 is the gate and each description
-names the level it needs. Only ``hardware`` tools are still filtered, by the
-armed scope, which no level grants and which changes only with a restart.
+names the level it needs. Hardware tools are offered the same way, Drive
+arming them (FIB-1267), except on a bench server, which has no level: there
+they are filtered by the armed scope, which changes only with a restart.
 """
 
 from dataclasses import dataclass, field
@@ -38,14 +39,18 @@ class ToolSpec:
 
     @property
     def hardware_only(self) -> bool:
-        """Needs the hardware scope and nothing a level grants."""
+        """Needs the hardware scope: Drive in the App Server, ``--arm-hardware``
+        on the bench."""
         return {self.scope, *self.also} == {"hardware"}
 
     @property
     def level_note(self) -> str:
         """What the tool needs, in the agent's terms (FIB-1035)."""
         if self.hardware_only:
-            return "Needs the hardware scope, which no agent level grants."
+            return (
+                "Needs the agent at Drive: refused (403) at Watch; refused (409) "
+                "while a run or script is in control of the microscope."
+            )
         if self.scope == "read":
             return "Works at Watch and Drive."
         return (
@@ -226,6 +231,48 @@ CATALOG: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="list_services",
+        description=(
+            "Every service on the microscope (milling, stage_movement, spot_burn, "
+            "sample_handling, ...): what the instrument does with its devices over "
+            "time. Each lists its parameters (e.g. milling progress) and its commands "
+            "with their signatures and whether this microscope has them."
+        ),
+        method="GET",
+        path="/services",
+        scope="read",
+    ),
+    ToolSpec(
+        name="get_service_parameter",
+        description=(
+            "Read one service parameter live, e.g. service=milling parameter=progress."
+        ),
+        method="GET",
+        path="/services/{service}/{parameter}",
+        scope="read",
+        params={
+            "service": "service name from list_services",
+            "parameter": "parameter name",
+        },
+    ),
+    ToolSpec(
+        name="call_service_command",
+        description=(
+            "Run a service command listed by list_services, e.g. service=stage_movement "
+            "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
+            "(milling run, spot burn run) answers when it ends; command=stop from "
+            "another call stops it."
+        ),
+        method="POST",
+        path="/services/{service}/commands/{command}",
+        scope="hardware",
+        params={
+            "service": "service name from list_services",
+            "command": "command name",
+            "kwargs": "the command's arguments, by name",
+        },
+    ),
+    ToolSpec(
         name="autocontrast",
         description="Run autocontrast for a beam (changes detector settings).",
         method="POST",
@@ -263,7 +310,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_task_history",
-        description="Every task run so far: outcomes, durations, errors.",
+        description="Every task run so far: outcomes, durations, errors. Oldest first, by start time.",
         method="GET",
         path="/app/task_history",
         scope="read",
@@ -279,7 +326,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_log",
-        description="The session's log (logfile.log), raw: one record per logged line, with any traceback after it. Read a window: a run's own with task_id (the id on its task events; a few seconds either side), or since/until; with none, the latest records. Times are the instrument's wall clock. level=WARNING keeps warnings and errors, which is usually what explains a failure. truncated says older records in the window were dropped: narrow it.",
+        description="The session's log (logfile.log), raw: one record per logged line, with any traceback after it. Read a window: a run's own with task_id (the id on its task events; a few seconds either side; INFO and above unless you give a level), or since/until; with none, the latest records. Times are the instrument's wall clock. level=WARNING keeps warnings and errors, which is usually what explains a failure. Over the lines cap the latest records are kept: truncated says older records in the window were dropped, so narrow the window or raise the level.",
         method="GET",
         path="/app/log",
         scope="read",
@@ -288,7 +335,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "task_id": "a run's task id: read the log while that run was going",
             "since": "ISO time: records at or after it (instead of task_id)",
             "until": "ISO time: records at or before it (instead of task_id)",
-            "level": "the lowest level to keep: DEBUG, INFO, WARNING, ERROR",
+            "level": "the lowest level to keep: DEBUG, INFO, WARNING, ERROR (default DEBUG, or INFO with task_id)",
             "lines": "the most records to return, the latest kept (default 200, max 2000)",
         },
     ),
@@ -311,7 +358,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_task_outputs",
-        description="The files an item's completed tasks produced (reference images by role).",
+        description="The files an item's task runs produced (reference images by role). tasks has every run with its status; completed_tasks names only the runs that completed.",
         method="GET",
         path="/app/task_outputs/{item_name}",
         scope="read",
@@ -612,14 +659,14 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="answer_prompt",
-        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the nonce from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea and PickPOI the answer may carry a value: adjusted geometry that is placed into the widget (the operator sees it land) and then accepted through the same click path. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
+        description='Answer the pending supervision question, exactly as clicking the matching button would. Not for a question whose prompt says answer_via: "decide" -- that one is refused here, with nothing clicked, and decided with decide_review. True = the positive option. Echo the question_id from get_pending_prompt; if that question is no longer pending the answer is refused (409 stale_prompt) — re-read and answer the current one. For EditAlignmentArea and PickPOI the answer may carry a value: adjusted geometry that is placed into the widget (the operator sees it land) and then accepted through the same click path. An out-of-bounds or wrong-shape value is refused (422 invalid_value) without clicking anything.',
         method="POST",
         path="/app/prompt/answer",
         scope="control",
         router="app",
         params={
             "response": "true for the positive option, false for the negative",
-            "nonce": "the nonce from get_pending_prompt, naming the question being answered",
+            "question_id": "the question_id from get_pending_prompt, naming the question being answered",
             "value": "optional adjusted geometry: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea, or {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI",
         },
     ),
@@ -645,15 +692,17 @@ def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     """Catalog entries to offer given a full /capabilities payload.
 
     Every tool whose router is mounted, whatever the agent's level: the level
-    changes mid-session and the server's 403 is the gate (FIB-1035). Hardware
-    tools are left out unless the hardware scope is armed, which no level
-    does and only a restart changes.
+    changes mid-session and the server's 403 is the gate (FIB-1035). Drive
+    arms hardware (FIB-1267), so on a server with a level hardware tools are
+    offered like the rest. A bench server has no level: there only a restart
+    arms hardware, so its tools are left out unless it is armed.
     """
     scopes = capabilities.get("scopes", {})
     routers = dict(capabilities.get("routers", {}), base=True)
+    has_level = capabilities.get("level") is not None
     return tuple(
         t
         for t in CATALOG
         if routers.get(t.router, False)
-        and (not t.hardware_only or scopes.get("hardware", False))
+        and (not t.hardware_only or has_level or scopes.get("hardware", False))
     )

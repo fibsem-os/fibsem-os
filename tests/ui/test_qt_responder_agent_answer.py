@@ -18,7 +18,11 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem.applications.autolamella.workflows.interaction import Confirm, ask
+from fibsem.applications.autolamella.workflows.interaction import (
+    Confirm,
+    answered_by,
+    ask,
+)
 
 
 @pytest.fixture
@@ -122,26 +126,26 @@ def test_agent_and_human_race_produces_one_winner(ui, qapp):
 
 def test_an_answer_naming_the_question_applies(ui, qapp):
     thread, outcome = _ask_on_worker(ui, qapp, Confirm("Continue?"))
-    request, nonce = ui.ui_responder.pending_question_and_nonce()
+    request, question_id = ui.ui_responder.pending_question_and_id()
     assert isinstance(request, Confirm)
-    assert isinstance(nonce, int)
+    assert isinstance(question_id, int)
 
-    answered = ui.ui_responder.submit_answer(True, nonce=nonce)
+    answered = ui.ui_responder.submit_answer(True, question_id=question_id)
     _spin_until(qapp, answered.done)
     assert answered.result() is True
     thread.join(timeout=5)
     assert outcome.get("answer") is True
 
 
-def test_a_wrong_nonce_is_refused_and_clicks_nothing(ui, qapp):
+def test_a_wrong_question_id_is_refused_and_clicks_nothing(ui, qapp):
     from fibsem.applications.autolamella.workflows.interaction import (
         StalePromptError,
     )
 
     thread, outcome = _ask_on_worker(ui, qapp, Confirm("Continue?"))
-    _, nonce = ui.ui_responder.pending_question_and_nonce()
+    _, question_id = ui.ui_responder.pending_question_and_id()
 
-    answered = ui.ui_responder.submit_answer(True, nonce=nonce + 1)
+    answered = ui.ui_responder.submit_answer(True, question_id=question_id + 1)
     _spin_until(qapp, answered.done)
     with pytest.raises(StalePromptError):
         answered.result()
@@ -154,17 +158,17 @@ def test_a_wrong_nonce_is_refused_and_clicks_nothing(ui, qapp):
     assert outcome.get("answer") is False
 
 
-def test_each_posting_gets_a_fresh_nonce(ui, qapp):
+def test_each_posting_gets_a_fresh_question_id(ui, qapp):
     thread1, _ = _ask_on_worker(ui, qapp, Confirm("First?"))
-    _, first = ui.ui_responder.pending_question_and_nonce()
+    _, first = ui.ui_responder.pending_question_and_id()
     ui.ui_responder.answer_confirm(True)
     thread1.join(timeout=5)
 
     thread2, outcome2 = _ask_on_worker(ui, qapp, Confirm("Second?"))
-    _, second = ui.ui_responder.pending_question_and_nonce()
+    _, second = ui.ui_responder.pending_question_and_id()
     assert second != first
     # An answer still naming the first question is stale, not misapplied.
-    answered = ui.ui_responder.submit_answer(True, nonce=first)
+    answered = ui.ui_responder.submit_answer(True, question_id=first)
     _spin_until(qapp, answered.done)
     assert answered.exception() is not None
     ui.ui_responder.answer_confirm(False)
@@ -185,8 +189,8 @@ def test_question_lifecycle_events_carry_who_answered(ui, qapp):
 
         # Agent answers via the marshalled path.
         thread, _ = _ask_on_worker(ui, qapp, Confirm("Second?"))
-        _, nonce = ui.ui_responder.pending_question_and_nonce()
-        answered = ui.ui_responder.submit_answer(False, nonce=nonce)
+        _, question_id = ui.ui_responder.pending_question_and_id()
+        answered = ui.ui_responder.submit_answer(False, question_id=question_id)
         _spin_until(qapp, answered.done)
         thread.join(timeout=5)
     finally:
@@ -205,9 +209,43 @@ def test_question_lifecycle_events_carry_who_answered(ui, qapp):
     assert second_answer["answered_by"] == "agent"
     assert second_answer["response"] is False
     # The raise and its answer name the same posting.
-    assert events[0][1]["nonce"] == events[1][1]["nonce"]
-    assert events[2][1]["nonce"] == events[3][1]["nonce"]
+    assert events[0][1]["question_id"] == events[1][1]["question_id"]
+    assert events[2][1]["question_id"] == events[3][1]["question_id"]
     assert events[2][1]["message"] == "Second?"
+
+
+def _ask_and_hear_who_answered(ui, qapp, answer):
+    """Ask on a worker, answer with ``answer()``, and return who the asker,
+    on its own thread, heard answered."""
+    heard = {}
+
+    def target():
+        ask(ui.ui_responder, Confirm("Go on?"))
+        heard["by"] = answered_by()
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    _spin_until(qapp, lambda: ui.ui_responder.pending_question() is not None)
+    answer()
+    _spin_until(qapp, lambda: "by" in heard)
+    thread.join(timeout=5)
+    return heard["by"]
+
+
+def test_the_asker_hears_who_answered(ui, qapp):
+    # The task records the decision the answer makes, on its own thread, and
+    # names who made it from this (FIB-1328).
+    def agent():
+        _, question_id = ui.ui_responder.pending_question_and_id()
+        ui.ui_responder.submit_answer(True, question_id=question_id)
+
+    assert _ask_and_hear_who_answered(ui, qapp, agent) == "agent"
+    assert (
+        _ask_and_hear_who_answered(
+            ui, qapp, lambda: ui.ui_responder.answer_confirm(True)
+        )
+        == "operator"
+    )
 
 
 def test_a_broken_observer_cannot_break_the_click(ui, qapp):

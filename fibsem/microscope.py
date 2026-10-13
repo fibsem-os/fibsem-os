@@ -5,7 +5,6 @@ import datetime
 import functools
 import inspect
 import logging
-import sys
 import threading
 import time
 import warnings
@@ -31,13 +30,6 @@ from psygnal import Signal
 
 from fibsem import manufacturers
 from fibsem.control import Control
-from fibsem.devices.beam import (
-    BEAM_COMMAND_ROUTES,
-    BEAM_ROUTES,
-    STAGE_COMMAND_ROUTES,
-    STAGE_ROUTES,
-)
-from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.core import IMAGING_CHANNEL, Resources
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import image_to_stage_delta
@@ -85,6 +77,7 @@ if TYPE_CHECKING:
     from fibsem.cancellation import AnyStopEvent
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.milling.base import FibsemMillingStage
+    from fibsem.services.imaging import Imaging
     from fibsem.services.milling import Milling
     from fibsem.services.sample_handling import SampleHandling
     from fibsem.services.spot_burn import SpotBurn
@@ -97,53 +90,9 @@ if TYPE_CHECKING:
 # into this device's frame before re-posing it, and back out afterwards.
 ROTATION_FRAME_DEVICE = "FIBSEM"
 
-# Keys that hold the system configuration (`self.system`), not instrument state, by
-# the field they are on each beam's system settings. `get`/`set` answer them here,
-# before `_get`/`_set`, so every backend answers them the same way.
-_BEAM_CONFIG_KEYS: Mapping[str, str] = MappingProxyType(
-    {
-        "beam_enabled": "enabled",
-        "eucentric_height": "eucentric_height",
-        "column_tilt": "column_tilt",
-    }
-)
-# The instrument's identity, from `system.info`; read-only.
-_INFO_KEYS = frozenset(
-    ("manufacturer", "model", "serial_number", "software_version", "hardware_version")
-)
-# Set verbs whose device command only does the true thing (pump, vent, link; there is
-# no unlink). Routed to the command only for a true value; a false one still goes to
-# `_set`.
-_VERBS_THAT_NEED_TRUE = frozenset(("pump_chamber", "vent_chamber", "stage_link"))
-# Keys only ever set: the old `_get` has no branch for them and returns None. A get
-# stays with `_get`, so it still returns None, rather than reading the device.
-_SET_ONLY_KEYS = frozenset(("angular_correction_tilt_correction",))
-# The old keys a device answers. A microscope whose device lacks the parameter or
-# command (or that has no such device) doesn't support the key: it reads None and a
-# write does nothing, quietly. Any other key is unknown, and says so.
-_DEVICE_KEYS = frozenset(
-    (
-        *BEAM_ROUTES,
-        *BEAM_COMMAND_ROUTES,
-        *STAGE_ROUTES,
-        *STAGE_COMMAND_ROUTES,
-        *CHAMBER_ROUTES,
-        *CHAMBER_COMMAND_ROUTES,
-        "manipulator_position",
-        "manipulator_state",
-    )
-)
-# The beam keys that may be asked without a beam type; any other needs one.
-_BEAM_KEYS_WITHOUT_BEAM = frozenset(("plasma_gas", "preset"))
-# Modules that implement the old API, whose own get/set calls are not deprecated: the
-# named wrappers here, the backends, and the device router.
-_KEY_API_MODULES = (
-    "fibsem.microscope",
-    "fibsem.microscopes.",
-    "fibsem.drivers.",
-    "fibsem.devices.",
-)
 
+# The beam parameters a wrapper may ask for without a beam type; any other needs one.
+_BEAM_PARAMETERS_WITHOUT_BEAM = frozenset(("plasma_gas", "preset"))
 
 # Whether a stage move is being recorded on this thread. A move is often made of
 # moves: a stable move is a relative move, and a safe absolute move is up to three
@@ -237,20 +186,9 @@ def _chamber_state_name(state: ChamberState) -> str:
     return state.value.capitalize()
 
 
-# The old keys whose value differs from their device parameter's.
-_OLD_KEY_VALUES: Mapping[str, Callable[[Any], Any]] = MappingProxyType(
-    {
-        "chamber_state": _chamber_state_name,  # "Pumped", not ChamberState.PUMPED
-        "manipulator_state": lambda state: state is InsertableDeviceState.INSERTED,
-    }
-)
-
-
-def _old_key_value(key: str, value: Any) -> Any:
-    """A device parameter's value as the old key returns it: an enum as its plain
-    value ("spot"), except where `_OLD_KEY_VALUES` says otherwise."""
-    if key in _OLD_KEY_VALUES:
-        return _OLD_KEY_VALUES[key](value)
+def _plain_value(value: Any) -> Any:
+    """A beam parameter's value as the wrappers return it: an enum as its plain
+    value ("spot")."""
     if isinstance(value, Enum):
         return value.value
     return value
@@ -324,6 +262,10 @@ class FibsemMicroscope(ABC):
     # thread). Any handler that touches Qt or a canvas MUST marshal, e.g. with
     # @superqt.ensure_main_thread; a bare .connect() of a GUI handler is a
     # crash-on-hardware bug that won't reproduce on a dev machine.
+    #
+    # The two progress signals send on what the milling and spot burn services'
+    # ``progress`` parameters report (`bind_milling`, `bind_spot_burn`): report there
+    # (`fibsem.services.milling.report_progress`), never emit on them directly.
     milling_progress_signal = Signal(MillingProgress)
     tiled_acquisition_signal = Signal(TiledProgress)
     spot_burn_progress_signal = Signal(SpotBurnProgress)
@@ -347,6 +289,10 @@ class FibsemMicroscope(ABC):
     #: (`fibsem.services.sample_handling.SampleHandling`): the holder, the grids and
     #: the commands that make a grid reachable. None without a stage device.
     sample_handling: Optional[SampleHandling] = None
+    #: The imaging service over the beams (`fibsem.services.imaging.Imaging`):
+    #: `auto_focus`, and the focus sweep. None when no beam was built: `auto_focus`
+    #: raises then.
+    imaging: Optional[Imaging] = None
     #: Whether this driver's sample loader reads its magazine when the sample
     #: handling service is built: only where that read is free (the simulator).
     _read_magazine_at_connect: bool = False
@@ -430,16 +376,30 @@ class FibsemMicroscope(ABC):
             return False
         return True
 
-    @abstractmethod
+    # Imaging and the autofunctions are the beam device's commands, so every backend
+    # runs the same four methods: the driver's work is in its beam's hooks.
+
     def acquire_image(
         self,
         image_settings: Optional[ImageSettings] = None,
         beam_type: Optional[BeamType] = None,
     ) -> FibsemImage:
-        pass
+        """Acquire an image with `image_settings`, or with the current settings of
+        `beam_type`. Given both, the settings win.
 
-    def last_image(self, beam_type: BeamType) -> FibsemImage:
-        raise self._unsupported("last_image")
+        Raises:
+            ValueError: If neither is given, or the beam is not enabled.
+        """
+        if image_settings is None and beam_type is None:
+            raise ValueError(
+                "Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type)."
+            )
+        target = image_settings.beam_type if image_settings is not None else beam_type
+        return self._beam_device(target).acquire(image_settings)
+
+    def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
+        """The last image `beam_type` acquired, read back from the instrument."""
+        return self._beam_device(beam_type).last_image()
 
     @property
     def is_acquiring(self) -> bool:
@@ -491,17 +451,35 @@ class FibsemMicroscope(ABC):
     def acquire_chamber_image(self) -> FibsemImage:
         raise self._unsupported("acquire_chamber_image")
 
-    @abstractmethod
     def autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
-        pass
+        """Run the instrument's brightness and contrast routine for `beam_type`,
+        optionally on a rectangle of the frame (0 to 1)."""
+        self._beam_device(beam_type).autocontrast(reduced_area)
 
-    @abstractmethod
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
-        pass
+        """Focus a beam: with the instrument's own autofocus where the beam has one,
+        else with the image-based sweep at its field of view
+        (`microscope.imaging.auto_focus`)."""
+        self._imaging_service().auto_focus(beam_type, reduced_area)
+
+    def _imaging_service(self) -> "Imaging":
+        """The imaging service, or the error for a microscope with none."""
+        if self.imaging is None:
+            raise ValueError(
+                "There is no imaging: no beam is enabled on this microscope."
+            )
+        return self.imaging
+
+    def _build_imaging(self) -> None:
+        """Build the imaging service over the beams; `auto_focus` then goes to it.
+        Without a beam there is none."""
+        from fibsem.services.imaging import Imaging, bind_imaging
+
+        self.imaging = bind_imaging(Imaging, self)
 
     def reset_beam_shifts(self) -> None:
         """Set the beam shift to zero for the electron and ion beams."""
@@ -584,22 +562,19 @@ class FibsemMicroscope(ABC):
     #
     # Whether a manipulator is fitted used to be a configuration key, which meant a
     # site could describe hardware it does not have, or omit hardware it does, and
-    # nothing would disagree. It is not in the file any more. A backend that can ask
-    # the instrument does (AutoScript); one that cannot answers for itself with
-    # `DEFAULT_FITTED`, which is what its shipped configuration used to say. Each
-    # probe returns True, False, or None for "cannot say", and None falls back to the
-    # class default rather than to "not fitted" -- a subsystem that wrongly appears
-    # is a menu entry that errors, one that wrongly disappears is a working
-    # instrument that lost a feature on upgrade.
+    # nothing would disagree. It is not in the file any more. The device answers:
+    # a backend builds its own manipulator, asks it (`Manipulator.is_installed`), and
+    # takes it out of the map when the instrument says it is not fitted
+    # (`_keep_if_fitted`). A device that cannot ask answers None, and the backend's
+    # `DEFAULT_FITTED` stands in, which is what its shipped configuration used to say.
+    # None falls back to that default rather than to "not fitted" -- a subsystem that
+    # wrongly appears is a menu entry that errors, one that wrongly disappears is a
+    # working instrument that lost a feature on upgrade.
 
     #: What this backend assumes is fitted when it cannot ask.
     DEFAULT_FITTED: Dict[str, bool] = {
         "manipulator": True,
     }
-
-    def _probe_manipulator_installed(self) -> Optional[bool]:
-        """Whether a manipulator is fitted, or None if this backend cannot say."""
-        return None
 
     #: Who answered each fitted-subsystem question at connect: ``"instrument"`` when
     #: a probe did, ``"backend"`` when the backend's `DEFAULT_FITTED` stood in,
@@ -611,41 +586,58 @@ class FibsemMicroscope(ABC):
     _FITTED_DEVICES: Tuple[str, ...] = ("manipulator",)
 
     def _probe_fitted(self, key: str) -> Tuple[bool, str]:
-        """Whether the instrument says *key* is fitted, and who answered
-        (``"instrument"`` or ``"backend"``)."""
-        probe = {"manipulator": self._probe_manipulator_installed}[key]
+        """Whether *key*'s device says it is fitted, and who answered
+        (``"instrument"`` or ``"backend"``). With no device, or one that cannot say,
+        the backend's `DEFAULT_FITTED` answers."""
+        device = self._devices.get(key)
         try:
-            present = probe()
+            present = None if device is None else device.is_installed()
         except Exception as e:
-            # A raising probe is ambiguous -- a missing subsystem and a sick
+            # A raising answer is ambiguous -- a missing subsystem and a sick
             # connection look the same -- so it is read as "cannot say".
-            logging.debug(f"Capability probe {probe.__name__} failed: {e}")
+            logging.debug(f"{key}: is_installed failed: {e}")
             present = None
         if present is None:
             return bool(self.DEFAULT_FITTED[key]), "backend"
         return bool(present), "instrument"
 
-    def _is_fitted(self, key: str) -> bool:
-        """Whether the instrument says *key* is fitted: the answer recorded at
-        connect, else a fresh one. What a backend asks before it builds its own
-        device for *key*; once the devices are built, `is_available` is the answer."""
-        answers = getattr(self, "_fitted_answers", None) or {}
-        if key in answers:
-            return answers[key]
-        return self._probe_fitted(key)[0]
+    def _keep_if_fitted(self, key: str) -> None:
+        """Ask the device this backend just built for *key* whether the instrument
+        has it fitted, record the answer, and take the device out of the map when the
+        answer is no. A device from another driver is fitted whatever it says: a
+        manipulator on its own controller is one the vendor never reports."""
+        if self._devices.get(key) is None or self._built_by_another_driver(key):
+            return
+        present, source = self._probe_fitted(key)
+        if not hasattr(self, "_fitted_sources"):
+            self._fitted_sources: Dict[str, str] = {}
+        self._fitted_sources[key] = source
+        sources = getattr(self, "capability_sources", None)
+        if sources is not None:
+            sources[key] = source
+        if not present:
+            logging.info(f"The instrument reports no {key}; its device is not kept.")
+            self._set_device(key, None)
 
     def _read_hardware_capabilities(self) -> None:
-        """Ask the instrument which subsystems are fitted, and record the answers."""
+        """Record who answered whether each subsystem is fitted.
+
+        The answer itself is the device map (`is_available`): a device that is there
+        is asked again, and one `_keep_if_fitted` took out keeps the answer it gave
+        then. A backend that builds its parts after this (AutoScript) records them
+        when it builds them.
+        """
         self.capability_sources = {}
-        self._fitted_answers: Dict[str, bool] = {}
         not_built = getattr(self, "_devices_not_built", set())
+        asked = getattr(self, "_fitted_sources", {})
         for key in self._FITTED_DEVICES:
-            present, source = self._probe_fitted(key)
-            self._fitted_answers[key] = present
+            if key in self._devices or key not in asked:
+                source = self._probe_fitted(key)[1]
+            else:
+                source = asked[key]
             self.capability_sources[key] = "not_built" if key in not_built else source
             # A device for it from another driver is fitted whatever the backend
-            # says: a manipulator on its own controller is one the vendor never
-            # reports. `_set_device` does the same for a device built afterwards.
+            # says. `_set_device` does the same for a device built afterwards.
             self._mark_device_fitted(key)
         self._read_plasma_source()
 
@@ -725,21 +717,18 @@ class FibsemMicroscope(ABC):
     # Read, never changed: nothing here sets a gas on the instrument, and a gas the
     # configuration states is left alone -- the instrument is not even asked. The
     # probe can only find a plasma source; "cannot say" leaves the column as the
-    # file described it.
-
-    def _probe_plasma_gas(self) -> Optional[str]:
-        """The ion column's current plasma gas, or None if this backend cannot say."""
-        return None
+    # file described it. The ion beam device answers (`Beam.installed_plasma_gas`).
 
     def _read_plasma_source(self) -> None:
-        """Record the instrument's plasma gas when the configuration names none."""
+        """Record the ion column's plasma gas when the configuration names none."""
         if self.system.ion.plasma_gas is not None:
             return
+        ion = self._devices.get("ion")
         try:
-            gas = self._probe_plasma_gas()
+            gas = None if ion is None else ion.installed_plasma_gas()
         except Exception as e:
             # A Ga column refuses the question the same way a sick connection does.
-            logging.debug(f"Plasma gas probe failed: {e}")
+            logging.debug(f"Reading the installed plasma gas failed: {e}")
             gas = None
         if not gas:
             return
@@ -747,6 +736,13 @@ class FibsemMicroscope(ABC):
             f"The configuration names no plasma gas; the ion column reports '{gas}'."
         )
         self.system.ion.plasma_gas = str(gas)
+        # The device was built before the gas was recorded, so it has no plasma_gas
+        # yet, and what depends on the gas (the currents) was read without it.
+        if "plasma_gas" not in ion.parameters:
+            ion.bind_implemented("plasma_gas")
+        for param in ion.parameters.values():
+            if "plasma_gas" in param.spec.depends_on:
+                param.refresh_metadata()
 
     def _apply_fluorescence_calibration(self) -> None:
         """Push the configured objective calibration onto the objective.
@@ -1404,96 +1400,7 @@ class FibsemMicroscope(ABC):
     def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
         self._milling_service().draw([pattern_settings])
 
-    def get_available_values(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[Union[str, float, int]]:
-        """The values a key can take. Deprecated: a beam parameter's ``choices``
-        (``microscope.beams[beam_type].parameters[name].choices``) are the same list.
-
-        A beam key's values are its beam parameter's choices (the device's metadata,
-        read when the beam was built and again when a dependency changes, e.g. the
-        ion currents when the plasma gas does, or the detector modes when the
-        detector type does). Any other key, or a beam parameter the beam does not
-        have, has none: the milling keys' choices are the milling service's
-        (``supported_settings``, ``supported_pattern_settings``).
-        """
-        self._warn_available_values("get_available_values", key, beam_type)
-        return self._available_values(key, beam_type)
-
-    def get_available_values_cached(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> List[Union[str, float, int]]:
-        """``get_available_values``, cached per key and beam type. Deprecated: the
-        device keeps a parameter's choices (and refreshes them when a dependency
-        changes, which this cache never did)."""
-        self._warn_available_values("get_available_values_cached", key, beam_type)
-        if not hasattr(self, "_available_values_cache"):
-            self._available_values_cache: Dict[str, List[Union[str, float, int]]] = {}
-        cache_key = f"{key}_{beam_type.name if beam_type else 'None'}"
-        if cache_key not in self._available_values_cache:
-            self._available_values_cache[cache_key] = self._available_values(
-                key, beam_type
-            )
-        return self._available_values_cache[cache_key]
-
-    def clear_available_values_cache(
-        self, key: Optional[str] = None, beam_type: Optional[BeamType] = None
-    ) -> None:
-        """Clear ``get_available_values_cached``'s cache, all of it or one key's
-        entry. Deprecated with the cache."""
-        warnings.warn(
-            "microscope.clear_available_values_cache() is deprecated and will be "
-            "removed in the next minor release; the device parameters' choices need "
-            "no cache.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        if not hasattr(self, "_available_values_cache"):
-            return
-        if key is None:
-            self._available_values_cache.clear()
-        else:
-            cache_key = f"{key}_{beam_type.name if beam_type else 'None'}"
-            self._available_values_cache.pop(cache_key, None)
-
-    def _available_values(
-        self, key: str, beam_type: Optional[BeamType]
-    ) -> List[Union[str, float, int]]:
-        param = self._beam_parameter(key, beam_type) if key in BEAM_ROUTES else None
-        if param is not None and param.choices is not None:
-            return list(param.choices)
-        return []
-
-    def _warn_available_values(
-        self, method: str, key: str, beam_type: Optional[BeamType]
-    ) -> None:
-        """Warn that ``method`` is deprecated, naming the parameter whose choices
-        replace it (the milling service's settings for anything else)."""
-        if key in BEAM_ROUTES and beam_type is not None:
-            replacement = (
-                f"microscope.beams[BeamType.{beam_type.name}]"
-                f'.parameters["{BEAM_ROUTES[key]}"].choices'
-            )
-        else:
-            replacement = (
-                "a device parameter's choices, or microscope.milling."
-                "supported_settings() for a milling setting"
-            )
-        warnings.warn(
-            f'microscope.{method}("{key}", ...) is deprecated and will be removed in '
-            f"the next minor release; use {replacement} instead.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-
-    # ---- device routing ------------------------------------------------------
-    #
-    # A get/set key that has moved to a device (see fibsem.devices) is routed to that
-    # device's parameter; every other key goes to the backend's `_get`/`_set` chain.
-    # A routed call makes the same instrument call the old branch made and skips the
-    # new API's validation, so the old API behaves the same either way. Both mappings
-    # are empty until a backend builds its devices, so today every key takes the old
-    # path. They are read-only here; a backend replaces them, never mutates them.
+    # ---- devices -----------------------------------------------------------------
     #
     # Every device this microscope built, by name, in the order they were built:
     # `electron`, `ion`, `stage`, `chamber`, `manipulator`, and the FM group and parts
@@ -1511,6 +1418,25 @@ class FibsemMicroscope(ABC):
         the device server serves them by. Empty on a backend that builds no devices.
         """
         return MappingProxyType(self._devices)
+
+    # The service attributes, in the order `services` lists them.
+    _SERVICE_ATTRIBUTES = (
+        "milling",
+        "stage_movement",
+        "spot_burn",
+        "sample_handling",
+        "imaging",
+    )
+
+    @property
+    def services(self) -> Mapping[str, Any]:
+        """Every service this microscope built, by name (``services["milling"] is
+        microscope.milling``). Read-only. A service the backend didn't build (None)
+        is left out. The App Server serves them under ``/services``."""
+        services = (getattr(self, name, None) for name in self._SERVICE_ATTRIBUTES)
+        return MappingProxyType(
+            {service.name: service for service in services if service is not None}
+        )
 
     def _set_device(self, name: str, device: Optional[Any]) -> None:
         """Put *device* in the map as *name*, or take *name* out when it is None."""
@@ -1536,12 +1462,9 @@ class FibsemMicroscope(ABC):
         for beam_type, name in _BEAM_DEVICE_NAMES.items():
             self._set_device(name, (beams or {}).get(beam_type))
 
-    # The stage as a device (fibsem.devices.Stage), once a backend builds one. The
-    # stage methods below use it when it is there and today's keys when it is not.
-    # A backend whose stage device keeps its own state also routes the stage keys
-    # (`_device_routes`, `_command_routes`), so `get("stage_position")` and the
-    # device can't disagree. A backend keeps its vendor stage object private
-    # (`_vendor_stage` on Thermo and Odemis).
+    # The stage as a device (fibsem.devices.Stage), once a backend builds one. A
+    # backend keeps its vendor stage object private (`_vendor_stage` on Thermo and
+    # Odemis).
     @property
     def stage(self) -> Optional[Any]:
         return self._devices.get("stage")
@@ -1560,9 +1483,8 @@ class FibsemMicroscope(ABC):
         self.stage = device
 
     # The chamber and the manipulator as devices (fibsem.devices.Chamber and
-    # .Manipulator), named `*_device` because `chamber` is taken on Demo.
-    # As with the stage, their keys are not routed: the methods that read them
-    # (pump/vent, get_manipulator_state/position) use the device directly.
+    # .Manipulator), named `*_device` because `chamber` is taken on Demo. The methods
+    # that read them (pump/vent, get_manipulator_state/position) use the device.
     @property
     def chamber_device(self) -> Optional[Any]:
         return self._devices.get("chamber")
@@ -1604,63 +1526,6 @@ class FibsemMicroscope(ABC):
         for name, device in (devices or {}).items():
             self._devices[name] = device
 
-    _beam_routes: Mapping[str, str] = MappingProxyType({})
-    # Keys with no beam type that have moved to a device: key -> (device attribute,
-    # parameter), e.g. "stage_position" -> ("stage", "position"). The
-    # parameters are the device's state, read-only, so a `set` of one still goes to
-    # `_set`, as the old call did.
-    _device_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
-    # Set keys that are verbs, moved to a device command: key -> (device attribute,
-    # command), e.g. "stage_home" -> ("stage", "home"). The command ignores
-    # the value, as the old branches do, except where the old branch did nothing for
-    # a false value (`_VERBS_THAT_NEED_TRUE`). A command the device doesn't have (a
-    # compustage can't link) leaves the key to `_set`.
-    _command_routes: Mapping[str, Tuple[str, str]] = MappingProxyType({})
-
-    def _route(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
-        """The device parameter a key has moved to, or None to use `_get`/`_set`."""
-        device_route = self._device_routes.get(key)
-        if device_route is not None:
-            device = getattr(self, device_route[0], None)
-            return None if device is None else device.parameters.get(device_route[1])
-        name = self._beam_routes.get(key)
-        if name is None or beam_type is None:
-            return None
-        beam = self.beams.get(beam_type)
-        if beam is None:
-            return None
-        return beam.parameters.get(name)
-
-    def _route_command(self, key: str) -> Optional[Callable[[], Any]]:
-        """The device command a set key has moved to, if the device has it."""
-        command_route = self._command_routes.get(key)
-        if command_route is None:
-            return None
-        device = getattr(self, command_route[0], None)
-        if device is None:
-            return None
-        info = device.commands.get(command_route[1])
-        if info is None or not info.available:
-            return None
-        return getattr(device, command_route[1])
-
-    def _route_scan_command(
-        self, key: str, beam_type: Optional[BeamType]
-    ) -> Optional[Callable[[Any], None]]:
-        """The beam's scan command a scan-mode set key (``spot_mode``,
-        ``reduced_area``, ``full_frame``) has moved to, taking the key's value, if the
-        beam has it; None leaves the key to `_set`."""
-        name = BEAM_COMMAND_ROUTES.get(key)
-        if name is None or beam_type is None:
-            return None
-        beam = self._scan_beam(beam_type)
-        if beam is None:
-            return None
-        run = getattr(beam, name)
-        if name == "full_frame":
-            return lambda _value: run()  # the old key ignored its value
-        return run
-
     def _unsupported(self, method: str) -> NotImplementedError:
         """The error an optional method raises on a backend that does not have it.
 
@@ -1677,120 +1542,6 @@ class FibsemMicroscope(ABC):
         if beam_type is BeamType.ION:
             return self.system.ion
         raise ValueError(f"Unknown beam type: {beam_type} for {key}")
-
-    # TODO: use a decorator instead?
-    def get(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> Union[float, int, bool, str, list, tuple, Point]:
-        """Get wrapper for logging.
-
-        Deprecated from outside the microscope classes: use the device
-        (``microscope.beams[beam_type].parameters[...]``, ``microscope.stage``, ...) or
-        the named wrapper (``get_working_distance``, ...).
-        """
-        self._warn_key_call("get", key, beam_type)
-        param = None if key in _SET_ONLY_KEYS else self._route(key, beam_type)
-        if param is not None:
-            value = _old_key_value(key, param.get_value())
-        elif key in _BEAM_CONFIG_KEYS:
-            value = getattr(self._beam_config(key, beam_type), _BEAM_CONFIG_KEYS[key])
-        elif key in _INFO_KEYS:
-            value = getattr(self.system.info, key)
-        else:
-            value = self._get(key, beam_type)
-        beam_name = "None" if beam_type is None else beam_type.name
-        logging.debug(
-            {"msg": "get", "key": key, "beam_type": beam_name, "value": value}
-        )
-        return value
-
-    def set(
-        self,
-        key: str,
-        value: Union[str, float, int, tuple, list, Point],
-        beam_type: Optional[BeamType] = None,
-    ) -> None:
-        """Set wrapper for logging.
-
-        Deprecated from outside the microscope classes, as ``get`` is.
-        """
-        self._warn_key_call("set", key, beam_type)
-        param = None if key in self._device_routes else self._route(key, beam_type)
-        command = self._route_command(key)
-        if key in _VERBS_THAT_NEED_TRUE and not value:
-            command = None
-        scan = self._route_scan_command(key, beam_type)
-        if scan is not None:
-            scan(value)
-        elif command is not None:
-            command()
-        elif param is not None:
-            param.write_through(value)
-        elif key in _BEAM_CONFIG_KEYS:
-            setattr(self._beam_config(key, beam_type), _BEAM_CONFIG_KEYS[key], value)
-        else:
-            self._set(key, value, beam_type)
-        beam_name = "None" if beam_type is None else beam_type.name
-        logging.debug(
-            {"msg": "set", "key": key, "beam_type": beam_name, "value": value}
-        )
-
-    def _warn_key_call(
-        self, method: str, key: str, beam_type: Optional[BeamType]
-    ) -> None:
-        """Warn that a string-key get/set from outside the microscope classes is
-        deprecated, naming the device parameter the key has moved to, if any."""
-        caller = sys._getframe(2).f_globals.get("__name__", "")
-        if caller == _KEY_API_MODULES[0] or caller.startswith(_KEY_API_MODULES[1:]):
-            return
-        if key in self._device_routes:
-            attribute, name = self._device_routes[key]
-            replacement = f'microscope.{attribute}.parameters["{name}"]'
-        elif key in self._beam_routes and beam_type is not None:
-            replacement = (
-                f"microscope.beams[BeamType.{beam_type.name}]"
-                f'.parameters["{self._beam_routes[key]}"]'
-            )
-        else:
-            replacement = "the device or the named microscope method"
-        warnings.warn(
-            f'microscope.{method}("{key}", ...) is deprecated and will be removed in '
-            f"the next minor release; use {replacement} instead.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-
-    def _get(
-        self, key: str, beam_type: Optional[BeamType] = None
-    ) -> Union[float, int, bool, str, list]:
-        """A key no device answered: None (see `_no_key`). A backend with keys of
-        its own answers them here first."""
-        self._no_key(key, beam_type)
-        return None
-
-    def _set(
-        self,
-        key: str,
-        value: Union[str, float, int, list, tuple, Point],
-        beam_type: Optional[BeamType] = None,
-    ) -> None:
-        """A key no device answered: nothing to do (see `_no_key`)."""
-        self._no_key(key, beam_type)
-
-    def _no_key(self, key: str, beam_type: Optional[BeamType]) -> None:
-        """What a key no device answered means: a beam key with no beam type is an
-        error; a device's key the microscope's device doesn't have is unsupported,
-        quietly (absent = unsupported); anything else is unknown, with a warning."""
-        if (
-            beam_type is None
-            and key in BEAM_ROUTES
-            and key not in _BEAM_KEYS_WITHOUT_BEAM
-        ):
-            raise ValueError(f"{key} needs a beam type")
-        if key in _DEVICE_KEYS:
-            logging.debug(f"{key} is not supported here ({beam_type}).")
-            return
-        logging.warning(f"Unknown key: {key} ({beam_type})")
 
     # TODO: i dont think this is needed, you set the beam settings and detector settings separately
     # you can't set image settings, only when acquiring an image
@@ -1821,10 +1572,6 @@ class FibsemMicroscope(ABC):
         self.set_resolution(image_settings.resolution, image_settings.beam_type)
         self.set_dwell_time(image_settings.dwell_time, image_settings.beam_type)
         self.set_field_of_view(image_settings.hfw, image_settings.beam_type)
-        # self.set("frame_integration", image_settings.frame_integration, image_settings.beam_type)
-        # self.set("line_integration", image_settings.line_integration, image_settings.beam_type)
-        # self.set("scan_interlacing", image_settings.scan_interlacing, image_settings.beam_type)
-        # self.set("drift_correction", image_settings.drift_correction, image_settings.beam_type)
 
         # TODO: implement the rest of these settings... @patrick
         logging.debug(
@@ -2226,11 +1973,16 @@ class FibsemMicroscope(ABC):
             raise self._unsupported("vent")
         return _chamber_state_name(self.chamber_device.vent())
 
-    def _beam_parameter(self, key: str, beam_type: Optional[BeamType]) -> Optional[Any]:
-        """The beam device's parameter for an old beam key, or None when the backend
-        builds no such beam, or the beam has no such parameter."""
+    def _beam_parameter(
+        self, name: str, beam_type: Optional[BeamType]
+    ) -> Optional[Any]:
+        """The beam device's parameter `name`, or None when the backend builds no such
+        beam, or the beam has no such parameter. Only the plasma gas and the preset may
+        be asked without a beam type."""
+        if beam_type is None and name not in _BEAM_PARAMETERS_WITHOUT_BEAM:
+            raise ValueError(f"{name} needs a beam type")
         beam = self.beams.get(beam_type)
-        return None if beam is None else beam.parameters.get(BEAM_ROUTES[key])
+        return None if beam is None else beam.parameters.get(name)
 
     def _beam_device(self, beam_type: BeamType) -> Any:
         """The beam device for ``beam_type``; a column disabled in the config has none."""
@@ -2239,22 +1991,22 @@ class FibsemMicroscope(ABC):
             raise ValueError(f"The {beam_type.name} beam is not enabled.")
         return device
 
-    def _read_beam(self, key: str, beam_type: BeamType) -> Any:
-        """A beam wrapper's read: the beam device's parameter, as the old key returns
-        it, or None where there is no such beam or parameter (absent = unsupported)."""
-        param = self._beam_parameter(key, beam_type)
+    def _read_beam(self, name: str, beam_type: BeamType) -> Any:
+        """A beam wrapper's read: the beam device's parameter, an enum as its plain
+        value, or None where there is no such beam or parameter (absent =
+        unsupported)."""
+        param = self._beam_parameter(name, beam_type)
         if param is None:
-            self._no_key(key, beam_type)
+            logging.debug(f"{name} is not supported here ({beam_type}).")
             return None
-        return _old_key_value(key, param.get_value())
+        return _plain_value(param.get_value())
 
-    def _write_beam(self, key: str, value: Any, beam_type: BeamType) -> None:
-        """A beam wrapper's write: to the beam device's parameter, as the old key
-        wrote it (no validation), or nothing where there is no such beam or
-        parameter (absent = unsupported)."""
-        param = self._beam_parameter(key, beam_type)
+    def _write_beam(self, name: str, value: Any, beam_type: BeamType) -> None:
+        """A beam wrapper's write: to the beam device's parameter, unvalidated, or
+        nothing where there is no such beam or parameter (absent = unsupported)."""
+        param = self._beam_parameter(name, beam_type)
         if param is None:
-            self._no_key(key, beam_type)
+            logging.debug(f"{name} is not supported here ({beam_type}).")
             return
         param.write_through(value)
 
@@ -3735,18 +3487,6 @@ class FibsemMicroscope(ABC):
         acquisition orientation is used.
         """
         self._movement_service().move_to_device(device, orientation=orientation)
-
-    def move_to_microscope(self, target: str) -> None:
-        """Deprecated name for `move_to_device(target)` -- the last place a device
-        was called a microscope. Kept as a shim for its many callers.
-
-        Where the FM is a pose, the beams are reached at SEM, as they always were here;
-        `move_to_device` keeps the pose instead when it can.
-        """
-        if target == BEAMS_STAGE_DEVICE and self._fm_is_a_pose():
-            self.move_to_device(target, orientation="SEM")
-            return
-        self.move_to_device(target)
 
     @property
     def current_grid(self) -> str:

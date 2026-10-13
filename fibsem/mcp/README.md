@@ -5,9 +5,9 @@
 The MCP sidecar lets Claude (Code or Desktop) drive a fibsem server: acquire
 and *look at* images, read state, move the stage, and stop a mill. The server
 is the security boundary: the sidecar registers every tool the server's mounted
-routers serve (hardware tools only when that scope is armed), whatever the
-agent's level, and the server refuses what the level doesn't allow with a 403
-that says so. Each tool's description names the level it needs. If the server
+routers serve (on the bench server, hardware tools only when that scope is
+armed), whatever the agent's level, and the server refuses what the level
+doesn't allow with a 403 that says so. Each tool's description names the level it needs. If the server
 restarts with a new token, the sidecar re-reads the discovery file and carries
 on.
 
@@ -93,7 +93,9 @@ variables, the discovery file) and follows a restarted app the same way. It
 prints `PROMPT`, `ANSWERED`, `PROMPT WITHDRAWN`, `QUESTION`,
 `QUESTION RELEASED`, task `EVENT` lines, `GAP` (events were lost; re-read the
 prompt and status) and `RUN ENDED`, and exits 0 when the run ends or 1 when
-the app cannot be watched. It needs only fibsem, not the `[mcp]` extra; where
+the app cannot be watched. A run ends completed, cancelled, stalled or failed;
+one that stops without recording an end ends the watch too, as
+`RUN ENDED (stopped without an end event)`. It needs only fibsem, not the `[mcp]` extra; where
 `fibsem-mcp` is not on the PATH, `python -m fibsem.mcp.sidecar watch` is the
 same thing.
 

@@ -32,17 +32,19 @@ import numpy as np
 
 from fibsem import acquire, alignment, calibration, constants, utils
 from fibsem import config as fcfg
-from fibsem.acting import TASK, acting
+from fibsem.acting import AGENT, TASK, acting
 from fibsem.applications.autolamella.proposals import (
     ALIGNMENT_AREA,
     DETECTION,
     PROPOSAL_KINDS,
     TASK_RESULT,
+    Author,
     Decision,
     DecisionOutcome,
     Proposal,
     Proposer,
     TaskResultProposer,
+    agent_author,
     human_author,
 )
 from fibsem.applications.autolamella.protocol.constants import (
@@ -76,6 +78,7 @@ from fibsem.applications.autolamella.workflows.interaction import (
     RunMillingTask,
     SetFluorescenceChannels,
     SetMillingConfig,
+    answered_by,
     ask,
 )
 from fibsem.applications.autolamella.workflows.question_adapters import (
@@ -791,12 +794,21 @@ class AutoLamellaTask(ABC):
         Continue, a setup's Save. That is the decision on the run's result,
         recorded as theirs rather than the producer's own, and the task does
         not wait a second time in the Review tab for a look it already had."""
-        experiment = getattr(self.task_manager, "experiment", None)
         self.inline_decision = Decision(
             outcome=DecisionOutcome.Confirmed,
-            author=experiment.author() if experiment is not None else human_author(""),
+            author=self._answer_author(),
             via="workflow",
         )
+
+    def _answer_author(self) -> Author:
+        """Who answered the question this task just asked in the workflow: the
+        agent when it answered over the App Server, else the operator at the
+        window (FIB-1328). The agent is named as ``/app/decide`` names one
+        that gave no name."""
+        if answered_by() == AGENT:
+            return agent_author("remote")
+        experiment = getattr(self.task_manager, "experiment", None)
+        return experiment.author() if experiment is not None else human_author("")
 
     def _set_milling_config_ui(self, milling_config: FibsemMillingTaskConfig):
         """Set the milling config in the milling widget."""

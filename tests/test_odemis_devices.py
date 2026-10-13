@@ -21,6 +21,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.microscope import _chamber_state_name
 from fibsem.structures import (
     BeamType,
     DeviceEntry,
@@ -269,11 +270,15 @@ def _beam_cases():
     for beam_type in (BeamType.ELECTRON, BeamType.ION):
         name = beam_type.name
         for key in BEAM_GETS:
-            yield f"get {key} {name}", lambda m, k=key, b=beam_type: m.get(k, b)
+            # the removed keys, read and written as the named methods do
+            yield (
+                f"get {key} {name}",
+                lambda m, k=key, b=beam_type: m._read_beam(k, b),
+            )
         for key, value in BEAM_SETS:
             yield (
                 f"set {key} {value} {name}",
-                lambda m, k=key, v=value, b=beam_type: m.set(k, v, b),
+                lambda m, k=key, v=value, b=beam_type: m._write_beam(k, v, b),
             )
         yield (
             f"detector settings {name}",
@@ -307,22 +312,12 @@ def _beam_cases():
             f"full frame {name}",
             lambda m, b=beam_type: m.set_full_frame_scanning_mode(b),
         )
-        yield (
-            f"set spot_mode {name}",
-            lambda m, b=beam_type: m.set("spot_mode", Point(0.25, 0.75), b),
-        )
-        yield (
-            f"set reduced_area {name}",
-            lambda m, b=beam_type: m.set("reduced_area", AREA, b),
-        )
-        yield (
-            f"set full_frame {name}",
-            lambda m, b=beam_type: m.set("full_frame", None, b),
-        )
         for key in ("current", "voltage", "detector_type", "detector_mode"):
             yield (
                 f"available {key} {name}",
-                lambda m, k=key, b=beam_type: sorted(m.get_available_values(k, b)),
+                lambda m, k=key, b=beam_type: sorted(
+                    m.beams[b].parameters[k].choices or []
+                ),
             )
 
 
@@ -377,12 +372,9 @@ def _imaging_cases():
 IMAGING_CASES = tuple(_imaging_cases())
 
 STAGE_CASES = (
-    ("get stage_position", lambda m: m.get("stage_position")),
-    ("get stage_homed", lambda m: m.get("stage_homed")),
-    ("get stage_linked", lambda m: m.get("stage_linked")),
-    ("set stage_home", lambda m: m.set("stage_home", True)),
-    ("set stage_link True", lambda m: m.set("stage_link", True)),
-    ("set stage_link False", lambda m: m.set("stage_link", False)),
+    ("get stage_position", lambda m: m._stage_value("position")),
+    ("get stage_homed", lambda m: m._stage_value("homed")),
+    ("get stage_linked", lambda m: m._stage_value("linked")),
     ("stage position", lambda m: m.get_stage_position()),
     (
         "move absolute",
@@ -402,7 +394,7 @@ def _chamber_state(name):
 
     def read(m):
         READS["get_chamber_state"] = name
-        return m.get("chamber_state")
+        return _chamber_state_name(m.chamber_device.state.get_value())
 
     return read
 
@@ -412,42 +404,40 @@ CHAMBER_CASES = tuple(
     for name in ("vacuum", "Pumped", "vented", "Vented", "pumping", "venting")
     + ("vacuum_error",)
 ) + (
-    ("get chamber_pressure", lambda m: m.get("chamber_pressure")),
+    ("get chamber_pressure", lambda m: m.chamber_device.pressure.get_value()),
     ("pump", lambda m: m.pump()),
     ("vent", lambda m: m.vent()),
-    ("set pump_chamber True", lambda m: m.set("pump_chamber", True)),
-    ("set pump_chamber False", lambda m: m.set("pump_chamber", False)),
-    ("set vent_chamber True", lambda m: m.set("vent_chamber", True)),
-    ("set vent_chamber False", lambda m: m.set("vent_chamber", False)),
 )
 
 CASES = tuple(_beam_cases()) + IMAGING_CASES + STAGE_CASES + CHAMBER_CASES
 # The old code had no reduced_area key: the set, and the method that made it, warned
 # and did nothing. The beam's reduced_area command makes the client call instead.
-REDUCED_AREA = {
-    key: call
-    for key, call in CASES
-    if key.startswith(("reduced area", "set reduced_area"))
-}
+REDUCED_AREA = {key: call for key, call in CASES if key.startswith("reduced area")}
 
 
 # What the old branches did that the devices, and the "absent is unsupported" rule,
-# do differently: a beam key the beam does not have reads None quietly; a false
-# stage_link no longer unlinks (the stage has no unlink, and nothing called it); and
-# a false pump or vent is unsupported, so it does nothing, quietly.
+# do differently: a beam key the beam does not have reads None quietly.
 UNSUPPORTED = {"result": None, "calls": [], "log": []}
 
 CHANGED = {
     "get scanning_mode ELECTRON": UNSUPPORTED,
     "get scanning_mode ION": UNSUPPORTED,
-    "set stage_link False": UNSUPPORTED,
-    "set pump_chamber False": UNSUPPORTED,
-    "set vent_chamber False": UNSUPPORTED,
 }
+# The recorded set-only keys (the scan modes, the stage's home and link, pump and
+# vent) went with get/set; the named methods they duplicate are cases of their own.
+_REMOVED_KEYS = (
+    "set spot_mode ",
+    "set reduced_area ",
+    "set full_frame ",
+    "set stage_",
+    "set pump_chamber ",
+    "set vent_chamber ",
+)
 with open(RECORDED) as f:
     EXPECTED = {
         case: {**old, "log": as_logged_now(old["log"])}
         for case, old in json.load(f).items()
+        if not case.startswith(_REMOVED_KEYS)
     }
 
 # A beam key's values are the choices the device read when it was built, so asking
@@ -466,18 +456,12 @@ SAME = tuple(
     (key, call) for key, call in CASES if key not in REDUCED_AREA and key not in CHANGED
 )
 
-# The calls the devices add, after the old call's first: the home command reads
-# back whether the stage is homed, as ``home()`` always has, so a bare
-# ``set("stage_home")`` asks once more; and the chamber's pump and vent read the
-# pressure back with the state.
+# The calls the devices add, after the old call's first: the chamber's pump and vent
+# read the pressure back with the state.
 _PRESSURE = ["get_pressure", [], {}]
 EXTRA_READS = {
-    "set stage_home": [["is_homed", [], {}]],
-    "set stage_link True": [["is_linked", [], {}]],
     "pump": [_PRESSURE],
     "vent": [_PRESSURE],
-    "set pump_chamber True": [_PRESSURE, ["get_chamber_state", [], {}]],
-    "set vent_chamber True": [_PRESSURE, ["get_chamber_state", [], {}]],
     # the currents on offer can change with the voltage, so they are read again
     "set voltage 5000.0 ELECTRON": [["beam_current_info", ["electron"], {}]],
     "set voltage 5000.0 ION": [["beam_current_info", ["ion"], {}]],
@@ -581,13 +565,12 @@ def test_the_calls_go_through_the_devices(odemis_cls):
     microscope.vent()
     assert used == ["_move_absolute", "_move_relative", "_home", "_pump", "_vent"]
     used.clear()
-    microscope.set("spot_mode", Point(0.5, 0.5), BeamType.ION)
-    microscope.set("reduced_area", AREA, BeamType.ION)
-    microscope.set("full_frame", None, BeamType.ION)
+    microscope.set_spot_scanning_mode(Point(0.5, 0.5), BeamType.ION)
+    microscope.set_reduced_area_scanning_mode(AREA, BeamType.ION)
     microscope.set_full_frame_scanning_mode(BeamType.ION)
-    assert used == ["_spot", "_reduced_area", "_full_frame", "_full_frame"]
+    assert used == ["_spot", "_reduced_area", "_full_frame"]
     beam = microscope.beams[BeamType.ION]
-    microscope.set("hfw", 50e-6, BeamType.ION)
+    microscope._write_beam("hfw", 50e-6, BeamType.ION)
     assert beam.hfw.cached == 50e-6
 
 
@@ -665,7 +648,6 @@ def test_a_switched_off_stage_is_not_built(odemis_cls):
 
     assert microscope.stage is None
     assert "stage" not in microscope.devices
-    assert microscope._route("stage_position", None) is None
     assert microscope.chamber_device is not None
 
 
@@ -717,7 +699,8 @@ def test_an_unlisted_chamber_state_reads_unknown(odemis_cls):
     ("Prevac"); the device reads it as UNKNOWN, as the AutoScript chamber does."""
     READS["get_chamber_state"] = "Prevac"
     try:
-        assert make(odemis_cls).get("chamber_state") == "Unknown"
+        state = make(odemis_cls).chamber_device.state.get_value()
+        assert _chamber_state_name(state) == "Unknown"
     finally:
         READS["get_chamber_state"] = "vacuum"
 
@@ -733,8 +716,8 @@ def test_the_plasma_gas_is_unsupported(odemis_cls):
     where the old branch raised NotImplementedError on a plasma column."""
     microscope = make(odemis_cls)
     microscope.system.ion.plasma_gas = "Xenon"
-    microscope.set("plasma_gas", "Argon", BeamType.ION)
-    assert microscope.get("plasma_gas", BeamType.ION) is None
+    microscope._write_beam("plasma_gas", "Argon", BeamType.ION)
+    assert microscope._read_beam("plasma_gas", BeamType.ION) is None
 
 
 @pytest.mark.parametrize(

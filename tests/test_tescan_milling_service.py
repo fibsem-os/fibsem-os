@@ -17,6 +17,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.drivers.tescan import connection as tescan_connection
 from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.drivers.tescan.services import TescanMilling
 from fibsem.structures import (
@@ -82,7 +83,7 @@ class FakeDrawBeam(tescan_sdk._Recorded):
 
 @pytest.fixture
 def connect(monkeypatch, tescan_system):
-    monkeypatch.setattr(tescan_module, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
+    monkeypatch.setattr(tescan_connection, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
     monkeypatch.setattr(
         tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
     )

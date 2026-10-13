@@ -46,6 +46,8 @@ def recording(tmp_path_factory):
     recording = load(out.read_text())
     # the old code's side, recorded before it was deleted
     old = load(RECORDED.read_text())["stage"]
+    # a false stage_link unlinked; with the keys gone nothing unlinks the stage
+    old = {k: v for k, v in old.items() if not k.endswith(" unlink")}
     assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
     for case in recording["cases"]:
         case["old"] = old[case["key"]]
@@ -74,11 +76,10 @@ def test_no_old_call_raised(recording):
 
 def test_driver_makes_the_same_sdk_calls_and_returns_the_same(recording):
     # home(): the old API reads homed back; the driver's _home alone does not.
-    # unlink: no device unlinks (see below)
     different = [
         c
         for c in recording["cases"]
-        if c["old"] != c["new"] and not c["key"].endswith((" home()", " unlink"))
+        if c["old"] != c["new"] and not c["key"].endswith(" home()")
     ]
     assert different == [], json.dumps(different[:3], indent=1)
 
@@ -101,29 +102,10 @@ def test_routed_thermo_makes_the_same_moves_and_returns_the_same(recording):
     different = [
         c["key"]
         for c in recording["cases"]
-        if not c["key"].endswith(" unlink")
-        and (
-            c["routed"][0] != c["old"][0]
-            or _actions(c["routed"][1]) != _actions(c["old"][1])
-        )
+        if c["routed"][0] != c["old"][0]
+        or _actions(c["routed"][1]) != _actions(c["old"][1])
     ]
     assert different == []
-
-
-def test_a_false_stage_link_no_longer_unlinks(recording):
-    """The old ``_set`` unlinked on a false ``stage_link``. The stage device's
-    ``link`` only links and Thermo has no ``_set`` of its own, so a false value now
-    does nothing. Nothing in fibsem unlinks the stage."""
-    for case in recording["cases"]:
-        if case["key"].endswith(" unlink"):
-            assert case["routed"] == [None, []], case["key"]
-            assert case["new"] == [None, []], case["key"]
-    unlinked = [
-        c["key"]
-        for c in recording["cases"]
-        if any(call[1] == "specimen.stage.unlink" for call in c["old"][1])
-    ]
-    assert unlinked == ["compustage=False fm=False unlink"]
 
 
 def test_compustage_axis_restriction_is_exercised(recording):

@@ -147,7 +147,7 @@ def field_meta(
         field_meta(**DEFAULT_DISTANCE_METADATA, type=Point)   # TypeError
 
     Worth preferring where nothing needs overriding, because a dict literal
-    silently resolves that collision instead -- `patterns2.BasePattern.point`
+    silently resolves that collision instead -- `BasePattern.point`
     declares `"type": Point` and renders as a float because the spread that
     follows wins.
 
@@ -278,11 +278,30 @@ class Resolution(NamedTuple):
         return self.width / self.height
 
 
+def _plain_number(value: Any) -> Any:
+    """A numpy scalar as the plain Python number it is (a float stays a float,
+    an integer an int, so pixel coordinates still index); anything else (None,
+    a Python number, an array) as is.
+
+    Geometry built from numpy maths carries numpy scalars, which the YAML
+    writers refuse; one in a saved experiment made it unsaveable (FIB-1326).
+    """
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, np.integer):
+        return int(value)
+    return value
+
+
 @dataclass
 class Point:
     x: float = 0.0
     y: float = 0.0
     name: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        self.x = _plain_number(self.x)
+        self.y = _plain_number(self.y)
 
     def to_dict(self) -> dict:
         return {"x": self.x, "y": self.y}
@@ -515,6 +534,10 @@ class FibsemStagePosition:
     r: Optional[float] = None
     t: Optional[float] = None
     coordinate_system: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        for axis in ("x", "y", "z", "r", "t"):
+            setattr(self, axis, _plain_number(getattr(self, axis)))
 
     def to_dict(self) -> dict:
         position_dict = {}
@@ -752,6 +775,8 @@ class FibsemManipulatorPosition:
     coordinate_system: str = "RAW"
 
     def __post_init__(self):
+        for axis in ("x", "y", "z", "r", "t"):
+            setattr(self, axis, _plain_number(getattr(self, axis)))
         assert (
             isinstance(self.coordinate_system, str) or self.coordinate_system is None
         ), f"unsupported type {type(self.coordinate_system)} for coorindate system"
@@ -814,6 +839,10 @@ class FibsemRectangle:
     height: float = 1.0
 
     def __post_init__(self):
+        self.left = _plain_number(self.left)
+        self.top = _plain_number(self.top)
+        self.width = _plain_number(self.width)
+        self.height = _plain_number(self.height)
         assert isinstance(self.left, float) or isinstance(self.left, int), (
             f"type {type(self.left)} is unsupported for left, must be int or floar"
         )

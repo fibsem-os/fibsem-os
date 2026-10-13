@@ -22,7 +22,7 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication, QPushButton
 
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.patterning.patterns2 import RectanglePattern, TrenchPattern
+from fibsem.milling.patterning.patterns import RectanglePattern, TrenchPattern
 from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategy,
     CoincidenceMillingStrategyConfig,

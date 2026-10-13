@@ -107,6 +107,7 @@ def make():
     microscope.get_microscope_state = get_microscope_state
     microscope._set_additional_metadata = set_additional_metadata
     microscope._build_beams()
+    microscope._build_imaging()
     return microscope
 
 
@@ -154,7 +155,7 @@ def _calls(beam_type):
         ),
         ("acquire current", lambda m: _image(m.acquire_image(beam_type=beam_type))),
         (
-            "acquire both",  # a beam type wins: current settings, as before
+            "acquire both",  # the settings win, as on every backend
             lambda m: _image(
                 m.acquire_image(_settings(beam_type), beam_type=beam_type)
             ),

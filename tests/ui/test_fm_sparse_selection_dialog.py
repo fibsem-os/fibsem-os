@@ -45,7 +45,7 @@ def views(microscope):
     from fibsem.ui.fm.sparse_selection_app import acquire_beam_overviews
 
     acquired = acquire_beam_overviews(microscope)
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     return acquired
 
 

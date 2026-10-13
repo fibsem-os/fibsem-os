@@ -9,10 +9,9 @@ import logging
 import typing
 from typing import Any, Dict, Optional, Tuple, Type
 
-# Built-in patterns (imported from patterns2.py)
-from fibsem.milling.patterning.patterns2 import (
+from fibsem.milling.patterning.base import BasePattern
+from fibsem.milling.patterning.patterns import (
     ArrayPattern,
-    BasePattern,
     BitmapPattern,
     CirclePattern,
     CircularSuspensionPattern,

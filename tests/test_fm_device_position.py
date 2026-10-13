@@ -47,7 +47,7 @@ def _microscope(config_path: str = IFLM_CONFIG):
 
 
 def _at_fib(microscope):
-    """`move_to_microscope("FM")` refuses from any other orientation -- see FIB-832."""
+    """`move_to_device("FM")` refuses from any other orientation -- see FIB-832."""
     microscope.move_to_orientation("FIB")
     return microscope
 
@@ -209,10 +209,10 @@ def test_neither_axis_answers_on_both_mountings():
     thoroughly as the orientation check breaks the offset mount.
     """
     compustage = _microscope(ARCTIS_CONFIG)
-    compustage.move_to_microscope("FM")
+    compustage.move_to_device("FM")
 
     offset = _at_fib(_microscope())
-    offset.move_to_microscope("FM")
+    offset.move_to_device("FM")
 
     assert compustage.get_stage_orientation() == "FM"
     assert offset.get_stage_orientation() == "FIB"
@@ -227,10 +227,10 @@ def test_the_same_question_answers_at_the_fm_on_both_mountings():
     the place carries it all. Which is why the conjunction discriminates on both.
     """
     compustage = _microscope(ARCTIS_CONFIG)
-    compustage.move_to_microscope("FM")
+    compustage.move_to_device("FM")
 
     offset = _at_fib(_microscope())
-    offset.move_to_microscope("FM")
+    offset.move_to_device("FM")
 
     assert _can_see_the_sample(compustage, "FM") is True
     assert _can_see_the_sample(offset, "FM") is True
@@ -381,7 +381,7 @@ def test_an_unconfigured_device_is_refused_by_name():
 def test_the_traverse_lands_at_the_fm():
     microscope = _at_fib(_microscope())
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     assert microscope.get_stage_position().x == pytest.approx(48.8e-3)
     assert microscope.is_at_device("FM") is True
@@ -392,8 +392,8 @@ def test_the_traverse_round_trips():
     microscope = _at_fib(_microscope())
     start = deepcopy(microscope.get_stage_position())
 
-    microscope.move_to_microscope("FM")
-    microscope.move_to_microscope("FIBSEM")
+    microscope.move_to_device("FM")
+    microscope.move_to_device("FIBSEM")
 
     assert microscope.get_stage_position().is_close(start, tol=1e-9)
 
@@ -403,7 +403,7 @@ def test_the_traverse_leaves_the_orientation_alone():
     microscope = _at_fib(_microscope())
     before = deepcopy(microscope.get_stage_position())
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     after = microscope.get_stage_position()
 
     assert (after.r, after.t) == (before.r, before.t)
@@ -411,9 +411,9 @@ def test_the_traverse_leaves_the_orientation_alone():
 
 def test_arriving_where_it_already_is_does_not_move():
     microscope = _at_fib(_microscope())
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     assert microscope.get_stage_position().x == pytest.approx(48.8e-3)
 
@@ -430,7 +430,7 @@ def test_the_traverse_is_the_gap_between_the_devices_not_a_constant():
         origin=FibsemStagePosition(x=30.0e-3)
     )
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     assert microscope.get_stage_position().x == pytest.approx(30.0e-3)
     assert microscope.is_at_device("FM") is True
@@ -466,11 +466,11 @@ def test_anywhere_in_the_beam_window_traverses_to_somewhere_in_the_fm_window(
     The traverse keeps `|arrival - target| = |start - source|`, so the FM's 20 mm
     window, copied from the version 1 file's `device_range`, takes every grid position
     within 20 mm of the beams' origin. Each device now has its own range, so
-    `move_to_microscope` also checks where the stage will land, and refuses beyond it.
+    `move_to_device` also checks where the stage will land, and refuses beyond it.
     """
     microscope = _at_beam_x(_microscope(), beam_x_mm)
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     assert microscope.get_stage_position().x == pytest.approx((beam_x_mm + 48.8) * 1e-3)
     assert microscope.is_at_device("FM") is True
@@ -481,13 +481,13 @@ def test_asking_twice_does_not_traverse_twice(beam_x_mm: float):
     """What the mismatched window cost: a second request moved the stage again.
 
     From beam x = 15 mm the old pair landed at 63.8 mm, called it "not at the FM", and
-    a second `move_to_microscope("FM")` translated another 48.8 mm to 112.6 mm.
+    a second `move_to_device("FM")` translated another 48.8 mm to 112.6 mm.
     """
     microscope = _at_beam_x(_microscope(), beam_x_mm)
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     arrived = microscope.get_stage_position().x
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     assert microscope.get_stage_position().x == pytest.approx(arrived)
 
@@ -523,7 +523,7 @@ def test_a_traverse_that_would_arrive_outside_the_target_is_refused():
     before = deepcopy(microscope.get_stage_position())
 
     with pytest.raises(ValueError, match="outside its range"):
-        microscope.move_to_microscope("FM")
+        microscope.move_to_device("FM")
 
     assert microscope.get_stage_position().x == pytest.approx(before.x)
 
@@ -539,7 +539,7 @@ def test_a_stage_at_no_device_is_refused_rather_than_guessed():
     assert microscope.get_current_device() is None
 
     with pytest.raises(ValueError, match="not at any configured device"):
-        microscope.move_to_microscope("FM")
+        microscope.move_to_device("FM")
 
 
 # ── the objective is out before the stage moves ──────────────────────
@@ -557,7 +557,7 @@ def test_the_objective_is_retracted_before_the_stage_travels():
         return original(position)
 
     microscope.move_stage_relative = record
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     assert moved_at == [InsertableDeviceState.RETRACTED]
 
@@ -572,7 +572,7 @@ def test_no_move_means_no_retraction():
     microscope = _at_beam_x(_microscope(), 0.0)
     microscope.fm.objective.insert()
 
-    microscope.move_to_microscope("FIBSEM")  # already there
+    microscope.move_to_device("FIBSEM")  # already there
 
     assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
@@ -581,9 +581,9 @@ def test_arriving_at_the_fm_leaves_the_objective_inserted_either_way():
     """The postcondition is the device *and* the objective state, so it holds on the
     no-move path too -- otherwise a redundant call would leave the FM blind."""
     microscope = _at_beam_x(_microscope(), 0.0)
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
@@ -597,7 +597,7 @@ def test_a_refused_traverse_leaves_the_objective_alone():
     explanation for it.
     """
     microscope = _at_beam_x(_microscope(), 0.0)
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
     # Out of the FM's window, so back at the beams; going to the FM from there would
@@ -607,7 +607,7 @@ def test_a_refused_traverse_leaves_the_objective_alone():
     )
 
     with pytest.raises(ValueError, match="outside its range"):
-        microscope.move_to_microscope("FM")
+        microscope.move_to_device("FM")
 
     assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
 
@@ -733,7 +733,7 @@ def test_the_traverse_commands_only_the_axes_the_devices_differ_along():
     )
     before = deepcopy(microscope.get_stage_position())
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     after = microscope.get_stage_position()
 
     assert after.x == pytest.approx(before.x + 48.8e-3)
@@ -756,7 +756,7 @@ def test_an_axis_a_device_leaves_unset_is_the_beams():
     )
     before = deepcopy(microscope.get_stage_position())
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     after = microscope.get_stage_position()
     assert after.x == pytest.approx(before.x + 48.8e-3)
@@ -788,7 +788,7 @@ def test_a_re_pose_that_would_arrive_outside_the_target_is_refused_before_moving
     assert microscope.is_at_device("FM", arrival) is False
 
     with pytest.raises(ValueError, match="outside its range"):
-        microscope.move_to_microscope("FM")
+        microscope.move_to_device("FM")
 
     after = microscope.get_stage_position()
     assert (after.x, after.r, after.t) == pytest.approx((before.x, before.r, before.t))

@@ -12,7 +12,6 @@ import logging
 import os
 import sys
 import time
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -20,10 +19,7 @@ from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 
 from fibsem import manufacturers
-from fibsem.devices.beam import BEAM_ROUTES, STAGE_COMMAND_ROUTES, STAGE_ROUTES
-from fibsem.devices.chamber import CHAMBER_COMMAND_ROUTES, CHAMBER_ROUTES
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
-from fibsem.devices.manipulator import MANIPULATOR_ROUTES
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.microscope import (
     FibsemMicroscope,
@@ -615,12 +611,6 @@ class ThermoMicroscope(FibsemMicroscope):
         set_microscope_state(self, microscope_state: MicroscopeState) -> None:
             Reset the microscope state to the provided state.
 
-        get(self, key:str, beam_type: BeamType = None):
-            Returns the value of the specified key.
-
-        set(self, key: str, value, beam_type: BeamType = None) -> None:
-            Sets the value of the specified key.
-
     New methods:
         __init__(self):
             Initializes a new instance of the class.
@@ -739,6 +729,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self._build_beams()
         self._build_milling()
         self._build_spot_burn()
+        self._build_imaging()
 
         if reset_beam_shift:
             self.reset_beam_shifts()
@@ -790,7 +781,6 @@ class ThermoMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.warning(f"Could not build the sample handling: {e}")
 
-        # after the sample stage, which reads which subsystems are fitted
         self._build_parts()
         self._bind_device_roles()
 
@@ -812,11 +802,11 @@ class ThermoMicroscope(FibsemMicroscope):
         return built
 
     def _build_beams(self) -> None:
-        """Build the beam devices and route the beam keys that have moved to them.
+        """Build the beam devices.
 
         The scan-mode methods then use the beam's scan commands, and acquire_image,
         last_image, autocontrast and auto_focus its imaging commands. A disabled column
-        gets no device: its keys read None, and its imaging raises.
+        gets no device: its wrappers read None, and its imaging raises.
         """
         self._build_devices(
             [
@@ -825,7 +815,6 @@ class ThermoMicroscope(FibsemMicroscope):
             ],
             _BEAM_TYPES,
         )
-        self._beam_routes = MappingProxyType(dict(BEAM_ROUTES))
 
     def _build_milling(self) -> None:
         """Build the milling service over the beams; the milling methods then go to it
@@ -842,54 +831,30 @@ class ThermoMicroscope(FibsemMicroscope):
         self.spot_burn = bind_spot_burn(SpotBurn, self)
 
     def _build_stage(self) -> None:
-        """Build the stage device and route the stage keys to it.
+        """Build the stage device.
 
         The moves, ``home`` and ``link_stage`` then go through the device. Its
-        ``link`` command only links: a false ``stage_link`` does nothing, and a
-        compustage has no ``linked`` (its ``stage_linked`` reads None).
+        ``link`` command only links, and a compustage has no ``linked`` (it reads
+        None).
         """
         self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
-        self._device_routes = MappingProxyType(
-            {key: ("stage", name) for key, name in STAGE_ROUTES.items()}
-        )
-        self._command_routes = MappingProxyType(
-            {key: ("stage", name) for key, name in STAGE_COMMAND_ROUTES.items()}
-        )
 
     def _build_parts(self) -> None:
-        """Build the chamber, and the manipulator when it is fitted, and route the
-        chamber and manipulator keys to them. Then build any other device the
-        configuration adds.
+        """Build the chamber and the manipulator, and keep the manipulator only when
+        it says it is fitted. Then build any other device the configuration adds.
 
         ``pump``, ``vent`` and the manipulator's raw moves then go through the
         devices. The corrected and offset needle moves stay here and move through
         the device.
         """
-        fitted = [DeviceEntry(name="chamber", type="chamber")]
-        if self._is_fitted("manipulator"):
-            fitted.append(DeviceEntry(name="manipulator", type="manipulator"))
-        self._build_devices(fitted, _PART_TYPES)
-
-        routes = dict(self._device_routes)
-        routes.update(
-            {key: ("chamber_device", name) for key, name in CHAMBER_ROUTES.items()}
+        self._build_devices(
+            [
+                DeviceEntry(name="chamber", type="chamber"),
+                DeviceEntry(name="manipulator", type="manipulator"),
+            ],
+            _PART_TYPES,
         )
-        if self.manipulator_device is not None:
-            routes.update(
-                {
-                    key: ("manipulator_device", name)
-                    for key, name in MANIPULATOR_ROUTES.items()
-                }
-            )
-        self._device_routes = MappingProxyType(routes)
-        commands = dict(self._command_routes)
-        commands.update(
-            {
-                key: ("chamber_device", name)
-                for key, name in CHAMBER_COMMAND_ROUTES.items()
-            }
-        )
-        self._command_routes = MappingProxyType(commands)
+        self._keep_if_fitted("manipulator")
 
         # whatever else the configuration adds, such as a device on its own PC
         self._build_devices([], exclude_types=_OWN_TYPES)
@@ -944,45 +909,6 @@ class ThermoMicroscope(FibsemMicroscope):
         self.connection.imaging.set_active_device(channel.value)
         logging.debug(f"Set active channel to {channel.name}")
 
-    def acquire_image(
-        self,
-        image_settings: Optional[ImageSettings] = None,
-        beam_type: Optional[BeamType] = None,
-    ) -> FibsemImage:
-        """
-        Acquire a new image with the specified settings.
-
-            Args:
-            image_settings (ImageSettings): The settings for the new image.
-            beam_type (BeamType, optional): The beam type to use with current settings.
-                Used only if image_settings is not provided.
-
-        Returns:
-            FibsemImage: A new FibsemImage object representing the acquired image.
-        """
-        # The beam's acquire command; a beam_type takes precedence and means the
-        # current settings.
-        if beam_type is not None:
-            return self._beam_device(beam_type).acquire(None)
-        if image_settings is None:
-            raise ValueError(
-                "Must provide image_settings to acquire a new image if beam_type is not specified."
-            )
-        return self._beam_device(image_settings.beam_type).acquire(image_settings)
-
-    def last_image(self, beam_type: BeamType = BeamType.ELECTRON) -> FibsemImage:
-        """
-        Get the last previously acquired image.
-
-        Args:
-            beam_type (BeamType, optional): The imaging beam type of the last image.
-                Defaults to BeamType.ELECTRON.
-
-        Returns:
-            FibsemImage: A new FibsemImage object representing the last acquired image.
-        """
-        return self._beam_device(beam_type).last_image()
-
     def acquire_chamber_image(self) -> FibsemImage:
         """Acquire an image of the chamber inside."""
         # The chamber camera is a third device on the channel the beams and the FM
@@ -1019,27 +945,6 @@ class ThermoMicroscope(FibsemMicroscope):
         self._set_additional_metadata(image)
 
         return image
-
-    def autocontrast(
-        self, beam_type: BeamType, reduced_area: FibsemRectangle = None
-    ) -> None:
-        """
-        Automatically adjust the microscope image contrast for the specified beam type.
-
-        Args:
-            beam_type (BeamType) The imaging beam type for which to adjust the contrast.
-        """
-        self._beam_device(beam_type).autocontrast(reduced_area)
-
-    def auto_focus(
-        self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
-    ) -> None:
-        """Automatically focus the specified beam type.
-
-        Args:
-            beam_type (BeamType): The imaging beam type for which to focus.
-        """
-        self._beam_device(beam_type).auto_focus(reduced_area)
 
     @_records_beam_shift
     def beam_shift(
@@ -1089,28 +994,6 @@ class ThermoMicroscope(FibsemMicroscope):
         Kept for one release because custom scripts may call it.
         """
         return self.vertical_move(dy=dy, dx=dx, beam_type=BeamType.ELECTRON)
-
-    # ---- fitted subsystems, as AutoScript reports them --------------------
-
-    #: For a probe that cannot say.
-    DEFAULT_FITTED = {
-        "manipulator": True,
-    }
-
-    def _probe_manipulator_installed(self) -> Optional[bool]:
-        """`specimen.manipulator.is_installed` -- documented, read-only, a bool."""
-        return bool(self.connection.specimen.manipulator.is_installed)
-
-    def _probe_plasma_gas(self) -> Optional[str]:
-        """`ion_beam.source.plasma_gas.value` -- the call `get("plasma_gas")` makes.
-
-        Only a plasma source has one; on a Ga column the attribute is missing or the
-        read raises, and either is "cannot say", which leaves the file's answer.
-        """
-        plasma_gas = getattr(self.connection.beams.ion_beam.source, "plasma_gas", None)
-        if plasma_gas is None:
-            return None
-        return plasma_gas.value or None
 
     def _x_corrected_needle_movement(
         self, expected_x: float
@@ -1231,13 +1114,6 @@ class ThermoMicroscope(FibsemMicroscope):
         return self.move_manipulator_absolute(saved_position)
 
     manipulator_move_types = ("relative", "corrected")
-
-    def _beam_device(self, beam_type: BeamType) -> Any:
-        """The beam device for ``beam_type``; a column disabled in the config has none."""
-        device = self.beams.get(beam_type)
-        if device is None:
-            raise ValueError(f"The {beam_type.name} beam is not enabled.")
-        return device
 
     def _get_beam(self, beam_type: BeamType) -> Union["ElectronBeam", "IonBeam"]:
         """Get the beam connection api for the given beam type.

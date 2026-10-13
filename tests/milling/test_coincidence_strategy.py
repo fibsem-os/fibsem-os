@@ -16,7 +16,7 @@ import yaml
 import fibsem.config as fconfig
 from fibsem import utils
 from fibsem.milling.base import FibsemMillingStage, get_strategy
-from fibsem.milling.patterning.patterns2 import RectanglePattern
+from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.strategy import get_strategy_names
 from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategy,
