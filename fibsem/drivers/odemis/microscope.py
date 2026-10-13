@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -250,6 +250,19 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
     _connection: Optional[OdemisConnection] = None
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+
+    @property
+    def rotation_centre(self) -> Tuple[float, float]:
+        """Where a half turn is centred, in stage-bare's (x, y), metres (FIB-1373).
+
+        stage-bare is AutoScript RAW plus the specimen offset odemis measures at
+        startup, so the specimen origin, which xT turns about, is its (0, 0); odemis's
+        posture manager mirrors about the same point. Plus the instrument's calibrated
+        `rotation_centre_correction`, as ThermoFisher adds it. Delmic's adapter turns
+        compucentric rotation off, so without this a move to an orientation by name
+        turned the stage and left x and y where they were.
+        """
+        return tuple(self.system.stage.rotation_centre_correction)
 
     def __init__(self, system_settings: SystemSettings):
         if not ODEMIS_API_AVAILABLE:

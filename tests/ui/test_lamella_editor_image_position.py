@@ -82,9 +82,11 @@ def scene(tmp_path):
     lamella.milling_pose = microscope.get_microscope_state()
 
     def editor():
-        host = _Host(microscope, exp)  # selects the first lamella
+        host = _Host(microscope, exp)
         widget = AutoLamellaProtocolEditorWidget(parent=host)
         widget._host = host  # keep it alive
+        # as a card click does; the editor selects nothing on its own
+        widget.select_lamella(lamella.name)
         return widget
 
     return {

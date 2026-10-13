@@ -59,7 +59,7 @@ from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.stage import Stage, axis_limits_from_degrees
 from fibsem.devices.wire import Frame, to_wire
 from fibsem.drivers.odemis import add_odemis_path, images
-from fibsem.drivers.odemis.connection import OdemisConnection
+from fibsem.drivers.odemis.connection import OdemisConnection, PlainCalls, raw
 from fibsem.fm import microscope as fm_api
 from fibsem.fm.structures import (
     REFLECTION,
@@ -363,14 +363,6 @@ class OdemisBeam(Beam):
         if tmp_resolution is not None:
             image_settings.resolution = tmp_resolution
         return self._image(image, image_settings)
-
-    def _last_image(self) -> FibsemImage:
-        image = self._client.get_last_image(channel=self.channel)
-        # The client is annotated as returning (image, metadata), but the AutoScript
-        # adapter (1.16.0) returns the bare array.
-        if isinstance(image, tuple):
-            image = image[0]
-        return self._image(image, self._current_image_settings(image))
 
     def _current_image_settings(self, image: np.ndarray) -> ImageSettings:
         """The beam's current imaging settings, at the resolution of the frame it gave."""
@@ -721,7 +713,7 @@ class OdemisFMCamera(Camera):
     def available_gain(self) -> bool:
         from odemis import model
 
-        return model.hasVA(self._camera, "gain") and self._max_gain() is not None
+        return model.hasVA(raw(self._camera), "gain") and self._max_gain() is not None
 
     def _max_gain(self) -> Optional[float]:
         """The top of the gain VA's range or choices; None when it gives neither."""
@@ -782,7 +774,7 @@ class OdemisFMCamera(Camera):
             return self._camera.data.get(asap=False)
 
         da: List[Any]
-        f = acquire([self._stream])
+        f = acquire([raw(self._stream)])  # odemis code, run here: the stream itself
         da, err = f.result()
         if err:
             raise RuntimeError(f"Error acquiring image: {err}")
@@ -1204,11 +1196,14 @@ def bind_odemis_fm(
         em_filter=light_filter,
         focuser=focuser,
     )
+    # The stream drives the components itself and needs them as they are; the devices
+    # reach them, and the stream, through PlainCalls, so they send no numpy values.
+    camera, focuser = PlainCalls(camera), PlainCalls(focuser)
+    lens = PlainCalls(model.getComponent(role="lens"))
+    stream = PlainCalls(stream)
     common = {"parent": parent, "resources": resources}
     parts: Dict[str, Device] = {
-        "objective": OdemisFMObjective(
-            focuser, model.getComponent(role="lens"), **common
-        ),
+        "objective": OdemisFMObjective(focuser, lens, **common),
         "camera": OdemisFMCamera(camera, stream, **common),
         "light_source": OdemisFMLightSource(stream, **common),
         "filter_set": OdemisFMFilterSet(stream, **common),

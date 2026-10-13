@@ -937,12 +937,8 @@ class FluorescenceMicroscope:
         The camera's analogue of a beam column's ``column_tilt``; used to project
         in-image displacements onto the tilted sample plane. The FM entry's
         ``camera_tilt`` where the configuration states one (FIB-335); otherwise from
-        the mount geometry:
-
-        - **Under-grid mounts (Arctis / compustage)** look up at the grid from the
-          opposite side to the SEM: a half turn, 180 degrees.
-        - **Offset mounts (METEOR, iFLM)** sit parallel to the FIB column, displaced
-          along x, so they share the ion column's tilt.
+        the mount (`fibsem.geometry.frames.fm_camera_tilt`): a half turn where the
+        stage reaches the FM by turning the grid over, else the ion column's tilt.
         """
         if self.parent is None:
             return 0.0  # simulator without a parent microscope

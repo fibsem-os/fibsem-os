@@ -12,11 +12,13 @@ declared shape around it.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskStatus
+from fibsem.util.timestamps import now
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.workflows.tasks.queue import WorkItem
@@ -175,3 +177,29 @@ class Hold:
     releases: str
     # the lamella/task pairs waiting, when there are some
     items: Tuple[str, ...] = ()
+
+
+def take_back_finish(
+    item: Any, task_id: str, status: AutoLamellaTaskStatus, message: str
+) -> None:
+    """Record that a run which finished did not end Completed after all: what
+    came after its work -- settling its result, saving the experiment -- failed
+    (FIB-1374). The item's task_state says so, and so does the run's history
+    entry, which post_task froze as Completed: replaced, so the run has one
+    entry and a later save writes the failure, not the success. A run with no
+    entry yet gets one.
+
+    ``item`` is a lamella or a grid record: anything with task_state and
+    task_history. The task_state object is set field by field, never
+    replaced, because the UI holds on to it.
+    """
+    state = item.task_state
+    state.status = status
+    state.status_message = message
+    if state.end_timestamp is None:
+        state.end_timestamp = now()
+    history = item.task_history
+    if history and history[-1].task_id == task_id:
+        history[-1] = deepcopy(state)
+    else:
+        history.append(deepcopy(state))

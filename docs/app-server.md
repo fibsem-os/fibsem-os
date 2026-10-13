@@ -173,8 +173,8 @@ running beside something you started by hand. Set the agent to Watch while
 you work at the microscope yourself.
 
 The app follows: a stage move shows in its stage position like one of yours
-would. With the devices service off these routes don't exist (404), whatever
-the level.
+would. With the devices service off these routes answer 404 `devices_off`,
+saying the devices aren't served, whatever the level.
 
 ## Supervised tasks and the agent
 

@@ -170,14 +170,6 @@ CATALOG: Tuple[ToolSpec, ...] = (
         params={"beam_type": "ELECTRON or ION"},
     ),
     ToolSpec(
-        name="last_image_preview",
-        description="JPEG preview of the last acquired image for a beam (switches the active channel).",
-        method="POST",
-        path="/last_image_preview",
-        scope="hardware",
-        params={"beam_type": "ELECTRON or ION"},
-    ),
-    ToolSpec(
         name="move_stage_relative",
         description="Move the stage by a relative offset (metres and radians).",
         method="POST",
