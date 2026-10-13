@@ -429,38 +429,3 @@ def load_task_protocol_dialog(
     else:
         logging.info("Protocol loading cancelled")
         return None
-
-
-def main():
-    """Test the AutoLamellaLoadTaskProtocolWidget."""
-    # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
-    # hosting the widget here (FIB-407).
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-
-    qwidget = QtWidgets.QWidget()
-    qwidget.show()
-
-    # Create a test experiment
-    from fibsem.applications.autolamella.structures import Experiment
-
-    experiment = Experiment.create(
-        path=Path("/tmp"),
-        name="Test Experiment",
-        metadata={"description": "Test experiment for protocol loading"},
-    )
-
-    # Use the standalone function to load protocol
-    protocol = load_task_protocol_dialog(experiment=experiment, parent=qwidget)
-
-    if protocol:
-        print(f"Protocol loaded: {protocol.name}")
-        print(f"Number of tasks: {len(protocol.task_config)}")
-        print(f"Experiment now has protocol: {experiment.task_protocol is not None}")
-    else:
-        print("Protocol loading cancelled")
-
-    app.exec_()
-
-
-if __name__ == "__main__":
-    main()

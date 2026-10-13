@@ -513,27 +513,3 @@ def generate_report_dialog(
     else:
         logging.info("Report generation cancelled")
         return None
-
-
-def main():
-    """Test the AutoLamellaGenerateReportWidget."""
-    import sys
-
-    from PyQt5.QtWidgets import QApplication
-
-    app = QApplication(sys.argv)
-
-    PATH = "/home/patrick/github/fibsem/fibsem/applications/autolamella/log/AutoLamella-2025-10-15-13-22/experiment.yaml"
-    exp = Experiment.load(PATH)
-
-    if exp is None:
-        logging.error(
-            "Provide an Experiment instance to test AutoLamellaGenerateReportWidget."
-        )
-        sys.exit(1)
-
-    generate_report_dialog(exp)
-
-
-if __name__ == "__main__":
-    main()

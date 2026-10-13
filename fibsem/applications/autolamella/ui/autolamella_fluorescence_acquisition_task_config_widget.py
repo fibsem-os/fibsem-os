@@ -9,8 +9,6 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
 )
 from fibsem.fm.structures import (
     AutoFocusSettings,
-    ChannelSettings,
-    FocusMethod,
     ZParameters,
 )
 from fibsem.ui.fm.widgets import (
@@ -167,58 +165,3 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
     def _emit_settings_changed(self):
         """Emit the aggregated task configuration."""
         self.settings_changed.emit(self.get_task_config())
-
-
-def main():
-    from PyQt5.QtWidgets import QApplication
-
-    from fibsem import utils
-
-    microscope, settings = utils.setup_session()
-    config = AcquireFluorescenceImageConfig(
-        task_name="TASK",
-        channel_settings=[
-            ChannelSettings(
-                name="Reflection Channel",
-                excitation_wavelength=550,
-                emission_wavelength=None,
-                power=0.02,
-                exposure_time=0.005,
-            ),
-            ChannelSettings(
-                name="Red Channel",
-                excitation_wavelength=550,
-                emission_wavelength="FLUORESCENCE",
-                power=0.3,
-                exposure_time=0.5,
-                color="red",
-            ),
-        ],
-        zparams=ZParameters(zmin=-10e-6, zmax=10e-6, zstep=1e-6),
-        autofocus_settings=AutoFocusSettings.from_coarse_fine(
-            fine_enabled=False,
-            method=FocusMethod.SOBEL,
-            channel_name="Reflection Channel",
-        ),
-    )
-
-    # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
-    # hosting the widget here (FIB-407).
-    app = QApplication.instance() or QApplication([])
-    widget = AutoLamellaFluorescenceAcquisitionTaskConfigWidget(
-        microscope=microscope, config=None
-    )
-    widget.show()
-
-    widget.set_task_config(config)
-
-    def _on_settings_changed(updated: AcquireFluorescenceImageConfig):
-        print("Task config updated:", updated.autofocus_settings)
-
-    widget.settings_changed.connect(_on_settings_changed)
-
-    app.exec_()
-
-
-if __name__ == "__main__":
-    main()

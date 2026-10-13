@@ -26,6 +26,7 @@ path, so a demo named after a package it imports would shadow it.
 | Demo | Shows |
 |---|---|
 | `demo_confirm_run_workflow_dialog.py` | the dialog that confirms a workflow run |
+| `demo_experiment_replay.py` | `ExperimentReplayWidget`, stepping through a recorded experiment |
 | `demo_lamella_card.py` | `LamellaCardContainer` |
 | `demo_lamella_list.py` | `LamellaListWidget` |
 | `demo_lamella_name_list_widget.py` | `LamellaNameListWidget`, on real experiment data |
