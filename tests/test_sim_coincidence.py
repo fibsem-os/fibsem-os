@@ -53,11 +53,11 @@ def microscope():
 def _enable_projection(microscope, offset: float = COINCIDENCE_OFFSET, **scene_kwargs):
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = offset
-    microscope._setup_sample_scene()
+    microscope._connection.setup_sample_scene()
     from fibsem.drivers.demo.sim_scene import SampleScene
 
     # the fiducial is the landmark these tests navigate by
-    microscope._sample_scene = SampleScene(
+    microscope._connection.sample_scene = SampleScene(
         coincidence_offset=offset, **{"fiducial": True, **scene_kwargs}
     )
     # a realistic milling pose: stage tilt 12 deg -> milling angle 15 deg
@@ -106,7 +106,7 @@ def _find_fiducial(image):
 
 
 def test_projection_defaults_off(microscope):
-    assert microscope._sample_scene is None
+    assert microscope._connection.sample_scene is None
 
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
@@ -308,8 +308,8 @@ def test_world_anchors_at_connect(microscope):
     and acquiring must show that position's surroundings, not anchor the
     fiducial there."""
     microscope.system.sim["coincidence_projection"] = True
-    microscope._setup_sample_scene()
-    scene = microscope._sample_scene
+    microscope._connection.setup_sample_scene()
+    scene = microscope._connection.sample_scene
     assert scene.reference_position is not None
     boot = microscope.get_stage_position()
     assert scene.reference_position.x == pytest.approx(boot.x or 0.0)

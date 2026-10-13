@@ -35,7 +35,7 @@ def qapp():
 
 @pytest.fixture()
 def widget(qapp):
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     built = FMOverviewWidget(build_microscope())
     # Everything except the pose has to be ready to run, or a test that varies only the

@@ -259,8 +259,8 @@ class TestTheReservationFollowsTheMarkers:
 
 @pytest.fixture(scope="module")
 def fm_widget(qapp):
-    from fibsem.ui.fm.overview_app import build_microscope
     from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
+    from tests.fixtures.fm_microscope import build_microscope
 
     scope = build_microscope()
     scope.fm.objective.insert()

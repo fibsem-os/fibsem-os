@@ -906,30 +906,3 @@ def load_experiment_dialog(
     else:
         logging.info("Experiment loading cancelled")
         return None
-
-
-def main():
-    """Test the AutoLamellaLoadExperimentWidget."""
-    # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
-    # hosting the widget here (FIB-407).
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-
-    qwidget = QtWidgets.QWidget()
-    qwidget.show()
-
-    # Use the standalone function to load experiment
-    experiment = load_experiment_dialog(qwidget)
-
-    if experiment:
-        print(f"Experiment loaded: {experiment.name}")
-        print(f"Path: {experiment.path}")
-        print(f"Protocol: {experiment.task_protocol.name}")
-        print(f"Number of tasks: {len(experiment.task_protocol.task_config)}")
-    else:
-        print("Experiment loading cancelled")
-
-    app.exec_()
-
-
-if __name__ == "__main__":
-    main()

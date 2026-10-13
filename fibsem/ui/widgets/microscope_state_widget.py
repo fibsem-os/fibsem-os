@@ -39,6 +39,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.imaging.export import DETECTOR_MODE_ABBREVIATIONS
 from fibsem.structures import BeamSettings, FibsemDetectorSettings, MicroscopeState
 from fibsem.ui.tokens import (
     CURRENT_POSITION_COLOUR,
@@ -325,11 +326,7 @@ def _detector(detector: Optional[FibsemDetectorSettings]) -> str:
     """
     if detector is None:
         return NOT_AVAILABLE
-    mode = {
-        "SecondaryElectrons": "SE",
-        "BackscatteredElectrons": "BSE",
-        "SecondaryIons": "SI",
-    }.get(detector.mode, detector.mode)
+    mode = DETECTOR_MODE_ABBREVIATIONS.get(detector.mode, detector.mode)
     return f"{detector.type} / {mode}"
 
 

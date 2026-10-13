@@ -107,7 +107,7 @@ SCAN_ROTATIONS = [0.0, np.pi]
 
 def _geometry(microscope, compustage: bool) -> FibsemHardwareGeometry:
     return FibsemHardwareGeometry.from_system_settings(
-        microscope.system, is_compustage=compustage
+        microscope.system, fm_is_pose=compustage, mirrors_back_view=compustage
     )
 
 

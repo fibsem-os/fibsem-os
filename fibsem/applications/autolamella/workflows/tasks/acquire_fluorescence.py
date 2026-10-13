@@ -246,26 +246,21 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         )
         self.log_status_message("AUTOFOCUS", af_display)
         # Query: pass in channel settings so we are certain the channel is correct
+        # Saved by the sweep, so its record says where (FIB-1257).
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         result = run_coarse_fine_autofocus(
             self.microscope.fm,
             autofocus_settings=self.config.autofocus_settings,
             channel_settings=autofocus_channel,
             stop_event=self._stop_event,
+            path=os.path.join(self.output_dir, "autofunctions"),
+            name=f"{self.task_name}_autofocus_{ts}",
         )
         if result is None:
             logging.info("Autofocus cancelled")
             raise InterruptedError(
                 f"Task {self.task_name} for {self.lamella.name} cancelled during autofocus."
             )
-        try:
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            result.save(
-                path=os.path.join(self.output_dir, "autofunctions"),
-                name=f"{self.task_name}_autofocus_{ts}",
-            )
-        except Exception as e:
-            logging.warning(f"Failed to save autofocus result: {e}")
-
         return result
 
     def _move_to_stage_position(self):

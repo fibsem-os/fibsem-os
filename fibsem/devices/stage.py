@@ -204,6 +204,7 @@ class Stage(Device):
         return {
             "frame": self.frame,
             "has_builtin_shuttle": self.has_builtin_shuttle(),
+            "mirrors_back_view": self.mirrors_back_view(),
             "device_at_pose": {
                 orientation: self.device_at_pose(orientation)
                 for orientation in KNOWN_ORIENTATIONS
@@ -309,6 +310,15 @@ class Stage(Device):
         built in rather than read from the configuration.
 
         False by default. A compustage, which is the autoloader's stage, overrides it.
+        """
+        return False
+
+    def mirrors_back_view(self) -> bool:
+        """Whether the instrument mirrors an image a beam takes of the back of the
+        grid, so it reads as if seen from the front. Stamped on every image
+        (`FibsemHardwareGeometry.mirrors_back_view`) for its reprojection.
+
+        False by default: the image is as the beam saw it.
         """
         return False
 

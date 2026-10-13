@@ -13,10 +13,11 @@ python demos/widgets/demo_toast.py
 ```
 
 A demo that needs data says so at the top of its file; several take a path to
-an experiment or a project folder. The milling and image-settings demos start
-the simulated Demo microscope. `imaging/demo_alignment_plot_v2.py` is the
-exception: it connects to whichever microscope is configured, so check that
-before running it on a machine wired to one.
+an experiment or a project folder. The milling, image-settings, dual-beam and
+overview demos start the simulated Demo microscope.
+`imaging/demo_alignment_plot_v2.py` is the exception: it connects to whichever
+microscope is configured, so check that before running it on a machine wired to
+one.
 
 The `demo_` prefix is deliberate: a script's own folder goes first on the import
 path, so a demo named after a package it imports would shadow it.
@@ -26,6 +27,7 @@ path, so a demo named after a package it imports would shadow it.
 | Demo | Shows |
 |---|---|
 | `demo_confirm_run_workflow_dialog.py` | the dialog that confirms a workflow run |
+| `demo_experiment_replay.py` | `ExperimentReplayWidget`, stepping through a recorded experiment |
 | `demo_lamella_card.py` | `LamellaCardContainer` |
 | `demo_lamella_list.py` | `LamellaListWidget` |
 | `demo_lamella_name_list_widget.py` | `LamellaNameListWidget`, on real experiment data |
@@ -64,6 +66,8 @@ path, so a demo named after a package it imports would shadow it.
 | `demo_autofocus_widget.py` | the multi-pass `AutofocusWidget` |
 | `demo_channel_list_widget.py` | `FluorescenceMultiChannelWidget` |
 | `demo_fm_canvas.py` | the multi-channel FM canvas with per-channel layer controls |
+| `demo_fm_overview_widget.py` | `FMOverviewWidget`, on the Demo at the FM |
+| `demo_fm_sparse_selection_dialog.py` | `FMSparseSelectionDialog`, on Demo beam overviews |
 | `demo_line_plot.py` | `LinePlotWidget` with random data |
 | `demo_plot_autofocus.py` | `plot_autofocus_result`'s figure |
 
@@ -104,9 +108,11 @@ the app yet.
 | Demo | Shows |
 |---|---|
 | `demo_countdown_progress.py` | a countdown progress bar |
+| `demo_dual_beam_widget.py` | `FibsemDualBeamWidget`, on the Demo |
 | `demo_hooks_manual.py` | the hook system, with toasts and its config widget |
 | `demo_icon_tool_button.py` | every way to use `IconToolButton` |
 | `demo_image_settings_widget.py` | `FibsemImageSettingsWidget` |
+| `demo_overview_widget.py` | `FibsemOverviewWidget`, on the Demo |
 | `demo_progress_bar.py` | the indeterminate progress bar style |
 | `demo_progress_widget.py` | `FibsemProgressWidget` |
 | `demo_reference_image_parameters_widget.py` | `ReferenceImageParametersWidget` |

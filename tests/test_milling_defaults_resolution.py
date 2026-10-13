@@ -78,7 +78,7 @@ def test_an_application_file_falls_back_to_the_closest_match():
     from fibsem.util.application_file import match_application_file
 
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
-    available = microscope.milling_system.application_files
+    available = microscope._connection.milling_system.application_files
     assert match_application_file(available[0], available) == available[0]
     with pytest.raises(ValueError):
         match_application_file("not-an-application-file", available)

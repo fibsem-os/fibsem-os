@@ -217,7 +217,7 @@ def main():
         config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
     )
     microscope.system.sim["coincidence_projection"] = True
-    microscope._setup_sample_scene()
+    microscope._connection.setup_sample_scene()
     sem_orientation = microscope.get_orientation("SEM")
     pose = microscope.get_stage_position()
     pose.t = np.deg2rad(12.0)
@@ -229,11 +229,11 @@ def main():
         # the figures keep the fiducial as a landmark; it is off by default
         scene = SampleScene(**{"fiducial": True, **kwargs})
         scene.anchor(pose)
-        microscope._sample_scene = scene
+        microscope._connection.sample_scene = scene
         return scene
 
     def render(beam, hfw, scene=None):
-        scene = scene or microscope._sample_scene
+        scene = scene or microscope._connection.sample_scene
         projection = BeamStageProjection.from_microscope(microscope, beam_type=beam)
         return scene.render(beam, pose, hfw, RES, projection, rng=rng)
 
@@ -281,7 +281,7 @@ def main():
     # coincident views (no height error), so both beams look at the trench
     scene(cell_type="none", contamination_density=0.0, seed=2, coincidence_offset=0.0)
     projection = BeamStageProjection.from_microscope(microscope, beam_type=BeamType.ION)
-    microscope._sample_scene.mill(
+    microscope._connection.sample_scene.mill(
         [
             FibsemRectangleSettings(
                 width=20e-6, height=6e-6, depth=1e-6, centre_x=0, centre_y=8e-6
@@ -372,7 +372,7 @@ def main():
         )
         slot.loaded_grid = SampleGrid(name=name)
     two = scene(grids_from_holder=True, seed=5)
-    two.holder_slots = microscope._scene_holder_slots()
+    two.holder_slots = microscope._connection.scene_holder_slots()
     save(
         "holder",
         [
