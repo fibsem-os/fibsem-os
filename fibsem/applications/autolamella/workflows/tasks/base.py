@@ -775,7 +775,7 @@ class AutoLamellaTask(ABC):
 
         def _count_runs(progress: MillingProgress) -> None:
             if progress.status is MillingProgressStatus.TASK_STARTED:
-                runs.append(progress.task_id)
+                runs.append(progress.milling_run_id)
 
         self.microscope.milling_progress_signal.connect(_count_runs)
         try:

@@ -269,7 +269,10 @@ class FibsemMillingTask:
         report_progress(
             self.microscope,
             MillingProgress(
-                status=status, task_id=self.task_id, task_name=self.name, **fields
+                status=status,
+                milling_run_id=self.task_id,
+                milling_task_name=self.name,
+                **fields,
             ),
         )
 
@@ -522,8 +525,8 @@ class FibsemMillingTask:
             if ended["status"] == COMPLETED and not self.stages:
                 ended = {"status": SKIPPED, "reason": _TURNED_OFF}
             payload = {
-                "task_id": self.task_id,
-                "task_name": self.name,
+                "milling_run_id": self.task_id,
+                "milling_task_name": self.name,
                 "started_at": started_at,
                 "path": self.output_dir,
                 "stages": self._stages_as_ended(ended["status"]),
@@ -575,8 +578,8 @@ class FibsemMillingTask:
         """
         try:
             payload = {
-                "task_id": self.task_id,
-                "task_name": self.name,
+                "milling_run_id": self.task_id,
+                "milling_task_name": self.name,
                 "stage_index": idx,
                 "total_stages": len(self.stages),
                 "stage": stage.to_dict(),
@@ -678,7 +681,7 @@ def record_milling_skipped(
     a run's, every stage ``skipped`` (FIB-1257). Never raises."""
     try:
         payload = {
-            "task_name": config.name,
+            "milling_task_name": config.name,
             "status": SKIPPED,
             "reason": reason,
             "stages": [

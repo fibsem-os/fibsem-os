@@ -345,10 +345,10 @@ class TestTheTwoScales:
         emitted = _collect(microscope)
         task.run()
 
-        from_task = [r for r in emitted if r.task_id is not None]
-        assert from_task, "no report carried a task id"
-        assert all(r.task_name == "Trench" for r in from_task)
-        assert len({r.task_id for r in from_task}) == 1
+        from_task = [r for r in emitted if r.milling_run_id is not None]
+        assert from_task, "no report carried a milling run id"
+        assert all(r.milling_task_name == "Trench" for r in from_task)
+        assert len({r.milling_run_id for r in from_task}) == 1
 
 
 def test_the_relay_no_longer_exists():
