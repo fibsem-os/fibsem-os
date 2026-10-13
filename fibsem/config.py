@@ -33,8 +33,8 @@ from fibsem.util.timestamps import to_datetime
 # `FibsemHardwareGeometry.declared_poses` rebuilds them from `rotation_180` and
 # `is_compustage`.
 # v10 added `hardware_geometry.stage_frame` -- the frame the stage position is in,
-# "fibsem" or "tescan_native" (FIB-1114). Absent in earlier files, whose positions
-# are in the frame their backend reported: Tescan's own on a Tescan image.
+# "fibsem" or a driver's name for its instrument's own frame (FIB-1114). Absent in
+# earlier files, whose positions are in the frame their driver reported then.
 # v11 added `acquisition_datetime` -- when the image was acquired, as ISO 8601 with
 # the acquiring machine's UTC offset (FIB-1190). Absent in earlier files, whose time
 # is `microscope_state.timestamp`: a POSIX float, or AutoScript's naive

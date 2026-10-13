@@ -10,7 +10,6 @@ of view is put back too.
 
 import json
 import os
-import types
 from pathlib import Path
 
 import pytest
@@ -33,77 +32,15 @@ from tests.fixtures import tescan_sdk
 MILL_PRESET = "30 keV; 1 nA"
 IMAGING_PRESET = "30 keV; 100 pA"
 
-DBStatus = types.SimpleNamespace(
-    ProjectNotLoaded="ProjectNotLoaded",
-    ProjectLoadedExpositionIdle="ProjectLoadedExpositionIdle",
-    ProjectLoadedExpositionInProgress="ProjectLoadedExpositionInProgress",
-    ProjectLoadedExpositionPaused="ProjectLoadedExpositionPaused",
-    Unknown="Unknown",
-)
-
-
-class FakeDrawBeam(tescan_sdk._Recorded):
-    """``connection.DrawBeam``: a layer that records its patterns, and a status."""
-
-    def __init__(self, sdk):
-        super().__init__(sdk, "DrawBeam")
-        self.status = DBStatus.ProjectNotLoaded
-
-    def Layer(self, name, settings):
-        self._call("Layer", name, **settings)
-        return tescan_sdk.Node(self._sdk, "Layer")
-
-    def UnloadLayer(self):
-        self._call("UnloadLayer")
-
-    def Start(self):
-        self._call("Start")
-        self.status = DBStatus.ProjectLoadedExpositionInProgress
-
-    def Pause(self):
-        self._call("Pause")
-        self.status = DBStatus.ProjectLoadedExpositionPaused
-
-    def Resume(self):
-        self._call("Resume")
-        self.status = DBStatus.ProjectLoadedExpositionInProgress
-
-    def Stop(self):
-        self._call("Stop")
-        self.status = DBStatus.ProjectLoadedExpositionIdle
-
-    def GetStatus(self):
-        self._call("GetStatus")
-        return (self.status, 10.0, 2.0)
-
-    def EstimateTime(self):
-        self._call("EstimateTime")
-        return 42.0
+# The DrawBeam fakes live with the rest of the fake SDK; imported from here too.
+DBStatus = tescan_sdk.DBStatus
+FakeDrawBeam = tescan_sdk.FakeDrawBeam
 
 
 @pytest.fixture
 def connect(monkeypatch, tescan_system):
-    monkeypatch.setattr(tescan_connection, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
-    monkeypatch.setattr(
-        tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
-    )
-    monkeypatch.setattr(tescan_module, "DBStatus", DBStatus, raising=False)
-    monkeypatch.setattr(
-        tescan_module,
-        "DrawBeamStatusToPatterningState",
-        {
-            DBStatus.ProjectNotLoaded: MillingState.IDLE,
-            DBStatus.ProjectLoadedExpositionIdle: MillingState.IDLE,
-            DBStatus.ProjectLoadedExpositionInProgress: MillingState.RUNNING,
-            DBStatus.ProjectLoadedExpositionPaused: MillingState.PAUSED,
-            DBStatus.Unknown: MillingState.ERROR,
-        },
-        raising=False,
-    )
-
     def make():
         fake = tescan_sdk.FakeTescan()
-        fake.DrawBeam = FakeDrawBeam(fake)
         fake.FIB.Preset.names = [
             MILL_PRESET,
             IMAGING_PRESET,

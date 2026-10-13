@@ -89,6 +89,10 @@ class Control:
         self._owner_thread: Optional[int] = None
         self._lent = False
         self._borrower: Optional[InControl] = None
+        # The last take, owner or borrower, kept after release: an action that
+        # starts something and returns (start_milling) has let go of control
+        # while what it started runs on (FIB-1267's Stop agent).
+        self._last: Optional[InControl] = None
         # Epoch seconds of the operator's last take or release, for the
         # agent's Drive countdown (FIB-1267). None until the operator acts.
         self.last_operator_action: Optional[float] = None
@@ -97,6 +101,12 @@ class Control:
     def current(self) -> Optional[InControl]:
         with self._cond:
             return self._borrower or self._owner
+
+    @property
+    def last(self) -> Optional[InControl]:
+        """The most recent take, whether or not it has been released."""
+        with self._cond:
+            return self._last
 
     @contextmanager
     def take(self, by: str, action: str) -> Iterator[InControl]:
@@ -118,6 +128,7 @@ class Control:
                 self._note_operator(by)
             else:
                 raise MicroscopeBusy(self._borrower or self._owner)
+            self._last = entry
         if not borrowed:
             _remember(self._owner_thread, self)
         self.changed.emit(entry)

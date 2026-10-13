@@ -354,8 +354,8 @@ class BeamStageProjection:
         so the two cannot drift: it is what the tab being replaced uses, and matching it
         exactly is what makes the swap a swap. The half turn is centred on
         ``rotation_centre``, which the caller takes from the geometry the image was
-        acquired under; None is the legacy ThermoFisher calibration it used to
-        hardcode (FIB-1081).
+        acquired under; None (no centre recorded) turns about the stage origin
+        (FIB-1081).
 
         Not applied in :meth:`from_plane`: a click resolves to a position *at the
         overview's own orientation*, which is what `project_stable_move` returns too.
@@ -367,8 +367,6 @@ class BeamStageProjection:
         dr = abs(np.rad2deg(base.r - position.r))
         if not np.isclose(dr, 180, atol=2):
             return position
-        if rotation_centre is None:
-            return _transform_position(deepcopy(position))
         return _transform_position(deepcopy(position), rotation_centre)
 
     def _view_tilt(self) -> float:

@@ -23,10 +23,17 @@ from typing import List, Optional, Sequence
 
 import numpy as np
 
+from fibsem.drivers.tescan import connection as tescan_connection
 from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.drivers.tescan.images import image_from_tescan
 from fibsem.drivers.tescan.microscope import TescanMicroscope
-from fibsem.structures import BeamType, FibsemImage, ImageSettings, SystemSettings
+from fibsem.structures import (
+    BeamType,
+    FibsemImage,
+    ImageSettings,
+    MillingState,
+    SystemSettings,
+)
 
 
 def _plain(value):
@@ -282,6 +289,54 @@ class FakeColumn(_Recorded):
         return False
 
 
+DBStatus = types.SimpleNamespace(
+    ProjectNotLoaded="ProjectNotLoaded",
+    ProjectLoadedExpositionIdle="ProjectLoadedExpositionIdle",
+    ProjectLoadedExpositionInProgress="ProjectLoadedExpositionInProgress",
+    ProjectLoadedExpositionPaused="ProjectLoadedExpositionPaused",
+    Unknown="Unknown",
+)
+
+
+class FakeDrawBeam(_Recorded):
+    """``connection.DrawBeam``: a layer that records its patterns, and a status."""
+
+    def __init__(self, sdk):
+        super().__init__(sdk, "DrawBeam")
+        self.status = DBStatus.ProjectNotLoaded
+
+    def Layer(self, name, settings):
+        self._call("Layer", name, **settings)
+        return Node(self._sdk, "Layer")
+
+    def UnloadLayer(self):
+        self._call("UnloadLayer")
+
+    def Start(self):
+        self._call("Start")
+        self.status = DBStatus.ProjectLoadedExpositionInProgress
+
+    def Pause(self):
+        self._call("Pause")
+        self.status = DBStatus.ProjectLoadedExpositionPaused
+
+    def Resume(self):
+        self._call("Resume")
+        self.status = DBStatus.ProjectLoadedExpositionInProgress
+
+    def Stop(self):
+        self._call("Stop")
+        self.status = DBStatus.ProjectLoadedExpositionIdle
+
+    def GetStatus(self):
+        self._call("GetStatus")
+        return (self.status, 10.0, 2.0)
+
+    def EstimateTime(self):
+        self._call("EstimateTime")
+        return 42.0
+
+
 class FakeTescan(Node):
     """The ``Automation`` connection."""
 
@@ -293,6 +348,7 @@ class FakeTescan(Node):
         self.FIB = FakeColumn(
             self, "FIB", ["SE", "SI"], ["30 keV; 1 nA", "30 keV; 100 pA"]
         )
+        self.DrawBeam = FakeDrawBeam(self)
         # The microscope's connection lock, once connected: every call made without
         # it held is listed in `unlocked`.
         self.lock = None
@@ -311,8 +367,8 @@ class FakeTescan(Node):
         return self.SEM if beam_type is BeamType.ELECTRON else self.FIB
 
 
-def connect(monkeypatch, system: SystemSettings, fake: Optional[FakeTescan] = None):
-    """A TescanMicroscope as connect leaves it, over ``fake``. Returns (microscope, fake)."""
+def install(monkeypatch, fake: Optional[FakeTescan] = None) -> FakeTescan:
+    """Patch the driver so a connect, however it is made, connects to ``fake``."""
     fake = fake or FakeTescan()
     monkeypatch.setattr(tescan_module, "TESCAN_API_AVAILABLE", True, raising=False)
     monkeypatch.setattr(
@@ -325,6 +381,31 @@ def connect(monkeypatch, system: SystemSettings, fake: Optional[FakeTescan] = No
         types.SimpleNamespace(Grayscale_8_bit="Grayscale_8_bit"),
         raising=False,
     )
+    # the fake switches columns at once
+    monkeypatch.setattr(tescan_connection, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
+    # DrawBeam: a layer's settings are the keywords they were made from
+    monkeypatch.setattr(
+        tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
+    )
+    monkeypatch.setattr(tescan_module, "DBStatus", DBStatus, raising=False)
+    monkeypatch.setattr(
+        tescan_module,
+        "DrawBeamStatusToPatterningState",
+        {
+            DBStatus.ProjectNotLoaded: MillingState.IDLE,
+            DBStatus.ProjectLoadedExpositionIdle: MillingState.IDLE,
+            DBStatus.ProjectLoadedExpositionInProgress: MillingState.RUNNING,
+            DBStatus.ProjectLoadedExpositionPaused: MillingState.PAUSED,
+            DBStatus.Unknown: MillingState.ERROR,
+        },
+        raising=False,
+    )
+    return fake
+
+
+def connect(monkeypatch, system: SystemSettings, fake: Optional[FakeTescan] = None):
+    """A TescanMicroscope as connect leaves it, over ``fake``. Returns (microscope, fake)."""
+    fake = install(monkeypatch, fake)
     microscope = TescanMicroscope(copy.deepcopy(system))
     microscope.connect_to_microscope(ip_address="localhost", port=8300)
     fake.lock = microscope._connection.lock

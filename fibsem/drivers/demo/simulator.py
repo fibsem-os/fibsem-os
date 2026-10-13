@@ -264,7 +264,7 @@ UINT16_MAX = np.iinfo(np.uint16).max  # 65535 for uint16
 BINNING_VALUES = [1, 2, 4, 8]  # typical binning values
 
 # The chamber camera's place on the same channel, matching the numbers
-# `ThermoMicroscope.acquire_chamber_image` writes.
+# Thermo's chamber camera (`AutoscriptChamberCamera`) writes.
 CHAMBER_ACTIVE_VIEW = 4
 CHAMBER_ACTIVE_DEVICE = 3
 
@@ -651,8 +651,8 @@ class DemoImaging:
         )
         return image
 
-    def acquire_chamber_image(self) -> FibsemImage:
-        """Acquire an image of the chamber inside."""
+    def _demo_chamber_frame(self) -> np.ndarray:
+        """A frame of the chamber, for the ``chamber_camera`` device."""
         # The chamber camera is a third device on the shared channel, so looking at it
         # takes the microscope away from whichever beam had it. Captured and put back in
         # a `finally`, because a glance at the chamber that strands a running beam
@@ -663,17 +663,14 @@ class DemoImaging:
             self.imaging_system.active_view = CHAMBER_ACTIVE_VIEW
             self.imaging_system.active_device = CHAMBER_ACTIVE_DEVICE
             try:
-                image = FibsemImage(
-                    data=np.random.randint(
-                        low=0, high=256, size=(1024, 1536), dtype=np.uint8
-                    ),
-                    metadata=None,
+                frame = np.random.randint(
+                    low=0, high=256, size=(1024, 1536), dtype=np.uint8
                 )
             finally:
                 self.imaging_system.active_view = restore_view
                 self.imaging_system.active_device = restore_device
         logging.debug({"msg": "acquire_chamber_image"})
-        return image
+        return frame
 
     def _demo_live(
         self,

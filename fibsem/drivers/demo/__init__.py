@@ -22,6 +22,7 @@ DRIVER = DriverEntry(
                 "beam",
                 "stage",
                 "chamber",
+                "chamber_camera",
                 "manipulator",
                 "sample_loader",
                 "fm",

@@ -32,6 +32,7 @@ import threading
 import time
 from typing import Callable, List, Optional
 
+from fibsem.acting import AGENT
 from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 from fibsem.applications.autolamella.server.events import (
     EventBuffer,
@@ -40,6 +41,23 @@ from fibsem.applications.autolamella.server.events import (
 )
 
 __all__ = ["AppServerHost"]
+
+
+def _stop_the_microscope(microscope) -> None:
+    """Stop whatever the microscope is running: milling, a spot burn, an auto
+    focus sweep, live imaging. Each stop is safe when nothing is running, and
+    one failing never keeps the others from being tried."""
+    stops = [microscope.stop_milling, microscope.stop_acquisition]
+    for service in ("spot_burn", "imaging"):
+        found = getattr(microscope, service, None)
+        if found is not None:
+            stops.append(found.stop)
+    for stop in stops:
+        try:
+            stop()
+        except Exception:
+            logging.exception("Stop agent: %s failed", getattr(stop, "__name__", stop))
+
 
 _START_TIMEOUT_S = 10.0
 
@@ -82,6 +100,31 @@ class AppServerHost:
         if not self.running or self.auth is None:
             return None
         return self.auth.seconds_since_seen()
+
+    def stop_agent(self, microscope) -> Optional[str]:
+        """The operator's Stop agent (FIB-1267): down to Watch at once, and stop
+        what the agent is doing on the microscope.
+
+        The agent's action is stopped when the agent is in control, or when it
+        was the last to take control and nothing else has since: an action
+        like start_milling lets go of control while the mill runs on. A run's
+        or a script's action is never stopped here; they have their own Stop.
+        Stopping takes no control, so nothing refuses it. A stage move has no
+        stop and finishes.
+
+        Returns the stopped action, or None when the agent was doing nothing.
+        """
+        if self.auth is not None:
+            self.auth.stop_agent()
+        control = getattr(microscope, "control", None)
+        if control is None:
+            return None
+        current, last = control.current, control.last
+        acting = current if current is not None else last
+        if acting is None or acting.by != AGENT:
+            return None
+        _stop_the_microscope(microscope)
+        return acting.action
 
     @property
     def url(self) -> str:
@@ -128,7 +171,7 @@ class AppServerHost:
         # Read-only until scopes are armed; proper arming arrives with the GUI
         # dialog. FIBSEM_AGENT_ARM_CONTROL=1 is the developer override until
         # then: set by whoever launches the app, never by a config file, and
-        # loudly logged. It arms answering supervision prompts — not hardware.
+        # loudly logged. Drive arms hardware too, when devices is on (FIB-1267).
         arm_control = os.environ.get("FIBSEM_AGENT_ARM_CONTROL") == "1"
         if arm_control:
             logging.warning(

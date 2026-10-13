@@ -84,11 +84,13 @@ def _sets_the_channel(block: ast.With) -> bool:
 
 @pytest.fixture(scope="module")
 def thermo() -> ast.Module:
-    """`ThermoMicroscope` and its beam device, where its imaging runs."""
+    """`ThermoMicroscope`, its beam device, where its imaging runs, and its chamber
+    camera, the third device on the channel."""
     return ast.Module(
         body=[
             _thermo_class(),
             _class("drivers/autoscript/devices.py", "AutoscriptBeam"),
+            _class("drivers/autoscript/devices.py", "AutoscriptChamberCamera"),
         ],
         type_ignores=[],
     )
@@ -204,19 +206,24 @@ def test_the_autofunctions_hold_the_reduced_area_too(thermo):
 def test_the_chamber_camera_puts_the_view_back(thermo):
     """FIB-545. Not a race -- a channel taken and abandoned.
 
-    `acquire_chamber_image` points the connection at view 4 / device 3. Before this it
+    The chamber camera points the connection at view 4 / device 3. Before this it
     never pointed it back, so a glance at the chamber stranded whatever had the
     microscope for the rest of the session. The restore has to be in a `finally`: a
     chamber camera that does not answer would otherwise strand it just the same.
     """
-    chamber = next(
+    camera = next(
         node
         for node in ast.walk(thermo)
-        if isinstance(node, ast.FunctionDef) and node.name == "acquire_chamber_image"
+        if isinstance(node, ast.ClassDef) and node.name == "AutoscriptChamberCamera"
+    )
+    chamber = next(
+        node
+        for node in ast.walk(camera)
+        if isinstance(node, ast.FunctionDef) and node.name == "_acquire"
     )
 
     assert _calls_named(chamber, "get_active_view"), (
-        "acquire_chamber_image never reads the view it is about to replace, so it has "
+        "the chamber camera never reads the view it is about to replace, so it has "
         "nothing to put back"
     )
 
@@ -228,7 +235,7 @@ def test_the_chamber_camera_puts_the_view_back(thermo):
         for call in _calls_named(handler, "set_active_view")
     ]
     assert restored, (
-        "acquire_chamber_image does not restore the active view in a `finally`, so a "
+        "the chamber camera does not restore the active view in a `finally`, so a "
         "failed grab leaves the connection on the chamber camera"
     )
 
