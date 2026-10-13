@@ -151,7 +151,7 @@ def test_resolve_expands_a_group_for_display():
 def test_resolve_does_not_repeat_an_event_named_twice():
     resolved = resolve_events(["any_failure", "task_failed"])
 
-    assert resolved == ["task_failed"]
+    assert resolved == ["task_failed", "workflow_failed"]
 
 
 def test_the_group_survives_serialization_unexpanded():

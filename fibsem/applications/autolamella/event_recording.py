@@ -251,6 +251,7 @@ def _workflow_ends() -> frozenset:
             HookEvent.WORKFLOW_COMPLETED,
             HookEvent.WORKFLOW_CANCELLED,
             HookEvent.WORKFLOW_STALLED,
+            HookEvent.WORKFLOW_FAILED,
             HookEvent.EXPERIMENT_COMPLETED,
         )
     )

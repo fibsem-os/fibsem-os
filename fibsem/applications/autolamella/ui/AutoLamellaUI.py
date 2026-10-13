@@ -1243,7 +1243,7 @@ class AutoLamellaUI(QMainWindow):
         except (InterruptedError, OperationCancelledError) as e:
             logging.info(f"Grid workflow cancelled: {e}")
         except Exception as e:
-            logging.error(f"Error during grid workflow: {e}")
+            logging.error(f"Error during grid workflow: {e}", exc_info=True)
         finally:
             cancelled = self._task_manager is not None and self._task_manager.is_stopped
             if self._task_manager is not None:
@@ -2060,7 +2060,7 @@ class AutoLamellaUI(QMainWindow):
             # recorded the outcome as Cancelled; this is the worker's exit note.
             logging.info(f"Workflow cancelled: {e}")
         except Exception as e:
-            logging.error(f"Error during running tasks: {e}")
+            logging.error(f"Error during running tasks: {e}", exc_info=True)
 
         finally:
             cancelled = self._task_manager is not None and self._task_manager.is_stopped

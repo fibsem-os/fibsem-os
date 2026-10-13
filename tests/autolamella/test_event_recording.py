@@ -356,6 +356,7 @@ def test_how_a_run_ends_is_the_task_s_and_its_start_is_whoever_started_it(
         HookEvent.WORKFLOW_COMPLETED,
         HookEvent.WORKFLOW_CANCELLED,
         HookEvent.WORKFLOW_STALLED,
+        HookEvent.WORKFLOW_FAILED,
         HookEvent.EXPERIMENT_COMPLETED,
     )
     try:
@@ -373,6 +374,7 @@ def test_how_a_run_ends_is_the_task_s_and_its_start_is_whoever_started_it(
         ("workflow_completed", "task"),
         ("workflow_cancelled", "task"),
         ("workflow_stalled", "task"),
+        ("workflow_failed", "task"),
         ("experiment_completed", "task"),
         ("workflow_started", "agent"),
         ("workflow_cancelled", "task"),
