@@ -237,9 +237,7 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
 
         if not self._is_corrected_move():
             try:
-                position = FibsemManipulatorPosition(
-                    x=dx, y=dy, z=dz, r=dr, coordinate_system="STAGE"
-                )  # TODO migrate to raw manipulator movements
+                position = FibsemManipulatorPosition(x=dx, y=dy, z=dz, r=dr)
                 self.microscope.move_manipulator_relative(position=position)
             except Exception as e:
                 error_message = f"Error moving manipulator (Relative): {str(e)}"

@@ -1203,8 +1203,12 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
+        # A relative move that names no frame is along the stage axes, which is what
+        # the image-driven moves and the manipulator panel's steps mean.
         logging.info(f"moving manipulator by {delta}")
-        self._needle.relative_move(manipulator_position_to_autoscript(delta))
+        self._needle.relative_move(
+            manipulator_position_to_autoscript(delta, default_coordinate_system="Stage")
+        )
         logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
 
     def _move_absolute(self, position: FibsemManipulatorPosition) -> None:
@@ -1257,9 +1261,7 @@ class AutoscriptManipulator(Manipulator):
         # explicitly set the coordinate system
         self._needle.set_default_coordinate_system(ManipulatorCoordinateSystem.STAGE)
         self._move_relative(
-            FibsemManipulatorPosition(
-                x=dx, y=yz_move.y, z=yz_move.z, r=0.0, coordinate_system="STAGE"
-            )
+            FibsemManipulatorPosition(x=dx, y=yz_move.y, z=yz_move.z, r=0.0)
         )
 
     def _offset_target(

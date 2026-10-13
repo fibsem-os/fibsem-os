@@ -339,11 +339,13 @@ def stage_position_from_autoscript(
 
 def manipulator_position_to_autoscript(
     position: "FibsemManipulatorPosition",
+    default_coordinate_system: str = "Raw",
 ) -> "ManipulatorPosition":
     """Convert a FibsemManipulatorPosition to an AutoScript ManipulatorPosition.
 
     Args:
         position: The FibsemManipulatorPosition to convert.
+        default_coordinate_system: The AutoScript frame for a position that names none.
 
     Returns:
         ManipulatorPosition compatible with AutoScript.
@@ -356,9 +358,11 @@ def manipulator_position_to_autoscript(
             "AutoScript libraries not available. Cannot convert to AutoScript position."
         )
 
-    if position.coordinate_system == "RAW":
+    if position.coordinate_system is None:
+        coordinate_system = default_coordinate_system
+    elif position.coordinate_system.upper() == "RAW":
         coordinate_system = "Raw"
-    elif position.coordinate_system == "STAGE":
+    elif position.coordinate_system.upper() == "STAGE":
         coordinate_system = "Stage"
     else:
         coordinate_system = position.coordinate_system
