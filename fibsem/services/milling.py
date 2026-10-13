@@ -64,6 +64,7 @@ from typing import (
 from fibsem.cancellation import AnyStopEvent, raise_if_cancelled
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
+from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.core import Service, forward_to, save_beam_conditions
 from fibsem.structures import (
@@ -433,6 +434,18 @@ class Milling(Service):
     def estimate(self) -> float:
         """How long milling what is drawn takes, in seconds."""
         return self._estimate()
+
+    @classmethod
+    def estimate_stage(cls, stage: FibsemMillingStage) -> float:
+        """How long milling *stage* would take on this instrument, in seconds,
+        before anything is drawn: for planning (task and workflow ETAs).
+
+        By default the shared sputter-rate table, keyed on the recipe's milling
+        current. A driver with its own model overrides it. A model of the driver,
+        not of one connection: the session keeps it after a disconnect, so it
+        holds no reference to the microscope.
+        """
+        return estimate_milling_time(stage.pattern, stage.milling.milling_current)
 
     @command
     def clear(self) -> None:

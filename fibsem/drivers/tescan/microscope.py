@@ -261,12 +261,6 @@ class TescanMicroscope(FibsemMicroscope):
     # are handed it; nothing else reaches the SDK.
     _connection: Optional[TescanConnection] = None
 
-    @staticmethod
-    def estimate_stage_milling_time(stage: FibsemMillingStage) -> Optional[float]:
-        # TESCAN milling is preset-driven: the dose model (stage rate x preset
-        # current), not the shared table keyed on the unused milling_current.
-        return estimate_preset_milling_time(stage)
-
     def __init__(self, system_settings: SystemSettings):
         if not TESCAN_API_AVAILABLE:
             raise ImportError(
