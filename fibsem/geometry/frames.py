@@ -174,3 +174,14 @@ def vertical_move(
     height = fib_dy / np.sin(fib_column_tilt)
     up_y, up_z = model.chamber_vertical(t)
     return float(height * up_y), float(height * up_z)
+
+
+def fm_camera_tilt(fm_is_pose: bool, ion_column_tilt: float) -> float:
+    """Tilt of the FM camera's optical axis from the electron column, in degrees, for
+    an instrument that states none.
+
+    An FM the stage reaches by turning the grid over (the FM is a pose) looks up at it
+    from the opposite side to the electron column: a half turn. An FM the stage
+    travels to sits parallel to the ion column and shares its tilt.
+    """
+    return 180.0 if fm_is_pose else float(ion_column_tilt)

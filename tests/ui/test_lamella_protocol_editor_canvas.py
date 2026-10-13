@@ -107,6 +107,8 @@ def _editor(with_microscope: bool = True):
     host = _Host(microscope=microscope, experiment=exp)
     editor = AutoLamellaProtocolEditorWidget(parent=host)
     editor._host = host  # keep it alive
+    # The window selects a lamella when its card is clicked; the editor picks none.
+    editor.select_lamella(exp.positions[0].name)
     return editor, exp
 
 

@@ -75,9 +75,6 @@ from fibsem.structures import BeamType
 image = microscope.acquire_image(BeamType.ELECTRON)
 image = microscope.acquire_image(BeamType.ION)
 
-# Get the last acquired image without triggering a new acquisition
-image = microscope.last_image(BeamType.ELECTRON)
-
 # Chamber overview image
 image = microscope.acquire_chamber_image()
 
@@ -191,7 +188,6 @@ which like `/stop_milling` are always allowed.
 |--------|----------|-------------|
 | `GET` | `/health` | Server status and microscope type |
 | `POST` | `/acquire_image` | Acquire a fresh image |
-| `POST` | `/last_image` | Get last acquired image |
 | `POST` | `/acquire_chamber_image` | Chamber overview image |
 | `GET` | `/devices` | Every device: parameters (type, unit, limits, choices, settable) and commands |
 | `GET` | `/devices/{device}` | One device |

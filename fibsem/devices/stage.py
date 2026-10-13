@@ -89,10 +89,10 @@ def rotating_stage_poses(
     }
 
 
-def compustage_poses(
+def flip_stage_poses(
     rotation_reference: float, shuttle_pre_tilt: float, fib_column_tilt: float
 ) -> Dict[str, FibsemStagePosition]:
-    """SEM, FIB and FM for a compustage, which tilts over instead of turning round.
+    """SEM, FIB and FM for a flip stage, which tilts over instead of turning round.
 
     It has no rotation axis, so every pose is at the reference rotation. FIB is the
     rotating stage's tilt turned over by 180 degrees, because the grid is imaged from
@@ -111,8 +111,8 @@ def compustage_poses(
     return poses
 
 
-def compustage_device_at_pose(orientation: str) -> str:
-    """Which device a compustage is at in a pose: the FM in the FM pose, else the beams.
+def flip_stage_device_at_pose(orientation: str) -> str:
+    """Which device a flip stage is at in a pose: the FM in the FM pose, else the beams.
 
     The objective is under the grid, so the stage reaches it by turning the grid over,
     not by travelling. The pose says where it is, wherever x and y are.

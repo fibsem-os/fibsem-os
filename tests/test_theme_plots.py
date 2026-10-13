@@ -57,6 +57,40 @@ def test_the_theme_does_not_outlive_its_block():
     assert Figure().get_facecolor() == before
 
 
+def test_two_threads_in_the_theme_leave_no_theme_behind():
+    # Unlocked, B entered while A was in, kept A's theme as "before", and put
+    # it back after A had restored the defaults: dark for every figure after.
+    import threading
+
+    import matplotlib
+
+    before = matplotlib.rcParams["figure.facecolor"]
+    a_inside, a_may_leave, b_may_leave = (threading.Event() for _ in range(3))
+
+    def a():
+        with plot_theme(DARK):
+            a_inside.set()
+            a_may_leave.wait(5)
+
+    def b():
+        a_inside.wait(5)
+        with plot_theme(LIGHT):
+            b_may_leave.wait(5)
+
+    thread_a = threading.Thread(target=a)
+    thread_b = threading.Thread(target=b)
+    thread_a.start()
+    thread_b.start()
+    a_inside.wait(5)
+    thread_b.join(0.2)  # B is at the door, or (unlocked) inside
+    a_may_leave.set()
+    thread_a.join(5)
+    b_may_leave.set()
+    thread_b.join(5)
+
+    assert matplotlib.rcParams["figure.facecolor"] == before
+
+
 def test_dark_is_the_apps_canvas_and_text():
     assert DARK.background == tokens.CANVAS_BG
     assert DARK.text == tokens.TEXT_COLOR

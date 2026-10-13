@@ -77,6 +77,7 @@ def experiment(window, tmp_path):
     exp.task_protocol.task_config[TASK] = MillRoughTaskConfig(task_name=TASK)
     window.autolamella_ui.experiment = exp
     window.lamella_widget.set_experiment()
+    window.lamella_widget.select_lamella(exp.positions[0].name)
     return exp
 
 

@@ -64,9 +64,15 @@ from psygnal import Signal
 
 # At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
 # from its type hints (a FibsemMillingSettings sent as a dict).
-from fibsem.cancellation import AnyStopEvent, raise_if_cancelled
+from fibsem.cancellation import (
+    CANCELLED,
+    COMPLETED,
+    AnyStopEvent,
+    raise_if_cancelled,
+)
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
+from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.core import Service, forward_to, save_beam_conditions
 from fibsem.structures import (
@@ -168,6 +174,8 @@ class Milling(Service):
         # updates that follow it; empty outside a milling task.
         self._run_context: Dict[str, Any] = {}
         self._drawn: List[FibsemPatternSettings] = []
+        # Set by ``stop`` while a run is on, so the run can say it was stopped.
+        self._stop_requested = threading.Event()
 
     @property
     def drawn_patterns(self) -> List[FibsemPatternSettings]:
@@ -364,7 +372,8 @@ class Milling(Service):
 
     @command
     def stop(self) -> None:
-        """Stop milling."""
+        """Stop milling. A ``run`` in progress ends and answers ``cancelled``."""
+        self._stop_requested.set()
         self._stop()
 
     @command
@@ -380,14 +389,16 @@ class Milling(Service):
     @command
     def run(
         self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
-    ) -> None:
-        """Mill what is drawn and return when it is done, reporting ``progress``.
+    ) -> str:
+        """Mill what is drawn and return how it ended, reporting ``progress``.
 
         The patterns are cleared at the end, however the run ends. A ``stop_event``
         set while it runs stops the beam, and the run then raises
-        `OperationCancelledError`; ``stop`` from another thread just ends it. A
-        failure stops the beam before it is raised.
+        `OperationCancelledError`; ``stop`` from another thread ends it, and it
+        answers ``cancelled`` rather than ``completed`` (FIB-1377). A failure stops
+        the beam before it is raised.
         """
+        self._stop_requested.clear()
         self._before_run()
         try:
             total = float(self._estimate() or 0.0)
@@ -403,6 +414,7 @@ class Milling(Service):
                 self._clear()
                 self._set_drawn([])
         raise_if_cancelled(stop_event, "Milling stopped.")
+        return CANCELLED if self._stop_requested.is_set() else COMPLETED
 
     def _monitor(
         self,
@@ -461,6 +473,18 @@ class Milling(Service):
     def estimate(self) -> float:
         """How long milling what is drawn takes, in seconds."""
         return self._estimate()
+
+    @classmethod
+    def estimate_stage(cls, stage: FibsemMillingStage) -> float:
+        """How long milling *stage* would take on this instrument, in seconds,
+        before anything is drawn: for planning (task and workflow ETAs).
+
+        By default the shared sputter-rate table, keyed on the recipe's milling
+        current. A driver with its own model overrides it. A model of the driver,
+        not of one connection: the session keeps it after a disconnect, so it
+        holds no reference to the microscope.
+        """
+        return estimate_milling_time(stage.pattern, stage.milling.milling_current)
 
     @command
     def clear(self) -> None:

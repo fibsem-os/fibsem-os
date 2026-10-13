@@ -37,7 +37,8 @@ except ModuleNotFoundError as e:  # pragma: no cover - dependency guard
         "    pip install 'fibsem[ui]'   (or: pip install qtawesome)"
     ) from e
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtGui import QIcon, QPainter, QPixmap
+from PyQt5.QtSvg import QSvgRenderer
 
 # qtawesome's font prefix for Material Design Icons v6.
 _MDI = "mdi6"
@@ -117,3 +118,35 @@ def drag_handle_pixmap(
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
+
+
+# The AutoLamella application icon. The main drawing sits on a 32-unit grid, so
+# it lands on whole pixels at 32 px and above; at 16 px its 2-unit lamella would
+# straddle two pixel rows and blur, so 16 px has its own drawing with the
+# lamella moved onto a whole row.
+APP_ICON_PATH = os.path.join(ICONS_DIR, "autolamella.svg")
+APP_ICON_16_PATH = os.path.join(ICONS_DIR, "autolamella-16.svg")
+APP_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
+
+
+def autolamella_icon() -> QIcon:
+    """Return the AutoLamella application icon, one pixmap per standard size.
+
+    Pixmaps rather than ``QIcon(path)``: Qt's SVG icon engine keeps one file per
+    mode and state, so it cannot take the separate 16 px drawing.
+    """
+    icon = QIcon()
+    for size in APP_ICON_SIZES:
+        path = APP_ICON_16_PATH if size == 16 else APP_ICON_PATH
+        renderer = QSvgRenderer(path)
+        if not renderer.isValid():
+            logging.warning("application icon missing or unreadable: %s", path)
+            continue
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        renderer.render(painter)
+        painter.end()
+        icon.addPixmap(pixmap)
+    return icon
