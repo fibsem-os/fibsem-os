@@ -2753,7 +2753,8 @@ class FibsemMicroscope(ABC):
         * ``fm_autofocus`` -- from ``run_coarse_fine_autofocus``
         * ``alignment`` -- from ``multi_step_alignment_v2``, every step's shift
         * ``coincidence_measured`` -- from ``check_coincidence``
-        * ``autofocus`` -- from ``run_auto_focus``, the working distance it left
+        * ``autofocus`` -- from ``run_auto_focus``, the working distance it left;
+          and from a beam's own ``auto_focus`` (``method: instrument``)
         * ``grid_loaded`` / ``grid_unloaded`` -- from the sample handling service's
           magazine exchanges, with the grid, its magazine slot and the working slot
         """
