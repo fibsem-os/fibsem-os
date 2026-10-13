@@ -426,7 +426,8 @@ def test_a_run_records_each_stage_in_the_protocol_s_order(tmp_path):
 
     (run,) = events
     assert run["status"] == "completed"
-    assert run["task_name"] == "t" and run["task_id"] == task.task_id
+    assert run["milling_task_name"] == "t"
+    assert run["milling_run_id"] == task.task_id
     assert run["started_at"] and run["path"] == task.output_dir
     assert [(s["name"], s["status"]) for s in run["stages"]] == [
         ("rough", "completed"),
@@ -516,7 +517,7 @@ def test_a_task_that_milled_nothing_records_why(tmp_path):
     (skipped,) = events
     assert skipped["status"] == "skipped"
     assert skipped["reason"] == "Continue was pressed"
-    assert skipped["task_name"] == "t"
+    assert skipped["milling_task_name"] == "t"
     assert skipped["stages"] == [{"name": "s", "status": "skipped"}]
 
 

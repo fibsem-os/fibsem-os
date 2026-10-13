@@ -117,16 +117,16 @@ def test_at_the_beams_origin_the_fm_is_the_flip_alone():
 
 
 def test_far_from_the_centre_the_fm_is_still_reached():
-    """No window around the FM: a grid point near the edge of travel is reached by the
-    flip, where an offset FM's range would have refused it."""
+    """No window around the FM: a grid point near the edge of travel (x is +/-1 mm on
+    the Arctis) is reached by the flip."""
     microscope = pinned._microscope("arctis")
     position = pinned._start_position(microscope, "SEM")
-    position.x = 1.5e-3
+    position.x = 0.95e-3
     microscope.move_stage_absolute(position)
 
     microscope.move_to_device("FM")
 
-    assert microscope.get_stage_position().x == pytest.approx(1.5e-3, abs=1e-12)
+    assert microscope.get_stage_position().x == pytest.approx(0.95e-3, abs=1e-12)
     assert microscope.get_current_device() == "FM"
 
 
