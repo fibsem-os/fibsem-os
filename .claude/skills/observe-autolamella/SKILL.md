@@ -111,7 +111,10 @@ fibsem-mcp watch
 Its `PROMPT` and `QUESTION` lines mean the run is waiting on a person. You
 don't answer them. Read the question, say what it is asking and what you'd
 answer and why, and remind the operator it is waiting on them. `RUN ENDED`
-means summarise (below) and stop watching. If your harness can't keep a
+means summarise (below) and stop watching. When it says
+`workflow_failed: <error>` or `stopped without an end event`, the run died:
+read `get_log` with the run's `task_id` and `level=WARNING` first and say
+why. If your harness can't keep a
 background process alive while you're idle, run the watcher in the
 foreground with your tool timeout as the cap and run it again after each
 return.

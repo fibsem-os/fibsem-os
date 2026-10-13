@@ -11,7 +11,9 @@ it would block the agent from acting on what it prints.
 
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
 ``QUESTION RELEASED``, task ``EVENT`` lines, ``GAP`` and ``RUN ENDED``.
-Exits 0 when the run ends, 1 when the server cannot be watched.
+Exits 0 when the run ends, 1 when the server cannot be watched. A run that
+stops without an end event still ends the watch: ``RUN ENDED (stopped
+without an end event)``, once ``/app/status`` says nothing is running.
 
 It finds the server the way the sidecar does (``--url``/``--token``, the
 environment, the discovery file) and follows a restarted server the same way
@@ -27,8 +29,14 @@ import urllib.error
 import urllib.request
 from http.client import HTTPException
 
-# Kinds that end the watch: the run is over, report and stop.
-TERMINAL = {"workflow_completed", "workflow_cancelled"}
+# Kinds that end the watch: the run is over, report and stop. A stalled run
+# drained with decisions pending; a failed one died outside a task (FIB-1037).
+TERMINAL = {
+    "workflow_completed",
+    "workflow_cancelled",
+    "workflow_stalled",
+    "workflow_failed",
+}
 # Kinds worth a wake-up line of their own (prompts and questions have theirs).
 INTERESTING = TERMINAL | {
     "workflow_started",
@@ -139,7 +147,8 @@ def _print_events(events, since, out):
         elif kind == "prompt_cancelled":
             out(f"PROMPT WITHDRAWN question={data.get('question_id')}")
         elif kind in TERMINAL:
-            out(f"RUN ENDED ({kind})")
+            error = data.get("error")
+            out(f"RUN ENDED ({kind}: {error})" if error else f"RUN ENDED ({kind})")
             run_ended = True
         elif kind in INTERESTING:
             task = data.get("task_name")
@@ -148,7 +157,18 @@ def _print_events(events, since, out):
     return since, run_ended
 
 
-def watch(client, out=None, sleep_fn=None, poll_s=POLL_S):
+def _run_is_live(client):
+    """Whether /app/status says a run is going; None when it cannot say."""
+    try:
+        response = client.request("GET", "/app/status", timeout=10.0)
+        if response.status_code >= 400:
+            return None
+        return bool(response.json()["workflow"]["running"])
+    except (OSError, HTTPException, ValueError, KeyError, TypeError):
+        return None
+
+
+def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None):
     """Watch until the run ends (0) or the server cannot be watched (1).
 
     ``client`` is httpx-style (``request(method, path, timeout=...)``), in
@@ -158,6 +178,7 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S):
     """
     out = out or _print_line
     sleep_fn = sleep_fn or time.sleep
+    clock = clock or time.monotonic
 
     # Seed the cursor at the tail: the buffer outlives runs, so starting at 0
     # would replay history -- stale PROMPT lines, and a previous run's
@@ -173,6 +194,10 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S):
         )
         return 1
     since = snapshot.get("latest_seq") or 0
+    # A run can end without an end event: one that dies outside a task fires
+    # none (FIB-1331). So while a run is live, /app/status is the backstop.
+    run_live = _run_is_live(client) is True
+    checked_at = clock()
 
     failures = 0
     while True:
@@ -205,10 +230,27 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S):
             # Eviction ate events between polls; continuity is broken.
             out(GAP_LINE)
 
-        since, run_ended = _print_events(payload.get("events", []), since, out)
+        events = payload.get("events", [])
+        if any(event.get("kind") == "workflow_started" for event in events):
+            run_live = True
+        since, run_ended = _print_events(events, since, out)
         since = max(since, latest)
         if run_ended:
             return 0
+
+        # Asked on a quiet poll, and at least once a poll on a busy one.
+        if run_live and (not events or clock() - checked_at >= poll_s):
+            checked_at = clock()
+            if _run_is_live(client) is False:
+                # An end event may have landed since the poll: report that
+                # one rather than the fallback.
+                last, failure = _poll(client, since=since, timeout=0.0)
+                if failure is None and last.get("available"):
+                    since, run_ended = _print_events(last.get("events", []), since, out)
+                    if run_ended:
+                        return 0
+                out("RUN ENDED (stopped without an end event)")
+                return 0
 
 
 def _print_line(line):

@@ -70,6 +70,9 @@ class App:
     def buffer(self):
         return self.context._event_buffer
 
+    def set_running(self, running):
+        self.context._host.is_workflow_running = running
+
 
 def _serve(microscope, tmp_path, event_buffer):
     host = Host()
@@ -186,6 +189,74 @@ def test_quiet_polls_keep_watching(app):
     code, lines = _watch({4: lambda: app.buffer.append("workflow_cancelled", {})})
     assert code == 0
     assert lines == ["RUN ENDED (workflow_cancelled)"]
+
+
+@pytest.mark.parametrize(
+    "kind, payload, line",
+    [
+        ("workflow_stalled", {}, "RUN ENDED (workflow_stalled)"),
+        (
+            "workflow_failed",
+            {"error": "cannot represent an object"},
+            "RUN ENDED (workflow_failed: cannot represent an object)",
+        ),
+    ],
+)
+def test_a_stalled_or_failed_run_ends_the_watch(app, kind, payload, line):
+    code, lines = _watch({3: lambda: app.buffer.append(kind, payload)})
+    assert code == 0
+    assert lines == [line]
+
+
+def test_a_run_that_stops_without_an_end_event_ends_the_watch(app):
+    # FIB-1331: the run died outside a task, so no end event was recorded;
+    # only /app/status knows it is over.
+    app.set_running(True)
+
+    def crash():
+        app.buffer.append("task_completed", {"item_name": "03-stable-owl"})
+        app.set_running(False)
+
+    code, lines = _watch({3: crash})
+
+    assert code == 0
+    assert lines == [
+        "EVENT task_completed 03-stable-owl",
+        "RUN ENDED (stopped without an end event)",
+    ]
+
+
+def test_a_watch_started_before_the_run_waits_for_it(app):
+    # Nothing running at the start is not an end: the agent starts the
+    # watch, then the run.
+    def start():
+        app.set_running(True)
+        app.buffer.append("workflow_started", {})
+
+    def crash():
+        app.set_running(False)
+
+    code, lines = _watch({4: start, 7: crash})
+
+    assert code == 0
+    assert lines == [
+        "EVENT workflow_started ",
+        "RUN ENDED (stopped without an end event)",
+    ]
+
+
+def test_an_end_event_beats_the_fallback(app):
+    # The status already says stopped when the end event lands: the watch
+    # reports the event, not the fallback.
+    app.set_running(True)
+
+    def finish():
+        app.set_running(False)
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({4: finish})
+    assert code == 0
+    assert lines == ["RUN ENDED (workflow_completed)"]
 
 
 def test_evicted_events_print_a_gap_then_carry_on(microscope, tmp_path, discovery):
