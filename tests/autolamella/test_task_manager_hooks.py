@@ -277,3 +277,80 @@ def test_an_error_after_the_end_event_adds_no_second_end(
         manager.run(task_names=["MillTrench"], required_lamella=[])
 
     assert _events(fired) == ["workflow_started", "workflow_completed"]
+
+
+# ---------------------------------------------------------------------------
+# a run that dies in its set-up (FIB-1353)
+# ---------------------------------------------------------------------------
+
+
+def test_a_save_that_fails_in_set_up_ends_the_run_with_workflow_failed(
+    experiment, recorder
+):
+    """Registering the experiment saves it. That used to happen in the
+    constructor, so a file that could not be written ended a run the agent
+    had been told was started with no event at all."""
+    hook_manager, fired = recorder
+    # A directory where the file goes: the save fails, whoever runs the test.
+    Path(experiment.path, "experiment.yaml").mkdir(parents=True)
+    manager = _manager(experiment, hook_manager)
+    assert fired == [], "making the manager does nothing a run should report"
+
+    with pytest.raises(IsADirectoryError):
+        manager.run(task_names=["MillTrench"], required_lamella=[])
+
+    assert _events(fired) == ["workflow_started", "workflow_failed"]
+    assert "Is a directory" in fired[-1].error
+    assert experiment.unsaved
+
+
+def test_an_unsaved_experiment_starts_no_task(experiment, recorder, monkeypatch):
+    """FIB-1352: a run does not start work on an experiment whose last save
+    failed until a save works. No file yet, so registering does not save."""
+    hook_manager, fired = recorder
+    experiment.save_error = "PermissionError: earlier"
+    manager = _manager(experiment, hook_manager)
+
+    def cannot_save(*_args, **_kwargs):
+        raise PermissionError("still read-only")
+
+    monkeypatch.setattr(experiment, "save", cannot_save)
+    with pytest.raises(PermissionError):
+        manager.run(task_names=["MillTrench"], required_lamella=[])
+
+    assert _events(fired) == ["workflow_started", "workflow_failed"]
+
+
+def test_a_set_up_failure_before_the_run_began_ends_it(experiment, recorder):
+    """The app's worker turns the beams on (and so on) before it calls run;
+    a failure there ends the run it had been asked for."""
+    hook_manager, fired = recorder
+    manager = _manager(experiment, hook_manager)
+
+    manager.end_unstarted_run(RuntimeError("beam would not turn on"))
+
+    assert _events(fired) == ["workflow_failed"]
+    assert fired[-1].error == "beam would not turn on"
+    manager.end_unstarted_run(RuntimeError("again"))
+    assert _events(fired) == ["workflow_failed"], "one end, however often asked"
+
+
+def test_a_stop_during_set_up_ends_the_run_cancelled(experiment, recorder):
+    hook_manager, fired = recorder
+    manager = _manager(experiment, hook_manager)
+
+    manager.end_unstarted_run(InterruptedError("stopped"))
+
+    assert _events(fired) == ["workflow_cancelled"]
+
+
+def test_a_run_that_began_reports_its_own_end(experiment, recorder):
+    hook_manager, fired = recorder
+    manager = _manager(experiment, hook_manager)
+    manager.microscope = _RaisingMicroscope(RuntimeError("objective lost"))
+    with pytest.raises(RuntimeError):
+        manager.run(task_names=["MillTrench"], required_lamella=[])
+
+    manager.end_unstarted_run(RuntimeError("objective lost"))
+
+    assert _events(fired) == ["workflow_started", "workflow_failed"]

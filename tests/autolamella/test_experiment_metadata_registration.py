@@ -55,11 +55,16 @@ def test_register_metadata_stamps_the_experiment_onto_the_microscope(
     assert microscope.system.info.application == "autolamella"
 
 
-def test_creating_a_task_manager_registers_without_a_gui(
+def test_a_task_manager_run_registers_without_a_gui(
     microscope: FibsemMicroscope, experiment: Experiment
 ) -> None:
-    """A headless run goes through TaskManager, never through AutoLamellaUI."""
-    TaskManager(microscope=microscope, experiment=experiment, parent_ui=None)
+    """A headless run goes through TaskManager, never through AutoLamellaUI.
+    It registers when the run starts, inside it, so a failure ends the run
+    with an event (FIB-1353)."""
+    manager = TaskManager(microscope=microscope, experiment=experiment, parent_ui=None)
+    assert microscope.experiment.id is None, "making the manager does not register"
+
+    manager.run(task_names=[], required_lamella=[])
 
     assert microscope.experiment.id == experiment.id
     assert microscope.experiment.name == "test-experiment"

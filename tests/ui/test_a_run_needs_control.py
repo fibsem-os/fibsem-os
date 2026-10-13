@@ -116,3 +116,36 @@ def test_a_run_that_loses_the_race_for_control_does_not_start(
 
     assert not ran
     assert ui._task_manager is None
+
+
+@pytest.mark.parametrize(
+    "worker",
+    [
+        lambda ui: ui._run_tasks_worker(["Trench"], []),
+        lambda ui: ui._run_grid_tasks_worker(["Overview"], [], False),
+    ],
+    ids=["lamella", "grid"],
+)
+def test_a_run_that_dies_in_set_up_ends_with_workflow_failed(ui, monkeypatch, worker):
+    """FIB-1353: start_workflow has answered started by the time the worker
+    turns the beams on; a failure there ends the run with an event."""
+    from fibsem.hooks import FunctionHook, HookEvent, HookManager
+
+    fired = []
+    hooks = HookManager()
+    hooks.register(
+        FunctionHook(name="seen", events=list(HookEvent), callback=fired.append)
+    )
+    monkeypatch.setattr(ui, "setup_hooks", lambda: hooks)
+    monkeypatch.setattr(ui.microscope, "is_on", lambda beam_type: False)
+
+    def beam_fails(beam_type):
+        raise RuntimeError("the beam would not turn on")
+
+    monkeypatch.setattr(ui.microscope, "turn_on", beam_fails)
+
+    worker(ui)
+
+    assert [c.event for c in fired] == ["workflow_failed"]
+    assert fired[0].error == "the beam would not turn on"
+    assert ui.microscope.control.current is None
