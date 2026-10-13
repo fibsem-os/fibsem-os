@@ -9,7 +9,7 @@ is the only thing that writes a trusted position.
 import pytest
 
 from fibsem import utils
-from fibsem.services.sample_handling import bind_sample_handling
+from fibsem.services.sample_handling import BUILTIN_SLOT_NAME, bind_sample_handling
 from fibsem.structures import (
     FibsemStagePosition,
     GridSlot,
@@ -122,7 +122,7 @@ class TestStageRefusesUncalibratedSlots:
     def test_compustage_working_slot_is_the_origin_by_construction(self):
         microscope, _ = demo_session(compustage=True)
         stage = bind_sample_handling(microscope)
-        slot = stage.holder.slots["Slot-01"]
+        slot = stage.holder.slots[BUILTIN_SLOT_NAME]
         assert slot.is_calibrated and slot.calibration.is_builtin
         assert (slot.position.x, slot.position.y) == (0.0, 0.0)
 

@@ -54,6 +54,7 @@ import math
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -677,7 +678,7 @@ class AutoscriptBeam(Beam):
         name = self.beam_type.name
         if image_settings is None:
             # acquire_image(beam_type=...): the beam's current settings
-            settings = microscope.get_imaging_settings(beam_type=self.beam_type)
+            settings = self.image_settings()
             logging.debug(f"acquiring new {name} image.")
             with self.claim_channel():
                 adorned = self.connection.sdk.imaging.grab_frame(None)
@@ -725,8 +726,6 @@ class AutoscriptBeam(Beam):
         image = images.fibsem_image_from_adorned_image(
             copy.deepcopy(adorned), copy.deepcopy(settings), copy.deepcopy(state)
         )
-        if image_settings is not None:
-            microscope._last_imaging_settings = image_settings
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
         return image
 
@@ -817,7 +816,7 @@ class AutoscriptBeam(Beam):
         """A live frame as a FibsemImage, with the beam's current state."""
         microscope = self.parent
         state = microscope.get_microscope_state(beam_type=self.beam_type)
-        image_settings = microscope.get_imaging_settings(beam_type=self.beam_type)
+        image_settings = self.image_settings()
 
         image = images.fibsem_image_from_adorned_image(
             copy.deepcopy(adorned_image),
@@ -1088,6 +1087,15 @@ def autoloader_installed(microscope: ThermoMicroscope) -> bool:
 _MANIPULATOR_NAMES = ("PARK", "EUCENTRIC")
 
 
+def _in_raw_unless_named(
+    position: FibsemManipulatorPosition,
+) -> FibsemManipulatorPosition:
+    """A position that names no coordinate system moves in the needle's raw frame."""
+    if position.coordinate_system is not None:
+        return position
+    return replace(position, coordinate_system="RAW")
+
+
 class AutoscriptManipulator(Manipulator):
     """The AutoScript needle, ``connection.specimen.manipulator``.
 
@@ -1207,6 +1215,7 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
+        delta = _in_raw_unless_named(delta)
         logging.info(f"moving manipulator by {delta}")
         self._needle.relative_move(manipulator_position_to_autoscript(delta))
         logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
@@ -1216,6 +1225,7 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
+        position = _in_raw_unless_named(position)
         logging.info(f"moving manipulator to {position}")
         self._needle.absolute_move(manipulator_position_to_autoscript(position))
         logging.debug(

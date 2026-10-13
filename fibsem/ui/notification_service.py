@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from PyQt5 import sip
 from PyQt5.QtCore import QObject, pyqtSignal
 
 
@@ -23,13 +24,24 @@ _service: Optional[_NotificationService] = None
 
 
 def _get_service() -> _NotificationService:
+    """The service, built again if the one held here has been deleted.
+
+    Destroying the QApplication deletes the service with it, although it has no
+    parent, and the module keeps the dead wrapper. A process that builds a second
+    QApplication -- pytest does, once per test file, when the module-scoped ``qapp``
+    fixture held the only reference to the first -- would otherwise fail every
+    toast with "wrapped C/C++ object has been deleted". The listeners went with the
+    old one; each window connects to the new one when it is built.
+    """
     global _service
-    if _service is None:
+    if _service is None or sip.isdeleted(_service):
         _service = _NotificationService()
     return _service
 
 
-def show(message: str, notification_type: str = "info", temporary: bool = False) -> None:
+def show(
+    message: str, notification_type: str = "info", temporary: bool = False
+) -> None:
     """Emit a toast. Persists to notification history by default (temporary=False).
 
     Use show_toast() for transient validation messages that should not appear in history.

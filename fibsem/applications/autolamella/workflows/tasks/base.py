@@ -108,6 +108,7 @@ from fibsem.detection.detection import (
     LamellaTopEdge,
     VolumeBlockCentre,
 )
+from fibsem.devices.beam import nearest_resolution
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning.utils import get_pattern_reduced_area
@@ -142,6 +143,8 @@ TAutoLamellaTaskConfig = TypeVar(
 
 MAX_ALIGNMENT_ATTEMPTS = 3
 ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
+# the alignment reference is taken at the listed resolution nearest this
+ALIGNMENT_REFERENCE_RESOLUTION = (1536, 1024)
 
 _LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
@@ -1182,7 +1185,7 @@ class AutoLamellaTask(ABC):
         alignment_image_settings.save = True
         alignment_image_settings.hfw = field_of_view
         alignment_image_settings.filename = "ref_alignment"
-        alignment_image_settings.resolution = (1536, 1024)
+        alignment_image_settings.resolution = self._alignment_resolution()
         alignment_image_settings.dwell_time = 1e-6
         alignment_image_settings.autocontrast = (
             True  # enable autocontrast for alignment
@@ -1190,6 +1193,14 @@ class AutoLamellaTask(ABC):
         fib_image = acquire.acquire_image(self.microscope, alignment_image_settings)
 
         return fib_image
+
+    def _alignment_resolution(self) -> Tuple[int, int]:
+        """The ion beam's listed resolution nearest the alignment reference's
+        1536x1024, so the reference is taken at one the instrument offers."""
+        ion = self.microscope.beams.get(BeamType.ION)
+        parameter = None if ion is None else ion.parameters.get("resolution")
+        choices = None if parameter is None else parameter.choices
+        return nearest_resolution(ALIGNMENT_REFERENCE_RESOLUTION, choices)
 
     @property
     def _asks_on_the_record(self) -> bool:

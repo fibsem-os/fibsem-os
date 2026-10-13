@@ -46,17 +46,6 @@ METADATA_VERSION = "v11"
 # older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
 UNVERSIONED_METADATA = "v0"
 
-SUPPORTED_COORDINATE_SYSTEMS = [
-    "RAW",
-    "SPECIMEN",
-    "STAGE",
-    "Raw",
-    "raw",
-    "specimen",
-    "Specimen",
-    "Stage",
-    "stage",
-]
 
 REFERENCE_HFW_WIDE = 2750e-6
 REFERENCE_HFW_LOW = 900e-6

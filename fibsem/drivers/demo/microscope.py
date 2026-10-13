@@ -142,7 +142,6 @@ class DemoMicroscope(FibsemMicroscope):
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
 
-        self._last_imaging_settings: ImageSettings = ImageSettings()
         self.milling_channel: BeamType = BeamType.ION
         self._connection.setup_sample_scene()
         logging.debug(

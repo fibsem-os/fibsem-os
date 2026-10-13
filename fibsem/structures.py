@@ -38,7 +38,6 @@ from numpy.typing import NDArray
 import fibsem
 from fibsem.config import (
     METADATA_VERSION,
-    SUPPORTED_COORDINATE_SYSTEMS,
     UNVERSIONED_METADATA,
 )
 from fibsem.manufacturers import DEMO, normalize_manufacturer
@@ -772,20 +771,11 @@ class FibsemManipulatorPosition:
     z: float = 0.0
     r: float = 0.0
     t: float = 0.0
-    coordinate_system: str = "RAW"
+    coordinate_system: Optional[str] = None
 
     def __post_init__(self):
         for axis in ("x", "y", "z", "r", "t"):
             setattr(self, axis, _plain_number(getattr(self, axis)))
-        assert (
-            isinstance(self.coordinate_system, str) or self.coordinate_system is None
-        ), f"unsupported type {type(self.coordinate_system)} for coorindate system"
-        assert (
-            self.coordinate_system in SUPPORTED_COORDINATE_SYSTEMS
-            or self.coordinate_system is None
-        ), (
-            f"coordinate system value {self.coordinate_system} is unsupported or invalid syntax. Must be RAW or SPECIMEN"
-        )
 
     def to_dict(self) -> dict:
         position_dict = {}
@@ -794,7 +784,9 @@ class FibsemManipulatorPosition:
         position_dict["z"] = self.z
         position_dict["r"] = self.r
         position_dict["t"] = self.t
-        position_dict["coordinate_system"] = self.coordinate_system.upper()
+        position_dict["coordinate_system"] = (
+            self.coordinate_system.upper() if self.coordinate_system else None
+        )
 
         return position_dict
 
@@ -813,7 +805,7 @@ class FibsemManipulatorPosition:
             z=data["z"],
             r=data["r"],
             t=data["t"],
-            coordinate_system=data["coordinate_system"],
+            coordinate_system=data.get("coordinate_system"),
         )
 
     def __add__(
@@ -1681,6 +1673,8 @@ class FibsemPatternSettings(ABC):
     def from_dict(
         cls: Type[TFibsemPatternSettings], data: Dict[str, Any]
     ) -> TFibsemPatternSettings:
+        if cls is FibsemPatternSettings:  # abstract: the dict names its shape
+            return cls._subclass_named(data.get("type")).from_dict(data)
         kwargs = {}
         for f in fields(cls):
             if f.name in data:
@@ -1692,6 +1686,24 @@ class FibsemPatternSettings(ABC):
             kwargs["cross_section"] = CrossSectionPattern[cross_section]
 
         return cls(**kwargs)
+
+    @classmethod
+    def _subclass_named(cls, type_name: Any) -> Type[FibsemPatternSettings]:
+        """The shape a pattern dict names in its ``type``, as the App Server's
+        ``draw_patterns`` takes it: ``"Rectangle"`` (or ``"FibsemRectangleSettings"``)."""
+        shapes: Dict[str, Type[FibsemPatternSettings]] = {}
+        pending = list(cls.__subclasses__())
+        while pending:
+            sub = pending.pop()
+            pending += sub.__subclasses__()
+            shapes[sub.__name__] = sub
+            shapes[sub.__name__.replace("Fibsem", "").replace("Settings", "")] = sub
+        if type_name not in shapes:
+            available = sorted(name for name in shapes if not name.startswith("Fibsem"))
+            raise ValueError(
+                f"Unknown pattern type: {type_name!r}. Available: {available}"
+            )
+        return shapes[type_name]
 
     @property
     @abstractmethod
@@ -5465,9 +5477,12 @@ class SampleHolder:
 
     def _ensure_slots(self) -> None:
         """Ensure exactly `capacity` slots exist; add empty ones for missing indices."""
+        # By index, not name: a slot may have a name of its own (the built-in
+        # shuttle's), and is still the slot at its index.
+        present = {slot.index for slot in self.slots.values()}
         for i in range(self.capacity):
             name = f"Slot-{i + 1:02d}"
-            if name not in self.slots:
+            if i not in present and name not in self.slots:
                 # A new slot has no position until it is calibrated; inventing one
                 # at the origin was a number that looked like a measurement.
                 self.slots[name] = GridSlot(name=name, index=i, position=None)

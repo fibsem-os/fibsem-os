@@ -502,7 +502,7 @@ class StageMovement(Service):
             logging.info("tilting to flat for large rotation.")
 
         self._move_stage(
-            FibsemStagePosition(r=stage_position.r, coordinate_system="RAW")
+            FibsemStagePosition(r=stage_position.r)
         )  # TODO: support compucentric rotation directly
 
     @command

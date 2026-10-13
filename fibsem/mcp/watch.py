@@ -147,14 +147,40 @@ def _print_events(events, since, out):
         elif kind == "prompt_cancelled":
             out(f"PROMPT WITHDRAWN question={data.get('question_id')}")
         elif kind in TERMINAL:
-            error = data.get("error")
-            out(f"RUN ENDED ({kind}: {error})" if error else f"RUN ENDED ({kind})")
+            detail = data.get("error") or _counts(data.get("task_counts"))
+            out(f"RUN ENDED ({kind}: {detail})" if detail else f"RUN ENDED ({kind})")
             run_ended = True
         elif kind in INTERESTING:
             task = data.get("task_name")
             line = f"EVENT {kind} {data.get('item_name', '')}"
-            out(f"{line} {task}" if task else line)
+            line = f"{line} {task}" if task else line
+            reason = _skip_reason(data) if kind == "task_skipped" else None
+            out(f"{line} ({reason})" if reason else line)
     return since, run_ended
+
+
+def _skip_reason(data):
+    """``missing_prereqs: Mill Fiducial``: why a task was skipped, and for a
+    missing requirement which one (FIB-1357)."""
+    reason = data.get("skip_reason")
+    missing = data.get("missing_prereqs")
+    if reason and missing:
+        return f"{reason}: {', '.join(str(name) for name in missing)}"
+    return reason
+
+
+def _counts(counts):
+    """``nothing ran, 2 skipped`` or ``3 completed, 1 failed``: how a completed
+    run's tasks ended, so a run that skipped everything does not read as done."""
+    if not isinstance(counts, dict):
+        return None
+    ran = [
+        f"{counts[status]} {status}"
+        for status in ("completed", "failed")
+        if counts.get(status)
+    ]
+    skipped = [f"{counts['skipped']} skipped"] if counts.get("skipped") else []
+    return ", ".join((ran or ["nothing ran"]) + skipped)
 
 
 def _run_is_live(client):

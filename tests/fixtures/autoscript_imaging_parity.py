@@ -95,7 +95,6 @@ def make():
     object.__setattr__(
         microscope._connection.sdk, "imaging", FakeImaging("connection.imaging")
     )
-    microscope._last_imaging_settings = ImageSettings(path="/data", filename="last")
 
     def get_microscope_state(beam_type=None):
         LOG.append(["state", beam_type.name if beam_type else None])
@@ -107,6 +106,8 @@ def make():
     microscope.get_microscope_state = get_microscope_state
     microscope._set_additional_metadata = set_additional_metadata
     microscope._build_beams()
+    for beam in microscope.beams.values():  # where the last image was saved
+        beam._last_image_settings = ImageSettings(path="/data", filename="last")
     microscope._build_imaging()
     return microscope
 
@@ -164,7 +165,7 @@ def _calls(beam_type):
             "acquire last settings",
             lambda m: (
                 m.acquire_image(_settings(beam_type)),
-                m._last_imaging_settings.filename,
+                m.beams[beam_type]._last_image_settings.filename,
             )[1],
         ),
         ("last image", lambda m: _image(m.last_image(beam_type))),
