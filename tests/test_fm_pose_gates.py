@@ -14,6 +14,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.stage import compustage_poses, rotating_stage_poses
+from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
 from fibsem.structures import FibsemStagePosition
 
 IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -45,6 +46,12 @@ def test_a_stage_that_declares_an_fm_pose_reaches_the_fm_by_re_posing():
     microscope = _microscope(IFLM_CONFIG)
     assert not microscope._fm_is_a_pose()
     _declare(microscope, compustage_poses)
+    # and the tilt range that reaches them: the offset mount's stops at -10 degrees
+    microscope.stage._axis_limits = {
+        **microscope.stage._axis_limits,
+        "t": STAGE_LIMITS_COMPUSTAGE["t"],
+    }
+    microscope.stage.position.refresh_metadata()
     microscope.system.stage.devices["FM"].origin = FibsemStagePosition(x=0.0)
     microscope.system.stage.devices["FM"].available_orientations = ["FM"]
     start = microscope.get_stage_position()

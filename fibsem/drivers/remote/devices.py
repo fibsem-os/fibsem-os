@@ -43,8 +43,7 @@ server, and wait for as long as that takes. What they say about themselves beyon
 their parameters (the stage's frame, shuttle and the device each orientation is at;
 the needle's axes and named positions) comes from the device's ``facts`` in its
 description, and a stage's poses from its ``pose_table`` command. A move
-is checked against the stage limits on the server too, so the old API's unchecked
-``move_through`` is checked there.
+is checked against the stage limits here and again on the server.
 
 Not yet: the one-commander lease, and a beam's ``acquire`` (a
 ``FibsemImage`` with its metadata).

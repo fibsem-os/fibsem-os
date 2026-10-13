@@ -30,7 +30,12 @@ from fibsem.geometry.movement import (
     vertical_move_delta,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
+from fibsem.structures import (
+    BeamType,
+    FibsemHardwareGeometry,
+    FibsemStagePosition,
+    RangeLimit,
+)
 
 # -128 is the compustage FIB orientation at the default pretilt of 0
 TILTS_DEG = [-128, -50, 0, 18, 52]
@@ -53,6 +58,11 @@ def microscope(request):
     scope, _ = utils.setup_session(manufacturer="Demo")
     scope.stage_device.compustage = request.param
     scope._update_orientations()
+    # These pin the maths at poses a Demo stage can't reach, so lift its limits.
+    scope.stage_device._axis_limits = {
+        axis: RangeLimit(min=-np.inf, max=np.inf) for axis in "xyzrt"
+    }
+    scope.stage_device.position.refresh_metadata()
     scope.sent = []
     move_stage_relative = scope.move_stage_relative
 

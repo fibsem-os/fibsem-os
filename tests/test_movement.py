@@ -107,7 +107,7 @@ def test_a_relative_move_takes_time_too(monkeypatch):
 
     scope.move_stage_relative(FibsemStagePosition(x=10e-6, y=0.0, z=0.0))
 
-    assert slept[0] == simulator.STAGE_MOVEMENT_SLEEP_TIME
+    # once: the read before it is the limit check's
     assert slept.count(simulator.STAGE_MOVEMENT_SLEEP_TIME) == 1
 
 

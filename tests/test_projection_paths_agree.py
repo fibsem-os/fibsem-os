@@ -35,6 +35,8 @@ from fibsem.transformations import inverse_view_corrected_dy
 # Poses worth asking about, in degrees. The configured orientations plus the two the
 # geometry is exact at, because a sweep of round numbers misses -128 and -23 entirely.
 TILTS = (-180.0, -160.0, -128.0, -90.0, -23.0, 0.0, 20.0, 38.0)
+# The live path has to move the stage there, and the Arctis tilt stops at +15.
+REACHABLE_TILTS = tuple(t for t in TILTS if t <= 15.0)
 DELTAS = ((12e-6, -5e-6), (-40e-6, 22e-6), (0.0, 30e-6), (30e-6, 0.0), (0.0, 0.0))
 
 
@@ -100,7 +102,7 @@ class TestTheThreePathsAgree:
                 _shared(microscope, beam_type, pose, dy, dz), abs=1e-15
             ), f"tiled path differs at t={tilt_deg}, {beam_type.name}, ({dy}, {dz})"
 
-    @pytest.mark.parametrize("tilt_deg", TILTS)
+    @pytest.mark.parametrize("tilt_deg", REACHABLE_TILTS)
     @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
     def test_the_live_microscope_path_matches(self, microscope, beam_type, tilt_deg):
         """The live path reads the pose off the instrument, so the stage has to be there."""

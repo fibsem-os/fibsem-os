@@ -39,14 +39,14 @@ def stage():
 def test_the_driver_lists_the_axes_with_their_limits_in_si_units(stage):
     assert list(stage.axes) == ["x", "y", "z", "r", "t"]
     assert stage.axes.x.unit == "m" and stage.axes.t.unit == "rad"
-    assert stage.axes.z.limits == RangeLimit(min=0.0, max=40e-3)
+    assert stage.axes.z.limits == RangeLimit(min=-40e-3, max=40e-3)
     assert stage.axes["z"] is stage.axes.z
     # the simulator's table gives r and t in degrees; the axes carry radians
     t = stage.axes.t.limits
     assert (t.min, t.max) == pytest.approx((math.radians(-10), math.radians(90)))
     r = stage.position.limits["r"]
     assert (r.min, r.max) == pytest.approx((-2 * math.pi, 2 * math.pi))
-    assert stage.describe()["position"]["limits"]["z"] == {"min": 0.0, "max": 40e-3}
+    assert stage.describe()["position"]["limits"]["z"] == {"min": -40e-3, "max": 40e-3}
 
 
 def test_is_homed_reads_the_homed_parameter(stage):
