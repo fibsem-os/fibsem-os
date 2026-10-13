@@ -231,6 +231,17 @@ class FakeOdemisClient:
 class FakeStage:
     def __init__(self):
         self.position = stubs.FakeVA({"x": 0, "y": 0, "z": 0, "rz": 0, "rx": 0})
+        self.moves = []
+
+    def moveAbs(self, pos):
+        self.moves.append(dict(pos))
+        self.position._value = {**self.position.value, **pos}
+        return stubs.FakeFuture()
+
+    def moveRel(self, shift):
+        self.moves.append({k: self.position.value[k] + v for k, v in shift.items()})
+        self.position._value = {**self.position.value, **self.moves[-1]}
+        return stubs.FakeFuture()
 
 
 @pytest.fixture(scope="module")
@@ -478,3 +489,39 @@ def test_an_annulus_is_drawn_with_its_inner_diameter(microscope):
     ]
     assert parameters["outer_diameter"] == pytest.approx(10e-6)
     assert parameters["inner_diameter"] == pytest.approx(8e-6)
+
+
+def test_a_move_to_an_orientation_carries_x_and_y_round_the_rotation_centre(microscope):
+    """FIB-1373: Delmic's adapter turns compucentric rotation off, so the driver gives
+    the centre and the move itself carries x and y round it. Seen on the odemis sim:
+    without it, SEM (1.0, 0.5) mm to FIB turned the stage and left x and y."""
+    assert microscope.rotation_centre == (0.0, 0.0)
+    stage = microscope._connection.vendor_stage
+    sem = microscope.get_orientation("SEM")
+    stage.position._value = {
+        "x": 1e-3,
+        "y": 0.5e-3,
+        "z": 0.032,
+        "rz": sem.r,
+        "rx": sem.t,
+    }
+
+    microscope._build_stage_movement()  # the fixture skips it; __init__ builds it
+    microscope.move_to_orientation("FIB")
+
+    fib = microscope.get_orientation("FIB")
+    position = stage.position.value
+    assert position["x"] == pytest.approx(-1e-3)
+    assert position["y"] == pytest.approx(-0.5e-3)
+    assert position["rz"] == pytest.approx(fib.r)
+    assert position["rx"] == pytest.approx(fib.t)
+
+    microscope.move_to_orientation("SEM")
+
+    position = stage.position.value
+    assert (position["x"], position["y"]) == pytest.approx((1e-3, 0.5e-3))
+
+
+def test_the_rotation_centre_takes_the_calibrated_correction(microscope):
+    microscope.system.stage.rotation_centre_correction = (2e-6, -3e-6)
+    assert microscope.rotation_centre == (2e-6, -3e-6)
