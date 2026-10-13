@@ -98,6 +98,7 @@ def test_capabilities_reports_scopes_and_routers(read_client):
         "control": False,
         "configure": False,
         "hardware": False,
+        "stop": False,
     }
     assert body["manufacturer"] == "DemoMicroscope"
 
