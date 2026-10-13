@@ -284,6 +284,16 @@ class ImagingDefaultsForm(QWidget):
         form.setContentsMargins(6, 6, 6, 6)
         self.setLayout(form)
 
+    def populate_choices(self, microscope: FibsemMicroscope) -> None:
+        """The resolutions the instrument's imaging beam lists, the electron beam's
+        where there is one; the standard ones for a beam that lists none."""
+        listed = beam_choices(microscope, "resolution", BeamType.ELECTRON) or (
+            beam_choices(microscope, "resolution", BeamType.ION)
+        )
+        self.resolution.set_values(
+            [_resolution_key(r) for r in listed or STANDARD_RESOLUTIONS]
+        )
+
     def show_settings(self, settings: ImageSettings) -> None:
         self.beam_type.set_value(settings.beam_type.name)
         if settings.hfw is not None:
@@ -426,7 +436,7 @@ class MicroscopeDefaultsWidget(QWidget):
             self.set_current_imaging(None)
             self._saved = None
             return
-        for form in (self.electron, self.ion):
+        for form in (self.electron, self.ion, self.imaging):
             form.populate_choices(microscope)
         self.show_system()
         self.beams_on_at_connect.setChecked(bool(microscope.system.beams_on_at_connect))

@@ -150,18 +150,3 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
         if self.model is not None:
             print(f"Loaded: {self.model}, {self.model.device}, {self.model.checkpoint}")
             self.model_loaded.emit()
-
-
-def main():
-
-    viewer = napari.Viewer()
-    widget = FibsemSegmentationModelWidget()
-    viewer.window.add_dock_widget(
-        widget, area="right", name="Fibsem Segmentation Model"
-    )
-
-    napari.run()
-
-
-if __name__ == "__main__":
-    main()
