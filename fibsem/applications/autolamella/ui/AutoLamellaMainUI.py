@@ -49,7 +49,10 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.agent_level_chip import AgentLevelChip
+from fibsem.applications.autolamella.ui.agent_level_chip import (
+    AgentLevelChip,
+    request_failure_text,
+)
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -442,6 +445,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     # CoincidenceProgress from the align-loop worker, delivered on the GUI thread
     coincidence_progress = pyqtSignal(object)
+    # The agent's request changed (FIB-1283): emitted from the request's worker
+    # thread, delivered on the GUI thread.
+    agent_request_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -1568,7 +1574,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
         self.agent_chip.connect_clicked.connect(self._on_connect_agent_dialog)
         self.agent_chip.stop_clicked.connect(self._on_stop_agent)
+        self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
+        self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
         self.status_bar.add_action(self.agent_chip)
+        # The agent's requests (FIB-1283): the store being watched, and the
+        # requests whose outcome the status bar has already said.
+        self._agent_requests = None
+        self._agent_requests_unsubscribe = None
+        self._agent_requests_reported: set = set()
+        self.agent_request_changed.connect(self._refresh_agent_chip)
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
         self._agent_chip_timer.timeout.connect(self._refresh_agent_chip)
@@ -3697,12 +3711,89 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Show the chip while the App Server runs, at the level its auth holds."""
         host = self._running_app_server()
         if host is None:
+            self._watch_agent_requests(None)
             self.agent_chip.hide()
             return
         level = host.auth.level or AgentLevel.WATCH
         if self.agent_chip.level is not level:
             self.agent_chip.set_level(level)
+        store = getattr(host, "requests", None)
+        self._watch_agent_requests(store)
+        self._show_agent_request(store)
         self.agent_chip.show()
+
+    def _watch_agent_requests(self, store) -> None:
+        """Follow *store*'s changes, so the chip moves as a request is filed and
+        applied rather than on the next poll."""
+        if store is self._agent_requests:
+            return
+        if self._agent_requests_unsubscribe is not None:
+            self._agent_requests_unsubscribe()
+            self._agent_requests_unsubscribe = None
+        self._agent_requests = store
+        if store is None:
+            self.agent_chip.set_request(None)
+            return
+
+        def changed(_request, signal=self.agent_request_changed):
+            try:
+                signal.emit()
+            except RuntimeError:  # the window has gone
+                pass
+
+        self._agent_requests_unsubscribe = store.subscribe(changed)
+
+    def _show_agent_request(self, store) -> None:
+        """The chip shows a request waiting or being applied; a refused one leaves
+        its failure on the status bar, once."""
+        current = None
+        for request in store.recent() if store is not None else []:
+            if request.status in ("pending", "applying"):
+                current = request
+                break
+            if (
+                request.status == "failed"
+                and request.id not in self._agent_requests_reported
+            ):
+                self._agent_requests_reported.add(request.id)
+                self.status_bar.show_failure(
+                    "Agent's request", request_failure_text(request.to_dict())
+                )
+        shown = current.to_dict() if current is not None else None
+        if shown != self.agent_chip.request:
+            self.agent_chip.set_request(shown)
+
+    def _on_approve_agent_request(self, request_id: str) -> None:
+        """GUI thread, from the chip: run the request. Its actions run on their
+        own worker thread, so this returns at once."""
+        self._decide_agent_request(request_id, approve=True)
+
+    def _on_reject_agent_request(self, request_id: str, reason: str) -> None:
+        """GUI thread, from the chip: run none of it; the agent gets the reason."""
+        self._decide_agent_request(request_id, approve=False, reason=reason)
+
+    def _decide_agent_request(
+        self, request_id: str, approve: bool, reason: str = ""
+    ) -> None:
+        from fibsem.server.requests import RequestRefused
+
+        host = self._running_app_server()
+        store = getattr(host, "requests", None) if host is not None else None
+        if store is None:
+            return
+        try:
+            if approve:
+                store.approve(request_id)
+            else:
+                store.reject(request_id, reason=reason)
+        except RequestRefused as refused:
+            self.status_bar.show_failure("Agent's request", str(refused))
+        logging.info(
+            "Agent's request %s %s by the operator",
+            request_id,
+            "approved" if approve else "rejected",
+        )
+        self._refresh_agent_chip()
 
     def _on_agent_level_chosen(self, level: AgentLevel) -> None:
         """GUI thread, from the chip's menu: set the agent's level, effective for

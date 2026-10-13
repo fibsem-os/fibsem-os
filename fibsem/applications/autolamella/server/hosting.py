@@ -81,6 +81,8 @@ class AppServerHost:
         self._port = port
         self._discovery_path = discovery_path
         self._server = None
+        # The running app: the window reads the agent's requests from it.
+        self._app = None
         self._thread: Optional[threading.Thread] = None
         self._disposers: List[Callable[[], None]] = []
         self._wrote_discovery = False
@@ -91,6 +93,13 @@ class AppServerHost:
     @property
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def requests(self):
+        """The agent's requests (FIB-1283) while the server runs, else None."""
+        if not self.running or self._app is None:
+            return None
+        return getattr(self._app.state, "requests", None)
 
     def agent_seconds_since_seen(self) -> Optional[float]:
         """Seconds since the agent's token last made a request, or None if the
@@ -216,6 +225,7 @@ class AppServerHost:
             auth=self.auth,
             devices=self.devices,
         )
+        self._app = app
         config = uvicorn.Config(
             app,
             host=self._host,
@@ -279,6 +289,11 @@ class AppServerHost:
             self._thread.join(timeout=5.0)
         self._thread = None
         self._server = None
+        # A restart drops requests: say so, rather than leave one waiting.
+        store = getattr(getattr(self._app, "state", None), "requests", None)
+        if store is not None:
+            store.cancel("the App Server stopped")
+        self._app = None
         self._remove_discovery()
 
     def _remove_discovery(self) -> None:
