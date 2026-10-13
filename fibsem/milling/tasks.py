@@ -11,7 +11,15 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from fibsem import acquire
 from fibsem import config as fcfg
-from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
+from fibsem.cancellation import (
+    CANCELLED,
+    COMPLETED,
+    FAILED,
+    SKIPPED,
+    OperationCancelledError,
+    ended_by,
+    raise_if_cancelled,
+)
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -241,6 +249,8 @@ class FibsemMillingTask:
         # None until run() has finished.
         self.outcome: Optional[MillingProgressStatus] = None
         self.error: Optional[BaseException] = None
+        # How each stage the last run() reached ended, for its recorded event.
+        self._stage_records: List[Dict[str, Any]] = []
 
     @property
     def name(self) -> str:
@@ -321,6 +331,8 @@ class FibsemMillingTask:
         outcome = MillingProgressStatus.TASK_FAILED
         error: Optional[str] = None
         self.outcome, self.error = None, None
+        self._stage_records = []
+        started_at = now_iso()
 
         self._emit(MillingProgressStatus.TASK_STARTED, total_stages=len(self.stages))
 
@@ -368,6 +380,9 @@ class FibsemMillingTask:
             # finished -- the status bar rendered "Done" either way and the exception
             # text reached only the logfile.
             self._emit(outcome, error=error)
+            # Before the cleanup, which can raise: the record of how the run ended
+            # must not depend on restoring the beam afterwards.
+            self._record_run(started_at)
             # restore the captured pre-milling imaging current/voltage
             imaging_current, imaging_voltage = self._imaging_conditions()
             self.microscope.finish_milling(
@@ -415,7 +430,40 @@ class FibsemMillingTask:
 
         start_time = time.time()
         raise_if_cancelled(self._stop_event)
+        # Reached: from here the stage ends completed, failed or cancelled, never
+        # skipped (FIB-1257).
+        record: Dict[str, Any] = {
+            "name": stage.name,
+            "index": idx,
+            "milling_current": stage.milling.milling_current,
+            "started_at": now_iso(),
+        }
+        self._stage_records.append(record)
+        try:
+            self._run_stage(stage, idx, start_time)
+        except BaseException as e:
+            record.update(ended_by(e), ended_at=now_iso())
+            raise
+        record.update(status=COMPLETED, ended_at=now_iso())
 
+        # optionally acquire images after milling
+        if self.config.acquisition.enabled:
+            self._acquire_milling_task_images(
+                stage_name=f"{self.name}-{stage.name}", tag="finished"
+            )
+
+        self._emit(
+            MillingProgressStatus.STAGE_FINISHED,
+            start_time=start_time,
+            current_stage=idx,
+            total_stages=len(self.stages),
+            stage_name=stage.name,
+        )
+
+    def _run_stage(
+        self, stage: FibsemMillingStage, idx: int, start_time: float
+    ) -> None:
+        """Set the stage up from the task and mill it."""
         self._emit(
             MillingProgressStatus.STAGE_STARTED,
             start_time=start_time,
@@ -456,19 +504,66 @@ class FibsemMillingTask:
         }
         logging.debug(f"{msgd}")
 
-        # optionally acquire images after milling
-        if self.config.acquisition.enabled:
-            self._acquire_milling_task_images(
-                stage_name=f"{self.name}-{stage.name}", tag="finished"
-            )
+    def _record_run(self, started_at: str) -> None:
+        """Record how this run ended: one ``milling`` event, with how each stage
+        ended (FIB-1257).
 
-        self._emit(
-            MillingProgressStatus.STAGE_FINISHED,
-            start_time=start_time,
-            current_stage=idx,
-            total_stages=len(self.stages),
-            stage_name=stage.name,
+        Each run is its own event, so a task the operator ran twice records two.
+        Stages are in the protocol's order, each with a status: a stage the run
+        never reached, or one turned off in the protocol, is ``skipped`` with
+        why, and a run with every stage turned off is ``skipped`` too. Never
+        raises: a run that cannot be described still milled.
+        """
+        try:
+            if self.error is not None:
+                ended = ended_by(self.error)
+            else:
+                ended = {"status": _RUN_STATUS.get(self.outcome, FAILED)}
+            if ended["status"] == COMPLETED and not self.stages:
+                ended = {"status": SKIPPED, "reason": _TURNED_OFF}
+            payload = {
+                "task_id": self.task_id,
+                "task_name": self.name,
+                "started_at": started_at,
+                "path": self.output_dir,
+                "stages": self._stages_as_ended(ended["status"]),
+                **ended,
+            }
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug(f"could not record the {self.name} run", exc_info=True)
+            return
+        self.microscope.record_event("milling", payload)
+
+    def _stages_as_ended(self, status: str) -> List[Dict[str, Any]]:
+        """Every stage in the protocol, as the run left it. ``index`` is the
+        stage's place among the enabled ones, as ``milling_stage_started`` has it."""
+        reached = {record["index"]: record for record in self._stage_records}
+        why = (
+            "the run was stopped before this stage"
+            if status == CANCELLED
+            else "the run failed before this stage"
         )
+        stages, index = [], 0
+        for stage in self.config.stages:
+            if not stage.enabled:
+                stages.append(
+                    {"name": stage.name, "status": SKIPPED, "reason": _TURNED_OFF}
+                )
+                continue
+            record = reached.get(index)
+            if record is not None:
+                stages.append(dict(record))
+            else:
+                stages.append(
+                    {
+                        "name": stage.name,
+                        "index": index,
+                        "status": SKIPPED,
+                        "reason": why,
+                    }
+                )
+            index += 1
+        return stages
 
     def _record_stage_started(self, stage: FibsemMillingStage, idx: int) -> None:
         """Record what a stage is about to mill, for the experiment's record.
@@ -564,6 +659,36 @@ class FibsemMillingTask:
                 self.microscope.fib_acquisition_signal.emit(fib_image)  # ion image
         except Exception as e:
             logging.error(f"Error emitting acquisition signals: {e}")
+
+
+# How a run ended, as its recorded event says it.
+_RUN_STATUS = {
+    MillingProgressStatus.TASK_FINISHED: COMPLETED,
+    MillingProgressStatus.TASK_CANCELLED: CANCELLED,
+    MillingProgressStatus.TASK_FAILED: FAILED,
+}
+# Why a stage, or a whole task, did not mill when the protocol said not to.
+_TURNED_OFF = "turned off in the protocol"
+
+
+def record_milling_skipped(
+    microscope: FibsemMicroscope, config: FibsemMillingTaskConfig, reason: str
+) -> None:
+    """Record a milling task that did not run, with why: a ``milling`` event like
+    a run's, every stage ``skipped`` (FIB-1257). Never raises."""
+    try:
+        payload = {
+            "task_name": config.name,
+            "status": SKIPPED,
+            "reason": reason,
+            "stages": [
+                {"name": stage.name, "status": SKIPPED} for stage in config.stages
+            ],
+        }
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logging.debug("could not record a skipped milling task", exc_info=True)
+        return
+    microscope.record_event("milling", payload)
 
 
 def run_milling_task(

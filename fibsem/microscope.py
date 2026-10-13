@@ -2960,6 +2960,8 @@ class FibsemMicroscope(ABC):
         * ``image_acquired`` -- from ``acquire.new_image``, with the saved path
         * ``task_step`` -- from the AutoLamella task bases
         * ``milling_stage_started`` -- from ``FibsemMillingTask``, with the stage
+        * ``milling`` -- from ``FibsemMillingTask``, how a run ended, stage by
+          stage; and from a task that milled nothing, why
         * ``spot_burn_started`` -- from ``run_spot_burn``, with the field of view
         * ``stage_moved`` -- from each backend's stage moves, the outermost only
         * ``beam_shifted`` -- from each backend's ``beam_shift``
