@@ -196,12 +196,12 @@ class TestTheTurnedOverFlip:
     any other stage that reaches -180 the image is as the beam saw it."""
 
     @staticmethod
-    def _turned_over(image, compustage: bool):
+    def _turned_over(image, mirrors: bool):
         from dataclasses import replace
 
         image.metadata.microscope_state.stage_position.t = np.radians(-180)
         image.metadata.hardware_geometry = replace(
-            image.metadata.hardware_geometry, is_compustage=compustage
+            image.metadata.hardware_geometry, mirrors_back_view=mirrors
         )
         return image
 
@@ -218,10 +218,7 @@ class TestTheTurnedOverFlip:
         assert self._dy(image) < 0
 
     def test_a_mirroring_instrument_flips_y_when_turned_over(self, image):
-        assert self._dy(self._turned_over(image, compustage=True)) > 0
+        assert self._dy(self._turned_over(image, mirrors=True)) > 0
 
-    @pytest.mark.xfail(
-        strict=True, reason="C3: the flip is not gated on the geometry (FIB-1350)"
-    )
     def test_any_other_stage_keeps_y_when_turned_over(self, image):
-        assert self._dy(self._turned_over(image, compustage=False)) < 0
+        assert self._dy(self._turned_over(image, mirrors=False)) < 0

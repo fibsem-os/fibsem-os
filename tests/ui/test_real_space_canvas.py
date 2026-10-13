@@ -725,7 +725,8 @@ def test_a_projected_stage_offset_places_an_image_where_the_projection_says():
     geometry = FibsemHardwareGeometry(
         transform=CameraImageTransform.NONE,
         camera_tilt=180.0,
-        is_compustage=True,
+        fm_is_pose=True,
+        mirrors_back_view=True,
         shuttle_pre_tilt=0.0,
     )
     base = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=0.0, t=np.deg2rad(-180))

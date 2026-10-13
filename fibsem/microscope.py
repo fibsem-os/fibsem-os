@@ -2388,7 +2388,10 @@ class FibsemMicroscope(ABC):
         if "FM" in (currrent_orientation, target_orientation) and (
             not self._fm_is_a_pose()
         ):
-            raise ValueError("Cannot move to FM position on non-compustage systems.")
+            raise ValueError(
+                "Cannot move to the FM position: this stage reaches the FM by "
+                "travelling, not by re-posing."
+            )
 
         # Which device the stage is at, read *before* either leg runs. The orientation
         # leg below can move x and y most of the way across the grid, so asking
@@ -2930,13 +2933,15 @@ class FibsemMicroscope(ABC):
         stamp the same terms onto an acquired image so it can be reprojected later
         without a live microscope to consult.
 
-        ``is_compustage`` is stamped from the stage device's poses: a stage that
-        reaches the FM by re-posing is a compustage. Recording it is what lets the
-        reprojection stop inferring it from the model name (FIB-481).
+        ``fm_is_pose`` is stamped from the stage device's poses, and
+        ``mirrors_back_view`` from the stage device. Recording them is what lets the
+        reprojection stop inferring them from the model name (FIB-481).
         """
+        stage = self.stage_device
         return FibsemHardwareGeometry.from_system_settings(
             self.system,
-            is_compustage=self._fm_is_a_pose(),
+            fm_is_pose=self._fm_is_a_pose(),
+            mirrors_back_view=stage is not None and stage.mirrors_back_view(),
             rotation_centre=self.rotation_centre,
             poses=self._stage_poses(),
             stage_frame=self.stage_frame,
