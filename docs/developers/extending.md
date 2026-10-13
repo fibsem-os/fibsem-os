@@ -205,10 +205,12 @@ work unchanged.
   a `DriverEntry` in the registry (`fibsem/drivers/registry.py`): a
   module-level `DRIVER` record listed in `_BUILT_IN` for a backend in the
   fibsem tree, or a `fibsem.drivers` entry point for one in its own package.
-  A manufacturer without one raises `NotImplementedError` at connection
-  time, not at import. The first-run wizard is still code:
+  The record names the driver (`manufacturer`) and the other spellings it
+  accepts (`aliases`), and the microscope class sets the same name as its
+  `driver_name`. A manufacturer without one raises `NotImplementedError` at
+  connection time, not at import. The first-run wizard is still code:
   `fibsem/guided_setup.py` (`MANUFACTURERS`, and a `MicroscopeModel` per
-  instrument), with the constant and alias in `fibsem/manufacturers.py`.
+  instrument).
 - **Configuration.** Instruments are described by a YAML file in
   `fibsem/config/`; the setup wizard creates one. For a manufacturer it
   does not know, start from a Demo configuration and edit it. The devices

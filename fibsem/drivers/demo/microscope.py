@@ -43,7 +43,6 @@ import logging
 from contextlib import contextmanager
 from typing import Any, Dict, Optional, Tuple, Union
 
-from fibsem import manufacturers
 from fibsem.devices.core import Device, resources_of
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.demo.devices import bind_demo_fm
@@ -118,6 +117,7 @@ class DemoFluorescenceMicroscope(FluorescenceMicroscope):
 class DemoMicroscope(FibsemMicroscope):
     """The demo microscope built from devices, over the Demo's simulator."""
 
+    driver_name = "Demo"
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
     # The simulated stage turns about its origin: a move half a turn round reflects x and
     # y through zero, which is what the base class does for a driver that names no
@@ -164,13 +164,13 @@ class DemoMicroscope(FibsemMicroscope):
         resolved = [
             item
             for item in resolve_system_devices(
-                self.system, defaults, driver=manufacturers.DEMO
+                self.system, defaults, driver=self.driver_name
             )
             if item.type != "fm"
         ]
         # The builders start from this microscope's parts (``fibsem.drivers.demo
         # .devices``), so the devices and the shared demo code begin the same.
-        shared = {manufacturers.DEMO: (resources_of(self), parts)}
+        shared = {self.driver_name: (resources_of(self), parts)}
         built = build_device_entries(resolved, self, shared=shared)
         for name, device in built.items():
             self._set_device(name, device)
@@ -212,7 +212,7 @@ class DemoMicroscope(FibsemMicroscope):
         # The probe only answers for the Demo's own FM; one on another driver (an FM
         # on its own PC) is built as the configuration says.
         if has_fm or not self._fluorescence_uses_own_driver():
-            self.fm = self._build_fluorescence(manufacturers.DEMO)
+            self.fm = self._build_fluorescence(self.driver_name)
         else:
             self.fm = None
         if self.fm is None:

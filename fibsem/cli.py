@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fibsem import acquire, manufacturers, utils
+from fibsem import acquire, utils
+from fibsem.drivers import registry
 from fibsem.structures import (
     BeamSettings,
     BeamType,
@@ -398,8 +399,8 @@ def _build_connection_parser(*, defaults: bool = True) -> argparse.ArgumentParse
         default=default("Demo"),
         # normalise BEFORE the choices check, so historical spellings
         # (--manufacturer Thermo) keep working while --help shows canonical
-        type=manufacturers.normalize_manufacturer,
-        choices=["Demo", "ThermoFisher", "Tescan", "Odemis"],
+        type=registry.normalize_name,
+        choices=registry.registered_manufacturers(),
         help="Microscope manufacturer (default: Demo)",
     )
     p.add_argument(

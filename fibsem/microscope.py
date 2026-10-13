@@ -14,6 +14,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     Mapping,
@@ -25,7 +26,6 @@ from typing import (
 import numpy as np
 from psygnal import Signal
 
-from fibsem import manufacturers
 from fibsem.control import Control
 from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session
 from fibsem.fm.microscope import FluorescenceMicroscope
@@ -188,6 +188,10 @@ class FibsemMicroscope(ABC):
     tiled_acquisition_signal = Signal(TiledProgress)
     spot_burn_progress_signal = Signal(SpotBurnProgress)
     system: SystemSettings
+    #: The registry name of this class's driver, as its package's
+    #: ``DRIVER.manufacturer`` spells it (``"Tescan"``). Each driver's class sets it;
+    #: `manufacturer` answers it, and connect code names its own builds with it.
+    driver_name: ClassVar[str]
     milling_channel: BeamType = BeamType.ION
     #: The milling service over the beams (`fibsem.services.milling.Milling`); the
     #: milling methods go to it. None when no ion beam was built: they raise then,
@@ -639,13 +643,14 @@ class FibsemMicroscope(ABC):
         """Whether the configuration's entry for *name* names a driver other than
         this backend's own."""
         from fibsem.devices.entries import configured_device_entries
+        from fibsem.drivers.registry import normalize_name
 
         entry = configured_device_entries(self.system).get(name)
         if entry is None or not entry.driver:
             return False
 
         def canonical(driver: Optional[str]) -> str:
-            return str(manufacturers.normalize_manufacturer(driver)).strip().casefold()
+            return str(normalize_name(driver)).strip().casefold()
 
         return canonical(entry.driver) != canonical(self.system.info.manufacturer)
 
@@ -3205,10 +3210,14 @@ class FibsemMicroscope(ABC):
 
     @property
     def manufacturer(self) -> str:
-        # NOTE: this base default means every backend that does not override the
-        # property (Demo, Zeiss, Odemis) reports ThermoFisher -- FIB-300 tracks
-        # whether it should serve self.system.info.manufacturer instead.
-        return manufacturers.THERMOFISHER
+        """The registry name of the driver this class belongs to (its ``driver_name``)."""
+        name = getattr(type(self), "driver_name", None)
+        if name is None:
+            raise NotImplementedError(
+                f"{type(self).__name__} sets no driver_name: set it to its driver's "
+                "DRIVER.manufacturer."
+            )
+        return name
 
 
 # `ThermoMicroscope` moved to `fibsem.drivers.autoscript.microscope`. These names are served
