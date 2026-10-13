@@ -30,6 +30,7 @@ from fibsem.applications.autolamella.event_recording import (
 )
 from fibsem.devices import stage as stage_module
 from fibsem.devices.core import Session
+from fibsem.devices.stage import recording_move
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemStagePosition, Point
 
@@ -188,7 +189,7 @@ def test_a_move_on_another_thread_is_its_own_event(microscope, recorded):
     inside, release = threading.Event(), threading.Event()
 
     def slow_move():
-        with microscope.stage.recording_move("slow_move"):
+        with recording_move(microscope.session, microscope.stage, "slow_move"):
             inside.set()
             release.wait(5)
             microscope.stable_move(dx=1e-6, dy=0, beam_type=BeamType.ION)

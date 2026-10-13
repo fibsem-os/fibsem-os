@@ -303,6 +303,12 @@ class BoundParameter:
             return self.get_value()
         return self._cached
 
+    @property
+    def last_known(self) -> Any:
+        """The last value read or written, or None before there is one. Never calls
+        the instrument, not even the first time (unlike `cached`)."""
+        return None if self._cached is _UNSET else self._cached
+
     def get_value(self) -> Any:
         """A live read from the instrument, for guards and anything that needs it now.
 

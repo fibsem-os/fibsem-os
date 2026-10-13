@@ -30,7 +30,7 @@ import numpy as np
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import Role, command, query
 from fibsem.devices.fm import FM, mount_transform_from_name
-from fibsem.devices.stage import Stage
+from fibsem.devices.stage import Stage, recording_move
 from fibsem.geometry.movement import (
     apply_delta,
     fib_offset_after_sem_move,
@@ -169,14 +169,16 @@ class StageMovement(Service):
     @command
     def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to a position, within its limits. Axes that are None stay."""
-        with self.stage.recording_move("move_absolute", position=position):
+        with recording_move(
+            self.session, self.stage, "move_absolute", position=position
+        ):
             self.stage.move_absolute(position)
             return self._position()
 
     @command
     def move_relative(self, delta: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage by an offset, within its limits. Axes that are None stay."""
-        with self.stage.recording_move("move_relative", position=delta):
+        with recording_move(self.session, self.stage, "move_relative", position=delta):
             self.stage.move_relative(delta)
             return self._position()
 
@@ -195,8 +197,14 @@ class StageMovement(Service):
             static_wd: put the electron working distance at its eucentric height,
                 rather than where it was.
         """
-        with self.stage.recording_move(
-            "stable_move", dx=dx, dy=dy, beam_type=beam_type, static_wd=static_wd
+        with recording_move(
+            self.session,
+            self.stage,
+            "stable_move",
+            dx=dx,
+            dy=dy,
+            beam_type=beam_type,
+            static_wd=static_wd,
         ):
             wd = self._beam_value(BeamType.ELECTRON, "working_distance")
 
@@ -267,8 +275,14 @@ class StageMovement(Service):
         Raises:
             NotImplementedError: if coincidence can't be restored from that view.
         """
-        with self.stage.recording_move(
-            "vertical_move", dy=dy, dx=dx, beam_type=beam_type, relaxation=relaxation
+        with recording_move(
+            self.session,
+            self.stage,
+            "vertical_move",
+            dy=dy,
+            dx=dx,
+            beam_type=beam_type,
+            relaxation=relaxation,
         ):
             if not self.supports_vertical_move(beam_type):
                 raise NotImplementedError(
@@ -455,8 +469,11 @@ class StageMovement(Service):
     def safe_absolute_stage_movement(self, stage_position: FibsemStagePosition) -> None:
         """Move the stage to a position safely: tilted flat for a large rotation, and
         rotated compucentrically before the rest of the move."""
-        with self.stage.recording_move(
-            "safe_absolute_stage_movement", stage_position=stage_position
+        with recording_move(
+            self.session,
+            self.stage,
+            "safe_absolute_stage_movement",
+            stage_position=stage_position,
         ):
             # Before anything moves; see `FibsemMicroscope._refuse_rotation_at_the_
             # fluorescence_microscope` (FIB-841).
@@ -491,7 +508,9 @@ class StageMovement(Service):
     @command
     def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
         """Move the stage to a named orientation ('SEM', 'FIB', 'MILLING', ...)."""
-        with self.stage.recording_move("move_to_orientation", orientation=orientation):
+        with recording_move(
+            self.session, self.stage, "move_to_orientation", orientation=orientation
+        ):
             stage_position = self._orientation_move_target(orientation)
             self.safe_absolute_stage_movement(stage_position)
             return self._position()
@@ -533,8 +552,12 @@ class StageMovement(Service):
             milling_angle: the milling angle, in radians.
             rotation: the stage rotation, in radians; the rotation reference if None.
         """
-        with self.stage.recording_move(
-            "move_to_milling_angle", milling_angle=milling_angle, rotation=rotation
+        with recording_move(
+            self.session,
+            self.stage,
+            "move_to_milling_angle",
+            milling_angle=milling_angle,
+            rotation=rotation,
         ):
             from fibsem.transformations import get_stage_tilt_from_milling_angle
 
@@ -575,8 +598,12 @@ class StageMovement(Service):
         for it from SEM used to be a refusal), the device's first declared
         acquisition orientation is used.
         """
-        with self.stage.recording_move(
-            "move_to_device", device=device, orientation=orientation
+        with recording_move(
+            self.session,
+            self.stage,
+            "move_to_device",
+            device=device,
+            orientation=orientation,
         ):
             target_device = self.parent._get_device(device)  # refuses by name
 

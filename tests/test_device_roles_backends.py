@@ -60,9 +60,13 @@ THERMO = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
 import autoscript_beam_parity as B
-from fibsem.structures import BeamType, DeviceEntry, ImageSettings
+from fibsem.structures import (
+    BeamType, DeviceEntry, FibsemExperimentRef, FibsemUser, ImageSettings,
+)
 
 microscope = B.routed(False)
+# What connect sets and the fixture skips: the beam stamps each image with them.
+microscope.user, microscope.experiment = FibsemUser(), FibsemExperimentRef()
 microscope._build_stage()
 microscope.system.other_devices = [DeviceEntry.from_dict(json.loads(sys.argv[2]))]
 microscope.system.device_roles = {"electron": {"scanner": "scan_generator"}}
