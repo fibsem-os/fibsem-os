@@ -30,7 +30,6 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from fibsem import utils
-from fibsem.services.sample_handling import COMPUSTAGE_HOLDER_NAME
 from fibsem.structures import (
     GRID_RADIUS,
     FibsemStagePosition,
@@ -146,11 +145,16 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
 
         self._microscope = microscope
         self._holder = holder
-        # The compustage's holder is the autoloader's one working slot: its name
+        # A built-in shuttle's holder is the autoloader's one working slot: its name
         # and capacity are not the operator's to change, and its position is where
-        # a loaded grid sits, height included (FIB-1144). Read from the holder the
-        # stage built, not the stage type.
-        self._compustage = holder.name == COMPUSTAGE_HOLDER_NAME
+        # a loaded grid sits, height included (FIB-1144). Asked of the service that
+        # built the holder, not read from its name.
+        sample_handling = getattr(microscope, "sample_handling", None)
+        self._builtin = (
+            sample_handling is not None
+            and sample_handling.holder is holder
+            and bool(getattr(sample_handling, "holder_is_builtin", False))
+        )
         # The configuration the microscope was connected with; tests point it
         # elsewhere. None when the session was not started from a file.
         self._configuration_path: Optional[str] = configuration_path or getattr(
@@ -281,7 +285,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         )
         self.capacity_spin.setValue(float(self._capacity))
         self.capacity_spin.valueChanged.connect(self._on_capacity_changed)
-        if self._compustage:
+        if self._builtin:
             self.name_edit.setReadOnly(True)
             self.capacity_spin.setEnabled(False)
             fixed = "The autoloader's one working slot, where it puts every grid"
@@ -307,6 +311,10 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         self.stage_diagram = StageDiagram(
             pre_tilt=float(getattr(stage_settings, "shuttle_pre_tilt", 0.0))
         )
+        # The ion column at this instrument's angle, as the chamber view draws it.
+        ion = getattr(self._microscope.system, "ion", None)
+        if getattr(ion, "column_tilt", None) is not None:
+            self.stage_diagram.set_column_tilt(float(ion.column_tilt))
         layout.addWidget(self.stage_diagram)
         self.button_orientation = QtWidgets.QPushButton(
             f"Move to {CALIBRATION_ORIENTATION} orientation"
@@ -414,10 +422,10 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
             self._stack.setCurrentIndex(0)
             self._title.setText("Sample holder")
             self._subtitle.setText(
-                "The compustage has one working slot, where the autoloader puts "
+                "This stage has one working slot, where the autoloader puts "
                 "every grid. It is the stage origin until it is calibrated here. "
                 "Pre-tilt and reference rotation come from the system configuration."
-                if self._compustage
+                if self._builtin
                 else "Name the holder and say how many grid slots it has. Pre-tilt "
                 "and reference rotation come from the system configuration."
             )
@@ -433,7 +441,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         elif slot is not None:
             self._stack.setCurrentIndex(2)
             number = index - 1
-            if self._compustage:
+            if self._builtin:
                 self._title.setText("Working slot: drive to the centre of the grid")
                 self._subtitle.setText(
                     "With a grid loaded, use the stage controls, or click on the "

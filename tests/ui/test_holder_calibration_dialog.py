@@ -226,6 +226,27 @@ def test_orientation_diagram_follows_the_stage(qapp, microscope, tmp_path):
     assert abs(dialog.stage_diagram._stage_tilt - math.degrees(sem_tilt)) < 1e-6
 
 
+def test_orientation_diagram_draws_the_instruments_ion_column(
+    qapp, microscope, tmp_path
+):
+    """A 55 degree column is drawn at 55 degrees, not at the diagram's default."""
+    microscope.system.ion.column_tilt = 55.0
+    dialog = _dialog(qapp, microscope, _holder(1), tmp_path)
+    assert dialog.stage_diagram.FIB_ANGLE == 55.0
+
+
+def test_a_configured_holder_named_like_the_built_in_one_stays_editable(
+    qapp, microscope, tmp_path
+):
+    """Whether the holder is the stage's built-in one is the service's fact, not its
+    name: a configured holder of that name keeps its name and capacity editable."""
+    holder = _holder(2)
+    holder.name = "Built-in holder"
+    dialog = _dialog(qapp, microscope, holder, tmp_path)
+    assert not dialog.name_edit.isReadOnly()
+    assert dialog.capacity_spin.isEnabled()
+
+
 def test_save_writes_a_calibration_record_that_survives_reload(
     qapp, microscope, tmp_path
 ):
@@ -362,7 +383,7 @@ def test_on_a_compustage_the_working_slot_is_calibrated_and_kept(qapp, tmp_path)
     again, _ = utils.setup_session(config_path=path, manufacturer="Demo")
     try:
         slot = again.sample_handling.holder.slots["Slot-01"]
-        assert again.sample_handling.holder.name == "CompuStage Holder"
+        assert again.sample_handling.holder.name == "Built-in holder"
         assert not slot.calibration.is_builtin
         assert abs(slot.position.x - 150e-6) < 1e-9
         assert abs(slot.position.y + 50e-6) < 1e-9
