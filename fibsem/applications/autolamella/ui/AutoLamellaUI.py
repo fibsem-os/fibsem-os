@@ -337,6 +337,17 @@ class AutoLamellaUI(QMainWindow):
 
         self.pushButton_yes = QPushButton("Yes")
         self.pushButton_no = QPushButton("No")
+        # The agent's suggested answer (FIB-1283): a button the operator may take,
+        # and the agent's reason under it. Hidden while there is none.
+        self.pushButton_suggestion = QPushButton("")
+        self.pushButton_suggestion.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
+        self.pushButton_suggestion.setVisible(False)
+        self.label_suggestion = QLabel("")
+        self.label_suggestion.setWordWrap(True)
+        self.label_suggestion.setStyleSheet(f"color: {stylesheets.TEXT_MUTED_COLOR};")
+        self.label_suggestion.setVisible(False)
 
         # Who answered what, under the buttons: fed by the responder's
         # question-lifecycle feed, hidden until the first answer.
@@ -351,7 +362,9 @@ class AutoLamellaUI(QMainWindow):
         self.gridLayout.addWidget(self.label_instructions, 3, 0, 1, 2)
         self.gridLayout.addWidget(self.pushButton_yes, 4, 0)
         self.gridLayout.addWidget(self.pushButton_no, 4, 1)
-        self.gridLayout.addWidget(self.question_timeline, 5, 0, 1, 2)
+        self.gridLayout.addWidget(self.pushButton_suggestion, 5, 0, 1, 2)
+        self.gridLayout.addWidget(self.label_suggestion, 6, 0, 1, 2)
+        self.gridLayout.addWidget(self.question_timeline, 7, 0, 1, 2)
 
         self.setCentralWidget(self.centralwidget)
         self.tabWidget.setCurrentIndex(0)
@@ -414,6 +427,7 @@ class AutoLamellaUI(QMainWindow):
         # workflow interaction
         self.pushButton_yes.clicked.connect(self.push_interaction_button)
         self.pushButton_no.clicked.connect(self.push_interaction_button)
+        self.pushButton_suggestion.clicked.connect(self._take_suggestion)
 
         # signals
         self.workflow_status_signal.connect(self.handle_workflow_status)
@@ -2869,6 +2883,23 @@ class AutoLamellaUI(QMainWindow):
         if msg is not None:
             self.label_workflow_information.setText(msg)
         self.label_workflow_information.setVisible(show)
+
+    def show_suggestion(self, label: Optional[str], reason: str = "") -> None:
+        """The agent's suggested answer under the prompt's buttons, or None to
+        take it down. Shown by the responder, which owns when it stands."""
+        self.pushButton_suggestion.setVisible(label is not None)
+        self.label_suggestion.setVisible(label is not None and bool(reason))
+        if label is None:
+            return
+        self.pushButton_suggestion.setText(f"Agent suggests: {label}")
+        self.pushButton_suggestion.setEnabled(True)
+        self.label_suggestion.setText(f"Why: {reason}")
+
+    def _take_suggestion(self) -> None:
+        """The operator takes the agent's suggestion: their answer, suggested by
+        the agent."""
+        self.pushButton_suggestion.setEnabled(False)
+        self.ui_responder.take_suggestion()
 
     def push_interaction_button(self):
         """Handle the user interaction with the workflow."""

@@ -321,6 +321,27 @@ def require_scope(scope: Scope, *alternatives: Scope):
     return dependency
 
 
+def require_acting_level():
+    """A dependency for what the agent may do at Assist and Drive alike, with no
+    request: a suggestion (FIB-1283). Refused at Watch and Off as an action
+    would be; on a server with no level, the control scope decides. Use after
+    ``require_scope(Scope.READ)``, which checks the token."""
+
+    def dependency(request: Request) -> None:
+        auth: AuthConfig = request.app.state.auth
+        if auth.level is None:
+            allowed = auth.is_armed(Scope.CONTROL)
+        else:
+            allowed = auth.level in (AgentLevel.ASSIST, AgentLevel.DRIVE)
+            allowed = allowed and not auth.stopped
+        if not allowed:
+            raise HTTPException(
+                status_code=403, detail=_not_armed_detail(auth, Scope.CONTROL)
+            )
+
+    return dependency
+
+
 def require_monitoring():
     """The monitoring routes' dependency: the agent token as ``read``, or the
     dashboard token for a GET. The dashboard is not the agent, so it does not

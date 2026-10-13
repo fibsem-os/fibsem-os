@@ -630,6 +630,19 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/decide", body)
         return err if err else data
 
+    def suggest_answer(
+        response: bool, question_id: int, reason: str, value: Optional[dict] = None
+    ):
+        body = {
+            "response": bool(response),
+            "question_id": int(question_id),
+            "reason": str(reason),
+        }
+        if value is not None:
+            body["value"] = dict(value)
+        data, err = _call(client, "POST", "/app/prompt/suggest", body)
+        return err if err else data
+
     def answer_prompt(response: bool, question_id: int, value: Optional[dict] = None):
         body = {"response": bool(response), "question_id": int(question_id)}
         if value is not None:
@@ -695,6 +708,7 @@ def build_sidecar(client, capabilities):
             get_pending_reviews,
             decide_review,
             answer_prompt,
+            suggest_answer,
             stop_workflow,
             plan_grid_workflow,
             start_grid_workflow,

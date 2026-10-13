@@ -157,6 +157,26 @@ def test_seeds_at_the_tail_and_ends_with_the_run(app):
     ]
 
 
+def test_an_answer_says_when_it_took_the_agent_s_suggestion(app):
+    def run():
+        app.buffer.append(
+            "prompt_answered",
+            {
+                "question_id": 3,
+                "answered_by": "operator",
+                "response": True,
+                "suggested_by": "agent",
+            },
+        )
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[0] == (
+        "ANSWERED question=3 by=operator response=True suggested_by=agent"
+    )
+
+
 def test_task_lines_name_the_task(app):
     def run():
         app.buffer.append(

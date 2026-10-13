@@ -45,10 +45,12 @@ from fibsem.server.app_routes import (
     build_app_control_router,
     build_app_router,
     build_app_stop_router,
+    build_app_suggest_router,
 )
 from fibsem.server.auth import (
     AuthConfig,
     Scope,
+    require_acting_level,
     require_monitoring,
     require_scope,
     take_control,
@@ -629,6 +631,15 @@ def build_server(
         app.include_router(
             build_app_stop_router(app_context),
             dependencies=[Depends(require_scope(Scope.STOP, Scope.CONTROL))],
+        )
+        # Suggesting an answer to the run's question: Assist and Drive, with no
+        # request, since the operator's click is what answers.
+        app.include_router(
+            build_app_suggest_router(app_context),
+            dependencies=[
+                Depends(require_scope(Scope.READ)),
+                Depends(require_acting_level()),
+            ],
         )
         # The agent's requests (FIB-1283): actions the operator approves in the
         # app, run through the routes above. The app decides them through

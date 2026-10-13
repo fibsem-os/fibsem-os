@@ -1852,6 +1852,53 @@ class AutoLamellaAppContext:
             result["adjusted"] = True
         return result
 
+    def suggest_answer(
+        self,
+        response: bool,
+        question_id: int,
+        reason: str,
+        value: Optional[Dict[str, Any]] = None,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """Suggest an answer to the pending question (FIB-1283).
+
+        Nothing is answered: the prompt shows "Agent suggests: ..." with the
+        reason, and the operator's click on it answers as theirs, recorded with
+        the agent as the one who suggested it. Answering any other way ignores
+        it, and a new posting of the question drops it. ``value`` is as for
+        :meth:`answer_prompt`, validated the same way. A question on the
+        record is decided, not answered: at Assist, through a request.
+        """
+        responder = self._responder
+        if responder is None or not hasattr(responder, "submit_suggestion"):
+            return {"available": False, "suggested": False, "stale": False}
+        from fibsem.applications.autolamella.workflows.interaction import (
+            StalePromptError,
+        )
+
+        parsed = None
+        if value is not None:
+            parsed, refusal = self._parse_answer_value(
+                responder, int(question_id), value
+            )
+            if refusal is not None:
+                return refusal
+        outcome = responder.submit_suggestion(
+            bool(response), int(question_id), value=parsed, reason=str(reason)
+        )
+        try:
+            outcome.result(timeout=timeout)
+        except StalePromptError:
+            return {"available": True, "suggested": False, "stale": True}
+        except ValueError as exc:
+            return {
+                "available": True,
+                "suggested": False,
+                "stale": False,
+                "error": str(exc),
+            }
+        return {"available": True, "suggested": True, "stale": False}
+
     @staticmethod
     def _parse_answer_value(responder, question_id: int, value: Any):
         """Turn a wire ``value`` into the domain object for the pending question.
