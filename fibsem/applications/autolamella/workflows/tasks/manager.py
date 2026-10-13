@@ -3,6 +3,7 @@
 import logging
 import threading
 import time
+from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
@@ -530,6 +531,7 @@ class BaseTaskManager:
         skip_reason: str,
         task_type: str = "",
         item_id: str = "",
+        missing_prereqs: Optional[List[str]] = None,
     ) -> None:
         """Fire TASK_SKIPPED. Unlike the other task events this cannot come from
         AutoLamellaTask, because the skip is decided before any task object exists —
@@ -543,6 +545,7 @@ class BaseTaskManager:
             item_name=item_name,
             item_id=item_id,
             skip_reason=skip_reason,
+            missing_prereqs=missing_prereqs,
             **self.hook_run_context(),
         )
 
@@ -750,6 +753,9 @@ class TaskManager(BaseTaskManager):
                     skip_reason,
                     task_type=task_config.task_type if task_config else "",
                     item_id=lamella.id,
+                    missing_prereqs=self._missing_prereqs(lamella, item.task_name)
+                    if skip_reason == "missing_prereqs"
+                    else None,
                 )
                 continue
 
@@ -821,7 +827,9 @@ class TaskManager(BaseTaskManager):
             # awaiting a decision stay so; the next Run picks up from there.
             self._report_stall()
         else:
-            self._fire_workflow_hook(HookEvent.WORKFLOW_COMPLETED)
+            self._fire_workflow_hook(
+                HookEvent.WORKFLOW_COMPLETED, task_counts=self._task_counts()
+            )
             update_status_ui(
                 self.parent_ui, "", workflow_info=self._completion_message()
             )
@@ -949,13 +957,23 @@ class TaskManager(BaseTaskManager):
         items = self.queue.items
         if not items:
             return "No tasks to run."
-        skipped = sum(1 for i in items if i.status is AutoLamellaTaskStatus.Skipped)
+        skipped = self._task_counts()["skipped"]
         if skipped == len(items):
             logging.warning(f"No tasks ran: all {skipped} were skipped.")
             return f"No tasks ran: all {skipped} skipped."
         if skipped:
             return f"All tasks completed ({skipped} skipped)."
         return "All tasks completed."
+
+    def _task_counts(self) -> Dict[str, int]:
+        """How the run's tasks ended: completed, failed and skipped. A task that
+        ended any other way (cancelled, awaiting a decision) is in none of them."""
+        counts = Counter(item.status for item in self.queue.items)
+        return {
+            "completed": counts[AutoLamellaTaskStatus.Completed],
+            "failed": counts[AutoLamellaTaskStatus.Failed],
+            "skipped": counts[AutoLamellaTaskStatus.Skipped],
+        }
 
     def _wait_until_scheduled(
         self, scheduled_at: datetime, task_name: str, lamella: "Lamella"
@@ -1049,20 +1067,25 @@ class TaskManager(BaseTaskManager):
             )
             return "failure"
 
-        task_requirements = self.experiment.task_protocol.workflow_config.requirements(
-            task_name
-        )
-        # the latest run of each requirement, not any past success: a rerun that
-        # failed or was rejected is the answer (FIB-1006)
-        if task_requirements and not all(
-            lamella.latest_run_completed(req) for req in task_requirements
-        ):
+        missing = self._missing_prereqs(lamella, task_name)
+        if missing:
             logging.info(
-                f"Skipping lamella {lamella.name} for task {task_name}. Required tasks {task_requirements} not completed."
+                f"Skipping lamella {lamella.name} for task {task_name}. Required tasks {missing} not completed."
             )
             return "missing_prereqs"
 
         return None
+
+    def _missing_prereqs(self, lamella: "Lamella", task_name: str) -> List[str]:
+        """The tasks *task_name* requires whose latest run on *lamella* did not
+        complete: the latest run, not any past success, as a rerun that failed or
+        was rejected is the answer (FIB-1006)."""
+        requirements = self.experiment.task_protocol.workflow_config.requirements(
+            task_name
+        )
+        return [
+            req for req in requirements or [] if not lamella.latest_run_completed(req)
+        ]
 
     def _emit_status(
         self,

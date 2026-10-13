@@ -182,6 +182,30 @@ def test_lifecycle_hook_feeds_the_buffer_through_a_real_hook_manager():
     json.dumps(event)
 
 
+def test_a_skip_and_a_completed_run_say_what_they_carry():
+    """Which requirement stopped a task, and how a run's tasks ended (FIB-1357)."""
+    from fibsem.hooks import HookContext, HookEvent, HookManager
+
+    buffer = EventBuffer()
+    manager = HookManager()
+    manager.register(make_lifecycle_hook(buffer))
+    manager.fire(
+        HookContext(
+            event=HookEvent.TASK_SKIPPED.value,
+            skip_reason="missing_prereqs",
+            missing_prereqs=["Mill Fiducial"],
+        )
+    )
+    counts = {"completed": 0, "failed": 0, "skipped": 1}
+    manager.fire(
+        HookContext(event=HookEvent.WORKFLOW_COMPLETED.value, task_counts=counts)
+    )
+    skipped, completed = buffer.events_since(0)["events"]
+    assert skipped["payload"]["missing_prereqs"] == ["Mill Fiducial"]
+    assert completed["payload"]["task_counts"] == counts
+    json.dumps([skipped, completed])
+
+
 def test_to_plain_handles_the_awkward_types():
     import numpy as np
 
