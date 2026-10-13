@@ -82,6 +82,7 @@ from fibsem.server.models import (
     StagePositionResponse,
     VerticalMoveRequest,
 )
+from fibsem.server.requests import RequestStore, build_request_router
 from fibsem.structures import (
     BeamSettings,
     BeamSystemSettings,
@@ -622,6 +623,17 @@ def build_server(
             build_app_config_router(app_context),
             dependencies=[Depends(require_scope(Scope.CONFIGURE))],
         )
+        # The agent's requests (FIB-1283): actions the operator approves in the
+        # app, run through the routes above. The app decides them through
+        # app.state.requests.
+        mounted = {"base", "app"} | ({"microscope", "devices"} if devices else set())
+        app.state.requests = RequestStore(
+            app,
+            auth,
+            frozenset(mounted),
+            emit=getattr(app_context, "record_event", None),
+        )
+        app.include_router(build_request_router(app.state.requests))
     return app
 
 
