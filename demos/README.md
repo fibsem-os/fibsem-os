@@ -64,6 +64,8 @@ path, so a demo named after a package it imports would shadow it.
 | `demo_autofocus_widget.py` | the multi-pass `AutofocusWidget` |
 | `demo_channel_list_widget.py` | `FluorescenceMultiChannelWidget` |
 | `demo_fm_canvas.py` | the multi-channel FM canvas with per-channel layer controls |
+| `demo_fm_overview_widget.py` | `FMOverviewWidget`, on the Demo at the FM |
+| `demo_fm_sparse_selection_dialog.py` | `FMSparseSelectionDialog`, on Demo beam overviews |
 | `demo_line_plot.py` | `LinePlotWidget` with random data |
 | `demo_plot_autofocus.py` | `plot_autofocus_result`'s figure |
 
