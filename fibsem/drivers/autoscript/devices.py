@@ -144,9 +144,9 @@ class AutoscriptStage(Stage):
     - ``_move_relative``: ``move_stage_relative``;
     - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
 
-    The old moves end by reading the position back; ``Stage.move_through`` does the
-    same read, so a move here is the same calls end to end. Limits and positions share
-    one unit: radians for r and t.
+    The old moves end by reading the position back; ``Stage.move_absolute`` and
+    ``move_relative`` do the same read, so a move here is the same calls end to end.
+    Limits and positions share one unit: radians for r and t.
     """
 
     compustage = False

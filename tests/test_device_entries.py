@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 import fibsem.config as cfg
-from fibsem import manufacturers, utils
+from fibsem import utils
 from fibsem.devices.entries import (
     REMOTE_DRIVER,
     DeviceBuildError,
@@ -46,7 +46,7 @@ def test_without_entries_the_backend_builds_its_defaults_with_its_own_driver():
     resolved = _resolve()
 
     assert [item.name for item in resolved] == ["stage", "manipulator", "chamber"]
-    assert {item.driver for item in resolved} == {manufacturers.DEMO}
+    assert {item.driver for item in resolved} == {"Demo"}
 
 
 def test_a_disabled_entry_is_not_built():
@@ -78,7 +78,7 @@ def test_a_disabled_entry_the_backend_does_not_have_is_not_built():
 def test_the_driver_defaults_to_the_manufacturer_in_its_canonical_spelling():
     resolved = _resolve(manufacturer="thermo")
 
-    assert {item.driver for item in resolved} == {manufacturers.THERMOFISHER}
+    assert {item.driver for item in resolved} == {"ThermoFisher"}
 
 
 def test_an_entry_names_its_own_driver():
@@ -89,8 +89,8 @@ def test_an_entry_names_its_own_driver():
     drivers = {item.name: item.driver for item in resolved}
 
     assert drivers == {
-        "stage": manufacturers.DEMO,
-        "manipulator": manufacturers.TESCAN,
+        "stage": "Demo",
+        "manipulator": "Tescan",
         "chamber": REMOTE_DRIVER,
     }
     assert resolved[2].entry.options == {"address": "10.0.0.2"}

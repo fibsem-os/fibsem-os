@@ -94,18 +94,39 @@ def _actions(log):
     ]
 
 
+def _refused(result):
+    return isinstance(result, str) and result.startswith("EXC StageLimitError")
+
+
 def test_routed_thermo_makes_the_same_moves_and_returns_the_same(recording):
     """ThermoMicroscope as connect leaves it: stage keys and moves through the
     device. It returns the same and makes the same moves and writes; it reads the
     position back twice after a move (the device's read-back, then the old API's
-    return), and reads homed after a home."""
+    return), and reads homed after a home. A target outside the stage limits is the
+    exception: the old code sent it, and it is now refused."""
     different = [
         c["key"]
         for c in recording["cases"]
-        if c["routed"][0] != c["old"][0]
-        or _actions(c["routed"][1]) != _actions(c["old"][1])
+        if not _refused(c["routed"][0])
+        and (
+            c["routed"][0] != c["old"][0]
+            or _actions(c["routed"][1]) != _actions(c["old"][1])
+        )
     ]
     assert different == []
+
+
+def test_routed_thermo_refuses_a_target_outside_the_limits_before_moving(recording):
+    refused = [c for c in recording["cases"] if _refused(c["routed"][0])]
+    # the full poses at tilts the stage cannot reach, on both stages
+    assert any(c["key"].startswith("compustage=False") for c in refused)
+    assert any(c["key"].startswith("compustage=True") for c in refused)
+    assert all(" absolute " in c["key"] or " relative " in c["key"] for c in refused), [
+        c["key"] for c in refused
+    ]
+    assert not any(
+        call[1].endswith("_move") for c in refused for call in c["routed"][1]
+    )
 
 
 def test_compustage_axis_restriction_is_exercised(recording):

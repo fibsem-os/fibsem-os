@@ -14,7 +14,6 @@ import yaml
 from PIL import Image
 
 from fibsem import config as cfg
-from fibsem import manufacturers
 from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
 from fibsem.structures import (
     CONFIGURATION_VERSION,
@@ -432,9 +431,9 @@ def setup_session(
     if manufacturer:
         # normalise the override the same way SystemInfo.from_dict normalises the
         # config value, so system.info always carries the canonical spelling
-        settings.system.info.manufacturer = manufacturers.normalize_manufacturer(
-            manufacturer
-        )
+        from fibsem.drivers.registry import normalize_name
+
+        settings.system.info.manufacturer = normalize_name(manufacturer)
 
     _report(progress, f"Connecting to {settings.system.info.ip_address}…")
 

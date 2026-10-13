@@ -339,6 +339,7 @@ class GridTaskManager(BaseTaskManager):
             self._fire_workflow_hook(HookEvent.WORKFLOW_STARTED)
             self.experiment.decided.connect(self._on_decided)
             try:
+                self._prepare()
                 self._run_items()
             except Exception as e:
                 self._end_escaped_run(e)
