@@ -10,9 +10,8 @@ Drawing is dispatched here, by pattern type, to one hook per type the driver dra
 (``_draw_rectangle``, ``_draw_line``, ``_draw_circle``, ``_draw_bitmap``,
 ``_draw_polygon``). The types a driver draws are the hooks it implements, and
 ``supported_pattern_types`` lists them. ``draw`` checks every pattern before drawing
-any: a type the driver doesn't draw, or a rotated shape on a driver that can't rotate
-(``rotates_patterns``), raises `UnsupportedPattern` with nothing drawn, rather than
-milling without it.
+any: a type the driver doesn't draw raises `UnsupportedPattern` with nothing drawn,
+rather than milling without it.
 
 The driver also chooses the per-pattern application file and applies the recipe's
 beam conditions, since which recipe fields a backend uses differs (Tescan mills with
@@ -102,8 +101,7 @@ DRAW_HOOKS: Dict[Type[FibsemPatternSettings], str] = {
 
 
 class UnsupportedPattern(NotImplementedError):
-    """A pattern this instrument can't draw as given: a type its driver doesn't draw,
-    or a rotated shape on one that can't rotate."""
+    """A pattern of a type this instrument's driver doesn't draw."""
 
 
 class Milling(Service):
@@ -140,9 +138,6 @@ class Milling(Service):
     setting_names: Tuple[str, ...] = ()
     # The directions this driver can scan a pattern in. A driver sets it.
     scan_directions: Tuple[str, ...] = ()
-    # Whether this driver draws a pattern's ``rotation``. One that can't refuses a
-    # rotated pattern instead of milling it unrotated.
-    rotates_patterns: bool = True
 
     def __init__(self, name: str = "milling", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -274,11 +269,6 @@ class Milling(Service):
         if drawn is None or drawn not in self.supported_pattern_types():
             raise UnsupportedPattern(
                 f"{self._driver_name()} cannot draw {kind.__name__} patterns."
-            )
-        if not self.rotates_patterns and getattr(pattern, "rotation", 0):
-            raise UnsupportedPattern(
-                f"{self._driver_name()} cannot rotate patterns: {kind.__name__} has "
-                f"rotation {pattern.rotation}."
             )
         return DRAW_HOOKS[drawn]
 

@@ -5,7 +5,6 @@ The Demo mills with the shared demo code through `microscope.milling`. That
 suite (`test_finish_milling_puts_the_beam_back`), for both demos.
 """
 
-import numpy as np
 import pytest
 
 from fibsem import config as cfg
@@ -183,31 +182,6 @@ def test_a_subclass_of_a_drawn_type_is_drawn_as_it(microscope):
         Notched(width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0)
     )
     assert len(microscope.milling_system.patterns) == 1
-
-
-@pytest.mark.parametrize(
-    "pattern",
-    [
-        FibsemRectangleSettings(
-            width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0, rotation=0.5
-        ),
-        FibsemCircleSettings(
-            centre_x=0, centre_y=0, radius=1e-6, depth=1e-6, rotation=np.pi / 2
-        ),
-    ],
-    ids=["rectangle", "circle"],
-)
-def test_a_driver_that_cannot_rotate_refuses_a_rotated_pattern(
-    microscope, monkeypatch, pattern
-):
-    monkeypatch.setattr(microscope.milling, "rotates_patterns", False)
-    microscope.setup_milling(_recipe())
-    with pytest.raises(UnsupportedPattern, match="cannot rotate"):
-        microscope.draw_patterns([_rectangle(), pattern])
-    assert microscope.milling_system.patterns == []
-
-    microscope.draw_patterns(_patterns())
-    assert len(microscope.milling_system.patterns) == 3
 
 
 def test_without_an_ion_beam_the_demo_does_not_mill(microscope):
