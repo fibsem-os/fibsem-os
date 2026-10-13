@@ -35,7 +35,7 @@ def qapp():
 
 @pytest.fixture()
 def widget(qapp):
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     built = FMOverviewWidget(build_microscope())
     # Everything except the pose has to be ready to run, or a test that varies only the
@@ -52,7 +52,7 @@ def widget(qapp):
 # set here anyway, so all four come from one place.
 #
 # "NONE" is what `get_stage_orientation` returns for a pose it cannot name at all.
-_TILT_DEG = {"FM": -180.0, "SEM": 0.0, "MILLING": 20.0, "NONE": -90.0}
+_TILT_DEG = {"FM": -180.0, "SEM": 0.0, "MILLING": -23.0, "NONE": -90.0}
 
 
 def _pose(widget, orientation: str) -> None:

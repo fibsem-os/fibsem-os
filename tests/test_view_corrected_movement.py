@@ -229,7 +229,9 @@ def _sync_image_metadata(image, microscope, position, *, is_compustage: bool) ->
     """
     image.metadata.system_info = microscope.system.info
     image.metadata.hardware_geometry = FibsemHardwareGeometry.from_system_settings(
-        microscope.system, is_compustage=is_compustage
+        microscope.system,
+        fm_is_pose=is_compustage,
+        mirrors_back_view=is_compustage,
     )
     image.metadata.microscope_state.stage_position = position
 

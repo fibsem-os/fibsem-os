@@ -44,13 +44,13 @@ def reports(microscope):
 def burns(microscope, monkeypatch):
     """The points the Demo burned into its scene, in order."""
     burned = []
-    burn = microscope._burn_into_sample_scene
+    burn = microscope._connection.burn_into_sample_scene
 
     def record(beam_type):
         burned.append(microscope.beams[beam_type].sim_scanning_mode_value)
         burn(beam_type)
 
-    monkeypatch.setattr(microscope, "_burn_into_sample_scene", record)
+    monkeypatch.setattr(microscope._connection, "burn_into_sample_scene", record)
     return burned
 
 
@@ -114,10 +114,10 @@ def test_the_beam_is_put_back_after_a_burn(microscope):
 
 def test_it_burns_at_the_burn_current(microscope, monkeypatch):
     currents = []
-    burn = microscope._burn_into_sample_scene
+    burn = microscope._connection.burn_into_sample_scene
     monkeypatch.setattr(
-        microscope,
-        "_burn_into_sample_scene",
+        microscope._connection,
+        "burn_into_sample_scene",
         lambda bt: (currents.append(_ion(microscope).current.get_value()), burn(bt)),
     )
     microscope.spot_burn.run(_settings(Point(0.5, 0.5)))
@@ -267,10 +267,10 @@ def test_a_burn_on_demo_burns_the_points_in_order_and_puts_the_beam_back(
     microscope.set_beam_current(IMAGING_CURRENT, BeamType.ION)
     reports, burned = [], []
     microscope.spot_burn_progress_signal.connect(reports.append)
-    scene_burn = microscope._burn_into_sample_scene
+    scene_burn = microscope._connection.burn_into_sample_scene
     monkeypatch.setattr(
-        microscope,
-        "_burn_into_sample_scene",
+        microscope._connection,
+        "burn_into_sample_scene",
         lambda bt: (
             burned.append(microscope.beams[bt].sim_scanning_mode_value),
             scene_burn(bt),

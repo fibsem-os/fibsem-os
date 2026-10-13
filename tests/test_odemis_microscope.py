@@ -262,7 +262,6 @@ def microscope(odemis_microscope_cls):
     microscope.fm = None
     microscope.user = FibsemUser()
     microscope.experiment = FibsemExperimentRef()
-    microscope._last_imaging_settings = ImageSettings()
     microscope.milling_channel = BeamType.ION
     microscope._build_devices()
     microscope._build_milling()
@@ -414,8 +413,8 @@ def test_milling_state_is_read_on_the_milling_channel(microscope):
         FibsemPolygonSettings(vertices=[(0, 0), (1e-6, 0), (0, 1e-6)], depth=1e-6),
     ],
 )
-def test_unsupported_patterns_raise_naming_the_adapter(microscope, settings):
-    with pytest.raises(NotImplementedError, match="Delmic AutoScript adapter"):
+def test_unsupported_patterns_raise_naming_the_microscope(microscope, settings):
+    with pytest.raises(NotImplementedError, match="OdemisThermoMicroscope cannot draw"):
         microscope.draw_pattern(settings)
 
 

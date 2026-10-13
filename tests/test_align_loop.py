@@ -31,7 +31,7 @@ def microscope():
     )
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = 8e-6
-    microscope._setup_sample_scene()
+    microscope._connection.setup_sample_scene()
     from fibsem.drivers.demo.sim_scene import SampleScene
 
     # deterministic scene: the loop is about control flow and geometry
@@ -39,7 +39,7 @@ def microscope():
         coincidence_offset=8e-6, fiducial=True, noise_sigma=0.0, noise_fraction=0.0
     )
     scene.anchor(microscope.get_stage_position())
-    microscope._sample_scene = scene
+    microscope._connection.sample_scene = scene
     pose = microscope.get_stage_position()
     pose.t = np.deg2rad(12.0)
     microscope.move_stage_absolute(pose)
@@ -104,9 +104,9 @@ def test_coarse_pass_rescues_errors_beyond_the_fine_window(microscope, offset):
     80 um correctly, and 100 um since the world texture (the FIB's ellipses
     foreshortened as the surface is, not as a rotated stamp); 250 um still
     refuses with no move."""
-    microscope._sample_scene.coincidence_offset = offset
-    microscope._sample_scene.reference_position = None
-    microscope._sample_scene.anchor(microscope.get_stage_position())
+    microscope._connection.sample_scene.coincidence_offset = offset
+    microscope._connection.sample_scene.reference_position = None
+    microscope._connection.sample_scene.anchor(microscope.get_stage_position())
 
     result = ensure_coincident(microscope, tolerance=1e-6)
 
@@ -123,9 +123,9 @@ def test_error_beyond_the_coarse_window_does_not_claim_success(microscope, offse
     recording that). The alias is caught by its lateral offset instead: a
     height error cannot move x, and on the rotated mesh the rival peak sits
     well off-axis - so the lock is refused rather than acted on."""
-    microscope._sample_scene.coincidence_offset = offset
-    microscope._sample_scene.reference_position = None
-    microscope._sample_scene.anchor(microscope.get_stage_position())
+    microscope._connection.sample_scene.coincidence_offset = offset
+    microscope._connection.sample_scene.reference_position = None
+    microscope._connection.sample_scene.anchor(microscope.get_stage_position())
 
     result = ensure_coincident(microscope, tolerance=1e-6)
 
@@ -192,9 +192,9 @@ def test_a_coarse_run_replays_with_its_own_parameters(microscope, tmp_path):
         save_coincidence_diagnostics,
     )
 
-    microscope._sample_scene.coincidence_offset = 40e-6
-    microscope._sample_scene.reference_position = None
-    microscope._sample_scene.anchor(microscope.get_stage_position())
+    microscope._connection.sample_scene.coincidence_offset = 40e-6
+    microscope._connection.sample_scene.reference_position = None
+    microscope._connection.sample_scene.anchor(microscope.get_stage_position())
     result = ensure_coincident(microscope, tolerance=1e-6)
     assert result.coarse_used
 
@@ -207,9 +207,9 @@ def test_a_coarse_run_replays_with_its_own_parameters(microscope, tmp_path):
 
 
 def test_coarse_measurements_do_not_count_as_moves(microscope):
-    microscope._sample_scene.coincidence_offset = 40e-6
-    microscope._sample_scene.reference_position = None
-    microscope._sample_scene.anchor(microscope.get_stage_position())
+    microscope._connection.sample_scene.coincidence_offset = 40e-6
+    microscope._connection.sample_scene.reference_position = None
+    microscope._connection.sample_scene.anchor(microscope.get_stage_position())
 
     result = ensure_coincident(microscope, tolerance=1e-6)
 
@@ -231,7 +231,7 @@ def _anchor_in_view(microscope, beam_type) -> tuple:
 
     projection = BeamStageProjection.from_microscope(microscope, beam_type)
     return projection.to_plane(
-        microscope._sample_scene.reference_position,
+        microscope._connection.sample_scene.reference_position,
         microscope.get_stage_position(),
     )
 
@@ -264,8 +264,8 @@ def test_converges_at_the_fib_orientation(microscope, reference):
     pose = microscope.get_stage_position()
     pose.r, pose.t = fib.r, fib.t
     microscope.move_stage_absolute(pose)
-    microscope._sample_scene.reference_position = None
-    microscope._sample_scene.anchor(microscope.get_stage_position())
+    microscope._connection.sample_scene.reference_position = None
+    microscope._connection.sample_scene.anchor(microscope.get_stage_position())
 
     result = ensure_coincident(microscope, tolerance=1e-6, reference=reference)
 

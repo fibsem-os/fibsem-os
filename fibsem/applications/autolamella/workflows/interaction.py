@@ -218,6 +218,12 @@ class RunMillingTask(Request["FibsemMillingTaskConfig"]):
     ``output_dir`` is the asking task's folder, which every run of the mill
     writes under -- the operator's re-runs included. None for a mill nobody
     gave one, which falls back to the config's imaging path.
+
+    ``passes`` is how many times the mill has run for this question, failed
+    runs included. The asker always sends 0; the responder re-asks with the
+    count after each run. It is what tells the first ask from a re-ask, for
+    whoever answers: at 0 Continue goes on without milling, after a pass it
+    accepts what was milled (FIB-1329).
     """
 
     config: "FibsemMillingTaskConfig"
@@ -225,6 +231,7 @@ class RunMillingTask(Request["FibsemMillingTaskConfig"]):
     confirm: Callable[[], bool] = _always_confirm
     message: str = "Run Milling"
     output_dir: Optional[str] = None
+    passes: int = 0
 
 
 @dataclass(frozen=True)

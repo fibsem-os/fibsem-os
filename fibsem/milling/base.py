@@ -88,6 +88,42 @@ class MillingStrategyConfig(ABC):
         return get_fields_with_metadata(self.__class__)
 
 
+@dataclass
+class MillingStrategyResult:
+    """What a strategy says about its run, for the experiment's record: why it
+    stopped, a few facts, a figure it saved. Returned by ``MillingStrategy.run``
+    and recorded on the stage's line in the ``milling`` event (FIB-1257).
+
+    ``facts`` are keyed by a label a person reads, with the unit in the label
+    (``"Mill time (s)": 250``), and hold plain values: the record is JSON.
+    """
+
+    end_reason: Optional[str] = None  # "intensity drop", "reached the time limit"
+    facts: Dict[str, Union[str, int, float, bool]] = field(default_factory=dict)
+    figure: Optional[str] = None  # the path of a figure the run saved
+
+    def to_dict(self) -> Dict[str, Any]:
+        """As the record holds it: numbers as plain numbers, anything else as
+        text, so a numpy value cannot stop the event being written."""
+        facts: Dict[str, Union[str, int, float, bool]] = {}
+        for label, value in self.facts.items():
+            if isinstance(value, (bool, str)):
+                facts[str(label)] = value
+            elif isinstance(value, int):
+                facts[str(label)] = int(value)
+            else:
+                try:
+                    facts[str(label)] = float(value)
+                except (TypeError, ValueError):
+                    facts[str(label)] = str(value)
+        record: Dict[str, Any] = {"facts": facts}
+        if self.end_reason:
+            record["end_reason"] = str(self.end_reason)
+        if self.figure:
+            record["figure"] = str(self.figure)
+        return record
+
+
 class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
     """Abstract base class for different milling strategies"""
 
@@ -138,8 +174,9 @@ class MillingStrategy(ABC, Generic[TMillingStrategyConfig]):
         microscope: FibsemMicroscope,
         stage: "FibsemMillingStage",
         stop_event: Optional[threading.Event] = None,
-    ) -> None:
-        pass
+    ) -> Optional[MillingStrategyResult]:
+        """Mill ``stage``. May return what it has to say about the run, which
+        the milling task records on the stage; None says nothing."""
 
 
 def get_strategy(

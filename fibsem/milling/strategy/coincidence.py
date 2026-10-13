@@ -18,6 +18,7 @@ from fibsem.milling import (
     FibsemMillingStage,
     MillingStrategy,
     MillingStrategyConfig,
+    MillingStrategyResult,
     setup_milling,
 )
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -155,6 +156,15 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
 # AND MICROSCOPE IS LEFT IN A SAFE STATE (STOP ACQ, RESTORE IMAGING CURRENT)
 
 
+# Why the monitor loop ended, in words for the record. "timeout" is whichever
+# came first: the mill's estimated time or the configured timeout.
+_END_REASONS = {
+    "stopped": "stopped by the operator",
+    "drop": "intensity drop",
+    "timeout": "reached the time limit",
+}
+
+
 class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfig]):
     """Coincidence Milling Strategy for milling and fluorescence acquisition."""
 
@@ -277,8 +287,9 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         microscope: FibsemMicroscope,
         stage: FibsemMillingStage,
         stop_event: Optional["threading.Event"] = None,
-    ) -> None:
-        """Coincidence Milling Strategy"""
+    ) -> MillingStrategyResult:
+        """Coincidence Milling Strategy. Says why the mill stopped, how long it
+        milled, whether the intensity dropped, and where its summary is."""
         logging.info(f"Running {self.name} Milling Strategy for {stage.name}")
 
         self._stop_event = stop_event
@@ -308,10 +319,12 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self._stats_records = []
 
         # start milling and acquisition
+        milling_started = time.time()
         estimated_time = self._start_milling_and_acquisition()
 
         # monitor milling progress and check for stop event
         self._monitor_milling_progress(estimated_time=estimated_time)
+        milled_for = time.time() - milling_started
 
         # stop milling and acquisition, finalize milling
         self._stop_milling_and_acquisition()
@@ -330,7 +343,15 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             self.microscope.fib_acquisition_signal.emit(image)
 
         # save summary figure
-        self.save_run_summary_figure()
+        summary = self.save_run_summary_figure()
+        return MillingStrategyResult(
+            end_reason=_END_REASONS.get(self.end_reason, self.end_reason),
+            facts={
+                "Mill time (s)": round(milled_for, 1),
+                "Intensity drop seen": self._drop_detected,
+            },
+            figure=summary,
+        )
 
     def _stop_milling_and_acquisition(self):
         if self.microscope is None or self.microscope.fm is None:

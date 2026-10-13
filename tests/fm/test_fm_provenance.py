@@ -110,14 +110,14 @@ def test_a_projection_keeps_the_geometry_it_was_captured_under() -> None:
 
     image = _image(_experiment(), z=3)
     image.metadata.geometry = FibsemHardwareGeometry(
-        shuttle_pre_tilt=35.0, is_compustage=True
+        shuttle_pre_tilt=35.0, fm_is_pose=True, mirrors_back_view=True
     )
 
     projected = image.max_intensity_projection()
 
     assert projected.metadata.geometry is not None
     assert projected.metadata.geometry.shuttle_pre_tilt == 35.0
-    assert projected.metadata.geometry.is_compustage is True
+    assert projected.metadata.geometry.fm_is_pose is True
 
 
 def test_a_focus_stack_keeps_both() -> None:

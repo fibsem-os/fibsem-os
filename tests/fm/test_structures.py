@@ -2524,7 +2524,8 @@ class TestCombiningImagesKeepsTheirMetadata:
             geometry=FibsemHardwareGeometry(
                 transform=CameraImageTransform.FLIP_XY,
                 camera_tilt=180.0,
-                is_compustage=True,
+                fm_is_pose=True,
+                mirrors_back_view=True,
             ),
             description="carried through",
             **overrides,
@@ -2540,7 +2541,7 @@ class TestCombiningImagesKeepsTheirMetadata:
 
         assert stack.metadata.geometry is not None
         assert stack.metadata.geometry.camera_tilt == 180.0
-        assert stack.metadata.geometry.is_compustage is True
+        assert stack.metadata.geometry.fm_is_pose is True
         assert stack.metadata.z_positions is not None  # what stacking is *for*
 
     def test_a_multi_channel_image_keeps_the_geometry(self):
@@ -2551,7 +2552,7 @@ class TestCombiningImagesKeepsTheirMetadata:
         )
 
         assert combined.metadata.geometry is not None
-        assert combined.metadata.geometry.is_compustage is True
+        assert combined.metadata.geometry.fm_is_pose is True
         assert [c.name for c in combined.metadata.channels] == ["GFP", "RFP"]
 
     def test_unrelated_fields_survive_too(self):

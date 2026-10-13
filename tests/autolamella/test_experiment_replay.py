@@ -523,17 +523,24 @@ def test_a_recorded_path_is_found_in_a_copied_and_renamed_experiment(tmp_path):
     assert image.image_path == tmp_path / "01-test" / "ref_ib.tif"
 
 
-def test_milling_stages_started_in_the_same_clock_tick_keep_their_order(tmp_path):
+@pytest.mark.parametrize(
+    # The milling run's id and config name, and a pre-FIB-1356 file's names for them.
+    "run_key,name_key",
+    [("milling_run_id", "milling_task_name"), ("task_id", "task_name")],
+)
+def test_milling_stages_started_in_the_same_clock_tick_keep_their_order(
+    tmp_path, run_key, name_key
+):
     """Each stage is placed at its own start, so a coarse clock only makes a tie."""
     t = "2026-09-21T14:00:00.000+10:00"
 
     def started(idx, name):
         stage = {"name": name, "milling": {}, "pattern": {}}
-        payload = {"task_id": "m1", "task_name": "Trench", "stage": stage}
+        payload = {run_key: "m1", name_key: "Trench", "stage": stage}
         return _record(t, "milling_stage_started", {**payload, "stage_index": idx})
 
     def finished(name):
-        payload = {"task_id": "m1", "stage_name": name, "status": "stage-finished"}
+        payload = {run_key: "m1", "stage_name": name, "status": "stage-finished"}
         return _record(t, "milling_progress", payload)
 
     _write_events(
@@ -546,6 +553,7 @@ def test_milling_stages_started_in_the_same_clock_tick_keep_their_order(tmp_path
     replay = load_replay(tmp_path)
     assert [e.data["stage"]["name"] for e in replay.events] == ["Rough", "Polish"]
     assert [e.duration for e in replay.events] == [0.0, 0.0]
+    assert {e.data["milling_task_name"] for e in replay.events} == {"Trench"}
 
 
 def test_a_cancelled_spot_burn_replays_only_the_points_it_reached(tmp_path):
@@ -729,6 +737,35 @@ def test_stage_moves_say_what_they_were_and_where_they_ended(tmp_path):
     assert replay.events[0].position == end
     # a move without an end shows the last position known before it
     assert replay.scene(1).stage_position == end
+
+
+def test_stage_device_moves_read_as_the_old_wrappers_did(tmp_path):
+    # The stage device records its moves as move_absolute/move_relative; runs from
+    # before it did say move_stage_absolute/move_stage_relative.
+    to = {"x": 1e-5, "y": 0.0, "z": 0.0, "r": 0.0, "t": 0.0}
+    by = {"x": 2e-6, "y": None, "z": None, "r": None, "t": None}
+    _write_events(
+        tmp_path,
+        _record(
+            _at(0),
+            "stage_moved",
+            {"move": "move_absolute", "request": {"position": to}},
+        ),
+        _record(
+            _at(1),
+            "stage_moved",
+            {"move": "move_relative", "request": {"position": by}},
+        ),
+        _record(
+            _at(2),
+            "stage_moved",
+            {"move": "move_stage_absolute", "request": {"position": to}},
+        ),
+    )
+    summaries = [e.summary for e in load_replay(tmp_path).events]
+    assert summaries[0] == summaries[2]
+    assert summaries[0].startswith("Move stage to")
+    assert summaries[1].startswith("Move stage by")
 
 
 def test_a_position_read_is_the_stage_track_not_a_row(tmp_path):

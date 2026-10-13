@@ -2,13 +2,13 @@
 
 Like the stage, it is the raw hardware contract only. Two read-only parameters
 describe it, ``position`` and ``state``, and the moves are commands:
-``insert``, ``retract``, ``move_absolute``, ``move_relative`` and ``stop``. The corrected
-move (``move_manipulator_corrected``) depends on the beam as much as the needle,
-so it is not here; it belongs to the views, as the stage's corrected moves do.
+``insert``, ``retract``, ``move_absolute``, ``move_relative`` and ``stop``.
+``move_corrected`` moves the needle in a beam's image coordinates; where the needle's
+axes follow the stage tilt (Thermo), the driver reads the tilt from the device in the
+``stage`` role, which the microscope fills with its stage.
 
-Named positions (``PARK``, ``EUCENTRIC``) are the instrument's, so the driver
-answers ``named_positions()`` and ``saved_position(name)``, and
-``move_to_offset`` moves relative to one. ``axes()`` says which axes the arm has, so
+Named positions are the instrument's, so the driver answers ``named_positions()``
+and ``saved_position(name)``, and ``move_to_offset`` moves relative to one. ``axes()`` says which axes the arm has, so
 whether it rotates or tilts is the device's to say, not the backend's.
 
 A backend implements the parameters with ``read_position``/``read_state`` and
@@ -16,7 +16,8 @@ the commands with four hooks: ``_insert``, ``_retract``, ``_move_absolute`` and
 ``_move_relative``, plus ``saved_position``. The base class claims the
 ``manipulator`` resource and reads the position and state back, which updates
 their caches and emits their change signals. A backend that can stop a move
-implements ``_stop``; ``axes()`` defaults to x, y and z.
+implements ``_stop``, and one that can make a corrected move implements
+``_move_corrected``; ``axes()`` defaults to x, y and z.
 """
 
 from __future__ import annotations
@@ -24,8 +25,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from fibsem.devices.core import Device, Parameter, command
-from fibsem.structures import FibsemManipulatorPosition, InsertableDeviceState
+from fibsem.devices.core import Device, Parameter, Role, command
+from fibsem.devices.stage import Stage
+from fibsem.structures import (
+    BeamType,
+    FibsemManipulatorPosition,
+    InsertableDeviceState,
+)
 
 MANIPULATOR_RESOURCE = "manipulator"
 
@@ -33,13 +39,21 @@ MANIPULATOR_RESOURCE = "manipulator"
 class Manipulator(Device):
     position = Parameter(FibsemManipulatorPosition, doc="Raw needle coordinates.")
     state = Parameter(InsertableDeviceState, doc="Where the needle is.")
+    stage = Role(
+        Stage,
+        required=False,
+        doc="The stage whose tilt a corrected move follows, where the driver needs it.",
+    )
 
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="manipulator", parent=parent, **kwargs)
 
     @command
-    def insert(self, name: str = "PARK") -> FibsemManipulatorPosition:
-        """Insert the needle to a named position. Returns where it is afterwards."""
+    def insert(self, name: Optional[str] = None) -> FibsemManipulatorPosition:
+        """Insert the needle to a named position, or to the instrument's own insert
+        position when no name is given. Returns where it is afterwards."""
+        if name is None:
+            name = self.default_insert_position()
         with self.resources.claim(MANIPULATOR_RESOURCE):
             self._insert(name)
             return self._read_back()
@@ -69,12 +83,22 @@ class Manipulator(Device):
             self._move_relative(delta)
             return self.position.get_value()
 
+    @command(available=lambda needle: _implements(needle, "_move_corrected"))
+    def move_corrected(
+        self, dx: float, dy: float, beam_type: BeamType
+    ) -> FibsemManipulatorPosition:
+        """Move by (dx, dy) in the image coordinates of *beam_type*'s view. Returns
+        where it is afterwards."""
+        with self.resources.claim(MANIPULATOR_RESOURCE):
+            self._move_corrected(dx, dy, beam_type)
+            return self.position.get_value()
+
     @command
     def move_to_offset(
         self, offset: FibsemManipulatorPosition, name: str
     ) -> FibsemManipulatorPosition:
         """Move to a named position plus an offset. Returns where it is afterwards."""
-        return self.move_absolute(self.saved_position(name) + offset)
+        return self.move_absolute(self._offset_target(offset, name))
 
     @command
     def stop(self) -> FibsemManipulatorPosition:
@@ -128,6 +152,12 @@ class Manipulator(Device):
         """The names `saved_position` answers, if the instrument has any."""
         return []
 
+    def default_insert_position(self) -> Optional[str]:
+        """The named position ``insert`` goes to when given none: the first of
+        `named_positions`, or None for an arm with no named positions."""
+        names = self.named_positions()
+        return names[0] if names else None
+
     def axes(self) -> Tuple[str, ...]:
         """The axes the arm moves on, of ``x``, ``y``, ``z``, ``r`` (rotation) and
         ``t`` (tilt)."""
@@ -137,7 +167,7 @@ class Manipulator(Device):
         """The instrument's named position. Raises ValueError for an unknown name."""
         raise NotImplementedError
 
-    def _insert(self, name: str) -> None:
+    def _insert(self, name: Optional[str]) -> None:
         raise NotImplementedError
 
     def _retract(self) -> None:
@@ -151,3 +181,20 @@ class Manipulator(Device):
 
     def _stop(self) -> None:
         raise NotImplementedError(f"{type(self).__name__} cannot stop the needle.")
+
+    def _offset_target(
+        self, offset: FibsemManipulatorPosition, name: str
+    ) -> FibsemManipulatorPosition:
+        """Where ``move_to_offset`` goes: the named position plus the offset. A driver
+        whose axes follow the stage tilt corrects the offset first."""
+        return self.saved_position(name) + offset
+
+    def _move_corrected(self, dx: float, dy: float, beam_type: BeamType) -> None:
+        raise NotImplementedError(
+            f"{type(self).__name__} cannot make a corrected move."
+        )
+
+
+def _implements(needle: Manipulator, hook: str) -> bool:
+    """Whether the needle's driver overrides *hook*."""
+    return getattr(type(needle), hook) is not getattr(Manipulator, hook)

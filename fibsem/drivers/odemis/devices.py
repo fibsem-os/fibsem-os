@@ -362,7 +362,6 @@ class OdemisBeam(Beam):
             client.set_full_frame_scan_mode(channel=channel)
         if tmp_resolution is not None:
             image_settings.resolution = tmp_resolution
-        microscope._last_imaging_settings = image_settings
         return self._image(image, image_settings)
 
     def _last_image(self) -> FibsemImage:
@@ -375,17 +374,15 @@ class OdemisBeam(Beam):
 
     def _current_image_settings(self, image: np.ndarray) -> ImageSettings:
         """The beam's current imaging settings, at the resolution of the frame it gave."""
-        image_settings = self.parent.get_imaging_settings(self.beam_type)
+        image_settings = self.image_settings()
         image_settings.resolution = [image.shape[1], image.shape[0]]
         return image_settings
 
     def _image(self, data: np.ndarray, image_settings: ImageSettings) -> FibsemImage:
-        """A FibsemImage with the microscope's metadata, as every backend stamps it."""
+        """A FibsemImage with the microscope's state; the beam's acquire stamps it."""
         microscope = self.parent
         state = microscope.get_microscope_state(beam_type=image_settings.beam_type)
-        image = images.fibsem_image_from_frame(data, image_settings, state)
-        microscope._set_additional_metadata(image)
-        return image
+        return images.fibsem_image_from_frame(data, image_settings, state)
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         client, channel = self._client, self.channel
@@ -460,8 +457,8 @@ class OdemisStage(Stage):
       ``move_stage_relative``, each waiting on the move's future;
     - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
 
-    The old moves end by reading the position back; ``Stage.move_through`` does the
-    same read.
+    The old moves end by reading the position back; ``Stage.move_absolute`` and
+    ``move_relative`` do the same read.
     """
 
     def __init__(
@@ -1034,6 +1031,18 @@ class OdemisFMObjective(Objective):
         self._focuser.moveAbs({"z": position}).result()
 
     def _move_relative(self, delta: float) -> None:
+        # the user-defined safety limit holds for a step too: it ends at the limit
+        # at most, as an absolute move is clipped (and never moves away from it)
+        position = self._focuser.position.value["z"]
+        if position + delta > self._limit_position:
+            clipped = max(self._limit_position - position, 0.0)
+            logging.warning(
+                f"Clipping relative move {delta * 1e6:.3f} um to {clipped * 1e6:.3f} "
+                f"um: user-defined limit {self._limit_position * 1e3:.3f} mm"
+            )
+            if clipped < 1e-9:  # at the limit already, to rounding
+                return
+            delta = clipped
         self._focuser.moveRel({"z": delta}).result()
 
     def _insert(self) -> Optional[bool]:
@@ -1206,7 +1215,13 @@ def bind_odemis_fm(
     }
     parts["camera"].configure(config)
     group = OdemisFM(stream, **common).fill_roles(**parts)
-    return {device.name: device.connect() for device in [group, *parts.values()]}
+    devices = {device.name: device.connect() for device in [group, *parts.values()]}
+    # Full power is the selected source's (each LED has its own maximum), and the
+    # stream's power range follows the excitation: read the power's scale again.
+    devices["filter_set"].excitation_wavelength.changed.connect(
+        lambda _: devices["light_source"].power.refresh_metadata()
+    )
+    return devices
 
 
 def build_odemis_fm(

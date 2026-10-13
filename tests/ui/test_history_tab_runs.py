@@ -7,6 +7,7 @@ reads them. Preferences go to a throwaway file.
 
 import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -134,12 +135,26 @@ def _shown(widget):
     ]
 
 
+def _settled(widget):
+    """Let the re-fit a show starts run out. It rebuilds the rows 150 ms later,
+    and rows rebuilt during a test's last pass of the event loop are not yet
+    shown, so a test that read them then found its opened lines missing."""
+    deadline = time.monotonic() + 5
+    while widget._refit.isActive() and time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    QApplication.processEvents()
+    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    return widget
+
+
 @pytest.fixture
 def widget(qapp, lamella):
     widget = LamellaTaskImageWidget()
     widget.resize(420, 1600)
     widget.set_lamella(lamella)
     widget.show()
+    _settled(widget)
     yield widget
     widget._cancel_worker()
     widget.deleteLater()
@@ -367,3 +382,69 @@ def test_the_filter_menu_has_the_apps_menu_background(widget, qapp):
         assert pixel.name() == SURFACE_COLOR.lower()
     finally:
         qapp.setStyleSheet(before)
+
+
+def test_an_opened_mill_lists_each_stage_with_its_drift_correction(qapp, tmp_path):
+    """The drift corrections a mill ran fold under it, each with its figure,
+    rather than being lines of their own (FIB-1351)."""
+    lamella = Lamella(path=tmp_path / "exp" / "01-lam", number=1, petname="lam")
+    lamella.path.mkdir(parents=True)
+    lamella.task_history = [_run(ROUGH, "r1", 0)]
+    figure = tmp_path / "Alignment" / "Rough Mill 01-18-01-05"
+    figure.mkdir(parents=True)
+    (figure / "figure.png").write_bytes(b"")
+    at = lambda s: (T0 + timedelta(seconds=s)).isoformat()  # noqa: E731
+    stage = {"index": 0, "status": "completed", "milling_current": 7.4e-10}
+    _write_events(
+        lamella,
+        (
+            "r1",
+            "alignment",
+            {
+                "name": "Rough Mill 01-18-01-05",
+                "started_at": at(65),
+                "results": [{"shift": {"x": 7e-8, "y": 0.0}, "success": True}],
+                "status": "completed",
+                "path": str(figure),
+            },
+        ),
+        (
+            "r1",
+            "milling",
+            {
+                "status": "completed",
+                "started_at": at(60),
+                "stages": [
+                    {
+                        **stage,
+                        "name": "Rough Mill 01",
+                        "started_at": at(60),
+                        "ended_at": at(80),
+                    }
+                ],
+            },
+        ),
+    )
+    widget = LamellaTaskImageWidget()
+    widget.resize(420, 1600)
+    widget.set_lamella(lamella)
+    widget.show()
+    _settled(widget)
+    try:
+        (mill,) = _operation_lines(widget)  # the alignment is not a line
+        assert "1 stage · alignment ≤ 0.07 µm" in _shown(widget)
+
+        mill.clicked.emit()
+
+        texts = _shown(widget)
+        assert texts[texts.index("Rough Mill 01") + 1] == "completed · 20 s · 740 pA"
+        assert texts[texts.index("alignment") + 1] == "0.07 µm · 1 step"
+        (link,) = [
+            b
+            for b in widget._content.findChildren(QPushButton)
+            if b.text() == "Figure" and b.isVisibleTo(widget)
+        ]
+        assert str(figure / "figure.png") in link.toolTip()
+    finally:
+        widget._cancel_worker()
+        widget.deleteLater()

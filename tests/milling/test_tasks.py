@@ -1,15 +1,19 @@
+import logging
+import threading
 from pathlib import Path
 
 import pytest
 
 from fibsem import utils
-from fibsem.milling.base import FibsemMillingStage
+from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.progress import MillingProgressStatus
+from fibsem.milling.strategy.standard import StandardMillingStrategy
 from fibsem.milling.tasks import (
     FibsemMillingTask,
     FibsemMillingTaskConfig,
     MillingTaskAcquisitionSettings,
+    record_milling_skipped,
     run_milling_task,
 )
 from fibsem.structures import BeamType, FibsemMillingSettings, ImageSettings
@@ -391,3 +395,235 @@ def test_run_milling_task_raises_a_failure_when_asked(tmp_path):
 
     returned = run_milling_task(microscope, task.config)
     assert returned.outcome is MillingProgressStatus.TASK_FAILED
+
+
+# ── how a run ended, on the record (FIB-1257) ────────────────────────────────
+#
+# Each run records one ``milling`` event with how each stage ended. Before, a
+# stage recorded only that it started: a stage that failed or was stopped, and
+# the stages after it, left nothing to say so.
+
+
+def _milling_events(microscope):
+    events = []
+    microscope.record_signal.connect(
+        lambda kind, payload: events.append(payload) if kind == "milling" else None
+    )
+    return events
+
+
+def test_a_run_records_each_stage_in_the_protocol_s_order(tmp_path):
+    stages = [
+        FibsemMillingStage(name="rough"),
+        FibsemMillingStage(name="off"),
+        FibsemMillingStage(name="polish"),
+    ]
+    stages[1].enabled = False
+    microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    assert run["status"] == "completed"
+    assert run["milling_task_name"] == "t"
+    assert run["milling_run_id"] == task.task_id
+    assert run["started_at"] and run["path"] == task.output_dir
+    assert [(s["name"], s["status"]) for s in run["stages"]] == [
+        ("rough", "completed"),
+        ("off", "skipped"),
+        ("polish", "completed"),
+    ]
+    rough, off, polish = run["stages"]
+    assert off["reason"] == "turned off in the protocol"
+    # the index milling_stage_started gives it: its place among the enabled
+    assert (rough["index"], polish["index"]) == (0, 1)
+    assert rough["started_at"] <= rough["ended_at"] <= polish["started_at"]
+    assert rough["milling_current"] == stages[0].milling.milling_current
+
+
+def test_a_failed_stage_is_recorded_and_the_stages_after_it_skipped(tmp_path):
+    stages = [FibsemMillingStage(name="rough"), FibsemMillingStage(name="polish")]
+    microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)
+    _reject_milling(microscope)
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    assert run["status"] == "failed"
+    assert run["error"] == "_Rejected: could not load type"
+    rough, polish = run["stages"]
+    assert rough["status"] == "failed" and rough["error"] == run["error"]
+    assert rough["ended_at"]
+    assert polish["status"] == "skipped"
+    assert polish["reason"] == "the run failed before this stage"
+
+
+def test_a_stop_between_stages_is_recorded_as_cancelled(tmp_path):
+    stages = [FibsemMillingStage(name="rough"), FibsemMillingStage(name="polish")]
+    microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)
+    task._stop_event = threading.Event()
+    microscope.milling_progress_signal.connect(
+        lambda p: (
+            task._stop_event.set()
+            if p.status is MillingProgressStatus.STAGE_FINISHED
+            else None
+        )
+    )
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    assert run["status"] == "cancelled" and "error" not in run
+    rough, polish = run["stages"]
+    assert rough["status"] == "completed"
+    assert polish["status"] == "skipped"
+    assert polish["reason"] == "the run was stopped before this stage"
+
+
+def test_a_run_with_every_stage_turned_off_is_skipped(tmp_path):
+    stage = FibsemMillingStage(name="rough")
+    stage.enabled = False
+    microscope, task = _task(tmp_path, stages=[stage], acquire_final_image=False)
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    assert run["status"] == "skipped"
+    assert run["reason"] == "turned off in the protocol"
+    assert [s["status"] for s in run["stages"]] == ["skipped"]
+
+
+def test_each_run_is_its_own_record(tmp_path):
+    microscope, task = _task(tmp_path, acquire_final_image=False)
+    events = _milling_events(microscope)
+
+    task.run()
+    task.run()
+
+    assert [run["status"] for run in events] == ["completed", "completed"]
+    assert events[0]["started_at"] <= events[1]["started_at"]
+
+
+def test_a_task_that_milled_nothing_records_why(tmp_path):
+    microscope, task = _task(tmp_path, acquire_final_image=False)
+    events = _milling_events(microscope)
+
+    record_milling_skipped(microscope, task.config, "Continue was pressed")
+
+    (skipped,) = events
+    assert skipped["status"] == "skipped"
+    assert skipped["reason"] == "Continue was pressed"
+    assert skipped["milling_task_name"] == "t"
+    assert skipped["stages"] == [{"name": "s", "status": "skipped"}]
+
+
+# ── what a strategy says about its run (FIB-1257) ────────────────────────────
+
+
+class _PluginStrategy(StandardMillingStrategy):
+    """A strategy as a plugin writes one: mills as Standard does, then returns
+    whatever it is told to."""
+
+    name = "Plugin"
+    returns = None
+
+    def run(self, microscope, stage, stop_event=None):
+        super().run(microscope, stage, stop_event)
+        return self.returns
+
+
+def _plugin_stage(returns):
+    strategy = _PluginStrategy()
+    strategy.returns = returns
+    return FibsemMillingStage(name="s", strategy=strategy)
+
+
+def test_the_standard_strategy_says_what_it_milled(tmp_path):
+    stage = FibsemMillingStage(name="rough")
+    microscope, task = _task(tmp_path, stages=[stage], acquire_final_image=False)
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    strategy = run["stages"][0]["strategy"]
+    assert strategy["name"] == "Standard"
+    assert strategy["facts"] == {"Pattern": stage.pattern.name}
+    assert "end_reason" not in strategy and "figure" not in strategy
+
+
+def test_a_strategy_that_returns_nothing_is_still_named(tmp_path):
+    microscope, task = _task(
+        tmp_path, stages=[_plugin_stage(None)], acquire_final_image=False
+    )
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    assert run["status"] == "completed"
+    assert run["stages"][0]["strategy"] == {"name": "Plugin"}
+
+
+def test_a_strategy_s_result_is_recorded_as_plain_values(tmp_path):
+    import numpy as np
+
+    result = MillingStrategyResult(
+        end_reason="intensity drop",
+        facts={"Peak": np.float32(0.5), "Steps": 3, "Seen": True, "Mode": object()},
+        figure=str(tmp_path / "summary.png"),
+    )
+    microscope, task = _task(
+        tmp_path, stages=[_plugin_stage(result)], acquire_final_image=False
+    )
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    strategy = run["stages"][0]["strategy"]
+    assert strategy["end_reason"] == "intensity drop"
+    assert strategy["figure"] == str(tmp_path / "summary.png")
+    facts = strategy["facts"]
+    assert facts["Peak"] == 0.5 and type(facts["Peak"]) is float
+    assert facts["Steps"] == 3 and facts["Seen"] is True
+    assert isinstance(facts["Mode"], str)
+
+
+def test_a_strategy_that_returns_the_wrong_thing_does_not_fail_the_mill(
+    tmp_path, caplog
+):
+    microscope, task = _task(
+        tmp_path, stages=[_plugin_stage({"end": "drop"})], acquire_final_image=False
+    )
+    events = _milling_events(microscope)
+
+    # setup_session replaced the root logger's handlers, pytest's among them
+    logging.getLogger().addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.WARNING):
+            task.run()
+    finally:
+        logging.getLogger().removeHandler(caplog.handler)
+
+    (run,) = events
+    assert run["status"] == "completed"
+    assert run["stages"][0]["strategy"] == {"name": "Plugin"}
+    assert "not a MillingStrategyResult" in caplog.text
+
+
+def test_a_strategy_that_raised_is_named_on_its_failed_stage(tmp_path):
+    microscope, task = _task(tmp_path, acquire_final_image=False)
+    _reject_milling(microscope)
+    events = _milling_events(microscope)
+
+    task.run()
+
+    (run,) = events
+    stage = run["stages"][0]
+    assert stage["status"] == "failed"
+    assert stage["strategy"] == {"name": "Standard"}

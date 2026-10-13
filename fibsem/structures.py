@@ -38,7 +38,6 @@ from numpy.typing import NDArray
 import fibsem
 from fibsem.config import (
     METADATA_VERSION,
-    SUPPORTED_COORDINATE_SYSTEMS,
     UNVERSIONED_METADATA,
 )
 from fibsem.util.timestamps import (
@@ -771,20 +770,11 @@ class FibsemManipulatorPosition:
     z: float = 0.0
     r: float = 0.0
     t: float = 0.0
-    coordinate_system: str = "RAW"
+    coordinate_system: Optional[str] = None
 
     def __post_init__(self):
         for axis in ("x", "y", "z", "r", "t"):
             setattr(self, axis, _plain_number(getattr(self, axis)))
-        assert (
-            isinstance(self.coordinate_system, str) or self.coordinate_system is None
-        ), f"unsupported type {type(self.coordinate_system)} for coorindate system"
-        assert (
-            self.coordinate_system in SUPPORTED_COORDINATE_SYSTEMS
-            or self.coordinate_system is None
-        ), (
-            f"coordinate system value {self.coordinate_system} is unsupported or invalid syntax. Must be RAW or SPECIMEN"
-        )
 
     def to_dict(self) -> dict:
         position_dict = {}
@@ -793,7 +783,9 @@ class FibsemManipulatorPosition:
         position_dict["z"] = self.z
         position_dict["r"] = self.r
         position_dict["t"] = self.t
-        position_dict["coordinate_system"] = self.coordinate_system.upper()
+        position_dict["coordinate_system"] = (
+            self.coordinate_system.upper() if self.coordinate_system else None
+        )
 
         return position_dict
 
@@ -812,7 +804,7 @@ class FibsemManipulatorPosition:
             z=data["z"],
             r=data["r"],
             t=data["t"],
-            coordinate_system=data["coordinate_system"],
+            coordinate_system=data.get("coordinate_system"),
         )
 
     def __add__(
@@ -1680,6 +1672,8 @@ class FibsemPatternSettings(ABC):
     def from_dict(
         cls: Type[TFibsemPatternSettings], data: Dict[str, Any]
     ) -> TFibsemPatternSettings:
+        if cls is FibsemPatternSettings:  # abstract: the dict names its shape
+            return cls._subclass_named(data.get("type")).from_dict(data)
         kwargs = {}
         for f in fields(cls):
             if f.name in data:
@@ -1691,6 +1685,24 @@ class FibsemPatternSettings(ABC):
             kwargs["cross_section"] = CrossSectionPattern[cross_section]
 
         return cls(**kwargs)
+
+    @classmethod
+    def _subclass_named(cls, type_name: Any) -> Type[FibsemPatternSettings]:
+        """The shape a pattern dict names in its ``type``, as the App Server's
+        ``draw_patterns`` takes it: ``"Rectangle"`` (or ``"FibsemRectangleSettings"``)."""
+        shapes: Dict[str, Type[FibsemPatternSettings]] = {}
+        pending = list(cls.__subclasses__())
+        while pending:
+            sub = pending.pop()
+            pending += sub.__subclasses__()
+            shapes[sub.__name__] = sub
+            shapes[sub.__name__.replace("Fibsem", "").replace("Settings", "")] = sub
+        if type_name not in shapes:
+            available = sorted(name for name in shapes if not name.startswith("Fibsem"))
+            raise ValueError(
+                f"Unknown pattern type: {type_name!r}. Available: {available}"
+            )
+        return shapes[type_name]
 
     @property
     @abstractmethod
@@ -2459,19 +2471,19 @@ def stage_device_entry_name(key: str) -> str:
 # Where a half turn of the stage is centred, in raw stage coordinates (x, y), metres:
 # a position p recorded on one side of the stage is at 2c - p on the other. The centre
 # reprojection used before drivers reported one, calibrated on one ThermoFisher
-# instrument (FIB-655); kept for images that recorded no centre. ThermoFisher now
-# reports xT's centre plus `rotation_centre_correction`.
+# instrument (FIB-655). Only for reading images saved before the centre was recorded,
+# all of which were drawn with it; a driver that reports no centre records None.
+# ThermoFisher now reports xT's centre plus `rotation_centre_correction`.
 LEGACY_ROTATION_CENTRE: Tuple[float, float] = (
     -0.0005127403888932854 + 25e-6,
     0.0007937916666666666 + 12.5e-6,
 )
 
 
-# The frame a stage's positions are in (FIB-1114). Every stage reports fibsem's frame
-# except Tescan's, which still reports its own: x and y run opposite the image, y rides
-# on the tilt module and z is chamber-vertical, +z down.
+# The frame a stage's positions are in (FIB-1114): fibsem's, which every stage device
+# reports. A driver that records positions in its instrument's own frame names that
+# frame itself, in its own module; the core keeps such a name as an opaque string.
 STAGE_FRAME_FIBSEM = "fibsem"
-STAGE_FRAME_TESCAN = "tescan_native"
 
 
 def _parse_rotation_centre(value) -> Optional[Tuple[float, float]]:
@@ -3646,10 +3658,14 @@ class FibsemHardwareGeometry:
     Angles are in degrees, matching ``SystemSettings``. Both reprojection paths convert
     at the point of use.
 
-    ``is_compustage`` is stored rather than derived. The live value is ground truth --
-    ThermoFisher reads it from ``connection.specimen.compustage.is_installed`` -- but
-    an image had no field for it, so the beam path inferred it by matching the model
-    name against "Arctis", with a TODO against the line. A capability is not a name.
+    ``fm_is_pose`` and ``mirrors_back_view`` are stored rather than derived, stamped
+    from what the driver reports when the image is taken. ``fm_is_pose``: the stage
+    reaches the fluorescence objective by turning the grid over rather than by
+    travelling, so the FM is one of its poses. ``mirrors_back_view``: the instrument
+    mirrors an image a beam takes of the back of the grid, so it reads as if seen from
+    the front. An image written before these had ``is_compustage`` for both, and older
+    still nothing at all, so the model name was matched against a product; both are
+    read by `from_dict` and `FibsemImageMetadata._geometry_from_legacy_system`.
 
     Note this is deliberately *not* grouped this way in ``SystemSettings`` itself: that
     maps onto ``microscope-configuration.yaml``, a user-facing file, and regrouping it
@@ -3663,21 +3679,22 @@ class FibsemHardwareGeometry:
     shuttle_pre_tilt: float = 0.0
     rotation_reference: float = 0.0
     rotation_180: float = 180.0
-    is_compustage: bool = False
+    fm_is_pose: bool = False
+    mirrors_back_view: bool = False
     # Where a half turn of the stage is centred, raw (x, y) in metres; used to draw a
-    # position recorded on the other side of the stage. Defaults to the value every
-    # image was reprojected with before this field existed, so an image saved without
-    # it draws exactly as it did (FIB-1081).
-    rotation_centre: Tuple[float, float] = LEGACY_ROTATION_CENTRE
-    # The pose the stage declared for each orientation name (SEM, FIB, and FM on a
-    # compustage), as (r, t) in degrees (FIB-1101). Empty on an image written before
+    # position recorded on the other side of the stage. None when the driver reported
+    # none: reprojection then turns about the stage origin. An image saved before this
+    # field existed reads LEGACY_ROTATION_CENTRE, so it draws exactly as it did
+    # (FIB-1081).
+    rotation_centre: Optional[Tuple[float, float]] = None
+    # The pose the stage declared for each orientation name (SEM, FIB, and FM where
+    # the FM is a pose), as (r, t) in degrees (FIB-1101). Empty on an image written before
     # the stage declared its poses; `declared_poses` rebuilds them for those.
     poses: Dict[str, Tuple[float, float]] = field(default_factory=dict)
-    # The frame the image's stage position is in: STAGE_FRAME_FIBSEM, or
-    # STAGE_FRAME_TESCAN from a Tescan without a stage device (FIB-1114). None on an
-    # image written before this was stamped, whose position is in the frame its backend
-    # reported: Tescan's own for a Tescan image, fibsem's for any other. Nothing reads
-    # Tescan's frame any more; old Tescan images are not converted.
+    # The frame the image's stage position is in (FIB-1114): STAGE_FRAME_FIBSEM, or a
+    # driver's name for its instrument's own frame, kept as an opaque string. None on
+    # an image written before this was stamped, whose position is in whatever frame its
+    # driver reported then. Nothing converts between frames on read.
     stage_frame: Optional[str] = None
     # Fluorescence only; left at these defaults for a beam image.
     camera_tilt: float = 0.0  # viewing axis, from the electron column
@@ -3689,15 +3706,15 @@ class FibsemHardwareGeometry:
         The stamped poses when there are any. An image from before the stage declared
         them gets them rebuilt the way its readers interpreted it: SEM at the reference
         rotation and the pre-tilt; FIB at the stamped ``rotation_180``, tilted to the
-        ion column less the pre-tilt, and turned over by 180 on a compustage, which
-        also has FM with the grid turned fully over.
+        ion column less the pre-tilt, and turned over by 180 where the FM is a pose,
+        which also has FM with the grid turned fully over.
         """
         poses = self.poses
         if not poses:
             ref, pre_tilt = self.rotation_reference, self.shuttle_pre_tilt
             fib_tilt = self.fib_column_tilt - pre_tilt
             poses = {"SEM": (ref, pre_tilt), "FIB": (self.rotation_180, fib_tilt)}
-            if self.is_compustage:
+            if self.fm_is_pose:
                 poses["FIB"] = (self.rotation_180, fib_tilt - 180)
                 poses["FM"] = (ref, -180.0)
         return {
@@ -3709,18 +3726,20 @@ class FibsemHardwareGeometry:
     def from_system_settings(
         cls,
         system: SystemSettings,
-        is_compustage: bool = False,
+        fm_is_pose: bool = False,
+        mirrors_back_view: bool = False,
         rotation_centre: Optional[Tuple[float, float]] = None,
         poses: Optional[Mapping[str, "FibsemStagePosition"]] = None,
         stage_frame: Optional[str] = None,
     ) -> "FibsemHardwareGeometry":
         """Gather the geometry terms out of a full system configuration.
 
-        ``is_compustage`` is a parameter because ``SystemSettings`` does not carry it:
-        it is a property of the installed hardware, which only the connected
-        microscope knows. Callers holding one should pass ``microscope._fm_is_a_pose()``.
+        ``fm_is_pose`` and ``mirrors_back_view`` are parameters because
+        ``SystemSettings`` does not carry them: they are properties of the installed
+        hardware, which only the connected microscope knows
+        (``microscope.hardware_geometry`` stamps them).
         ``rotation_centre`` likewise comes from the driver (``microscope.rotation_centre``);
-        None records LEGACY_ROTATION_CENTRE. ``poses`` are the stage's declared poses
+        None records None. ``poses`` are the stage's declared poses
         (``microscope._stage_poses()``), in radians; None records none.
         ``stage_frame`` is the frame the stage reports (``microscope.stage_frame``).
         """
@@ -3730,12 +3749,9 @@ class FibsemHardwareGeometry:
             shuttle_pre_tilt=system.stage.shuttle_pre_tilt,
             rotation_reference=system.stage.rotation_reference,
             rotation_180=system.stage._fib_rotation(),
-            is_compustage=is_compustage,
-            rotation_centre=(
-                rotation_centre
-                if rotation_centre is not None
-                else LEGACY_ROTATION_CENTRE
-            ),
+            fm_is_pose=fm_is_pose,
+            mirrors_back_view=mirrors_back_view,
+            rotation_centre=rotation_centre,
             poses={
                 name: (float(np.degrees(pose.r)), float(np.degrees(pose.t)))
                 for name, pose in (poses or {}).items()
@@ -3750,8 +3766,11 @@ class FibsemHardwareGeometry:
             "shuttle_pre_tilt": self.shuttle_pre_tilt,
             "rotation_reference": self.rotation_reference,
             "rotation_180": self.rotation_180,
-            "is_compustage": self.is_compustage,
-            "rotation_centre": list(self.rotation_centre),
+            "fm_is_pose": self.fm_is_pose,
+            "mirrors_back_view": self.mirrors_back_view,
+            "rotation_centre": (
+                list(self.rotation_centre) if self.rotation_centre is not None else None
+            ),
             "poses": {name: list(pose) for name, pose in self.poses.items()},
             "stage_frame": self.stage_frame,
             "camera_tilt": self.camera_tilt,
@@ -3762,17 +3781,23 @@ class FibsemHardwareGeometry:
     def from_dict(cls, ddict: dict) -> "FibsemHardwareGeometry":
         # `.get` throughout, with the field defaults repeated rather than referenced:
         # a file written before this record existed has none of these keys, and the
-        # point of the record is that such a file still loads.
+        # point of the record is that such a file still loads. A file written before
+        # the two facts were split has `is_compustage`, which meant both.
+        legacy = bool(ddict.get("is_compustage", False))
         return cls(
             column_tilt=ddict.get("column_tilt", 0.0),
             fib_column_tilt=ddict.get("fib_column_tilt", DEFAULT_FIB_COLUMN_TILT),
             shuttle_pre_tilt=ddict.get("shuttle_pre_tilt", 0.0),
             rotation_reference=ddict.get("rotation_reference", 0.0),
             rotation_180=ddict.get("rotation_180", 180.0),
-            is_compustage=ddict.get("is_compustage", False),
+            fm_is_pose=ddict.get("fm_is_pose", legacy),
+            mirrors_back_view=ddict.get("mirrors_back_view", legacy),
+            # Absent only on an image saved before the field existed, all of which
+            # were drawn about the legacy centre; a recorded None stays None.
             rotation_centre=(
-                _parse_rotation_centre(ddict.get("rotation_centre"))
-                or LEGACY_ROTATION_CENTRE
+                _parse_rotation_centre(ddict["rotation_centre"])
+                if "rotation_centre" in ddict
+                else LEGACY_ROTATION_CENTRE
             ),
             poses={
                 name: (float(pose[0]), float(pose[1]))
@@ -4301,10 +4326,11 @@ class FibsemImageMetadata:
         declare the FIB column tilt from one constant -- and
         `tests/test_metadata_fixtures.py` pins it.
 
-        Compustage is recovered the way the reprojection used to detect it, by model
-        name, falling back to the simulator flag. That match is wrong -- a capability
-        inferred from a name -- which is why v6 records it instead. It survives here
-        only because a pre-v6 file has nothing better in it.
+        Whether the FM is a pose and the instrument mirrors its back views is
+        recovered the way the reprojection used to detect it, by model name, falling
+        back to the simulator flag. That match is wrong -- a capability inferred from
+        a name -- which is why v6 records it instead. It survives here only because a
+        pre-v6 file has nothing better in it: this is the legacy reader.
         """
         if not system:
             return None
@@ -4329,7 +4355,9 @@ class FibsemImageMetadata:
                 "rotation_reference", default.rotation_reference
             ),
             rotation_180=stage.get("rotation_180", default.rotation_180),
-            is_compustage=is_compustage,
+            fm_is_pose=is_compustage,
+            mirrors_back_view=is_compustage,
+            rotation_centre=LEGACY_ROTATION_CENTRE,
         )
 
     @staticmethod
@@ -5450,9 +5478,12 @@ class SampleHolder:
 
     def _ensure_slots(self) -> None:
         """Ensure exactly `capacity` slots exist; add empty ones for missing indices."""
+        # By index, not name: a slot may have a name of its own (the built-in
+        # shuttle's), and is still the slot at its index.
+        present = {slot.index for slot in self.slots.values()}
         for i in range(self.capacity):
             name = f"Slot-{i + 1:02d}"
-            if name not in self.slots:
+            if i not in present and name not in self.slots:
                 # A new slot has no position until it is calibrated; inventing one
                 # at the origin was a number that looked like a measurement.
                 self.slots[name] = GridSlot(name=name, index=i, position=None)

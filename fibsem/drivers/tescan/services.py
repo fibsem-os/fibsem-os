@@ -42,12 +42,9 @@ from fibsem.services.stage_movement import StageMovement
 from fibsem.structures import (
     BeamType,
     CrossSectionPattern,
-    FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemMillingSettings,
-    FibsemPatternSettings,
-    FibsemPolygonSettings,
     FibsemRectangleSettings,
     FibsemStagePosition,
     MillingState,
@@ -116,18 +113,6 @@ class TescanMilling(Milling):
         # TODO: change the layer name to milling stage name
         with connection.lock:
             self.layer = connection.sdk.DrawBeam.Layer("Layer1", layer_settings)
-
-    def _draw(self, pattern: FibsemPatternSettings) -> None:
-        if isinstance(pattern, FibsemRectangleSettings):
-            self._draw_rectangle(pattern)
-        elif isinstance(pattern, FibsemLineSettings):
-            self._draw_line(pattern)
-        elif isinstance(pattern, FibsemCircleSettings):
-            self._draw_circle(pattern)
-        elif isinstance(pattern, FibsemBitmapSettings):
-            pass  # DrawBeam has no bitmap patterns; drawn as nothing, as always
-        elif isinstance(pattern, FibsemPolygonSettings):
-            raise NotImplementedError("draw_polygon not implemented for Tescan API")
 
     def _draw_rectangle(self, pattern: FibsemRectangleSettings) -> None:
         if pattern.scan_direction in TESCAN_SCAN_DIRECTIONS:

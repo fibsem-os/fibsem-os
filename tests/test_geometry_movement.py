@@ -30,7 +30,12 @@ from fibsem.geometry.movement import (
     vertical_move_delta,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
+from fibsem.structures import (
+    BeamType,
+    FibsemHardwareGeometry,
+    FibsemStagePosition,
+    RangeLimit,
+)
 
 # -128 is the compustage FIB orientation at the default pretilt of 0
 TILTS_DEG = [-128, -50, 0, 18, 52]
@@ -53,6 +58,11 @@ def microscope(request):
     scope, _ = utils.setup_session(manufacturer="Demo")
     scope.stage_device.compustage = request.param
     scope._update_orientations()
+    # These pin the maths at poses a Demo stage can't reach, so lift its limits.
+    scope.stage_device._axis_limits = {
+        axis: RangeLimit(min=-np.inf, max=np.inf) for axis in "xyzrt"
+    }
+    scope.stage_device.position.refresh_metadata()
     scope.sent = []
     move_stage_relative = scope.move_stage_relative
 
@@ -172,7 +182,7 @@ def test_vertical_move_from_sem_is_a_stable_move_then_a_fib_correction(
 class TestTheBackViewMirror:
     """A compustage mirrors a view of the back of the grid; the pose decides it."""
 
-    GEOMETRY = FibsemHardwareGeometry(is_compustage=True)
+    GEOMETRY = FibsemHardwareGeometry(fm_is_pose=True, mirrors_back_view=True)
 
     def _delta(self, tilt_deg, view_tilt=0.0, geometry=GEOMETRY):
         return image_to_stage_delta(
@@ -189,7 +199,9 @@ class TestTheBackViewMirror:
         [(-10, 0, False), (-170, 0, True), (-30, 52, False), (-128, 52, True)],
     )
     def test_only_a_back_view_is_mirrored(self, tilt_deg, view_tilt_deg, mirrored):
-        offset = dataclasses.replace(self.GEOMETRY, is_compustage=False)
+        offset = dataclasses.replace(
+            self.GEOMETRY, fm_is_pose=False, mirrors_back_view=False
+        )
         view_tilt = np.deg2rad(view_tilt_deg)
         compustage = self._delta(tilt_deg, view_tilt)
         plain = self._delta(tilt_deg, view_tilt, geometry=offset)

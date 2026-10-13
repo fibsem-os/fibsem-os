@@ -360,7 +360,7 @@ def _imaging_cases():
             f"acquire last settings {name}",
             lambda m, b=b: (
                 m.acquire_image(_image_settings(b, square=True)),
-                m._last_imaging_settings,
+                m.beams[b]._last_image_settings,
             )[1],
         )
         yield (f"last image {name}", lambda m, b=b: m.last_image(b))

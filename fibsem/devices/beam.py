@@ -176,6 +176,9 @@ class Beam(Device):
         self._live_lock = threading.Lock()
         self._live_stop = threading.Event()
         self._live_thread: Optional[threading.Thread] = None
+        # The settings this beam last acquired with, when it was given some: where
+        # that image was saved, which `image_settings` carries on.
+        self._last_image_settings: Optional[ImageSettings] = None
 
     def facts(self) -> Dict[str, Any]:
         """The gas the column's source reports running, if any."""
@@ -209,6 +212,24 @@ class Beam(Device):
     def unblank(self) -> None:
         """Unblank the beam."""
         self.blanked.set_value(False)
+
+    @command(available=lambda beam: "shift" in beam.parameters)
+    def shift_by(self, dx: float, dy: float) -> Point:
+        """Shift the beam by (dx, dy) metres from where it is, as a beam image
+        measured it. Returns the shift afterwards, which a driver may have clipped to
+        its limits. Recorded as one ``beam_shifted`` event, with dx and dy as asked."""
+        with self.session.recording(
+            "beam_shifted", dx=dx, dy=dy, beam_type=self.beam_type.name, shift=None
+        ) as entry:
+            self._shift_by(float(dx), float(dy))
+            shift = self.shift.get_value()
+            entry["shift"] = shift.to_dict() if isinstance(shift, Point) else None
+            return shift
+
+    def _shift_by(self, dx: float, dy: float) -> None:
+        """Add (dx, dy) to the shift, unvalidated. A driver whose instrument needs
+        more (its own limits, a flipped scan) overrides this."""
+        self.shift.write_through(self.shift.get_value() + Point(dx, dy))
 
     # The scan area. Each command changes scanning_mode; a backend implements
     # _spot, _reduced_area and _full_frame, and a beam that can't set the scan area
@@ -283,12 +304,36 @@ class Beam(Device):
             and not metadata.acquisition_datetime
         ):
             metadata.acquisition_datetime = started
+        if image_settings is not None:
+            self._last_image_settings = image_settings
+        self.session.stamp(image)
         return image
+
+    def image_settings(self) -> ImageSettings:
+        """The settings this beam would image with now: its resolution, dwell time and
+        field of view, with the path and filename it last saved to. What an acquire
+        given no settings uses, so the driver needn't ask the microscope."""
+        last = self._last_image_settings or ImageSettings()
+        return ImageSettings(
+            beam_type=self.beam_type,
+            resolution=self._value_or_none("resolution"),
+            dwell_time=self._value_or_none("dwell_time"),
+            hfw=self._value_or_none("hfw"),
+            path=last.path,
+            filename=last.filename,
+        )
+
+    def _value_or_none(self, name: str) -> Any:
+        param = self.parameters.get(name)
+        return None if param is None else param.get_value()
 
     @command(available=lambda beam: implements(beam, "_last_image"))
     def last_image(self) -> FibsemImage:
         """The last image this beam acquired, read back from the instrument."""
-        return self._last_image()
+        image = self._last_image()
+        if image is not None:
+            self.session.stamp(image)
+        return image
 
     @command(available=lambda beam: implements(beam, "_autocontrast"))
     def autocontrast(self, reduced_area: Optional[FibsemRectangle] = None) -> None:

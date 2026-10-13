@@ -24,15 +24,17 @@ observer with a doorbell, not a second driver.
 ## Turning it on
 
 1. **Preferences → App Server**: tick *Enable App Server*. This is the durable
-   switch. *Serve the microscope's devices* beside it also serves the routes
-   that reach the instrument — its devices, services (milling, stage
-   movement, spot burn, sample handling, imaging), stage, beams and milling state,
-   reads included. It is off by default: a read of the instrument is
-   hardware access, not monitoring.
+   switch.
 2. Connect a microscope. The server starts with the session and stops with it.
 3. **Tools → App Server** shows the server: whether it is running, which
    services it serves, when the agent was last heard from, and the
-   dashboard.
+   dashboard. *Serve the microscope's devices* there also serves the routes
+   that reach the instrument — its devices, services (milling, stage
+   movement, spot burn, sample handling, imaging), stage, beams and milling
+   state, reads included. It is a choice for the session, like the agent's
+   level, and changing it restarts the server; a connected agent carries on.
+   It starts off, because a read of the instrument is hardware access, not
+   monitoring; Preferences → App Server sets what a new session starts with.
 4. The **Agent chip** in the status bar shows and sets the agent's level
    (below). Its menu's *Connect an agent…* shows how to connect one.
 
@@ -54,10 +56,13 @@ actor.
 
 While the agent is at Drive the chip's menu leads with **Stop agent**. It drops
 the agent to Watch at once, with no confirmation, and the agent is told it was
-stopped. A running workflow keeps running; its own Stop is beside the chip.
+stopped. If the agent is using the microscope, Stop agent also stops what it
+is doing: a mill, a spot burn, an auto focus or live imaging. A stage move
+already under way finishes. A running workflow keeps running; its own Stop is
+beside the chip.
 
 Using the microscope directly (moving the stage, acquiring, milling) needs
-Drive and *Serve the microscope's devices*. Stop agent ends it with the rest.
+Drive and *Serve the microscope's devices*.
 
 ## What the agent can see (Watch and above)
 

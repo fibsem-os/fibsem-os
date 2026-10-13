@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Callable, List, Optional
+from difflib import get_close_matches
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type
 
 import numpy as np
 from packaging.version import parse as parse_version
@@ -31,7 +32,6 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     MillingState,
 )
-from fibsem.util.application_file import match_application_file
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -40,6 +40,32 @@ if TYPE_CHECKING:
     from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 
 _PATTERNING_MODES = ("Serial", "Parallel")
+
+
+def match_application_file(
+    application_file: str, application_files: List[str], strict: bool = True
+) -> str:
+    """The application file to use for `application_file`, from those available.
+
+    With `strict`, a name that is not available raises; otherwise the closest
+    available name is used.
+
+    Raises:
+        ValueError: If no available application file matches.
+    """
+    if application_file not in application_files:
+        if strict:
+            raise ValueError(
+                f"Application file {application_file} not available. Available files: {application_files}"
+            )
+        closest_match = get_close_matches(application_file, application_files, n=1)
+        if not closest_match:
+            raise ValueError(
+                f"Application file {application_file} not available. Available files: {application_files}"
+            )
+        application_file = str(closest_match[0])
+
+    return application_file
 
 
 class AutoScriptMilling(Milling):
@@ -129,24 +155,21 @@ class AutoScriptMilling(Milling):
         logging.debug({"msg": "set_patterning_mode", "mode": mode})
         return mode
 
-    def _draw(self, pattern: FibsemPatternSettings) -> None:
-        if isinstance(pattern, FibsemRectangleSettings):
-            draw: Callable[[Any], Any] = self._draw_rectangle
-        elif isinstance(pattern, FibsemLineSettings):
-            draw = self._draw_line
-        elif isinstance(pattern, FibsemCircleSettings):
-            draw = self._draw_circle
-        elif isinstance(pattern, FibsemBitmapSettings):
-            draw = self._draw_bitmap_pattern
-        elif isinstance(pattern, FibsemPolygonSettings):
-            draw = self._draw_polygon
-        else:
-            return
+    @classmethod
+    def supported_pattern_types(cls) -> Tuple[Type[FibsemPatternSettings], ...]:
+        types = super().supported_pattern_types()
+        version = autoscript.AUTOSCRIPT_VERSION
+        if version is not None and version < parse_version("4.12"):
+            # polygon patterning came in AutoScript 4.12
+            types = tuple(t for t in types if t is not FibsemPolygonSettings)
+        return types
+
+    def _draw(self, pattern: FibsemPatternSettings, hook: str) -> None:
         # Each pattern starts on the recipe's application file, and one a pattern
         # needs for itself does not outlast it.
         self._set_application_file(self._default_application_file)
         try:
-            draw(pattern)
+            super()._draw(pattern, hook)
         finally:
             self._set_application_file(self._default_application_file)
 
@@ -326,7 +349,7 @@ class AutoScriptMilling(Milling):
         self._patterns.append(pattern)
         return pattern
 
-    def _draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings):
+    def _draw_bitmap(self, pattern_settings: FibsemBitmapSettings):
         # Avoid modifying the original pattern_settings object
         pattern_settings = deepcopy(pattern_settings)
 
@@ -480,11 +503,6 @@ class AutoScriptMilling(Milling):
 
     def _draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
         """Draw a polygon pattern on the current imaging view of the microscope."""
-
-        if autoscript.AUTOSCRIPT_VERSION < parse_version("4.12"):
-            raise NotImplementedError(
-                "Polygon patterning is only supported in Autoscript 4.12 or higher."
-            )
 
         pattern = self._sdk.patterning.create_polygon(
             pattern_settings.vertices, depth=pattern_settings.depth

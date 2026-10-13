@@ -248,6 +248,13 @@ class TescanBeam(Beam):
             beam.Optics.SetImageShift(point.x, point.y)
             logging.debug(f"{self.beam_type.name} beam shift set to {value}.")
 
+    def _shift_by(self, dx: float, dy: float) -> None:
+        # invert direction for scan rotated images...
+        if np.isclose(self.scan_rotation.get_value(), np.pi):
+            dx, dy = -dx, -dy
+        logging.info(f"{self.beam_type.name} shifting by ({dx}, {dy})")
+        super()._shift_by(dx, dy)
+
     # -- read from the last image: the API cannot read or set these ------------------
 
     def read_resolution(self) -> Any:
@@ -370,9 +377,7 @@ class TescanBeam(Beam):
         connection = self.connection
         beam_type = self.beam_type
         settings = (
-            image_settings
-            if image_settings is not None
-            else microscope.get_imaging_settings(beam_type=beam_type)
+            image_settings if image_settings is not None else self.image_settings()
         )
         logging.debug(f"acquiring new {beam_type.name} image.")
 
@@ -437,9 +442,6 @@ class TescanBeam(Beam):
         cache.stigmation = beam_state.stigmation
         cache.preset = beam_state.preset
 
-        if image_settings is not None:
-            microscope._last_imaging_settings = image_settings
-
         # the manufacturer's details are only in the image header
         info = microscope.system.info
         if info.model == "Unknown":
@@ -447,7 +449,6 @@ class TescanBeam(Beam):
             info.serial_number = image.Header["MAIN"]["SerialNumber"]
             info.software_version = image.Header["MAIN"]["SoftwareVersion"]
 
-        microscope._set_additional_metadata(fibsem_image)
         return fibsem_image
 
     def _last_image(self) -> Optional[FibsemImage]:
@@ -457,8 +458,6 @@ class TescanBeam(Beam):
             image = microscope.last_image_eb
         else:
             image = microscope.last_image_ib
-        if image is not None:
-            microscope._set_additional_metadata(image)
         return image
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
@@ -607,6 +606,14 @@ def bind_tescan_beams(
     }
 
 
+STAGE_FRAME_TESCAN = "tescan_native"
+"""Tescan's own stage frame, stamped on an image from a Tescan with no stage device.
+
+x and y run opposite the image, y rides on the tilt module and z is chamber-vertical,
++z down (FIB-1114). A stage device converts into fibsem's frame and stamps that.
+"""
+
+
 TILT_AXIS_Z = 29.8e-3
 """z′₀, in metres: the Tescan z reading at which the converted frame puts the tilt axis.
 
@@ -676,7 +683,7 @@ class TescanStage(Stage):
     Fibsem has never read the Tescan stage's limits, so every axis is unlimited and
     the instrument refuses what it cannot reach. ``home()`` refers to the native UI, so
     ``homed`` is absent (its key reads None). z is not linked to
-    the working distance, so ``linked`` reads False.
+    the working distance, so ``linked`` reads False and ``link`` changes nothing.
     """
 
     def __init__(
@@ -722,6 +729,11 @@ class TescanStage(Stage):
 
     def read_linked(self) -> bool:
         return False
+
+    def _link(self) -> None:
+        # Nothing to link: ``link`` leaves the stage as it is and reports False, as
+        # ``link_stage`` did before the stage was a device.
+        logging.info("The Tescan stage is not linked to the working distance.")
 
     def _native(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """``position`` in Tescan's frame, with None where the move leaves an axis."""

@@ -1248,23 +1248,12 @@ class FMControlWidget(QWidget):
             logging.error(f"Error saving FM configuration: {e}")
 
 
-def create_widget(
-    microscope: FibsemMicroscope,
-    viewer=None,
-    parent: Optional[QWidget] = None,
-) -> FMControlWidget:
-    """Create the FMControlWidget with a demo microscope."""
-
-    widget = FMControlWidget(microscope=microscope, viewer=viewer, parent=parent)
-    return widget
-
-
 class _DemoHost(QWidget):
     """Minimal stand-in for the AutoLamella chain this widget resolves through.
 
     ``FMControlWidget._view_controller`` walks parent -> ``parent_widget`` -> the UI
-    holding ``view_controller``, so the harness has to present that shape or the FM
-    canvas stays empty and the demo looks broken.
+    holding ``view_controller``, so a host built outside AutoLamella (the tests use
+    this one) has to present that shape or the FM canvas stays empty.
     """
 
     def __init__(self):
@@ -1273,43 +1262,3 @@ class _DemoHost(QWidget):
         super().__init__()
         self.view_controller = MicroscopeViewController(parent=self)
         self.parent_widget = self
-
-
-def main():
-    """Main function to run the widget standalone."""
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtWidgets import QApplication, QSplitter
-
-    from fibsem.ui.stylesheets import NAPARI_STYLE
-
-    microscope, settings = utils.setup_session()
-
-    if microscope.fm is None:
-        logging.error(
-            "FluorescenceMicroscope is not initialized. Cannot create FMControlWidget."
-        )
-        raise RuntimeError("FluorescenceMicroscope is not initialized.")
-
-    # Ensure compustage configuration
-    assert microscope.system.stage.shuttle_pre_tilt == 0
-    assert microscope._fm_is_a_pose()
-
-    app = QApplication.instance() or QApplication([])
-    app.setStyle("Fusion")
-
-    host = _DemoHost()
-    widget = create_widget(microscope, parent=host)
-
-    window = QSplitter(Qt.Horizontal)
-    window.setStyleSheet(NAPARI_STYLE)
-    window.addWidget(host.view_controller.widget)
-    window.addWidget(widget)
-    window.setSizes([720, 460])
-    window.resize(1280, 800)
-    window.show()
-    app.exec_()
-    return
-
-
-if __name__ == "__main__":
-    main()

@@ -156,6 +156,11 @@ class _Host:
     def agent_seconds_since_seen(self):
         return self.auth.seconds_since_seen()
 
+    def stop_agent(self, microscope):
+        from fibsem.applications.autolamella.server.hosting import AppServerHost
+
+        return AppServerHost.stop_agent(self, microscope)
+
 
 @pytest.fixture
 def host(main_ui):
@@ -214,7 +219,10 @@ def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, 
         kinds = [(e["kind"], e["payload"]) for e in events]
         assert kinds == [
             ("agent_level_set", {"previous": "watch", "level": "drive"}),
-            ("agent_stopped", {"previous": "drive", "level": "watch"}),
+            (
+                "agent_stopped",
+                {"previous": "drive", "level": "watch", "stopped": None},
+            ),
         ]
         assert all(e["actor"] == "operator" for e in events)
     finally:

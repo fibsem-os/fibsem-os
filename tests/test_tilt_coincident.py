@@ -37,7 +37,7 @@ def microscope():
         manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
     )
     microscope.system.sim["coincidence_projection"] = True
-    microscope._setup_sample_scene()
+    microscope._connection.setup_sample_scene()
     yield microscope
     microscope.disconnect()
 
@@ -54,7 +54,7 @@ def _anchor_scene(microscope, tilt_axis_offset: float) -> None:
     pose = microscope.get_stage_position()
     assert pose.t == pytest.approx(SEM_TILT)
     scene.anchor(pose)
-    microscope._sample_scene = scene
+    microscope._connection.sample_scene = scene
 
 
 def _tilt_to(microscope, tilt: float) -> None:
@@ -153,7 +153,7 @@ def _anchor_in_sem_view(microscope) -> tuple:
     from fibsem.structures import BeamType
 
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)
-    scene = microscope._sample_scene
+    scene = microscope._connection.sample_scene
     pose = microscope.get_stage_position()
     reference = scene._non_eucentric_reference(pose, projection)
     return projection.to_plane(reference, pose)

@@ -30,7 +30,7 @@ from typing import (
 
 import numpy as np
 
-from fibsem import acquire, alignment, calibration, constants, utils
+from fibsem import acquire, alignment, constants, utils
 from fibsem import config as fcfg
 from fibsem.acting import AGENT, TASK, acting
 from fibsem.applications.autolamella.proposals import (
@@ -108,10 +108,16 @@ from fibsem.detection.detection import (
     LamellaTopEdge,
     VolumeBlockCentre,
 )
+from fibsem.devices.beam import nearest_resolution
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.patterning.utils import get_pattern_reduced_area
-from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
+from fibsem.milling.progress import MillingProgress, MillingProgressStatus
+from fibsem.milling.tasks import (
+    FibsemMillingTaskConfig,
+    record_milling_skipped,
+    run_milling_task,
+)
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
     BeamType,
@@ -137,6 +143,8 @@ TAutoLamellaTaskConfig = TypeVar(
 
 MAX_ALIGNMENT_ATTEMPTS = 3
 ALIGNMENT_REFERENCE_IMAGE_FILENAME = "ref_alignment_ib.tif"
+# the alignment reference is taken at the listed resolution nearest this
+ALIGNMENT_REFERENCE_RESOLUTION = (1536, 1024)
 
 _LIFECYCLE_STEPS = {"STARTED", "FINISHED"}
 
@@ -741,7 +749,15 @@ class AutoLamellaTask(ABC):
         sleep-poll, and the ``get_config()`` read-back across the seam.
         No timeout: milling takes as long as it takes, and a human may hold the
         prompt; ``abort`` keeps Stop working throughout.
+
+        Each run records how it ended (``FibsemMillingTask``). A task that mills
+        nothing records that too, as a skipped ``milling`` event: with milling
+        turned off, or when Continue is pressed without running (FIB-1257).
         """
+        if not milling_enabled:
+            record_milling_skipped(
+                self.microscope, milling_config, "milling is turned off for this task"
+            )
         # headless mode
         if self.parent_ui is None:
             if milling_enabled:
@@ -757,22 +773,37 @@ class AutoLamellaTask(ABC):
                 return milling_task.config
             return milling_config
 
-        config = ask(
-            self.parent_ui.ui_responder,
-            RunMillingTask(
-                # deepcopy kept from the signal days: the editor's copy must be
-                # the operator's to edit without the task's own moving under it.
-                config=deepcopy(milling_config),
-                enabled=milling_enabled,
-                # live, not a snapshot: validate re-reads the protocol's
-                # supervision each call, so a mid-mill flip takes effect at the
-                # next decision point — as the old loop's re-read did
-                confirm=lambda: self.validate,
-                message=msg,
-                output_dir=self.output_dir,
-            ),
-            abort=lambda: _abort_requested(self.parent_ui),
-        )
+        # The runs the question started: the prompt reruns the mill until Continue.
+        runs: List[str] = []
+
+        def _count_runs(progress: MillingProgress) -> None:
+            if progress.status is MillingProgressStatus.TASK_STARTED:
+                runs.append(progress.milling_run_id)
+
+        self.microscope.milling_progress_signal.connect(_count_runs)
+        try:
+            config = ask(
+                self.parent_ui.ui_responder,
+                RunMillingTask(
+                    # deepcopy kept from the signal days: the editor's copy must be
+                    # the operator's to edit without the task's own moving under it.
+                    config=deepcopy(milling_config),
+                    enabled=milling_enabled,
+                    # live, not a snapshot: validate re-reads the protocol's
+                    # supervision each call, so a mid-mill flip takes effect at the
+                    # next decision point — as the old loop's re-read did
+                    confirm=lambda: self.validate,
+                    message=msg,
+                    output_dir=self.output_dir,
+                ),
+                abort=lambda: _abort_requested(self.parent_ui),
+            )
+        finally:
+            self.microscope.milling_progress_signal.disconnect(_count_runs)
+        if milling_enabled and not runs:
+            record_milling_skipped(
+                self.microscope, config, "Continue was pressed without running it"
+            )
         if milling_enabled and self.validate:
             # The operator watched the mill and pressed Continue.
             self._decided_in_the_workflow()
@@ -1154,7 +1185,7 @@ class AutoLamellaTask(ABC):
         alignment_image_settings.save = True
         alignment_image_settings.hfw = field_of_view
         alignment_image_settings.filename = "ref_alignment"
-        alignment_image_settings.resolution = (1536, 1024)
+        alignment_image_settings.resolution = self._alignment_resolution()
         alignment_image_settings.dwell_time = 1e-6
         alignment_image_settings.autocontrast = (
             True  # enable autocontrast for alignment
@@ -1162,6 +1193,14 @@ class AutoLamellaTask(ABC):
         fib_image = acquire.acquire_image(self.microscope, alignment_image_settings)
 
         return fib_image
+
+    def _alignment_resolution(self) -> Tuple[int, int]:
+        """The ion beam's listed resolution nearest the alignment reference's
+        1536x1024, so the reference is taken at one the instrument offers."""
+        ion = self.microscope.beams.get(BeamType.ION)
+        parameter = None if ion is None else ion.parameters.get("resolution")
+        choices = None if parameter is None else parameter.choices
+        return nearest_resolution(ALIGNMENT_REFERENCE_RESOLUTION, choices)
 
     @property
     def _asks_on_the_record(self) -> bool:

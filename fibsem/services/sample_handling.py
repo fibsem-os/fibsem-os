@@ -4,13 +4,13 @@ loader's magazine, and the commands that make a grid reachable.
 `SampleHandling` is the same on every backend and every kind of system, and callers
 never ask which they have:
 
-- **No loader** (a flat stage, or a compustage whose grids are exchanged by hand): the
-  inventory is the holder's slots, their occupancy is what the operator declared (kept
-  in the session state), every present grid is already loaded, ``ensure_loaded`` only
-  checks its slot is calibrated and ``unload`` does nothing.
-- **A loader** (a compustage with an autoloader): the inventory is the loader's
-  magazine, ``ensure_loaded`` is an exchange through the ``sample_loader`` device, and
-  the holder is the compustage's one working slot.
+- **No loader** (a flat stage, or a stage with a built-in shuttle whose grids are
+  exchanged by hand): the inventory is the holder's slots, their occupancy is what the
+  operator declared (kept in the session state), every present grid is already loaded,
+  ``ensure_loaded`` only checks its slot is calibrated and ``unload`` does nothing.
+- **A loader** (a stage with a built-in shuttle and an autoloader): the inventory is
+  the loader's magazine, ``ensure_loaded`` is an exchange through the ``sample_loader``
+  device, and the holder is the built-in shuttle's one working slot.
 
 The holder is configuration and session state, not a device: which holder is on the
 stage and where its slots are come from the microscope configuration, and which grid is
@@ -34,7 +34,7 @@ import yaml
 
 from fibsem import config as cfg
 from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
-from fibsem.devices.core import Role, command
+from fibsem.devices.core import Role, command, session_of
 from fibsem.devices.sample_loader import (
     GridExchangeError,
     Magazine,
@@ -198,7 +198,12 @@ class GridMagazine:
             return grid
         if working.loaded_grid is not None:
             self.unload_grid()
-        self._do_load(slot)
+        # On the record (FIB-1359), with how long the exchange took and why it
+        # failed, if it did.
+        with session_of(self.parent).recording(
+            "grid_loaded", grid=grid.name, slot=slot_name, working_slot=working.name
+        ):
+            self._do_load(slot)
         working.loaded_grid = grid
         logging.info(f"Loaded grid '{grid.name}' from {slot_name} into {working.name}.")
         return grid
@@ -209,7 +214,14 @@ class GridMagazine:
         if working.loaded_grid is None:
             return
         name = working.loaded_grid.name
-        self._do_unload(working)
+        home = self.find_grid(name)
+        with session_of(self.parent).recording(
+            "grid_unloaded",
+            grid=name,
+            slot=home.name if home is not None else None,
+            working_slot=working.name,
+        ):
+            self._do_unload(working)
         working.loaded_grid = None
         logging.info(f"Unloaded grid '{name}' from {working.name}.")
 
@@ -376,6 +388,9 @@ class SampleHandling(Service):
         super().__init__(name, **kwargs)
         self.holder: Optional[SampleHolder] = None
         self.magazine: Optional[GridMagazine] = None
+        # Whether `holder` is the stage's built-in shuttle, which this built, rather
+        # than one the configuration describes.
+        self.holder_is_builtin = False
 
     def __repr__(self) -> str:
         return f"<SampleHandling: holder={self.holder}, magazine={self.magazine}>"
@@ -387,20 +402,22 @@ class SampleHandling(Service):
         super().connect()
         microscope = self.parent
         stage_settings = microscope.system.stage
-        if self.stage.has_builtin_shuttle():
-            slot01 = _compustage_working_slot(stage_settings)
+        builtin = self.stage.has_builtin_shuttle()
+        if builtin:
+            working = _builtin_working_slot(stage_settings)
             holder = SampleHolder(
-                name=COMPUSTAGE_HOLDER_NAME,
+                name=BUILTIN_HOLDER_NAME,
                 capacity=1,
-                slots={"Slot-01": slot01},
+                slots={working.name: working},
                 # Built here rather than resolved from the configuration, so it has to
                 # be given its pre-tilt explicitly -- it does not pass through
                 # `_resolve_configured_holder`, which is where every other holder gets
                 # one.
                 pre_tilt=float(stage_settings.shuttle_pre_tilt),
             )
-            # The compustage is the autoloader stage, so it is the only stage whose
-            # grids come from a magazine; without a loader they are exchanged by hand.
+            # A built-in shuttle is the only kind an autoloader loads, so it is the only
+            # stage whose grids come from a magazine; without a loader they are
+            # exchanged by hand.
             loader = self._roles.get("loader")
             magazine: Optional[GridMagazine] = None
             if loader is not None:
@@ -426,6 +443,7 @@ class SampleHandling(Service):
 
         holder._parent = microscope
         self.holder = holder
+        self.holder_is_builtin = builtin
         self.magazine = magazine
         # The grids in the slots are session state, so a restart does not forget what
         # is physically still in the shuttle. Restored here when the service is
@@ -523,12 +541,20 @@ class SampleHandling(Service):
         """Move the stage to a specific slot. Refuses a slot that is not calibrated."""
         if self.holder is None:
             raise ValueError("No sample holder defined.")
+        slot_name = self._holder_slot_name(slot_name)
         if slot_name not in self.holder.slots:
             raise ValueError(f"Slot '{slot_name}' not found in sample holder.")
         slot = self.holder.slots[slot_name]
         if slot.position is None:
             raise ValueError(uncalibrated_message(slot_name))
         return self.parent.move_stage_absolute(slot.position)
+
+    def _holder_slot_name(self, slot_name: str) -> str:
+        """The shuttle's slot under the name a script written before it had its
+        own may still use ("Slot-01")."""
+        if self.holder_is_builtin and slot_name == _LEGACY_BUILTIN_SLOT_NAME:
+            return BUILTIN_SLOT_NAME
+        return slot_name
 
     @command
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
@@ -683,6 +709,14 @@ def load_holder_occupancy(holder: SampleHolder, state: SessionState) -> bool:
     data = state.load_section(HOLDER_OCCUPANCY, migrate=_import_occupancy)
     if data is None:
         return False
+    if (
+        BUILTIN_SLOT_NAME in holder.slots
+        and isinstance(data, dict)
+        and BUILTIN_SLOT_NAME not in data
+        and _LEGACY_BUILTIN_SLOT_NAME in data
+    ):
+        # Recorded before the shuttle's slot had its own name.
+        data = {**data, BUILTIN_SLOT_NAME: data[_LEGACY_BUILTIN_SLOT_NAME]}
     try:
         holder.apply_occupancy(data)
     except Exception as e:
@@ -762,14 +796,24 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
     return holder
 
 
-COMPUSTAGE_HOLDER_NAME = "CompuStage Holder"
+BUILTIN_HOLDER_NAME = "Built-in holder"
+# The built-in shuttle's one slot. Its own name, not "Slot-01", which is also
+# the loader's first magazine slot: "loaded from Slot-01 into Slot-01" named two
+# places as one (FIB-1359).
+BUILTIN_SLOT_NAME = "Shuttle"
+# What it was called before it had its own name. A calibration saved under it is
+# read, and recorded occupancy under it restored.
+_LEGACY_BUILTIN_SLOT_NAME = "Slot-01"
+# What configurations written before the built-in holder had a neutral name call it.
+# Read, then renamed to `BUILTIN_HOLDER_NAME`, so a calibration saved under it is kept.
+_LEGACY_BUILTIN_HOLDER_NAMES = ("CompuStage Holder",)
 
 
-def _compustage_working_slot(stage_settings) -> GridSlot:
-    """The compustage's one slot: where the autoloader puts every grid.
+def _builtin_working_slot(stage_settings) -> GridSlot:
+    """The built-in shuttle's one slot: where the autoloader puts every grid.
 
     Nominally the stage origin, and that is the slot until someone calibrates it.
-    A loaded grid on a real Arctis sits off the origin, in x, y and z, by the same
+    A loaded grid on a real instrument sits off the origin, in x, y and z, by the same
     amount on every load (FIB-1144), so a position captured with the calibration
     wizard and saved in the configuration replaces it -- once it passes the trust
     check a fixed holder's slots get: captured against this pre-tilt and reference
@@ -777,26 +821,34 @@ def _compustage_working_slot(stage_settings) -> GridSlot:
     """
     pre_tilt = float(stage_settings.shuttle_pre_tilt)
     rotation_reference = float(stage_settings.rotation_reference)
-    saved = stage_settings.holders.get(COMPUSTAGE_HOLDER_NAME)
+    for legacy in _LEGACY_BUILTIN_HOLDER_NAMES:
+        if legacy in stage_settings.holders:
+            old = stage_settings.holders.pop(legacy)
+            if BUILTIN_HOLDER_NAME not in stage_settings.holders:
+                old.name = BUILTIN_HOLDER_NAME
+                stage_settings.holders[BUILTIN_HOLDER_NAME] = old
+    saved = stage_settings.holders.get(BUILTIN_HOLDER_NAME)
     if saved is not None:
         for note in saved.discard_untrusted_positions(pre_tilt, rotation_reference):
             logging.warning(
-                f"Compustage working slot: {note}. Using the stage origin; "
+                f"Built-in shuttle working slot: {note}. Using the stage origin; "
                 "recalibrate it from the Sample view."
             )
-        captured = saved.slots.get("Slot-01")
+        captured = saved.slots.get(BUILTIN_SLOT_NAME) or saved.slots.get(
+            _LEGACY_BUILTIN_SLOT_NAME
+        )
         if captured is not None and captured.is_calibrated:
             return GridSlot(
-                name="Slot-01",
+                name=BUILTIN_SLOT_NAME,
                 index=0,
                 position=deepcopy(captured.position),
                 calibration=deepcopy(captured.calibration),
             )
     return GridSlot(
-        name="Slot-01",
+        name=BUILTIN_SLOT_NAME,
         index=0,
         position=FibsemStagePosition(
-            name="Slot-01", x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
+            name=BUILTIN_SLOT_NAME, x=0.0, y=0.0, z=0.0, r=0.0, t=np.radians(0)
         ),
         calibration=SlotCalibration.builtin(pre_tilt, rotation_reference),
     )

@@ -356,6 +356,16 @@ def run(fn):
     return [result, copy.deepcopy(LOG)]
 
 
+def driver_move(stage, position, relative=False):
+    """The driver's own move and the device's read-back, without the limit check: the
+    old code had none, so the driver's SDK calls are compared on every target."""
+    if relative:
+        stage._move_relative(position)
+    else:
+        stage._move_absolute(position)
+    return stage.position.get_value()
+
+
 def pair(compustage, fm_inserted, old, new):
     """Run *new* on a fresh microscope's driver, and *old* on another whose stage keys
     and moves are routed as connect routes them."""
@@ -477,13 +487,13 @@ def cases():
             add(
                 f"absolute {i} {position}",
                 lambda m, p=position: m.move_stage_absolute(p),
-                lambda s, m, p=position: s.move_through(p),
+                lambda s, m, p=position: driver_move(s, p),
             )
         for i, delta in enumerate(deltas()):
             add(
                 f"relative {i} {delta}",
                 lambda m, d=delta: m.move_stage_relative(d),
-                lambda s, m, d=delta: s.move_through(d, relative=True),
+                lambda s, m, d=delta: driver_move(s, d, relative=True),
             )
     return out
 

@@ -43,8 +43,7 @@ server, and wait for as long as that takes. What they say about themselves beyon
 their parameters (the stage's frame, shuttle and the device each orientation is at;
 the needle's axes and named positions) comes from the device's ``facts`` in its
 description, and a stage's poses from its ``pose_table`` command. A move
-is checked against the stage limits on the server too, so the old API's unchecked
-``move_through`` is checked there.
+is checked against the stage limits here and again on the server.
 
 Not yet: the one-commander lease, and a beam's ``acquire`` (a
 ``FibsemImage`` with its metadata).
@@ -64,8 +63,10 @@ import numpy as np
 import requests
 from psygnal import Signal
 
+from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
+from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     Device,
     ParameterMetadata,
@@ -124,6 +125,7 @@ _ERRORS: Dict[str, Callable[[str], Exception]] = {
     "ValueError": ValueError,
     "NotImplementedError": NotImplementedError,
     "StageLimitError": StageLimitError,
+    "OperationCancelledError": OperationCancelledError,
 }
 
 
@@ -629,11 +631,13 @@ class RemoteStage(RemoteDevice, Stage):
     server, which moves and answers when the stage has stopped."""
 
     _shuttle = False
+    _mirrors = False
     _devices_at_pose: Dict[str, Optional[str]] = {}
 
     def _apply_facts(self, facts: Dict[str, Any]) -> None:
         self.frame = facts.get("frame", self.frame)
         self._shuttle = bool(facts.get("has_builtin_shuttle", False))
+        self._mirrors = bool(facts.get("mirrors_back_view", False))
         self._devices_at_pose = dict(facts.get("device_at_pose", {}))
         self._poses: Dict[Tuple[float, float, float], Any] = {}
         if "position" in self.parameters:
@@ -641,6 +645,9 @@ class RemoteStage(RemoteDevice, Stage):
 
     def has_builtin_shuttle(self) -> bool:
         return self._shuttle
+
+    def mirrors_back_view(self) -> bool:
+        return self._mirrors
 
     def device_at_pose(self, orientation: str) -> Optional[str]:
         return self._devices_at_pose.get(orientation)
@@ -686,6 +693,13 @@ class RemoteChamber(RemoteDevice, Chamber):
 
     def _vent(self) -> None:
         self.call_command("vent", timeout=UNTIL_DONE)
+
+
+class RemoteChamberCamera(RemoteDevice, ChamberCamera):
+    """The frame comes back as the array the server's camera gave."""
+
+    def _acquire(self) -> np.ndarray:
+        return self.call_command("acquire")
 
 
 class RemoteManipulator(RemoteDevice, Manipulator):
@@ -796,11 +810,12 @@ REMOTE_DEVICE_TYPES: Dict[str, type] = {
     **{name: part for name, part in REMOTE_FM_PARTS.items() if name != "fm"},
     "stage": RemoteStage,
     "chamber": RemoteChamber,
+    "chamber_camera": RemoteChamberCamera,
     "manipulator": RemoteManipulator,
 }
 
 # The types whose device has one name, its type's, on every backend.
-_NAMED_AS_TYPE = ("stage", "chamber", "manipulator")
+_NAMED_AS_TYPE = ("stage", "chamber", "chamber_camera", "manipulator")
 
 
 def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device:

@@ -38,7 +38,11 @@ from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-from fibsem.applications.autolamella.event_recording import EVENTS_FILENAME, read_events
+from fibsem.applications.autolamella.event_recording import (
+    EVENTS_FILENAME,
+    milling_run_of,
+    read_events,
+)
 from fibsem.applications.autolamella.proposals import kind_label
 from fibsem.util.timestamps import wall_time_of
 
@@ -1070,9 +1074,11 @@ def _move_summary(payload: Dict[str, Any]) -> str:
     """A stage move, in the words the log's reader uses where it has them."""
     move = payload.get("move")
     request = payload.get("request") or {}
-    if move == "move_stage_absolute":
+    # The stage device's names, and the microscope wrappers' that recorded before
+    # the devices did.
+    if move in ("move_absolute", "move_stage_absolute"):
         text = f"Move stage to {_describe_position(request.get('position') or {})}"
-    elif move == "move_stage_relative":
+    elif move in ("move_relative", "move_stage_relative"):
         text = f"Move stage by {_describe_position(request.get('position') or {})}"
     elif move in ("stable_move", "vertical_move"):
         text = _beam_move_summary(move, request)
@@ -1582,20 +1588,21 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             )
         elif kind == "milling_stage_started":
             stage = payload.get("stage") or {}
+            run_id, task_name = milling_run_of(payload)
             event = ReplayEvent(
                 time,
                 EventKind.MILLING,
-                _milling_summary(payload.get("task_name"), stage, None),
+                _milling_summary(task_name, stage, None),
                 data={
                     "stage": stage,
-                    "milling_task_id": payload.get("task_id"),
-                    "milling_task_name": payload.get("task_name"),
+                    "milling_task_id": run_id,
+                    "milling_task_name": task_name,
                 },
             )
-            mills[(payload.get("task_id"), stage.get("name"))] = event
+            mills[(run_id, stage.get("name"))] = event
         elif kind == "milling_progress" and payload.get("status") == "stage-finished":
             started = mills.pop(
-                (payload.get("task_id"), payload.get("stage_name")), None
+                (milling_run_of(payload)[0], payload.get("stage_name")), None
             )
             if started is not None:
                 started.duration = (time - started.time).total_seconds()

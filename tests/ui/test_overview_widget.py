@@ -38,6 +38,7 @@ from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.imaging import tiled  # noqa: E402
 from fibsem.imaging.tiling.progress import TiledStatus
+from fibsem.services.sample_handling import BUILTIN_SLOT_NAME  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     AutoContrastMode,
     BeamType,
@@ -1785,7 +1786,7 @@ class TestTheHolderIsDrawnOnEveryStage:
         _show_holder_overlays(widget)
         boundaries = self._specs(widget, "ellipse", "Grid Boundary")
         crosshairs = [
-            s for s in self._specs(widget, "crosshair") if s.label.startswith("Slot-")
+            s for s in self._specs(widget, "crosshair") if s.label == BUILTIN_SLOT_NAME
         ]
 
         assert len(boundaries) == 1

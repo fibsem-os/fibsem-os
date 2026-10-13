@@ -11,6 +11,7 @@ from fibsem.structures import InsertableDeviceState
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem import utils
+from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui.widgets.canvas.chamber_view import is_half_turn
@@ -26,6 +27,10 @@ def _microscope(compustage: bool):
     microscope.sample_handling = bind_sample_handling(microscope)
     if compustage:
         microscope.system.stage.shuttle_pre_tilt = 0
+        # and the tilt range that reaches a compustage's poses
+        stage = microscope.stage_device
+        stage._axis_limits = {**stage._axis_limits, "t": STAGE_LIMITS_COMPUSTAGE["t"]}
+        stage.position.refresh_metadata()
     return microscope
 
 
@@ -133,8 +138,8 @@ def test_ion_column_drawn_at_the_systems_angle(controller, microscope):
     microscope.system.ion.column_tilt = 55
     chamber = _show(controller, microscope, "SEM")
     assert chamber.diagram.FIB_ANGLE == 55.0
-    # The class default is untouched for the wizard's own diagram.
-    assert type(chamber.diagram).FIB_ANGLE == 52.0
+    # Set on this diagram only: the class default is untouched for the others.
+    assert type(chamber.diagram).FIB_ANGLE == 0.0
 
 
 def test_a_position_without_tilt_keeps_the_last_drawing(controller, microscope):

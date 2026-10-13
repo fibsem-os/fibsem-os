@@ -17,7 +17,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.poses import _to_milling
-from fibsem.services.sample_handling import COMPUSTAGE_HOLDER_NAME
+from fibsem.services.sample_handling import BUILTIN_HOLDER_NAME
 from fibsem.structures import FibsemStagePosition
 
 ARCTIS = "sim-arctis-configuration.yaml"
@@ -86,7 +86,7 @@ def test_the_milling_angle_unwinds_a_turned_over_compustage(scope, which):
 
 def test_images_stamp_the_stage_type(scope):
     compustage = _compustage(scope)
-    assert scope[1].hardware_geometry().is_compustage is compustage
+    assert scope[1].hardware_geometry().fm_is_pose is compustage
 
 
 # --- fm/microscope.py -------------------------------------------------------------
@@ -120,10 +120,10 @@ def test_a_compustage_holds_one_built_in_shuttle(scope):
     compustage = _compustage(scope)
     stage = scope[1].sample_handling
     if compustage:
-        assert (stage.holder.name, stage.holder.capacity) == (COMPUSTAGE_HOLDER_NAME, 1)
+        assert (stage.holder.name, stage.holder.capacity) == (BUILTIN_HOLDER_NAME, 1)
         assert stage.magazine is not None
     else:
-        assert stage.holder.name != COMPUSTAGE_HOLDER_NAME
+        assert stage.holder.name != BUILTIN_HOLDER_NAME
         assert stage.magazine is None
 
 

@@ -7,11 +7,11 @@ and hands it to every device and service it builds. Inside their methods, nothin
 class. The builders at module level are where the connection is handed over, so they
 are not checked.
 
-Drivers join the list as their SDK code moves (FIB-1316). ``ALLOWED`` names what is left
-on the microscope for a later step, not the SDK: the shared image bookkeeping, which the
-base acquire implementation takes over, services writing a beam through the
-microscope rather than their role, and the Thermo stage asking the microscope which
-axes the configuration blocks.
+Every built-in driver is checked, its list read from the registry, so a new one is
+too. ``ALLOWED`` names what is left on the microscope for a later step, not the SDK:
+the shared image bookkeeping, which the base acquire implementation takes over,
+services writing a beam through the microscope rather than their role, and the Thermo
+stage asking the microscope which axes the configuration blocks.
 """
 
 import ast
@@ -20,11 +20,12 @@ import inspect
 
 import pytest
 
-DRIVERS = ["tescan", "autoscript", "odemis"]
+from tests.fixtures.fake_drivers import built_in_packages
+
+# Every built-in driver, the Demo's simulator included.
+DRIVERS = sorted(set(built_in_packages().values()))
 
 ALLOWED = {
-    "_last_imaging_settings",
-    "_set_additional_metadata",
     "_write_beam",
     "_without_blocked_axes",
 }

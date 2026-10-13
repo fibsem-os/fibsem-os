@@ -35,13 +35,17 @@ from fibsem.util.timestamps import to_datetime
 # The event kinds that are a run's operations. A record written before
 # operations said how they ended has no status: it was only ever written for a
 # run that completed.
-OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus")
+OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
 
 _BEAM = {"ELECTRON": "SEM", "ION": "FIB"}
 
 # The figure each kind of run saves into its folder: AlignmentResult.save and
-# AutoFocusResult.save.
-_PLOT_FILES = {"alignment": "figure.png", "autofocus": "plot.png"}
+# AutoFocusResult.save, which the FM autofocus saves with too.
+_PLOT_FILES = {
+    "alignment": "figure.png",
+    "autofocus": "plot.png",
+    "fm_autofocus": "plot.png",
+}
 
 
 @dataclass
@@ -49,13 +53,16 @@ class HistoryOperation:
     """One operation a run performed, as the row shows it."""
 
     kind: str
-    label: str  # "Align", "Autofocus"
+    label: str  # "Align", "Autofocus", "Mill"
     status: str  # completed | skipped | failed | cancelled
     detail: str  # the one line: what it measured, or why it did not run
     started_at: Optional[datetime]
     ended_at: Optional[datetime]
     path: Optional[str]  # where its run was saved, when it was
     payload: Dict[str, Any] = field(repr=False, default_factory=dict)
+    # A mill's drift corrections, by the index of the stage they ran in
+    # (FIB-1351): folded under its line rather than lines of their own.
+    drift: Dict[int, List["HistoryOperation"]] = field(repr=False, default_factory=dict)
 
     @property
     def duration(self) -> Optional[float]:
@@ -71,6 +78,22 @@ class HistoryOperation:
             return None
         path = os.path.join(self.path, name)
         return path if os.path.isfile(path) else None
+
+
+@dataclass
+class MillingStageLine:
+    """One stage of a mill, as its opened line lists it."""
+
+    name: str
+    text: str  # how it ended, how long it took, its current
+    drift: List[HistoryOperation]  # the drift corrections it ran
+    # The strategy that milled it and what it said about the run (FIB-1257):
+    # why it stopped, then its facts. A strategy with only facts says them on
+    # the stage's own line (``text``), and these are empty; so are they for a
+    # record from before strategies were recorded.
+    strategy: str = ""
+    said: str = ""
+    figure: Optional[str] = None  # a figure the strategy saved, if still there
 
 
 @dataclass
@@ -187,6 +210,12 @@ def history_rows(
         if item.get("id") != lamella.id or not task.get("id"):
             continue
         operations.setdefault(task["id"], []).append(_operation(record, lamella.name))
+    # In the order they started: a mill ends after the drift corrections it ran,
+    # and is recorded after them, but it is what started them. A record with no
+    # start (a skip) goes where it ended.
+    for task_id, ops in operations.items():
+        ops.sort(key=_started)
+        operations[task_id] = _fold_drift(ops)
 
     images, replaced_by = _images_by_run(lamella, runs)
     return [
@@ -240,7 +269,7 @@ def _operation(record: Dict[str, Any], lamella_name: str) -> HistoryOperation:
     kind = record["kind"]
     payload = record.get("payload") or {}
     status = payload.get("status") or COMPLETED
-    label = {"alignment": "Align", "autofocus": "Autofocus"}.get(kind, "Autofocus (FM)")
+    label = _LABELS.get(kind, kind)
     if kind == "alignment":
         label = _alignment_label(payload, lamella_name)
     return HistoryOperation(
@@ -253,6 +282,84 @@ def _operation(record: Dict[str, Any], lamella_name: str) -> HistoryOperation:
         path=payload.get("path"),
         payload=payload,
     )
+
+
+_LABELS = {
+    "alignment": "Align",
+    "autofocus": "Autofocus",
+    "fm_autofocus": "Autofocus (FM)",
+    "milling": "Mill",
+}
+
+
+def _started(operation: HistoryOperation) -> float:
+    """When it started, as a number: an aware and a naive time do not compare.
+    One that recorded neither end goes last."""
+    when = operation.started_at or operation.ended_at
+    return when.timestamp() if when is not None else math.inf
+
+
+def _fold_drift(operations: List[HistoryOperation]) -> List[HistoryOperation]:
+    """Move each alignment that started inside a mill's stage under that mill:
+    the stage's drift correction (FIB-1351). Stages run one after another on one
+    clock, so an alignment's start places it. On a coarse clock (Windows ticks
+    every 15.6 ms) one stage's end, the next one's start and that stage's drift
+    correction can read the same instant: the later stage takes it, since a
+    correction runs after its stage starts. ``operations`` are one run's, in the
+    order they started; what no stage claims stays as it is."""
+    claimed = set()
+    for mill in operations:
+        if mill.kind != "milling":
+            continue
+        windows = []
+        for position, stage in enumerate(_stages(mill.payload)):
+            start = to_datetime(stage.get("started_at"))
+            end = to_datetime(stage.get("ended_at"))
+            if start is not None and end is not None:
+                windows.append((position, start.timestamp(), end.timestamp()))
+        for index, op in enumerate(operations):
+            when = op.started_at or op.ended_at
+            if op.kind != "alignment" or index in claimed or when is None:
+                continue
+            inside = [
+                p for p, start, end in windows if start <= when.timestamp() <= end
+            ]
+            if inside:
+                mill.drift.setdefault(inside[-1], []).append(op)
+                claimed.add(index)
+        if mill.drift:
+            mill.detail += _drift_summary(mill, completed=mill.status == COMPLETED)
+    return [op for index, op in enumerate(operations) if index not in claimed]
+
+
+def _drift_summary(mill: HistoryOperation, completed: bool) -> str:
+    """`` · alignment ≤ 0.07 µm``, or the first milling current alignment that
+    went wrong:
+    folded, the mill's line is the only place a problem shows. A mill that did
+    not complete already says why, so it adds only a problem."""
+    names = [stage.get("name") for stage in _stages(mill.payload)]
+    largest = 0.0
+    for position, runs in sorted(mill.drift.items()):
+        name = names[position] if position < len(names) else "a stage"
+        for run in runs:
+            if run.status == FAILED:
+                return f" · alignment failed at {name}"
+            if any(step.get("success") is False for step in _steps(run.payload)):
+                return f" · alignment too weak at {name}"
+            largest = max(largest, _total_shift(run.payload))
+    return f" · alignment ≤ {largest * 1e6:.2f} µm" if completed else ""
+
+
+def _steps(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [s for s in payload.get("results") or [] if isinstance(s, dict)]
+
+
+def _total_shift(payload: Dict[str, Any]) -> float:
+    """How far an alignment moved, in metres: the sum of its steps."""
+    steps = _steps(payload)
+    dx = sum(_number((s.get("shift") or {}).get("x")) for s in steps)
+    dy = sum(_number((s.get("shift") or {}).get("y")) for s in steps)
+    return math.hypot(dx, dy)
 
 
 def _alignment_label(payload: Dict[str, Any], lamella_name: str) -> str:
@@ -287,6 +394,8 @@ def operation_facts(operation: HistoryOperation) -> List[Tuple[str, str]]:
         facts.extend(_alignment_facts(payload))
     elif operation.kind == "autofocus":
         facts.extend(_autofocus_facts(payload))
+    elif operation.kind == "milling":
+        pass  # its stages are milling_stages(), each with its drift corrections
     else:
         facts.extend(_fm_autofocus_facts(payload))
     return facts
@@ -338,6 +447,69 @@ def _autofocus_facts(payload: Dict[str, Any]) -> List[Tuple[str, str]]:
     return facts
 
 
+def milling_stages(operation: HistoryOperation) -> List[MillingStageLine]:
+    """A mill's stages in the protocol's order: how each ended, how long it
+    took, at what current, and the drift corrections it ran. The run's error is
+    a fact above them, so a failed stage only says it failed."""
+    lines = []
+    for position, stage in enumerate(_stages(operation.payload)):
+        status = str(stage.get("status") or COMPLETED)
+        parts = [status]
+        if status == SKIPPED and stage.get("reason"):
+            parts = [f"skipped: {stage['reason']}"]
+        took = _seconds_between(stage.get("started_at"), stage.get("ended_at"))
+        if took is not None:
+            parts.append(_short_duration(took))
+        if status != SKIPPED and stage.get("milling_current") is not None:
+            parts.append(_current(stage["milling_current"]))
+        strategy = (
+            stage.get("strategy") if isinstance(stage.get("strategy"), dict) else {}
+        )
+        name = _strategy_name(strategy.get("name"))
+        said = _strategy_said(strategy)
+        figure = strategy.get("figure")
+        figure = figure if figure and os.path.isfile(str(figure)) else None
+        own_line = bool(strategy.get("end_reason") or figure)
+        if name and not own_line:
+            # only facts: short enough for the stage's line
+            parts.extend(p for p in (name, said) if p)
+        lines.append(
+            MillingStageLine(
+                name=str(stage.get("name") or "Stage"),
+                text=" · ".join(parts),
+                drift=operation.drift.get(position, []),
+                strategy=name if own_line else "",
+                said=said if own_line else "",
+                figure=figure,
+            )
+        )
+    return lines
+
+
+def _strategy_name(name: Any) -> str:
+    """``CoincidenceMilling`` as ``Coincidence Milling``: the strategy's
+    name, which is what the record has, read as words."""
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", str(name or ""))
+
+
+def _strategy_said(strategy: Dict[str, Any]) -> str:
+    """``intensity drop · Mill time (s) 250 · Intensity drop seen yes``: why
+    the strategy stopped, then each fact as it labelled it."""
+    parts = [str(strategy["end_reason"])] if strategy.get("end_reason") else []
+    facts = strategy.get("facts")
+    for label, value in facts.items() if isinstance(facts, dict) else []:
+        parts.append(f"{label} {_fact(value)}")
+    return " · ".join(parts)
+
+
+def _fact(value: Any) -> str:
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
+
+
 def _fm_autofocus_facts(payload: Dict[str, Any]) -> List[Tuple[str, str]]:
     facts = []
     if payload.get("passes") is not None:
@@ -360,6 +532,8 @@ def _detail(kind: str, status: str, payload: Dict[str, Any]) -> str:
     """The operation's one line."""
     if status == SKIPPED:
         return f"skipped: {payload.get('reason') or 'no reason recorded'}"
+    if kind == "milling":
+        return _milling_detail(status, payload)
     if status == FAILED:
         return f"failed: {payload.get('error') or 'no error recorded'}"
     if status == CANCELLED and not payload.get("results"):
@@ -372,16 +546,68 @@ def _detail(kind: str, status: str, payload: Dict[str, Any]) -> str:
 
 
 def _alignment_detail(payload: Dict[str, Any], cancelled: bool) -> str:
-    steps = [s for s in payload.get("results") or [] if isinstance(s, dict)]
-    dx = sum(_number((s.get("shift") or {}).get("x")) for s in steps)
-    dy = sum(_number((s.get("shift") or {}).get("y")) for s in steps)
-    text = f"{math.hypot(dx, dy) * 1e6:.2f} µm · {len(steps)} step{'' if len(steps) == 1 else 's'}"
+    steps = _steps(payload)
+    text = f"{_total_shift(payload) * 1e6:.2f} µm · {len(steps)} step{'' if len(steps) == 1 else 's'}"
     validation = payload.get("validation")
     if isinstance(validation, dict) and validation.get("agreement") is False:
         text += " · methods disagree"
     if cancelled:
         text += " · stopped"
     return text
+
+
+def _milling_detail(status: str, payload: Dict[str, Any]) -> str:
+    """``3 stages``; ``failed at Rough Mill 02: <error>``; ``stopped at Polishing
+    · 1 of 2 stages milled``. Stages turned off in the protocol are not counted:
+    they were never going to mill."""
+    stages = [s for s in _stages(payload) if s.get("reason") != _TURNED_OFF]
+    milled = sum(1 for s in stages if s.get("status") == COMPLETED)
+    if status == COMPLETED:
+        # why its strategies stopped, so a folded line still says it
+        reasons: List[str] = []
+        for stage in stages:
+            said = stage.get("strategy")
+            reason = said.get("end_reason") if isinstance(said, dict) else None
+            if reason and str(reason) not in reasons:
+                reasons.append(str(reason))
+        return " · ".join([f"{milled} stage{'' if milled == 1 else 's'}", *reasons])
+    ended = next((s for s in stages if s.get("status") in (FAILED, CANCELLED)), None)
+    if status == FAILED:
+        at = f" at {ended.get('name')}" if ended is not None else ""
+        return f"failed{at}: {payload.get('error') or 'no error recorded'}"
+    at = f" at {ended.get('name')}" if ended is not None else ""
+    return f"stopped{at} · {milled} of {len(stages)} stages milled"
+
+
+def _stages(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [s for s in payload.get("stages") or [] if isinstance(s, dict)]
+
+
+# As fibsem.milling.tasks records a stage turned off in the protocol.
+_TURNED_OFF = "turned off in the protocol"
+
+
+def _seconds_between(start: Any, end: Any) -> Optional[float]:
+    started, ended = to_datetime(start), to_datetime(end)
+    if started is None or ended is None:
+        return None
+    return max(0.0, (ended - started).total_seconds())
+
+
+def _short_duration(seconds: float) -> str:
+    """As the tab writes an operation's duration."""
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds} s"
+    minutes, seconds = divmod(seconds, 60)
+    return f"{minutes} m {seconds:02d} s"
+
+
+def _current(amps: Any) -> str:
+    value = _number(amps)
+    if value >= 1e-9:
+        return f"{value * 1e9:g} nA"
+    return f"{value * 1e12:g} pA"
 
 
 def _autofocus_detail(payload: Dict[str, Any]) -> str:

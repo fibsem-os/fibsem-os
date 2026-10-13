@@ -271,6 +271,11 @@ class AutoLamellaUI(QMainWindow):
         # The embedded App Server (FIB-845): built on microscope connect when the
         # App Server preference is on; None means the feature is off.
         self._app_server_host = None
+        # Whether this session serves the microscope's devices (FIB-1359): the
+        # operator's choice in Tools → App Server, per session like the agent
+        # level. None until the server first starts, which reads the
+        # preference's start-up default.
+        self._app_server_devices: Optional[bool] = None
         # The app's event stream (FIB-1031): built on microscope connect, always,
         # and recorded to events.jsonl in the experiment directory. The agent
         # server reads it when it runs; None only while disconnected.
@@ -754,8 +759,12 @@ class AutoLamellaUI(QMainWindow):
         if preference.enabled:
             from fibsem.applications.autolamella.server.hosting import AppServerHost
 
+            if self._app_server_devices is None:
+                self._app_server_devices = preference.devices
             if self._app_server_host is None:
-                self._app_server_host = AppServerHost(self, devices=preference.devices)
+                self._app_server_host = AppServerHost(
+                    self, devices=self._app_server_devices
+                )
             recorder = self._event_recorder
             self._app_server_host.start(
                 self.microscope,
@@ -773,20 +782,41 @@ class AutoLamellaUI(QMainWindow):
         server wraps it); without one this is a no-op and the connect path
         picks the preference up as before.
 
-        The services are fixed when the server starts, so a changed devices
-        setting restarts it. The token is new after that, and a connected agent
-        reconnects as it would after any restart.
+        The devices preference is only the start-up default: this session's
+        choice is made in Tools → App Server (``set_app_server_devices``).
         """
         host = self._app_server_host
         preference = fibsem_cfg.load_user_preferences().app_server
-        if host is not None and host.devices != preference.devices:
-            host.stop()
-            self._app_server_host = host = None
         if preference.enabled:
             if self.microscope is not None and (host is None or not host.running):
                 self._start_app_server()
         elif host is not None and host.running:
             host.stop()
+
+    def set_app_server_devices(self, devices: bool) -> None:
+        """Serve the microscope's devices this session, or stop serving them
+        (FIB-1359), from Tools → App Server.
+
+        The services are fixed when the server starts, so a change restarts a
+        running server. The agent's token and level are the session's and
+        carry over, so a connected agent carries on.
+        """
+        devices = bool(devices)
+        if devices == self._app_server_devices:
+            return
+        self._app_server_devices = devices
+        logging.info(
+            "App Server: the microscope's devices %s by the operator",
+            "served" if devices else "no longer served",
+        )
+        host = self._app_server_host
+        if host is None or host.devices == devices:
+            return
+        was_running = host.running
+        host.stop()
+        self._app_server_host = None
+        if was_running and self.microscope is not None:
+            self._start_app_server()
 
     def disconnect_from_microscope(self):
         if self._app_server_host is not None:
@@ -1216,6 +1246,15 @@ class AutoLamellaUI(QMainWindow):
             if self.microscope is None or self.experiment is None:
                 logging.error("No microscope or experiment loaded.")
                 return
+            # Made before the set-up below, as for a lamella run (FIB-1353).
+            self._task_manager = GridTaskManager(
+                microscope=self.microscope,
+                experiment=self.experiment,
+                parent_ui=self,
+                hook_manager=self.setup_hooks(),
+                unload_at_end=unload_at_end,
+                report_at_end=report_at_end,
+            )
             # In control for the whole run, the inventory included (FIB-1270).
             with self.microscope.control.take(WORKFLOW, "a grid run"):
                 if not self.microscope.is_on(BeamType.ELECTRON):
@@ -1227,23 +1266,18 @@ class AutoLamellaUI(QMainWindow):
                 logging.info(
                     f"Starting grid tasks: {task_names}, for grids: {grid_names}"
                 )
-                self._task_manager = GridTaskManager(
-                    microscope=self.microscope,
-                    experiment=self.experiment,
-                    parent_ui=self,
-                    hook_manager=self.setup_hooks(),
-                    unload_at_end=unload_at_end,
-                    report_at_end=report_at_end,
-                )
                 if self._workflow_stop_event.is_set():
                     self._task_manager.stop()
                 self._task_manager.run(task_names, grid_names)
         except MicroscopeBusy as e:
             logging.warning(f"Grid workflow not started: {e}")
+            self._end_unstarted_run(e)
         except (InterruptedError, OperationCancelledError) as e:
             logging.info(f"Grid workflow cancelled: {e}")
+            self._end_unstarted_run(e)
         except Exception as e:
             logging.error(f"Error during grid workflow: {e}", exc_info=True)
+            self._end_unstarted_run(e)
         finally:
             cancelled = self._task_manager is not None and self._task_manager.is_stopped
             if self._task_manager is not None:
@@ -1258,6 +1292,17 @@ class AutoLamellaUI(QMainWindow):
             self._task_manager = None
             self._task_worker_thread = None
             self._workflow_finished_signal.emit(cancelled)  # type: ignore
+
+    def _end_unstarted_run(self, error: BaseException) -> None:
+        """Workflow thread. End a run that died in the set-up above before it
+        began, so whoever was told it started sees it end (FIB-1353)."""
+        manager = self._task_manager
+        if manager is None:
+            return
+        try:
+            manager.end_unstarted_run(error)
+        except Exception:
+            logging.exception("reporting the end of a run that never began failed")
 
     def _marshal(self, apply, *args) -> None:
         """Run ``apply(*args)`` on the GUI thread as whoever called this."""
@@ -2026,6 +2071,14 @@ class AutoLamellaUI(QMainWindow):
                 logging.error("No microscope or experiment loaded.")
                 return
 
+            # Made before the set-up below, so a failure in it still ends the
+            # run with an event (FIB-1353).
+            self._task_manager = TaskManager(
+                microscope=self.microscope,
+                experiment=self.experiment,
+                parent_ui=self,
+                hook_manager=self.setup_hooks(),
+            )
             # In control for the whole run, beams on included (FIB-1270).
             with self.microscope.control.take(WORKFLOW, "a lamella run"):
                 # turn beams on if required
@@ -2037,14 +2090,8 @@ class AutoLamellaUI(QMainWindow):
                 logging.info(
                     f"Starting tasks: {task_names}, for lamella: {lamella_names}"
                 )
-                self._task_manager = TaskManager(
-                    microscope=self.microscope,
-                    experiment=self.experiment,
-                    parent_ui=self,
-                    hook_manager=self.setup_hooks(),
-                )
-                # Honor a stop requested before the manager existed (e.g. clicked
-                # during beam-on, while _task_manager was still None).
+                # Honor a stop requested before the manager existed (clicked
+                # as the worker started, while _task_manager was still None).
                 if self._workflow_stop_event.is_set():
                     self._task_manager.stop()
                 self._task_manager.run(
@@ -2053,14 +2100,17 @@ class AutoLamellaUI(QMainWindow):
                 )
         except MicroscopeBusy as e:
             logging.warning(f"Workflow not started: {e}")
+            self._end_unstarted_run(e)
         except (InterruptedError, OperationCancelledError) as e:
             # A user Stop, not a failure: both cancellation types unwind through
             # here, and anyone scanning the log for problems (or filtering on
             # ERROR) must not see one per Stop press. The task layer has already
             # recorded the outcome as Cancelled; this is the worker's exit note.
             logging.info(f"Workflow cancelled: {e}")
+            self._end_unstarted_run(e)
         except Exception as e:
             logging.error(f"Error during running tasks: {e}", exc_info=True)
+            self._end_unstarted_run(e)
 
         finally:
             cancelled = self._task_manager is not None and self._task_manager.is_stopped

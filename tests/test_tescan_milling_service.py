@@ -10,9 +10,9 @@ of view is put back too.
 
 import json
 import os
-import types
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import fibsem.config as cfg
@@ -20,11 +20,14 @@ from fibsem import utils
 from fibsem.drivers.tescan import connection as tescan_connection
 from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.drivers.tescan.services import TescanMilling
+from fibsem.services.milling import UnsupportedPattern
 from fibsem.structures import (
     BeamType,
+    FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemMillingSettings,
+    FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
 )
@@ -33,77 +36,15 @@ from tests.fixtures import tescan_sdk
 MILL_PRESET = "30 keV; 1 nA"
 IMAGING_PRESET = "30 keV; 100 pA"
 
-DBStatus = types.SimpleNamespace(
-    ProjectNotLoaded="ProjectNotLoaded",
-    ProjectLoadedExpositionIdle="ProjectLoadedExpositionIdle",
-    ProjectLoadedExpositionInProgress="ProjectLoadedExpositionInProgress",
-    ProjectLoadedExpositionPaused="ProjectLoadedExpositionPaused",
-    Unknown="Unknown",
-)
-
-
-class FakeDrawBeam(tescan_sdk._Recorded):
-    """``connection.DrawBeam``: a layer that records its patterns, and a status."""
-
-    def __init__(self, sdk):
-        super().__init__(sdk, "DrawBeam")
-        self.status = DBStatus.ProjectNotLoaded
-
-    def Layer(self, name, settings):
-        self._call("Layer", name, **settings)
-        return tescan_sdk.Node(self._sdk, "Layer")
-
-    def UnloadLayer(self):
-        self._call("UnloadLayer")
-
-    def Start(self):
-        self._call("Start")
-        self.status = DBStatus.ProjectLoadedExpositionInProgress
-
-    def Pause(self):
-        self._call("Pause")
-        self.status = DBStatus.ProjectLoadedExpositionPaused
-
-    def Resume(self):
-        self._call("Resume")
-        self.status = DBStatus.ProjectLoadedExpositionInProgress
-
-    def Stop(self):
-        self._call("Stop")
-        self.status = DBStatus.ProjectLoadedExpositionIdle
-
-    def GetStatus(self):
-        self._call("GetStatus")
-        return (self.status, 10.0, 2.0)
-
-    def EstimateTime(self):
-        self._call("EstimateTime")
-        return 42.0
+# The DrawBeam fakes live with the rest of the fake SDK; imported from here too.
+DBStatus = tescan_sdk.DBStatus
+FakeDrawBeam = tescan_sdk.FakeDrawBeam
 
 
 @pytest.fixture
 def connect(monkeypatch, tescan_system):
-    monkeypatch.setattr(tescan_connection, "TESCAN_ELECTRON_TO_ION_SETTLE_TIME", 0)
-    monkeypatch.setattr(
-        tescan_module, "IEtching", lambda **kwargs: kwargs, raising=False
-    )
-    monkeypatch.setattr(tescan_module, "DBStatus", DBStatus, raising=False)
-    monkeypatch.setattr(
-        tescan_module,
-        "DrawBeamStatusToPatterningState",
-        {
-            DBStatus.ProjectNotLoaded: MillingState.IDLE,
-            DBStatus.ProjectLoadedExpositionIdle: MillingState.IDLE,
-            DBStatus.ProjectLoadedExpositionInProgress: MillingState.RUNNING,
-            DBStatus.ProjectLoadedExpositionPaused: MillingState.PAUSED,
-            DBStatus.Unknown: MillingState.ERROR,
-        },
-        raising=False,
-    )
-
     def make():
         fake = tescan_sdk.FakeTescan()
-        fake.DrawBeam = FakeDrawBeam(fake)
         fake.FIB.Preset.names = [
             MILL_PRESET,
             IMAGING_PRESET,
@@ -159,6 +100,44 @@ def test_tescan_builds_its_milling_service(connect):
     microscope, _ = connect()
     assert isinstance(microscope.milling, TescanMilling)
     assert microscope.milling.ion is microscope.beams[BeamType.ION]
+
+
+def test_tescan_draws_rectangles_lines_and_circles():
+    assert TescanMilling.supported_pattern_types() == (
+        FibsemRectangleSettings,
+        FibsemLineSettings,
+        FibsemCircleSettings,
+    )
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        FibsemBitmapSettings(
+            width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0
+        ),
+        FibsemPolygonSettings(
+            vertices=np.array([[0, 0], [1e-6, 0], [0, 1e-6]]), depth=1e-6
+        ),
+    ],
+    ids=["bitmap", "polygon"],
+)
+def test_a_pattern_drawbeam_has_no_shape_for_raises(connect, pattern):
+    """A bitmap used to be drawn as nothing, which mills nothing; now it raises,
+    before anything is added to the layer."""
+    microscope, fake = connect()
+    microscope.setup_milling(FibsemMillingSettings(preset=MILL_PRESET, hfw=80e-6))
+    fake.log.clear()
+    with pytest.raises(UnsupportedPattern, match="TescanMicroscope cannot draw"):
+        microscope.draw_patterns(
+            [
+                FibsemLineSettings(
+                    start_x=0, end_x=1e-6, start_y=0, end_y=0, depth=1e-6
+                ),
+                pattern,
+            ]
+        )
+    assert drawbeam(fake) == []
 
 
 with open(Path(__file__).parent / "fixtures" / "tescan_milling_calls.json") as f:

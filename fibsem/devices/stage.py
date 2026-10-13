@@ -32,11 +32,21 @@ milling angle setting, so the microscope builds it from the SEM rotation.
 
 from __future__ import annotations
 
+import logging
 import math
-from typing import Any, Dict, Mapping, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Iterator, Mapping, Optional
 
 from fibsem.constants import DEGREE_SYMBOL
-from fibsem.devices.core import Axes, Axis, Device, Parameter, command
+from fibsem.devices.core import (
+    Axes,
+    Axis,
+    Device,
+    Parameter,
+    Session,
+    command,
+    plain,
+)
 from fibsem.devices.display import Display
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
@@ -194,6 +204,7 @@ class Stage(Device):
         return {
             "frame": self.frame,
             "has_builtin_shuttle": self.has_builtin_shuttle(),
+            "mirrors_back_view": self.mirrors_back_view(),
             "device_at_pose": {
                 orientation: self.device_at_pose(orientation)
                 for orientation in KNOWN_ORIENTATIONS
@@ -210,16 +221,25 @@ class Stage(Device):
 
     @command
     def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        """Move to a position. Axes that are None stay where they are."""
-        self.check_limits(position)
-        return self.move_through(position)
+        """Move to a position. Axes that are None stay where they are.
+
+        Claims the stage, moves, and reads back the position, which updates the cache
+        and emits ``position.changed`` and each moved axis's ``changed``.
+        """
+        with recording_move(self.session, self, "move_absolute", position=position):
+            self.check_limits(position)
+            with self.resources.claim(STAGE_RESOURCE):
+                self._move_absolute(position)
+                return self.position.get_value()
 
     @command
     def move_relative(self, delta: FibsemStagePosition) -> FibsemStagePosition:
         """Move by an offset. Axes that are None don't move."""
-        with self.resources.claim(STAGE_RESOURCE):
-            self.check_limits(self.position.get_value() + delta)
-            return self.move_through(delta, relative=True)
+        with recording_move(self.session, self, "move_relative", position=delta):
+            with self.resources.claim(STAGE_RESOURCE):
+                self.check_limits(self.position.get_value() + delta)
+                self._move_relative(delta)
+                return self.position.get_value()
 
     @command(available=lambda stage: "homed" in stage.parameters)
     def home(self) -> bool:
@@ -242,23 +262,6 @@ class Stage(Device):
         """``poses()`` as a command, so a stage on another computer can be asked for
         its poses. It moves nothing."""
         return self.poses(rotation_reference, shuttle_pre_tilt, fib_column_tilt)
-
-    def move_through(
-        self, position: FibsemStagePosition, relative: bool = False
-    ) -> FibsemStagePosition:
-        """The old API's move: the same path with no limit check, so nothing changes.
-
-        Today no backend refuses an out-of-limit move before the vendor does; the
-        old ``move_stage_absolute``/``move_stage_relative`` keep that by calling this.
-        Claims the stage, moves, and reads back the position, which updates the cache
-        and emits ``position.changed`` and each moved axis's ``changed``.
-        """
-        with self.resources.claim(STAGE_RESOURCE):
-            if relative:
-                self._move_relative(position)
-            else:
-                self._move_absolute(position)
-            return self.position.get_value()
 
     def check_limits(self, position: FibsemStagePosition) -> None:
         """Raise ``StageLimitError`` naming every axis of *position* out of limits."""
@@ -310,6 +313,15 @@ class Stage(Device):
         """
         return False
 
+    def mirrors_back_view(self) -> bool:
+        """Whether the instrument mirrors an image a beam takes of the back of the
+        grid, so it reads as if seen from the front. Stamped on every image
+        (`FibsemHardwareGeometry.mirrors_back_view`) for its reprojection.
+
+        False by default: the image is as the beam saw it.
+        """
+        return False
+
     def turned_over(self, tilt: float) -> bool:
         """Whether the sample is turned over at this stage tilt, in radians.
 
@@ -331,3 +343,36 @@ class Stage(Device):
 
     def _link(self) -> None:
         raise NotImplementedError
+
+
+@contextmanager
+def recording_move(
+    session: Session, stage: Any, move: str, **request: Any
+) -> Iterator[None]:
+    """Record the stage moves inside as one ``stage_moved`` event named ``move``, with
+    ``request`` (the arguments it was given), and where ``stage`` was before and after.
+    A stage move inside another records nothing of its own (`Session.recording`), so
+    a stage movement service's move is recorded under the service's name.
+
+    ``start`` and ``end`` are the position last read, never a new read, which would be
+    a hardware call the move did not make: a move ends by reading where it got to, and
+    one that failed first ends where it began.
+    """
+    with session.recording("stage_moved", move=move, request=None, start=None) as entry:
+        try:
+            entry["request"] = {name: plain(value) for name, value in request.items()}
+            entry["start"] = plain(_last_position(stage))
+        except Exception:  # noqa: BLE001 - recording must not matter
+            logging.debug(f"could not describe a {move} stage move", exc_info=True)
+        try:
+            yield
+        finally:
+            try:
+                entry["end"] = plain(_last_position(stage))
+            except Exception:  # noqa: BLE001 - recording must not matter
+                entry["end"] = None
+
+
+def _last_position(stage: Any) -> Optional[FibsemStagePosition]:
+    position = getattr(stage, "parameters", {}).get("position")
+    return None if position is None else position.last_known

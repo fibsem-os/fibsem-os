@@ -54,6 +54,7 @@ import math
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -71,6 +72,7 @@ import numpy as np
 
 from fibsem.devices.beam import Beam, nearest_resolution
 from fibsem.devices.chamber import Chamber
+from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     IMAGING_CHANNEL,
     BoundParameter,
@@ -142,9 +144,9 @@ class AutoscriptStage(Stage):
     - ``_move_relative``: ``move_stage_relative``;
     - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
 
-    The old moves end by reading the position back; ``Stage.move_through`` does the
-    same read, so a move here is the same calls end to end. Limits and positions share
-    one unit: radians for r and t.
+    The old moves end by reading the position back; ``Stage.move_absolute`` and
+    ``move_relative`` do the same read, so a move here is the same calls end to end.
+    Limits and positions share one unit: radians for r and t.
     """
 
     compustage = False
@@ -267,6 +269,10 @@ class AutoscriptCompustage(AutoscriptStage):
         return False
 
     def has_builtin_shuttle(self) -> bool:
+        return True
+
+    def mirrors_back_view(self) -> bool:
+        # xT presents an image of the back of the grid mirrored, as if from the front
         return True
 
     def poses(
@@ -447,6 +453,30 @@ class AutoscriptBeam(Beam):
 
         self._beam.beam_shift.value = ThermoPoint(value.x, value.y)
         self._set_log("shift", value, "")
+
+    def _shift_by(self, dx: float, dy: float) -> None:
+        # Clipped to the limits xT reports, warning when the asked shift is outside.
+        limits = self._beam.beam_shift.limits
+        current = self.shift.get_value()
+        new_shift = Point(x=current.x + dx, y=current.y + dy)
+        if new_shift.x < limits.limits_x.min or new_shift.x > limits.limits_x.max:
+            logging.warning(
+                f"Beam shift x value {new_shift.x} is out of bounds: {limits.limits_x}"
+            )
+        if new_shift.y < limits.limits_y.min or new_shift.y > limits.limits_y.max:
+            logging.warning(
+                f"Beam shift y value {new_shift.y} is out of bounds: {limits.limits_y}"
+            )
+        new_shift.x = float(
+            np.clip(new_shift.x, limits.limits_x.min, limits.limits_x.max)
+        )
+        new_shift.y = float(
+            np.clip(new_shift.y, limits.limits_y.min, limits.limits_y.max)
+        )
+        self.shift.write_through(new_shift)
+        logging.debug(
+            {"msg": "beam_shift", "dx": dx, "dy": dy, "beam_type": self.beam_type.name}
+        )
 
     def read_stigmation(self) -> Point:
         beam = self._beam
@@ -648,7 +678,7 @@ class AutoscriptBeam(Beam):
         name = self.beam_type.name
         if image_settings is None:
             # acquire_image(beam_type=...): the beam's current settings
-            settings = microscope.get_imaging_settings(beam_type=self.beam_type)
+            settings = self.image_settings()
             logging.debug(f"acquiring new {name} image.")
             with self.claim_channel():
                 adorned = self.connection.sdk.imaging.grab_frame(None)
@@ -696,9 +726,6 @@ class AutoscriptBeam(Beam):
         image = images.fibsem_image_from_adorned_image(
             copy.deepcopy(adorned), copy.deepcopy(settings), copy.deepcopy(state)
         )
-        microscope._set_additional_metadata(image)
-        if image_settings is not None:
-            microscope._last_imaging_settings = image_settings
         logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
         return image
 
@@ -715,7 +742,6 @@ class AutoscriptBeam(Beam):
         fibsem_image = images.fibsem_image_from_adorned_image(
             adorned=image, image_settings=None, state=state, beam_type=self.beam_type
         )
-        microscope._set_additional_metadata(fibsem_image)
         logging.debug(
             {"msg": "acquire_image", "metadata": fibsem_image.metadata.to_dict()}
         )
@@ -790,7 +816,7 @@ class AutoscriptBeam(Beam):
         """A live frame as a FibsemImage, with the beam's current state."""
         microscope = self.parent
         state = microscope.get_microscope_state(beam_type=self.beam_type)
-        image_settings = microscope.get_imaging_settings(beam_type=self.beam_type)
+        image_settings = self.image_settings()
 
         image = images.fibsem_image_from_adorned_image(
             copy.deepcopy(adorned_image),
@@ -798,7 +824,7 @@ class AutoscriptBeam(Beam):
             copy.deepcopy(state),
         )
 
-        microscope._set_additional_metadata(image)
+        self.session.stamp(image)
 
         return image
 
@@ -838,6 +864,45 @@ def bind_autoscript_beams(
 
 
 # -- the chamber and the manipulator --------------------------------------------------
+
+
+# The chamber camera's place on the channel the beams and the FM share.
+CHAMBER_CAMERA_VIEW = 4
+CHAMBER_CAMERA_DEVICE = 3
+
+
+class AutoscriptChamberCamera(ChamberCamera):
+    """The chamber camera: view 4, device 3 on the shared imaging channel.
+
+    A glance at it takes the channel away from whatever had it, so the frame is grabbed
+    under the channel lock and the view put back in a ``finally``: leaving the
+    connection on the chamber camera strands whoever was mid-operation, which is
+    FIB-517 with a different thief (FIB-545). It restores the view alone, because
+    ``set_active_device`` changes the device *in the active view*, so the device comes
+    back with it.
+    """
+
+    def __init__(
+        self,
+        parent: ThermoMicroscope,
+        connection: AutoScriptConnection,
+        resources: Optional[Resources] = None,
+    ):
+        super().__init__(parent=parent, resources=resources)
+        self.connection = connection
+
+    def _acquire(self) -> np.ndarray:
+        imaging = self.connection.sdk.imaging
+        with self.connection.lock:
+            restore_view = imaging.get_active_view()
+            imaging.set_active_view(CHAMBER_CAMERA_VIEW)
+            imaging.set_active_device(CHAMBER_CAMERA_DEVICE)
+            try:
+                image = imaging.get_image()
+            finally:
+                imaging.set_active_view(restore_view)
+        logging.debug({"msg": "acquire_chamber_image"})
+        return image.data
 
 
 class AutoscriptChamber(Chamber):
@@ -1022,6 +1087,15 @@ def autoloader_installed(microscope: ThermoMicroscope) -> bool:
 _MANIPULATOR_NAMES = ("PARK", "EUCENTRIC")
 
 
+def _in_raw_unless_named(
+    position: FibsemManipulatorPosition,
+) -> FibsemManipulatorPosition:
+    """A position that names no coordinate system moves in the needle's raw frame."""
+    if position.coordinate_system is not None:
+        return position
+    return replace(position, coordinate_system="RAW")
+
+
 class AutoscriptManipulator(Manipulator):
     """The AutoScript needle, ``connection.specimen.manipulator``.
 
@@ -1030,8 +1104,9 @@ class AutoscriptManipulator(Manipulator):
     (``insert_manipulator``), ``_retract`` (``retract_manipulator``),
     ``_move_relative``/``_move_absolute`` (``move_manipulator_relative``/
     ``_absolute``) and ``saved_position`` (``_get_saved_manipulator_position``).
-    The corrected and offset moves depend on the stage tilt, so they stay
-    ``ThermoMicroscope``'s and move through this device.
+    The needle's axes tilt with the stage, so the corrected and offset moves
+    (``_move_corrected``, ``_offset_target``) correct for the tilt of the stage in its
+    ``stage`` role.
     """
 
     def __init__(
@@ -1140,6 +1215,7 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
+        delta = _in_raw_unless_named(delta)
         logging.info(f"moving manipulator by {delta}")
         self._needle.relative_move(manipulator_position_to_autoscript(delta))
         logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
@@ -1149,11 +1225,80 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
+        position = _in_raw_unless_named(position)
         logging.info(f"moving manipulator to {position}")
         self._needle.absolute_move(manipulator_position_to_autoscript(position))
         logging.debug(
             {"msg": "move_manipulator_absolute", "position": position.to_dict()}
         )
+
+    # -- corrected moves -----------------------------------------------------------
+    #
+    # The needle moves in stage coordinates, whose y and z tilt with the stage. In the
+    # electron view an image dy is along the tilted y; in the ion view it is along the
+    # tilted z. x needs no correction.
+
+    @staticmethod
+    def _y_corrected(expected_y: float, stage_tilt: float) -> FibsemManipulatorPosition:
+        """The needle move for an image dy in the electron view."""
+        y_move = +np.cos(stage_tilt) * expected_y
+        z_move = +np.sin(stage_tilt) * expected_y
+        return FibsemManipulatorPosition(x=0, y=y_move, z=z_move)
+
+    @staticmethod
+    def _z_corrected(expected_z: float, stage_tilt: float) -> FibsemManipulatorPosition:
+        """The needle move for an image dy in the ion view."""
+        y_move = -np.sin(stage_tilt) * expected_z
+        z_move = +np.cos(stage_tilt) * expected_z
+        return FibsemManipulatorPosition(x=0, y=y_move, z=z_move)
+
+    def _stage_tilt(self) -> float:
+        return self.stage.position.get_value().t
+
+    def _move_corrected(self, dx: float, dy: float, beam_type: BeamType) -> None:
+        """BeamType.ELECTRON moves in x, y and BeamType.ION in x, z (raw coordinates),
+        corrected for the stage tilt."""
+        from fibsem.drivers.autoscript.microscope import ManipulatorCoordinateSystem
+
+        stage_tilt = self._stage_tilt()
+        if beam_type is BeamType.ELECTRON:
+            yz_move = self._y_corrected(dy, stage_tilt)
+        elif beam_type is BeamType.ION:
+            yz_move = self._z_corrected(dy, stage_tilt)
+        else:
+            raise ValueError(f"Unknown beam type: {beam_type}")
+
+        # explicitly set the coordinate system
+        self._needle.set_default_coordinate_system(ManipulatorCoordinateSystem.STAGE)
+        self._move_relative(
+            FibsemManipulatorPosition(
+                x=dx, y=yz_move.y, z=yz_move.z, r=0.0, coordinate_system="STAGE"
+            )
+        )
+
+    def _offset_target(
+        self, offset: FibsemManipulatorPosition, name: str
+    ) -> FibsemManipulatorPosition:
+        saved_position = self.saved_position(name)
+
+        # calculate corrected manipulator movement
+        yz_move = self._z_corrected(offset.z, self._stage_tilt())
+
+        # adjust for offset
+        saved_position.x += offset.x
+        saved_position.y += yz_move.y + offset.y
+        saved_position.z += yz_move.z  # RAW, up = negative, STAGE: down = negative
+        saved_position.r = None  # rotation is not supported
+
+        logging.debug(
+            {
+                "msg": "move_manipulator_to_position_offset",
+                "name": name,
+                "offset": offset.to_dict(),
+                "saved_position": saved_position.to_dict(),
+            }
+        )
+        return saved_position
 
 
 def bind_autoscript_manipulator(
@@ -1201,6 +1346,13 @@ def build_autoscript_chamber(
 ) -> AutoscriptChamber:
     microscope = context.microscope
     return _named(AutoscriptChamber(microscope, microscope._connection), entry)
+
+
+def build_autoscript_chamber_camera(
+    entry: DeviceEntry, context: BuildContext
+) -> AutoscriptChamberCamera:
+    microscope = context.microscope
+    return _named(AutoscriptChamberCamera(microscope, microscope._connection), entry)
 
 
 def build_autoscript_manipulator(

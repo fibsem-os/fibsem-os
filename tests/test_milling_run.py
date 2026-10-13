@@ -130,7 +130,7 @@ def test_the_demo_mills_for_its_estimate_and_reports_as_it_goes(microscope):
 
     assert isinstance(microscope.milling, DemoMilling)
     assert microscope.get_milling_state() is IDLE
-    assert microscope.milling_system.patterns == []
+    assert microscope._connection.milling_system.patterns == []
     assert [_elapsed(r) for r in reports] == list(range(11))
     assert reports[-1] == MillingProgress(
         status=MillingProgressStatus.STAGE_UPDATE,
@@ -156,7 +156,7 @@ def test_a_set_stop_event_stops_the_beam_and_cancels(microscope):
         microscope.run_milling(stop_event=stop)
 
     assert microscope.get_milling_state() is IDLE
-    assert microscope.milling_system.patterns == []
+    assert microscope._connection.milling_system.patterns == []
     assert _elapsed(microscope.milling.progress.cached) == 2
 
 

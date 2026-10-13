@@ -11,6 +11,7 @@ from fibsem.milling.base import (
     FibsemMillingStage,
     MillingStrategy,
     MillingStrategyConfig,
+    MillingStrategyResult,
 )
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.milling import report_progress
@@ -35,7 +36,9 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
         microscope: FibsemMicroscope,
         stage: FibsemMillingStage,
         stop_event: Optional[threading.Event] = None,
-    ) -> None:
+    ) -> MillingStrategyResult:
+        """Mill the stage's patterns once through; says which pattern it
+        milled."""
         logging.info(f"Running {self.name} Milling Strategy for {stage.name}")
         setup_milling(microscope, milling_stage=stage, stop_event=stop_event)
 
@@ -63,3 +66,4 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
 
         raise_if_cancelled(stop_event)  # last chance before the beam starts
         microscope.run_milling(stop_event=stop_event)
+        return MillingStrategyResult(facts={"Pattern": stage.pattern.name})

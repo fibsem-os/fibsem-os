@@ -5,8 +5,9 @@ The App Server is the API inside AutoLamella that the agent, the dashboard and
 (FIB-1035): what the agent may do is its level, on the chip in the status bar,
 and connecting one is the chip's "Connect an agent…" (``connect_agent_dialog``).
 
-The durable settings (whether it runs, which services) live in Preferences →
-App Server; this dialog shows what the running session has.
+Whether it runs lives in Preferences → App Server. Whether this session
+serves the microscope's devices is chosen here (FIB-1359), per session like the
+agent level; Preferences keeps only the start-up default.
 """
 
 from typing import Callable, Optional
@@ -14,6 +15,7 @@ from typing import Callable, Optional
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (
     QApplication,
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -25,6 +27,15 @@ from fibsem.ui import stylesheets
 from fibsem.ui.tokens import OK_COLOR, TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
 
 __all__ = ["AppServerDialog"]
+
+DEVICES_LABEL = "Serve the microscope's devices"
+DEVICES_TIP = (
+    "Also serve the routes that reach the instrument: its devices, stage, beams "
+    "and milling state, reads included. Off, clients see the session but cannot "
+    "query the microscope. Moving it still needs the agent at Drive. Changing "
+    "this restarts the App Server; a connected agent carries on. For this "
+    "session only; Preferences → App Server sets what a new session starts with."
+)
 
 _SECTION_STYLE = (
     f"color: {TEXT_MUTED_COLOR}; font-size: 10px; font-weight: bold; "
@@ -49,11 +60,18 @@ def note(text: str) -> QLabel:
 class AppServerDialog(QDialog):
     """Live view of the embedded App Server."""
 
-    def __init__(self, host_provider: Callable[[], Optional[object]], parent=None):
+    def __init__(
+        self,
+        host_provider: Callable[[], Optional[object]],
+        parent=None,
+        set_devices: Optional[Callable[[bool], None]] = None,
+    ):
         super().__init__(parent)
         self.setWindowTitle("App Server")
         self.setMinimumWidth(440)
         self._host_provider = host_provider
+        # Serves or stops serving the devices this session; restarts the server.
+        self._set_devices = set_devices
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 12)
@@ -70,6 +88,11 @@ class AppServerDialog(QDialog):
         layout.addLayout(status_row)
         self._services_label = note("")
         layout.addWidget(self._services_label)
+        self._chk_devices = QCheckBox(DEVICES_LABEL)
+        self._chk_devices.setToolTip(DEVICES_TIP)
+        self._chk_devices.setVisible(set_devices is not None)
+        self._chk_devices.toggled.connect(self._on_devices_toggled)
+        layout.addWidget(self._chk_devices)
 
         layout.addSpacing(6)
 
@@ -113,9 +136,7 @@ class AppServerDialog(QDialog):
         layout.addSpacing(6)
 
         # --- footer ---------------------------------------------------------
-        layout.addWidget(
-            note("Whether it runs, and its services, are in Preferences → App Server.")
-        )
+        layout.addWidget(note("Whether it runs is in Preferences → App Server."))
         footer = QHBoxLayout()
         footer.addStretch(1)
         self._btn_close = QPushButton("Close")
@@ -176,6 +197,7 @@ class AppServerDialog(QDialog):
             )
             self._status_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._services_label.setText("")
+            self._chk_devices.setEnabled(False)
             self._agent_label.setText("No clients while the App Server is off.")
             self._agent_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             return
@@ -183,10 +205,20 @@ class AppServerDialog(QDialog):
         self._status_label.setText(self._status_text(host))
         self._status_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
         self._services_label.setText(self.services_text(host))
+        self._chk_devices.setEnabled(True)
+        self._chk_devices.blockSignals(True)
+        self._chk_devices.setChecked(bool(getattr(host, "devices", False)))
+        self._chk_devices.blockSignals(False)
         self._agent_label.setText(self.agent_text(host))
         self._agent_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
 
     # --- actions --------------------------------------------------------------
+
+    def _on_devices_toggled(self, checked: bool) -> None:
+        if self._set_devices is None:
+            return
+        self._set_devices(checked)
+        self.refresh()
 
     @staticmethod
     def dashboard_url(host) -> str:

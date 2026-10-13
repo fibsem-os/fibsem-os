@@ -15,7 +15,8 @@ tagged union today: all three consumers open with the same `state ==` ladder ove
 closed vocabulary, so a union of dataclasses would fit the dispatch. Three things tip it
 to a flat record anyway.
 
-The variants are not cleanly disjoint. `task_id`/`task_name` ride on every report;
+The variants are not cleanly disjoint. `milling_run_id`/`milling_task_name` ride on every
+report;
 `start_time` on both a stage start and a stage update. Every shared field becomes a base
 class or a repeat.
 
@@ -193,8 +194,11 @@ class MillingProgress:
     # "no opinion, use the default"; see the module docstring for why it is sticky and
     # why it is tested falsy rather than `is not None`.
     message: Optional[str] = None
-    task_id: Optional[str] = None
-    task_name: Optional[str] = None
+    # Which milling run and which milling task config: the milling task's own, not the
+    # AutoLamella task's. An event's envelope carries that one (`task.id`), and the two
+    # were both called `task_id` until FIB-1356; the name here says which it is.
+    milling_run_id: Optional[str] = None
+    milling_task_name: Optional[str] = None
     # Which stage. Carried by the `STAGE_*` statuses only.
     stage_name: Optional[str] = None
     current_stage: Optional[int] = None
@@ -239,7 +243,7 @@ class MillingProgress:
         if self.status in _STAGE_QUALIFIED:
             name = self.stage_name
         elif self.status in _TASK_QUALIFIED:
-            name = self.task_name
+            name = self.milling_task_name
         if not name:
             return default
         # The trailing ellipsis reads as "and then the name" rather than as a pause once
@@ -297,8 +301,9 @@ class MillingProgress:
         return cls(
             status=status,
             message=message if isinstance(message, str) else None,
-            task_id=inner.get("task_id"),
-            task_name=inner.get("task_name"),
+            # `task_id`/`task_name` are the older spellings (FIB-1356).
+            milling_run_id=inner.get("milling_run_id") or inner.get("task_id"),
+            milling_task_name=inner.get("milling_task_name") or inner.get("task_name"),
             # `name` is the older spelling of `stage_name`.
             stage_name=inner.get("stage_name") or inner.get("name"),
             current_stage=_as_int(inner.get("current_stage")),

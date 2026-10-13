@@ -20,6 +20,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.entries import RoleBindingError
 from fibsem.structures import BeamType, DeviceEntry, ImageSettings
+from tests.fixtures.fake_drivers import built_in_packages
 from tests.fixtures.tescan_sdk import connect
 
 SCAN_GENERATOR = {"name": "scan_generator", "type": "scan_generator", "driver": "demo"}
@@ -60,9 +61,13 @@ THERMO = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
 import autoscript_beam_parity as B
-from fibsem.structures import BeamType, DeviceEntry, ImageSettings
+from fibsem.structures import (
+    BeamType, DeviceEntry, FibsemExperimentRef, FibsemUser, ImageSettings,
+)
 
 microscope = B.routed(False)
+# What connect sets and the fixture skips: the beam stamps each image with them.
+microscope.user, microscope.experiment = FibsemUser(), FibsemExperimentRef()
 microscope._build_stage()
 microscope.system.other_devices = [DeviceEntry.from_dict(json.loads(sys.argv[2]))]
 microscope.system.device_roles = {"electron": {"scanner": "scan_generator"}}
@@ -105,7 +110,7 @@ BUILDS = (
 )
 
 
-@pytest.mark.parametrize("backend", ["autoscript", "tescan", "odemis"])
+@pytest.mark.parametrize("backend", sorted(built_in_packages().values()))
 def test_roles_are_bound_after_every_build_step(backend):
     """A binding can name any device, so it is made once the connect step that
     calls it has built them all."""

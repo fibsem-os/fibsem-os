@@ -330,25 +330,33 @@ def test_how_each_run_ended():
     assert pd.isna(steps["running"]["duration"])
 
 
-def test_a_milling_stage_that_never_finished():
+# The milling run's id and config name, and the names a file recorded before
+# FIB-1356 has for them.
+MILLING_RUN_NAMES = [("milling_run_id", "milling_task_name"), ("task_id", "task_name")]
+
+
+@pytest.mark.parametrize("run_key,name_key", MILLING_RUN_NAMES)
+def test_a_milling_stage_that_never_finished(run_key, name_key):
     stage = {
         "name": "Rough 01",
         "milling": {"milling_current": 2e-9},
         "pattern": {"depth": 1e-6},
     }
+    started = {run_key: "m1", name_key: "Trench", "stage": stage}
     records = [
-        _record("milling_stage_started", 0, {"task_id": "m1", "stage": stage}),
+        _record("milling_stage_started", 0, started),
         _record(
             "milling_progress",
             40,
-            {"task_id": "m1", "stage_name": "Rough 01", "status": "stage-finished"},
+            {run_key: "m1", "stage_name": "Rough 01", "status": "stage-finished"},
         ),
-        _record("milling_stage_started", 40, {"task_id": "m2", "stage": stage}),
+        _record("milling_stage_started", 40, {run_key: "m2", "stage": stage}),
     ]
 
     milling = event_tables(records).milling.to_dict("records")
 
     assert [m["finished"] for m in milling] == [True, False]
+    assert milling[0]["milling_task"] == "Trench"
     assert milling[0]["duration"] == 40.0 and pd.isna(milling[1]["duration"])
     assert (milling[0]["milling_current"], milling[0]["depth"]) == (2e-9, 1e-6)
 

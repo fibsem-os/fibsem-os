@@ -1,4 +1,4 @@
-"""The Demo stage, chamber and manipulator behind a device server, used from a
+"""The Demo stage, chamber, chamber camera and manipulator behind a device server, used from a
 coordinator through the remote driver over localhost. Each must answer as the device
 it stands for: moves, pumping and venting run on the far side, and what the device
 says about itself beyond its parameters (its facts) comes across with it."""
@@ -25,6 +25,7 @@ from fibsem.devices.stage import UNLIMITED, StageLimitError  # noqa: E402
 from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
     RemoteChamber,
+    RemoteChamberCamera,
     RemoteManipulator,
     RemoteStage,
 )
@@ -46,13 +47,17 @@ from tests.fixtures.demo_stage import demo_session  # noqa: E402
 @pytest.fixture
 def served():
     """(local devices by name, remote devices by name), all on 127.0.0.1."""
-    local = {d.name: d for d in demo_devices(["stage", "chamber", "manipulator"])}
+    local = {
+        d.name: d
+        for d in demo_devices(["stage", "chamber", "chamber_camera", "manipulator"])
+    }
     server = DeviceServer(local.values()).start()
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
     descriptions = client.describe()
     remote = {
         "stage": RemoteStage(client=client),
         "chamber": RemoteChamber(client=client),
+        "chamber_camera": RemoteChamberCamera(client=client),
         "manipulator": RemoteManipulator(client=client),
     }
     for name, device in remote.items():
@@ -62,11 +67,17 @@ def served():
     server.stop()
 
 
-@pytest.mark.parametrize("name", ["stage", "chamber", "manipulator"])
+@pytest.mark.parametrize("name", ["stage", "chamber", "chamber_camera", "manipulator"])
 def test_a_remote_device_describes_itself_as_the_local_one(served, name):
     local, remote = served
     assert remote[name].describe() == local[name].describe()
     assert remote[name].commands.keys() == local[name].commands.keys()
+
+
+def test_a_remote_chamber_camera_returns_the_frame(served):
+    local, remote = served
+    frame = remote["chamber_camera"].acquire()
+    assert frame.shape == local["chamber_camera"].acquire().shape
 
 
 def test_a_remote_stage_has_the_local_axes_poses_and_frame(served):
@@ -118,9 +129,9 @@ def test_a_remote_stage_refuses_a_move_outside_the_limits(served):
     before = local["stage"].position.get_value()
     with pytest.raises(StageLimitError):
         remote["stage"].move_absolute(FibsemStagePosition(x=1.0))
-    # the server checks too: the old API's unchecked path is refused there
+    # the server checks too: a move that skips the client's check is refused there
     with pytest.raises(StageLimitError):
-        remote["stage"].move_through(FibsemStagePosition(x=1.0))
+        remote["stage"]._move_absolute(FibsemStagePosition(x=1.0))
     assert local["stage"].position.get_value() == before
 
 
