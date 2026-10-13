@@ -2460,8 +2460,9 @@ def stage_device_entry_name(key: str) -> str:
 # Where a half turn of the stage is centred, in raw stage coordinates (x, y), metres:
 # a position p recorded on one side of the stage is at 2c - p on the other. The centre
 # reprojection used before drivers reported one, calibrated on one ThermoFisher
-# instrument (FIB-655); kept for images that recorded no centre. ThermoFisher now
-# reports xT's centre plus `rotation_centre_correction`.
+# instrument (FIB-655). Only for reading images saved before the centre was recorded,
+# all of which were drawn with it; a driver that reports no centre records None.
+# ThermoFisher now reports xT's centre plus `rotation_centre_correction`.
 LEGACY_ROTATION_CENTRE: Tuple[float, float] = (
     -0.0005127403888932854 + 25e-6,
     0.0007937916666666666 + 12.5e-6,
@@ -3665,10 +3666,11 @@ class FibsemHardwareGeometry:
     rotation_180: float = 180.0
     is_compustage: bool = False
     # Where a half turn of the stage is centred, raw (x, y) in metres; used to draw a
-    # position recorded on the other side of the stage. Defaults to the value every
-    # image was reprojected with before this field existed, so an image saved without
-    # it draws exactly as it did (FIB-1081).
-    rotation_centre: Tuple[float, float] = LEGACY_ROTATION_CENTRE
+    # position recorded on the other side of the stage. None when the driver reported
+    # none: reprojection then turns about the stage origin. An image saved before this
+    # field existed reads LEGACY_ROTATION_CENTRE, so it draws exactly as it did
+    # (FIB-1081).
+    rotation_centre: Optional[Tuple[float, float]] = None
     # The pose the stage declared for each orientation name (SEM, FIB, and FM on a
     # compustage), as (r, t) in degrees (FIB-1101). Empty on an image written before
     # the stage declared its poses; `declared_poses` rebuilds them for those.
@@ -3720,7 +3722,7 @@ class FibsemHardwareGeometry:
         it is a property of the installed hardware, which only the connected
         microscope knows. Callers holding one should pass ``microscope._fm_is_a_pose()``.
         ``rotation_centre`` likewise comes from the driver (``microscope.rotation_centre``);
-        None records LEGACY_ROTATION_CENTRE. ``poses`` are the stage's declared poses
+        None records None. ``poses`` are the stage's declared poses
         (``microscope._stage_poses()``), in radians; None records none.
         ``stage_frame`` is the frame the stage reports (``microscope.stage_frame``).
         """
@@ -3731,11 +3733,7 @@ class FibsemHardwareGeometry:
             rotation_reference=system.stage.rotation_reference,
             rotation_180=system.stage._fib_rotation(),
             is_compustage=is_compustage,
-            rotation_centre=(
-                rotation_centre
-                if rotation_centre is not None
-                else LEGACY_ROTATION_CENTRE
-            ),
+            rotation_centre=rotation_centre,
             poses={
                 name: (float(np.degrees(pose.r)), float(np.degrees(pose.t)))
                 for name, pose in (poses or {}).items()
@@ -3751,7 +3749,9 @@ class FibsemHardwareGeometry:
             "rotation_reference": self.rotation_reference,
             "rotation_180": self.rotation_180,
             "is_compustage": self.is_compustage,
-            "rotation_centre": list(self.rotation_centre),
+            "rotation_centre": (
+                list(self.rotation_centre) if self.rotation_centre is not None else None
+            ),
             "poses": {name: list(pose) for name, pose in self.poses.items()},
             "stage_frame": self.stage_frame,
             "camera_tilt": self.camera_tilt,
@@ -3770,9 +3770,12 @@ class FibsemHardwareGeometry:
             rotation_reference=ddict.get("rotation_reference", 0.0),
             rotation_180=ddict.get("rotation_180", 180.0),
             is_compustage=ddict.get("is_compustage", False),
+            # Absent only on an image saved before the field existed, all of which
+            # were drawn about the legacy centre; a recorded None stays None.
             rotation_centre=(
-                _parse_rotation_centre(ddict.get("rotation_centre"))
-                or LEGACY_ROTATION_CENTRE
+                _parse_rotation_centre(ddict["rotation_centre"])
+                if "rotation_centre" in ddict
+                else LEGACY_ROTATION_CENTRE
             ),
             poses={
                 name: (float(pose[0]), float(pose[1]))
@@ -4329,6 +4332,7 @@ class FibsemImageMetadata:
             ),
             rotation_180=stage.get("rotation_180", default.rotation_180),
             is_compustage=is_compustage,
+            rotation_centre=LEGACY_ROTATION_CENTRE,
         )
 
     @staticmethod
