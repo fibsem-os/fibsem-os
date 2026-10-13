@@ -9,6 +9,7 @@ import fibsem.constants as constants
 from fibsem import manufacturers
 from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.tescan.connection import TescanConnection
+from fibsem.drivers.tescan.devices import STAGE_FRAME_TESCAN
 from fibsem.microscope import (
     FibsemMicroscope,
     _records_beam_shift,
@@ -62,7 +63,6 @@ except Exception as e:
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.structures import (  # noqa
     ACTIVE_MILLING_STATES,
-    STAGE_FRAME_TESCAN,
     BeamSystemSettings,
     BeamType,
     CrossSectionPattern,

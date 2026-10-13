@@ -11,9 +11,9 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.drivers.tescan.devices import STAGE_FRAME_TESCAN
 from fibsem.structures import (
     STAGE_FRAME_FIBSEM,
-    STAGE_FRAME_TESCAN,
     BeamType,
     FibsemHardwareGeometry,
     FibsemImageMetadata,
@@ -72,3 +72,10 @@ def test_a_file_without_the_stamp_loads_with_none():
     del ddict["stage_frame"]
 
     assert FibsemHardwareGeometry.from_dict(ddict).stage_frame is None
+
+
+def test_a_driver_s_own_frame_round_trips_as_an_opaque_string():
+    """The core does not know a driver's frame names; an old Tescan image still loads."""
+    for frame in (STAGE_FRAME_TESCAN, "some_driver_native"):
+        ddict = FibsemHardwareGeometry(stage_frame=frame).to_dict()
+        assert FibsemHardwareGeometry.from_dict(ddict).stage_frame == frame

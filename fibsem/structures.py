@@ -2468,11 +2468,10 @@ LEGACY_ROTATION_CENTRE: Tuple[float, float] = (
 )
 
 
-# The frame a stage's positions are in (FIB-1114). Every stage reports fibsem's frame
-# except Tescan's, which still reports its own: x and y run opposite the image, y rides
-# on the tilt module and z is chamber-vertical, +z down.
+# The frame a stage's positions are in (FIB-1114): fibsem's, which every stage device
+# reports. A driver that records positions in its instrument's own frame names that
+# frame itself, in its own module; the core keeps such a name as an opaque string.
 STAGE_FRAME_FIBSEM = "fibsem"
-STAGE_FRAME_TESCAN = "tescan_native"
 
 
 def _parse_rotation_centre(value) -> Optional[Tuple[float, float]]:
@@ -3673,11 +3672,10 @@ class FibsemHardwareGeometry:
     # compustage), as (r, t) in degrees (FIB-1101). Empty on an image written before
     # the stage declared its poses; `declared_poses` rebuilds them for those.
     poses: Dict[str, Tuple[float, float]] = field(default_factory=dict)
-    # The frame the image's stage position is in: STAGE_FRAME_FIBSEM, or
-    # STAGE_FRAME_TESCAN from a Tescan without a stage device (FIB-1114). None on an
-    # image written before this was stamped, whose position is in the frame its backend
-    # reported: Tescan's own for a Tescan image, fibsem's for any other. Nothing reads
-    # Tescan's frame any more; old Tescan images are not converted.
+    # The frame the image's stage position is in (FIB-1114): STAGE_FRAME_FIBSEM, or a
+    # driver's name for its instrument's own frame, kept as an opaque string. None on
+    # an image written before this was stamped, whose position is in whatever frame its
+    # driver reported then. Nothing converts between frames on read.
     stage_frame: Optional[str] = None
     # Fluorescence only; left at these defaults for a beam image.
     camera_tilt: float = 0.0  # viewing axis, from the electron column

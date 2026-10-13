@@ -607,6 +607,14 @@ def bind_tescan_beams(
     }
 
 
+STAGE_FRAME_TESCAN = "tescan_native"
+"""Tescan's own stage frame, stamped on an image from a Tescan with no stage device.
+
+x and y run opposite the image, y rides on the tilt module and z is chamber-vertical,
++z down (FIB-1114). A stage device converts into fibsem's frame and stamps that.
+"""
+
+
 TILT_AXIS_Z = 29.8e-3
 """z′₀, in metres: the Tescan z reading at which the converted frame puts the tilt axis.
 
