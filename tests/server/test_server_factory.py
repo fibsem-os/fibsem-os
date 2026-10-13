@@ -198,6 +198,18 @@ def test_hardware_command_takes_control_as_the_agent(armed_client, microscope):
             {"device": "imaging", "command": "focus_sweep"},
             "focus sweep",
         ),
+        (
+            "POST",
+            "/services/milling/commands/run",
+            {"device": "milling", "command": "run"},
+            "milling run",
+        ),
+        (
+            "POST",
+            "/services/spot_burn/commands/run",
+            {"device": "spot_burn", "command": "run"},
+            "spot burn run",
+        ),
         ("POST", "/move_stage_relative", {}, "move stage relative"),
         (
             "PUT",
