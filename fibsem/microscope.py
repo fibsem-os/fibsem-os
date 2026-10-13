@@ -2261,17 +2261,35 @@ class FibsemMicroscope(ABC):
         self._write_beam("preset", preset, beam_type)
         return self._read_beam("preset", beam_type)
 
+    def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
+        """Specimen minus raw coordinates: the offset a half turn is taken about.
+
+        `_get_compucentric_rotation_position` reflects a position through minus this,
+        so a driver's `rotation_centre` c is an offset of -c -- the same centre its
+        images are reprojected with (FIB-1081). Without one, the rotation centre is
+        assumed to be the stage origin, as it always was here.
+        """
+        centre = self.rotation_centre
+        if centre is None:
+            return FibsemStagePosition(x=0, y=0)
+        return FibsemStagePosition(x=-centre[0], y=-centre[1])
+
+    def _compucentric_centre(self) -> Tuple[float, float]:
+        """The centre a half turn is taken about: minus the compucentric offset."""
+        offset = self._get_compucentric_rotation_offset()
+        return (-offset.x, -offset.y)
+
     def _get_compucentric_rotation_position(
         self, position: FibsemStagePosition
     ) -> FibsemStagePosition:
-        """`position` turned half way round about the driver's `rotation_centre`.
+        """`position` turned half way round about the compucentric centre.
 
         :func:`fibsem.geometry.orientations.compucentric_rotation`; a stage with no
         rotation axis (a compustage) has no compucentric rotation, so it is returned as is.
         """
         if not self.system.stage.rotation:
             return position
-        return compucentric_rotation(position, self.rotation_centre)
+        return compucentric_rotation(position, self._compucentric_centre())
 
     def _apply_device_translation(
         self, stage_position: FibsemStagePosition, source: str, target: str
@@ -2414,7 +2432,7 @@ class FibsemMicroscope(ABC):
                 stage_position,
                 current=self.get_orientation(currrent_orientation),
                 target=orientation,
-                rotation_centre=self.rotation_centre,
+                rotation_centre=self._compucentric_centre(),
                 has_rotation=bool(self.system.stage.rotation),
             )
 
