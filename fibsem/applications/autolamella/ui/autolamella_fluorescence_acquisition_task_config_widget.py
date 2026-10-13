@@ -23,17 +23,19 @@ from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
-class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
 
+class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
     channel_settings_changed = pyqtSignal(list)
     z_parameters_changed = pyqtSignal(ZParameters)
     autofocus_settings_changed = pyqtSignal(AutoFocusSettings)
     settings_changed = pyqtSignal(AcquireFluorescenceImageConfig)
 
-    def __init__(self, 
-                 microscope: 'FibsemMicroscope',
-                 config: Optional[AcquireFluorescenceImageConfig] = None,
-                 parent: Optional[QWidget] = None):
+    def __init__(
+        self,
+        microscope: "FibsemMicroscope",
+        config: Optional[AcquireFluorescenceImageConfig] = None,
+        parent: Optional[QWidget] = None,
+    ):
         super().__init__(parent)
         if config is None:
             config = AcquireFluorescenceImageConfig()
@@ -58,27 +60,39 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
         from fibsem.ui.fm.widgets.fm_multi_channel_widget import (
             FluorescenceMultiChannelWidget,
         )
-        self.channelSettingsWidget = FluorescenceMultiChannelWidget(fm=self.microscope.fm,
-                                                                    channel_settings=self.config.channel_settings,
-                                                                    parent=self)
-        self.channelPanel = TitledPanel("Channel Settings", content=self.channelSettingsWidget, collapsible=True)
+
+        self.channelSettingsWidget = FluorescenceMultiChannelWidget(
+            fm=self.microscope.fm,
+            channel_settings=self.config.channel_settings,
+            parent=self,
+        )
+        self.channelPanel = TitledPanel(
+            "Channel Settings", content=self.channelSettingsWidget, collapsible=True
+        )
 
         # Z Parameters
         self.z_parameters_widget = ZParametersWidget(self.config.zparams, parent=self)
-        self.zParametersPanel = TitledPanel("Z Parameters", content=self.z_parameters_widget, collapsible=True)
+        self.zParametersPanel = TitledPanel(
+            "Z Parameters", content=self.z_parameters_widget, collapsible=True
+        )
 
         # Create autofocus widget
         self.autofocusWidget = AutofocusWidget(
-            channel_settings=self.channelSettingsWidget.channel_settings,
-            parent=self
+            channel_settings=self.channelSettingsWidget.channel_settings, parent=self
         )
         self.autofocusWidget.set_autofocus_settings(self.config.autofocus_settings)
-        self.autofocusPanel = TitledPanel("Autofocus Settings", content=self.autofocusWidget, collapsible=True)
+        self.autofocusPanel = TitledPanel(
+            "Autofocus Settings", content=self.autofocusWidget, collapsible=True
+        )
 
         # propagate settings change events
-        self.channelSettingsWidget.settings_changed.connect(self._on_channel_settings_changed)
+        self.channelSettingsWidget.settings_changed.connect(
+            self._on_channel_settings_changed
+        )
         self.z_parameters_widget.settings_changed.connect(self._on_z_parameters_changed)
-        self.autofocusWidget.settings_changed.connect(self._on_autofocus_settings_changed)
+        self.autofocusWidget.settings_changed.connect(
+            self._on_autofocus_settings_changed
+        )
 
         layout.addWidget(orientation_label, 0, 0)
         layout.addWidget(self.orientation_combo, 0, 1)
@@ -93,7 +107,7 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
 
         self.setLayout(layout)
 
-    def set_microscope(self, microscope: 'FibsemMicroscope') -> None:
+    def set_microscope(self, microscope: "FibsemMicroscope") -> None:
         """Point this widget at a different microscope after a reconnect.
 
         The editors that own this widget are built once and survive
@@ -121,7 +135,9 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
         self.config = copy.deepcopy(config)
         self.orientation_combo.set_value(config.orientation)
         self.z_parameters_widget.z_parameters = config.zparams
-        self.channelSettingsWidget.channel_settings = config.channel_settings # this also updates autofocus channels...
+        self.channelSettingsWidget.channel_settings = (
+            config.channel_settings
+        )  # this also updates autofocus channels...
         self.autofocusWidget.set_autofocus_settings(config.autofocus_settings)
         self.blockSignals(False)
 
@@ -160,24 +176,45 @@ def main():
 
     microscope, settings = utils.setup_session()
     config = AcquireFluorescenceImageConfig(
-            task_name="TASK",
-            channel_settings=[
-                ChannelSettings(name="Reflection Channel", excitation_wavelength=550, emission_wavelength=None, power=0.02, exposure_time=0.005),
-                ChannelSettings(name="Red Channel", excitation_wavelength=550, emission_wavelength="FLUORESCENCE", power=0.3, exposure_time=0.5, color="red")],
-            zparams=ZParameters(zmin=-10e-6, zmax=10e-6, zstep=1e-6),
-            autofocus_settings=AutoFocusSettings.from_coarse_fine(fine_enabled=False, method=FocusMethod.SOBEL, channel_name="Reflection Channel")
-        )
+        task_name="TASK",
+        channel_settings=[
+            ChannelSettings(
+                name="Reflection Channel",
+                excitation_wavelength=550,
+                emission_wavelength=None,
+                power=0.02,
+                exposure_time=0.005,
+            ),
+            ChannelSettings(
+                name="Red Channel",
+                excitation_wavelength=550,
+                emission_wavelength="FLUORESCENCE",
+                power=0.3,
+                exposure_time=0.5,
+                color="red",
+            ),
+        ],
+        zparams=ZParameters(zmin=-10e-6, zmax=10e-6, zstep=1e-6),
+        autofocus_settings=AutoFocusSettings.from_coarse_fine(
+            fine_enabled=False,
+            method=FocusMethod.SOBEL,
+            channel_name="Reflection Channel",
+        ),
+    )
 
     # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
     # hosting the widget here (FIB-407).
     app = QApplication.instance() or QApplication([])
-    widget = AutoLamellaFluorescenceAcquisitionTaskConfigWidget(microscope=microscope, config=None)
+    widget = AutoLamellaFluorescenceAcquisitionTaskConfigWidget(
+        microscope=microscope, config=None
+    )
     widget.show()
 
     widget.set_task_config(config)
 
     def _on_settings_changed(updated: AcquireFluorescenceImageConfig):
         print("Task config updated:", updated.autofocus_settings)
+
     widget.settings_changed.connect(_on_settings_changed)
 
     app.exec_()

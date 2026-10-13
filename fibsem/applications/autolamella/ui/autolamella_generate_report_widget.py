@@ -34,7 +34,7 @@ class ReportGeneratorWorker(QtCore.QThread):
             generate_report2(
                 experiment=self.experiment,
                 output_filename=self.output_path,
-                sections=self.sections
+                sections=self.sections,
             )
             self.finished.emit(self.output_path)
         except Exception as e:
@@ -73,7 +73,9 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
         self._update_window_title(None)
 
         if experiment is None:
-            raise ValueError("AutoLamellaGenerateReportWidget requires an experiment instance.")
+            raise ValueError(
+                "AutoLamellaGenerateReportWidget requires an experiment instance."
+            )
 
         self.set_experiment(experiment)
 
@@ -99,7 +101,9 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
         # Output File Path
         self.lineEdit_output_path = QtWidgets.QLineEdit()
         self.lineEdit_output_path.setReadOnly(True)
-        self.lineEdit_output_path.setPlaceholderText("No output file selected (will default to experiment directory)")
+        self.lineEdit_output_path.setPlaceholderText(
+            "No output file selected (will default to experiment directory)"
+        )
         self.lineEdit_output_path.setCursorPosition(0)
 
         output_form_layout.addRow("Output File", self.lineEdit_output_path)
@@ -116,27 +120,43 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
         # Checkboxes for sections
         self.checkbox_overview = QtWidgets.QCheckBox("Overview Image with Positions")
         self.checkbox_overview.setChecked(True)
-        self.checkbox_overview.setToolTip("Include overview image showing all lamella positions")
+        self.checkbox_overview.setToolTip(
+            "Include overview image showing all lamella positions"
+        )
 
         self.checkbox_task_history = QtWidgets.QCheckBox("Task History Table")
         self.checkbox_task_history.setChecked(True)
-        self.checkbox_task_history.setToolTip("Include task history and timing information")
+        self.checkbox_task_history.setToolTip(
+            "Include task history and timing information"
+        )
 
         self.checkbox_detection = QtWidgets.QCheckBox("Detection Data")
         self.checkbox_detection.setChecked(True)
         self.checkbox_detection.setToolTip("Include detection results and statistics")
 
-        self.checkbox_lamella_workflow = QtWidgets.QCheckBox("Per-Lamella Workflow Tables")
+        self.checkbox_lamella_workflow = QtWidgets.QCheckBox(
+            "Per-Lamella Workflow Tables"
+        )
         self.checkbox_lamella_workflow.setChecked(True)
-        self.checkbox_lamella_workflow.setToolTip("Include workflow duration tables for each lamella")
+        self.checkbox_lamella_workflow.setToolTip(
+            "Include workflow duration tables for each lamella"
+        )
 
-        self.checkbox_lamella_images = QtWidgets.QCheckBox("Per-Lamella Workflow Images")
+        self.checkbox_lamella_images = QtWidgets.QCheckBox(
+            "Per-Lamella Workflow Images"
+        )
         self.checkbox_lamella_images.setChecked(True)
-        self.checkbox_lamella_images.setToolTip("Include SEM/FIB images for each lamella workflow stage")
+        self.checkbox_lamella_images.setToolTip(
+            "Include SEM/FIB images for each lamella workflow stage"
+        )
 
-        self.checkbox_lamella_milling = QtWidgets.QCheckBox("Per-Lamella Milling Data and Patterns")
+        self.checkbox_lamella_milling = QtWidgets.QCheckBox(
+            "Per-Lamella Milling Data and Patterns"
+        )
         self.checkbox_lamella_milling.setChecked(True)
-        self.checkbox_lamella_milling.setToolTip("Include milling patterns and data for each lamella")
+        self.checkbox_lamella_milling.setToolTip(
+            "Include milling patterns and data for each lamella"
+        )
 
         sections_layout.addWidget(self.checkbox_overview)
         sections_layout.addWidget(self.checkbox_task_history)
@@ -201,7 +221,9 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
             self._update_window_title(None)
             return
 
-        resolved_file_path = experiment_file_path or self._resolve_experiment_file_path(experiment)
+        resolved_file_path = experiment_file_path or self._resolve_experiment_file_path(
+            experiment
+        )
 
         experiment_dir = self._get_experiment_directory(experiment, resolved_file_path)
         if experiment_dir:
@@ -261,16 +283,13 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
 
         # Open save file dialog
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self,
-            "Save Report As",
-            start_path,
-            "PDF Files (*.pdf);;All Files (*)"
+            self, "Save Report As", start_path, "PDF Files (*.pdf);;All Files (*)"
         )
 
         if file_path and file_path != "":
             # Add .pdf extension if not present
-            if not file_path.lower().endswith('.pdf'):
-                file_path += '.pdf'
+            if not file_path.lower().endswith(".pdf"):
+                file_path += ".pdf"
 
             self.lineEdit_output_path.setText(file_path)
             self.lineEdit_output_path.setCursorPosition(0)
@@ -314,7 +333,7 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(
                 self,
                 "No Experiment",
-                "No experiment is available to generate a report."
+                "No experiment is available to generate a report.",
             )
             return
 
@@ -327,8 +346,8 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
             self.lineEdit_output_path.setText(output_path)
 
         # Add .pdf extension if not present
-        if not output_path.lower().endswith('.pdf'):
-            output_path += '.pdf'
+        if not output_path.lower().endswith(".pdf"):
+            output_path += ".pdf"
             self.lineEdit_output_path.setText(output_path)
 
         # Validate output directory exists
@@ -337,7 +356,7 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(
                 self,
                 "Invalid Directory",
-                f"Output directory does not exist: {output_dir}"
+                f"Output directory does not exist: {output_dir}",
             )
             return
 
@@ -349,7 +368,7 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
                 "File Exists",
                 f"A file named '{filename}' already exists.\n\nDo you want to overwrite it?",
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                QtWidgets.QMessageBox.No
+                QtWidgets.QMessageBox.No,
             )
             if reply == QtWidgets.QMessageBox.No:
                 return
@@ -360,7 +379,7 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(
                 self,
                 "No Sections Selected",
-                "Please select at least one section to include in the report."
+                "Please select at least one section to include in the report.",
             )
             return
 
@@ -382,7 +401,7 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
             "",  # Text for cancel button
             0,
             0,  # Indeterminate progress
-            self
+            self,
         )
         self.progress_dialog.setWindowTitle("Generating Report")
         self.progress_dialog.setWindowModality(QtCore.Qt.WindowModal)
@@ -428,7 +447,7 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
         QtWidgets.QMessageBox.information(
             self,
             "Report Generated",
-            f"Report generated successfully!\n\nSaved to:\n{output_path}"
+            f"Report generated successfully!\n\nSaved to:\n{output_path}",
         )
 
         # Accept the dialog
@@ -454,9 +473,7 @@ class AutoLamellaGenerateReportWidget(QtWidgets.QDialog):
 
         # Show error message
         QtWidgets.QMessageBox.critical(
-            self,
-            "Error",
-            f"Failed to generate report:\n\n{error_message}"
+            self, "Error", f"Failed to generate report:\n\n{error_message}"
         )
 
     def get_report_path(self) -> Optional[str]:
@@ -510,12 +527,12 @@ def main():
     exp = Experiment.load(PATH)
 
     if exp is None:
-        logging.error("Provide an Experiment instance to test AutoLamellaGenerateReportWidget.")
+        logging.error(
+            "Provide an Experiment instance to test AutoLamellaGenerateReportWidget."
+        )
         sys.exit(1)
-        
+
     generate_report_dialog(exp)
-
-
 
 
 if __name__ == "__main__":
