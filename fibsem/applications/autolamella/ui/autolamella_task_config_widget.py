@@ -209,34 +209,3 @@ class AutoLamellaTaskParametersConfigWidget(QWidget):
     def get_task_config(self) -> Optional[AutoLamellaTaskConfig]:
         """Get the current task configuration."""
         return self.task_config
-
-
-if __name__ == "__main__":
-    from PyQt5.QtWidgets import QApplication
-
-    from fibsem.applications.autolamella.workflows.tasks.tasks import (
-        AcquireReferenceImageConfig,
-        MillFiducialTaskConfig,
-    )
-
-    # Create test config
-    test_config = MillFiducialTaskConfig()
-    acquire_config = AcquireReferenceImageConfig()
-    # test_config = DEFAULT_PROTOCOL.task_config['MILL_ROUGH']
-
-    # Standalone harness: two plain Qt windows, not napari docks. napari was only ever
-    # hosting the widgets here (FIB-407). Both are kept alive in a list — a QWidget with
-    # no parent is destroyed when its last Python reference goes.
-    app = QApplication.instance() or QApplication([])
-    windows = []
-    for config, title in (
-        (test_config, "AutoLamella Task Parameters Widget Test"),
-        (acquire_config, acquire_config.task_name),
-    ):
-        widget = AutoLamellaTaskParametersConfigWidget(config)
-        widget.config_changed.connect(lambda config: print(f"Config changed: {config}"))
-        widget.setWindowTitle(title)
-        widget.show()
-        windows.append(widget)
-
-    app.exec_()
