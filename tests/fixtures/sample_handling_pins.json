@@ -817,7 +817,7 @@
   "has_loader": true,
   "holder": {
    "capacity": 1,
-   "name": "CompuStage Holder",
+   "name": "Built-in holder",
    "pre_tilt": 0.0,
    "slots": [
     {
@@ -1214,7 +1214,7 @@
   "rebuilt": {
    "holder": {
     "capacity": 1,
-    "name": "CompuStage Holder",
+    "name": "Built-in holder",
     "pre_tilt": 0.0,
     "slots": [
      {
@@ -1804,7 +1804,7 @@
   "has_loader": false,
   "holder": {
    "capacity": 1,
-   "name": "CompuStage Holder",
+   "name": "Built-in holder",
    "pre_tilt": 0.0,
    "slots": [
     {
@@ -1904,7 +1904,7 @@
   "rebuilt": {
    "holder": {
     "capacity": 1,
-    "name": "CompuStage Holder",
+    "name": "Built-in holder",
     "pre_tilt": 0.0,
     "slots": [
      {
