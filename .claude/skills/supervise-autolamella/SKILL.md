@@ -181,9 +181,9 @@ placement, that is the operator's decision (see the ladder).
 **`RunMillingTask`** — two distinct moments share this type; `passes` in
 the payload tells them apart:
 - *Start* (`passes: 0`): yes runs the mill with the config as shown; check
-  `task_name` and `num_stages` look right first. **No skips the mill**:
-  nothing is milled and the task is recorded Skipped. Skipping is the
-  operator's call; escalate rather than answer no here.
+  `task_name` and `num_stages` look right first. **No continues without
+  milling.** That is the operator's call; escalate rather than answer no
+  here.
 - *Inspect re-ask* (`passes` ≥ 1, after a mill pass): **yes mills AGAIN, no
   accepts.** Pull the fresh post-mill image (rules 2–3), judge it, and answer
   no to accept. Do not re-mill without a reason you can state.

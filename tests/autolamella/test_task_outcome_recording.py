@@ -17,7 +17,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Lamella,
 )
-from fibsem.applications.autolamella.workflows.interaction import MillingSkipped
 from fibsem.applications.autolamella.workflows.tasks.trench import (
     MillTrenchTask,
     MillTrenchTaskConfig,
@@ -137,32 +136,3 @@ def test_the_failure_hook_sees_the_terminal_status(
     assert len(seen) == 1
     assert seen[0].task_state.status is AutoLamellaTaskStatus.Failed
     assert seen[0].error == "stage timeout"
-
-
-def test_a_mill_skipped_at_its_first_ask_is_recorded_skipped(
-    microscope: FibsemMicroscope, tmp_path: Path
-) -> None:
-    """Skip before any pass: nothing was milled, so the record says Skipped,
-    not Completed, and task_skipped fires with the reason (FIB-1329)."""
-    seen: List[HookContext] = []
-    manager = HookManager()
-    manager.register(
-        FunctionHook(
-            events=["task_skipped", "task_completed", "task_failed"],
-            callback=seen.append,
-        )
-    )
-
-    task = _make_task(microscope, tmp_path)
-    task.task_manager = type("_M", (), {"hook_manager": manager, "is_stopped": False})()
-    reason = "Rough Mill was skipped before it was milled."
-    task._run = lambda: (_ for _ in ()).throw(MillingSkipped(reason))  # type: ignore[method-assign]
-    task.run()  # not a failure: nothing raises out of run()
-
-    assert task.lamella.task_state.status is AutoLamellaTaskStatus.Skipped
-    assert [entry.status for entry in task.lamella.task_history] == [
-        AutoLamellaTaskStatus.Skipped
-    ]
-    assert task.lamella.task_history[0].status_message == reason
-    assert [context.event for context in seen] == ["task_skipped"]
-    assert seen[0].skip_reason == reason

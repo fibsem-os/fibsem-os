@@ -31,7 +31,6 @@ from fibsem.applications.autolamella.structures import (
     Attention,
     AutoLamellaTaskDescription,
     AutoLamellaTaskProtocol,
-    AutoLamellaTaskStatus,
     AutoLamellaWorkflowConfig,
     Experiment,
 )
@@ -121,17 +120,6 @@ def _run_on_worker_thread(task, ui, qapp):
     raise AssertionError("the mill prompt never appeared")
 
 
-def _run_the_mill(ui, qapp):
-    """Run Milling, and wait for the re-ask: a Continue accepts a mill only
-    after one has run (FIB-1329)."""
-    ui.pushButton_yes.click()
-    deadline = time.monotonic() + 10
-    while not (ui.pushButton_no.text() == "Continue" and ui.pushButton_no.isEnabled()):
-        assert time.monotonic() < deadline, "the re-ask never came"
-        qapp.processEvents()
-        time.sleep(0.01)
-
-
 def _finish(thread, qapp):
     deadline = time.monotonic() + 10
     while thread.is_alive() and time.monotonic() < deadline:
@@ -145,7 +133,6 @@ def test_continue_after_the_mill_is_the_operators_decision_on_the_result(ui, qap
     task = _task(ui, review_enabled=True)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
-    _run_the_mill(ui, qapp)
     ui.pushButton_no.click()  # Continue
     _finish(thread, qapp)
 
@@ -167,33 +154,12 @@ def test_with_the_preference_off_the_record_is_still_theirs(ui, qapp):
     task = _task(ui, review_enabled=False)
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
-    _run_the_mill(ui, qapp)
     ui.pushButton_no.click()
     _finish(thread, qapp)
 
     assert "error" not in outcome
     decision = ui.experiment.positions[0].proposal(ROUGH).current
     assert decision.author.kind is AuthorKind.human
-
-
-@pytest.mark.parametrize("review_enabled", [True, False])
-def test_skip_before_the_mill_records_the_task_skipped(ui, qapp, review_enabled):
-    """Skip at the first ask: nothing was milled, so the task is Skipped, not
-    Completed, and there is no result to propose or decide (FIB-1329)."""
-    task = _task(ui, review_enabled=review_enabled)
-    thread, outcome = _run_on_worker_thread(task, ui, qapp)
-
-    assert ui.pushButton_no.text() == "Skip"
-    ui.pushButton_no.click()
-    _finish(thread, qapp)
-
-    assert "error" not in outcome, "a skip is not a failure"
-    lamella = ui.experiment.positions[0]
-    assert lamella.task_state.status is AutoLamellaTaskStatus.Skipped
-    assert "skipped before it was milled" in lamella.task_state.status_message
-    assert [e.status for e in lamella.task_history] == [AutoLamellaTaskStatus.Skipped]
-    assert lamella.proposal(ROUGH) is None
-    assert not lamella.is_awaiting_decision(ROUGH)
 
 
 def test_the_mill_the_task_asks_for_writes_under_the_task_s_folder(

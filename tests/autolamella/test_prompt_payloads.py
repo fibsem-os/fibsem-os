@@ -82,8 +82,9 @@ def test_confirm_detection_bare_array_reports_source_dimensions():
 
 
 def test_run_milling_payload_tells_the_first_ask_from_a_re_ask():
-    """At the first ask no skips the mill; after a pass no accepts it. The
-    payload says which, so an agent need not infer it from history (FIB-1329)."""
+    """At the first ask no goes on without milling; after a pass no accepts
+    the mill. The payload says which, so an agent need not infer it from
+    history (FIB-1329)."""
     from fibsem.milling import FibsemMillingStage
     from fibsem.milling.tasks import FibsemMillingTaskConfig
 
@@ -92,7 +93,7 @@ def test_run_milling_payload_tells_the_first_ask_from_a_re_ask():
     again = serialize_request(RunMillingTask(config=config, passes=1))
 
     assert first["passes"] == 0
-    assert "skips it" in first["message"]
+    assert "without milling" in first["message"]
     assert again["passes"] == 1
     assert "accepts what was milled" in again["message"]
     json.dumps(first)

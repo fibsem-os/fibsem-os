@@ -39,7 +39,6 @@ from fibsem.applications.autolamella.workflows.interaction import (
     Confirm,
     ConfirmDetection,
     EditAlignmentArea,
-    MillingSkipped,
     PickPOI,
     Request,
     ReviewDetection,
@@ -69,15 +68,6 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.ui.AutoLamellaUI import AutoLamellaUI
 
 __all__ = ["QtResponder"]
-
-
-def _milling_buttons(request: RunMillingTask) -> Tuple[str, Optional[str]]:
-    """The mill question's buttons. Before any pass the negative is Skip, after
-    one it is Continue: the same click means "nothing milled" in the first case
-    and "accept what was milled" in the second (FIB-1329)."""
-    if not request.enabled:
-        return "Continue", None
-    return "Run Milling", "Skip" if request.passes == 0 else "Continue"
 
 
 def _same_geometry(request: "Request", live: object, value: object) -> bool:
@@ -701,7 +691,9 @@ class QtResponder(QObject):
             else:
                 self._deliver(future, self._finish_milling_question())
             return
-        pos, neg = _milling_buttons(request)
+        pos, neg = (
+            ("Run Milling", "Continue") if request.enabled else ("Continue", None)
+        )
         self._park_question(request, future, request.message, pos, neg)
 
     def _wire_milling_finished(self, widget) -> None:
@@ -757,9 +749,10 @@ class QtResponder(QObject):
             if error is not None:
                 msg = f"Milling failed: {error}\n\n{msg}"
             # A re-ask, and says so: the pass count is what tells an agent this
-            # Continue accepts a mill rather than skipping one (FIB-1329).
+            # Continue accepts a mill rather than going on without one
+            # (FIB-1329).
             request = replace(request, passes=request.passes + 1)
-            self._park_question(request, future, msg, *_milling_buttons(request))
+            self._park_question(request, future, msg, "Run Milling", "Continue")
             return
         if error is not None:
             # Nobody to ask: the task fails, as it does headless. Handed over,
@@ -1113,13 +1106,8 @@ class QtResponder(QObject):
         """What the click means for this question's asker."""
         if isinstance(request, RunMillingTask):
             # Only the not-run clicks reach here (answer_confirm intercepts Run
-            # Milling): Skip, Continue, or either button when running is disabled.
-            config = self._finish_milling_question()
-            if request.enabled and request.passes == 0:
-                # Skip: nothing was milled, so the task must not record it as
-                # done. Raised to the asker in place of the config (FIB-1329).
-                raise MillingSkipped(f"{config.name} was skipped before it was milled.")
-            return config
+            # Milling): Continue, or either button when running is disabled.
+            return self._finish_milling_question()
         if isinstance(request, RunSpotBurn):
             # Only Continue reaches here; Run Spot Burn is intercepted above.
             return self._finish_spot_burn_question()

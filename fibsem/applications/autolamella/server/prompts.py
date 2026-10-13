@@ -149,8 +149,8 @@ def serialize_request(request) -> Dict[str, Any]:
         elif request.passes == 0:
             message = (
                 "Run this milling task? Answering yes runs the mill with the "
-                "configuration as currently shown; answering no skips it: "
-                "nothing is milled and the task is recorded Skipped."
+                "configuration as currently shown; answering no continues "
+                "without milling."
             )
         else:
             message = (
