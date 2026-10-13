@@ -86,6 +86,9 @@ def _pin(value: Any) -> Any:
 
 
 def _unwrap(value: Any) -> Any:
+    from fibsem.drivers.odemis.connection import raw
+
+    value = raw(value)
     if isinstance(value, _Recorded):
         return object.__getattribute__(value, "_target")
     return value
@@ -1066,3 +1069,16 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
     assert all(d.parent is microscope for d in fm.devices.values())
     # As the configuration's fm entry states it.
     assert fm.mount_transform is CameraImageTransform.FLIP_X
+
+
+def test_numpy_values_reach_odemis_as_plain_python(odemis):
+    """FIB-1367: an odemis back end on numpy 1 cannot unpickle a numpy 2 value."""
+    devices = _bound(odemis, "inserted")
+    camera = _unwrap(devices["camera"]._camera)
+    focuser = _unwrap(devices["objective"]._focuser)
+
+    devices["camera"].exposure_time.set_value(np.float64(0.2))
+    devices["objective"].move_absolute(np.float64(8.05e-3))
+
+    assert type(camera.exposureTime.value) is float
+    assert type(focuser.position.value["z"]) is float
