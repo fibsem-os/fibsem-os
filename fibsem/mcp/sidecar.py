@@ -448,6 +448,18 @@ def build_sidecar(client, capabilities):
         )
         return err if err else data
 
+    def request_actions(actions: list, reason: str):
+        data, err = _call(
+            client,
+            "POST",
+            "/app/agent/requests",
+            {"actions": list(actions), "reason": str(reason)},
+        )
+        return err if err else data
+
+    def get_request(request_id: str):
+        return _app_get(f"/app/agent/requests/{request_id}")
+
     def apply_protocol_to_item(item_name: str, task_names=None):
         data, err = _call(
             client,
@@ -672,6 +684,8 @@ def build_sidecar(client, capabilities):
             set_task_schedule,
             apply_protocol_to_item,
             add_note,
+            request_actions,
+            get_request,
             reorder_item_milling_stages,
             reorder_protocol_milling_stages,
             list_recent_experiments,

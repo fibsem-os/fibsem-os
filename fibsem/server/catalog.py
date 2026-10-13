@@ -33,6 +33,8 @@ class ToolSpec:
     # Further scopes, any of which also allows it (stop_milling: control or
     # hardware), matching the route's require_scope.
     also: Tuple[str, ...] = ()
+    # The level note, where the scope alone does not say it (request_actions).
+    level: str = ""
 
     def allowed(self, armed: Dict[str, bool]) -> bool:
         return any(armed.get(s, False) for s in (self.scope, *self.also))
@@ -45,18 +47,24 @@ class ToolSpec:
 
     @property
     def level_note(self) -> str:
-        """What the tool needs, in the agent's terms (FIB-1035)."""
+        """What the tool needs, in the agent's terms (FIB-1035, FIB-1283)."""
+        if self.level:
+            return self.level
+        if self.scope == "read":
+            return "Works at Watch, Assist and Drive."
+        if self.scope == "stop":
+            return "Works at Assist and Drive without asking; refused (403) at Watch."
+        note = (
+            "Needs the agent at Drive; at Assist, ask first: put the call in "
+            "request_actions and the operator approves it (a direct call is "
+            "refused, 403 ask_first). Refused (403) at Watch."
+        )
         if self.hardware_only:
             return (
-                "Needs the agent at Drive: refused (403) at Watch; refused (409) "
-                "while a run or script is in control of the microscope."
+                f"{note} Refused (409) while a run or script is in control of "
+                "the microscope."
             )
-        if self.scope == "read":
-            return "Works at Watch and Drive."
-        return (
-            "Needs the agent at Drive: refused (403) at Watch; the operator "
-            "sets the level from the Agent chip in AutoLamella."
-        )
+        return f"{note} The operator sets the level from the Agent chip in AutoLamella."
 
     @property
     def full_description(self) -> str:
@@ -67,7 +75,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     # --- read ---
     ToolSpec(
         name="get_capabilities",
-        description="Server capabilities: API version, manufacturer, mounted routers, armed scopes, and the agent's level (off / watch / drive). Read it first: the level says what the other tools will do.",
+        description="Server capabilities: API version, manufacturer, mounted routers, armed scopes, and the agent's level (off / watch / assist / drive). Read it first: the level says what the other tools will do. At Assist, act by asking: request_actions.",
         method="GET",
         path="/capabilities",
         scope="read",
@@ -456,6 +464,28 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "text": "the note, at most 4000 characters",
             "item_name": "optional: the item this note concerns",
         },
+    ),
+    ToolSpec(
+        name="request_actions",
+        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it). Answers the request, status pending; follow it with get_request or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping (stop_workflow, stop_milling): call those directly.",
+        method="POST",
+        path="/app/agent/requests",
+        scope="read",
+        router="app",
+        params={
+            "actions": "list of {tool, arguments}, at most 20",
+            "reason": "why: what you saw and what the actions will do, for the operator",
+        },
+        level="Works at Assist only: at Drive make the calls yourself (403 not_assist); refused (403) at Watch.",
+    ),
+    ToolSpec(
+        name="get_request",
+        description="One request you filed with request_actions: its status (pending, applying, applied, failed, rejected, cancelled), who decided it, the operator's reason on a reject, and each action's result or the route's error.",
+        method="GET",
+        path="/app/agent/requests/{request_id}",
+        scope="read",
+        router="app",
+        params={"request_id": "the request_id request_actions answered"},
     ),
     ToolSpec(
         name="apply_protocol_to_item",
