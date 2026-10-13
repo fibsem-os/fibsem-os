@@ -134,6 +134,42 @@ def test_query_is_read_scope_and_takes_no_control(read_client, microscope):
     assert resp.json()["result"] == to_wire(expected)
 
 
+def test_the_orientation_reads_are_queries(read_client, microscope):
+    sem = microscope.get_orientation("SEM")
+    at_sem = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=sem.r, t=sem.t)
+    resp = read_client.post(
+        "/services/stage_movement/queries/stage_orientation",
+        json={"kwargs": {"position": to_wire(at_sem)}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"] == "SEM"
+    resp = read_client.post(
+        "/services/stage_movement/queries/current_milling_angle",
+        json={"kwargs": {"position": to_wire(at_sem)}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"] == pytest.approx(
+        microscope.get_current_milling_angle(at_sem)
+    )
+
+
+def test_the_milling_angle_is_a_parameter_that_moves_milling(armed_client, microscope):
+    before = microscope.system.stage.milling_angle
+    try:
+        resp = armed_client.put(
+            "/services/stage_movement/milling_angle", json={"value": 22.0}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["value"] == pytest.approx(22.0)
+        assert microscope.system.stage.milling_angle == pytest.approx(22.0)
+        milling = microscope.get_orientation("MILLING")
+        assert microscope.get_current_milling_angle(
+            FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=milling.r, t=milling.t)
+        ) == pytest.approx(22.0)
+    finally:
+        microscope.set_milling_angle(before)
+
+
 def test_unknown_query_or_a_command_asked_as_one_is_404(read_client):
     resp = read_client.post("/services/stage_movement/queries/nope", json={})
     assert resp.status_code == 404
