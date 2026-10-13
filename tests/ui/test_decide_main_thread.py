@@ -118,7 +118,8 @@ def test_an_error_on_the_main_thread_is_raised_in_the_worker(qapp, tmp_path):
     lamella = exp.positions[0]
     proposal = lamella.proposals[SETUP][0]
     proposal.values = {"poi": Point(3e-6, 0.0)}
-    # A directory where the file goes: the open fails, whoever runs the test.
+    # A directory where the file goes: the open fails, whoever runs the test
+    # (IsADirectoryError on POSIX, PermissionError on Windows).
     blocker = os.path.join(exp.path, "experiment.yaml")
     os.makedirs(blocker)
     seen = {}
@@ -135,9 +136,9 @@ def test_an_error_on_the_main_thread_is_raised_in_the_worker(qapp, tmp_path):
     _spin_until(qapp, lambda: "done" in seen)
     t.join(5)
 
-    assert isinstance(seen.get("error"), IsADirectoryError)
+    assert isinstance(seen.get("error"), OSError)
     assert exp.unsaved
-    assert "IsADirectoryError" in exp.save_error
+    assert type(seen["error"]).__name__ in exp.save_error
     assert lamella.poi == Point(3e-6, 0.0), "memory keeps what was applied"
 
     os.rmdir(blocker)
