@@ -1571,7 +1571,11 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.stop_clicked.connect(self._on_stop_agent)
         self.status_bar.add_action(self.agent_chip)
         # What the agent is doing on the microscope, on the line (FIB-1375).
-        self.agent_activity = AgentActivity(self.status_bar, parent=self)
+        self.agent_activity = AgentActivity(
+            self.status_bar,
+            view_controller=lambda: getattr(self, "view_controller", None),
+            parent=self,
+        )
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
         self._agent_chip_timer.timeout.connect(self._refresh_agent_chip)

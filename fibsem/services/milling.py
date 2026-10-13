@@ -51,6 +51,7 @@ import time
 from typing import (
     Any,
     Dict,
+    List,
     Optional,
     Sequence,
     Tuple,
@@ -58,6 +59,8 @@ from typing import (
     TypeVar,
     Union,
 )
+
+from psygnal import Signal
 
 # At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
 # from its type hints (a FibsemMillingSettings sent as a dict).
@@ -134,6 +137,11 @@ class Milling(Service):
     # total and remaining time. The task and stage fields are a task's to fill.
     progress = Parameter(MillingProgress, doc="The run's state and times; read-only.")
 
+    # The patterns the next run mills, as drawn: the list so far after each
+    # ``draw``, and empty when setup, ``clear`` or the end of a run removes them.
+    # The app draws an agent's mill from it (FIB-1375), which it has no config of.
+    patterns_changed = Signal(object)
+
     # How often `run` looks at the instrument, in seconds.
     poll_interval: float = 1.0
     # How long after the start an idle instrument still means "not running yet"
@@ -159,6 +167,19 @@ class Milling(Service):
         # The run and stage the last task or stage start named, for the stage
         # updates that follow it; empty outside a milling task.
         self._run_context: Dict[str, Any] = {}
+        self._drawn: List[FibsemPatternSettings] = []
+
+    @property
+    def drawn_patterns(self) -> List[FibsemPatternSettings]:
+        """What ``draw`` has drawn since the patterns were last removed."""
+        return list(self._drawn)
+
+    def _set_drawn(self, patterns: Sequence[FibsemPatternSettings]) -> None:
+        self._drawn = list(patterns)
+        try:
+            self.patterns_changed.emit(list(self._drawn))
+        except Exception:  # noqa: BLE001 - showing them must not cost the mill
+            logging.debug("could not announce the drawn patterns", exc_info=True)
 
     def connect(self: _M) -> _M:
         super().connect()
@@ -290,6 +311,8 @@ class Milling(Service):
         if self._saved is None:
             self._save(self.beam(settings.milling_channel))
         self._setup(settings, name)
+        if self._drawn:
+            self._set_drawn([])
 
     @command
     def draw(self, patterns: Sequence[FibsemPatternSettings]) -> None:
@@ -300,8 +323,12 @@ class Milling(Service):
         """
         patterns = list(patterns)
         hooks = [self._hook_for(pattern) for pattern in patterns]
-        for pattern, hook in zip(patterns, hooks):
-            self._draw(pattern, hook)
+        try:
+            for pattern, hook in zip(patterns, hooks):
+                self._draw(pattern, hook)
+                self._drawn.append(pattern)
+        finally:
+            self._set_drawn(self._drawn)
 
     def _hook_for(self, pattern: FibsemPatternSettings) -> str:
         """The draw hook for *pattern*, or a raise when this instrument can't draw it."""
@@ -374,6 +401,7 @@ class Milling(Service):
                 self._after_run()
             finally:
                 self._clear()
+                self._set_drawn([])
         raise_if_cancelled(stop_event, "Milling stopped.")
 
     def _monitor(
@@ -438,6 +466,7 @@ class Milling(Service):
     def clear(self) -> None:
         """Remove every drawn pattern."""
         self._clear()
+        self._set_drawn([])
 
     @command
     def restore(self) -> None:
