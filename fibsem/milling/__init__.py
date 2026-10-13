@@ -3,6 +3,7 @@ from fibsem.milling.base import (
     MillingAlignment,
     MillingStrategy,
     MillingStrategyConfig,
+    MillingStrategyResult,
     estimate_milling_time,
     estimate_stage_milling_time,
     estimate_total_milling_time,
