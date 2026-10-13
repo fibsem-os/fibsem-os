@@ -99,7 +99,7 @@ def test_capabilities_reports_scopes_and_routers(read_client):
         "configure": False,
         "hardware": False,
     }
-    assert body["manufacturer"] == "DemoMicroscope"
+    assert body["manufacturer"] == "Demo"
 
 
 def test_read_route_with_token(read_client):

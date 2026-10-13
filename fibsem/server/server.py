@@ -252,7 +252,7 @@ def build_server(
     def capabilities():
         return {
             "api_version": API_VERSION,
-            "manufacturer": type(microscope).__name__,
+            "manufacturer": microscope.manufacturer,
             "routers": {
                 "microscope": devices,
                 "devices": devices,
