@@ -119,8 +119,9 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
 )
 from fibsem.server.levels import AgentLevel
 from fibsem.structures import BeamType
+from fibsem.tools.app_identity import set_app_identity
 from fibsem.ui import notification_service
-from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.icon import autolamella_icon, fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
     GRAY_ICON_COLOR,
@@ -4320,8 +4321,11 @@ def run_ui(argv: Optional[List[str]] = None):
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
     init_sentry()  # inert unless crash reporting is enabled in preferences
+    set_app_identity("AutoLamella", windows_app_id="fibsemOS.AutoLamella")
     app = QApplication.instance() or QApplication(sys.argv)
+    app.setApplicationName("AutoLamella")
     app.setStyle("Fusion")
+    app.setWindowIcon(autolamella_icon())
     # Cyclic garbage must only ever be collected on this thread: worker-thread GC
     # finalizes Qt/vispy objects off the GUI thread and hard-crashes Windows GL
     # drivers (access violation in glDrawArrays). See fibsem/ui/qt/gc.py.

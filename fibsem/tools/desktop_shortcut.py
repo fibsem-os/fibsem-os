@@ -9,6 +9,7 @@ Pure Python, no Qt -- the UI wires this into a menu action, and tests exercise
 it headlessly.
 """
 
+import importlib.resources
 import os
 import stat
 import subprocess
@@ -18,6 +19,12 @@ from typing import Optional
 
 ENTRY_POINT_NAME = "fibsem-autolamella-ui"
 SHORTCUT_BASENAME = "AutoLamella"
+
+# The shortcut's icon, shipped in the package beside the app's own SVG drawings.
+# Resolved through the package rather than fibsem.ui.icon, which imports Qt.
+_ICONS_DIR = Path(str(importlib.resources.files("fibsem"))) / "ui" / "icons"
+WINDOWS_ICON_PATH = _ICONS_DIR / "autolamella.ico"
+LINUX_ICON_PATH = _ICONS_DIR / "autolamella.svg"
 
 
 def find_entry_point(name: str = ENTRY_POINT_NAME) -> Optional[Path]:
@@ -139,6 +146,7 @@ def create_desktop_shortcut(
             "Name=AutoLamella\n"
             "Comment=Launch the AutoLamella UI\n"
             f'Exec="{str(target)}"\n'
+            f"Icon={LINUX_ICON_PATH}\n"
             "Terminal=false\n",
         )
     return destination
@@ -170,6 +178,7 @@ def _write_windows_lnk(destination: Path, target: Path) -> None:
         f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut({q(destination)}); "
         f"$s.TargetPath = {q(target)}; "
         f"$s.WorkingDirectory = {q(Path.home())}; "
+        f"$s.IconLocation = {q(WINDOWS_ICON_PATH)}; "
         "$s.Description = 'Launch the AutoLamella UI'; "
         "$s.Save()"
     )
