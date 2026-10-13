@@ -1296,36 +1296,23 @@ class FibsemMicroscope(ABC):
         return None
 
     def draw_patterns(self, patterns: List[FibsemPatternSettings]) -> None:
-        """Draw milling patterns on the microscope from the list of settings
+        """Draw milling patterns on the microscope from the list of settings. All
+        are checked first: one this instrument can't draw raises `UnsupportedPattern`
+        with none drawn.
+
         Args:
             patterns (List[FibsemPatternSettings]): List of milling patterns
         """
-        for pattern in patterns:
-            self.draw_pattern(pattern)
+        self._milling_service().draw(patterns)
 
     def draw_pattern(self, pattern: FibsemPatternSettings) -> None:
-        """Draw a milling pattern from settings
+        """Draw a milling pattern from settings. A pattern this instrument can't
+        draw raises `UnsupportedPattern`.
 
         Args:
             pattern_settings (FibsemPatternSettings): pattern settings
         """
-        if not isinstance(pattern, FibsemPatternSettings):
-            raise TypeError(f"Expected FibsemPatternSettings, got {type(pattern)}")
-
-        if isinstance(pattern, FibsemRectangleSettings):
-            self.draw_rectangle(pattern)
-
-        elif isinstance(pattern, FibsemLineSettings):
-            self.draw_line(pattern)
-
-        elif isinstance(pattern, FibsemCircleSettings):
-            self.draw_circle(pattern)
-
-        elif isinstance(pattern, FibsemBitmapSettings):
-            self.draw_bitmap_pattern(pattern)
-
-        elif isinstance(pattern, FibsemPolygonSettings):
-            self.draw_polygon(pattern)
+        self._milling_service().draw([pattern])
 
     def draw_rectangle(self, pattern_settings: FibsemRectangleSettings) -> None:
         self._milling_service().draw([pattern_settings])
