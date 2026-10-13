@@ -18,6 +18,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.microscope import _chamber_state_name
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.patterning.patterns import PolygonPattern
 from fibsem.milling.progress import MillingProgressStatus
@@ -339,28 +340,28 @@ def test_auto_focus_runs_the_working_distance_sweep(microscope):
 )
 def test_chamber_state(microscope, reported, expected):
     microscope.connection.chamber_state = reported
-    assert microscope.get("chamber_state") == expected
+    assert _chamber_state_name(microscope.chamber_device.state.get_value()) == expected
 
 
 def test_chamber_pressure(microscope):
-    assert microscope.get("chamber_pressure") == pytest.approx(1e-4)
+    assert microscope.chamber_device.pressure.get_value() == pytest.approx(1e-4)
 
 
 def test_current_choices(microscope):
-    assert microscope.get_available_values("current", BeamType.ION) == [
+    assert microscope.beams[BeamType.ION].parameters["current"].choices == [
         1e-12,
         1e-11,
         1e-10,
     ]
     # the electron range, stepped by doubling as ThermoMicroscope does
-    electron = microscope.get_available_values("current", BeamType.ELECTRON)
+    electron = microscope.beams[BeamType.ELECTRON].parameters["current"].choices
     assert electron[0] == pytest.approx(1e-12)
     assert electron[-1] <= 1e-11
     assert all(b == pytest.approx(2 * a) for a, b in zip(electron, electron[1:]))
 
 
 def test_voltage_choices(microscope):
-    assert microscope.get_available_values("voltage", BeamType.ELECTRON) == [
+    assert microscope.beams[BeamType.ELECTRON].parameters["voltage"].choices == [
         1000,
         2000,
         3000,
@@ -368,7 +369,7 @@ def test_voltage_choices(microscope):
         10000,
         20000,
     ]
-    assert microscope.get_available_values("voltage", BeamType.ION) == [
+    assert microscope.beams[BeamType.ION].parameters["voltage"].choices == [
         1000,
         2000,
         8000,

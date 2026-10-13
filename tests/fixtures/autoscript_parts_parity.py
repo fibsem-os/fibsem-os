@@ -24,6 +24,7 @@ import autoscript_stage_parity as S  # noqa: E402  (installs the fake SDK)
 
 logging.disable(logging.NOTSET)
 
+from fibsem.microscope import _chamber_state_name  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
     FibsemManipulatorPosition,
@@ -140,13 +141,19 @@ OFFSET = FibsemManipulatorPosition(x=1e-6, y=2e-6, z=3e-6)
 
 
 CALLS = (
-    ("get chamber_state", lambda m: m.get("chamber_state")),
-    ("get chamber_pressure", lambda m: m.get("chamber_pressure")),
+    # the removed keys, as their devices answer them now
+    (
+        "get chamber_state",
+        lambda m: _chamber_state_name(m.chamber_device.state.get_value()),
+    ),
+    ("get chamber_pressure", lambda m: m.chamber_device.pressure.get_value()),
     ("pump", lambda m: m.pump()),
     ("vent", lambda m: m.vent()),
-    ("set pump_chamber False", lambda m: m.set("pump_chamber", False)),
-    ("get manipulator_position", lambda m: m.get("manipulator_position")),
-    ("get manipulator_state", lambda m: m.get("manipulator_state")),
+    (
+        "get manipulator_position",
+        lambda m: m.manipulator_device.position.get_value(),
+    ),
+    ("get manipulator_state", lambda m: m.get_manipulator_state()),
     ("manipulator state", lambda m: m.get_manipulator_state()),
     ("manipulator position", lambda m: m.get_manipulator_position()),
     ("insert PARK", lambda m: m.insert_manipulator("PARK")),
@@ -154,7 +161,7 @@ CALLS = (
     ("insert BAD", lambda m: m.insert_manipulator("BAD")),
     (
         "insert then state",
-        lambda m: (m.insert_manipulator(), m.get("manipulator_state")),
+        lambda m: (m.insert_manipulator(), m.get_manipulator_state()),
     ),
     ("retract", lambda m: m.retract_manipulator()),
     ("move relative", lambda m: m.move_manipulator_relative(OFFSET)),
@@ -220,14 +227,14 @@ def facts():
     microscope.retract_manipulator()
     out["through_devices"] = used
 
-    # without a manipulator, none is built and its keys stay with the old branches
+    # without a manipulator, none is built
     microscope = S.make(compustage=False)
     needle = microscope.connection.specimen.manipulator
     object.__setattr__(needle, "is_installed", False)  # what the instrument says
     microscope._build_parts()
     out["none_fitted"] = {
         "manipulator": microscope.manipulator_device is None,
-        "routed": microscope._route("manipulator_state", None) is not None,
+        "routed": "manipulator" in microscope.devices,
     }
 
     # hardware.devices entries: one switched off, and an added device no driver builds
@@ -247,7 +254,7 @@ def facts():
     out["configured"] = {
         "devices": list(microscope.devices),
         "manipulator": microscope.manipulator_device is None,
-        "routed": microscope._route("manipulator_state", None) is not None,
+        "routed": "manipulator" in microscope.devices,
     }
     try:
         configured({"name": "laser", "type": "laser"})

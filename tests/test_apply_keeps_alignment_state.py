@@ -39,8 +39,8 @@ def test_apply_leaves_the_alignment_and_the_detector_levels(microscope, beam_typ
     microscope.set_working_distance(0.0123, beam_type)
     microscope.set_stigmation(Point(1e-3, 2e-3), beam_type)
     microscope.set_beam_shift(Point(1e-6, -2e-6), beam_type)
-    microscope.set("detector_brightness", 0.4, beam_type)
-    microscope.set("detector_contrast", 0.6, beam_type)
+    microscope.set_detector_brightness(0.4, beam_type)
+    microscope.set_detector_contrast(0.6, beam_type)
 
     microscope.apply_configuration()
 

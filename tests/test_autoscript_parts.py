@@ -44,6 +44,8 @@ def recording(tmp_path_factory):
     recording = load(out.read_text())
     # the old code's side, recorded before it was deleted
     old = load(RECORDED.read_text())["parts"]
+    # a false pump_chamber did nothing but warn; with the keys gone there is no call
+    old = {k: v for k, v in old.items() if k != "set pump_chamber False"}
     assert sorted(c["key"] for c in recording["cases"]) == sorted(old)
     for case in recording["cases"]:
         case["old"] = old[case["key"]]
@@ -62,20 +64,8 @@ def test_the_recording_makes_sdk_calls(recording):
 
 
 def test_the_devices_make_the_same_sdk_calls_logs_and_results(recording):
-    different = [
-        c
-        for c in recording["cases"]
-        if c["old"] != c["new"] and c["key"] != "set pump_chamber False"
-    ]
+    different = [c for c in recording["cases"] if c["old"] != c["new"]]
     assert different == [], json.dumps(different[:3], indent=1)
-
-
-def test_a_false_pump_does_nothing_without_a_warning(recording):
-    """The old ``_set`` warned on a false pump; with no ``_set`` of Thermo's own it
-    is the chamber's key with nothing to do, and logs at debug level."""
-    case = _case(recording, "set pump_chamber False")
-    assert case["old"][2] == [["WARNING", "Invalid value for pump_chamber: False."]]
-    assert case["new"] == [None, [], []]
 
 
 def test_the_old_errors_are_kept(recording):

@@ -31,7 +31,7 @@ def _microscope(config_path: str = IFLM_CONFIG):
 def _offset_at_the_fm():
     microscope = _microscope()
     microscope.move_to_orientation("FIB")
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     return microscope
 
 
@@ -46,7 +46,7 @@ def test_ready_at_the_fm_on_an_offset_mount():
 
 def test_ready_at_the_fm_on_a_compustage():
     microscope = _microscope(ARCTIS_CONFIG)
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     assert microscope.get_device_imaging_state("FM") is DeviceImagingState.READY
 

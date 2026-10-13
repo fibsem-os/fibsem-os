@@ -135,7 +135,7 @@ def test_a_move_to_a_device_is_one_event_not_three():
         lambda kind, payload: events.append((kind, payload))
     )
 
-    microscope.move_to_microscope("FM")  # the old name, for move_to_device
+    microscope.move_to_device("FM")  # the old name, for move_to_device
 
     moves = [payload for kind, payload in events if kind == "stage_moved"]
     assert [m["move"] for m in moves] == ["move_to_device"]

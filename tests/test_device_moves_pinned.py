@@ -176,7 +176,6 @@ def _move_calls(start: str):
     off_nominal = start.endswith("+1")
     for device in DEVICES:
         yield f"move_to_device({device},None)"
-        yield f"move_to_microscope({device})"
         if off_nominal:
             continue
         for orientation in ORIENTATIONS:

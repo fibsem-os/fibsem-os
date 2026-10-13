@@ -69,7 +69,7 @@ def run_dialog(microscope: FibsemMicroscope, hfw: float = OVERVIEW_HFW):
     # Back to the fluorescence pose, as the FM tab would leave it. The preview must be
     # right from either, which is what pinning its frame to the FM orientation is for --
     # comment this out and nothing about the right-hand pane should change.
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     channels = getattr(microscope.fm, "channel_settings", None)
     return FMSparseSelectionDialog.choose(

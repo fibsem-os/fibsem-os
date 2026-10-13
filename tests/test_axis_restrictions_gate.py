@@ -96,7 +96,7 @@ def test_the_orientation_half_needs_no_gate_of_its_own():
     """
     microscope = _microscope(IFLM_CONFIG)
     microscope.move_to_orientation("FIB")
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
 
     assert microscope.get_current_device() == "FM"
     assert microscope.get_stage_orientation() != "FM"

@@ -32,10 +32,10 @@ def _microscope(config_path: str = IFLM_CONFIG):
 
 
 def _parked_at_the_fm():
-    """An offset system at the FM. `move_to_microscope` accepts only FIB (FIB-832)."""
+    """An offset system at the FM. It starts from FIB, as the FM traverse once required (FIB-832)."""
     microscope = _microscope()
     microscope.move_to_orientation("FIB")
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     assert microscope.get_current_device() == "FM"
     return microscope
 
@@ -85,7 +85,7 @@ def test_the_way_out_actually_works():
     """Traverse back to the beams, re-pose there. What the refusal tells you to do."""
     microscope = _parked_at_the_fm()
 
-    microscope.move_to_microscope("FIBSEM")
+    microscope.move_to_device("FIBSEM")
     microscope.move_to_orientation("MILLING")
 
     assert microscope.get_current_device() == "FIBSEM"
@@ -149,7 +149,7 @@ def test_a_compustage_is_not_affected():
     the FM" is not a state it can be in -- and it has no rotation axis to swing about."""
     microscope = _microscope(ARCTIS_CONFIG)
 
-    microscope.move_to_microscope("FM")
+    microscope.move_to_device("FM")
     microscope.move_to_orientation("SEM")
 
     assert microscope.get_stage_orientation() == "SEM"

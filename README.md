@@ -133,7 +133,7 @@ sem.hfw.set_value(150e-6)
 print(sem.current.get_value(), sem.current.choices)
 ```
 
-See the [device guide](docs/developers/devices.md). `microscope.get("key")` and `microscope.set(...)` are deprecated.
+See the [device guide](docs/developers/devices.md). The string-key `microscope.get("key")` and `microscope.set(...)` were removed in 0.6.0.
 
 ## Examples
 

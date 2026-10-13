@@ -48,7 +48,7 @@ def widget(qapp):
 
 # Compustage tilts the whole orientation question: -180° is where the FM looks at the
 # sample, 0° is where the electron beam does. Posed directly rather than through
-# `move_to_microscope`, which only knows FIBSEM and FM -- MILLING and NONE have to be
+# `move_to_device`, which only knows FIBSEM and FM -- MILLING and NONE have to be
 # set here anyway, so all four come from one place.
 #
 # "NONE" is what `get_stage_orientation` returns for a pose it cannot name at all.
@@ -220,14 +220,14 @@ class TestOffsetMounts:
         the device is the FIB pose it was carried out in."""
         microscope = offset_widget.microscope
         microscope.move_to_orientation("FIB")
-        microscope.move_to_microscope("FM")
+        microscope.move_to_device("FM")
 
         assert microscope.get_stage_orientation() == "FIB"
 
     def test_the_gate_opens_at_the_fm_device(self, offset_widget, qapp):
         microscope = offset_widget.microscope
         microscope.move_to_orientation("FIB")
-        microscope.move_to_microscope("FM")
+        microscope.move_to_device("FM")
         offset_widget._on_stage_moved(microscope.get_stage_position())
         qapp.processEvents()
 

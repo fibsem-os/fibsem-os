@@ -13,10 +13,9 @@ run against the Demo microscope, and the test suite executes them
 (`tests/test_devices_guide.py`), so they stay correct.
 
 The string-key `microscope.get("key", beam_type)` and `microscope.set(...)` calls
-are deprecated and will be removed in the next minor release.
-[From get/set to devices](#from-getset-to-devices) lists where each key went. The
-named methods (`get_beam_current`, `move_stage_absolute`,
-`get_microscope_state`, ...) are not deprecated; they now read and write the devices.
+were removed in 0.6.0. [From get/set to devices](#from-getset-to-devices) lists where
+each key went. The named methods (`get_beam_current`, `move_stage_absolute`,
+`get_microscope_state`, ...) stay; they read and write the devices.
 
 ## Why the API changed
 
@@ -142,7 +141,8 @@ changes (the ion beam's current choices depend on its plasma gas). Units are SI
 throughout: metres, amps, volts, seconds, radians. `limits` on a composite value such
 as the stage position is one `RangeLimit` per field.
 
-`choices` replaces `microscope.get_available_values(key, beam_type)`.
+`choices` replaces `microscope.get_available_values(key, beam_type)`, which was
+removed in 0.6.0.
 
 ### Writing
 
@@ -163,8 +163,9 @@ The write is then made, the value cached, and `changed` emitted. A parameter tha
 the imaging channel (on Thermo Fisher, most beam settings) claims it and selects its
 beam for the write, so two threads cannot interleave a channel switch.
 
-`write_through(value)` is the path the deprecated `set` takes. It skips the checks
-above so that old callers behave as they did. Do not use it in new code.
+`write_through(value)` is the path the named methods (`set_beam_current`, ...) take.
+It skips the checks above so that their callers behave as they did. Do not use it in
+new code.
 
 ### Events
 
@@ -426,10 +427,9 @@ applies the recipe's beam conditions, since backends use different recipe fields
 
 ## From get/set to devices
 
-`microscope.get("key", beam_type)` and `microscope.set("key", value, beam_type)` now
-raise a `DeprecationWarning` when called from outside the microscope classes. The
-warning names the replacement. They will be removed in the next minor release; the
-named methods stay.
+`microscope.get("key", beam_type)` and `microscope.set("key", value, beam_type)` were
+removed in 0.6.0, with `get_available_values`, `get_available_values_cached` and
+`clear_available_values_cache`. The named methods stay. Where each key went:
 
 | Old call | Device |
 | -- | -- |
@@ -443,10 +443,9 @@ named methods stay.
 | `set("stage_home", True)`, `set("stage_link", True)` | `microscope.stage.home()`, `.link()` |
 | `get_available_values(key, bt)` | the parameter's `choices` |
 
-`fibsem.devices.BEAM_ROUTES` and `STAGE_ROUTES` are the complete, current list. A key
-in neither table has not moved to a device yet; until it has, use the named method
-rather than `get`/`set`. `tests/test_no_direct_get_set.py` keeps new code inside
-`fibsem` off direct `get`/`set` calls.
+A key not in the table (`beam_enabled`, `eucentric_height`, `column_tilt`, and the
+`system.info` keys) was configuration, not instrument state: read
+`microscope.system.electron.eucentric_height`, `microscope.system.info.model`, and so on.
 
 ## Configuring devices
 
