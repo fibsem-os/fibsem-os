@@ -17,22 +17,25 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 2e-07,
-   "filename": "img",
-   "frame_integration": null,
-   "hfw": 8e-05,
-   "line_integration": null,
-   "path": "/data",
-   "reduced_area": null,
-   "resolution": [
-    768,
-    512
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "ION": null
   },
   "log": [
    [
@@ -171,22 +174,8 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 1e-06,
-   "filename": "default_image",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": null,
-   "reduced_area": null,
-   "resolution": [
-    1536,
-    1024
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": null
   },
   "log": [
    [
@@ -294,27 +283,30 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 2e-07,
-   "filename": "img",
-   "frame_integration": null,
-   "hfw": 8e-05,
-   "line_integration": null,
-   "path": "/data",
-   "reduced_area": {
-    "height": 0.4,
-    "left": 0.1,
-    "top": 0.2,
-    "width": 0.3
+   "ELECTRON": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": {
+     "height": 0.4,
+     "left": 0.1,
+     "top": 0.2,
+     "width": 0.3
+    },
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
    },
-   "resolution": [
-    768,
-    512
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ION": null
   },
   "log": [
    [
@@ -461,22 +453,25 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 2e-07,
-   "filename": "img",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": "/data",
-   "reduced_area": null,
-   "resolution": [
-    768,
-    512
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 0.00015,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "ION": null
   },
   "log": [
    [
@@ -589,22 +584,25 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 2e-07,
-   "filename": "img",
-   "frame_integration": null,
-   "hfw": 8e-05,
-   "line_integration": null,
-   "path": "/data",
-   "reduced_area": null,
-   "resolution": [
-    768,
-    512
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "ION": null
   },
   "log": [
    [
@@ -743,22 +741,8 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 1e-06,
-   "filename": "default_image",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": null,
-   "reduced_area": null,
-   "resolution": [
-    1536,
-    1024
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": null
   },
   "log": [],
   "result": null,
@@ -805,22 +789,8 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 1e-06,
-   "filename": "default_image",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": null,
-   "reduced_area": null,
-   "resolution": [
-    1536,
-    1024
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": null
   },
   "log": [
    [
@@ -872,22 +842,8 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 1e-06,
-   "filename": "default_image",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": null,
-   "reduced_area": null,
-   "resolution": [
-    1536,
-    1024
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": null
   },
   "log": [
    [
@@ -939,22 +895,25 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ION",
-   "drift_correction": false,
-   "dwell_time": 2e-07,
-   "filename": "img",
-   "frame_integration": null,
-   "hfw": 8e-05,
-   "line_integration": null,
-   "path": "/data",
-   "reduced_area": null,
-   "resolution": [
-    768,
-    512
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   }
   },
   "log": [
    [
@@ -1093,22 +1052,8 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 1e-06,
-   "filename": "default_image",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": null,
-   "reduced_area": null,
-   "resolution": [
-    1536,
-    1024
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": null
   },
   "log": [
    [
@@ -1216,27 +1161,30 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ION",
-   "drift_correction": false,
-   "dwell_time": 2e-07,
-   "filename": "img",
-   "frame_integration": null,
-   "hfw": 8e-05,
-   "line_integration": null,
-   "path": "/data",
-   "reduced_area": {
-    "height": 0.4,
-    "left": 0.1,
-    "top": 0.2,
-    "width": 0.3
-   },
-   "resolution": [
-    768,
-    512
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": {
+     "height": 0.4,
+     "left": 0.1,
+     "top": 0.2,
+     "width": 0.3
+    },
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   }
   },
   "log": [
    [
@@ -1383,22 +1331,25 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ION",
-   "drift_correction": false,
-   "dwell_time": 2e-07,
-   "filename": "img",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": "/data",
-   "reduced_area": null,
-   "resolution": [
-    768,
-    512
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 0.00015,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   }
   },
   "log": [
    [
@@ -1511,22 +1462,25 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ION",
-   "drift_correction": false,
-   "dwell_time": 2e-07,
-   "filename": "img",
-   "frame_integration": null,
-   "hfw": 8e-05,
-   "line_integration": null,
-   "path": "/data",
-   "reduced_area": null,
-   "resolution": [
-    768,
-    512
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   }
   },
   "log": [
    [
@@ -1665,22 +1619,8 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 1e-06,
-   "filename": "default_image",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": null,
-   "reduced_area": null,
-   "resolution": [
-    1536,
-    1024
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": null
   },
   "log": [
    [
@@ -1715,22 +1655,8 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 1e-06,
-   "filename": "default_image",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": null,
-   "reduced_area": null,
-   "resolution": [
-    1536,
-    1024
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": null
   },
   "log": [
    [
@@ -1782,22 +1708,8 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 1e-06,
-   "filename": "default_image",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": null,
-   "reduced_area": null,
-   "resolution": [
-    1536,
-    1024
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": null
   },
   "log": [
    [
@@ -1849,22 +1761,8 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ELECTRON",
-   "drift_correction": false,
-   "dwell_time": 1e-06,
-   "filename": "default_image",
-   "frame_integration": null,
-   "hfw": 0.00015,
-   "line_integration": null,
-   "path": null,
-   "reduced_area": null,
-   "resolution": [
-    1536,
-    1024
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": null,
+   "ION": null
   },
   "log": [],
   "result": "raises ValueError: Must provide either image_settings (to acquire with specific settings) or beam_type (to acquire with current microscope settings for that beam type).",
@@ -1888,22 +1786,42 @@
    ]
   },
   "last_settings": {
-   "autocontrast": false,
-   "beam_type": "ION",
-   "drift_correction": false,
-   "dwell_time": 2e-07,
-   "filename": "img",
-   "frame_integration": null,
-   "hfw": 8e-05,
-   "line_integration": null,
-   "path": "/data",
-   "reduced_area": null,
-   "resolution": [
-    768,
-    512
-   ],
-   "save": false,
-   "scan_interlacing": null
+   "ELECTRON": {
+    "autocontrast": false,
+    "beam_type": "ELECTRON",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   },
+   "ION": {
+    "autocontrast": false,
+    "beam_type": "ION",
+    "drift_correction": false,
+    "dwell_time": 2e-07,
+    "filename": "img",
+    "frame_integration": null,
+    "hfw": 8e-05,
+    "line_integration": null,
+    "path": "/data",
+    "reduced_area": null,
+    "resolution": [
+     768,
+     512
+    ],
+    "save": false,
+    "scan_interlacing": null
+   }
   },
   "log": [
    [

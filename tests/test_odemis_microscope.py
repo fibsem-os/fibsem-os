@@ -257,7 +257,6 @@ def microscope(odemis_microscope_cls):
     microscope.fm = None
     microscope.user = FibsemUser()
     microscope.experiment = FibsemExperimentRef()
-    microscope._last_imaging_settings = ImageSettings()
     microscope.milling_channel = BeamType.ION
     microscope._build_devices()
     microscope._build_milling()

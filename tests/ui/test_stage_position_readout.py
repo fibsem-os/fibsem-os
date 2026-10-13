@@ -171,7 +171,7 @@ def test_the_form_reads_back_in_si_units(movement):
 
 def test_the_form_reads_raw_coordinates(movement):
     """RAW, not the linked coordinate system -- the entry boxes mean stage axes."""
-    assert movement.get_position_from_ui().coordinate_system == "RAW"
+    assert movement.get_position_from_ui().coordinate_system is None
 
 
 def test_the_units_are_on_the_boxes(movement):

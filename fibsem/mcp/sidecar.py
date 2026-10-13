@@ -350,6 +350,15 @@ def build_sidecar(client, capabilities):
         )
         return err if err else data
 
+    def call_service_query(service: str, query: str, kwargs: Optional[dict] = None):
+        data, err = _call(
+            client,
+            "POST",
+            f"/services/{service}/queries/{query}",
+            {"kwargs": dict(kwargs or {})},
+        )
+        return err if err else data
+
     def autocontrast(beam_type: str = "ELECTRON"):
         data, err = _call(client, "POST", "/autocontrast", {"beam_type": beam_type})
         return err if err else data
@@ -636,6 +645,7 @@ def build_sidecar(client, capabilities):
             list_services,
             get_service_parameter,
             call_service_command,
+            call_service_query,
             autocontrast,
             get_app_status,
             get_app_queue,

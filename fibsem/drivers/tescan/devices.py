@@ -377,9 +377,7 @@ class TescanBeam(Beam):
         connection = self.connection
         beam_type = self.beam_type
         settings = (
-            image_settings
-            if image_settings is not None
-            else microscope.get_imaging_settings(beam_type=beam_type)
+            image_settings if image_settings is not None else self.image_settings()
         )
         logging.debug(f"acquiring new {beam_type.name} image.")
 
@@ -441,9 +439,6 @@ class TescanBeam(Beam):
         cache.resolution = settings.resolution
         cache.stigmation = beam_state.stigmation
         cache.preset = beam_state.preset
-
-        if image_settings is not None:
-            microscope._last_imaging_settings = image_settings
 
         # the manufacturer's details are only in the image header
         info = microscope.system.info

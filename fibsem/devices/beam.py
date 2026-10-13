@@ -176,6 +176,9 @@ class Beam(Device):
         self._live_lock = threading.Lock()
         self._live_stop = threading.Event()
         self._live_thread: Optional[threading.Thread] = None
+        # The settings this beam last acquired with, when it was given some: where
+        # that image was saved, which `image_settings` carries on.
+        self._last_image_settings: Optional[ImageSettings] = None
 
     def facts(self) -> Dict[str, Any]:
         """The gas the column's source reports running, if any."""
@@ -301,8 +304,28 @@ class Beam(Device):
             and not metadata.acquisition_datetime
         ):
             metadata.acquisition_datetime = started
+        if image_settings is not None:
+            self._last_image_settings = image_settings
         self.session.stamp(image)
         return image
+
+    def image_settings(self) -> ImageSettings:
+        """The settings this beam would image with now: its resolution, dwell time and
+        field of view, with the path and filename it last saved to. What an acquire
+        given no settings uses, so the driver needn't ask the microscope."""
+        last = self._last_image_settings or ImageSettings()
+        return ImageSettings(
+            beam_type=self.beam_type,
+            resolution=self._value_or_none("resolution"),
+            dwell_time=self._value_or_none("dwell_time"),
+            hfw=self._value_or_none("hfw"),
+            path=last.path,
+            filename=last.filename,
+        )
+
+    def _value_or_none(self, name: str) -> Any:
+        param = self.parameters.get(name)
+        return None if param is None else param.get_value()
 
     @command(available=lambda beam: implements(beam, "_autocontrast"))
     def autocontrast(self, reduced_area: Optional[FibsemRectangle] = None) -> None:

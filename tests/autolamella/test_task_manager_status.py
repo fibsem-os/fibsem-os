@@ -287,6 +287,67 @@ def test_missing_prerequisites_are_skipped(tmp_path):
     assert m._should_skip(lamella, "Undercut") is None
 
 
+def _recorded_hooks():
+    from fibsem.hooks import FunctionHook, HookEvent, HookManager
+
+    fired = []
+    hooks = HookManager()
+    hooks.register(
+        FunctionHook(name="rec", events=list(HookEvent), callback=fired.append)
+    )
+    return hooks, fired
+
+
+def test_a_skip_names_the_requirement_and_the_end_says_nothing_ran(tmp_path):
+    """The sim test's run: Undercut skipped for a Trench that never completed.
+    The skip names Trench, and the run's end says nothing ran (FIB-1357)."""
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1"]
+    )
+    experiment.get_lamella_by_name("L1").task_history.append(
+        AutoLamellaTaskState(name="Trench", status=Status.Cancelled)
+    )
+    hooks, fired = _recorded_hooks()
+    m = TaskManager(
+        microscope=NoMicroscope(),
+        experiment=experiment,
+        parent_ui=RecordingUI(),
+        hook_manager=hooks,
+    )
+    m.queue.build_from_matrix(["Undercut"], ["L1"])
+
+    assert run_queue_with(m) == []
+
+    (skipped,) = [c for c in fired if c.event == "task_skipped"]
+    assert skipped.skip_reason == "missing_prereqs"
+    assert skipped.missing_prereqs == ["Trench"]
+    (end,) = [c for c in fired if c.event == "workflow_completed"]
+    assert end.task_counts == {"completed": 0, "failed": 0, "skipped": 1}
+
+
+def test_the_end_of_a_run_counts_how_its_tasks_ended(tmp_path):
+    experiment = make_experiment(
+        tmp_path, requirements={"Undercut": ["Trench"]}, lamella_names=["L1", "L2"]
+    )
+    make_lamella(experiment, "L3", is_failure=True)
+    hooks, fired = _recorded_hooks()
+    m = TaskManager(
+        microscope=NoMicroscope(),
+        experiment=experiment,
+        parent_ui=RecordingUI(),
+        hook_manager=hooks,
+    )
+    m.queue.build_from_matrix(["Trench"], ["L1", "L2", "L3"])
+
+    run_queue_with(m)
+
+    (skipped,) = [c for c in fired if c.event == "task_skipped"]
+    assert skipped.skip_reason == "failure"
+    assert skipped.missing_prereqs is None
+    (end,) = [c for c in fired if c.event == "workflow_completed"]
+    assert end.task_counts == {"completed": 2, "failed": 0, "skipped": 1}
+
+
 def test_a_prerequisite_still_in_the_queue_defers_rather_than_skips(tmp_path):
     """The prerequisite check used to be terminal. With Trench re-queued behind
     Undercut, Undercut is passed over until Trench has run, then runs."""

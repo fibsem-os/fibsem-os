@@ -123,7 +123,9 @@ def _run(microscope, fake, call):
         "sdk": list(fake.log),
         "log": handler.messages,
         "cache": cache,
-        "last_settings": _plain(microscope._last_imaging_settings),
+        "last_settings": {
+            bt.name: _plain(microscope.beams[bt]._last_image_settings) for bt in (E, I)
+        },
     }
     # as the recording stored it: JSON, with anything else as its repr
     return json.loads(json.dumps(ran, default=repr))

@@ -50,7 +50,8 @@ _TIP_DEV_MODE = (
 _LBL_COINCIDENCE = "Enable Coincidence Milling Viewer"
 _TIP_COINCIDENCE = (
     "Enable the coincidence milling viewer for simultaneous FIB milling and FM acquisition. "
-    "Restricted to ThermoFisher Arctis with the modified sample holder."
+    "Only for an instrument whose FM objective sits under the grid while the FIB mills, "
+    "with a sample holder modified to allow it."
 )
 _LBL_CONNECTION_CHIP = "Enable Connection Chip"
 _TIP_CONNECTION_CHIP = (
@@ -302,9 +303,10 @@ class PreferencesDialog(QDialog):
         QMessageBox.warning(
             self,
             "Coincidence Milling — Restricted Use",
-            "This mode can only be used on the ThermoFisher Arctis that has the modified "
-            "sample holder. It also requires disabling the software restrictions related to "
-            "running the fluorescence microscope while milling.",
+            "This mode can only be used on an instrument whose FM objective sits under "
+            "the grid while the FIB mills, with a sample holder modified to allow it. It "
+            "also requires disabling the software restrictions related to running the "
+            "fluorescence microscope while milling.",
         )
 
     def get_preferences(self) -> UserPreferences:

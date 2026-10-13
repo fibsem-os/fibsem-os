@@ -265,6 +265,24 @@ CATALOG: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="call_service_query",
+        description=(
+            "Ask a service query listed by list_services: it takes arguments, "
+            "answers, and moves nothing, e.g. service=stage_movement "
+            "query=project_stable_move kwargs={'dx': 1e-6, 'dy': 0, 'beam_type': 1, "
+            "'base_position': {...}} for where a stable move from base_position "
+            "would end (beam_type 1 is the electron beam, 2 the ion beam)."
+        ),
+        method="POST",
+        path="/services/{service}/queries/{query}",
+        scope="read",
+        params={
+            "service": "service name from list_services",
+            "query": "query name",
+            "kwargs": "the query's arguments, by name",
+        },
+    ),
+    ToolSpec(
         name="autocontrast",
         description="Run autocontrast for a beam (changes detector settings).",
         method="POST",

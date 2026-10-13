@@ -181,7 +181,6 @@ class FibsemMicroscope(ABC):
     milling_progress_signal = Signal(MillingProgress)
     tiled_acquisition_signal = Signal(TiledProgress)
     spot_burn_progress_signal = Signal(SpotBurnProgress)
-    _last_imaging_settings: ImageSettings
     system: SystemSettings
     milling_channel: BeamType = BeamType.ION
     #: The milling service over the beams (`fibsem.services.milling.Milling`); the
@@ -1467,28 +1466,15 @@ class FibsemMicroscope(ABC):
             return self.system.ion
         raise ValueError(f"Unknown beam type: {beam_type} for {key}")
 
-    # TODO: i dont think this is needed, you set the beam settings and detector settings separately
-    # you can't set image settings, only when acquiring an image
     def get_imaging_settings(self, beam_type: BeamType) -> ImageSettings:
-        """Get the current imaging settings for the specified beam type."""
-        # TODO: finish this with the other imaging settings... @patrick
-        logging.debug(f"Getting {beam_type.name} imaging settings...")
-        image_settings = ImageSettings(
-            beam_type=beam_type,
-            resolution=self.get_resolution(beam_type),
-            dwell_time=self.get_dwell_time(beam_type),
-            hfw=self.get_field_of_view(beam_type),
-            path=self._last_imaging_settings.path,
-            filename=self._last_imaging_settings.filename,
-        )
-        logging.debug(
-            {
-                "msg": "get_imaging_settings",
-                "image_settings": image_settings.to_dict(),
-                "beam_type": beam_type.name,
-            }
-        )
-        return image_settings
+        """The beam's current imaging settings (`Beam.image_settings`), or the
+        defaults with nothing read where there is no such beam."""
+        beam = self.beams.get(beam_type)
+        if beam is None:
+            return ImageSettings(
+                beam_type=beam_type, resolution=None, dwell_time=None, hfw=None
+            )
+        return beam.image_settings()
 
     def set_imaging_settings(self, image_settings: ImageSettings) -> None:
         """Set the imaging settings for the specified beam type."""
