@@ -267,7 +267,7 @@ def test_an_agent_prepares_milling_with_patterns(armed_client, microscope):
             },
         )
         assert resp.status_code == 200, resp.text
-        assert microscope.milling_system.patterns == [rectangle]
+        assert microscope._connection.milling_system.patterns == [rectangle]
     finally:
         microscope.milling.clear()
         microscope.milling.restore()

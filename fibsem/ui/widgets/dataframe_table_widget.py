@@ -187,33 +187,3 @@ class DataFrameTableWidget(QWidget):
         self.table_widget.setRowCount(0)
         self.table_widget.setColumnCount(0)
         self.dataframe = None
-
-
-def main():
-    """Example usage of DataFrameTableWidget."""
-    import sys
-
-    from PyQt5.QtWidgets import QApplication
-
-    # Create sample dataframe
-    data = {
-        "Name": ["Alice", "Bob", "Charlie", "David", "Eve"],
-        "Age": [25, 30, 35, 28, 32],
-        "Score": [95.5, 87.3, 92.1, 88.9, 91.0],
-        "City": ["New York", "London", "Paris", "Tokyo", "Berlin"],
-    }
-    df = pd.DataFrame(data)
-
-    app = QApplication(sys.argv)
-
-    # Create and show widget
-    widget = DataFrameTableWidget(dataframe=df)
-    widget.setWindowTitle("DataFrame Table Widget Example")
-    widget.resize(600, 400)
-    widget.show()
-
-    sys.exit(app.exec_())
-
-
-if __name__ == "__main__":
-    main()

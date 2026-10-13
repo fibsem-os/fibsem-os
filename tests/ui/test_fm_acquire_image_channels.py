@@ -30,7 +30,7 @@ def qapp():
 
 @pytest.fixture()
 def widget(qapp):
-    from fibsem.ui.fm.overview_app import build_microscope
+    from tests.fixtures.fm_microscope import build_microscope
 
     host = _DemoHost()
     w = FMControlWidget(microscope=build_microscope(), parent=host)

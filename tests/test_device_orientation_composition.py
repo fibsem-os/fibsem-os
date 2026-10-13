@@ -200,7 +200,7 @@ def test_the_fm_is_still_not_an_orientation_on_an_offset_mount():
     term. The device argument is how to ask for the FM; the orientation is not."""
     microscope = _microscope()
 
-    with pytest.raises(ValueError, match="Cannot move to FM position"):
+    with pytest.raises(ValueError, match="reaches the FM by travelling"):
         microscope.get_target_position(_at(microscope, "SEM", 0.0), "FM")
 
 

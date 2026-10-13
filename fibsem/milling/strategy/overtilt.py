@@ -70,6 +70,10 @@ class OvertiltTrenchMillingConfig(MillingStrategyConfig):
         ),
     )
 
+    def __post_init__(self) -> None:
+        # A loaded protocol carries a list; the beam's resolutions are tuples.
+        self.image_resolution = tuple(self.image_resolution)
+
 
 class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]):
     """Overtilt milling strategy for trench milling"""
