@@ -107,6 +107,29 @@ def test_a_path_is_refused_outside_the_open_experiment(client, tmp_path):
     )
 
 
+def test_an_image_saves_inside_the_open_experiment_only(client, tmp_path):
+    from fibsem.structures import ImageSettings
+
+    refused = client.post(
+        "/microscope/services/imaging/commands/acquire_image",
+        json={
+            "kwargs": {
+                "image_settings": {"save": True, "path": str(tmp_path), "filename": "x"}
+            }
+        },
+    )
+    assert refused.status_code == 403
+    assert _error(refused) == "not_allowed"
+
+    experiment = str(tmp_path)
+    saving = ImageSettings(save=True, path=str(tmp_path / "elsewhere" / ".." / "in"))
+    assert path_outside({"image_settings": saving}, lambda: experiment) is None
+    saving.path = "/"
+    assert path_outside({"image_settings": saving}, lambda: experiment)
+    saving.save = False  # nothing is written, so the path doesn't matter
+    assert path_outside({"image_settings": saving}, lambda: experiment) is None
+
+
 def test_blocks_go_by_the_kind_of_device_not_its_name(microscope):
     assert blocked(microscope.devices["ion"], "write", "on")
     assert blocked(microscope.devices["ion"], "write", "hfw") is None
