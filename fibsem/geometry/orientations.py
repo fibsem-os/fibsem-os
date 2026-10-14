@@ -127,10 +127,14 @@ def milling_angle_at(
     if turned_over:
         normal = -normal
     beam = view_axis(np.radians(column_tilt))
-    angle = np.degrees(np.arccos(np.clip(float(normal @ beam), -1.0, 1.0)))
+    # arctan2 rather than arccos: arccos loses half its digits next to 0 and 180,
+    # which is where the milling poses sit, and the last digits differ by platform.
+    cross = np.cross(beam, normal)
+    angle = np.degrees(np.arctan2(np.linalg.norm(cross), float(normal @ beam)))
     # Which way about the tilt axis (chamber x) the surface leans from the beam.
-    side = np.cross(beam, normal)[0]
-    return float(90.0 + angle if side >= 0 else 90.0 - angle)
+    side = cross[0]
+    # Rounded to a nanodegree so the same pose reads the same on every platform.
+    return round(float(90.0 + angle if side >= 0 else 90.0 - angle), 9) + 0.0
 
 
 def compucentric_rotation(
