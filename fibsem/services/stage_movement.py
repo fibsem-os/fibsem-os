@@ -45,6 +45,7 @@ from fibsem.geometry.orientations import (
     milling_angle_from_tilt,
     repose,
 )
+from fibsem.movement import rotation_angle_is_smaller
 from fibsem.services.core import Service
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
@@ -1102,6 +1103,119 @@ class StageMovement(Service):
         )
         return self._position()
 
+    # -- the axes a move leaves alone -------------------------------------------------------
+
+    @query
+    def blocked_axes(
+        self, position: Optional[FibsemStagePosition] = None
+    ) -> Tuple[str, ...]:
+        """The stage axes an absolute move to *position* leaves alone, because the
+        microscope would refuse them.
+
+        Two halves, and they are not the same rule.
+
+        The **orientation** half asks where the move is *going*, not where the stage is
+        standing, and blocks z (and r, which a stage with an FM pose does not have).
+        Asking the current pose is what dropped z from the very move that was leaving
+        the fluorescence pose: the stage landed at the requested x/y/t at the old
+        z-height, and the operator pressed Move a second time to finish it. Measured on
+        the Arctis (Aug 2026): with the objective retracted, z and t are both available
+        at t = -180, so a move out of that pose has nothing to lose. A move *into* it is
+        still restricted here -- more conservative than the measurement requires, and
+        free, because the one path that enters the pose sends r and t only.
+
+        `position` is the destination. Without one, or with a partial pose that has no
+        orientation to read (the safe move's rotation step sends a bare tilt), the stage's
+        own pose stands in -- what such a move got before.
+
+        `stage_orientation` can never return "FM" on an offset mount -- the FM is a
+        device there and `orientations["FM"]` is a copy of the FIB entry -- so that half
+        is naturally confined to the stages that declare an FM pose.
+
+        The **objective** half applies on every mount: while the objective is
+        inserted, the axes it names (`ObjectiveLens.blocked_axes`, z and t as FIB-640
+        measured) are left alone. The objective state is read live, every move: a stale
+        "Retracted" here moves the stage with the objective in the chamber.
+        """
+        blocked = []
+        destination = (
+            position
+            if position is not None
+            and position.r is not None
+            and position.t is not None
+            else None
+        )
+        if self.stage_orientation(destination) == "FM":
+            blocked += ["z", "r"]
+
+        fm = self.parent.fm
+        if fm is not None and fm.objective.state is InsertableDeviceState.INSERTED:
+            blocked += [a for a in fm.objective.blocked_axes if a not in blocked]
+        return tuple(blocked)
+
+    def without_blocked_axes(
+        self, position: FibsemStagePosition
+    ) -> FibsemStagePosition:
+        """*position* with the axes `blocked_axes` names left unset, so an absolute
+        move does not send them. A driver whose instrument refuses those axes calls this
+        in its stage's absolute move."""
+        blocked = self.blocked_axes(position)
+        if not blocked:
+            return position
+        position = deepcopy(position)
+        for axis in blocked:
+            setattr(position, axis, None)
+        return position
+
+    def _refuse_rotation_at_the_fm(self, stage_position: FibsemStagePosition) -> None:
+        """Refuse a stage rotation while the stage is parked at the FM.
+
+        The objective is inserted over the sample there, and the rotation is
+        compucentric about a centre back at the beams -- some 48.8 mm away -- so a half
+        turn swings the sample most of the width of the chamber, under the objective.
+
+        The route to another pose at the FM is the one `target_position` computes:
+        traverse back to the beams, re-pose there, traverse out again. This refuses the
+        shortcut. It is a refusal rather than a silent correction because a caller
+        asking for the shortcut has a wrong idea of where the stage is going, and
+        quietly sending it somewhere else would leave that idea intact.
+
+        **Rotation only.** A tilt pivots about an axis through the sample instead of
+        swinging it, and where the objective does restrict tilt the microscope refuses
+        it itself -- FIB-640 measured z and t. This does not duplicate that.
+
+        Not a restriction on FM-MILLING. That pose is a half turn from the FM's own
+        orientation (measured: FM sits at r=180, MILLING at r=0), so it was never
+        reachable by rotating in place -- it is reached the way everything else at the
+        FM is, via the beams.
+        """
+        # A stage that reaches the FM by re-posing (a compustage, flipping) has its
+        # devices at one place, so "parked at the FM" is not a state it can be in --
+        # and it has no rotation axis to be compucentric about either.
+        if self.fm_is_a_pose() or self.parent.fm is None:
+            return
+
+        if stage_position.r is None:
+            return
+
+        current_position = self._position()
+        if self.current_device(current_position) != "FM":
+            return
+
+        # The same 5 degrees `stage_orientation` classifies within, so a caller asking
+        # for the pose the stage is already in does not trip this on the slop a real
+        # stage always carries.
+        if rotation_angle_is_smaller(stage_position.r, current_position.r, atol=5):
+            return
+
+        raise ValueError(
+            "Cannot rotate the stage while it is at the fluorescence microscope: the "
+            "rotation is compucentric about a centre at the beams, so it would swing "
+            "the sample across the chamber under the objective. Move to the beams "
+            "first (move_to_device('FIBSEM')), re-pose there, and travel back -- "
+            "or ask move_to_device for the pose and let it order the legs."
+        )
+
     # -- moves to a place ------------------------------------------------------------------
 
     @command
@@ -1114,9 +1228,8 @@ class StageMovement(Service):
             "safe_absolute_stage_movement",
             stage_position=stage_position,
         ):
-            # Before anything moves; see `FibsemMicroscope._refuse_rotation_at_the_
-            # fluorescence_microscope` (FIB-841).
-            self.parent._refuse_rotation_at_the_fluorescence_microscope(stage_position)
+            # Before anything moves (FIB-841).
+            self._refuse_rotation_at_the_fm(stage_position)
             self._safe_rotation(stage_position)
 
             logging.debug(f"safe moving to {stage_position}")

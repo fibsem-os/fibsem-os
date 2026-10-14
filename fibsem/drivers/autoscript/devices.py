@@ -215,7 +215,7 @@ class AutoscriptStage(Stage):
         # leaving alone the axes the microscope would refuse (the objective inserted,
         # or entering the FM pose)
         autoscript_position = self._to_autoscript(
-            self.parent._without_blocked_axes(position)
+            self.parent.stage_movement.without_blocked_axes(position)
         )
 
         logging.info(f"Moving stage to {position}.")
