@@ -231,7 +231,7 @@ def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope):
             assert refused.status_code == 422, (path, body)
             assert _error(refused) == "missing_reason"
     recorded = []
-    microscope.record_signal.connect(
+    microscope.session.record_signal.connect(
         lambda kind, payload: recorded.append((kind, payload))
     )
     assert client.post(STOP_MILLING, headers=AGENT, json=WHY).status_code == 200

@@ -73,7 +73,9 @@ def test_outside_a_workflow_there_is_no_item(microscope) -> None:
 def test_an_image_acquired_during_a_task_carries_both(microscope, lamella) -> None:
     captured = {}
 
-    task = _Task(microscope, lamella, body=lambda: captured.update(seen=_stamped(microscope)))
+    task = _Task(
+        microscope, lamella, body=lambda: captured.update(seen=_stamped(microscope))
+    )
     task.run()
 
     stamped = captured["seen"]
@@ -84,7 +86,9 @@ def test_an_image_acquired_during_a_task_carries_both(microscope, lamella) -> No
     assert stamped.task_name == "Test Task"
 
 
-def test_the_workflow_half_is_cleared_after_the_task_completes(microscope, lamella) -> None:
+def test_the_workflow_half_is_cleared_after_the_task_completes(
+    microscope, lamella
+) -> None:
     _Task(microscope, lamella).run()
 
     assert _stamped(microscope).item_id is None
@@ -137,7 +141,9 @@ def test_a_second_task_replaces_the_first(microscope, lamella) -> None:
     first.run()
 
     captured = {}
-    second = _Task(microscope, lamella, body=lambda: captured.update(seen=_stamped(microscope)))
+    second = _Task(
+        microscope, lamella, body=lambda: captured.update(seen=_stamped(microscope))
+    )
     second.run()
 
     assert captured["seen"].task_id == second.task_id
@@ -148,7 +154,7 @@ def test_each_image_keeps_its_own_copy(microscope, lamella) -> None:
     """The record is mutated per task, so sharing one object would rewrite history.
 
     This is what makes it safe to keep the item on the same record as the experiment:
-    without the deepcopy in `_set_additional_metadata`, moving to the next lamella
+    without the deepcopy in `Session.stamp`, moving to the next lamella
     would silently relabel every image already acquired.
     """
     captured = {}

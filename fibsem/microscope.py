@@ -49,6 +49,7 @@ from fibsem.structures import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemDetectorSettings,
+    FibsemExperimentRef,
     FibsemHardwareGeometry,
     FibsemImage,
     FibsemLineSettings,
@@ -59,6 +60,7 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemRectangleSettings,
     FibsemStagePosition,
+    FibsemUser,
     ImageSettings,
     InsertableDeviceState,
     MicroscopeState,
@@ -220,14 +222,12 @@ class FibsemMicroscope(ABC):
             locks={IMAGING_CHANNEL: m._threading_lock},
         )
     )
-    # What this microscope's devices and services report to: events for the
-    # experiment's record (`record_event`) and the stamp on each image.
-    # Looked up on each call, so a backend or test that replaces either is used.
+    # The experiment this microscope runs in: who, which run, and its record. Its
+    # devices and services report to it; `user`, `experiment` and `record_event`
+    # forward to it. The instrument's part of each image's stamp is looked up on each
+    # call, so a backend or test that replaces it is used.
     session = _PerInstance(
-        lambda m: Session(
-            record=lambda kind, payload: m.record_event(kind, payload),
-            stamp=lambda image: m._set_additional_metadata(image),
-        )
+        lambda m: Session(instrument=lambda image: m._stamp_instrument(image))
     )
 
     # Who is in control of this microscope (FIB-1270): one action at a time,
@@ -244,12 +244,6 @@ class FibsemMicroscope(ABC):
     # applying a configuration that names a holder rebuilds the `Stage`, and a signal
     # on it would take every subscriber with it.
     holder_changed = Signal(object)
-
-    # (kind, payload): a fact for the experiment's record -- an image acquired, a
-    # task step. Emit through record_event, which never raises; the app records it
-    # to events.jsonl (autolamella/event_recording.py). Progress for a UI belongs
-    # on the typed signals above, not here.
-    record_signal = Signal(str, object)
 
     @abstractmethod
     def connect_to_microscope(
@@ -2248,29 +2242,43 @@ class FibsemMicroscope(ABC):
         """The frame the stage reports positions in: the stage device's, else fibsem's."""
         return getattr(self.stage_device, "frame", STAGE_FRAME_FIBSEM)
 
+    @property
+    def user(self) -> Optional[FibsemUser]:
+        """Who is running the experiment. See `Session.user`."""
+        return self.session.user
+
+    @user.setter
+    def user(self, user: Optional[FibsemUser]) -> None:
+        self.session.user = user
+
+    @property
+    def experiment(self) -> Optional[FibsemExperimentRef]:
+        """Which run this is. See `Session.experiment`."""
+        return self.session.experiment
+
+    @experiment.setter
+    def experiment(self, experiment: Optional[FibsemExperimentRef]) -> None:
+        self.session.experiment = experiment
+
     def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
-        """Report a fact for the experiment's record on ``record_signal``.
+        """Put a fact on the experiment's record. See `Session.record`; listen on
+        ``microscope.session.record_signal``.
 
-        Never raises. psygnal hands a subscriber's exception back to whoever
-        emitted, and the callers are acquiring and running tasks: a failure to
-        record must cost the record, never the acquisition.
-
-        ``payload`` is small plain data built by the caller -- no pixels. Kinds
+        Never raises. ``payload`` is small plain data built by the caller -- no
+        pixels. Kinds
         recorded today:
 
-        * ``image_acquired`` -- from ``acquire.acquire_image``, with the saved path
+        * ``image_acquired`` -- from ``acquire.acquire_image`` and the imaging
+          service's ``acquire_image``, with the saved path
         * ``task_step`` -- from the AutoLamella task bases
         * ``milling_stage_started`` -- from ``FibsemMillingTask``, with the stage
-        * ``spot_burn_started`` -- from the spot burn service, with the field of view
-        * ``stage_moved`` -- from the stage device's moves and the stage movement
-          service's, the outermost only (`Stage.recording_move`)
-        * ``beam_shifted`` -- from the beam device's ``shift_by``
         * ``milling`` -- from ``FibsemMillingTask``, how a run ended, stage by
           stage; from a task that milled nothing, why; and from the milling
           service's ``run`` outside a task, its name and how it ended
-        * ``spot_burn_started`` -- from ``run_spot_burn``, with the field of view
-        * ``stage_moved`` -- from each backend's stage moves, the outermost only
-        * ``beam_shifted`` -- from each backend's ``beam_shift``
+        * ``spot_burn_started`` -- from the spot burn service, with the field of view
+        * ``stage_moved`` -- from the stage device's moves and the stage movement
+          service's, the outermost only (`fibsem.devices.stage.recording_move`)
+        * ``beam_shifted`` -- from the beam device's ``shift_by``
         * ``fm_image_acquired`` -- from ``fm.acquisition``, a z-stack, image or
           stitched overview, with the saved path
         * ``fm_autofocus`` -- from ``run_coarse_fine_autofocus``
@@ -2281,31 +2289,18 @@ class FibsemMicroscope(ABC):
         * ``grid_loaded`` / ``grid_unloaded`` -- from the sample handling service's
           magazine exchanges, with the grid, its magazine slot and the working slot
         """
-        try:
-            self.record_signal.emit(kind, payload)
-        except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug(f"could not record a {kind} event", exc_info=True)
+        self.session.record(kind, payload)
 
-    def _set_additional_metadata(self, image: FibsemImage) -> None:
-        """Stamp who, which run, which instrument and how it is arranged onto an image.
+    def _stamp_instrument(self, image: FibsemImage) -> None:
+        """Stamp which instrument and how it is arranged onto an image: the
+        instrument's part of `Session.stamp`, which writes who and which run first.
 
-        Lifted here from ``ThermoMicroscope`` in FIB-481: the same three lines were
-        written out at eight acquisition sites across three microscope classes, so a
-        change to what an image records meant finding all eight.
+        Copied, not referenced. `hardware_geometry()` returns a fresh record, so
+        aliasing the live SystemInfo here would leave one field on the image a
+        snapshot and the other a window onto the microscope. TescanMicroscope
+        rewrites system.info.model/serial/software_version on every acquisition, so
+        the alias reached back into images already taken.
         """
-        image.metadata.user = self.user
-        # Copied, not referenced. This now carries the item and task as well as the
-        # experiment (FIB-466), and those change as the run progresses -- sharing one
-        # object would rewrite the item on every image already acquired. It was shared
-        # before, which was harmless only because nothing mutated it.
-        image.metadata.experiment = deepcopy(self.experiment)
-        # Copied, not referenced. `hardware_geometry()` returns a fresh record, so
-        # aliasing the live SystemInfo here would leave one field on the image a
-        # snapshot and the other a window onto the microscope. TescanMicroscope
-        # rewrites system.info.model/serial/software_version on every acquisition,
-        # so the alias reached back into images already taken. Pre-dates FIB-481 --
-        # `metadata.system = self.system` aliased the whole thing -- but the two
-        # fields set together should not disagree about what they are.
         image.metadata.system_info = deepcopy(self.system.info)
         image.metadata.hardware_geometry = self.hardware_geometry()
 
