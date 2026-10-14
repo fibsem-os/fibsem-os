@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fibsem-fake-scanner"
+version = "0.1.0"
+description = "Example fibsemOS device plugin: a simulated external scan generator"
+requires-python = ">=3.10"
+dependencies = ["fibsem", "numpy"]
+
+# The whole plugin contract: one function returning a DriverEntry. fibsem reads this
+# group the first time a driver is looked up, so nothing in fibsem names this package.
+[project.entry-points."fibsem.drivers"]
+fakescan = "fibsem_fake_scanner:driver"
+
+[tool.setuptools]
+packages = ["fibsem_fake_scanner"]
