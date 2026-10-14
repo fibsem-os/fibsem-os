@@ -668,6 +668,30 @@ def build_sidecar(client, capabilities):
     def list_recent_experiments():
         return _app_get("/app/experiment/recent")
 
+    def list_protocols():
+        return _app_get("/app/experiment/protocols")
+
+    def create_experiment(
+        name: str, protocol: Optional[str] = None, description: Optional[str] = None
+    ):
+        data, err = _call(
+            client,
+            "POST",
+            "/app/experiment/create",
+            {"name": name, "protocol": protocol, "description": description},
+        )
+        return err if err else data
+
+    def load_experiment(path: str):
+        data, err = _call(client, "POST", "/app/experiment/load", {"path": path})
+        return err if err else data
+
+    def load_protocol(protocol: str):
+        data, err = _call(
+            client, "POST", "/app/experiment/protocol/load", {"protocol": protocol}
+        )
+        return err if err else data
+
     def get_events(since: int = 0, timeout: float = 0.0):
         return _app_get(f"/app/events?since={since}&timeout={timeout}")
 
@@ -855,6 +879,10 @@ def build_sidecar(client, capabilities):
             reorder_item_milling_stages,
             reorder_protocol_milling_stages,
             list_recent_experiments,
+            list_protocols,
+            create_experiment,
+            load_experiment,
+            load_protocol,
             get_events,
             get_display_images,
             get_pending_prompt,

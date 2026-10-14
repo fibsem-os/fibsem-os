@@ -36,6 +36,19 @@ __all__ = [
 class AppContext(Protocol):
     """What a hosted application must answer. Matched structurally."""
 
+    def protocols(self) -> Dict[str, Any]: ...
+
+    def create_experiment(
+        self,
+        name: str,
+        protocol: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]: ...
+
+    def load_experiment(self, path: str) -> Dict[str, Any]: ...
+
+    def load_protocol(self, protocol: str) -> Dict[str, Any]: ...
+
     def overview_stage_position(
         self, grid_name: str, filename: str, px: Any = None, fraction: Any = None
     ) -> Dict[str, Any]: ...
@@ -246,7 +259,7 @@ def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
         return result
     detail = {"error_type": error_type, "message": result.get("error", "")}
     for key, value in result.items():
-        if key.endswith("_names") or key == "filenames":
+        if key.endswith(("_names", "_paths")) or key == "filenames":
             detail[key] = value
     raise HTTPException(status_code=_REFUSAL_STATUS.get(error_type, 422), detail=detail)
 
@@ -360,6 +373,10 @@ def build_app_router(context: AppContext) -> APIRouter:
     @router.get("/experiment/grids/{grid_name}/outputs/{filename}/markers")
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)
+
+    @router.get("/experiment/protocols")
+    def protocols():
+        return context.protocols()
 
     @router.get("/experiment/recent")
     def recent_experiments():
@@ -874,6 +891,39 @@ def build_app_config_router(context: AppContext) -> APIRouter:
                 },
             )
         return _refused_or(context.apply_protocol_to_item(item_name, task_names))
+
+    # -- experiments and protocols: kept to known places -----------------------
+
+    def _required_text(body: Dict[str, Any], key: str, what: str) -> str:
+        value = body.get(key)
+        if not isinstance(value, str) or not value:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": f"Pass {key}: {what}.",
+                },
+            )
+        return value
+
+    @router.post("/experiment/create")
+    def create_experiment(body: Dict[str, Any]):
+        name = _required_text(body, "name", "the new experiment's folder name")
+        return _answer_or_refusal(
+            context.create_experiment(
+                name, protocol=body.get("protocol"), description=body.get("description")
+            )
+        )
+
+    @router.post("/experiment/load")
+    def load_experiment(body: Dict[str, Any]):
+        path = _required_text(body, "path", "a path from the recent experiments")
+        return _answer_or_refusal(context.load_experiment(path))
+
+    @router.post("/experiment/protocol/load")
+    def load_protocol(body: Dict[str, Any]):
+        name = _required_text(body, "protocol", "a protocol name from the list")
+        return _answer_or_refusal(context.load_protocol(name))
 
     # -- lamella positions: the Lamella tab's buttons ---------------------------
 

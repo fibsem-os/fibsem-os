@@ -892,6 +892,162 @@ class AutoLamellaAppContext:
             None,
         )
 
+    # --- experiments and protocols: the File menu, for an agent at Drive ---------
+    #
+    # Kept to known places (Patrick's call, 2026-10-14): a new experiment goes in
+    # the default experiments folder, a load is one of the recent experiments, and
+    # a protocol is one of the files in the protocol folder, by name.
+
+    def protocols(self) -> Dict[str, Any]:
+        """The protocol files an agent may load or create an experiment with."""
+        from fibsem.applications.autolamella import experiment_setup
+
+        return {
+            "folder": experiment_setup.protocol_directory(),
+            "protocols": experiment_setup.list_protocols(),
+        }
+
+    def _session_refusal(self) -> Optional[Dict[str, Any]]:
+        """Why the open experiment cannot be replaced now, or None."""
+        if getattr(self._host, "is_workflow_running", False):
+            return {
+                "error_type": "task_running",
+                "error": "A workflow is running; change experiments when it has stopped.",
+            }
+        if self._microscope is None:
+            return {"error_type": "not_found", "error": "No microscope is connected."}
+        return None
+
+    def _protocol_or_refusal(self, name: Optional[str]):
+        from fibsem.applications.autolamella import experiment_setup
+        from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+
+        path = (
+            experiment_setup.default_protocol_path()
+            if name is None
+            else experiment_setup.protocol_by_name(name)
+        )
+        if path is None:
+            return None, {
+                "error_type": "not_found",
+                "error": f"No protocol named {name!r} in the protocol folder.",
+                "protocol_names": [
+                    p["name"] for p in experiment_setup.list_protocols()
+                ],
+            }
+        try:
+            return AutoLamellaTaskProtocol.load(path), None
+        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+            return None, {
+                "error_type": "invalid",
+                "error": f"Could not load the protocol {path}: {exc}",
+            }
+
+    def _adopt(self, experiment) -> None:
+        """Make *experiment* the open one, as the dialogs' OK does."""
+
+        def adopt():
+            adopt_experiment = getattr(self._host, "_adopt_experiment", None)
+            if adopt_experiment is not None:
+                adopt_experiment(experiment)
+            else:  # a host with no window: just open it
+                self._host.experiment = experiment
+
+        self._agent_call(adopt)
+
+    def create_experiment(
+        self,
+        name: str,
+        protocol: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create an experiment in the default experiments folder and open it,
+        with *protocol* from the protocol folder (the default protocol when
+        omitted). An existing experiment of that name is refused, never
+        overwritten."""
+        import os
+
+        from fibsem.applications.autolamella import experiment_setup
+
+        refusal = self._session_refusal()
+        if refusal:
+            return refusal
+        if not name or os.path.basename(name) != name or name in (".", ".."):
+            return {"error_type": "invalid", "error": "name is a plain folder name."}
+        directory = experiment_setup.default_experiment_directory()
+        if os.path.exists(os.path.join(directory, name)):
+            return {
+                "error_type": "invalid",
+                "error": f"An experiment named {name!r} exists in {directory}.",
+            }
+        task_protocol, refusal = self._protocol_or_refusal(protocol)
+        if refusal:
+            return refusal
+        metadata = {"description": description} if description else None
+        experiment = experiment_setup.create_experiment(
+            directory, name, task_protocol, metadata=metadata
+        )
+        self._adopt(experiment)
+        return {"applied": True, "experiment": self.experiment_summary()}
+
+    def load_experiment(self, path: str) -> Dict[str, Any]:
+        """Open one of the recent experiments (``path`` as the recent list gives
+        it), as the Load dialog does. One with no protocol is refused."""
+        from pathlib import Path
+
+        from fibsem.applications.autolamella import experiment_setup
+        from fibsem.applications.autolamella.structures import Experiment
+
+        refusal = self._session_refusal()
+        if refusal:
+            return refusal
+        recent = [entry["path"] for entry in self.recent_experiments()]
+        if path not in recent:
+            return {
+                "error_type": "not_found",
+                "error": "Only a recent experiment can be loaded; the operator "
+                "opens any other from the Load dialog.",
+                "recent_paths": recent,
+            }
+        try:
+            experiment = Experiment.load(Path(path))
+        except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+            return {"error_type": "invalid", "error": f"Could not load {path}: {exc}"}
+        if experiment.task_protocol is None:
+            return {
+                "error_type": "invalid",
+                "error": f"{experiment.name} has no protocol; load it from the "
+                "dialog to attach one.",
+            }
+        self._adopt(experiment)
+        experiment_setup.record_recent(experiment)
+        return {"applied": True, "experiment": self.experiment_summary()}
+
+    def load_protocol(self, protocol: str) -> Dict[str, Any]:
+        """Load a protocol from the protocol folder into the open experiment, as
+        the Load Protocol dialog does: it replaces the experiment's protocol and
+        is saved beside it. Items keep the task configs they have (use
+        apply_protocol_to_item to bring one up to date)."""
+        refusal = self._session_refusal()
+        if refusal:
+            return refusal
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        task_protocol, refusal = self._protocol_or_refusal(protocol)
+        if refusal:
+            return refusal
+
+        def attach():
+            experiment.task_protocol = task_protocol
+            experiment.save_protocol()
+            signal = getattr(self._host, "experiment_update_signal", None)
+            if signal is not None:
+                signal.emit()
+
+        self._agent_call(attach)
+        return {"applied": True, "protocol": self.protocol()}
+
     # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
 
     def _agent_call(self, call, select_latest: bool = False, timeout: float = 30.0):
