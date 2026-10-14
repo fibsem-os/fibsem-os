@@ -69,6 +69,7 @@ class FakeScanner(Scanner):
             "inputs": list(INPUTS),
             "max_resolution": list(c.max_resolution),
             "min_dwell_time": c.min_dwell_time,
+            "max_dwell_time": c.max_dwell_time,
         }
 
     # -- the Scanner interface
@@ -82,6 +83,13 @@ class FakeScanner(Scanner):
 
     def _stop(self) -> None:
         self._controller.abort()
+
+    def _dwell_time_limits(self) -> RangeLimit:
+        c = self._controller
+        return RangeLimit(c.min_dwell_time, c.max_dwell_time)
+
+    def _resolution_limits(self) -> Tuple[Tuple[int, int], Tuple[int, int]]:
+        return (1, 1), self._controller.max_resolution
 
     @command
     def self_test(self) -> Dict[str, Any]:

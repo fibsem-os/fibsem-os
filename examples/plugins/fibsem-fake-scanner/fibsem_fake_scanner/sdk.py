@@ -29,6 +29,7 @@ class FakeScanController:
     firmware = "1.4.2"
     max_resolution = (8192, 8192)
     min_dwell_time = 25e-9
+    max_dwell_time = 100e-6
 
     def __init__(self, address: str, *, simulate_delay: bool = False):
         if not address:

@@ -180,15 +180,17 @@ def test_live_view_runs_on_the_scanner(microscope):
     assert frames and microscope.devices["fake_scanner"]._controller.frames >= 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: the beam's resolution choices and dwell limits are the vendor "
-    "column's, not the bound scanner's; a dwell the beam allows and the unit "
-    "doesn't fails deep in the plugin's SDK with its own exception",
-)
 def test_the_beam_offers_only_what_the_scanner_can_scan(microscope):
     sem = microscope.beams[BeamType.ELECTRON]
     assert sem.dwell_time.limits.min >= 25e-9
+    assert sem.dwell_time.limits.max <= 100e-6
+    # a frame the unit can't scan is refused before it reaches the SDK
+    with pytest.raises(ValueError, match="dwell time"):
+        microscope.acquire_image(
+            ImageSettings(
+                beam_type=BeamType.ELECTRON, **{**SETTINGS, "dwell_time": 1e-9}
+            )
+        )
 
 
 @pytest.mark.xfail(
@@ -320,11 +322,13 @@ def test_a_hardware_fault_is_a_clean_refusal():
     requests = pytest.importorskip("requests")
     from fibsem.server.devices import DeviceServer
 
-    server = DeviceServer([_standalone()]).start()
+    scanner = _standalone()
+    scanner._controller.close()  # the unit went away
+    server = DeviceServer([scanner]).start()
     try:
         r = requests.post(
             f"http://127.0.0.1:{_wait(server)}/devices/fake_scanner/commands/acquire",
-            json={"kwargs": {"resolution": [16, 8], "dwell_time": 1e-9}},
+            json={"kwargs": {"resolution": [16, 8], "dwell_time": 1e-7}},
         )
         # the unit's refusal is a device fault: 502, naming the device
         assert r.status_code == 502
