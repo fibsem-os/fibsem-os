@@ -77,8 +77,12 @@ def test_every_saved_image_is_found_on_disk(recorded):
         e.summary for e in saved if not e.image_on_disk
     ]
     assert {e.beam for e in saved} == {"ELECTRON", "ION"}
-    # Found under the lamella's directory, with the beam suffix the save adds.
-    assert all(e.image_path.parent.name == LAMELLA for e in saved)
+    # Found under the lamella's directory -- in its run's own folder
+    # (<task>/<YYYYMMDD-HHMMSS>/, FIB-1275), or the lamella's own for its shared
+    # state -- with the beam suffix the save adds.
+    assert all(
+        LAMELLA in [parent.name for parent in e.image_path.parents] for e in saved
+    )
     assert all(e.image_path.stem.endswith(("_eb", "_ib")) for e in saved)
 
 

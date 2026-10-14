@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import glob
 import os
+import re
+from datetime import datetime
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from fibsem.applications.autolamella.structures import (
@@ -20,6 +22,32 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
     Lamella,
 )
+
+# Characters a folder name cannot hold on Windows (and ``/`` anywhere).
+_UNSAFE_IN_FOLDER_NAMES = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def run_folder(lamella: Lamella, task_name: str, started: datetime) -> str:
+    """Where one run of ``task_name`` saves what it makes:
+    ``<lamella>/<task name>/<YYYYMMDD-HHMMSS>/`` (FIB-1275), so a re-run
+    overwrites nothing. The lamella's shared state (``ref_alignment``, the
+    coincidence setup reference) is not a run's, and stays in the lamella's
+    folder (FIB-1258).
+
+    The task name is made safe for a folder name; a second run starting in the
+    same second as one already saved gets ``-2``. Not created here: a run that
+    saves nothing leaves no folder. Readers find a run's files from its record
+    (``outputs``), not from this name.
+    """
+    task_folder = _UNSAFE_IN_FOLDER_NAMES.sub("-", task_name).strip().rstrip(".")
+    base = os.path.join(
+        str(lamella.path), task_folder or "task", f"{started:%Y%m%d-%H%M%S}"
+    )
+    folder, n = base, 1
+    while os.path.exists(folder):
+        n += 1
+        folder = f"{base}-{n}"
+    return folder
 
 
 def _recorded(

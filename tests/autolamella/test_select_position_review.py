@@ -47,6 +47,14 @@ ROUGH = "Rough Milling"
 CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 
+def _in_run(relpath: str):
+    """(task folder, file name) of an image in a run's own folder,
+    ``<task>/<YYYYMMDD-HHMMSS>/<file>`` (FIB-1275)."""
+    parts = Path(relpath).parts
+    assert len(parts) == 3, f"{relpath} is not in a run's folder"
+    return parts[0], parts[-1]
+
+
 @pytest.fixture
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
@@ -127,8 +135,9 @@ def test_under_review_the_task_records_a_proposal_and_awaits_a_decision(
     assert proposal.values == {"poi": Point(0.0, 0.0)}
     assert proposal.confidence is None and proposal.alternatives == []
     assert proposal.provenance["proposer"] == "current-poi"
-    assert proposal.provenance["reference_image"] == (
-        f"ref_{SETUP}_final_res_02_ib.tif"
+    assert _in_run(proposal.provenance["reference_image"]) == (
+        SETUP,
+        f"ref_{SETUP}_final_res_02_ib.tif",
     ), "the last final reference image: the tightest field of view, at the stored pose"
     assert not os.path.isabs(proposal.provenance["reference_image"]), (
         "relative to the lamella folder, so a moved experiment still resolves"

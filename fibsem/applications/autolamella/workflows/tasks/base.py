@@ -63,6 +63,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Lamella,
 )
+from fibsem.applications.autolamella.task_outputs import run_folder
 from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
@@ -201,6 +202,8 @@ class AutoLamellaTask(ABC):
         self.microscope = microscope
         self.config = config
         self.lamella = lamella
+        # This task object is one run: its folder is fixed as it starts (FIB-1275).
+        self._output_dir = run_folder(lamella, config.task_name, now())
         # Every task's reference images are acquired with its config's imaging
         # settings; they are saved under its output folder. Set here, once, for
         # the run this task object is, rather than by hand at the top of each
@@ -236,11 +239,13 @@ class AutoLamellaTask(ABC):
 
     @property
     def output_dir(self) -> str:
-        """Where this task's run writes what it makes: its alignment and
-        autofocus runs, its milling. Every save path a run hands on starts here,
-        so where a task writes is decided once rather than at each call
-        (FIB-1253). The lamella's folder, for now."""
-        return str(self.lamella.path)
+        """Where this task's run writes what it makes: its reference images, its
+        alignment and autofocus runs, its milling. Every save path a run hands on
+        starts here, so where a task writes is decided once rather than at each
+        call (FIB-1253): the run's own folder, ``<lamella>/<task name>/
+        <YYYYMMDD-HHMMSS>/`` (FIB-1275), so a re-run overwrites nothing. The
+        lamella's shared state is written to the lamella's folder instead."""
+        return self._output_dir
 
     @property
     def validate(self) -> bool:

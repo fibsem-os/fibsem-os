@@ -49,6 +49,14 @@ CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 MILLING_ANGLE = 15.0
 
 
+def _in_run(relpath: str):
+    """(task folder, file name) of an image in a run's own folder,
+    ``<task>/<YYYYMMDD-HHMMSS>/<file>`` (FIB-1275)."""
+    parts = Path(relpath).parts
+    assert len(parts) == 3, f"{relpath} is not in a run's folder"
+    return parts[0], parts[-1]
+
+
 @pytest.fixture
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
@@ -178,7 +186,10 @@ def test_headless_both_confirmations_go_on_the_record_unreviewed(microscope, tmp
     assert lamella.milling_pose.stage_position.t != pytest.approx(before.t), (
         "and the pose stored at the end is after it"
     )
-    assert tilt.provenance["reference_image"] == f"ref_{SETUP}_start_ib.tif"
+    assert _in_run(tilt.provenance["reference_image"]) == (
+        SETUP,
+        f"ref_{SETUP}_start_ib.tif",
+    )
     assert microscope.get_current_milling_angle() == pytest.approx(MILLING_ANGLE), (
         "and the task tilted, as it does when nobody answers"
     )
@@ -187,9 +198,10 @@ def test_headless_both_confirmations_go_on_the_record_unreviewed(microscope, tmp
     pose = position.values["stage_position"]
     assert isinstance(pose, FibsemStagePosition)
     assert position.current.values["stage_position"] == pose, "used as proposed"
-    assert position.provenance["reference_image"] == f"ref_{SETUP}_post_tilt_ib.tif", (
-        "sits on the image taken at the milling angle"
-    )
+    assert _in_run(position.provenance["reference_image"]) == (
+        SETUP,
+        f"ref_{SETUP}_post_tilt_ib.tif",
+    ), "sits on the image taken at the milling angle"
     assert os.path.exists(
         os.path.join(str(lamella.path), position.provenance["reference_image"])
     )
@@ -294,9 +306,10 @@ def test_headless_the_alignment_area_goes_on_the_record_unreviewed(
     assert area.values["alignment_area"] == proposed
     assert area.current.values["alignment_area"] == proposed, "used as proposed"
     assert "alignment area" in area.provenance["message"]
-    assert area.provenance["reference_image"] == f"ref_{SETUP}_post_tilt_ib.tif", (
-        "the last FIB image before the reference is taken"
-    )
+    assert _in_run(area.provenance["reference_image"]) == (
+        SETUP,
+        f"ref_{SETUP}_post_tilt_ib.tif",
+    ), "the last FIB image before the reference is taken"
     assert lamella.alignment_area == proposed
 
 
