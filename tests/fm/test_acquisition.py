@@ -2528,3 +2528,66 @@ def test_a_run_writes_its_tile_layout_beside_the_tiles(fm_microscope, tmp_path):
     # Four tiles in a 2x2 are four neighbour pairs, matched or not.
     assert len(json.loads(record)["pairs"]) == 4
     assert runner.layout_warning == json.loads(record)["warning"]
+
+
+# ── experimental tile alignment (FIB-1385) ──────────────────────────────
+
+
+def test_overview_parameters_align_tiles_is_off_by_default_and_round_trips():
+    assert OverviewParameters().register_tiles is False
+    assert OverviewParameters.from_dict({}).register_tiles is False
+    on = OverviewParameters(register_tiles=True)
+    assert OverviewParameters.from_dict(on.to_dict()).register_tiles is True
+
+
+def test_stitching_places_each_tile_at_a_given_position(fm_microscope):
+    """With `positions`, a tile lands where it is told, in every channel, and the
+    mosaic keeps the size and centre of the planned one."""
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=[
+            ChannelSettings(name="DAPI", exposure_time=0.001),
+            ChannelSettings(name="GFP", exposure_time=0.001),
+        ],
+        overview_parameters=OverviewParameters(rows=2, cols=2, overlap=0.1),
+    )
+    tileset = runner.run()
+    centre = fm_microscope.get_stage_position()
+    planned = stitch_tileset(tileset, 0.1, centre_position=centre)
+    h, w = tileset[0][0].data.shape[-2:]
+    step_y, step_x = h - int(h * 0.1), w - int(w * 0.1)
+    positions = {
+        (r, c): (float(r * step_y), float(c * step_x)) for r in (0, 1) for c in (0, 1)
+    }
+    positions[(1, 1)] = (step_y + 9.0, step_x - 13.0)
+
+    moved = stitch_tileset(tileset, 0.1, centre_position=centre, positions=positions)
+
+    assert moved.data.shape == planned.data.shape
+    assert moved.metadata.stage_position.x == planned.metadata.stage_position.x
+    # The middle of tile (1, 1) is its own pixels, wherever it was put.
+    tile = np.max(tileset[1][1].data, axis=1)  # (C, Y, X)
+    y, x = step_y + 9 + h // 2, step_x - 13 + w // 2
+    np.testing.assert_array_equal(
+        moved.data[:, 0, y - 5 : y + 5, x - 5 : x + 5],
+        tile[:, h // 2 - 5 : h // 2 + 5, w // 2 - 5 : w // 2 + 5],
+    )
+
+
+def test_a_run_asked_to_align_records_what_it_did(fm_microscope, tmp_path):
+    runner = FMTiledAcquisitionRunner(
+        microscope=fm_microscope,
+        channel_settings=ChannelSettings(name="DAPI", exposure_time=0.001),
+        overview_parameters=OverviewParameters(
+            rows=2, cols=2, overlap=0.1, register_tiles=True
+        ),
+        save_directory=str(tmp_path),
+    )
+    mosaic = runner.run_and_stitch()
+
+    record = json.loads((tmp_path / "tile-layout.json").read_text())
+    registration = record["registration"]
+    assert set(registration) >= {"applied", "note"}
+    # Aligned or not, the mosaic is the planned one's size.
+    h, w = fm_microscope.fm.camera.resolution[1], fm_microscope.fm.camera.resolution[0]
+    assert mosaic.data.shape[-2:] == (h - int(h * 0.1) + h, w - int(w * 0.1) + w)

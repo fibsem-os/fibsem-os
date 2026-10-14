@@ -44,6 +44,7 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
+from fibsem.imaging.tiling.registration import compose_mosaic, registered_positions
 from fibsem.structures import (
     BeamType,
     DeviceImagingState,
@@ -521,6 +522,11 @@ class FMTiledAcquisitionRunner:
         # when the tiles line up with the stage steps, or could not be checked.
         self.layout_warning: Optional[str] = None
         self._layout_check: Optional[TileLayoutCheck] = None
+        # Where each tile goes in the mosaic when `register_tiles` aligned them, or
+        # None for the planned layout. Decided at the end of `run`.
+        self._registered_positions: Optional[
+            Dict[Tuple[int, int], Tuple[float, float]]
+        ] = None
 
     # ── public entry points ──────────────────────────────────────────────
 
@@ -557,7 +563,10 @@ class FMTiledAcquisitionRunner:
         logging.info(
             f"Tileset acquisition complete: {self._rows}x{self._cols} tiles acquired"
         )
-        self.layout_warning = self._report_layout()
+        registration = None
+        if self.overview_parameters.register_tiles:
+            registration = self._register_tiles()
+        self.layout_warning = self._report_layout(registration)
         return self.tileset
 
     def run_and_stitch(self) -> FluorescenceImage:
@@ -591,6 +600,7 @@ class FMTiledAcquisitionRunner:
             self.overview_parameters.overlap,
             centre_position=self.centre_position,
             objective_position=self._tile_objective_position,
+            positions=self._registered_positions,
         )
 
     # ── phases ───────────────────────────────────────────────────────────
@@ -944,7 +954,45 @@ class FMTiledAcquisitionRunner:
             logging.warning(f"Tile layout check stopped: {e}")
             self._layout_check = None
 
-    def _report_layout(self) -> Optional[str]:
+    def _register_tiles(self) -> dict:
+        """Decide where each tile goes in the mosaic (`register_tiles`), and record it.
+
+        The same rule as the FIB/SEM runner: aligned only when the layout check raises
+        no warning and enough pairs match, since a warning means the stage model is
+        out of scale and an aligned mosaic would be out by that scale times the
+        distance from its centre. `stitch_tileset` then places the tiles.
+        """
+        if self._layout_check is None:
+            note = "Tiles were left as planned: the layout check did not run."
+            logging.info(note)
+            return {"applied": False, "note": note}
+        try:
+            planned = {
+                (t.row, t.col): (float(t.canvas_y), float(t.canvas_x))
+                for t in self._ordered
+                if self.tileset[t.row][t.col] is not None
+            }
+            positions, note = registered_positions(
+                planned,
+                self._layout_check.pairs,
+                self._layout_check.summary(),
+                tile_size=max(self._image_width, self._image_height),
+            )
+            logging.info(note)
+            if positions is None:
+                return {"applied": False, "note": note}
+            self._registered_positions = positions
+            shifts = {
+                f"{r},{c}": [y - planned[(r, c)][0], x - planned[(r, c)][1]]
+                for (r, c), (y, x) in positions.items()
+            }
+            return {"applied": True, "note": note, "shifts": shifts}
+        except Exception as e:
+            note = f"Tiles were left as planned: aligning them failed ({e})."
+            logging.warning(note)
+            return {"applied": False, "note": note}
+
+    def _report_layout(self, registration: Optional[dict] = None) -> Optional[str]:
         """Log the layout check, write it beside the tiles, and return its warning."""
         if self._layout_check is None:
             return None
@@ -958,7 +1006,12 @@ class FMTiledAcquisitionRunner:
                 self._layout_check.save(
                     os.path.join(self.save_directory, LAYOUT_FILE),
                     pixel_size=pixel_size_x,
+                    registration=registration,
                 )
+            if summary.warning and registration is not None:
+                # Asked to align and did not: say so, or the operator would take the
+                # mosaic for an aligned one.
+                return f"{summary.warning} {registration['note']}"
             return summary.warning
         except Exception as e:
             logging.warning(f"Could not report the tile layout check: {e}")
@@ -1310,6 +1363,7 @@ def stitch_tileset(
     tile_overlap: float,
     centre_position: FibsemStagePosition,
     objective_position: Optional[float] = None,
+    positions: Optional[Dict[Tuple[int, int], Tuple[float, float]]] = None,
 ) -> FluorescenceImage:
     """Stitch a tileset of fluorescence images into a single mosaic image.
 
@@ -1337,6 +1391,10 @@ def stitch_tileset(
         objective_position: Objective z for the mosaic, recorded on every channel.
             Every tile is acquired at the run's initial objective position, so that is
             the mosaic's. Without it the first acquired tile's value is kept.
+        positions: Each tile's top-left in the mosaic, (y, x) in pixels, keyed by
+            (row, col) -- the registered layout (`register_tiles`). None places tiles
+            on the planned grid. The mosaic's size, centre and metadata are the same
+            either way; only where the tiles sit within it changes.
 
     Returns:
         Single FluorescenceImage containing the stitched mosaic
@@ -1414,7 +1472,9 @@ def stitch_tileset(
         (nc_channels, 1, mosaic_height, mosaic_width), dtype=ref_tile.data.dtype
     )
 
-    # Place each tile
+    # Place each tile. With `positions`, each tile's (C, Y, X) projection is kept and
+    # placed afterwards, channel by channel, where the registration put it.
+    planes: Dict[Tuple[int, int], np.ndarray] = {}
     for row in range(rows):
         for col in range(cols):
             tile = tileset[row][col]
@@ -1456,8 +1516,26 @@ def stitch_tileset(
             if tile_data.shape[1] > 1:  # Multiple Z planes
                 tile_data = np.max(tile_data, axis=1, keepdims=True)
 
+            if positions is not None:
+                if (row, col) not in positions:
+                    # Composed per channel onto a fresh plane, so a tile placed the
+                    # planned way here would be painted over.
+                    raise ValueError(f"No position for tile ({row}, {col})")
+                planes[(row, col)] = tile_data[:, 0, :, :]
+                continue
+
             # Place tile data for each channel
             mosaic_data[:, 0, y_start:y_end, x_start:x_end] = tile_data[:, 0, :, :]
+
+    for channel in range(nc_channels):
+        if not planes:
+            break
+        mosaic_data[channel, 0] = compose_mosaic(
+            {key: plane[channel] for key, plane in planes.items()},
+            positions,
+            (mosaic_height, mosaic_width),
+            dtype=mosaic_data.dtype,
+        )
 
     # Create updated metadata for stitched image
     stitched_metadata = deepcopy(ref_tile.metadata)
