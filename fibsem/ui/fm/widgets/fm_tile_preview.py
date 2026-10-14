@@ -22,13 +22,13 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.fm.planning import SparseOverviewPlan, plan_sparse_fm_overview, to_fm_pose
+from fibsem.geometry.projection import FMStageProjection, StageProjection
 from fibsem.imaging.tiling import geometry as tiling_geometry
 from fibsem.imaging.tiling.geometry import (
     PlaneRegion,
     compute_tile_grid_from_fov,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.projection import FMStageProjection, StageProjection
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
     FibsemStagePosition,

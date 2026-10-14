@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem import update_check
 from fibsem.config import (
     CARD_MODES,
     DisplayPreferences,
@@ -44,6 +45,19 @@ _TIP_CARD_MODE = (
 _LBL_DEV_MODE = "Enable Development Mode"
 _TIP_DEV_MODE = (
     "Show advanced developer tools and diagnostic menus. Intended for developers only."
+)
+
+_LBL_UPDATE_CHECK = "Check for Updates at Start-up"
+_TIP_UPDATE_CHECK = (
+    "Ask pypi.org for the latest fibsemOS release each time the application starts, "
+    "and show a chip in the tab bar when a newer one is out. Takes effect at the next "
+    "start. Off by default: instrument PCs are often on networks where an unannounced "
+    "connection is a question for the site. The check only downloads the public list "
+    "of releases. Help > About can check on request either way."
+)
+_TIP_UPDATE_CHECK_SOURCE = (
+    "This is a source install, so the application never checks for releases: "
+    "update it with git instead."
 )
 
 # Features
@@ -162,6 +176,15 @@ class PreferencesDialog(QDialog):
         display_form.addRow(_LBL_BORDER, self._chk_border)
         display_form.addRow(_LBL_CARD_MODE, self._combo_card_mode)
         display_form.addRow(_LBL_DEV_MODE, self._chk_dev_mode)
+        self._chk_update_check = QCheckBox()
+        self._chk_update_check.setToolTip(_TIP_UPDATE_CHECK)
+        if not update_check.is_supported():
+            # Shown rather than hidden, so nobody goes looking for it; disabled because
+            # a source install never checks, whatever this says. Its value is still
+            # loaded and handed back, so the file keeps what was there.
+            self._chk_update_check.setEnabled(False)
+            self._chk_update_check.setToolTip(_TIP_UPDATE_CHECK_SOURCE)
+        display_form.addRow(_LBL_UPDATE_CHECK, self._chk_update_check)
         self._stack.addWidget(display_page)
 
         # --- Feature Flags ---
@@ -274,6 +297,8 @@ class PreferencesDialog(QDialog):
         self._chk_app_server_microscope.setChecked(prefs.app_server.microscope)
         self._chk_app_server_microscope.setEnabled(prefs.app_server.enabled)
 
+        self._chk_update_check.setChecked(prefs.reporting.update_check_enabled)
+
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
         self._dir_protocol.setText(e.default_protocol_path)
@@ -313,7 +338,7 @@ class PreferencesDialog(QDialog):
 
         Starts from a copy of the preferences the dialog was opened with and overwrites
         only the fields it has a widget for. Everything else -- the hooks, whether the
-        guided setup was dismissed, the recent experiments, reporting -- is handed back
+        guided setup was dismissed, the recent experiments, crash reporting -- is handed back
         as it came in, and the caller saves the result to disk. Building a fresh
         UserPreferences instead reset any field not copied across by hand: hooks came
         back as None, which means "use the defaults", over a user's [] that means "all
@@ -341,6 +366,8 @@ class PreferencesDialog(QDialog):
 
         prefs.app_server.enabled = self._chk_app_server.isChecked()
         prefs.app_server.microscope = self._chk_app_server_microscope.isChecked()
+
+        prefs.reporting.update_check_enabled = self._chk_update_check.isChecked()
 
         e = prefs.experiment
         e.default_experiment_directory = self._dir_experiment.text()

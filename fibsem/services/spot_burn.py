@@ -40,7 +40,7 @@ from typing import (
 # from its type hints (a SpotBurnSettings sent as a dict).
 from fibsem.cancellation import AnyStopEvent
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
+from fibsem.devices.core import Parameter, ParameterMetadata, Role, command, query
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.services.core import Service, forward_to, save_beam_conditions
 from fibsem.structures import BeamType, Point
@@ -169,9 +169,10 @@ class SpotBurn(Service):
         """End the run in progress as cancelled."""
         self._stop_requested.set()
 
-    @command
+    @query
     def estimate(self, settings: SpotBurnSettings) -> float:
-        """How long burning ``settings`` takes, in seconds."""
+        """How long burning ``settings`` takes, in seconds. Moves nothing, so a
+        query."""
         points, _ = in_bounds(settings.coordinates)
         return len(points) * float(settings.exposure_time)
 

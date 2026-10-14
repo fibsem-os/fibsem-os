@@ -565,6 +565,12 @@ class Milling(Service):
                     self._write_back(beam, name, saved[name])
         self._restore()
 
+    @command
+    def finish(self) -> None:
+        """Clear the patterns and put the milling beam back as ``setup`` found it."""
+        self.clear()
+        self.restore()
+
     def _save(self, beam: Beam) -> None:
         """Keep the beam's conditions that it has, can set, and reports."""
         self._saved_beam = beam

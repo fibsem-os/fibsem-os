@@ -206,9 +206,8 @@ def test_task_aborts_and_restores_conditions(tmp_path):
 
 
 def test_milling_cleanup_restores_captured_imaging_current(tmp_path):
-    """Cleanup restores the imaging current/voltage captured *before* milling started (so the
-    beam returns to exactly its pre-milling state), rather than a config default — even when
-    the task is cancelled."""
+    """Cleanup puts the beam back as it was before milling (not a config default),
+    even when the task is cancelled."""
     from fibsem.structures import BeamType
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -220,23 +219,15 @@ def test_milling_cleanup_restores_captured_imaging_current(tmp_path):
     v0 = microscope.get_beam_voltage(BeamType.ION)
 
     ev = threading.Event()
-    ev.set()  # abort right after the pre-milling capture
-    got = {}
-    orig = microscope.finish_milling
-
-    def spy(imaging_current, imaging_voltage):
-        got["c"], got["v"] = imaging_current, imaging_voltage
-        return orig(imaging_current, imaging_voltage)
-
-    microscope.finish_milling = spy
+    ev.set()  # abort before anything mills
+    finished = _spy(microscope, "finish_milling")
 
     task = FibsemMillingTask(microscope, config, stop_event=ev)
     task.run()
 
-    assert task.initial_imaging_current == c0 and task.initial_imaging_voltage == v0
-    assert (
-        got["c"] == c0 and got["v"] == v0
-    )  # finish_milling restored the captured values
+    assert finished, "cleanup (finish_milling) still ran"
+    assert microscope.get_beam_current(BeamType.ION) == c0
+    assert microscope.get_beam_voltage(BeamType.ION) == v0
 
 
 if __name__ == "__main__":

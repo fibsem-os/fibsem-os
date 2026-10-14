@@ -13,7 +13,9 @@ The far side of a remote device (the METEOR PC, say). It wraps any
                                                TIFF for a beam's FibsemImage,
                                                or np.save bytes for an array, with a
                                                frame's metadata as JSON in the
-                                               X-Frame-Metadata header
+                                               X-Frame-Metadata header; with
+                                               "answer": "preview", any image as
+                                               {"result": {summary, path, preview}}
     POST /devices/{device}/queries/{query}     {"kwargs": {...}} -> {"result": ...},
                                                a read that moves nothing
     WS   /events                               {"device", "parameter", "kind", "value"},
@@ -81,6 +83,7 @@ from fastapi.responses import Response
 from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.core import (
     Device,
+    DeviceFault,
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
@@ -96,7 +99,13 @@ from fibsem.devices.wire import (
     from_wire,
     to_wire,
 )
-from fibsem.server.images import TIFF_MEDIA_TYPE, preview_payload, tiff_bytes
+from fibsem.server.images import (
+    TIFF_MEDIA_TYPE,
+    image_answer,
+    is_image_list,
+    is_image_result,
+    tiff_bytes,
+)
 from fibsem.structures import FibsemImage
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
@@ -115,6 +124,7 @@ ERROR_STATUS = {
     TypeError: 422,
     ValueError: 422,  # an argument that does not decode names its parameter
     NotImplementedError: 501,  # a command this driver has no hook for (a needle's stop)
+    DeviceFault: 502,  # the hardware or its controller refused
 }
 
 
@@ -130,8 +140,20 @@ def refusal(error: Exception, what: str) -> HTTPException:
     parameter = getattr(error, "parameter", None)
     if parameter is not None:
         detail["parameter"] = parameter
+    device = getattr(error, "device", None) if isinstance(error, DeviceFault) else None
+    if device is not None:
+        detail["device"] = device
     logging.info(f"{what}: {status} {detail['error_type']}: {error}")
     return HTTPException(status, detail)
+
+
+def unexpected(error: Exception, what: str) -> HTTPException:
+    """The answer to any other error: 500, in the same shape as a refusal, so a
+    client reads every failure one way. The traceback goes to the server's log,
+    not the answer."""
+    logging.error(f"{what}: {type(error).__name__}: {error}", exc_info=error)
+    detail = {"error_type": type(error).__name__, "message": str(error)}
+    return HTTPException(500, detail)
 
 
 def _choices_to_wire(choices: Any) -> Any:
@@ -164,7 +186,21 @@ def _facts(device: Device) -> Dict[str, Any]:
         return {}
 
 
-def describe_device(device: Device) -> Dict[str, Any]:
+# Why the server refuses a write or a command on a device, or None when it
+# doesn't: (device, "write" or "command", name, the command's arguments).
+Refuse = Callable[[Device, str, str, Mapping[str, Any]], Optional[str]]
+
+
+def describe_device(device: Device, refuse: Optional[Refuse] = None) -> Dict[str, Any]:
+    """A device's parameters, commands, queries and facts. With *refuse*, each
+    parameter and command also says whether the agent may use it (``agent``):
+    a parameter it may read but never set is ``settable`` and ``agent: false``."""
+
+    def agent(kind: str, name: str) -> Dict[str, bool]:
+        if refuse is None:
+            return {}
+        return {"agent": refuse(device, kind, name, {}) is None}
+
     return {
         "name": device.name,
         "class": type(device).__name__,
@@ -174,11 +210,16 @@ def describe_device(device: Device) -> Dict[str, Any]:
                 **info,
                 "limits": _limits_to_wire(info["limits"]),
                 "choices": _choices_to_wire(info["choices"]),
+                **agent("write", name),
             }
             for name, info in device.describe().items()
         },
         "commands": {
-            name: {"signature": info.signature, "available": info.available}
+            name: {
+                "signature": info.signature,
+                "available": info.available,
+                **agent("command", name),
+            }
             for name, info in device.commands.items()
         },
         "queries": {
@@ -286,6 +327,7 @@ def build_device_router(
     prefix: str = "/devices",
     noun: str = "device",
     on_image: Optional[Callable[[FibsemImage], None]] = None,
+    refuse: Optional[Refuse] = None,
 ) -> APIRouter:
     """The ``/devices`` routes over whatever *devices* returns, by name.
 
@@ -297,7 +339,9 @@ def build_device_router(
     server passes none, the App Server its token, level and hardware lock. A query
     moves nothing, so it takes the *read* dependencies, not the hardware lock.
     *on_image* is given each image a command acquired, before it is answered: the
-    App Server shows it in the app's views (FIB-1375).
+    App Server shows it in the app's views (FIB-1375). *refuse* says why a write
+    or a command is never allowed here (403 ``not_allowed``), and the listings
+    mark those (``agent: false``): the App Server's allowlist.
     """
     router = APIRouter()
 
@@ -313,6 +357,18 @@ def build_device_router(
             raise HTTPException(404, f"'{device}' declares no parameter '{name}'")
         return getattr(d, name)  # ParameterUnavailable when this backend lacks it
 
+    def check(d: Device, kind: str, name: str, kwargs: Mapping[str, Any]) -> None:
+        why = refuse(d, kind, name, kwargs) if refuse is not None else None
+        if why is not None:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_type": "not_allowed",
+                    "message": f"The agent may not use {d.name}.{name}, at any "
+                    f"level: {why}. Its value stays readable.",
+                },
+            )
+
     def run(call: Any, what: str) -> Any:
         try:
             return call()
@@ -320,14 +376,16 @@ def build_device_router(
             raise
         except tuple(ERROR_STATUS) as error:
             raise refusal(error, what) from None
+        except Exception as error:
+            raise unexpected(error, what) from None
 
     @router.get(prefix, dependencies=list(read))
     def list_devices() -> Dict[str, Any]:
-        return {name: describe_device(d) for name, d in devices().items()}
+        return {name: describe_device(d, refuse) for name, d in devices().items()}
 
     @router.get(prefix + "/{device}", dependencies=list(read))
     def get_device(device: str) -> Dict[str, Any]:
-        return describe_device(lookup(device))
+        return describe_device(lookup(device), refuse)
 
     # Before /{parameter}, which would otherwise take "values" as a name.
     @router.get(prefix + "/{device}/values", dependencies=list(read))
@@ -344,6 +402,8 @@ def build_device_router(
                 continue
             except tuple(ERROR_STATUS) as error:
                 raise refusal(error, f"{noun} {device}.{name}") from None
+            except Exception as error:
+                raise unexpected(error, f"{noun} {device}.{name}") from None
             values[name] = to_wire(value)
         return {"values": jsonable_encoder(values), "unavailable": unavailable}
 
@@ -361,6 +421,7 @@ def build_device_router(
     ) -> Dict[str, Any]:
         what = f"{noun} {device}.{parameter}"
         param = run(lambda: parameter_of(device, parameter), what)
+        check(lookup(device), "write", parameter, {})
         value = run(lambda: from_wire(param.type, body["value"]), what)
         return {"value": to_wire(run(lambda: param.set_value(value), what))}
 
@@ -381,15 +442,20 @@ def build_device_router(
         method = getattr(d, command)
         what = f"{noun} {device}.{command}"
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
+        check(d, "command", command, kwargs)
         result = run(lambda: method(**kwargs), what)
         headers = {}
-        if isinstance(result, FibsemImage):  # a beam's image: TIFF, or a preview
-            if on_image is not None:
-                on_image(result)
-            # "answer": "preview" asks for an agent-sized JPEG with its scale,
-            # as JSON, instead of the full TIFF.
-            if body.get("answer") == "preview":
-                return preview_payload(result)
+        if on_image is not None:
+            for image in _images_in(result):
+                on_image(image)
+        # "answer": "preview" asks for what an agent reads: any image as a
+        # summary, its saved path and a small JPEG (image_answer). Otherwise the
+        # data itself, for programs.
+        if (
+            body.get("answer") == "preview" and is_image_result(result)
+        ) or is_image_list(result):
+            return {"result": image_answer(result)}
+        if isinstance(result, FibsemImage):  # a beam's image: TIFF
             return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
         if (
             isinstance(result, list)
@@ -423,6 +489,15 @@ def build_device_router(
         return {"result": jsonable_encoder(to_wire(result))}
 
     return router
+
+
+def _images_in(result: Any) -> List[FibsemImage]:
+    """Every FibsemImage a command returned: one, or the ones in its lists."""
+    if isinstance(result, FibsemImage):
+        return [result]
+    if isinstance(result, (list, tuple)):
+        return [image for item in result for image in _images_in(item)]
+    return []
 
 
 def build_device_app(devices: Iterable[Device]) -> FastAPI:

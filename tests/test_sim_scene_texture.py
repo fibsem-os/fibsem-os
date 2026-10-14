@@ -12,7 +12,7 @@ from fibsem.drivers.demo.sim_scene import (
     SceneFeature,
     WorldTexture,
 )
-from fibsem.projection import BeamStageProjection
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import BeamType, FibsemStagePosition
 from fibsem.utils import setup_session
 

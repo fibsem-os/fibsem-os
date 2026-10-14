@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
 from fibsem import utils  # noqa: E402
+from fibsem.acting import AGENT as AGENT_ACTOR  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
@@ -25,6 +26,8 @@ from fibsem.structures import MicroscopeState  # noqa: E402
 
 AGENT = {"Authorization": "Bearer agent"}
 STOP_MILLING = "/microscope/services/milling/commands/stop"
+# Every agent stop carries a reason.
+WHY = {"reason": "the trench is through the lamella"}
 MOVE_RELATIVE = "/microscope/services/stage_movement/commands/move_relative"
 # A one-micron stage nudge, in the route's body shape.
 _NUDGE = {
@@ -101,20 +104,24 @@ def test_drive_acts_on_the_session_and_the_hardware(client, auth):
     capabilities = client.get("/capabilities", headers=AGENT).json()
     assert capabilities["level"] == "drive"
     assert "scopes" not in capabilities
-    assert client.post("/app/workflow/stop", headers=AGENT).status_code == 200
-    assert client.post(STOP_MILLING, headers=AGENT).status_code == 200
+    assert client.post("/app/workflow/stop", headers=AGENT, json=WHY).status_code == 200
+    assert client.post(STOP_MILLING, headers=AGENT, json=WHY).status_code == 200
     moved = client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE)
     assert moved.status_code == 200, moved.text
 
 
-def test_drive_cannot_vent_or_pump_the_chamber(client, auth):
-    # Drive arms the hardware, but the chamber is not served.
+def test_drive_reads_the_chamber_but_cannot_vent_or_pump_it(client, auth):
+    # Drive arms the hardware, but pumping and venting are the operator's.
     auth.set_level(AgentLevel.DRIVE)
     for command in ("vent", "pump"):
         resp = client.post(
             f"/microscope/devices/chamber/commands/{command}", headers=AGENT, json={}
         )
-        assert resp.status_code == 404, command
+        assert resp.status_code == 403, command
+        assert _error(resp) == "not_allowed"
+    for parameter in ("state", "pressure"):
+        read = client.get(f"/microscope/devices/chamber/{parameter}", headers=AGENT)
+        assert read.status_code == 200, parameter
 
 
 def test_watch_refuses_a_hardware_command_naming_the_level(client, auth):
@@ -129,7 +136,7 @@ def test_at_drive_a_run_in_control_refuses_a_hardware_command(client, auth, micr
     with microscope.control.take(WORKFLOW, "a lamella run"):
         moved = client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE)
         # Stopping never takes control, so the run never refuses it.
-        assert client.post(STOP_MILLING, headers=AGENT).status_code == 200
+        assert client.post(STOP_MILLING, headers=AGENT, json=WHY).status_code == 200
     assert moved.status_code == 409
     assert _error(moved) == "microscope_busy"
     assert moved.json()["detail"]["in_control"]["by"] == WORKFLOW
@@ -190,12 +197,50 @@ def test_each_level_reaches_itself_and_those_below():
             assert auth.reaches(needed) is (needed in reached), (level, needed)
 
 
-def test_assist_stops_but_asks_first_to_act(client, auth):
+def test_assist_asks_first_to_stop_what_is_not_its_own(client, auth):
+    """A wrong stop isn't free (Patrick, 2026-10-14): at Assist the agent asks
+    the operator to stop the workflow or someone else's mill, as it asks to act."""
     auth.set_level(AgentLevel.ASSIST)
-    assert client.post(STOP_MILLING, headers=AGENT).status_code == 200
+    for path in (STOP_MILLING, "/app/workflow/stop"):
+        refused = client.post(path, headers=AGENT, json=WHY)
+        assert refused.status_code == 403, path
+        assert _error(refused) == "ask_first"
     moved = client.post(MOVE_RELATIVE, headers=AGENT, json=_NUDGE)
     assert moved.status_code == 403
     assert _error(moved) == "ask_first"
+
+
+def test_the_agent_stops_its_own_action_at_any_level(client, auth, microscope):
+    """While the agent's own command holds control (its mill, say), it can stop
+    it at Watch; the workflow is never its own."""
+    with microscope.control.take(AGENT_ACTOR, "milling run"):
+        assert client.post(STOP_MILLING, headers=AGENT, json=WHY).status_code == 200
+        refused = client.post("/app/workflow/stop", headers=AGENT, json=WHY)
+    assert refused.status_code == 403
+    with microscope.control.take(WORKFLOW, "a lamella run"):
+        refused = client.post(STOP_MILLING, headers=AGENT, json=WHY)
+    assert refused.status_code == 403
+    assert _error(refused) == "level"
+
+
+def test_a_stop_needs_a_reason_and_records_it(client, auth, microscope):
+    auth.set_level(AgentLevel.DRIVE)
+    for path in (STOP_MILLING, "/app/workflow/stop"):
+        for body in (None, {}, {"reason": "  "}):
+            refused = client.post(path, headers=AGENT, json=body)
+            assert refused.status_code == 422, (path, body)
+            assert _error(refused) == "missing_reason"
+    recorded = []
+    microscope.record_signal.connect(
+        lambda kind, payload: recorded.append((kind, payload))
+    )
+    assert client.post(STOP_MILLING, headers=AGENT, json=WHY).status_code == 200
+    assert client.post("/app/workflow/stop", headers=AGENT, json=WHY).status_code == 200
+    stops = [payload for kind, payload in recorded if kind == "agent_stop"]
+    assert stops == [
+        {"action": "milling stop", "reason": WHY["reason"], "own": False},
+        {"action": "workflow", "reason": WHY["reason"], "own": False},
+    ]
 
 
 def test_stop_agent_drops_to_watch_and_says_so(client, auth):
@@ -204,13 +249,13 @@ def test_stop_agent_drops_to_watch_and_says_so(client, auth):
     assert auth.level is AgentLevel.WATCH
     # It still sees, so it can report what happened.
     assert client.get("/app/workflow/status", headers=AGENT).status_code == 200
-    refused = client.post("/app/workflow/stop", headers=AGENT)
+    refused = client.post("/app/workflow/stop", headers=AGENT, json=WHY)
     assert refused.status_code == 403
     assert _error(refused) == "agent_stopped"
 
     # Raising the level again is the operator's say-so: no longer "stopped".
     auth.set_level(AgentLevel.DRIVE)
-    assert client.post("/app/workflow/stop", headers=AGENT).status_code == 200
+    assert client.post("/app/workflow/stop", headers=AGENT, json=WHY).status_code == 200
     auth.set_level(AgentLevel.WATCH)
-    refused = client.post("/app/workflow/stop", headers=AGENT)
+    refused = client.post("/app/workflow/stop", headers=AGENT, json=WHY)
     assert _error(refused) == "level"

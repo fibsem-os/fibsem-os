@@ -192,7 +192,7 @@ def test_a_projection_is_built_once_per_beam(microscope, monkeypatch):
     from fibsem.applications.autolamella.workflows.tasks.grid.reach import (
         overview_reach,
     )
-    from fibsem.projection import BeamStageProjection
+    from fibsem.geometry.projection import BeamStageProjection
 
     built = []
     real = BeamStageProjection.from_microscope.__func__

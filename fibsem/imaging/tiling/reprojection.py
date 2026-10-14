@@ -15,7 +15,7 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 from fibsem.conversions import is_inside_image_bounds
-from fibsem.geometry.movement import beam_view_tilt
+from fibsem.geometry.movement import beam_view_tilt, inverse_view_corrected_dy
 from fibsem.structures import (
     LEGACY_ROTATION_CENTRE,
     BeamType,
@@ -23,7 +23,6 @@ from fibsem.structures import (
     FibsemStagePosition,
     Point,
 )
-from fibsem.transformations import inverse_view_corrected_dy
 
 
 def calculate_reprojected_stage_position(
@@ -313,7 +312,7 @@ def _inverse_y_corrected_stage_movement(
     metadata rather than a live instrument -- so a saved overview projects as it was
     taken.
 
-    Deferred to :func:`fibsem.transformations.inverse_view_corrected_dy` rather than
+    Deferred to :func:`fibsem.geometry.movement.inverse_view_corrected_dy` rather than
     derived here. This function used to carry its own copy of the trigonometry, as did
     `FibsemMicroscope._inverse_view_corrected_stage_movement`, so one decision about the
     geometry lived in three places and only stayed consistent by everyone editing all

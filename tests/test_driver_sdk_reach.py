@@ -27,7 +27,6 @@ DRIVERS = sorted(set(built_in_packages().values()))
 
 ALLOWED = {
     "_write_beam",
-    "_without_blocked_axes",
 }
 
 

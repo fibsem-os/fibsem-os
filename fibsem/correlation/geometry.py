@@ -12,7 +12,7 @@ and the fit is *seeded* with it (FIB-881).
 Nothing geometric is derived in this module. The in-plane part of the map is the
 composition of two projections the repo already trusts -- FM pixel -> stage point
 (:func:`fibsem.fm.reprojection.project_image_point`) and stage point -> FIB pixel
-(:class:`fibsem.projection.BeamStageProjection`) -- probed numerically, so scan
+(:class:`fibsem.geometry.projection.BeamStageProjection`) -- probed numerically, so scan
 rotation, camera flips, pre-tilt and foreshortening come out of code that is verified
 against the instrument, not out of a second derivation that would have to agree with
 it. The depth column is a displacement along the sample normal put through the same
@@ -33,7 +33,7 @@ import numpy as np
 
 from fibsem.fm.reprojection import project_image_point
 from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
-from fibsem.projection import BeamStageProjection
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import (
     BeamType,
     CameraImageTransform,

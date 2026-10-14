@@ -227,3 +227,36 @@ def test_hooks_survive_the_dialog(qapp, hooks):
 
     assert restored.hooks == hooks
     assert (restored.hooks is None) == (hooks is None)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_the_update_check_round_trips(qapp, monkeypatch, enabled):
+    monkeypatch.setattr("fibsem.update_check.get_revision", lambda: None)
+    prefs = UserPreferences()
+    prefs.reporting.update_check_enabled = enabled
+    dialog = PreferencesDialog(prefs)
+    assert dialog._chk_update_check.isChecked() is enabled
+    dialog._chk_update_check.setChecked(not enabled)
+    rebuilt = UserPreferences.from_dict(dialog.get_preferences().to_dict())
+    assert rebuilt.reporting.update_check_enabled is (not enabled)
+    dialog.deleteLater()
+
+
+def test_the_update_check_is_offered_only_to_a_release_install(qapp, monkeypatch):
+    """A source install never checks, so its checkbox is shown but cannot be ticked."""
+    monkeypatch.setattr("fibsem.update_check.get_revision", lambda: None)
+    wheel = PreferencesDialog(UserPreferences())
+    assert wheel._chk_update_check.isEnabled()
+    wheel.deleteLater()
+
+    monkeypatch.setattr(
+        "fibsem.update_check.get_revision", lambda: "v0.5.3-1154-g6da166628"
+    )
+    source = PreferencesDialog(UserPreferences())
+    assert not source._chk_update_check.isEnabled()
+    source.deleteLater()
+
+
+def test_the_update_check_stays_off_by_default():
+    assert UserPreferences().reporting.update_check_enabled is False
+    assert UserPreferences.from_dict({}).reporting.update_check_enabled is False

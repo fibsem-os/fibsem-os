@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.projection import BeamStageProjection, FMStageProjection
+from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures import FibsemImage, FibsemStagePosition
 from fibsem.ui.tokens import (
     CURRENT_POSITION_COLOUR,

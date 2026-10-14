@@ -23,13 +23,23 @@ The Swagger UI is available at `http://<host>:8001/docs`.
 
 Every request needs the server's bearer token, sent as an
 `Authorization: Bearer <token>` header. What the token may do is the agent
-level the operator sets from the Agent chip: reads at Watch, stops at Assist,
-acting at Drive; at Off everything is refused. A refusal is a structured 403
-naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`). A hardware
+level the operator sets from the Agent chip: reads at Watch, acting at Drive;
+at Off everything is refused. A refusal is a structured 403
+naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`, `not_allowed`).
+Separate from the level, an allowlist (`fibsem/server/allowlist.py`) names what
+the agent may never write or run, at any level and in an approved request too:
+a beam's `on`, `angular_correction`, `tilt_correction` and `plasma_gas`; the
+stage's `home` and `link`; every chamber and manipulator write and command; the
+objective's `limit_position`. `GET /microscope/devices` and `/microscope/services` mark those
+`agent: false`. A command's `path` argument must be inside the open experiment. A hardware
 command takes control of the microscope while it runs: when a run, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
-A stop (`POST /microscope/services/milling/commands/stop`, or a device's `stop`
-or `stop_live`) needs Assist and never takes control. `GET /capabilities` reports the
+A stop (`POST /microscope/services/milling/commands/stop`, a device's `stop`,
+`stop_live` or `cancel`, or `POST /app/workflow/stop`) never takes control. The
+agent stops its own action (its command holds control) at any level; anything
+else needs Drive, or a request approved at Assist. Every stop needs a `reason`
+in its body (`422 missing_reason` without one), recorded as an `agent_stop`
+event. `GET /capabilities` reports the
 level.
 
 The server binds `127.0.0.1` by default. Exposing it on the LAN is an
@@ -141,7 +151,7 @@ microscope.draw_patterns([rect])
 microscope.run_milling(milling_current=20e-12, milling_voltage=30000)
 
 # 4. Restore imaging conditions
-microscope.finish_milling(imaging_current=1e-12, imaging_voltage=2000)
+microscope.finish_milling()                 # clear, put the beam back as setup found it
 
 # --- Control ---
 microscope.start_milling()           # start without blocking
@@ -158,9 +168,10 @@ seconds = microscope.estimate_milling_time() # float
 ### Devices and beam settings
 
 Every device the microscope built (`microscope.devices`: `electron`, `ion`,
-`stage`, `manipulator`, FM parts) but the chamber is served generically, the same
-routes the device server (`fibsem/server/devices.py`) serves. The chamber is not
-served: pumping and venting are the operator's, at the microscope.
+`stage`, `chamber`, `manipulator`, FM parts) is served generically, the same
+routes the device server (`fibsem/server/devices.py`) serves. The chamber's
+`state` and `pressure` are reads; pumping and venting are the operator's, at the
+microscope, so the allowlist refuses them.
 
 ```python
 microscope.list_devices()                               # parameters + commands per device
@@ -180,8 +191,8 @@ from one `values` read, and written parameter by parameter. Stage moves and
 milling go through the `stage_movement` and `milling` services.
 
 Reads work at Watch. Parameter writes and commands need Drive and take control
-of the microscope, except the `stop` and `stop_live` commands, which need
-Assist and never take control.
+of the microscope, except the stops (`stop`, `stop_live`, `cancel`), which follow
+the stop rule above and never take control.
 
 ---
 
@@ -199,7 +210,7 @@ Assist and never take control.
 | `GET` | `/microscope/devices/{device}/{parameter}` | Live read of a parameter |
 | `PUT` | `/microscope/devices/{device}/{parameter}` | Write a parameter (`{"value": ...}`) |
 | `GET` | `/microscope/devices/{device}/{parameter}/metadata` | Limits, choices, settable |
-| `POST` | `/microscope/devices/{device}/commands/{command}` | Run a command (`{"kwargs": {...}}`); an image answers as TIFF, or `{"answer": "preview"}` for a JSON preview |
+| `POST` | `/microscope/devices/{device}/commands/{command}` | Run a command (`{"kwargs": {...}}`); an image answers as its data (TIFF, npy), or with `{"answer": "preview"}` as `{"result": {"summary", "path", "preview"}}`, the shape agents get for every image (a beam image, a camera frame, a z-stack) |
 | `POST` | `/microscope/devices/{device}/queries/{query}` | Ask a query (`{"kwargs": {...}}`), read-only |
 | `GET` | `/microscope/services` | Every service (`imaging`, `milling`, `stage_movement`, ...) and what it offers |
 | `GET` | `/microscope/services/{service}/{parameter}` | A service's state, e.g. `milling/state` |

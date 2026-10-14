@@ -241,7 +241,7 @@ class TestTheGuardsStillReadTheDevice:
     `ObjectiveLens.position_changed` is for *displays*. Guards read the device, every time, because one
     of them is a collision guard: `AutoscriptStage._move_absolute` suppresses z and
     t from a stage move while the objective is inserted -- the condition itself now lives
-    in `FibsemMicroscope._blocked_axes` -- and a stale `RETRACTED` there
+    in `StageMovement.blocked_axes` -- and a stale `RETRACTED` there
     means the stage changes height and rotates with the objective in the chamber.
 
     That is affordable because the guards were never the polling load -- this one runs
@@ -254,7 +254,7 @@ class TestTheGuardsStillReadTheDevice:
     @staticmethod
     def _method(class_name: str, method_name: str) -> ast.FunctionDef:
         module = {
-            "FibsemMicroscope": Path("microscope.py"),
+            "StageMovement": Path("services") / "stage_movement.py",
             "AutoscriptStage": Path("drivers") / "autoscript" / "devices.py",
         }[class_name]
         source = (Path(fibsem.__file__).parent / module).read_text(encoding="utf-8")
@@ -272,12 +272,12 @@ class TestTheGuardsStillReadTheDevice:
     def test_the_guard_reads_the_objective_state_directly(self):
         """Wherever the predicate lives, it must ask the device.
 
-        It moved out of `move_stage_absolute` into the microscope (now
-        `_blocked_axes`) so that the condition could be tested at all -- AutoScript is absent here, so the move itself cannot be executed. That
+        It moved out of `move_stage_absolute` into the stage movement service (now
+        `blocked_axes`) so that the condition could be tested at all -- AutoScript is absent here, so the move itself cannot be executed. That
         is a relocation, not a weakening: the read is still live. The companion test
         below is what keeps the two connected.
         """
-        guard = self._method("FibsemMicroscope", "_blocked_axes")
+        guard = self._method("StageMovement", "blocked_axes")
 
         reads = [
             node
@@ -289,7 +289,7 @@ class TestTheGuardsStillReadTheDevice:
         ]
 
         assert reads, (
-            "_blocked_axes no longer reads `objective.state` off the "
+            "blocked_axes no longer reads `objective.state` off the "
             "device. If that is now a cached or pushed value, the collision guard can "
             "be wrong: a stale 'Retracted' lets the stage move in z and tilt with "
             "the objective inserted (FIB-534)"
@@ -306,18 +306,18 @@ class TestTheGuardsStillReadTheDevice:
             for node in ast.walk(move)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "_without_blocked_axes"
+            and node.func.attr == "without_blocked_axes"
         ]
 
         assert calls, (
-            "The absolute move no longer calls `_without_blocked_axes`, so "
+            "The absolute move no longer calls `without_blocked_axes`, so "
             "nothing suppresses z and t while the objective is inserted (FIB-534)"
         )
         # And it has to hand over the destination. Called bare, the predicate falls
         # back to the pose the stage is standing in -- which is the bug FIB-640 fixed:
         # a move out of the fluorescence pose losing its z to the pose it was leaving.
         assert all(call.args for call in calls), (
-            "The absolute move calls `_without_blocked_axes` without the target "
+            "The absolute move calls `without_blocked_axes` without the target "
             "position, so the guard asks where the stage is instead of where it is "
             "going (FIB-640)"
         )

@@ -24,7 +24,7 @@ Readers measured, with the stage at each declared pose:
   compustage at its FIB and FM poses; FIB-1124 step 2);
 - the geometry stamped onto images (`hardware_geometry`);
 - the view-corrected move's terms: the surface slope it slides along, and whether
-  the image is mirrored in the SEM and FIB views (`transformations._image_y_flip`);
+  the image is mirrored in the SEM and FIB views (`fibsem.geometry.movement._image_y_flip`);
 - `coincidence.geometry_from_images`, whether it warns about the flipped side;
 - `correlation.geometry._complete_fm_pose`, the FM pose for a position without r or t.
 
@@ -137,7 +137,7 @@ def _measure(stage_type: str) -> Dict[str, Any]:
     """Every pinned value for one stage type, flattened to "what: value"."""
     from fibsem.correlation.geometry import _complete_fm_pose
     from fibsem.geometry.frames import StageModel
-    from fibsem.transformations import _image_y_flip
+    from fibsem.geometry.movement import _image_y_flip
 
     microscope = _microscope(stage_type)
     out: Dict[str, Any] = {}

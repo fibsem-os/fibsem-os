@@ -79,10 +79,11 @@ def _recorded(
     thumbnail: bool,
 ) -> Optional[str]:
     """The last existing file this run recorded: the thumbnail, or the image
-    itself. None when there is none on disk."""
+    itself. None when there is none on disk. An overview's tiles are recorded
+    beside it, but the image is the stitch, never one tile of it."""
     root = experiment.grid_path(grid)
     for role, relpaths in reversed(list(state.outputs.items())):
-        if role.endswith("_thumbnail") != thumbnail:
+        if role.endswith("_thumbnail") != thumbnail or role.endswith("_tiles"):
             continue
         for relpath in reversed(relpaths):
             path = os.path.join(root, relpath)

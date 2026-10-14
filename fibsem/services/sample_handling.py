@@ -27,14 +27,14 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 import yaml
 
 from fibsem import config as cfg
 from fibsem.config import SAMPLE_HOLDER_CONFIGURATION_PATH
-from fibsem.devices.core import Role, command, session_of
+from fibsem.devices.core import Role, command, query, session_of
 from fibsem.devices.sample_loader import (
     GridExchangeError,
     Magazine,
@@ -615,7 +615,7 @@ class SampleHandling(Service):
 
     # -- naming and refreshing the inventory, on either shape --------------
 
-    @command
+    @query
     def get_inventory(self) -> List[GridInventoryEntry]:
         """Read what the hardware knows and return the inventory: instant.
 
@@ -626,6 +626,23 @@ class SampleHandling(Service):
         if self.magazine is not None:
             self.magazine.get_inventory()
         return self.grid_inventory()
+
+    @query
+    def current(self) -> Dict[str, Optional[str]]:
+        """Where the stage is now: the holder slot it is at and the grid loaded
+        there, by name, each None when it is at none. Reads the stage."""
+        slot = self.slot_at_position(self.parent.get_stage_position())
+        grid = slot.loaded_grid if slot is not None else None
+        return {
+            "slot": slot.name if slot is not None else None,
+            "grid": grid.name if grid is not None else None,
+        }
+
+    @query
+    def holder_slots(self) -> List[GridSlot]:
+        """The holder's slots in order: each one's stage position (None until it
+        is calibrated), its calibration and the grid loaded in it."""
+        return sorted(self.holder.slots.values(), key=lambda slot: slot.index)
 
     @command
     def run_inventory(self) -> List[GridInventoryEntry]:
