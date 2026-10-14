@@ -44,3 +44,14 @@ def test_movement_re_exports_the_same_functions():
     assert movement.rotation_angle_is_smaller is angles.rotation_angle_is_smaller
     assert movement.rotation_angle_is_larger is angles.rotation_angle_is_larger
     assert movement.wrap_angle is angles.wrap_angle
+
+
+@pytest.mark.parametrize(
+    "angle, expected",
+    [(0.0, 0.0), (180.0, 180.0), (-180.0, 180.0), (359.9, -0.1), (-190.0, 170.0)],
+)
+def test_wrap_degrees_matches_wrap_angle(angle, expected):
+    assert angles.wrap_degrees(angle) == pytest.approx(expected)
+    assert np.deg2rad(angles.wrap_degrees(angle)) == pytest.approx(
+        angles.wrap_angle(np.deg2rad(angle))
+    )

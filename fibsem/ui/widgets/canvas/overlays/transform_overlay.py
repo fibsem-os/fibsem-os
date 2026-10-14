@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 
+from fibsem.geometry.angles import wrap_degrees
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
@@ -602,7 +603,7 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
             return
         self._rotate_active = True
         delta = self._angle_at(event.xdata, event.ydata) - angle0
-        delta = (delta + 180.0) % 360.0 - 180.0
+        delta = wrap_degrees(delta)
         self.rotated.emit(rotation0 + delta)
 
     def _drag_scale(self, event) -> None:

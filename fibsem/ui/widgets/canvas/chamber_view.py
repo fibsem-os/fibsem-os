@@ -28,6 +28,7 @@ from PyQt5.QtCore import QRect, QRectF, QSize, Qt
 from PyQt5.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
+from fibsem.geometry.angles import wrap_degrees
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -69,7 +70,7 @@ def is_half_turn(r_radians: float, rotation_reference_degrees: float) -> bool:
     other in practice, so in between it snaps to the nearer rather than projecting.
     """
     delta = math.degrees(r_radians) - rotation_reference_degrees
-    delta = (delta + 180.0) % 360.0 - 180.0
+    delta = wrap_degrees(delta)
     return abs(delta) > 90.0
 
 

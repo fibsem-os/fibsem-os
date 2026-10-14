@@ -30,6 +30,8 @@ from typing import Tuple
 
 import numpy as np
 
+from fibsem.geometry.angles import wrap_angle
+
 
 def rotate_x(angle: float) -> np.ndarray:
     """Rotation about the chamber x-axis (the tilt axis)."""
@@ -44,11 +46,6 @@ def rotate_z(angle: float) -> np.ndarray:
 
 
 UP = np.array([0.0, 0.0, 1.0])
-
-
-def _wrap(angle: float) -> float:
-    """An angle in (-pi, pi]."""
-    return float(np.pi - (np.pi - angle) % (2 * np.pi))
 
 
 @dataclass(frozen=True)
@@ -114,7 +111,7 @@ class StageModel:
 
     def turned_round(self, r: float) -> bool:
         """Whether the shuttle is nearer half a turn from the reference than the reference."""
-        from_reference = abs(_wrap(r - self.rotation_reference))
+        from_reference = abs(wrap_angle(r - self.rotation_reference))
         return from_reference > np.pi / 2
 
     def chamber_vertical(self, t: float) -> Tuple[float, float]:

@@ -13,6 +13,11 @@ def wrap_angle(angle: float) -> float:
     return float(np.pi - (np.pi - angle) % (2 * np.pi))
 
 
+def wrap_degrees(angle: float) -> float:
+    """*angle* in degrees, in (-180, 180]; the degree twin of ``wrap_angle``."""
+    return float(180.0 - (180.0 - angle) % 360.0)
+
+
 def angle_difference(angle1: float, angle2: float) -> float:
     """The unsigned difference between two angles, in [0, pi].
 
