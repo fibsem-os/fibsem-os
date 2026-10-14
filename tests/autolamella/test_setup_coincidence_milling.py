@@ -283,3 +283,26 @@ def test_a_setup_the_workflow_does_not_list_is_not_refused(microscope, tmp_path)
     )
     task.run()
     assert lamella.task_config["Setup Coincidence Milling"].is_set_up
+
+
+def test_the_setup_reference_is_lamella_state_not_the_run_s(
+    microscope, tmp_path, monkeypatch
+):
+    """Mill Coincident reads it from the lamella's folder (FIB-1258), so it is
+    written there even when the run saves in its own folder (FIB-1275)."""
+    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+
+    lamella = _lamella(microscope, tmp_path)
+    run_folder = lamella.path / "Setup Coincidence Milling" / "20261014-093012"
+    monkeypatch.setattr(
+        AutoLamellaTask, "output_dir", property(lambda self: str(run_folder))
+    )
+    task = _task(microscope, lamella)
+
+    task.run()
+
+    assert os.path.dirname(task.setup_reference_path) == str(lamella.path)
+    assert os.path.isfile(task.setup_reference_path)
+    assert COINCIDENCE_SETUP_REFERENCE_FILENAME in lamella.task_history[-1].outputs.get(
+        "other_fib", []
+    )

@@ -119,3 +119,33 @@ def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path, sync):
         assert SelectMillingPositionTaskConfig().sync_fluorescence_pose is False
     finally:
         microscope.disconnect()
+
+
+def test_the_alignment_reference_is_lamella_state_not_the_run_s(
+    microscope, tmp_path, monkeypatch
+):
+    """Later tasks read it from the lamella's folder (FIB-1258), so it is written
+    there even when the run saves everything else in its own folder (FIB-1275)."""
+    from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
+
+    lamella = Lamella(path=tmp_path / "lam", number=0, petname="test")
+    lamella.path.mkdir(parents=True, exist_ok=True)
+    lamella.milling_pose = microscope.get_microscope_state()
+    run_folder = lamella.path / "Setup" / "20261014-093012"
+    monkeypatch.setattr(
+        AutoLamellaTask, "output_dir", property(lambda self: str(run_folder))
+    )
+    task = SelectMillingPositionTask(
+        microscope=microscope,
+        config=SelectMillingPositionTaskConfig(use_autofocus=False),
+        lamella=lamella,
+    )
+
+    task._run()
+
+    assert (lamella.path / ALIGNMENT_REFERENCE_IMAGE_FILENAME).is_file()
+    assert not (run_folder / ALIGNMENT_REFERENCE_IMAGE_FILENAME).exists()
+    finals = lamella.task_state.outputs.get("final_fib", [])
+    assert finals and all(
+        p.startswith(os.path.join("Setup", "20261014-093012")) for p in finals
+    )
