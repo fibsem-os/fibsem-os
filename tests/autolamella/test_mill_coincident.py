@@ -231,6 +231,11 @@ def test_headless_mill_runs_from_the_setup_record_to_timeout(
     assert not microscope.fm.is_acquiring
     # final images recorded
     assert lamella.task_state.outputs.get("fluorescence")
+    # in the run's own folder, not the lamella's (FIB-1275)
+    assert all(
+        p.startswith("Coincidence Milling" + os.sep)
+        for p in lamella.task_state.outputs["fluorescence"]
+    )
     assert lamella.task_state.outputs.get("final_fib")
 
 

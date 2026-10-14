@@ -322,7 +322,7 @@ class MillCoincidentTask(AutoLamellaTask):
         )
         timestamp = utils.current_timestamp_v3(timeonly=True)
         basename = f"{self.lamella.name}-coincidence-final-{timestamp}.ome.tiff"
-        filename = os.path.join(self.lamella.path, basename)
+        filename = os.path.join(self.output_dir, basename)  # the run's (FIB-1275)
         image = acquire_image(
             microscope=self.microscope.fm,
             channel_settings=fm_config.channel_settings,
