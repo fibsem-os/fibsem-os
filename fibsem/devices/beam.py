@@ -74,6 +74,16 @@ DEFAULT_STIGMATION_LIMITS = {
 }
 
 
+def _clip_shift(axis: str, value: float, limits: Dict[str, RangeLimit]) -> float:
+    """One axis of a beam shift, clipped to its limit, warning when it was outside."""
+    limit = limits.get(axis)
+    if limit is None:
+        return value
+    if value < limit.min or value > limit.max:
+        logging.warning(f"Beam shift {axis} value {value} is out of bounds: {limit}")
+    return float(min(max(value, limit.min), limit.max))
+
+
 class Beam(Device):
     voltage = Parameter(float, unit="V", display=Display("Beam Voltage", advanced=True))
     # the currents an instrument offers change with the gas and the voltage (AutoScript)
@@ -228,9 +238,21 @@ class Beam(Device):
             return shift
 
     def _shift_by(self, dx: float, dy: float) -> None:
-        """Add (dx, dy) to the shift, unvalidated. A driver whose instrument needs
-        more (its own limits, a flipped scan) overrides this."""
-        self.shift.write_through(self.shift.get_value() + Point(dx, dy))
+        """Add (dx, dy) to the shift, unvalidated, clipped to the limits the driver
+        reports for it, with a warning when the asked shift is outside them. A driver
+        that reports none is not clipped: the declared default is what the beam panel
+        allows, not what the instrument enforces. A driver whose instrument needs more
+        (a flipped scan) overrides this."""
+        shift = self.shift
+        shift.refresh_metadata(emit=False)  # the limits as the instrument has them now
+        target = shift.get_value() + Point(dx, dy)
+        limits = shift.reported_limits
+        if limits is not None:
+            target = Point(
+                x=_clip_shift("x", target.x, limits),
+                y=_clip_shift("y", target.y, limits),
+            )
+        shift.write_through(target)
 
     # The scan area. Each command changes scanning_mode; a backend implements
     # _spot, _reduced_area and _full_frame, and a beam that can't set the scan area

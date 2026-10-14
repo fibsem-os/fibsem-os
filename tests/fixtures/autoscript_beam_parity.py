@@ -277,6 +277,18 @@ def facts():
         refused = str(e)
     out["voltage_off_the_list"] = {"refused": refused, "calls": copy.deepcopy(LOG)}
 
+    # a relative shift is clipped to the limits xT reports, warning on the axis outside
+    beam = bind_autoscript_beams(make(plasma=False))[BeamType.ELECTRON]
+    LOG.clear()
+    MESSAGES.records.clear()
+    after = beam.shift_by(1e-3, 1e-6)
+    out["shift_by_clipped"] = {
+        "limits": {axis: [lim.min, lim.max] for axis, lim in beam.shift.limits.items()},
+        "shift": [after.x, after.y],
+        "writes": [call for call in LOG if call[0] == "set"],
+        "messages": list(MESSAGES.records),
+    }
+
     # the scan mode, which nothing read before, and one with no ScanMode
     microscope = routed(plasma=False)
     vendor = microscope._connection.sdk.beams.electron_beam.scanning.mode

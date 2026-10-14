@@ -284,6 +284,9 @@ class BoundParameter:
             metadata.choices if metadata.choices is not None else self.spec.choices
         )
         settable = metadata.settable and self._write is not None
+        self.reported_limits = metadata.limits
+        """The limits the backend reports, or None where ``limits`` is the declared
+        default: what the instrument enforces, rather than what a panel allows."""
         self.metadata = replace(
             metadata, limits=limits, choices=choices, settable=settable
         )
