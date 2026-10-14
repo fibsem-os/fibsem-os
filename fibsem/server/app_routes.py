@@ -109,6 +109,10 @@ class AppContext(Protocol):
 
     def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]: ...
 
+    def event_history(
+        self, before: Optional[int] = None, limit: int = 500
+    ) -> Dict[str, Any]: ...
+
     def display_images(self) -> Dict[str, Any]: ...
 
     def pending_prompt(self) -> Dict[str, Any]: ...
@@ -367,6 +371,12 @@ def build_app_router(context: AppContext) -> APIRouter:
         # here because the park occupies a threadpool worker — a transport
         # concern, so the transport owns the ceiling.
         return context.events(since=since, timeout=min(max(timeout, 0.0), 30.0))
+
+    @router.get("/events/history")
+    def event_history(before: Optional[int] = None, limit: int = 500):
+        # The run before the live buffer, from the experiment's events file:
+        # what a page opened in the morning needs to show the night.
+        return context.event_history(before=before, limit=limit)
 
     return router
 

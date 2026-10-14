@@ -87,14 +87,20 @@
 const $app = document.getElementById("app");
 const TOKEN_KEY = "fibsem_dashboard_token";
 const FILTER_KEY = "fibsem_event_log_filters";
-const KEEP = 5000; // events held in the page; the server's buffer holds 1000
-const SHOW = 1000; // rows drawn at once
+const KEEP = 50000; // events held in the page; the server's buffer holds 1000
+const SHOW = 3000; // rows drawn at once
+const HISTORY_PAGE = 1000;
 let TOKEN = null;
 let latestSeq = 0;
 let events = []; // newest last, as the server sends them
 let paused = false;
 let unseen = 0;
-const open = new Set(); // seqs whose payload is shown
+const open = new Set(); // keys of the rows whose record is shown
+// The experiment's record from before the live buffer, read a page at a time
+// from its events file: null until the first read, 0 once it reaches the start.
+let historyStart = null;
+let historyBusy = false;
+function keyOf(e) { return (e.session || "") + ":" + e.seq; }
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({
@@ -182,8 +188,13 @@ function saveFilters() {
 
 /* ── one line per event ────────────────────────────────────────────── */
 
+// The day too, once a record is not from today: a night's run crosses midnight.
+const TODAY = new Date().toLocaleDateString("sv"); // YYYY-MM-DD
 function hms(e) {
-  if (typeof e.t === "string" && e.t.includes("T")) return e.t.split("T")[1].slice(0, 8);
+  if (typeof e.t === "string" && e.t.includes("T")) {
+    const [day, time] = e.t.split("T");
+    return (day === TODAY ? "" : day.slice(5) + " ") + time.slice(0, 8);
+  }
   return typeof e.timestamp === "number" ? new Date(e.timestamp * 1000).toTimeString().slice(0, 8) : "";
 }
 function um(v) { return typeof v === "number" ? (v * 1e6).toFixed(2) + " µm" : "?"; }
@@ -197,6 +208,9 @@ function whoOf(e) {
 // Each question as raised, by id, so an answer can say what was asked and
 // which button it was.
 const asked = new Map();
+function noteAsked(e) {
+  if (e.kind === "prompt_raised" && e.payload) asked.set((e.session || "") + ":" + e.payload.question_id, e.payload);
+}
 function itemOf(e) { return (e.item && e.item.name) || (e.payload && e.payload.item_name) || ""; }
 function taskOf(e) { return (e.task && e.task.name) || (e.payload && e.payload.task_name) || ""; }
 
@@ -234,7 +248,7 @@ function describe(e) {
     case "prompt_raised":
       return ["asked", `${esc(p.message || p.type)}${p.positive ? ` <span class="muted">${esc(p.positive)}${p.negative ? " or " + esc(p.negative) : ""}</span>` : ""}`];
     case "prompt_answered": {
-      const q = asked.get(p.question_id);
+      const q = asked.get((e.session || "") + ":" + p.question_id);
       const button = q ? (p.response ? q.positive : q.negative) : null;
       let d = q && q.message
         ? `${esc(q.message)} · <b>${esc(button || (p.response ? "yes" : "no"))}</b>`
@@ -335,8 +349,8 @@ function rowHtml(e) {
   }
   const [label, detail] = describe(e);
   const who = whoOf(e);
-  const isOpen = open.has(e.seq);
-  let html = `<tr class="ev${isOpen ? " open" : ""}" data-seq="${e.seq}">
+  const isOpen = open.has(keyOf(e));
+  let html = `<tr class="ev${isOpen ? " open" : ""}" data-key="${esc(keyOf(e))}">
     <td class="ts">${hms(e)}</td>
     <td class="who-${esc(who)}">${esc(who)}</td>
     <td>${esc(itemOf(e))}</td>
@@ -358,8 +372,12 @@ function draw() {
     if (matches(events[i])) shown.push(events[i]);
   }
   const body = document.getElementById("rows");
-  body.innerHTML = shown.length ? shown.map(rowHtml).join("")
-    : `<tr><td colspan="6" class="empty">Nothing matches these filters yet.</td></tr>`;
+  const earlier = historyStart === 0
+    ? `<tr><td colspan="6" class="empty">Start of this experiment's record.</td></tr>`
+    : `<tr><td colspan="6" class="empty"><button class="chip" id="earlier">${historyBusy ? "loading…" : "Load earlier events"}</button></td></tr>`;
+  body.innerHTML = (shown.length ? shown.map(rowHtml).join("")
+    : `<tr><td colspan="6" class="empty">Nothing matches these filters yet.</td></tr>`)
+    + (shown.length < SHOW ? earlier : "");
   const total = events.filter(e => !e.gap).length;
   document.getElementById("count").textContent =
     `${shown.filter(e => !e.gap).length} of ${total} events` + (shown.length >= SHOW ? ` (newest ${SHOW} shown)` : "");
@@ -398,11 +416,30 @@ function redraw() {
 }
 
 function take(batch) {
-  for (const e of batch) if (e.kind === "prompt_raised" && e.payload) asked.set(e.payload.question_id, e.payload);
+  batch.forEach(noteAsked);
   events.push(...batch);
   if (events.length > KEEP) events.splice(0, events.length - KEEP);
   if (paused) { unseen += batch.length; drawControls(); return; }
   redraw();
+}
+
+async function loadEarlier() {
+  if (historyBusy || historyStart === 0) return;
+  historyBusy = true; redraw();
+  try {
+    const q = historyStart === null ? "" : "&before=" + historyStart;
+    const body = await api("/app/events/history?limit=" + HISTORY_PAGE + q);
+    if (!body.available) { historyStart = 0; return; }
+    const seen = new Set(events.map(keyOf));
+    const older = (body.events || []).filter(e => !seen.has(keyOf(e)));
+    older.forEach(noteAsked);
+    events.unshift(...older);
+    historyStart = body.start || 0;
+  } catch (e) {
+    /* leave the button for another try */
+  } finally {
+    historyBusy = false; redraw();
+  }
 }
 
 /* ── header ────────────────────────────────────────────────────────── */
@@ -502,10 +539,11 @@ async function boot() {
     paused ? drawControls() : redraw();
   };
   document.getElementById("rows").onclick = ev => {
+    if (ev.target.closest("#earlier")) { loadEarlier(); return; }
     const row = ev.target.closest("tr.ev");
     if (!row || window.getSelection().toString()) return;
-    const seq = Number(row.dataset.seq);
-    open.has(seq) ? open.delete(seq) : open.add(seq);
+    const key = row.dataset.key;
+    open.has(key) ? open.delete(key) : open.add(key);
     redraw();
   };
 
@@ -514,6 +552,8 @@ async function boot() {
   latestSeq = seed.available ? (seed.latest_seq || 0) : 0;
   take(seed.available ? (seed.events || []) : []);
   liveLoop();
+  // Open on the run so far, not only what the live buffer still holds.
+  loadEarlier();
 }
 
 TOKEN = takeToken();
