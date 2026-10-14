@@ -516,7 +516,7 @@ class TestTargetingThroughTheAlignedImage:
         """With no correction the image sits where its metadata says, so the stage
         position a click resolves to is the one the FM image's own projection gives
         for that pixel -- the two answers come from different code and must agree."""
-        from fibsem.projection import FMStageProjection
+        from fibsem.geometry.projection import FMStageProjection
 
         image, key, (px, py), (x, y) = self._spot(widget, microscope)
 

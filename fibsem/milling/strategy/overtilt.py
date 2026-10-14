@@ -138,10 +138,7 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
             # through the loop used to exit with the stage still overtilted, patterns
             # loaded and the beam at milling current.
             try:
-                microscope.finish_milling(
-                    imaging_current=microscope.system.ion.beam.beam_current,
-                    imaging_voltage=microscope.system.ion.beam.voltage,
-                )
+                microscope.finish_milling()
             except Exception as e:
                 logging.error(
                     f"Failed to restore imaging conditions after {self.fullname}: {e}",
@@ -196,11 +193,8 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
             # run milling
             microscope.run_milling(stop_event=stop_event)
 
-            # finish milling (clear patterns, restore imaging current)
-            microscope.finish_milling(
-                imaging_current=microscope.system.ion.beam.beam_current,
-                imaging_voltage=microscope.system.ion.beam.voltage,
-            )
+            # finish milling (clear patterns, put the beam back)
+            microscope.finish_milling()
 
             # return to initial position
             microscope.move_stage_absolute(initial_position)

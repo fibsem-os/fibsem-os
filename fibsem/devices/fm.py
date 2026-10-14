@@ -159,6 +159,7 @@ class Objective(Device):
         display=Display("Position", scale=1e6, step=1.0, decimals=1),
     )
     state = Parameter(InsertableDeviceState)
+    # The objective's hardware description: read only on every backend.
     magnification = Parameter(float)
     numerical_aperture = Parameter(float)
     limit_position = Parameter(float, unit="m", doc="The furthest a move may go in.")

@@ -122,7 +122,12 @@ def describe_action(
     if tool == "move_to_milling_angle":
         return {
             "what": "Stage",
-            "change": f"Tilt to the milling angle, {_short(a.get('milling_angle_deg'))}°",
+            "change": f"Tilt to the milling angle, {_short(a.get('milling_angle_deg'))}°"
+            + (
+                f", rotation {_short(a['rotation_deg'])}°"
+                if a.get("rotation_deg") is not None
+                else ""
+            ),
         }
     if tool == "acquire_image_preview":
         return {"what": _beam(a), "change": "Take an image"}

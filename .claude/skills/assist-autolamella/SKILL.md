@@ -14,9 +14,9 @@ AutoLamella's status bar, then approves or rejects it. Approved actions run
 exactly as if you had called them at Drive. They are checked, refused when
 the microscope is busy, and put on the record as yours.
 
-Two things need no approval. **Reads** are always allowed. **Stopping** is
-too: `stop_workflow` and `stop_milling`, when you believe something is going
-wrong.
+**Reads** need no approval. Neither does stopping a mill **you** started.
+Stopping anything else (the workflow, the operator's mill) is a request like
+any other action: the operator approves it, or presses Stop themselves.
 
 The operator is looking at the same screen. Ask for little, ask clearly, and
 never make them work out what you meant.
@@ -29,8 +29,8 @@ otherwise use plain HTTP with the token from `~/.fibsem/app-server.json`.
 Read `get_capabilities` first:
 
 - `level: "assist"` is the level this skill is for. Tell the operator in a
-  sentence what that means: you read and suggest, you ask before acting,
-  and you stop without asking only if something is going wrong. A direct
+  sentence what that means: you read and suggest, and you ask before
+  acting, stopping included. A direct
   call that needs Drive is refused with `ask_first`; that is what you can
   call directly, not what you can ask for.
 - `level: "watch"`: you can read and add notes, and suggest nothing. Work
@@ -48,7 +48,7 @@ The tools this skill uses, with their routes for plain HTTP:
 | `get_request` | `GET /app/agent/requests/{request_id}` |
 | `suggest_answer` | `POST /app/workflow/prompt/suggest` |
 | `add_note` | `POST /app/agent/notes` |
-| `stop_workflow`, `stop_milling` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop` |
+| `stop_workflow`, `stop_milling` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop`, each with `{"reason": ...}` |
 
 In a request, `tool` is the tool's name without the `mcp__fibsem__`
 prefix (`set_task_supervision`, `move_stage_relative`, `requeue_task`), and
@@ -190,11 +190,16 @@ see and that it's theirs, and put that on the record with `add_note`
 
 ## Stopping
 
-`stop_workflow` and `stop_milling` work at Assist without a request.
-Use them only when you believe the run is doing damage: milling the wrong
-place, a stage move that makes no sense, a task repeating. Stop first, then
-tell the operator what you saw and why you stopped. Never use a stop to
-"pause and think". Ask in chat instead.
+A wrong stop isn't free: a mill stopped partway can spoil a lamella, and a
+stopped run loses hours. So at Assist the run and the operator's mill are
+the operator's to stop. When you believe the run is doing damage (milling
+the wrong place, a stage move that makes no sense, a task repeating), file
+`stop_workflow` or `stop_milling` as a request at once, with what you saw as
+the reason, and say it in chat: the operator approves it or presses Stop.
+
+A mill you started yourself you may stop directly, at any level. Every stop
+takes a `reason`, which the operator reads. Never use a stop to "pause and
+think". Ask in chat instead.
 
 ## Using the microscope
 

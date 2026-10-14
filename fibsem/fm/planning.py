@@ -40,7 +40,7 @@ from fibsem.imaging.tiling.geometry import PlaneRegion, plan_grid_over_regions
 from fibsem.structures import FibsemStagePosition
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
-    from fibsem.projection import StageProjection
+    from fibsem.geometry.projection import StageProjection
 
 __all__ = [
     "SparseOverviewPlan",

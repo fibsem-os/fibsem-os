@@ -294,7 +294,7 @@ def test_an_unknown_driver_gets_no_fm(tmp_path, caplog):
     caplog.clear()
     assert microscope._fluorescence_uses_own_driver() is False
     assert microscope._build_fluorescence("Demo") is None
-    assert "driver 'meteor' has no builder for a 'fm' device" in caplog.text
+    assert "no driver 'meteor' is installed" in caplog.text
 
 
 # ── built from its entry, like any other device ──────────────────────

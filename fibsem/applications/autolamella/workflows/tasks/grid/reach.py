@@ -24,7 +24,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.imaging import (
     BeamOverviewGridTaskConfig,
     reachable_overview,
 )
-from fibsem.projection import BeamStageProjection, FMStageProjection
+from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope

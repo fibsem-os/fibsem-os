@@ -14,12 +14,12 @@ import pytest
 
 from fibsem import utils
 from fibsem.drivers.autoscript.connection import AutoScriptConnection
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging.tiling.reprojection import (
     _transform_position,
     calculate_reprojected_stage_position2,
     reproject_stage_positions_onto_image2,
 )
-from fibsem.projection import BeamStageProjection
 from fibsem.structures import (
     LEGACY_ROTATION_CENTRE,
     BeamType,

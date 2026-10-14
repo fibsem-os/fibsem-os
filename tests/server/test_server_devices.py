@@ -80,7 +80,7 @@ def test_lists_every_device_the_microscope_built(read_client, microscope):
     resp = read_client.get("/microscope/devices")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body) == set(microscope.devices) - {"chamber"}
+    assert set(body) == set(microscope.devices)
     assert "current" in body["ion"]["parameters"]
     assert "move_relative" in body["stage"]["commands"]
 
@@ -138,30 +138,30 @@ def test_command_needs_drive(read_client):
     assert resp.status_code == 403
 
 
-def test_the_chamber_is_not_served(read_client, armed_client, microscope):
-    # Pumping and venting are the operator's, at the microscope: the chamber
-    # is not served at all, whatever is armed.
-    assert "chamber" in microscope.devices
-    assert "chamber" not in read_client.get("/microscope/devices").json()
-    assert read_client.get("/microscope/devices/chamber/state").status_code == 404
+def test_the_chamber_is_read_but_never_pumped_or_vented(read_client, armed_client):
+    # Pumping and venting are the operator's, at the microscope: the allowlist
+    # refuses them whatever is armed. State and pressure are reads.
+    chamber = read_client.get("/microscope/devices").json()["chamber"]
+    assert {"state", "pressure"} <= set(chamber["parameters"])
+    assert read_client.get("/microscope/devices/chamber/state").status_code == 200
     for command in ("vent", "pump"):
         resp = armed_client.post(
             f"/microscope/devices/chamber/commands/{command}", json={}
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 403
+        assert resp.json()["detail"]["error_type"] == "not_allowed"
 
 
-def test_stop_commands_pass_at_assist_whoever_is_in_control(read_client, microscope):
-    # A stop must reach a device whoever is in control, and a watching agent
-    # stops nothing.
+def test_a_stop_reaches_a_device_whoever_is_in_control(read_client, microscope):
+    # A stop must reach a device whoever is in control; one the agent didn't
+    # start needs Drive, and every stop a reason.
     stop = "/microscope/devices/electron/commands/stop_live"
-    assert read_client.post(stop).status_code == 403
-    app = build_server(
-        microscope, auth=AuthConfig.generate(level="assist", token=TOKEN)
-    )
+    why = {"reason": "live view left running"}
+    assert read_client.post(stop, json=why).status_code == 403
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
         with microscope.control.take("workflow", "a lamellae run"):
-            resp = client.post(stop, headers=AUTH)
+            resp = client.post(stop, headers=AUTH, json=why)
     assert resp.status_code == 200
 
 

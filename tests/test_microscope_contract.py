@@ -1191,8 +1191,8 @@ def test_acquire_image(microscope, beam_type):
 
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_finish_milling_puts_the_beam_back(microscope, beam_type):
-    """What the first setup_milling found comes back, with an imaging current
-    given still winning; a second finish has nothing left to put back.
+    """What the first setup_milling found comes back; a second finish has nothing
+    left to put back.
 
     Where the current is not settable (a Tescan's comes with the milling preset,
     which the fake SDK does not model), only the putting back is checked."""
@@ -1222,9 +1222,6 @@ def test_finish_milling_puts_the_beam_back(microscope, beam_type):
     if not sets_current:
         return
 
-    microscope.setup_milling(FibsemMillingSettings(milling_channel=beam_type))
-    microscope.finish_milling(imaging_current=3e-10)
-    assert np.allclose(conditions(), [before[0], 3e-10, before[2]])
     _write(microscope, "hfw", 40e-6, beam_type)
     microscope.finish_milling()
     assert _read(microscope, "hfw", beam_type) == 40e-6

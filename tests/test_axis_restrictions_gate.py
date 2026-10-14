@@ -1,13 +1,13 @@
 """Which stage axes an absolute move leaves alone, and on which stages.
 
-`ThermoMicroscope.move_stage_absolute` blanks the axes it believes the microscope
-will refuse. The objective half used to be compustage-gated, because it dropped z and
+The Thermo stage's absolute move (`AutoscriptStage._move_absolute`) blanks the axes
+the stage movement service's `blocked_axes` says the microscope will refuse. The objective half used to be compustage-gated, because it dropped z and
 r, and r is a real rotation axis on an offset mount. FIB-640 measured the inserted
 objective blocking z and t, and that pair was settled (2026-10-05), so the half now
 applies on every mount and names z and t (`ObjectiveLens.blocked_axes`).
 
 The predicate is tested rather than the move: AutoScript is not installed in CI, so
-`ThermoMicroscope.move_stage_absolute` cannot be executed at all.
+`AutoscriptStage._move_absolute` cannot be executed at all.
 """
 
 import os
@@ -27,13 +27,18 @@ def _microscope(config_path: str):
     return microscope
 
 
+def _restricts(microscope, position=None) -> bool:
+    """Whether an absolute move to *position* leaves any stage axis alone."""
+    return bool(microscope.stage_movement.blocked_axes(position))
+
+
 def test_a_compustage_with_the_objective_in_still_restricts():
     microscope = _microscope(ARCTIS_CONFIG)
     microscope.move_to_orientation("SEM")
     microscope.fm.objective.insert()
 
-    assert microscope._axis_restrictions_apply() is True
-    assert microscope._blocked_axes() == ("z", "t")
+    assert _restricts(microscope) is True
+    assert microscope.stage_movement.blocked_axes() == ("z", "t")
 
 
 def test_a_compustage_with_the_objective_out_does_not():
@@ -41,7 +46,7 @@ def test_a_compustage_with_the_objective_out_does_not():
     microscope.fm.objective.retract()
     microscope.move_to_orientation("SEM")
 
-    assert microscope._axis_restrictions_apply() is False
+    assert _restricts(microscope) is False
 
 
 def test_an_offset_mount_with_the_objective_in_blocks_z_and_t():
@@ -52,7 +57,7 @@ def test_an_offset_mount_with_the_objective_in_blocks_z_and_t():
     microscope.fm.objective.insert()
 
     assert microscope._fm_is_a_pose() is False
-    assert microscope._blocked_axes() == ("z", "t")
+    assert microscope.stage_movement.blocked_axes() == ("z", "t")
 
 
 def test_a_move_leaves_the_blocked_axes_alone():
@@ -63,7 +68,7 @@ def test_a_move_leaves_the_blocked_axes_alone():
         x=1e-3, y=2e-3, z=3e-3, r=0.5, t=0.2, coordinate_system="RAW"
     )
 
-    sent = microscope._without_blocked_axes(target)
+    sent = microscope.stage_movement.without_blocked_axes(target)
 
     assert (sent.x, sent.y, sent.z, sent.r, sent.t) == (1e-3, 2e-3, None, 0.5, None)
     assert target.z == 3e-3, "the caller's position is not changed"
@@ -75,7 +80,7 @@ def test_with_the_objective_out_nothing_is_blocked():
     microscope.fm.objective.retract()
     target = FibsemStagePosition(x=1e-3, z=3e-3, t=0.2, coordinate_system="RAW")
 
-    assert microscope._without_blocked_axes(target) is target
+    assert microscope.stage_movement.without_blocked_axes(target) is target
 
 
 def test_a_system_with_no_fluorescence_microscope_does_not_restrict():
@@ -83,7 +88,7 @@ def test_a_system_with_no_fluorescence_microscope_does_not_restrict():
     microscope = _microscope(cfg.MICROSCOPE_CONFIGURATION_PATH)
 
     assert microscope.fm is None
-    assert microscope._axis_restrictions_apply() is False
+    assert _restricts(microscope) is False
 
 
 def test_the_orientation_half_needs_no_gate_of_its_own():
@@ -108,10 +113,10 @@ def test_the_predicate_reads_the_microscope_rather_than_being_told(config_path: 
     microscope = _microscope(config_path)
     microscope.move_to_orientation("SEM")
     microscope.fm.objective.retract()
-    before = microscope._axis_restrictions_apply()
+    before = _restricts(microscope)
 
     microscope.fm.objective.insert()
-    after = microscope._axis_restrictions_apply()
+    after = _restricts(microscope)
 
     assert before is False
     assert after is True
@@ -141,7 +146,7 @@ def test_leaving_the_fluorescence_pose_with_the_objective_out_is_not_restricted(
     _at_fm_pose(microscope, z=0.5e-3)
 
     target = _pose(microscope, "MILLING", z=12.0e-3)
-    assert microscope._axis_restrictions_apply(target) is False
+    assert _restricts(microscope, target) is False
 
 
 def test_moving_into_the_fluorescence_pose_is_still_restricted():
@@ -152,7 +157,7 @@ def test_moving_into_the_fluorescence_pose_is_still_restricted():
     microscope.move_to_orientation("SEM")
 
     target = _pose(microscope, "FM", z=12.0e-3)
-    assert microscope._axis_restrictions_apply(target) is True
+    assert _restricts(microscope, target) is True
 
 
 def test_a_partial_pose_falls_back_to_where_the_stage_is():
@@ -162,4 +167,4 @@ def test_a_partial_pose_falls_back_to_where_the_stage_is():
     _at_fm_pose(microscope)
 
     tilt_only = FibsemStagePosition(t=0.0, coordinate_system="RAW")
-    assert microscope._axis_restrictions_apply(tilt_only) is True
+    assert _restricts(microscope, tilt_only) is True

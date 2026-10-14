@@ -41,7 +41,7 @@ from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
 )
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImageMetadata, safe_ome_from_tiff
-from fibsem.projection import BeamStageProjection, FMStageProjection
+from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures import BeamType, FibsemImageMetadata, FibsemStagePosition
 
 logger = logging.getLogger(__name__)

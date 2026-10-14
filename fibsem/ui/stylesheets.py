@@ -282,6 +282,22 @@ MUTED_GHOST_BUTTON_STYLESHEET = (
 """
 )
 
+# A pill on an accent tint, for news that is worth seeing but asks for nothing now
+# -- the newer-release chip in the main window's header.
+ACCENT_CHIP_BUTTON_STYLESHEET = f"""
+    QPushButton {{
+        background-color: rgba(80, 166, 255, 38);
+        color: {ACCENT_COLOR};
+        border: none;
+        border-radius: 11px;
+        padding: 3px 10px;
+        font-size: 11px;
+    }}
+    QPushButton:hover {{
+        background-color: rgba(80, 166, 255, 70);
+    }}
+"""
+
 # A QPushButton that opens a menu. Qt stops drawing the native menu arrow as soon
 # as the button carries a stylesheet, so the chevron has to be put back by hand --
 # without it the control looks like a plain button and nothing says it opens.

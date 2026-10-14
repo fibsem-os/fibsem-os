@@ -80,6 +80,9 @@ A refusal names its reason in `detail.error_type`:
   watch.
 - `ask_first` — you are at Assist: the operator wants to approve each
   action. Switch to the assist-autolamella skill and ask through a request.
+- `not_allowed` — you may never use that write or command, at any level
+  (the listings mark it `agent: false`), and no request makes it allowed.
+  Say what you wanted and that it is the operator's to do.
 
 If `level` drops from Drive to Watch mid-session for any reason, the rule is
 the same as `agent_stopped`: report and stop acting. Never treat a 403 as an
@@ -277,8 +280,8 @@ The argument selects a variation on the same loop:
   behind it. A rerun spends beam time and dose on a possibly marginal
   lamella — whenever the delegation is unclear, propose.
 - **grid review**: after a screening run, `GET /app/experiment/grids` lists each grid
-  with its latest overview per role; `GET /app/experiment/grids/{grid}/outputs/{file}`
-  is the preview and `.../markers` places the experiment's items on it in
+  with its latest overview per role; `get_grid_output_image` (`GET
+  /app/experiment/grids/{grid}/outputs/{file}`) is the preview and `.../markers` places the experiment's items on it in
   source pixels with their status — use it for "which items sit near the
   edge / off the grid" judgments, never re-derive stage geometry yourself.
   `quality` is the operator's verdict, not yours: say what you see, propose,
@@ -294,9 +297,11 @@ The argument selects a variation on the same loop:
 
 - `POST /app/workflow/start {"task_names": [...], "item_names": [...]}` —
   items omitted = all. Say what you are starting before you start it.
-- `POST /app/workflow/stop` — if you believe the run is doing damage, stop
-  first and explain second. At Watch you cannot stop it: tell the operator
-  at once, plainly, what you see and that they should press Stop.
+- `POST /app/workflow/stop {"reason": "..."}` — at Drive, if you believe the
+  run is doing damage, stop first; the reason is what the operator reads. At
+  Assist, file it as a request (the assist skill). At Watch you cannot stop
+  it: tell the operator at once, plainly, what you see and that they should
+  press Stop.
 - `POST /app/agent/supervision {"task_name", "supervise"}` — takes effect at the
   next decision point. A supervised task's questions go to the operator and
   to you alike; the first answer wins, and the operator can always answer

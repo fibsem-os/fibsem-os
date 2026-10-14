@@ -352,7 +352,6 @@ class Point:
         return float(np.linalg.norm(self.distance(other).to_list()))
 
 
-# TODO: convert these to match autoscript...
 class BeamType(Enum):
     """Enumerator Class for Beam Type
     1: Electron Beam
@@ -720,7 +719,7 @@ class FibsemStagePosition(FibsemAxesPosition):
     Methods:
         to_dict(): Convert the stage position object to a dictionary.
         from_dict(data: dict): Create a new stage position object from a dictionary.
-        See fibsem.drivers.autoscript.microscope for AutoScript conversion utilities (stage_position_to_autoscript, stage_position_from_autoscript).
+        Each driver converts to and from its SDK's own position type, in its module under fibsem.drivers.
     """
 
     AXES: ClassVar[Tuple[str, ...]] = ("x", "y", "z", "r", "t")
@@ -783,9 +782,7 @@ class FibsemManipulatorPosition(FibsemAxesPosition):
     Methods:
         to_dict(): Convert the manipulator position object to a dictionary.
         from_dict(data: dict): Create a new manipulator position object from a dictionary.
-        See fibsem.drivers.autoscript.microscope for AutoScript conversion utilities (manipulator_position_to_autoscript, manipulator_position_from_autoscript).
-        to_tescan_position(): Convert the manipulator position to a format that is compatible with Tescan.
-        from_tescan_position(): Create a new FibsemManipulatorPosition object from a Tescan-compatible manipulator position.
+        Each driver converts to and from its SDK's own position type, in its module under fibsem.drivers.
     """
 
     AXES: ClassVar[Tuple[str, ...]] = ("x", "y", "z", "r", "t")
@@ -4454,7 +4451,6 @@ class ImageStats:
 class FibsemImage:
     """
     Class representing a FibsemImage and its associated metadata.
-    Has in built methods to deal with image types of TESCAN and ThermoFisher API
 
     Args:
         data (np.ndarray): The image data stored in a numpy array.

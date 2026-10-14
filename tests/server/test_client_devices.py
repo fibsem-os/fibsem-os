@@ -118,7 +118,7 @@ def test_no_event_stream_is_opened(client):
 def test_the_geometry_reads_go_through_the_stage_movement_service(client, microscope):
     """The client's orientation, milling angle and projection calls reach the
     stage movement service's queries, parameter and command (FIB-1346)."""
-    assert client.move_to_milling_angle(np.radians(15)) is True
+    assert client.move_to_milling_angle(15.0) is True
     assert client.get_current_milling_angle() == pytest.approx(15.0, abs=0.5)
     assert client.is_close_to_milling_angle(15.0) is True
     assert client.get_stage_orientation() == microscope.get_stage_orientation()

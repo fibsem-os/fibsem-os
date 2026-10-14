@@ -1,16 +1,17 @@
 """The first-run guided setup: from a fresh install to a configuration that connects.
 
-Five steps for everybody; the Arctis is shown the third rather than asked it:
+Five steps for everybody; an instrument whose driver knows its stage is shown the third
+rather than asked it:
 
 1. **Microscope** -- first, because the answer decides which of the rest are still
    questions.
 2. **Computer and connection** -- never skipped. The address is a property of the site
    that no shipped file can imply, and step 3 reads the stage, so the connection has to
    be *proven* here rather than merely typed.
-3. **Stage configuration** -- read-only for the Arctis, whose compustage has no
-   reference rotation to measure and no pre-tilted shuttle; the step is shown and
-   explained rather than skipped, so the diagram can say why there is nothing to enter.
-   Every other model prefills from its shipped configuration and still asks: those
+3. **Stage configuration** -- read-only where the driver knows the stage (a compustage
+   has no reference rotation to measure and no pre-tilted shuttle); the step is shown
+   and explained rather than skipped, so the diagram can say why there is nothing to
+   enter. Every other model prefills from its shipped configuration and still asks: those
    values belong to the shuttle fitted and to how a sample is loaded at that site, not
    to the model.
 4. **Folders**.
@@ -22,7 +23,7 @@ This module is the collection of them and nothing else.
 Connections are never opened alongside an existing one. If the application is already
 connected, the wizard borrows that microscope to read the stage and leaves it alone
 otherwise; if it is not, the wizard opens its own and closes it on the way out. Two
-AutoScript clients from one process is not a thing to find out about on a first run.
+SDK clients from one process is not a thing to find out about on a first run.
 """
 
 from __future__ import annotations
@@ -1057,9 +1058,9 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             )
         )
         # What has to be installed for the choice above to be able to connect. Checked
-        # on this computer rather than stated in general, because "you will need
-        # AutoScript" is not news to someone who already has it, while "AutoScript was
-        # not found here" is the whole problem stated at the moment it can still be
+        # on this computer rather than stated in general, because "you will need the
+        # vendor package" is not news to someone who already has it, while "it was not
+        # found here" is the whole problem stated at the moment it can still be
         # acted on -- rather than at connect time, three steps later.
         self._api_note = _label("", 10, TEXT_MUTED_COLOR, wrap=True)
         column.addWidget(self._api_note)
@@ -1223,8 +1224,8 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         manufacturer = self.choices.manufacturer
         for key, card in self._location_cards.items():
             card.setEnabled(not simulated)
-            # "alongside xT" rather than "alongside xT or Essence", which names one
-            # piece of software the reader does not have.
+            # The chosen driver's control software only, rather than every driver's,
+            # which would name software the reader does not have.
             card.set_summary(
                 wizard.location_summary(wizard.get_location(key), manufacturer)
             )
@@ -1453,9 +1454,8 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         editable = self.choices.stage_is_editable
         self._rotation_spin.setEnabled(editable)
         self._pre_tilt_spin.setEnabled(editable)
-        # Empty for anything the caution would not be true of -- a compustage is driven
-        # in SPECIMEN rather than RAW, and Tescan and the simulator have no xT to
-        # disagree with.
+        # Empty for any instrument the caution would not be true of: the note is the
+        # model's own (`SetupModel.stage_note`).
         self._coordinate_note.setText(self.choices.stage_coordinate_note)
         if not editable:
             self.button_read_stage.setEnabled(False)
@@ -1671,8 +1671,8 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         )
         rows = [
             # Read back from the built configuration rather than from the card that was
-            # clicked: this screen's job is to show what is about to be written, and
-            # "Thermo" is what the file will say.
+            # clicked: this screen's job is to show what is about to be written, which is
+            # the driver's registry name.
             ("Manufacturer", info.get("manufacturer", "")),
             ("Microscope", self.choices.model.label),
             (
