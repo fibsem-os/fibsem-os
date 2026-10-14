@@ -1586,6 +1586,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.hide()
         self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
         self.agent_chip.connect_clicked.connect(self._on_connect_agent_dialog)
+        self.agent_chip.event_log_clicked.connect(self._on_open_event_log)
         self.agent_chip.stop_clicked.connect(self._on_stop_agent)
         self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
         self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
@@ -3716,6 +3717,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             lambda: getattr(self.autolamella_ui, "_app_server_host", None), self
         )
         dialog.exec_()
+
+    def _on_open_event_log(self) -> None:
+        """From the agent chip's menu: the App Server's event log in the browser."""
+        from fibsem.applications.autolamella.ui.app_server_dialog import (
+            AppServerDialog,
+            open_in_browser,
+        )
+
+        host = self._running_app_server()
+        if host is None:
+            return
+        open_in_browser(AppServerDialog.event_log_url(host))
 
     def _on_app_server_dialog(self) -> None:
         """Open Tools → App Server: status, services, clients, the dashboard."""
