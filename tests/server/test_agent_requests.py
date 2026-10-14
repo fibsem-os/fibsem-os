@@ -1,6 +1,7 @@
 """The agent's requests (FIB-1283): at Assist the agent asks, the operator approves
 in the app, and the approved actions run through the App Server's own routes."""
 
+import gc
 import os
 
 import pytest
@@ -27,7 +28,11 @@ from fibsem.structures import MicroscopeState  # noqa: E402
 
 AGENT = {"Authorization": "Bearer agent"}
 NUDGE = {"tool": "move_stage_relative", "arguments": {"dx": 1e-6}}
-STOP = {"tool": "stop_workflow", "arguments": {}}
+SUPERVISE = {
+    "tool": "set_task_supervision",
+    "arguments": {"task_name": "MILL_ROUGH", "supervise": True},
+}
+STOP_MILL = {"tool": "stop_milling", "arguments": {}}
 
 
 class Host:
@@ -112,13 +117,13 @@ def test_only_assist_files_requests(client, auth):
 
 
 def test_assist_files_a_request_and_reads_it_back(client):
-    filed = _file(client, NUDGE, STOP)
+    filed = _file(client, NUDGE, SUPERVISE)
     assert filed.status_code == 202, filed.text
     body = filed.json()
     assert body["status"] == "pending"
     assert [a["path"] for a in body["actions"]] == [
         "/move_stage_relative",
-        "/app/workflow/stop",
+        "/app/supervision",
     ]
     read = client.get(f"/app/agent/requests/{body['request_id']}", headers=AGENT)
     assert read.json() == body
@@ -128,7 +133,7 @@ def test_assist_files_a_request_and_reads_it_back(client):
 
 def test_one_request_waits_at_a_time(client):
     first = _file(client, NUDGE).json()
-    second = _file(client, STOP)
+    second = _file(client, SUPERVISE)
     assert second.status_code == 409
     assert _detail(second)["error_type"] == "request_pending"
     assert _detail(second)["request_id"] == first["request_id"]
@@ -163,7 +168,7 @@ def test_hardware_needs_the_devices_service(microscope, context, auth):
 
 def test_approve_runs_each_action_through_its_route(client, app, auth, microscope):
     before = microscope.get_stage_position()
-    filed = _file(client, NUDGE, STOP).json()
+    filed = _file(client, NUDGE, SUPERVISE).json()
     heard = auth.last_seen_monotonic
 
     store = app.state.requests
@@ -251,8 +256,82 @@ def test_a_request_made_at_assist_is_not_run_after_the_level_drops(client, app, 
     store = app.state.requests
     with pytest.raises(RequestRefused) as refused:
         store.approve(filed["request_id"])
-    assert refused.value.detail["error_type"] == "request_cancelled"
+    # The level change already cancelled it: there is nothing left to approve.
+    assert refused.value.detail["error_type"] == "not_pending"
     assert store.get(filed["request_id"]).status == "cancelled"
+
+
+def test_assist_stops_without_asking_and_asks_for_the_rest(client):
+    assert client.post("/app/workflow/stop", headers=AGENT).status_code == 200
+    assert client.post("/stop_milling", headers=AGENT).status_code == 200
+    for path in ("/move_stage_relative", "/app/prompt/answer"):
+        refused = client.post(path, headers=AGENT, json={})
+        assert refused.status_code == 403, path
+        assert _detail(refused)["error_type"] == "ask_first"
+        assert "request_actions" in _detail(refused)["message"]
+    # A stop is never a request: it is called directly.
+    refused = _file(client, STOP_MILL)
+    assert refused.status_code == 422
+    assert "needs no approval" in _detail(refused)["message"]
+
+
+@pytest.mark.parametrize("stop_agent", [False, True])
+def test_a_level_change_or_stop_agent_cancels_the_waiting_request(
+    client, app, auth, context, stop_agent
+):
+    filed = _file(client, NUDGE).json()
+    if stop_agent:
+        auth.stop_agent()
+    else:
+        auth.set_level(AgentLevel.DRIVE)
+    store = app.state.requests
+    assert store.get(filed["request_id"]).status == "cancelled"
+    assert store.pending() is None
+    why = [p["why"] for kind, p, _ in context.recorded if kind == "request_cancelled"]
+    assert why == [
+        "the operator stopped the agent"
+        if stop_agent
+        else "the agent level changed to Drive"
+    ]
+
+
+def test_setting_the_same_level_again_cancels_nothing(client, app, auth):
+    filed = _file(client, NUDGE).json()
+    auth.set_level(AgentLevel.ASSIST)
+    assert app.state.requests.get(filed["request_id"]).status == "pending"
+
+
+def test_a_level_change_mid_batch_runs_no_more_of_it(client, app, auth, microscope):
+    before = microscope.get_stage_position()
+    filed = _file(client, NUDGE, NUDGE).json()
+    store = app.state.requests
+    # Leave Assist and come back while the first action runs: the rest of the
+    # batch was approved at a level that has since changed, so it does not run.
+    store.subscribe(
+        lambda request: (
+            request.results
+            and len(request.results) == 1
+            and (auth.set_level(AgentLevel.WATCH), auth.set_level(AgentLevel.ASSIST))
+        )
+    )
+    store.approve(filed["request_id"])
+    done = store.wait(filed["request_id"], timeout=10)
+    assert done.status == "cancelled"
+    assert len(done.results) == 1
+    assert microscope.get_stage_position().x == pytest.approx(before.x + 1e-6)
+
+
+def test_a_level_listener_does_not_keep_its_owner_alive(auth):
+    class Owner:
+        def heard(self, level, stopped):
+            raise AssertionError("a dropped owner is not called")
+
+    owner = Owner()
+    auth.on_level_change(owner.heard)
+    del owner
+    gc.collect()
+    auth.set_level(AgentLevel.WATCH)
+    assert auth._listeners == []
 
 
 def test_cancel_clears_the_waiting_request(client, app):

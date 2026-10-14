@@ -146,6 +146,9 @@ class AgentRequest:
     # For Drive's countdown (FIB-1267): when it lapses, and what lapsing does.
     expires_at: Optional[float] = None
     on_expiry: str = "reject"
+    # Set when the level changes or the operator stops the agent mid-batch: the
+    # actions not yet run are not run.
+    _abort: Optional[str] = field(default=None, repr=False)
     _done: threading.Event = field(default_factory=threading.Event, repr=False)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -239,6 +242,9 @@ class RequestStore:
         self._requests: Dict[str, AgentRequest] = {}
         self._listeners: List[Callable[[AgentRequest], None]] = []
         self._tools = {spec.name: spec for spec in CATALOG}
+        # A level change or Stop agent cancels what is waiting, and the rest of
+        # what is running.
+        auth.on_level_change(self._level_changed)
 
     # --- reading ---
 
@@ -346,6 +352,13 @@ class RequestStore:
                     422, "unknown_tool", f"Action {index + 1}: no tool named {tool!r}."
                 )
             scope = Scope(spec.scope)
+            if scope is Scope.STOP:
+                raise RequestRefused(
+                    422,
+                    "not_an_action",
+                    f"Action {index + 1}: {tool} stops; stopping needs no "
+                    "approval, so call it directly.",
+                )
             if scope not in REQUEST_SCOPES:
                 raise RequestRefused(
                     422,
@@ -428,14 +441,24 @@ class RequestStore:
     def cancel(self, why: str) -> Optional[AgentRequest]:
         """Cancel the pending request, if any: the level changed, or the operator
         stopped the agent. A request already running stops before its next
-        action (it checks the level itself)."""
+        action; the one running finishes, or is stopped by Stop agent."""
         with self._lock:
+            for running in self._requests.values():
+                if running.status == APPLYING:
+                    running._abort = why
             request = self._pending_locked()
             if request is None:
                 return None
             self._finish_locked(request, CANCELLED)
         self._cancelled(request, why)
         return request
+
+    def _level_changed(self, level: AgentLevel, stopped: bool) -> None:
+        self.cancel(
+            "the operator stopped the agent"
+            if stopped
+            else f"the agent level changed to {level.value.title()}"
+        )
 
     def expire_due(self, now: Optional[float] = None) -> Optional[AgentRequest]:
         """Lapse the pending request if its time is up, as its ``on_expiry``
@@ -454,7 +477,7 @@ class RequestStore:
         status = APPLIED
         with acting(AGENT):
             for index, action in enumerate(request.actions):
-                if not self._assisting():
+                if request._abort is not None or not self._assisting():
                     status = CANCELLED
                     break
                 with granting({action.scope}):

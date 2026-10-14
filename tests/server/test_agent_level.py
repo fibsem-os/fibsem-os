@@ -101,6 +101,7 @@ def test_drive_acts_on_the_session_and_the_hardware(client, auth):
         "control": True,
         "configure": True,
         "hardware": True,
+        "stop": True,
     }
     assert client.post("/app/workflow/stop", headers=AGENT).status_code == 200
     assert client.post("/stop_milling", headers=AGENT).status_code == 200

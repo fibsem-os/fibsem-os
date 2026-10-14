@@ -26,6 +26,7 @@ __all__ = [
     "build_app_config_router",
     "build_app_control_router",
     "build_app_router",
+    "build_app_stop_router",
 ]
 
 
@@ -537,13 +538,6 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         task_names, grid_names, screen_all = _grid_run_body(body)
         return context.start_grid_workflow(task_names, grid_names, screen_all)
 
-    @router.post("/workflow/stop")
-    def stop_workflow():
-        # The same path as the GUI's Stop button. On the control router since
-        # FIB-1035 -- a watching agent stops nothing -- and still never waits
-        # on the command lock. The operator's own Stop is never gated.
-        return context.stop_workflow()
-
     @router.post("/supervision")
     def set_supervision(body: Dict[str, Any]):
         task_name = body.get("task_name")
@@ -573,6 +567,21 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         return context.requeue_task(
             item_name, task_name, front=bool(body.get("front", False))
         )
+
+    return router
+
+
+def build_app_stop_router(context: AppContext) -> APIRouter:
+    """Stopping the run. Mounted (by build_server) behind the ``stop`` scope:
+    at Assist and Drive the agent stops without asking (FIB-1283); a watching
+    agent stops nothing (FIB-1035)."""
+    router = APIRouter(prefix="/app")
+
+    @router.post("/workflow/stop")
+    def stop_workflow():
+        # The same path as the GUI's Stop button, and never waits on the
+        # command lock. The operator's own Stop is never gated.
+        return context.stop_workflow()
 
     return router
 

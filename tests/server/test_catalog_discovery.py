@@ -62,7 +62,13 @@ def test_every_catalog_entry_is_a_real_route(app):
 def test_catalog_names_unique_and_scopes_valid():
     names = [t.name for t in CATALOG]
     assert len(names) == len(set(names))
-    assert set(t.scope for t in CATALOG) <= {"read", "control", "configure", "hardware"}
+    assert set(t.scope for t in CATALOG) <= {
+        "read",
+        "control",
+        "configure",
+        "hardware",
+        "stop",
+    }
 
 
 def test_tools_for_scopes_filters_hardware():
