@@ -541,3 +541,89 @@ def test_operations_outside_a_task_are_a_row_among_the_runs(qapp, lamella):
     finally:
         widget._cancel_worker()
         widget.deleteLater()
+
+
+# --- the workflow GIF (FIB-1311) -----------------------------------------------
+
+
+@pytest.fixture
+def opened(monkeypatch):
+    """The export dialogs opened, without showing them."""
+    from fibsem.ui.widgets.animation_export_dialog import AnimationExportDialog
+
+    dialogs = []
+    monkeypatch.setattr(
+        AnimationExportDialog, "exec_", lambda self: dialogs.append(self)
+    )
+    return dialogs
+
+
+def test_the_actions_menu_sits_after_the_filter_and_outlives_a_rebuild(widget, lamella):
+    actions, flt = widget._actions_button, widget._filter_button
+    assert actions.isVisibleTo(widget) and actions.toolTip() == "Actions"
+    assert [a.text() for a in actions.menu().actions()] == [
+        "Open Lamella Folder",
+        "Export GIF...",
+    ]
+    assert actions.parent() is flt.parent(), "in the header row"
+    assert actions.geometry().left() > flt.geometry().right(), "at the far right"
+
+    widget.set_lamella(None)
+    _settled(widget)
+    assert not actions.isVisibleTo(widget)
+
+    widget.set_lamella(lamella)  # a new header, after one was deleted
+    _settled(widget)
+    assert actions.isVisibleTo(widget)
+    assert [a.text() for a in actions.menu().actions()] == [
+        "Open Lamella Folder",
+        "Export GIF...",
+    ]
+
+
+def test_the_gif_is_made_of_the_lamellas_task_images(widget, lamella, opened):
+    widget._filter_button._pick(HistoryFilter(status="failed"))  # the filter
+    _settled(widget)  # narrows the tab, not the GIF
+
+    widget._action_export_gif.trigger()
+
+    (dialog,) = opened
+    assert [frame.title for frame in dialog.frames] == [ROUGH], (
+        "Polishing saved no images"
+    )
+    assert dialog.title == lamella.name
+    assert dialog.save_directory == os.fspath(lamella.path)
+
+
+def test_a_lamella_with_no_task_images_says_so(qapp, tmp_path, opened, monkeypatch):
+    from fibsem.ui import notification_service
+
+    toasts = []
+    monkeypatch.setattr(
+        notification_service, "show_toast", lambda msg, kind="info": toasts.append(msg)
+    )
+    lamella = Lamella(path=tmp_path / "exp" / "01-lam", number=1, petname="lam")
+    lamella.path.mkdir(parents=True)
+    lamella.task_history = [_run(ROUGH, "r1", 0)]
+    widget = LamellaTaskImageWidget()
+    try:
+        widget.set_lamella(lamella)
+        widget.show()
+        _settled(widget)
+
+        widget._action_export_gif.trigger()
+
+        assert opened == []
+        assert toasts == [f"{lamella.name} has no task images to animate yet"]
+    finally:
+        widget._cancel_worker()
+        widget.deleteLater()
+
+
+def test_open_lamella_folder_opens_it_in_the_file_browser(widget, lamella, monkeypatch):
+    opened = []
+    monkeypatch.setattr(history_tab, "_open_path", opened.append)
+
+    widget._action_open_folder.trigger()
+
+    assert opened == [os.fspath(lamella.path)]
