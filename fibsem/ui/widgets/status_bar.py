@@ -5,6 +5,8 @@ The line says one thing at a time:
 
 - an **operation** while one runs outside a workflow -- a stage move, the images
   after it: "**Stage move** moving to the SEM orientation…";
+- otherwise the **agent's action**, while the agent is in control of the microscope:
+  "**Agent** focus sweep · 12s" (FIB-1375);
 - otherwise the **run**, while a workflow runs: "**lamella-02 › Polishing** · 3 of 4";
 - otherwise the **instruction**, muted: "Create or load an experiment to begin."
 
@@ -18,7 +20,8 @@ reads bright, with its subject in bold; an instruction reads muted.
 
 Progress that can be measured -- milling, an overview's tiles, a spot burn, a
 fluorescence acquisition -- adds a thin bar and its numbers to the line: "**Milling: Rough Mill** stage 2 of 3 ▬▬ 42% ·
-1m 20s left". Inside a run it sits under the run's task instead. The bar listens for
+1m 20s left". Inside a run it sits under the run's task instead, and during the
+agent's action under "Agent". The bar listens for
 it itself, from the microscope a host hands it (`set_microscope`), so no window
 decodes a report. When one ends, the line says how -- done, cancelled, or failed in
 red -- for a moment, then gives the line back.
@@ -223,6 +226,11 @@ class FibsemStatusBar(QStatusBar):
         self._waiting_clock = QTimer(self)
         self._waiting_clock.setInterval(1000)
         self._waiting_clock.timeout.connect(self._render)
+        # The agent's action, and since when (monotonic): the line counts it too.
+        self._agent: Optional[Tuple[str, float]] = None
+        self._agent_clock = QTimer(self)
+        self._agent_clock.setInterval(1000)
+        self._agent_clock.timeout.connect(self._render)
         self._microscope: Optional["FibsemMicroscope"] = None
         # A delegating strategy names itself once and the backend's ticks carry no
         # words; this keeps the strategy's (FIB-797).
@@ -316,6 +324,17 @@ class FibsemStatusBar(QStatusBar):
         self._operation = (what, step, None) if what else None
         self._render()
 
+    def set_agent_action(self, action: Optional[str]) -> None:
+        """The agent's action on the microscope while it is in control ("focus
+        sweep"), counted from when it is first set; None when it lets go."""
+        if not action:
+            self._agent = None
+            self._agent_clock.stop()
+        elif self._agent is None or self._agent[0] != action:
+            self._agent = (action, time.monotonic())
+            self._agent_clock.start()
+        self._render()
+
     def set_progress(
         self,
         label: Optional[str],
@@ -399,12 +418,14 @@ class FibsemStatusBar(QStatusBar):
 
     @property
     def showing(self) -> str:
-        """Which source is on the line: "operation", "progress", "failure", "run",
-        "instruction" or ""."""
+        """Which source is on the line: "operation", "progress", "agent", "failure",
+        "run", "instruction" or ""."""
         if self._operation is not None:
             return "operation"
         if self._progress is not None:
             return "progress"
+        if self._agent is not None:
+            return "agent"
         if self._failure is not None:
             return "failure"
         if self._run is not None:
@@ -423,6 +444,7 @@ class FibsemStatusBar(QStatusBar):
         line = (
             self._operation
             or self._line_for_progress()
+            or self._line_for_agent()
             or self._line_for_failure()
             or self._line_for_run()
         )
@@ -449,7 +471,8 @@ class FibsemStatusBar(QStatusBar):
 
     def _line_for_progress(self) -> Optional[_Line]:
         """Progress on its own reads "**label** step"; under a run it is the run's
-        step, so the task keeps its place: "**task** label · step … · 3 of 5"."""
+        step, so the task keeps its place: "**task** label · step … · 3 of 5".
+        During the agent's action it is the agent's: "**Agent** label · step …"."""
         if self._progress is None:
             return None
         label, step, standalone = (
@@ -457,10 +480,18 @@ class FibsemStatusBar(QStatusBar):
             self._progress[1],
             self._progress[5],
         )
-        if self._run is None or standalone:
+        subject = self._line_for_agent() or self._run
+        if subject is None or standalone:
             return (label, step, None)
-        what, _run_step, detail = self._run
+        what, _run_step, detail = subject
         return (what, " · ".join(p for p in (label, step) if p), detail)
+
+    def _line_for_agent(self) -> Optional[_Line]:
+        """What the agent is doing, and for how long: "**Agent** focus sweep · 12s"."""
+        if self._agent is None:
+            return None
+        action, since = self._agent
+        return ("Agent", action, format_duration_rounded(time.monotonic() - since))
 
     def _line_for_failure(self) -> Optional[_Line]:
         if self._failure is None:

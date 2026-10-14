@@ -50,6 +50,7 @@ from fibsem.applications.autolamella.structures import (
     GridRecord,
     Lamella,
 )
+from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
 from fibsem.applications.autolamella.ui.agent_level_chip import AgentLevelChip
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
@@ -1574,6 +1575,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.connect_clicked.connect(self._on_connect_agent_dialog)
         self.agent_chip.stop_clicked.connect(self._on_stop_agent)
         self.status_bar.add_action(self.agent_chip)
+        # What the agent is doing on the microscope, on the line (FIB-1375).
+        self.agent_activity = AgentActivity(self.status_bar, parent=self)
         self._agent_chip_timer = QTimer(self)
         self._agent_chip_timer.setInterval(1000)
         self._agent_chip_timer.timeout.connect(self._refresh_agent_chip)
@@ -2209,6 +2212,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self._refresh_fm_placeholder()
         # Milling, tiles, spot burn: the bar listens for them itself (FIB-1188).
         self.status_bar.set_microscope(
+            self.autolamella_ui.microscope if self.autolamella_ui else None
+        )
+        self.agent_activity.set_microscope(
             self.autolamella_ui.microscope if self.autolamella_ui else None
         )
         self._update_connection_chip()
