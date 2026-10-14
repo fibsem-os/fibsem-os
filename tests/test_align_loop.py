@@ -227,7 +227,7 @@ def _anchor_in_view(microscope, beam_type) -> tuple:
     Read straight off the projection the scene renders with, so it is
     exact and immune to the periodic mesh's correlation aliases.
     """
-    from fibsem.projection import BeamStageProjection
+    from fibsem.geometry.projection import BeamStageProjection
 
     projection = BeamStageProjection.from_microscope(microscope, beam_type)
     return projection.to_plane(

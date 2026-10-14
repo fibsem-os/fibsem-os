@@ -52,7 +52,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Uni
 
 import numpy as np
 
-from fibsem.devices.beam import Beam
+from fibsem.devices.beam import UNBOUNDED_SHIFT_LIMITS, Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
@@ -243,6 +243,10 @@ class OdemisBeam(Beam):
     def write_shift(self, value: Point) -> None:
         self._client.set_beam_shift(value.x, value.y, self.channel)
         self._set_log("shift", value, "")
+
+    def metadata_shift(self) -> ParameterMetadata:
+        # Odemis doesn't report a beam-shift range
+        return ParameterMetadata(limits=UNBOUNDED_SHIFT_LIMITS)
 
     def read_stigmation(self) -> Point:
         stigmation = self._client.get_stigmator(self.channel)

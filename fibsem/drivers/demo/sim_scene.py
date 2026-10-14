@@ -42,7 +42,7 @@ from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import map_coordinates as ndi_map_coordinates
 from scipy.ndimage import zoom as ndi_zoom
 
-from fibsem.projection import (
+from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
     surface_foreshortening,

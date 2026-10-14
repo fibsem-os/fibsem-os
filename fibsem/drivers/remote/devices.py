@@ -69,6 +69,7 @@ from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     Device,
+    DeviceFault,
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
@@ -104,6 +105,8 @@ if TYPE_CHECKING:
 
 READ_TIMEOUT = 5.0
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
+# Commands that stop something, which carry a reason (fibsem.server.server).
+_STOPS = frozenset(("stop", "stop_live", "cancel"))
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
 UNTIL_DONE = (READ_TIMEOUT, None)
 """For a move, a pump or a vent: it takes as long as it takes, and ends by answering
@@ -245,8 +248,13 @@ class DeviceClient:
             # error_type and message; a server from before FIB-1377 sends error
             # and detail.
             kind = detail.get("error_type", detail.get("error"))
+            message = detail.get("message", detail.get("detail"))
+            if kind == "DeviceFault" or response.status_code == 502:
+                # the hardware refused on the far side: a driver's own subclass
+                # arrives as the fault it is
+                raise DeviceFault(message, device=detail.get("device"))
             if kind in _ERRORS:
-                raise _ERRORS[kind](detail.get("message", detail.get("detail")))
+                raise _ERRORS[kind](message)
         raise RemoteDeviceError(f"{method} {path}: {response.status_code} {detail}")
 
     def health(self) -> Dict[str, Any]:
@@ -461,6 +469,9 @@ class RemoteDevice(Device):
         requests timeout: seconds, or (connect, read)."""
         path = f"devices/{self.name}/commands/{command}"
         body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        if command in _STOPS:
+            # The App Server records why with every stop; a device server ignores it.
+            body["reason"] = f"{self.name} {command} from a remote microscope"
         answer = self.client.request("POST", path, timeout, json=body)
         if isinstance(answer, (np.ndarray, Frame, list)):
             return answer

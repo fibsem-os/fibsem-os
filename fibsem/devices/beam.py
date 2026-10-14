@@ -16,7 +16,7 @@ from psygnal import Signal
 
 from fibsem.cancellation import COMPLETED, ended_by
 from fibsem.constants import DEGREE_SYMBOL
-from fibsem.devices.core import Device, Parameter, Role, command
+from fibsem.devices.core import UNLIMITED, Device, Parameter, Role, command
 from fibsem.devices.display import Display
 from fibsem.devices.scanner import Scanner
 from fibsem.structures import (
@@ -62,12 +62,16 @@ DEFAULT_HFW_LIMITS = RangeLimit(min=1e-9, max=1e-2)
 DEFAULT_DWELL_TIME_LIMITS = RangeLimit(min=1e-9, max=1e-3)
 
 # What the beam panel has always allowed for the parameters no driver reports a range
-# for yet. Shift and stigmation are per field, so a write isn't clipped by them.
+# for yet. A relative shift is clamped to the shift's; stigmation is per field, so a
+# write isn't clipped by it.
 DEFAULT_WORKING_DISTANCE_LIMITS = RangeLimit(min=1e-3, max=30e-3)
 DEFAULT_SHIFT_LIMITS = {
     "x": RangeLimit(min=-50e-6, max=50e-6),
     "y": RangeLimit(min=-50e-6, max=50e-6),
 }
+# For a driver that doesn't know its instrument's beam-shift range: a relative shift is
+# clamped to the shift's limits, and these clamp nothing.
+UNBOUNDED_SHIFT_LIMITS = {"x": UNLIMITED, "y": UNLIMITED}
 DEFAULT_STIGMATION_LIMITS = {
     "x": RangeLimit(min=-1.0, max=1.0),
     "y": RangeLimit(min=-1.0, max=1.0),
@@ -228,9 +232,19 @@ class Beam(Device):
             return shift
 
     def _shift_by(self, dx: float, dy: float) -> None:
-        """Add (dx, dy) to the shift, unvalidated. A driver whose instrument needs
-        more (its own limits, a flipped scan) overrides this."""
-        self.shift.write_through(self.shift.get_value() + Point(dx, dy))
+        """Add (dx, dy) to the shift, unvalidated, clamped to the shift's limits: the
+        range the driver reports, or the declared default where it reports none. A
+        driver whose instrument needs more (a flipped scan) overrides this."""
+        shift = self.shift
+        shift.refresh_metadata(emit=False)  # the limits as the instrument has them now
+        target = shift.get_value() + Point(dx, dy)
+        limits = shift.limits or {}
+        x, y = limits.get("x"), limits.get("y")
+        target = Point(
+            x=x.clamp(target.x) if x is not None else target.x,
+            y=y.clamp(target.y) if y is not None else target.y,
+        )
+        shift.write_through(target)
 
     # The scan area. Each command changes scanning_mode; a backend implements
     # _spot, _reduced_area and _full_frame, and a beam that can't set the scan area

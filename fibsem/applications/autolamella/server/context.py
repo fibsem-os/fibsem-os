@@ -271,6 +271,12 @@ class AutoLamellaAppContext:
         return getattr(self._host, "experiment", None)
 
     @property
+    def experiment_path(self) -> Optional[str]:
+        """The open experiment's folder, or None: where an agent may save."""
+        experiment = self._experiment
+        return str(experiment.path) if experiment is not None else None
+
+    @property
     def _manager(self):
         return getattr(self._host, "_task_manager", None)
 

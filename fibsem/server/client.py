@@ -499,8 +499,8 @@ class FibsemClient:
 
     # --- Milling angle ---
     # The stage movement service's: the stored milling angle is its parameter, in
-    # degrees; the reads are its queries. move_to_milling_angle takes radians, as
-    # the FibsemMicroscope method does (FIB-853).
+    # degrees; the reads are its queries. move_to_milling_angle takes degrees
+    # too, as the FibsemMicroscope method does.
 
     def get_current_milling_angle(
         self, stage_position: Optional[FibsemStagePosition] = None
@@ -521,8 +521,8 @@ class FibsemClient:
     def move_to_milling_angle(
         self, milling_angle: float, rotation: Optional[float] = None
     ) -> bool:
-        """Move the stage to a milling angle, in radians; the rotation reference
-        when ``rotation`` is None."""
+        """Move the stage to a milling angle, in degrees, and a rotation in
+        degrees; the rotation reference when ``rotation`` is None."""
         return self.call_service_command(
             STAGE_MOVEMENT,
             "move_to_milling_angle",
@@ -560,8 +560,12 @@ class FibsemClient:
     def start_milling(self) -> None:
         self._milling("start")
 
-    def stop_milling(self) -> None:
-        self._milling("stop")
+    def stop_milling(self, reason: str = "stopped from a script") -> None:
+        """Stop the mill. The App Server records the reason with the stop."""
+        self._post(
+            f"{MICROSCOPE}/services/{MILLING}/commands/stop",
+            {"kwargs": {}, "reason": reason},
+        )
 
     def pause_milling(self) -> None:
         self._milling("pause")
@@ -569,15 +573,9 @@ class FibsemClient:
     def resume_milling(self) -> None:
         self._milling("resume")
 
-    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        """Clear the patterns, put the milling beam back as setup found it, then
-        the imaging voltage and current given."""
-        self._milling("clear")
-        self._milling("restore")
-        if imaging_voltage is not None:
-            self.set_beam_voltage(imaging_voltage, BeamType.ION)
-        if imaging_current is not None:
-            self.set_beam_current(imaging_current, BeamType.ION)
+    def finish_milling(self) -> None:
+        """Clear the patterns and put the milling beam back as setup found it."""
+        self._milling("finish")
 
     def clear_patterns(self) -> None:
         self._milling("clear")

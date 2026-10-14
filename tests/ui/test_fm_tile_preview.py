@@ -17,8 +17,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
+from fibsem.geometry.projection import BeamStageProjection, surface_foreshortening
 from fibsem.imaging.tiling.geometry import PlaneRegion
-from fibsem.projection import BeamStageProjection, surface_foreshortening
 from fibsem.structures import BeamType, FibsemStagePosition
 from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
 

@@ -37,9 +37,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging.tiling.geometry import PlaneRegion
 from fibsem.microscope import FibsemMicroscope
-from fibsem.projection import BeamStageProjection
 from fibsem.structures import FibsemImage, FibsemStagePosition
 from fibsem.ui.tokens import WHITE_ICON_COLOR
 from fibsem.ui.widgets.canvas.overlays.rect_overlay import RectOverlay

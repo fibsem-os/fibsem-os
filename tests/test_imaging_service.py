@@ -169,3 +169,103 @@ def test_a_failed_beam_autofocus_is_recorded_and_raised(microscope, monkeypatch)
     (event,) = [payload for kind, payload in recorded if kind == "autofocus"]
     assert event["status"] == "failed"
     assert event["error"] == "RuntimeError: no signal"
+
+
+def test_the_beam_commands_pass_through_by_beam_type(microscope, monkeypatch):
+    """FIB-1261: acquire, autocontrast and live view are the beam's commands,
+    reached through the service by beam type."""
+    from fibsem.structures import FibsemImage, ImageSettings
+
+    imaging = microscope.imaging
+    image = imaging.acquire(BeamType.ION)
+    assert isinstance(image, FibsemImage)
+    assert image.metadata.image_settings.beam_type is BeamType.ION
+
+    # The settings' own beam type wins over the argument.
+    settings = ImageSettings(
+        beam_type=BeamType.ELECTRON, resolution=(384, 256), hfw=80e-6
+    )
+    image = imaging.acquire(BeamType.ION, settings)
+    assert image.metadata.image_settings.beam_type is BeamType.ELECTRON
+    assert image.data.shape == (256, 384)
+
+    beam = microscope.beams[BeamType.ION]
+    areas = []
+    monkeypatch.setattr(type(beam), "_autocontrast", lambda self, a: areas.append(a))
+    area = FibsemRectangle(0.1, 0.1, 0.5, 0.5)
+    imaging.autocontrast(BeamType.ION, area)
+    assert areas == [area]
+
+    imaging.start_live(BeamType.ELECTRON)
+    try:
+        assert microscope.beams[BeamType.ELECTRON].is_live
+    finally:
+        imaging.stop_live(BeamType.ELECTRON)
+    assert not microscope.beams[BeamType.ELECTRON].is_live
+
+
+def test_the_microscope_images_through_the_service(microscope, monkeypatch):
+    calls = []
+    real = Imaging.acquire
+    monkeypatch.setattr(
+        Imaging,
+        "acquire",
+        lambda self, *a, **k: calls.append(a) or real(self, *a, **k),
+    )
+    microscope.acquire_image(beam_type=BeamType.ELECTRON)
+    assert calls == [(BeamType.ELECTRON, None)]
+
+
+def test_acquire_image_saves_and_records(microscope, tmp_path):
+    """FIB-1261: acquire.py's image (new_image, now acquire_image) moved onto the service."""
+    from fibsem.structures import ImageSettings
+
+    recorded = []
+    real = microscope.record_event
+    microscope.record_event = lambda kind, data: (
+        recorded.append((kind, data)) or real(kind, data)
+    )
+    settings = ImageSettings(
+        beam_type=BeamType.ION,
+        resolution=(192, 128),
+        hfw=100e-6,
+        save=True,
+        path=str(tmp_path),
+        filename="trench",
+    )
+    image = microscope.imaging.acquire_image(settings)
+    assert image.filepath == str(tmp_path / "trench_ib.tif")
+    assert os.path.exists(image.filepath)
+    kind, data = recorded[-1]
+    assert kind == "image_acquired" and data["path"] == image.filepath
+
+
+def test_reference_images_leave_the_settings_alone(microscope, tmp_path):
+    from fibsem import acquire
+    from fibsem.structures import ImageSettings
+
+    settings = ImageSettings(
+        beam_type=BeamType.ION,
+        resolution=(96, 64),
+        hfw=100e-6,
+        save=False,
+        path=str(tmp_path),
+        filename="ref",
+    )
+    eb, ib = microscope.imaging.reference_images(settings)
+    assert eb.metadata.image_settings.beam_type is BeamType.ELECTRON
+    assert ib.metadata.image_settings.beam_type is BeamType.ION
+    assert settings.beam_type is BeamType.ION
+
+    sem, fib = acquire.acquire_channels(microscope, settings, acquire_sem=False)
+    assert sem is None and fib is not None
+
+    sets = microscope.imaging.reference_image_sets(
+        settings, [200e-6, 80e-6], filename="ref", ion=False
+    )
+    assert [pair[1] for pair in sets] == [None, None]
+    assert [os.path.basename(pair[0].filepath) for pair in sets] == [
+        "ref_res_01_eb.tif",
+        "ref_res_02_eb.tif",
+    ]
+    assert (settings.save, settings.hfw, settings.filename) == (False, 100e-6, "ref")

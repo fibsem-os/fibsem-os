@@ -86,10 +86,12 @@ def test_catalog_names_unique_and_levels_valid():
     names = [t.name for t in CATALOG]
     assert len(names) == len(set(names))
     assert set(t.level for t in CATALOG) <= {"watch", "assist", "drive"}
-    # A watching agent stops nothing (FIB-1035); stopping needs Assist.
+    # A stop needs Drive (Patrick, 2026-10-14), so at Assist it goes in a
+    # request; the agent's own mill it stops at any level, which the note says.
     by_name = {t.name: t for t in CATALOG}
-    assert by_name["stop_milling"].level == "assist"
-    assert by_name["stop_workflow"].level == "assist"
+    assert by_name["stop_milling"].level == "drive"
+    assert "any level" in by_name["stop_milling"].level_note
+    assert by_name["stop_workflow"].level == "drive"
     # Only what drives the microscope takes control of it.
     assert all(t.level == "drive" for t in CATALOG if t.hardware)
 

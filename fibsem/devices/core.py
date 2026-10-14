@@ -61,6 +61,21 @@ class ParameterReadOnly(Exception):
     """The parameter is bound but cannot be set."""
 
 
+class DeviceFault(RuntimeError):
+    """The hardware, or the controller in front of it, refused or failed.
+
+    A driver raises it, or a subclass of it for its own SDK's errors, when the
+    instrument said no: not for a bad argument (``ValueError``) or a missing
+    parameter. The device server answers it as 502, and a remote copy raises it
+    again, so a refusal from the hardware is told apart from a fault in fibsem.
+    ``device`` names the device, when the driver knows it.
+    """
+
+    def __init__(self, message: str = "", device: Optional[str] = None):
+        super().__init__(message)
+        self.device = device
+
+
 class RoleUnfilled(AttributeError):
     """The device declares the role, but no device fills it."""
 
@@ -97,7 +112,7 @@ class Parameter:
     A backend implements a parameter in its device subclass with plain methods named
     after it, and the device binds them at ``connect()``::
 
-        class AutoscriptBeam(Beam):
+        class VendorBeam(Beam):
             def read_current(self):
                 return self._beam.beam_current.value
 

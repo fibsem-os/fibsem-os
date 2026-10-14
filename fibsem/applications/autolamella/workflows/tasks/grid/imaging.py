@@ -4,7 +4,8 @@ The operation -- `acquire_beam_overview` -- is a plain function over
 `TiledAcquisitionRunner`, callable from the Overview tab or a script. The task
 adds only what makes it a workflow step: where the grid is (its calibrated slot,
 re-expressed for the requested orientation), where the files go (the grid's own
-directory), and what to record (the stitched image and a thumbnail, by role).
+directory), and what to record (the stitched image, its tiles and a thumbnail, by
+role).
 """
 
 from __future__ import annotations
@@ -39,10 +40,10 @@ from fibsem.applications.autolamella.workflows.tasks.grid.base import (
 from fibsem.applications.autolamella.workflows.tasks.grid.registry import (
     register_grid_task,
 )
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import TiledAcquisitionRunner, stamped_overview_name
 from fibsem.imaging.tiling.geometry import compute_tile_grid, unreachable_tiles
-from fibsem.projection import BeamStageProjection
 from fibsem.services.sample_handling import uncalibrated_message
 from fibsem.structures import (
     BeamType,
@@ -55,7 +56,7 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 # The output roles a results card, the Overview tab and the App Server read
-# (FIB-876). One per beam, plus the thumbnail beside it.
+# (FIB-876). One per beam, plus the thumbnail and the tiles beside it.
 ROLE_BY_BEAM = {BeamType.ELECTRON: "overview_sem", BeamType.ION: "overview_fib"}
 
 
@@ -71,13 +72,15 @@ def acquire_beam_overview(
     directory: Union[str, Path],
     stem: str = "overview",
     stop_event=None,
+    tile_paths: Optional[List[str]] = None,
 ) -> FibsemImage:
     """Acquire a tiled SEM or FIB overview centred on `centre`, saved under `directory`.
 
     A copy of `settings` is used, so the caller's object is not rewritten with the
     per-run path and stamped name. The beam is `settings.image_settings.beam_type`.
     The runner restores the stage to where it started; `centre` is the grid's
-    centre, not a new home.
+    centre, not a new home. A `tile_paths` list is extended with the path of each
+    saved tile, in the order acquired.
     """
     settings = deepcopy(settings)
     settings.image_settings.save = True
@@ -87,7 +90,10 @@ def acquire_beam_overview(
     runner = TiledAcquisitionRunner(
         microscope, settings, stop_event=stop_event, centre_position=centre
     )
-    return runner.run_and_stitch()
+    image = runner.run_and_stitch()
+    if tile_paths is not None:
+        tile_paths.extend(runner.tile_paths)
+    return image
 
 
 def disable_tiles(
@@ -261,6 +267,7 @@ class BeamOverviewGridTask(GridTask):
             f"Acquiring {beam} overview: {settings.nrows} x "
             f"{settings.ncols} tiles{out_of_reach}",
         )
+        tiles: List[str] = []
         image = acquire_beam_overview(
             self.microscope,
             settings,
@@ -268,8 +275,13 @@ class BeamOverviewGridTask(GridTask):
             self.output_dir,
             stem=self.config.filename,
             stop_event=self._stop_event,
+            tile_paths=tiles,
         )
         self.record_output(self.config.role, image)
+        # The tiles too, for what reads single frames rather than the stitch: the
+        # targeting model was trained on tiles (FIB-939).
+        for tile in tiles:
+            self.record_output(f"{self.config.role}_tiles", tile)
 
         # Beside the stitched image, named after it, so a card can show it without
         # decoding a full-resolution overview. A missing thumbnail is worth far less

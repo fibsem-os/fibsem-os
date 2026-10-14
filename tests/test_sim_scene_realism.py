@@ -21,7 +21,7 @@ from fibsem.alignment.coincidence import (
     ensure_coincident,
 )
 from fibsem.drivers.demo.sim_scene import SampleScene
-from fibsem.projection import BeamStageProjection
+from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures import BeamType, ImageSettings
 
 TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
@@ -282,7 +282,7 @@ def test_the_fm_dyes_the_nucleus_and_the_cytoplasm_differently(microscope):
     cytoplasmic dye (450) lights the whole body - so the DAPI image is a
     subset of the GFP image, brightest where GFP is bright too."""
     from fibsem.drivers.demo.sim_scene import fm_channel_weights
-    from fibsem.projection import FMStageProjection
+    from fibsem.geometry.projection import FMStageProjection
 
     scene = _scene(
         microscope,
@@ -719,7 +719,7 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
     assert (sizes * sem.metadata.pixel_size.x**2 > 0.3 * area).sum() >= 2
 
     # and the FM reflection channel: dark discs, bright rims, on a flat film
-    from fibsem.projection import FMStageProjection
+    from fibsem.geometry.projection import FMStageProjection
 
     fm_projection = FMStageProjection.from_microscope(microscope)
     if fm_projection is not None:

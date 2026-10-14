@@ -5,6 +5,7 @@ against the in-process ASGI app — full stack minus the socket."""
 
 import asyncio
 import json
+import math
 import os
 
 import pytest
@@ -76,7 +77,7 @@ def test_each_description_names_the_level_it_needs(armed_sidecar):
     listed = asyncio.run(armed_sidecar.list_tools())
     described = {t.name: t.description for t in getattr(listed, "tools", listed)}
     assert described["get_stage_position"].endswith("Works at Watch, Assist and Drive.")
-    assert "Assist and Drive without asking" in described["stop_milling"]
+    assert "started itself it can stop at any level" in described["stop_milling"]
     assert "Needs the agent at Drive" in described["move_stage_relative"]
     assert "request_actions" in described["move_stage_relative"]
     assert "(409)" in described["move_stage_relative"]
@@ -169,8 +170,8 @@ def _call_json(sidecar, tool, arguments):
 
 
 def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
-    """The tools speak degrees; the stage movement command they call takes
-    radians (FIB-853). Moving to 15 deg must read back as ~15 deg, not ~859."""
+    """The tools and the stage movement command all speak degrees (FIB-853).
+    Moving to 15 deg must read back as ~15 deg, not ~859."""
     moved = _call_json(
         armed_sidecar, "move_to_milling_angle", {"milling_angle_deg": 15.0}
     )
@@ -181,9 +182,37 @@ def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
     assert orientation == {"orientation": "MILLING"}
 
 
+def test_the_milling_angle_move_takes_a_rotation_in_degrees(armed_sidecar):
+    moved = _call_json(
+        armed_sidecar,
+        "move_to_milling_angle",
+        {"milling_angle_deg": 15.0, "rotation_deg": 10.0},
+    )
+    assert moved == {"success": True}
+    position = _call_json(armed_sidecar, "get_stage_position", {})["position"]
+    assert math.degrees(position["r"]) == pytest.approx(10.0, abs=0.1)
+
+
 def _contents(result):
     # FastMCP.call_tool returns a content sequence; newer versions may return
     # (contents, structured). Normalize.
     if isinstance(result, tuple):
         result = result[0]
     return list(getattr(result, "content", result))
+
+
+@pytest.mark.parametrize("device", ["electron", "chamber_camera"])
+def test_a_command_that_images_answers_the_agent_an_image(armed_sidecar, device):
+    """A beam's image or a camera frame from call_command comes back as a
+    summary and an image the agent can look at, not bytes it can't read."""
+    result = asyncio.run(
+        armed_sidecar.call_tool(
+            "call_command", {"device": device, "command": "acquire"}
+        )
+    )
+    contents = _contents(result)
+    assert any(getattr(c, "type", None) == "image" for c in contents)
+    text = "".join(getattr(c, "text", "") for c in contents)
+    answer = json.loads(text)
+    assert answer["result"]["summary"]["shape"]
+    assert answer["result"]["preview"]["image_index"] == 0

@@ -104,7 +104,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
         description=(
             "Every device on the microscope (electron, ion, stage, manipulator, ...): "
             "its parameters with type, unit, limits, choices and whether settable, "
-            "and its commands."
+            "and its commands. agent: false marks a write or command you may never "
+            "use, at any level (403 not_allowed); its value stays readable."
         ),
         method="GET",
         path="/microscope/devices",
@@ -144,20 +145,31 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_milling",
-        description="Emergency stop for an in-progress mill. Allowed at Assist and Drive without asking, and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
+        description="Stop an in-progress mill, with the reason the operator reads.",
         method="POST",
         path="/microscope/services/milling/commands/stop",
-        level="assist",
+        level="drive",
+        params={"reason": "why you are stopping it, for the operator (required)"},
+        note="A mill the agent started itself it can stop at any level; anyone else's (the workflow's, the operator's) needs Drive, and at Assist goes in request_actions for the operator to approve. Never refused for someone else being in control of the microscope.",
     ),
     # --- hardware ---
     ToolSpec(
         name="acquire_image_preview",
-        description="Acquire a fresh image and return an agent-sized JPEG preview with metadata.",
+        description=(
+            "Acquire a fresh image and return an agent-sized JPEG preview with its "
+            "scale (hfw, pixel size). With no image_settings the beam images as it "
+            "is set now. image_settings set the beam first and stay set; a field "
+            "left out takes its default (resolution [1536, 1024], dwell_time 1e-6, "
+            "hfw 150e-6), not the beam's current value. Nothing is saved."
+        ),
         method="POST",
-        path="/microscope/devices/{device}/commands/acquire",
+        path="/microscope/services/imaging/commands/acquire",
         level="drive",
         hardware=True,
-        params={"beam_type": "ELECTRON or ION"},
+        params={
+            "beam_type": "ELECTRON or ION",
+            "image_settings": 'optional: ImageSettings fields, e.g. {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}',
+        },
     ),
     ToolSpec(
         name="stable_move",
@@ -284,7 +296,10 @@ CATALOG: Tuple[ToolSpec, ...] = (
         path="/microscope/services/stage_movement/commands/move_to_milling_angle",
         level="drive",
         hardware=True,
-        params={"milling_angle_deg": "target milling angle in degrees"},
+        params={
+            "milling_angle_deg": "target milling angle in degrees",
+            "rotation_deg": "stage rotation in degrees; the rotation reference if left out",
+        },
     ),
     ToolSpec(
         name="set_parameter",
@@ -313,6 +328,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "device": "device name from list_devices",
             "command": "command name",
             "kwargs": "the command's arguments, by name",
+            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
         },
     ),
     ToolSpec(
@@ -321,7 +337,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Every service on the microscope (milling, stage_movement, spot_burn, "
             "sample_handling, ...): what the instrument does with its devices over "
             "time. Each lists its parameters (e.g. milling progress) and its commands "
-            "with their signatures and whether this microscope has them."
+            "with their signatures and whether this microscope has them; agent: "
+            "false marks one you may never use."
         ),
         method="GET",
         path="/microscope/services",
@@ -346,7 +363,8 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Run a service command listed by list_services, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
             "(milling run, spot burn run) answers when it ends; command=stop from "
-            "another call stops it."
+            "another call stops it: the agent's own run at any level, anyone "
+            "else's at Drive, always with a reason."
         ),
         method="POST",
         path="/microscope/services/{service}/commands/{command}",
@@ -356,6 +374,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "service": "service name from list_services",
             "command": "command name",
             "kwargs": "the command's arguments, by name",
+            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
         },
     ),
     ToolSpec(
@@ -380,7 +399,20 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="autocontrast",
         description="Run autocontrast for a beam (changes detector settings).",
         method="POST",
-        path="/microscope/devices/{device}/commands/autocontrast",
+        path="/microscope/services/imaging/commands/autocontrast",
+        level="drive",
+        hardware=True,
+        params={"beam_type": "ELECTRON or ION"},
+    ),
+    ToolSpec(
+        name="auto_focus",
+        description=(
+            "Focus a beam: the instrument's own autofocus where the beam has one, "
+            "else an image-based sweep of the working distance at the beam's field "
+            "of view. Moves the working distance. Take a fresh image to check."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/auto_focus",
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
@@ -500,6 +532,18 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={"grid_name": "the grid name"},
     ),
     ToolSpec(
+        name="get_grid_output_image",
+        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file get_grids / get_grid_detail lists. A preview, not the data; get_grid_markers places the items on it. An unlisted name is refused with the valid ones.",
+        method="GET",
+        path="/app/experiment/grids/{grid_name}/outputs/{filename}",
+        level="watch",
+        router="app",
+        params={
+            "grid_name": "the grid name",
+            "filename": "an overview basename from get_grids / get_grid_detail",
+        },
+    ),
+    ToolSpec(
         name="get_grid_markers",
         description="Where the experiment's items fall on one recorded overview, in source-image pixels with each item's status, plus the image's scale block (size, pixel size, field width, stage position). Computed server-side; never re-derive stage geometry. Items that cannot be placed are listed with the reason.",
         method="GET",
@@ -546,7 +590,7 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="request_actions",
-        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it). Answers the request, status pending; follow it with get_request or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping (stop_workflow, stop_milling): call those directly.",
+        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it). Answers the request, status pending; follow it with get_request or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping your own mill (stop_milling): call those directly. Stopping anything else (stop_workflow, someone else's mill) goes in a request.",
         method="POST",
         path="/app/agent/requests",
         level="watch",
@@ -684,11 +728,13 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_workflow",
-        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed at Assist and Drive without asking, and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
+        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Give the reason the operator reads.",
         method="POST",
         path="/app/workflow/stop",
-        level="assist",
+        level="drive",
         router="app",
+        params={"reason": "why you are stopping it, for the operator (required)"},
+        note="Needs the agent at Drive: the workflow is never the agent's own. At Assist, put it in request_actions and the operator approves it (a direct call is refused, 403 ask_first); the operator can also press Stop. Refused (403) at Watch. Never refused for someone else being in control of the microscope.",
     ),
     ToolSpec(
         name="start_workflow",
@@ -844,7 +890,6 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /dashboard/log": "The operator's event log page, HTML; get_events is the agent's read.",
     "GET /app/events/history": "The event log page's read of the run before the live buffer; an agent reads a finished run from its experiment folder.",
     "GET /app/agent/requests": "The app's list of every request; the agent follows its own with get_request.",
-    "GET /app/experiment/grids/{grid}/outputs/{filename}": "A JPEG for the dashboard; get_grid_markers is the agent's read of an overview.",
     "GET /microscope/devices/{device}": "list_devices carries every device's description.",
     "GET /microscope/devices/{device}/{parameter}/metadata": "list_devices carries limits, choices and settable.",
     "GET /microscope/services/{service}": "list_services carries every service's description.",
@@ -893,28 +938,47 @@ def _absolute(a: Dict[str, Any]) -> dict:
     return _position(a)
 
 
-def _beam_device(a: Dict[str, Any]) -> str:
-    """The beam device a beam_type names: "electron" or "ion"."""
-    beam = str(a.get("beam_type", "ELECTRON")).lower()
-    if beam not in ("electron", "ion"):
+def _beam(a: Dict[str, Any], **more: Any) -> dict:
+    """An imaging command's kwargs: its beam_type, checked, and *more* when set."""
+    beam = str(a.get("beam_type", "ELECTRON")).upper()
+    if beam not in ("ELECTRON", "ION"):
         raise ValueError(f"beam_type must be ELECTRON or ION, not {beam!r}")
-    return beam
+    if more.get("image_settings") is not None:
+        more["image_settings"] = dict(more["image_settings"], beam_type=beam)
+    return {"beam_type": beam, **{k: v for k, v in more.items() if v is not None}}
 
 
 def _kwargs(**values: Any) -> dict:
     return {"kwargs": values}
 
 
+def _preview(kwargs: dict) -> dict:
+    """A generic command's body: an image it returns comes back as the agent's
+    answer (summary, saved path, preview), not as data it can't read."""
+    return {"kwargs": kwargs, "answer": "preview"}
+
+
+def _stop(body: dict, a: Dict[str, Any]) -> dict:
+    """A command's body with the agent's reason, which every stop carries."""
+    if a.get("reason") is not None:
+        body["reason"] = str(a["reason"])
+    return body
+
+
 # Tools whose arguments are not their route's path and body as they stand: each
 # gives (path values, body).
 _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict]]]] = {
     "acquire_image_preview": lambda a: (
-        {"device": _beam_device(a)},
-        {"kwargs": {}, "answer": "preview"},
+        {},
+        {
+            "kwargs": _beam(a, image_settings=a.get("image_settings")),
+            "answer": "preview",
+        },
     ),
-    "autocontrast": lambda a: ({"device": _beam_device(a)}, _kwargs()),
+    "autocontrast": lambda a: ({}, _kwargs(**_beam(a))),
+    "auto_focus": lambda a: ({}, _kwargs(**_beam(a))),
     # A service command or query with no arguments still sends its kwargs.
-    "stop_milling": lambda a: ({}, _kwargs()),
+    "stop_milling": lambda a: ({}, _stop(_kwargs(), a)),
     "estimate_milling_time": lambda a: ({}, _kwargs()),
     "get_stage_orientation": lambda a: ({}, _kwargs()),
     "get_milling_angle": lambda a: ({}, _kwargs()),
@@ -939,20 +1003,24 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     "move_stage_absolute": lambda a: ({}, _kwargs(position=_absolute(a))),
     "move_to_milling_angle": lambda a: (
         {},
-        # The tool speaks degrees; the stage movement command takes radians (FIB-853).
-        _kwargs(milling_angle=math.radians(float(a["milling_angle_deg"]))),
+        _kwargs(
+            milling_angle=float(a["milling_angle_deg"]),
+            rotation=(
+                None if a.get("rotation_deg") is None else float(a["rotation_deg"])
+            ),
+        ),
     ),
     "call_command": lambda a: (
         {"device": a.get("device"), "command": a.get("command")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _stop(_preview(dict(a.get("kwargs") or {})), a),
     ),
     "call_service_command": lambda a: (
         {"service": a.get("service"), "command": a.get("command")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _stop(_preview(dict(a.get("kwargs") or {})), a),
     ),
     "call_service_query": lambda a: (
         {"service": a.get("service"), "query": a.get("query")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _preview(dict(a.get("kwargs") or {})),
     ),
 }
 

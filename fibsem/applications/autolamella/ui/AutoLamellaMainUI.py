@@ -7,7 +7,7 @@ import os
 import sys
 import time
 from dataclasses import replace
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -129,6 +129,7 @@ from fibsem.ui import notification_service
 from fibsem.ui.icon import autolamella_icon, fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
 from fibsem.ui.stylesheets import (
+    ACCENT_CHIP_BUTTON_STYLESHEET,
     GRAY_ICON_COLOR,
     MENU_BUTTON_STYLESHEET,
     MUTED_GHOST_BUTTON_STYLESHEET,
@@ -139,6 +140,7 @@ from fibsem.ui.stylesheets import (
     border_stylesheet,
 )
 from fibsem.ui.tokens import (
+    ACCENT_COLOR,
     ERROR_COLOR,
     SURFACE_COLOR,
     TEXT_MUTED_COLOR,
@@ -1586,6 +1588,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.hide()
         self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
         self.agent_chip.connect_clicked.connect(self._on_connect_agent_dialog)
+        self.agent_chip.event_log_clicked.connect(self._on_open_event_log)
         self.agent_chip.stop_clicked.connect(self._on_stop_agent)
         self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
         self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
@@ -2607,11 +2610,27 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         experiment_menu.addAction(self.action_open_experiment_directory)
         self.btn_experiment_menu.setMenu(experiment_menu)
 
+        # A newer release, once the startup check has found one -- see
+        # _update_version_chip. Hidden until then, and for good when the check is off,
+        # offline or finds nothing: none of those is anything to act on.
+        self.btn_update_available = QPushButton()
+        set_button_icon(
+            self.btn_update_available, "mdi:arrow-up-circle-outline", color=ACCENT_COLOR
+        )
+        self.btn_update_available.setStyleSheet(ACCENT_CHIP_BUTTON_STYLESHEET)
+        self.btn_update_available.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.btn_update_available.setVisible(False)
+        # The About dialog already says what is installed, what is out and how to
+        # update; the chip only points there.
+        self.btn_update_available.clicked.connect(self._show_about_dialog)
+
         # Notification bell
         self.notification_bell = NotificationBell(self)
         self.toast_manager.set_notification_bell(self.notification_bell)
 
-        # Add widgets to layout
+        # Add widgets to layout. The update chip leads, so it never sits between the
+        # instrument and the experiment it is working on.
+        button_layout.addWidget(self.btn_update_available)
         if self._connection_chip_enabled:
             button_layout.addWidget(self.btn_connection)
         button_layout.addWidget(self.btn_experiment_menu)
@@ -2625,6 +2644,22 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         # The chip has a state before anything connects, and only the connect
         # handler would otherwise ever set one.
         self._update_connection_chip()
+
+    def _update_version_chip(self) -> None:
+        """Show the newer release the update check found, or nothing.
+
+        Reads the cached answer, so a check that failed or never ran lands in the same
+        place as "up to date": the chip hidden.
+        """
+        from fibsem import update_check
+
+        latest = update_check.get_available_update()
+        self.btn_update_available.setVisible(latest is not None)
+        if latest is not None:
+            self.btn_update_available.setText(f"{latest} available")
+            self.btn_update_available.setToolTip(
+                f"fibsemOS {latest} is available. Click for details."
+            )
 
     def add_protocol_editor_tab(self):
         """Add the protocol editor as a separate tab with its own viewer."""
@@ -3717,6 +3752,18 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         )
         dialog.exec_()
 
+    def _on_open_event_log(self) -> None:
+        """From the agent chip's menu: the App Server's event log in the browser."""
+        from fibsem.applications.autolamella.ui.app_server_dialog import (
+            AppServerDialog,
+            open_in_browser,
+        )
+
+        host = self._running_app_server()
+        if host is None:
+            return
+        open_in_browser(AppServerDialog.event_log_url(host))
+
     def _on_app_server_dialog(self) -> None:
         """Open Tools → App Server: status, services, clients, the dashboard."""
         from fibsem.applications.autolamella.ui.app_server_dialog import (
@@ -4394,13 +4441,17 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             app.quit()
 
 
-def _start_update_check() -> None:
+def _start_update_check(on_done: Optional[Callable[[], None]] = None) -> None:
     """Ask PyPI about newer releases on a worker thread, once, at startup.
 
     Startup rather than on dialog open: the about dialog reads the cached result,
     so it stays instant and offline-safe by construction, and the latency lands
     where nothing is waiting on it. A no-op for source installs and when the user
     has opted out, so the common developer case makes no network call at all.
+
+    ``on_done`` runs on the GUI thread once the check is over, however it ended --
+    offline, refused or answered -- so the caller reads the cache rather than
+    reasoning about which.
     """
     from fibsem import update_check
     from fibsem.ui.qt.threading import thread_worker
@@ -4412,7 +4463,12 @@ def _start_update_check() -> None:
     def _check() -> None:
         update_check.refresh()
 
-    _check().start()
+    worker = _check()
+    if on_done is not None:
+        # Connected before start(): a check that fails at once (no route, no DNS)
+        # could otherwise finish before anything is listening.
+        worker.finished.connect(on_done)
+    worker.start()
 
 
 def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -4476,7 +4532,7 @@ def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
     window.show()
     if splash is not None:
         splash.finish(window)
-    _start_update_check()
+    _start_update_check(on_done=window._update_version_chip)
     if args.quickstart or args.quickload:
         # Once the event loop is running, not inline here: connecting blocks for
         # seconds against real hardware, and doing it before exec_() would hold up

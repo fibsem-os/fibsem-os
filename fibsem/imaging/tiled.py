@@ -132,7 +132,7 @@ class TiledAcquisitionRunner:
         #                   _focus_stack_settings, _af_mode
         # _compute_grid() → _tiles, _ordered, _centre_position, _start_state,
         #                   _tile_stage_positions, _canvas, _dx_step, _dy_step
-        # _run_tile_loop()→ _first_image, _n_tiles_acquired
+        # _run_tile_loop()→ _first_image, _n_tiles_acquired, tile_paths
 
     # ── public entry point ───────────────────────────────────────────────
 
@@ -474,6 +474,9 @@ class TiledAcquisitionRunner:
         total_tiles = self.settings.n_enabled_tiles
         self._first_image: Optional[FibsemImage] = None
         self._n_tiles_acquired: int = 0
+        # Each tile as saved, in the order acquired. The stitched image is what is
+        # shown; the tiles are what a model trained on single frames reads.
+        self.tile_paths: List[str] = []
         prev_row = -1
 
         for tile, stage_pos in zip(self._ordered, self._tile_stage_positions):
@@ -502,6 +505,8 @@ class TiledAcquisitionRunner:
 
             logging.info(f"Acquiring Tile ({tile.row}, {tile.col})")
             image = self._acquire_tile(tile)
+            if image.filepath:
+                self.tile_paths.append(image.filepath)
 
             if self._first_image is None:
                 self._first_image = image

@@ -15,7 +15,7 @@ Register with Claude Code:
 
     claude mcp add -s user fibsem -- fibsem-mcp
     # or explicitly:
-    claude mcp add -s user fibsem -- fibsem-mcp --url http://hydra-support:8001 --token <token>
+    claude mcp add -s user fibsem -- fibsem-mcp --url http://microscope-pc:8001 --token <token>
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 
@@ -208,8 +208,7 @@ def _call(client, method, path, payload=None):
     try:
         return resp.json(), None
     except ValueError:
-        # An image or array from a device command: nothing an agent can read as
-        # text. The preview tools are how an agent looks at an image.
+        # Data no tool asked for as a preview: nothing an agent can read as text.
         return None, (
             f"answered {len(resp.content)} bytes that are not JSON; "
             "use acquire_image_preview to see images"
@@ -275,11 +274,12 @@ def build_sidecar(client, capabilities):
         return _call(client, method, path, body)
 
     def _routed(name, key=None, **arguments):
-        """A routed tool's answer, its route's result under *key* when given."""
+        """A routed tool's answer, its route's result under *key* when given; an
+        image in it (a command answered with a preview) as MCP image content."""
         data, err = _route(name, **arguments)
         if err:
             return err
-        return {key: data["result"]} if key else data
+        return _with_images({key: data["result"]} if key else data)
 
     def _with_images(data):
         """Move every base64 preview in *data* out into MCP image content.
@@ -340,16 +340,17 @@ def build_sidecar(client, capabilities):
     def estimate_milling_time():
         return _service_call("estimate_milling_time", {}, "seconds")
 
-    def stop_milling():
-        data, err = _route("stop_milling")
+    def stop_milling(reason: str):
+        data, err = _route("stop_milling", reason=reason)
         return err if err else {"status": "ok"}
 
-    def acquire_image_preview(beam_type: str = "ELECTRON"):
-        data, err = _route("acquire_image_preview", beam_type=beam_type)
-        if err:
-            return err
-        jpeg = base64.b64decode(data.pop("image_b64_jpeg"))
-        return [json.dumps(data), Image(data=jpeg, format="jpeg")]
+    def acquire_image_preview(
+        beam_type: str = "ELECTRON", image_settings: Optional[dict] = None
+    ):
+        data, err = _route(
+            "acquire_image_preview", beam_type=beam_type, image_settings=image_settings
+        )
+        return err if err else _with_images(data["result"])
 
     def move_stage_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0):
         return _routed("move_stage_relative", "position", dx=dx, dy=dy, dz=dz)
@@ -369,9 +370,14 @@ def build_sidecar(client, capabilities):
     def safe_move_stage_absolute(x: float, y: float, z: float, r: float, t: float):
         return _routed("safe_move_stage_absolute", "position", x=x, y=y, z=z, r=r, t=t)
 
-    def move_to_milling_angle(milling_angle_deg: float):
+    def move_to_milling_angle(
+        milling_angle_deg: float, rotation_deg: Optional[float] = None
+    ):
         return _routed(
-            "move_to_milling_angle", "success", milling_angle_deg=milling_angle_deg
+            "move_to_milling_angle",
+            "success",
+            milling_angle_deg=milling_angle_deg,
+            rotation_deg=rotation_deg,
         )
 
     def list_devices():
@@ -383,8 +389,15 @@ def build_sidecar(client, capabilities):
     def set_parameter(device: str, parameter: str, value: Any):
         return _routed("set_parameter", device=device, parameter=parameter, value=value)
 
-    def call_command(device: str, command: str, kwargs: Optional[dict] = None):
-        return _routed("call_command", device=device, command=command, kwargs=kwargs)
+    def call_command(
+        device: str,
+        command: str,
+        kwargs: Optional[dict] = None,
+        reason: Optional[str] = None,
+    ):
+        return _routed(
+            "call_command", device=device, command=command, kwargs=kwargs, reason=reason
+        )
 
     def list_services():
         return _json_tool("list_services")[1]()
@@ -392,9 +405,18 @@ def build_sidecar(client, capabilities):
     def get_service_parameter(service: str, parameter: str):
         return _routed("get_service_parameter", service=service, parameter=parameter)
 
-    def call_service_command(service: str, command: str, kwargs: Optional[dict] = None):
+    def call_service_command(
+        service: str,
+        command: str,
+        kwargs: Optional[dict] = None,
+        reason: Optional[str] = None,
+    ):
         return _routed(
-            "call_service_command", service=service, command=command, kwargs=kwargs
+            "call_service_command",
+            service=service,
+            command=command,
+            kwargs=kwargs,
+            reason=reason,
         )
 
     def call_service_query(service: str, query: str, kwargs: Optional[dict] = None):
@@ -404,6 +426,9 @@ def build_sidecar(client, capabilities):
 
     def autocontrast(beam_type: str = "ELECTRON"):
         return _routed("autocontrast", beam_type=beam_type)
+
+    def auto_focus(beam_type: str = "ELECTRON"):
+        return _routed("auto_focus", "result", beam_type=beam_type)
 
     def _app_get(path):
         data, err = _call(client, "GET", path)
@@ -466,6 +491,15 @@ def build_sidecar(client, capabilities):
 
     def get_grid_detail(grid_name: str):
         return _app_get(f"/app/experiment/grids/{grid_name}")
+
+    def get_grid_output_image(grid_name: str, filename: str):
+        # A JPEG, like an item's output image.
+        path = f"/app/experiment/grids/{quote(grid_name, safe='')}/outputs/{quote(filename, safe='')}"
+        resp = client.request("GET", path)
+        if resp.status_code >= 400:
+            return _refusal(resp)
+        meta = {"grid_name": grid_name, "filename": filename}
+        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
 
     def get_grid_markers(grid_name: str, filename: str):
         return _app_get(f"/app/experiment/grids/{grid_name}/outputs/{filename}/markers")
@@ -572,8 +606,8 @@ def build_sidecar(client, capabilities):
     def get_events(since: int = 0, timeout: float = 0.0):
         return _app_get(f"/app/events?since={since}&timeout={timeout}")
 
-    def stop_workflow():
-        data, err = _call(client, "POST", "/app/workflow/stop", None)
+    def stop_workflow(reason: str):
+        data, err = _call(client, "POST", "/app/workflow/stop", {"reason": reason})
         return err if err else data
 
     def start_workflow(task_names: list, item_names: list = None):  # noqa: RUF013
@@ -721,6 +755,7 @@ def build_sidecar(client, capabilities):
             call_service_command,
             call_service_query,
             autocontrast,
+            auto_focus,
             get_app_status,
             get_app_queue,
             get_experiment_summary,
@@ -733,6 +768,7 @@ def build_sidecar(client, capabilities):
             get_item_detail,
             get_grids,
             get_grid_detail,
+            get_grid_output_image,
             get_grid_markers,
             get_protocol_task_config,
             get_item_task_config,

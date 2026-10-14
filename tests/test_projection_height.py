@@ -29,11 +29,11 @@ import itertools
 import numpy as np
 import pytest
 
-from fibsem.structures import FibsemHardwareGeometry
-from fibsem.transformations import (
+from fibsem.geometry.movement import (
     inverse_view_corrected_dy,
     view_corrected_stage_movement,
 )
+from fibsem.structures import FibsemHardwareGeometry
 
 # The two geometries the app actually runs: the compustage (Arctis) and the
 # pre-tilted autoloader shuttle. The autoloader matters even though the reported
@@ -124,7 +124,7 @@ class _Oracle:
     def _flip(self, geometry, rotation, tilt, view_tilt) -> float:
         if not (geometry.fm_is_pose and self.m_cs):
             return 1.0
-        from fibsem.transformations import _image_y_flip
+        from fibsem.geometry.movement import _image_y_flip
 
         # Against the half-turn fold, which already negates both stage axes.
         return -_image_y_flip(geometry, view_tilt, rotation, tilt)

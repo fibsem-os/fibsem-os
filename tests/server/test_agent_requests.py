@@ -32,7 +32,7 @@ SUPERVISE = {
     "tool": "set_task_supervision",
     "arguments": {"task_name": "MILL_ROUGH", "supervise": True},
 }
-STOP_MILL = {"tool": "stop_milling", "arguments": {}}
+STOP_MILL = {"tool": "stop_milling", "arguments": {"reason": "the mill is off target"}}
 MOVE_RELATIVE = "/microscope/services/stage_movement/commands/move_relative"
 
 
@@ -264,23 +264,26 @@ def test_a_request_made_at_assist_is_not_run_after_the_level_drops(client, app, 
     assert store.get(filed["request_id"]).status == "cancelled"
 
 
-def test_assist_stops_without_asking_and_asks_for_the_rest(client):
-    assert client.post("/app/workflow/stop", headers=AGENT).status_code == 200
-    assert (
-        client.post(
-            "/microscope/services/milling/commands/stop", headers=AGENT
-        ).status_code
-        == 200
-    )
-    for path in (MOVE_RELATIVE, "/app/workflow/prompt/answer"):
-        refused = client.post(path, headers=AGENT, json={})
+def test_assist_asks_to_stop_as_it_asks_for_the_rest(client, app):
+    """A stop that is not the agent's own needs Drive (Patrick, 2026-10-14): at
+    Assist it is a request like any action, and runs once approved."""
+    why = {"reason": "the mill is off target"}
+    for path, body in (
+        ("/app/workflow/stop", why),
+        ("/microscope/services/milling/commands/stop", why),
+        (MOVE_RELATIVE, {}),
+        ("/app/workflow/prompt/answer", {}),
+    ):
+        refused = client.post(path, headers=AGENT, json=body)
         assert refused.status_code == 403, path
         assert _detail(refused)["error_type"] == "ask_first"
         assert "request_actions" in _detail(refused)["message"]
-    # A stop is never a request: it is called directly.
-    refused = _file(client, STOP_MILL)
-    assert refused.status_code == 422
-    assert "needs no approval" in _detail(refused)["message"]
+    filed = _file(client, STOP_MILL)
+    assert filed.status_code == 202, filed.text
+    store = app.state.requests
+    store.approve(filed.json()["request_id"])
+    done = store.wait(filed.json()["request_id"], timeout=10)
+    assert done.status == "applied", done.results
 
 
 @pytest.mark.parametrize("stop_agent", [False, True])
@@ -410,3 +413,19 @@ def test_an_unknown_tool_in_the_describer_falls_back_to_its_name():
         "what": "new_tool",
         "change": "Run",
     }
+
+
+def test_an_approved_request_is_refused_what_the_agent_may_never_touch(client, app):
+    """The operator's approval lends Drive, not the allowlist: a blocked command
+    is refused in a request as it is called directly."""
+    home = {
+        "tool": "call_command",
+        "arguments": {"device": "stage", "command": "home"},
+    }
+    filed = _file(client, home)
+    assert filed.status_code == 202, filed.text
+    store = app.state.requests
+    store.approve(filed.json()["request_id"])
+    done = store.wait(filed.json()["request_id"], timeout=10)
+    assert done.status == "failed"
+    assert done.results[0]["status_code"] == 403

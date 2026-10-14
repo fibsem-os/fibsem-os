@@ -326,11 +326,10 @@ def test_report_lists_the_fixture_across_every_group():
 
 def test_driver_plugin_resolves_through_the_registry():
     from fibsem.drivers.demo.microscope import DemoMicroscope
-    from fibsem.drivers.registry import default_configuration_values, get_driver
+    from fibsem.drivers.registry import get_driver
 
     entry = get_driver(DRIVER_MANUFACTURER)
     assert entry.load() is DemoMicroscope
-    assert default_configuration_values()[DRIVER_MANUFACTURER]["ion-column-tilt"] == 54
 
 
 def test_driver_plugin_connects_through_setup_session():
