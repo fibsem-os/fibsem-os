@@ -13,6 +13,8 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskState, Lam
 from fibsem.applications.autolamella.task_outputs import (
     final_reference_images,
     fluorescence_images,
+    images_by_task,
+    latest_final_reference_images,
 )
 
 CONVENTIONAL = [
@@ -212,7 +214,9 @@ def test_fluorescence_applies_the_same_guards_as_reference_images(tmp_path):
         outputs={"fluorescence": ["stack.ome.tiff", "stack.ome.tiff", "gone.ome.tiff"]},
     )
 
-    assert fluorescence_images(lamella, task) == [str(Path(lamella.path, "stack.ome.tiff"))]
+    assert fluorescence_images(lamella, task) == [
+        str(Path(lamella.path, "stack.ome.tiff"))
+    ]
 
 
 def test_reference_and_fluorescence_are_separate(tmp_path):
@@ -227,8 +231,12 @@ def test_reference_and_fluorescence_are_separate(tmp_path):
         },
     )
 
-    assert final_reference_images(lamella, task) == [str(Path(lamella.path, CONVENTIONAL[0]))]
-    assert fluorescence_images(lamella, task) == [str(Path(lamella.path, "stack.ome.tiff"))]
+    assert final_reference_images(lamella, task) == [
+        str(Path(lamella.path, CONVENTIONAL[0]))
+    ]
+    assert fluorescence_images(lamella, task) == [
+        str(Path(lamella.path, "stack.ome.tiff"))
+    ]
 
 
 # accumulation across repeated runs of the same task
@@ -240,8 +248,12 @@ def test_repeated_runs_accumulate_distinct_fluorescence_stacks(tmp_path):
     silently hide every earlier acquisition."""
     lamella = _lamella(tmp_path)
     _write(lamella, ["lam-zstack-10-00-00.ome.tiff", "lam-zstack-11-00-00.ome.tiff"])
-    first = AutoLamellaTaskState(name="Acquire", outputs={"fluorescence": ["lam-zstack-10-00-00.ome.tiff"]})
-    second = AutoLamellaTaskState(name="Acquire", outputs={"fluorescence": ["lam-zstack-11-00-00.ome.tiff"]})
+    first = AutoLamellaTaskState(
+        name="Acquire", outputs={"fluorescence": ["lam-zstack-10-00-00.ome.tiff"]}
+    )
+    second = AutoLamellaTaskState(
+        name="Acquire", outputs={"fluorescence": ["lam-zstack-11-00-00.ome.tiff"]}
+    )
 
     found = fluorescence_images(lamella, first, second)
 
@@ -267,7 +279,9 @@ def test_repeated_runs_collapse_when_the_files_are_overwritten(tmp_path):
     first = AutoLamellaTaskState(name="MillRough", outputs=dict(outputs))
     second = AutoLamellaTaskState(name="MillRough", outputs=dict(outputs))
 
-    assert final_reference_images(lamella, first, second) == final_reference_images(lamella, first)
+    assert final_reference_images(lamella, first, second) == final_reference_images(
+        lamella, first
+    )
 
 
 def test_the_glob_fallback_yields_one_set_however_many_runs(tmp_path):
@@ -285,3 +299,95 @@ def test_the_glob_fallback_yields_one_set_however_many_runs(tmp_path):
     found = final_reference_images(lamella, *runs)
 
     assert [os.path.basename(p) for p in found] == CONVENTIONAL
+
+
+# --- each run in its own folder (FIB-1275) ---------------------------------------
+
+
+def _run_in_folder(lamella: Lamella, task: str, stamp: str, **outputs) -> None:
+    """A run that saved into ``<task>/<stamp>/`` and recorded it, as task run
+    folders do; ``outputs`` maps a role to file names in that folder."""
+    folder = Path(lamella.path, task, stamp)
+    folder.mkdir(parents=True, exist_ok=True)
+    recorded = {}
+    for role, names in outputs.items():
+        for name in names:
+            (folder / name).write_bytes(b"")
+        recorded[role] = [os.path.join(task, stamp, name) for name in names]
+    lamella.task_history.append(AutoLamellaTaskState(name=task, outputs=recorded))
+
+
+FINALS = {
+    "final_sem": ["ref_Mill_final_res_01_eb.tif"],
+    "final_fib": ["ref_Mill_final_res_01_ib.tif"],
+}
+
+
+def test_the_task_s_images_are_its_latest_run_s(tmp_path):
+    """Both runs' images are kept; the task's images now are the later run's."""
+    lamella = _lamella(tmp_path)
+    _run_in_folder(lamella, "Mill", "20261014-093012", **FINALS)
+    _run_in_folder(lamella, "Mill", "20261014-101544", **FINALS)
+
+    found = latest_final_reference_images(lamella, "Mill")
+
+    assert [os.path.relpath(p, lamella.path) for p in found] == [
+        os.path.join("Mill", "20261014-101544", "ref_Mill_final_res_01_eb.tif"),
+        os.path.join("Mill", "20261014-101544", "ref_Mill_final_res_01_ib.tif"),
+    ]
+    # every run's, for the History tab, which shows each run
+    assert len(final_reference_images(lamella, *lamella.task_history)) == 4
+
+
+def test_a_later_run_that_saved_no_final_images_leaves_the_earlier_one_s(tmp_path):
+    lamella = _lamella(tmp_path)
+    _run_in_folder(lamella, "Mill", "20261014-093012", **FINALS)
+    _run_in_folder(
+        lamella, "Mill", "20261014-101544", start_fib=["ref_Mill_start_ib.tif"]
+    )
+
+    found = latest_final_reference_images(lamella, "Mill")
+
+    assert all("20261014-093012" in p for p in found) and len(found) == 2
+
+
+def test_a_task_whose_runs_record_no_final_images_is_not_found_by_name(tmp_path):
+    """Its runs record what they make, so a file of the conventional name in the
+    lamella folder is not theirs: an earlier version's, or another's."""
+    lamella = _lamella(tmp_path)
+    _write(lamella, ["ref_Mill_final_res_01_ib.tif"])
+    _run_in_folder(
+        lamella, "Mill", "20261014-093012", start_fib=["ref_Mill_start_ib.tif"]
+    )
+
+    assert latest_final_reference_images(lamella, "Mill") == []
+
+
+def test_a_task_from_before_outputs_is_found_by_name(tmp_path):
+    lamella = _lamella(tmp_path)
+    _write(lamella, CONVENTIONAL)
+    lamella.task_history.append(AutoLamellaTaskState(name="MillRough"))
+
+    found = latest_final_reference_images(lamella, "MillRough")
+
+    assert [os.path.basename(p) for p in found] == CONVENTIONAL
+
+
+def test_the_animation_shows_a_task_run_twice_once_with_its_latest_images(tmp_path):
+    lamella = _lamella(tmp_path)
+    _run_in_folder(lamella, "Mill", "20261014-093012", **FINALS)
+    _run_in_folder(
+        lamella,
+        "Setup",
+        "20261014-095000",
+        **{
+            "final_fib": ["ref_Setup_final_res_01_ib.tif"],
+        },
+    )
+    _run_in_folder(lamella, "Mill", "20261014-101544", **FINALS)
+
+    steps = images_by_task(lamella)
+
+    assert [name for name, _, _ in steps] == ["Setup", "Mill"]
+    _, mill_finals, _ = steps[1]
+    assert all("20261014-101544" in p for p in mill_finals) and len(mill_finals) == 2

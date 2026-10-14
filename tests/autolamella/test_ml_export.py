@@ -543,3 +543,30 @@ def test_export_radius_controls_label_size(tmp_path):
     large = tifffile.imread(str(tmp_path / "large" / "labels" / "0001.tif"))
 
     assert (large > 0).sum() > (small > 0).sum()
+
+
+def test_find_final_fib_image_takes_the_latest_run_s_from_its_folder(tmp_path):
+    """Each run keeps its own images in its own folder (FIB-1275): the export
+    takes the latest run's most zoomed, not the earlier run's."""
+    from fibsem.applications.autolamella.structures import AutoLamellaTaskState
+
+    exp = _make_experiment(tmp_path)
+    lamella = exp.positions[0]
+    for stamp in ("20261014-093012", "20261014-101544"):
+        folder = os.path.join(str(lamella.path), TASK_NAME, stamp)
+        os.makedirs(folder, exist_ok=True)
+        names = []
+        for res in (1, 2):
+            name = f"ref_{TASK_NAME}_final_res_{res:02d}_ib"
+            _make_fib_image().save(os.path.join(folder, name))
+            names.append(os.path.join(TASK_NAME, stamp, f"{name}.tif"))
+        lamella.task_history.append(
+            AutoLamellaTaskState(name=TASK_NAME, outputs={"final_fib": names})
+        )
+
+    path, task_type = ml_export.find_final_fib_image(lamella)
+
+    assert task_type == "SELECT_MILLING_POSITION"
+    assert os.path.relpath(path, lamella.path) == os.path.join(
+        TASK_NAME, "20261014-101544", f"ref_{TASK_NAME}_final_res_02_ib.tif"
+    )

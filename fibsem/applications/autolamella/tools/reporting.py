@@ -1,4 +1,3 @@
-import glob
 import io
 import logging
 import os
@@ -31,6 +30,7 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
     find_overviews,
 )
+from fibsem.applications.autolamella.task_outputs import latest_final_reference_images
 from fibsem.applications.autolamella.tools.data import (
     format_pretty_dataframes,
     parse_logfile,
@@ -480,9 +480,8 @@ def plot_lamella_task_workflow_summary(
 
     task_filenames = {}
     for task_name in completed_tasks:
-        filenames = sorted(
-            glob.glob(os.path.join(p.path, f"ref_{task_name}*_final_*res*.tif*"))
-        )
+        # the latest run's, wherever it saved them (FIB-1275)
+        filenames = latest_final_reference_images(p, task_name)
         if len(filenames) == 0:
             continue
         task_filenames[task_name] = filenames
@@ -623,9 +622,9 @@ def plot_task_milling_summary(p: Lamella, show: bool = False) -> List[Figure]:
 
         # check if the task has milling operations
         if v.milling:
-            filenames = sorted(
-                glob.glob(os.path.join(p.path, f"ref_{k}_final_*_ib.tif"))
-            )
+            filenames = [
+                f for f in latest_final_reference_images(p, k) if f.endswith("_ib.tif")
+            ]
             if len(filenames) == 0:
                 logging.info(
                     f"No final high-res ion beam image found for {p.name} - {k}"
