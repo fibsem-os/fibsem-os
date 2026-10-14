@@ -101,6 +101,13 @@ class AppServerHost:
             return None
         return self.auth.seconds_since_seen()
 
+    def agent_client(self) -> Optional[str]:
+        """The MCP client the agent's sidecar named ("claude-code/2.1.3"), or
+        None if the server isn't running or no sidecar has named one."""
+        if not self.running or self.auth is None:
+            return None
+        return self.auth.agent_client
+
     def stop_agent(self, microscope) -> Optional[str]:
         """The operator's Stop agent (FIB-1267): down to Watch at once, and stop
         what the agent is doing on the microscope.

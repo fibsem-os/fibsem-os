@@ -112,7 +112,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="list_devices",
         description=(
-            "Every device on the microscope (electron, ion, stage, chamber, ...): "
+            "Every device on the microscope (electron, ion, stage, manipulator, ...): "
             "its parameters with type, unit, limits, choices and whether settable, "
             "and its commands."
         ),
@@ -530,6 +530,17 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "task_name": "the task name, as listed by get_protocol",
             "scheduled_at": "ISO-8601 timestamp, or null to clear",
+        },
+    ),
+    ToolSpec(
+        name="set_workflow_options",
+        description="Set whether the run summary dialog opens when a run ends (the workflow's \"Show summary after completion\"). Off still toasts each run's end with a Show summary link. Turn it off before starting runs yourself, so no dialog stands over the operator's window, and tell the operator. Persists with the protocol; get_protocol's options show the current value.",
+        method="POST",
+        path="/app/workflow/options",
+        scope="configure",
+        router="app",
+        params={
+            "show_run_summary": "true to open the summary dialog at a run's end, false for the toast only",
         },
     ),
     ToolSpec(
