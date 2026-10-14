@@ -12,8 +12,10 @@ re-read its tool list, so the server's 403 is the gate and each description
 names the level it needs.
 """
 
+import math
+import re
 from dataclasses import dataclass, field
-from typing import Dict, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 
 @dataclass(frozen=True)
@@ -63,7 +65,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     # --- read ---
     ToolSpec(
         name="get_capabilities",
-        description="Server capabilities: API version, manufacturer, mounted routers, and the agent's level (off / watch / assist / drive). Read it first: the level says what the other tools will do. At Assist, act by asking: request_actions.",
+        description="Server capabilities: API version, which halves are served (routers.microscope, routers.app), and the agent's level (off / watch / assist / drive). Read it first: the level says what the other tools will do. At Assist, act by asking: request_actions.",
         method="GET",
         path="/capabilities",
         level="watch",
@@ -71,30 +73,30 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_system_info",
-        description="Microscope system settings and which optional hardware is fitted.",
+        description="The microscope: manufacturer, model, serial number and software version, which optional hardware is fitted, and its system settings.",
         method="GET",
-        path="/system",
+        path="/microscope",
         level="watch",
     ),
     ToolSpec(
         name="get_stage_position",
         description="Current stage position (x/y/z in metres, r/t in radians).",
         method="GET",
-        path="/stage_position",
+        path="/microscope/devices/stage/position",
         level="watch",
     ),
     ToolSpec(
         name="get_stage_orientation",
         description="Named stage orientation (SEM, FIB, MILLING, FM or NONE).",
         method="POST",
-        path="/services/stage_movement/queries/stage_orientation",
+        path="/microscope/services/stage_movement/queries/stage_orientation",
         level="watch",
     ),
     ToolSpec(
         name="get_microscope_state",
         description="Full microscope state snapshot (beams, detectors, stage).",
         method="GET",
-        path="/microscope_state",
+        path="/microscope/state",
         level="watch",
     ),
     ToolSpec(
@@ -105,14 +107,14 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "and its commands."
         ),
         method="GET",
-        path="/devices",
+        path="/microscope/devices",
         level="watch",
     ),
     ToolSpec(
         name="get_parameter",
         description="Read one device parameter live, e.g. device=ion parameter=current.",
         method="GET",
-        path="/devices/{device}/{parameter}",
+        path="/microscope/devices/{device}/{parameter}",
         level="watch",
         params={
             "device": "device name from list_devices",
@@ -123,28 +125,28 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="get_milling_angle",
         description="Current milling angle in degrees, from the stage tilt.",
         method="POST",
-        path="/services/stage_movement/queries/current_milling_angle",
+        path="/microscope/services/stage_movement/queries/current_milling_angle",
         level="watch",
     ),
     ToolSpec(
         name="get_milling_state",
         description="Milling state (IDLE, RUNNING, PAUSED, ...).",
         method="GET",
-        path="/milling_state",
+        path="/microscope/services/milling/state",
         level="watch",
     ),
     ToolSpec(
         name="estimate_milling_time",
         description="Estimated time in seconds for the currently drawn patterns.",
-        method="GET",
-        path="/estimate_milling_time",
+        method="POST",
+        path="/microscope/services/milling/queries/estimate",
         level="watch",
     ),
     ToolSpec(
         name="stop_milling",
         description="Emergency stop for an in-progress mill. Allowed at Assist and Drive without asking, and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
         method="POST",
-        path="/stop_milling",
+        path="/microscope/services/milling/commands/stop",
         level="assist",
     ),
     # --- hardware ---
@@ -152,7 +154,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="acquire_image_preview",
         description="Acquire a fresh image and return an agent-sized JPEG preview with metadata.",
         method="POST",
-        path="/acquire_image_preview",
+        path="/microscope/devices/{device}/commands/acquire",
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
@@ -174,7 +176,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "landed."
         ),
         method="POST",
-        path="/stable_move",
+        path="/microscope/services/stage_movement/commands/stable_move",
         level="drive",
         hardware=True,
         params={
@@ -194,7 +196,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "electron image when the ion image is off; never a plain z move."
         ),
         method="POST",
-        path="/vertical_move",
+        path="/microscope/services/stage_movement/commands/vertical_move",
         level="drive",
         hardware=True,
         params={
@@ -212,7 +214,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "reports one, so the same spot comes back under the beam."
         ),
         method="POST",
-        path="/move_to_orientation",
+        path="/microscope/services/stage_movement/commands/move_to_orientation",
         level="drive",
         hardware=True,
         params={"orientation": "SEM, FIB, MILLING or FM"},
@@ -226,7 +228,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "it, not move_stage_absolute, to return to a saved position."
         ),
         method="POST",
-        path="/safe_absolute_stage_movement",
+        path="/microscope/services/stage_movement/commands/safe_absolute_stage_movement",
         level="drive",
         hardware=True,
         params={
@@ -247,7 +249,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "stable_move instead."
         ),
         method="POST",
-        path="/move_stage_relative",
+        path="/microscope/services/stage_movement/commands/move_relative",
         level="drive",
         hardware=True,
         params={
@@ -264,7 +266,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "rotation or tilt, use safe_move_stage_absolute instead."
         ),
         method="POST",
-        path="/move_stage_absolute",
+        path="/microscope/services/stage_movement/commands/move_absolute",
         level="drive",
         hardware=True,
         params={
@@ -279,7 +281,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="move_to_milling_angle",
         description="Tilt the stage to a milling angle, in degrees.",
         method="POST",
-        path="/services/stage_movement/commands/move_to_milling_angle",
+        path="/microscope/services/stage_movement/commands/move_to_milling_angle",
         level="drive",
         hardware=True,
         params={"milling_angle_deg": "target milling angle in degrees"},
@@ -291,7 +293,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "parameter's limits and choices and answers the value written."
         ),
         method="PUT",
-        path="/devices/{device}/{parameter}",
+        path="/microscope/devices/{device}/{parameter}",
         level="drive",
         hardware=True,
         params={
@@ -304,7 +306,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="call_command",
         description="Run a device command listed by list_devices, e.g. device=ion command=blank.",
         method="POST",
-        path="/devices/{device}/commands/{command}",
+        path="/microscope/devices/{device}/commands/{command}",
         level="drive",
         hardware=True,
         params={
@@ -322,7 +324,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "with their signatures and whether this microscope has them."
         ),
         method="GET",
-        path="/services",
+        path="/microscope/services",
         level="watch",
     ),
     ToolSpec(
@@ -331,7 +333,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "Read one service parameter live, e.g. service=milling parameter=progress."
         ),
         method="GET",
-        path="/services/{service}/{parameter}",
+        path="/microscope/services/{service}/{parameter}",
         level="watch",
         params={
             "service": "service name from list_services",
@@ -347,7 +349,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "another call stops it."
         ),
         method="POST",
-        path="/services/{service}/commands/{command}",
+        path="/microscope/services/{service}/commands/{command}",
         level="drive",
         hardware=True,
         params={
@@ -366,7 +368,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
             "would end (beam_type 1 is the electron beam, 2 the ion beam)."
         ),
         method="POST",
-        path="/services/{service}/queries/{query}",
+        path="/microscope/services/{service}/queries/{query}",
         level="watch",
         params={
             "service": "service name from list_services",
@@ -378,7 +380,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="autocontrast",
         description="Run autocontrast for a beam (changes detector settings).",
         method="POST",
-        path="/autocontrast",
+        path="/microscope/devices/{device}/commands/autocontrast",
         level="drive",
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
@@ -842,3 +844,118 @@ def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     """
     routers = dict(capabilities.get("routers", {}), base=True)
     return tuple(t for t in CATALOG if routers.get(t.router, False))
+
+
+# --- From a tool call to its route call ---
+# The sidecar makes each tool's call this way, and an approved request makes the
+# same call, so a request takes the arguments the tool does.
+
+_PATH_PARAM = re.compile(r"{(\w+)}")
+
+
+def _position(a: Dict[str, Any], x="x", y="y", z="z", r="r", t="t") -> dict:
+    return {
+        "name": None,
+        "x": float(a[x]) if x in a else 0.0,
+        "y": float(a[y]) if y in a else 0.0,
+        "z": float(a[z]) if z in a else 0.0,
+        "r": float(a[r]) if r in a else 0.0,
+        "t": float(a[t]) if t in a else 0.0,
+        "coordinate_system": "RAW",
+    }
+
+
+def _absolute(a: Dict[str, Any]) -> dict:
+    missing = [axis for axis in "xyzrt" if axis not in a]
+    if missing:
+        raise KeyError(", ".join(missing))
+    return _position(a)
+
+
+def _beam_device(a: Dict[str, Any]) -> str:
+    """The beam device a beam_type names: "electron" or "ion"."""
+    beam = str(a.get("beam_type", "ELECTRON")).lower()
+    if beam not in ("electron", "ion"):
+        raise ValueError(f"beam_type must be ELECTRON or ION, not {beam!r}")
+    return beam
+
+
+def _kwargs(**values: Any) -> dict:
+    return {"kwargs": values}
+
+
+# Tools whose arguments are not their route's path and body as they stand: each
+# gives (path values, body).
+_CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict]]]] = {
+    "acquire_image_preview": lambda a: (
+        {"device": _beam_device(a)},
+        {"kwargs": {}, "answer": "preview"},
+    ),
+    "autocontrast": lambda a: ({"device": _beam_device(a)}, _kwargs()),
+    # A service command or query with no arguments still sends its kwargs.
+    "stop_milling": lambda a: ({}, _kwargs()),
+    "estimate_milling_time": lambda a: ({}, _kwargs()),
+    "get_stage_orientation": lambda a: ({}, _kwargs()),
+    "get_milling_angle": lambda a: ({}, _kwargs()),
+    "stable_move": lambda a: (
+        {},
+        _kwargs(
+            dx=float(a["dx"]),
+            dy=float(a["dy"]),
+            beam_type=str(a.get("beam_type", "ELECTRON")),
+        ),
+    ),
+    "vertical_move": lambda a: (
+        {},
+        _kwargs(dy=float(a["dy"]), dx=float(a.get("dx", 0.0))),
+    ),
+    "move_to_orientation": lambda a: ({}, _kwargs(orientation=str(a["orientation"]))),
+    "safe_move_stage_absolute": lambda a: ({}, _kwargs(stage_position=_absolute(a))),
+    "move_stage_relative": lambda a: (
+        {},
+        _kwargs(delta=_position(a, x="dx", y="dy", z="dz", r="", t="")),
+    ),
+    "move_stage_absolute": lambda a: ({}, _kwargs(position=_absolute(a))),
+    "move_to_milling_angle": lambda a: (
+        {},
+        # The tool speaks degrees; the stage movement command takes radians (FIB-853).
+        _kwargs(milling_angle=math.radians(float(a["milling_angle_deg"]))),
+    ),
+    "call_command": lambda a: (
+        {"device": a.get("device"), "command": a.get("command")},
+        {"kwargs": dict(a.get("kwargs") or {})},
+    ),
+    "call_service_command": lambda a: (
+        {"service": a.get("service"), "command": a.get("command")},
+        {"kwargs": dict(a.get("kwargs") or {})},
+    ),
+    "call_service_query": lambda a: (
+        {"service": a.get("service"), "query": a.get("query")},
+        {"kwargs": dict(a.get("kwargs") or {})},
+    ),
+}
+
+
+def route_call(
+    spec: ToolSpec, arguments: Dict[str, Any]
+) -> Tuple[str, str, Optional[dict]]:
+    """The route call (method, path, body) a tool call stands for: the path's
+    parameters from the arguments, the rest as the JSON body. Raises ValueError
+    for a missing path parameter or a malformed argument."""
+    args = dict(arguments)
+    shape = _CALLS.get(spec.name)
+    if shape is not None:
+        try:
+            args, body = shape(args)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"{spec.name}: bad or missing argument {exc}") from None
+    names = _PATH_PARAM.findall(spec.path)
+    missing = [n for n in names if not isinstance(args.get(n), str) or not args[n]]
+    if missing:
+        raise ValueError(f"{spec.name} needs {', '.join(missing)} (strings)")
+    path = spec.path
+    for name in names:
+        path = path.replace("{" + name + "}", args.pop(name))
+    if shape is None:
+        body = args
+    return spec.method, path, body or None

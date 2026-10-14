@@ -76,8 +76,8 @@ def test_the_dashboard_token_reads_the_monitoring_routes(client, path):
         ("POST", "/app/workflow/stop"),  # on the read router, but it acts
         ("POST", "/app/prompt/answer"),  # control
         ("POST", "/app/workflow/schedule"),  # configure
-        ("GET", "/stage_position"),  # the microscope
-        ("GET", "/devices"),
+        ("GET", "/microscope/devices/stage/position"),  # the microscope
+        ("GET", "/microscope/devices"),
     ],
 )
 def test_the_dashboard_token_reaches_nothing_else(client, method, path):
@@ -88,7 +88,7 @@ def test_the_dashboard_token_reaches_nothing_else(client, method, path):
 
 def test_an_unknown_token_is_still_unauthorized(client):
     assert client.get("/app/status", headers=_bearer("nope")).status_code == 401
-    assert client.get("/stage_position", headers=_bearer("nope")).status_code == 401
+    assert client.get("/microscope", headers=_bearer("nope")).status_code == 401
 
 
 def test_the_dashboard_is_not_the_agent_being_heard_from(client, auth):

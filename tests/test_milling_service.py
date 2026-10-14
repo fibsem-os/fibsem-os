@@ -78,11 +78,11 @@ def test_the_demo_has_a_milling_service_that_is_not_a_device(microscope):
         "stop",
         "pause",
         "resume",
-        "estimate",
         "clear",
         "restore",
         "run",
     } <= set(milling.commands)
+    assert "estimate" in milling.queries
 
 
 def test_prepare_applies_the_recipe_and_draws(microscope):

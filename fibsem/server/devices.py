@@ -24,8 +24,8 @@ The coordinator side is ``fibsem.drivers.remote.devices``. A write runs the devi
 Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
 
-The same ``/devices`` routes are mounted in the App Server (``fibsem.server.server``)
-over ``microscope.devices``, behind its bearer token and level. Served here on their
+The same routes are mounted in the App Server (``fibsem.server.server``) under
+``/microscope/devices`` over ``microscope.devices``, behind its bearer token and level. Served here on their
 own, they have no authentication yet, nor a one-commander lease.
 
 Try it on one computer:
@@ -67,7 +67,14 @@ from typing import (
 
 import numpy as np
 import uvicorn
-from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Body,
+    FastAPI,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
@@ -89,7 +96,7 @@ from fibsem.devices.wire import (
     from_wire,
     to_wire,
 )
-from fibsem.server.images import TIFF_MEDIA_TYPE, tiff_bytes
+from fibsem.server.images import TIFF_MEDIA_TYPE, preview_payload, tiff_bytes
 from fibsem.structures import FibsemImage
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
@@ -266,6 +273,10 @@ class _EventHub:
             return
 
 
+# A command or query with no arguments may be posted with no body.
+_NO_BODY = Body(default={})
+
+
 def build_device_router(
     devices: Callable[[], Mapping[str, Device]],
     read: Sequence[Any] = (),
@@ -317,6 +328,24 @@ def build_device_router(
     def get_device(device: str) -> Dict[str, Any]:
         return describe_device(lookup(device))
 
+    # Before /{parameter}, which would otherwise take "values" as a name.
+    @router.get(prefix + "/{device}/values", dependencies=list(read))
+    def read_values(device: str) -> Dict[str, Any]:
+        """Every parameter's value in one call; those this backend lacks are
+        named apart, not failed."""
+        d = lookup(device)
+        values, unavailable = {}, []
+        for name in d.declared_parameters():
+            try:
+                value = getattr(d, name).get_value()
+            except ParameterUnavailable:
+                unavailable.append(name)
+                continue
+            except tuple(ERROR_STATUS) as error:
+                raise refusal(error, f"{noun} {device}.{name}") from None
+            values[name] = to_wire(value)
+        return {"values": jsonable_encoder(values), "unavailable": unavailable}
+
     @router.get(prefix + "/{device}/{parameter}", dependencies=list(read))
     def read_parameter(device: str, parameter: str) -> Dict[str, Any]:
         value = run(
@@ -344,7 +373,7 @@ def build_device_router(
         )
 
     @router.post(prefix + "/{device}/commands/{command}", dependencies=list(command))
-    def call(device: str, command: str, body: Dict[str, Any]) -> Any:
+    def call(device: str, command: str, body: Dict[str, Any] = _NO_BODY) -> Any:
         d = lookup(device)
         if command not in d.commands:
             raise HTTPException(404, f"'{device}' has no command '{command}'")
@@ -353,9 +382,13 @@ def build_device_router(
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
         result = run(lambda: method(**kwargs), what)
         headers = {}
-        if isinstance(result, FibsemImage):  # a beam's image: TIFF, as /acquire_image
+        if isinstance(result, FibsemImage):  # a beam's image: TIFF, or a preview
             if on_image is not None:
                 on_image(result)
+            # "answer": "preview" asks for an agent-sized JPEG with its scale,
+            # as JSON, instead of the full TIFF.
+            if body.get("answer") == "preview":
+                return preview_payload(result)
             return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
         if (
             isinstance(result, list)
@@ -378,7 +411,7 @@ def build_device_router(
         return {"result": jsonable_encoder(to_wire(result))}
 
     @router.post(prefix + "/{device}/queries/{query}", dependencies=list(read))
-    def ask(device: str, query: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    def ask(device: str, query: str, body: Dict[str, Any] = _NO_BODY) -> Dict[str, Any]:
         d = lookup(device)
         if query not in getattr(d, "queries", {}):
             raise HTTPException(404, f"'{device}' has no query '{query}'")

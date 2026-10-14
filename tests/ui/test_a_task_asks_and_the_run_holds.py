@@ -256,17 +256,19 @@ def test_the_run_lends_control_while_the_question_stands(window, qapp):
 
         def _post():
             out["response"] = client.post(
-                "/move_stage_relative",
+                "/microscope/services/stage_movement/commands/move_relative",
                 headers={"Authorization": "Bearer t"},
                 json={
-                    "position": {
-                        "name": None,
-                        "x": 1e-6,
-                        "y": 0.0,
-                        "z": 0.0,
-                        "r": 0.0,
-                        "t": 0.0,
-                        "coordinate_system": "RAW",
+                    "kwargs": {
+                        "delta": {
+                            "name": None,
+                            "x": 1e-6,
+                            "y": 0.0,
+                            "z": 0.0,
+                            "r": 0.0,
+                            "t": 0.0,
+                            "coordinate_system": "RAW",
+                        }
                     }
                 },
             )

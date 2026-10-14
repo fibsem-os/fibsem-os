@@ -3730,7 +3730,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 self.autolamella_ui, "_app_server_host", None
             ),
             parent=self,
-            set_devices=self.autolamella_ui.set_app_server_devices,
+            set_microscope=self.autolamella_ui.set_app_server_microscope,
         )
         dialog.exec_()
 

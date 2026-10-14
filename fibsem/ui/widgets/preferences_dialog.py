@@ -68,8 +68,8 @@ _TIP_PROPOSE_REVIEW = (
     "allows a task to be set to Review. Early access."
 )
 _LBL_APP_SERVER = "Enable App Server"
-_LBL_APP_SERVER_DEVICES = "Serve the microscope's devices at start-up"
-_TIP_APP_SERVER_DEVICES = (
+_LBL_APP_SERVER_MICROSCOPE = "Serve the microscope at start-up"
+_TIP_APP_SERVER_MICROSCOPE = (
     "Whether a new session also serves the routes that reach the instrument: "
     "its devices, stage, beams and milling state, reads included. Turn them on "
     "or off for this session in Tools → App Server."
@@ -217,10 +217,10 @@ class PreferencesDialog(QDialog):
         agent_form = QFormLayout(agent_page)
         self._chk_app_server = QCheckBox()
         self._chk_app_server.setToolTip(_TIP_APP_SERVER)
-        self._chk_app_server_devices = QCheckBox()
-        self._chk_app_server_devices.setToolTip(_TIP_APP_SERVER_DEVICES)
+        self._chk_app_server_microscope = QCheckBox()
+        self._chk_app_server_microscope.setToolTip(_TIP_APP_SERVER_MICROSCOPE)
         # A service of the App Server: nothing to serve while it is off.
-        self._chk_app_server.toggled.connect(self._chk_app_server_devices.setEnabled)
+        self._chk_app_server.toggled.connect(self._chk_app_server_microscope.setEnabled)
         agent_intro = QLabel(
             "Let an AI agent and the dashboard reach this session over a "
             "local, token-protected connection. The agent watches until you "
@@ -230,7 +230,7 @@ class PreferencesDialog(QDialog):
         agent_intro.setStyleSheet("color: #868e93; font-size: 11px;")
         agent_form.addRow(agent_intro)
         agent_form.addRow(_LBL_APP_SERVER, self._chk_app_server)
-        agent_form.addRow(_LBL_APP_SERVER_DEVICES, self._chk_app_server_devices)
+        agent_form.addRow(_LBL_APP_SERVER_MICROSCOPE, self._chk_app_server_microscope)
         self._stack.addWidget(agent_page)
 
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
@@ -271,8 +271,8 @@ class PreferencesDialog(QDialog):
         self._chk_propose_review.setChecked(f.proposer_reviewer_workflow_enabled)
 
         self._chk_app_server.setChecked(prefs.app_server.enabled)
-        self._chk_app_server_devices.setChecked(prefs.app_server.devices)
-        self._chk_app_server_devices.setEnabled(prefs.app_server.enabled)
+        self._chk_app_server_microscope.setChecked(prefs.app_server.microscope)
+        self._chk_app_server_microscope.setEnabled(prefs.app_server.enabled)
 
         e = prefs.experiment
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -340,7 +340,7 @@ class PreferencesDialog(QDialog):
         m.acquire_fib_after_stage_movement = self._chk_acquire_fib.isChecked()
 
         prefs.app_server.enabled = self._chk_app_server.isChecked()
-        prefs.app_server.devices = self._chk_app_server_devices.isChecked()
+        prefs.app_server.microscope = self._chk_app_server_microscope.isChecked()
 
         e = prefs.experiment
         e.default_experiment_directory = self._dir_experiment.text()

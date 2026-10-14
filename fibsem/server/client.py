@@ -1,11 +1,12 @@
 """
-FibsemClient: network client that delegates FibsemMicroscope calls to a remote FibsemServer.
+FibsemClient: network client that delegates FibsemMicroscope calls to the App
+Server's ``/microscope`` routes.
 
 Usage:
     from fibsem.server.client import FibsemClient
     from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
 
-    m = FibsemClient(host="192.168.1.100", port=8001)
+    m = FibsemClient(host="192.168.1.100", port=8001, token="<agent token>")
     image = m.acquire_image(BeamType.ELECTRON)
     state = m.get_microscope_state()
 """
@@ -15,13 +16,13 @@ import threading
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
+import numpy as np
 import requests
 
-from fibsem.devices.wire import to_wire
+from fibsem.devices.wire import NPY_MEDIA_TYPE, to_wire
 from fibsem.server.images import TIFF_MEDIA_TYPE
 from fibsem.structures import (
     BeamSettings,
-    BeamSystemSettings,
     BeamType,
     FibsemDetectorSettings,
     FibsemImage,
@@ -40,8 +41,13 @@ if TYPE_CHECKING:
     from fibsem.drivers.remote.devices import DeviceClient
 
 
-#: The service the stage reads and moves go through.
+#: The services the stage moves, the milling and the focus go through.
 STAGE_MOVEMENT = "stage_movement"
+MILLING = "milling"
+IMAGING = "imaging"
+
+#: The App Server's instrument routes.
+MICROSCOPE = "microscope"
 
 
 def _beam(beam_type: BeamType) -> str:
@@ -50,10 +56,12 @@ def _beam(beam_type: BeamType) -> str:
 
 
 class FibsemClient:
-    """Network client for FibsemServer.
+    """Network client for the App Server's microscope routes.
 
     Fetches system settings from the server at init
     so they are available as direct attributes, matching the FibsemMicroscope interface.
+    Every call goes to a device or service route, so it needs what that route needs:
+    reads the agent at Watch, writes and commands at Drive.
     """
 
     def __init__(
@@ -83,7 +91,7 @@ class FibsemClient:
 
     def _fetch_system(self) -> None:
         """Fetch and cache system settings from the server."""
-        data = self._get("system")
+        data = self._get(MICROSCOPE)
         self.system: SystemSettings = SystemSettings.from_dict(data["system"])
         # What is fitted travels beside the configuration; the server sends only
         # the manipulator.
@@ -132,43 +140,41 @@ class FibsemClient:
         image_settings: Optional[ImageSettings] = None,
     ) -> FibsemImage:
         """Acquire a fresh image. Pass image_settings to override current microscope settings."""
-        body = {"beam_type": beam_type.name}
-        if image_settings is not None:
-            body["image_settings"] = image_settings.to_dict()
-        return self._post_image("acquire_image", body)
+        kwargs = {} if image_settings is None else {"image_settings": image_settings}
+        return self.call_command(_beam(beam_type), "acquire", **kwargs)
 
     def acquire_chamber_image(self) -> FibsemImage:
-        return self._post_image("acquire_chamber_image")
+        return FibsemImage(data=self.call_command("chamber_camera", "acquire"))
 
     def autocontrast(self, beam_type: BeamType) -> None:
-        self._post("autocontrast", {"beam_type": beam_type.name})
+        self.call_command(_beam(beam_type), "autocontrast")
 
     def auto_focus(self, beam_type: BeamType) -> None:
-        self._post("auto_focus", {"beam_type": beam_type.name})
+        self.call_service_command(IMAGING, "auto_focus", beam_type=beam_type)
 
     # --- Stage movement ---
 
     def get_stage_position(self) -> FibsemStagePosition:
-        return FibsemStagePosition.from_dict(self._get("stage_position")["position"])
+        return FibsemStagePosition.from_dict(self.get_parameter("stage", "position"))
 
     def get_stage_orientation(self) -> str:
         return self.call_service_query(STAGE_MOVEMENT, "stage_orientation")
 
+    def _move(self, command: str, **kwargs: Any) -> FibsemStagePosition:
+        return FibsemStagePosition.from_dict(
+            self.call_service_command(STAGE_MOVEMENT, command, **kwargs)
+        )
+
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        result = self._post("move_stage_absolute", {"position": position.to_dict()})
-        return FibsemStagePosition.from_dict(result["position"])
+        return self._move("move_absolute", position=position)
 
     def move_stage_relative(self, position: FibsemStagePosition) -> FibsemStagePosition:
-        result = self._post("move_stage_relative", {"position": position.to_dict()})
-        return FibsemStagePosition.from_dict(result["position"])
+        return self._move("move_relative", delta=position)
 
     def stable_move(
         self, dx: float, dy: float, beam_type: BeamType
     ) -> FibsemStagePosition:
-        result = self._post(
-            "stable_move", {"dx": dx, "dy": dy, "beam_type": beam_type.name}
-        )
-        return FibsemStagePosition.from_dict(result["position"])
+        return self._move("stable_move", dx=dx, dy=dy, beam_type=beam_type)
 
     def project_stable_move(
         self,
@@ -188,15 +194,15 @@ class FibsemClient:
         return FibsemStagePosition.from_dict(result)
 
     def vertical_move(self, dy: float, dx: float = 0.0) -> FibsemStagePosition:
-        result = self._post("vertical_move", {"dy": dy, "dx": dx})
-        return FibsemStagePosition.from_dict(result["position"])
+        return self._move("vertical_move", dy=dy, dx=dx)
 
     def safe_absolute_stage_movement(self, position: FibsemStagePosition) -> None:
-        self._post("safe_absolute_stage_movement", {"position": position.to_dict()})
+        self.call_service_command(
+            STAGE_MOVEMENT, "safe_absolute_stage_movement", stage_position=position
+        )
 
     def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
-        result = self._post("move_to_orientation", {"orientation": orientation})
-        return FibsemStagePosition.from_dict(result["position"])
+        return self._move("move_to_orientation", orientation=orientation)
 
     # --- Devices ---
     # Every device the microscope built (``microscope.devices``), by name: the beams
@@ -208,7 +214,7 @@ class FibsemClient:
         ``FibsemMicroscope.devices``: ``client.devices["ion"].current.get_value()``.
 
         They are the remote driver's devices (``fibsem.drivers.remote.devices``)
-        over this server's ``/devices`` routes, with this client's token, built on
+        over this server's ``/microscope/devices`` routes, with this client's token, built on
         first access. A read is live, a write is checked here and again on the
         server, and a command runs on the server; writes and commands need the
         agent at Drive.
@@ -238,7 +244,13 @@ class FibsemClient:
             connect_remote_fm,
         )
 
-        client = DeviceClient(self._host, self._port, token=self._token, events=False)
+        client = DeviceClient(
+            self._host,
+            self._port,
+            token=self._token,
+            events=False,
+            root="/" + MICROSCOPE,
+        )
         try:
             beams = connect_remote_beams(self._host, self._port, client=client)
             devices: Dict[str, "Device"] = {b.name: b for b in beams.values()}
@@ -252,105 +264,152 @@ class FibsemClient:
     def list_devices(self) -> Dict[str, Any]:
         """Every device: its parameters (type, unit, limits, choices, settable) and
         commands."""
-        return self._get("devices")
+        return self._get(f"{MICROSCOPE}/devices")
 
     def get_parameter(self, device: str, parameter: str) -> Any:
         """A live read, as JSON: an enum as its value, a ``Point`` as its dict."""
-        return self._get(f"devices/{device}/{parameter}")["value"]
+        return self._get(f"{MICROSCOPE}/devices/{device}/{parameter}")["value"]
 
     def set_parameter(self, device: str, parameter: str, value: Any) -> Any:
         """Write a parameter; the server checks it and answers the value written."""
-        return self._put(f"devices/{device}/{parameter}", {"value": to_wire(value)})[
-            "value"
-        ]
+        return self._put(
+            f"{MICROSCOPE}/devices/{device}/{parameter}", {"value": to_wire(value)}
+        )["value"]
 
     def parameter_metadata(self, device: str, parameter: str) -> Dict[str, Any]:
         """A parameter's limits, choices and whether it is settable."""
-        return self._get(f"devices/{device}/{parameter}/metadata")
+        return self._get(f"{MICROSCOPE}/devices/{device}/{parameter}/metadata")
+
+    def get_values(self, device: str) -> Dict[str, Any]:
+        """Every parameter's value on a device in one read, as JSON."""
+        return self._get(f"{MICROSCOPE}/devices/{device}/values")["values"]
 
     def call_command(self, device: str, command: str, **kwargs: Any) -> Any:
-        """Run a device command: its JSON result, or the image a beam acquired."""
+        """Run a device command: its JSON result, the image a beam acquired, or
+        the frame a camera took."""
         body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
         resp = self._session.post(
-            f"{self.base_url}/devices/{device}/commands/{command}",
+            f"{self.base_url}/{MICROSCOPE}/devices/{device}/commands/{command}",
             json=body,
             timeout=60,
         )
         resp.raise_for_status()
-        if resp.headers.get("content-type", "").startswith(TIFF_MEDIA_TYPE):
+        content_type = resp.headers.get("content-type", "")
+        if content_type.startswith(TIFF_MEDIA_TYPE):
             return FibsemImage.load(io.BytesIO(resp.content))  # a beam's acquire
+        if content_type.startswith(NPY_MEDIA_TYPE):
+            return np.load(io.BytesIO(resp.content), allow_pickle=False)
         return resp.json()["result"]
 
     def call_query(self, device: str, query: str, **kwargs: Any) -> Any:
         """Ask a device a query: a read that takes arguments and moves nothing."""
         body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
-        return self._post(f"devices/{device}/queries/{query}", body)["result"]
-
-    def call_service_command(self, service: str, command: str, **kwargs: Any) -> Any:
-        """Run a service command, e.g. ``stage_movement``'s ``move_to_orientation``."""
-        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
-        return self._post(f"services/{service}/commands/{command}", body, timeout=60)[
+        return self._post(f"{MICROSCOPE}/devices/{device}/queries/{query}", body)[
             "result"
         ]
+
+    def call_service_command(
+        self, service: str, command: str, timeout: int = 60, **kwargs: Any
+    ) -> Any:
+        """Run a service command, e.g. ``stage_movement``'s ``move_to_orientation``."""
+        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        return self._post(
+            f"{MICROSCOPE}/services/{service}/commands/{command}", body, timeout
+        )["result"]
 
     def call_service_query(self, service: str, query: str, **kwargs: Any) -> Any:
         """Ask a service a query, e.g. ``stage_movement``'s ``project_stable_move``."""
         body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
-        return self._post(f"services/{service}/queries/{query}", body)["result"]
+        return self._post(f"{MICROSCOPE}/services/{service}/queries/{query}", body)[
+            "result"
+        ]
+
+    def get_service_parameter(self, service: str, parameter: str) -> Any:
+        """A service parameter's value, as JSON."""
+        return self._get(f"{MICROSCOPE}/services/{service}/{parameter}")["value"]
 
     # --- Microscope state ---
 
     def get_microscope_state(self) -> MicroscopeState:
         return MicroscopeState.from_dict(
-            self._get("microscope_state")["microscope_state"]
+            self._get(f"{MICROSCOPE}/state")["microscope_state"]
         )
 
     def set_microscope_state(self, microscope_state: MicroscopeState) -> None:
-        self._put("microscope_state", {"microscope_state": microscope_state.to_dict()})
+        self._put(
+            f"{MICROSCOPE}/state", {"microscope_state": microscope_state.to_dict()}
+        )
 
     # --- A beam's settings, as one group ---
+    # Read in one call (the device's values) and written a parameter at a time,
+    # in the order FibsemMicroscope writes them.
 
     def get_imaging_settings(self, beam_type: BeamType) -> ImageSettings:
-        result = self._get(f"beams/{_beam(beam_type)}/imaging_settings")
-        return ImageSettings.from_dict(result["image_settings"])
+        values = self.get_values(_beam(beam_type))
+        return ImageSettings(
+            beam_type=beam_type,
+            resolution=tuple(values["resolution"]),
+            dwell_time=values["dwell_time"],
+            hfw=values["hfw"],
+        )
 
     def set_imaging_settings(self, image_settings: ImageSettings) -> None:
-        self._put(
-            f"beams/{_beam(image_settings.beam_type)}/imaging_settings",
-            {"image_settings": image_settings.to_dict()},
-        )
+        beam_type = image_settings.beam_type
+        self.set_resolution(image_settings.resolution, beam_type)
+        self.set_dwell_time(image_settings.dwell_time, beam_type)
+        self.set_field_of_view(image_settings.hfw, beam_type)
 
     def get_beam_settings(self, beam_type: BeamType) -> BeamSettings:
-        result = self._get(f"beams/{_beam(beam_type)}/beam_settings")
-        return BeamSettings.from_dict(result["beam_settings"])
+        values = self.get_values(_beam(beam_type))
+        return BeamSettings(
+            beam_type=beam_type,
+            working_distance=values.get("working_distance"),
+            beam_current=values.get("current"),
+            voltage=values.get("voltage"),
+            hfw=values.get("hfw"),
+            resolution=tuple(values["resolution"]) if "resolution" in values else None,
+            dwell_time=values.get("dwell_time"),
+            stigmation=_point(values.get("stigmation")),
+            shift=_point(values.get("shift")),
+            scan_rotation=values.get("scan_rotation"),
+            preset=values.get("preset"),
+        )
 
     def set_beam_settings(self, beam_settings: BeamSettings) -> None:
-        self._put(
-            f"beams/{_beam(beam_settings.beam_type)}/beam_settings",
-            {"beam_settings": beam_settings.to_dict()},
-        )
-
-    def get_beam_system_settings(self, beam_type: BeamType) -> BeamSystemSettings:
-        result = self._get(f"beams/{_beam(beam_type)}/beam_system_settings")
-        return BeamSystemSettings.from_dict(result["beam_system_settings"])
-
-    def set_beam_system_settings(self, settings: BeamSystemSettings) -> None:
-        self._put(
-            f"beams/{_beam(settings.beam_type)}/beam_system_settings",
-            {"beam_system_settings": settings.to_dict()},
-        )
+        # voltage before current: on some instruments the available currents are
+        # calibrated per voltage. A None is "not stated", not a value to push.
+        beam = _beam(beam_settings.beam_type)
+        for name, value in (
+            ("working_distance", beam_settings.working_distance),
+            ("voltage", beam_settings.voltage),
+            ("current", beam_settings.beam_current),
+            ("hfw", beam_settings.hfw),
+            ("resolution", beam_settings.resolution),
+            ("dwell_time", beam_settings.dwell_time),
+            ("stigmation", beam_settings.stigmation),
+            ("shift", beam_settings.shift),
+            ("scan_rotation", beam_settings.scan_rotation),
+            ("preset", beam_settings.preset),
+        ):
+            if value is not None:
+                self.set_parameter(beam, name, value)
 
     def get_detector_settings(self, beam_type: BeamType) -> FibsemDetectorSettings:
-        result = self._get(f"beams/{_beam(beam_type)}/detector_settings")
-        return FibsemDetectorSettings.from_dict(result["detector_settings"])
+        values = self.get_values(_beam(beam_type))
+        return FibsemDetectorSettings(
+            type=values.get("detector_type"),
+            mode=values.get("detector_mode"),
+            brightness=values.get("detector_brightness"),
+            contrast=values.get("detector_contrast"),
+        )
 
     def set_detector_settings(
         self, detector_settings: FibsemDetectorSettings, beam_type: BeamType
     ) -> None:
-        self._put(
-            f"beams/{_beam(beam_type)}/detector_settings",
-            {"detector_settings": detector_settings.to_dict()},
-        )
+        self.set_detector_type(detector_settings.type, beam_type)
+        self.set_detector_mode(detector_settings.mode, beam_type)
+        self.set_detector_brightness(detector_settings.brightness, beam_type)
+        self.set_detector_contrast(detector_settings.contrast, beam_type)
 
     # --- A beam's parameters, one at a time (FibsemMicroscope's wrappers) ---
 
@@ -454,7 +513,10 @@ class FibsemClient:
 
     def set_milling_angle(self, milling_angle: float) -> None:
         """Set the stored milling angle, in degrees."""
-        self._put(f"services/{STAGE_MOVEMENT}/milling_angle", {"value": milling_angle})
+        self._put(
+            f"{MICROSCOPE}/services/{STAGE_MOVEMENT}/milling_angle",
+            {"value": milling_angle},
+        )
 
     def move_to_milling_angle(
         self, milling_angle: float, rotation: Optional[float] = None
@@ -481,47 +543,51 @@ class FibsemClient:
         )
 
     # --- Milling ---
+    # The milling service's commands; the ion beam is the milling beam.
+
+    def _milling(self, command: str, timeout: int = 60, **kwargs: Any) -> Any:
+        return self.call_service_command(MILLING, command, timeout=timeout, **kwargs)
 
     def setup_milling(self, mill_settings: FibsemMillingSettings) -> None:
-        self._post("setup_milling", {"mill_settings": mill_settings.to_dict()})
+        self._milling("setup", settings=mill_settings)
 
     def draw_patterns(self, patterns: List[FibsemPatternSettings]) -> None:
-        payload = []
-        for p in patterns:
-            d = p.to_dict()
-            d["type"] = type(p).__name__.replace("Fibsem", "").replace("Settings", "")
-            payload.append(d)
-        self._post("draw_patterns", {"patterns": payload})
+        self._milling("draw", patterns=list(patterns))
 
     def run_milling(self) -> None:
-        self._post("run_milling", timeout=3600)
+        self._milling("run", timeout=3600)
 
     def start_milling(self) -> None:
-        self._post("start_milling")
+        self._milling("start")
 
     def stop_milling(self) -> None:
-        self._post("stop_milling")
+        self._milling("stop")
 
     def pause_milling(self) -> None:
-        self._post("pause_milling")
+        self._milling("pause")
 
     def resume_milling(self) -> None:
-        self._post("resume_milling")
+        self._milling("resume")
 
     def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        self._post(
-            "finish_milling",
-            {
-                "imaging_current": imaging_current,
-                "imaging_voltage": imaging_voltage,
-            },
-        )
+        """Clear the patterns, put the milling beam back as setup found it, then
+        the imaging voltage and current given."""
+        self._milling("clear")
+        self._milling("restore")
+        if imaging_voltage is not None:
+            self.set_beam_voltage(imaging_voltage, BeamType.ION)
+        if imaging_current is not None:
+            self.set_beam_current(imaging_current, BeamType.ION)
 
     def clear_patterns(self) -> None:
-        self._post("clear_patterns")
+        self._milling("clear")
 
     def get_milling_state(self) -> MillingState:
-        return MillingState[self._get("milling_state")["state"]]
+        return MillingState(self.get_service_parameter(MILLING, "state"))
 
     def estimate_milling_time(self) -> float:
-        return self._get("estimate_milling_time")["seconds"]
+        return self.call_service_query(MILLING, "estimate")
+
+
+def _point(value: Optional[Dict[str, Any]]) -> Optional[Point]:
+    return None if value is None else Point.from_dict(value)

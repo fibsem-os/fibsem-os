@@ -358,10 +358,10 @@ coordinates devices or runs steps over time is a service. The base class is
 
 `microscope.services` maps each service the microscope built to its name (`milling`,
 `stage_movement`, `spot_burn`, `sample_handling`, `imaging`); one the backend didn't
-build is left out. The App Server serves them as it serves devices, under `/services`: `GET
-/services` describes each one's parameters and commands, `GET
-/services/{service}/{parameter}` reads one, and `POST
-/services/{service}/commands/{command}` runs one, behind the same token, level and
+build is left out. The App Server serves them as it serves devices, under `/microscope/services`: `GET
+/microscope/services` describes each one's parameters and commands, `GET
+/microscope/services/{service}/{parameter}` reads one, and `POST
+/microscope/services/{service}/commands/{command}` runs one, behind the same token, level and
 control of the microscope. A service's `stop` needs only the token and is never
 refused by whoever is in control, like a device's.
 

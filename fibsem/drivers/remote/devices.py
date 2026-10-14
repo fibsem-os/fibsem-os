@@ -175,10 +175,12 @@ class DeviceClient:
         heartbeat: float = HEARTBEAT,
         token: Optional[str] = None,
         events: bool = True,
+        root: str = "",
     ):
         """*token*, when given, goes on every HTTP request as a bearer token, for
-        the App Server, which serves the same ``/devices`` routes behind one
-        (``fibsem.server.server``); the event stream carries none.
+        the App Server, which serves the same routes behind one under *root*
+        (``"/microscope"``, ``fibsem.server.server``); the event stream carries
+        none.
 
         *events* False never opens the event stream, for a server that has none
         (the App Server). Reads, writes and commands work the same; but nothing
@@ -188,7 +190,7 @@ class DeviceClient:
         ``disconnected`` and ``reconnected`` never change or fire.
         """
         self.heartbeat = heartbeat
-        self.base_url = f"http://{host}:{port}"
+        self.base_url = f"http://{host}:{port}{root}"
         self.events_url = f"ws://{host}:{port}/events"
         self.events = events
         self._session = requests.Session()

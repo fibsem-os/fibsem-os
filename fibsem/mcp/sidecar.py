@@ -33,7 +33,7 @@ import sys
 from typing import Any, Optional, Tuple
 from urllib.parse import quote, urlencode
 
-from fibsem.server.catalog import CATALOG, tools_for_capabilities
+from fibsem.server.catalog import CATALOG, route_call, tools_for_capabilities
 
 _TIMEOUT_S = 120.0  # acquisitions and moves on real hardware are slow
 
@@ -266,17 +266,20 @@ def build_sidecar(client, capabilities):
 
         return spec, tool
 
-    def _image_tool(name):
-        spec = by_name[name]
+    def _route(name, **arguments):
+        """Call a tool's route as the catalog maps its arguments: (data, err)."""
+        try:
+            method, path, body = route_call(by_name[name], arguments)
+        except ValueError as exc:
+            return None, f"refused: {exc}"
+        return _call(client, method, path, body)
 
-        def tool(beam_type="ELECTRON"):
-            data, err = _call(client, spec.method, spec.path, {"beam_type": beam_type})
-            if err:
-                return err
-            jpeg = base64.b64decode(data.pop("image_b64_jpeg"))
-            return [json.dumps(data), Image(data=jpeg, format="jpeg")]
-
-        return spec, tool
+    def _routed(name, key=None, **arguments):
+        """A routed tool's answer, its route's result under *key* when given."""
+        data, err = _route(name, **arguments)
+        if err:
+            return err
+        return {key: data["result"]} if key else data
 
     def _with_images(data):
         """Move every base64 preview in *data* out into MCP image content.
@@ -313,7 +316,8 @@ def build_sidecar(client, capabilities):
         return _json_tool("get_system_info")[1]()
 
     def get_stage_position():
-        return _json_tool("get_stage_position")[1]()
+        data, err = _call(client, "GET", by_name["get_stage_position"].path)
+        return err if err else {"position": data["value"]}
 
     def _service_call(name, kwargs, key):
         """A stage movement query or command as a named tool: *key* holds its result."""
@@ -330,138 +334,76 @@ def build_sidecar(client, capabilities):
         return _service_call("get_milling_angle", {}, "milling_angle_deg")
 
     def get_milling_state():
-        return _json_tool("get_milling_state")[1]()
+        data, err = _call(client, "GET", by_name["get_milling_state"].path)
+        return err if err else {"state": data["value"]}
 
     def estimate_milling_time():
-        return _json_tool("estimate_milling_time")[1]()
+        return _service_call("estimate_milling_time", {}, "seconds")
 
     def stop_milling():
-        return _json_tool("stop_milling")[1]()
+        data, err = _route("stop_milling")
+        return err if err else {"status": "ok"}
 
     def acquire_image_preview(beam_type: str = "ELECTRON"):
-        return _image_tool("acquire_image_preview")[1](beam_type=beam_type)
+        data, err = _route("acquire_image_preview", beam_type=beam_type)
+        if err:
+            return err
+        jpeg = base64.b64decode(data.pop("image_b64_jpeg"))
+        return [json.dumps(data), Image(data=jpeg, format="jpeg")]
 
     def move_stage_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0):
-        position = {
-            "name": None,
-            "x": dx,
-            "y": dy,
-            "z": dz,
-            "r": 0.0,
-            "t": 0.0,
-            "coordinate_system": "RAW",
-        }
-        data, err = _call(
-            client, "POST", "/move_stage_relative", {"position": position}
-        )
-        return err if err else data
+        return _routed("move_stage_relative", "position", dx=dx, dy=dy, dz=dz)
 
     def move_stage_absolute(x: float, y: float, z: float, r: float, t: float):
-        position = {
-            "name": None,
-            "x": x,
-            "y": y,
-            "z": z,
-            "r": r,
-            "t": t,
-            "coordinate_system": "RAW",
-        }
-        data, err = _call(
-            client, "POST", "/move_stage_absolute", {"position": position}
-        )
-        return err if err else data
+        return _routed("move_stage_absolute", "position", x=x, y=y, z=z, r=r, t=t)
 
     def stable_move(dx: float, dy: float, beam_type: str = "ELECTRON"):
-        data, err = _call(
-            client,
-            "POST",
-            "/stable_move",
-            {"dx": float(dx), "dy": float(dy), "beam_type": str(beam_type)},
-        )
-        return err if err else data
+        return _routed("stable_move", "position", dx=dx, dy=dy, beam_type=beam_type)
 
     def vertical_move(dy: float, dx: float = 0.0):
-        data, err = _call(
-            client, "POST", "/vertical_move", {"dy": float(dy), "dx": float(dx)}
-        )
-        return err if err else data
+        return _routed("vertical_move", "position", dy=dy, dx=dx)
 
     def move_to_orientation(orientation: str):
-        data, err = _call(
-            client, "POST", "/move_to_orientation", {"orientation": str(orientation)}
-        )
-        return err if err else data
+        return _routed("move_to_orientation", "position", orientation=orientation)
 
     def safe_move_stage_absolute(x: float, y: float, z: float, r: float, t: float):
-        position = {
-            "name": None,
-            "x": x,
-            "y": y,
-            "z": z,
-            "r": r,
-            "t": t,
-            "coordinate_system": "RAW",
-        }
-        data, err = _call(
-            client, "POST", "/safe_absolute_stage_movement", {"position": position}
-        )
-        return err if err else data
+        return _routed("safe_move_stage_absolute", "position", x=x, y=y, z=z, r=r, t=t)
 
     def move_to_milling_angle(milling_angle_deg: float):
-        # The tool speaks degrees; the stage movement command takes radians (FIB-853).
-        kwargs = {"milling_angle": math.radians(milling_angle_deg)}
-        return _service_call("move_to_milling_angle", kwargs, "success")
+        return _routed(
+            "move_to_milling_angle", "success", milling_angle_deg=milling_angle_deg
+        )
 
     def list_devices():
         return _json_tool("list_devices")[1]()
 
     def get_parameter(device: str, parameter: str):
-        data, err = _call(client, "GET", f"/devices/{device}/{parameter}")
-        return err if err else data
+        return _routed("get_parameter", device=device, parameter=parameter)
 
     def set_parameter(device: str, parameter: str, value: Any):
-        data, err = _call(
-            client, "PUT", f"/devices/{device}/{parameter}", {"value": value}
-        )
-        return err if err else data
+        return _routed("set_parameter", device=device, parameter=parameter, value=value)
 
     def call_command(device: str, command: str, kwargs: Optional[dict] = None):
-        data, err = _call(
-            client,
-            "POST",
-            f"/devices/{device}/commands/{command}",
-            {"kwargs": dict(kwargs or {})},
-        )
-        return err if err else data
+        return _routed("call_command", device=device, command=command, kwargs=kwargs)
 
     def list_services():
         return _json_tool("list_services")[1]()
 
     def get_service_parameter(service: str, parameter: str):
-        data, err = _call(client, "GET", f"/services/{service}/{parameter}")
-        return err if err else data
+        return _routed("get_service_parameter", service=service, parameter=parameter)
 
     def call_service_command(service: str, command: str, kwargs: Optional[dict] = None):
-        data, err = _call(
-            client,
-            "POST",
-            f"/services/{service}/commands/{command}",
-            {"kwargs": dict(kwargs or {})},
+        return _routed(
+            "call_service_command", service=service, command=command, kwargs=kwargs
         )
-        return err if err else data
 
     def call_service_query(service: str, query: str, kwargs: Optional[dict] = None):
-        data, err = _call(
-            client,
-            "POST",
-            f"/services/{service}/queries/{query}",
-            {"kwargs": dict(kwargs or {})},
+        return _routed(
+            "call_service_query", service=service, query=query, kwargs=kwargs
         )
-        return err if err else data
 
     def autocontrast(beam_type: str = "ELECTRON"):
-        data, err = _call(client, "POST", "/autocontrast", {"beam_type": beam_type})
-        return err if err else data
+        return _routed("autocontrast", beam_type=beam_type)
 
     def _app_get(path):
         data, err = _call(client, "GET", path)

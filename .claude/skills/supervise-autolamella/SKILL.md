@@ -64,7 +64,7 @@ status bar. Every launch starts at Watch; nothing in a file raises it.
   assist-autolamella skill's job: use it at Assist. **Off** refuses
   everything, `/capabilities` included (`403 agent_off`).
 
-At Drive, with the microscope's devices served, you can also use the
+At Drive, with the microscope served, you can also use the
 microscope directly (see *Using the microscope*). Supervising doesn't need
 it.
 
@@ -313,7 +313,7 @@ for something on the microscope, and say what you are about to do first.
 **Check before you start.** In `/capabilities`, `level` must be `drive` and
 `routers.microscope` true. If either is not, say plainly which, and that the
 operator changes it (the Agent chip for the level; Tools → App Server,
-*Serve the microscope's devices*, for the devices). Don't look for another
+*Serve the microscope*, for the microscope). Don't look for another
 way in. A hardware tool missing from your tool list means the same thing.
 
 **Read the microscope before each step, not once.** The operator, a run or

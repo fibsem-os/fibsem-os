@@ -71,12 +71,12 @@ class AppServerHost:
         host: str = "127.0.0.1",
         port: int = 8001,
         discovery_path=None,
-        devices: bool = False,
+        serve_microscope: bool = False,
     ):
         self._ui = ui
-        # The devices service (FIB-1035): whether the instrument routes are
-        # served. Fixed for the host's life; a changed preference builds a new one.
-        self.devices = devices
+        # Whether the /microscope routes are served (FIB-1035). Fixed for the
+        # host's life; a change builds a new one.
+        self.serve_microscope = serve_microscope
         self._host = host
         self._port = port
         self._discovery_path = discovery_path
@@ -195,7 +195,7 @@ class AppServerHost:
                 "(developer override)"
             )
         # One AuthConfig per app session, kept on the window across server
-        # restarts (a microscope reconnect, a devices toggle): the agent's
+        # restarts (a microscope reconnect, a microscope toggle): the agent's
         # token stays valid, so a connected sidecar carries on, and the level
         # the operator set stands. It starts at Watch at every launch and is
         # never written to disk (FIB-1035). The override is Drive.
@@ -231,7 +231,7 @@ class AppServerHost:
             microscope,
             app_context=AutoLamellaAppContext(self._ui, event_buffer=self.event_buffer),
             auth=self.auth,
-            devices=self.devices,
+            serve_microscope=self.serve_microscope,
         )
         self._app = app
         config = uvicorn.Config(

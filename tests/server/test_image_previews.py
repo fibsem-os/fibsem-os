@@ -17,6 +17,7 @@ from fibsem import utils  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.images import preview_jpeg_bytes  # noqa: E402
 
+PREVIEW = "/microscope/devices/ion/commands/acquire"
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
@@ -58,9 +59,7 @@ def test_small_image_is_not_upscaled():
 
 
 def test_acquire_image_preview_endpoint(armed_client):
-    resp = armed_client.post(
-        "/acquire_image_preview", headers=AUTH, json={"beam_type": "ION"}
-    )
+    resp = armed_client.post(PREVIEW, headers=AUTH, json={"answer": "preview"})
     assert resp.status_code == 200
     body = resp.json()
     jpeg = base64.b64decode(body["image_b64_jpeg"])
@@ -76,8 +75,8 @@ def test_acquire_image_preview_endpoint(armed_client):
     assert body["pixelsize"]["x"] == pytest.approx(body["hfw"] / body["full_width"])
 
 
-def test_preview_requires_hardware_scope(armed_client):
-    # Same app, wrong scope story is covered in test_server_factory; here just
-    # assert the endpoint rejects a missing token so it is provably gated.
-    resp = armed_client.post("/acquire_image_preview", json={"beam_type": "ION"})
+def test_preview_needs_the_token(armed_client):
+    # The level story is covered in test_server_factory; here just assert the
+    # endpoint rejects a missing token so it is provably gated.
+    resp = armed_client.post(PREVIEW, json={"answer": "preview"})
     assert resp.status_code == 401

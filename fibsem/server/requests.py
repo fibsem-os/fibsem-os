@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.acting import AGENT, acting
 from fibsem.server.auth import AgentLevel, AuthConfig, lending_drive, require_level
-from fibsem.server.catalog import CATALOG, ToolSpec
+from fibsem.server.catalog import CATALOG, ToolSpec, route_call
 from fibsem.server.request_text import describe_action
 
 PENDING = "pending"
@@ -46,36 +46,6 @@ MAX_ACTIONS = 20
 MAX_REASON = 2000
 # Finished requests kept for GET: enough for an agent to read back its last few.
 KEEP = 50
-
-_PATH_PARAM = re.compile(r"{(\w+)}")
-
-
-def _stage_position(x: float, y: float, z: float, r: float, t: float) -> dict:
-    return {
-        "position": {
-            "name": None,
-            "x": x,
-            "y": y,
-            "z": z,
-            "r": r,
-            "t": t,
-            "coordinate_system": "RAW",
-        }
-    }
-
-
-# Tools whose arguments are not their route's body as they stand: shaped here
-# as the sidecar shapes them, so a request takes the arguments the tool does.
-_BODIES: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {
-    "move_stage_relative": lambda a: _stage_position(
-        a.get("dx", 0.0), a.get("dy", 0.0), a.get("dz", 0.0), 0.0, 0.0
-    ),
-    "move_stage_absolute": lambda a: _stage_position(
-        a["x"], a["y"], a["z"], a["r"], a["t"]
-    ),
-    "call_command": lambda a: {"kwargs": dict(a.get("kwargs") or {})},
-    "call_service_command": lambda a: {"kwargs": dict(a.get("kwargs") or {})},
-}
 
 
 class RequestRefused(Exception):
@@ -109,27 +79,6 @@ class Action:
             "what": self.what,
             "change": self.change,
         }
-
-
-def route_call(
-    spec: ToolSpec, arguments: Dict[str, Any]
-) -> Tuple[str, str, Optional[dict]]:
-    """The route call (method, path, body) a tool call stands for: the path's
-    parameters from the arguments, the rest as the JSON body. Raises ValueError
-    for a missing path parameter or a malformed argument."""
-    args = dict(arguments)
-    names = _PATH_PARAM.findall(spec.path)
-    missing = [n for n in names if not isinstance(args.get(n), str) or not args[n]]
-    if missing:
-        raise ValueError(f"{spec.name} needs {', '.join(missing)} (strings)")
-    path = spec.path
-    for name in names:
-        path = path.replace("{" + name + "}", args.pop(name))
-    try:
-        body = _BODIES[spec.name](args) if spec.name in _BODIES else args
-    except (KeyError, TypeError) as exc:
-        raise ValueError(f"{spec.name}: bad or missing argument {exc}") from None
-    return spec.method, path, body or None
 
 
 @dataclass
