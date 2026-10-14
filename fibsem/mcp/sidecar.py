@@ -405,6 +405,11 @@ def build_sidecar(client, capabilities):
     def get_service_parameter(service: str, parameter: str):
         return _routed("get_service_parameter", service=service, parameter=parameter)
 
+    def set_service_parameter(service: str, parameter: str, value: Any):
+        return _routed(
+            "set_service_parameter", service=service, parameter=parameter, value=value
+        )
+
     def call_service_command(
         service: str,
         command: str,
@@ -752,6 +757,7 @@ def build_sidecar(client, capabilities):
             call_command,
             list_services,
             get_service_parameter,
+            set_service_parameter,
             call_service_command,
             call_service_query,
             autocontrast,

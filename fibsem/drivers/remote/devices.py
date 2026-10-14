@@ -42,7 +42,7 @@ builds them from what a server has.
 server, and wait for as long as that takes. What they say about themselves beyond
 their parameters (the stage's frame, shuttle and the device each orientation is at;
 the needle's axes and named positions) comes from the device's ``facts`` in its
-description, and a stage's poses from its ``pose_table`` command. A move
+description, and a stage's poses from its ``pose_table`` query. A move
 is checked against the stage limits here and again on the server.
 
 Not yet: the one-commander lease, and a beam's ``acquire`` (a
@@ -477,6 +477,13 @@ class RemoteDevice(Device):
             return answer
         return answer["result"]
 
+    def call_query(self, query: str, timeout: Any = READ_TIMEOUT, **kwargs: Any) -> Any:
+        """Ask one of the device's queries on the server: a read that takes
+        arguments and moves nothing."""
+        path = f"devices/{self.name}/queries/{query}"
+        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        return self.client.request("POST", path, timeout, json=body)["result"]
+
     def _reader(self, name: str) -> Callable[[], Any]:
         path = f"devices/{self.name}/{name}"
         type_ = self.declared_parameters()[name].type
@@ -677,7 +684,7 @@ class RemoteStage(RemoteDevice, Stage):
         function of it, and orientation checks ask often."""
         key = (rotation_reference, shuttle_pre_tilt, fib_column_tilt)
         if key not in self._poses:
-            answer = self.call_command(
+            answer = self.call_query(
                 "pose_table",
                 timeout=READ_TIMEOUT,
                 rotation_reference=rotation_reference,
@@ -903,6 +910,7 @@ def build_remote_fm(
         raise ConnectionError(
             f"could not connect to the FM at {address}:{port}: {error}"
         ) from error
+    context.on_disconnect(fm.client.close)
     apply_calibration = getattr(microscope, "_apply_fluorescence_calibration", None)
     if apply_calibration is not None:
         fm.client.reconnected.connect(apply_calibration)
@@ -924,6 +932,9 @@ def _server(
         except Exception as error:
             client.close()
             servers[key] = error
+        else:
+            # one client per server, shared by its devices: closed at disconnect
+            context.on_disconnect(client.close)
     server = servers[key]
     if isinstance(server, Exception):
         raise server

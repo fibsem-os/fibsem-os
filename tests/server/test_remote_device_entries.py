@@ -150,3 +150,21 @@ def test_the_demo_takes_its_electron_beam_from_a_server(server, tmp_path):
         assert not isinstance(microscope.beams[BeamType.ION], RemoteBeam)
     finally:
         microscope.beams[BeamType.ELECTRON].client.close()
+
+
+def test_disconnecting_the_microscope_closes_its_remote_clients(server, tmp_path):
+    with open(cfg.DEFAULT_CONFIGURATION_PATH) as f:
+        config = yaml.safe_load(f)
+    config["info"]["manufacturer"] = "Demo"
+    (electron,) = [e for e in config["hardware"]["devices"] if e["name"] == "electron"]
+    electron.update(driver="remote", address="127.0.0.1", port=server.port)
+    path = tmp_path / "configuration.yaml"
+    path.write_text(yaml.safe_dump(config))
+    microscope, _ = utils.setup_session(setup_logging=False, config_path=str(path))
+    client = microscope.beams[BeamType.ELECTRON].client
+    try:
+        assert not client._closing.is_set()
+        microscope.disconnect()
+        assert client._closing.is_set()
+    finally:
+        client.close()

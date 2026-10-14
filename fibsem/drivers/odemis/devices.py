@@ -993,14 +993,8 @@ class OdemisFMObjective(Objective):
     def read_magnification(self) -> float:
         return self._lens.magnification.value
 
-    def write_magnification(self, value: float) -> None:
-        self._lens.magnification.value = value
-
     def read_numerical_aperture(self) -> float:
         return self._lens.numericalAperture.value
-
-    def write_numerical_aperture(self, value: float) -> None:
-        self._lens.numericalAperture.value = value
 
     def read_limit_position(self) -> float:
         return self._limit_position
