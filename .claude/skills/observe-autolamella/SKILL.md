@@ -59,8 +59,8 @@ operator in a sentence what that means for this session:
   this skill's rule, not the server's.
 - `403 agent_off`: the agent is Off. Say so once and stop; there is nothing to
   read. Offline reading still works if they give you a folder.
-- `routers.app` false: no application is hosted (a bench server). There's no
-  session to observe.
+- `routers.app` false: no application is hosted. There's no session to
+  observe.
 - No discovery file: no App Server is running. Tell the operator it is
   switched on in Preferences → App Server and starts when a microscope
   connects. Offer to read a folder instead.

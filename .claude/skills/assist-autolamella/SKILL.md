@@ -30,9 +30,9 @@ Read `get_capabilities` first:
 
 - `level: "assist"` is the level this skill is for. Tell the operator in a
   sentence what that means: you read and suggest, you ask before acting,
-  and you stop without asking only if something is going wrong. `scopes`
-  shows `control`, `configure` and `hardware` false at Assist. That is
-  what you can call directly, not what you can ask for.
+  and you stop without asking only if something is going wrong. A direct
+  call that needs Drive is refused with `ask_first`; that is what you can
+  call directly, not what you can ask for.
 - `level: "watch"`: you can read and add notes, and suggest nothing. Work
   as the observe skill says (`.claude/skills/observe-autolamella`). If they
   want your help acting, they raise you to Assist from the Agent chip.

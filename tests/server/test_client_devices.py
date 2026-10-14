@@ -42,9 +42,7 @@ def microscope():
 @pytest.fixture(scope="module")
 def port(microscope):
     """The App Server over the Demo microscope, hardware armed, on a free port."""
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token=TOKEN)
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
     )

@@ -467,9 +467,7 @@ def test_a_request_to_the_app_server_is_the_agent_s(tmp_path, microscope):
     from fibsem.acting import OPERATOR
     from fibsem.server import AuthConfig, build_server
 
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token="t")
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token="t"))
     recorder = EventRecorder(
         microscope, experiment_path=tmp_path, default_actor=OPERATOR
     )

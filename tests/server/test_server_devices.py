@@ -50,9 +50,7 @@ def read_client(microscope):
 
 @pytest.fixture(scope="module")
 def armed_client(microscope):
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token=TOKEN)
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
         client.headers.update(AUTH)
         yield client
@@ -100,10 +98,10 @@ def test_read_is_read_scope(read_client, microscope):
     assert resp.json()["value"] == microscope.get_beam_current(BeamType.ION)
 
 
-def test_write_is_refused_until_hardware_is_armed(read_client):
+def test_write_is_refused_below_drive(read_client):
     resp = read_client.put("/devices/electron/hfw", json={"value": 100e-6})
     assert resp.status_code == 403
-    assert resp.json()["detail"]["error_type"] == "scope_not_armed"
+    assert resp.json()["detail"]["error_type"] == "level"
 
 
 def test_write_when_armed_reaches_the_device(armed_client, microscope):

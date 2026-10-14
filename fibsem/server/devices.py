@@ -25,7 +25,7 @@ Errors keep their meaning across the wire: the client raises the same exception
 types a local device would.
 
 The same ``/devices`` routes are mounted in the App Server (``fibsem.server.server``)
-over ``microscope.devices``, behind its bearer token and scopes. Served here on their
+over ``microscope.devices``, behind its bearer token and level. Served here on their
 own, they have no authentication yet, nor a one-commander lease.
 
 Try it on one computer:
@@ -282,7 +282,7 @@ def build_device_router(
     the microscope's services with the same routes under ``prefix="/services"``
     (*noun* names them in a 404). *read*, *write* and *command* are FastAPI
     dependencies for the reads, the parameter writes and the commands: the device
-    server passes none, the App Server its token, scopes and hardware lock. A query
+    server passes none, the App Server its token, level and hardware lock. A query
     moves nothing, so it takes the *read* dependencies, not the hardware lock.
     *on_image* is given each image a command acquired, before it is answered: the
     App Server shows it in the app's views (FIB-1375).

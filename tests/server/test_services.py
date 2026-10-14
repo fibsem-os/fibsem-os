@@ -1,5 +1,5 @@
 """The App Server's devices service (FIB-1035): off, nothing that reaches the
-instrument is registered; on, or on the bench server, everything is."""
+instrument is registered; on, everything is."""
 
 import os
 
@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.auth import Scope  # noqa: E402
 from fibsem.server.catalog import tools_for_capabilities  # noqa: E402
 
 TOKEN = "test-token"
@@ -82,7 +81,7 @@ def test_devices_off_still_needs_the_token(microscope):
 def test_the_agent_is_offered_no_instrument_tool_with_devices_off(microscope):
     client = _client(microscope, devices=False)
     capabilities = client.get("/capabilities", headers=AUTH).json()
-    capabilities["scopes"] = {s.value: True for s in Scope}
+    capabilities["level"] = "drive"
     assert not [
         t.path for t in tools_for_capabilities(capabilities) if t.router == "microscope"
     ]
@@ -97,7 +96,7 @@ def test_get_capabilities_is_offered_with_devices_off(microscope):
     assert "get_capabilities" in names
 
 
-def test_the_bench_server_serves_the_instrument_by_default(microscope):
+def test_the_instrument_is_served_by_default(microscope):
     client = _client(microscope)
     assert client.get("/stage_position", headers=AUTH).status_code == 200
     assert client.get("/devices", headers=AUTH).status_code == 200

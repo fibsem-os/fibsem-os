@@ -56,13 +56,7 @@ def test_start_serves_read_only_with_the_app_router(host, microscope):
     assert host.running
     body = _get(host, "/capabilities").json()
     assert body["routers"]["app"] is True
-    assert body["scopes"] == {
-        "read": True,
-        "control": False,
-        "configure": False,
-        "hardware": False,
-        "stop": False,
-    }
+    assert body["level"] == "watch"
     assert body["level"] == "watch"  # every launch starts watching (FIB-1035)
     # idempotent: a second start is a no-op, not a second server
     assert host.start(microscope) is True
@@ -137,7 +131,7 @@ def test_start_failure_is_contained_not_raised(microscope, tmp_path):
     assert not server_host.running
 
 
-def test_env_override_arms_control_scope(microscope, tmp_path, monkeypatch):
+def test_env_override_starts_at_drive(microscope, tmp_path, monkeypatch):
     monkeypatch.setenv("FIBSEM_AGENT_ARM_CONTROL", "1")
     ui = Host()
     server_host = AppServerHost(
@@ -147,9 +141,6 @@ def test_env_override_arms_control_scope(microscope, tmp_path, monkeypatch):
         assert server_host.start(microscope) is True
         body = _get(server_host, "/capabilities").json()
         assert body["level"] == "drive"
-        assert body["scopes"]["control"] is True
-        assert body["scopes"]["configure"] is True
-        assert body["scopes"]["hardware"] is True  # Drive arms it (FIB-1267)
     finally:
         server_host.stop()
 

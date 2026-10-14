@@ -26,9 +26,7 @@ def armed_client():
     previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
     os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token=TOKEN)
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
     if previous is None:

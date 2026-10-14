@@ -8,8 +8,8 @@ reverse — so this module never imports the application. It defines the
 
 Every route is a thin pass-through: the context returns plain JSON-able
 snapshots and owns all app knowledge; nothing here touches domain objects.
-The read-scope requirement is applied where the router is included, so auth
-stays in one place (build_server).
+The level each router needs is applied where it is included, so auth stays in
+one place (build_server).
 """
 
 from typing import Any, Dict, List, Optional
@@ -374,8 +374,8 @@ def build_app_router(context: AppContext) -> APIRouter:
 def build_app_control_router(context: AppContext) -> APIRouter:
     """Routes that act on the session rather than observe it.
 
-    Mounted (by build_server) behind the ``control`` scope, which the agent
-    holds at Drive: the operator raises it from the Agent chip (FIB-1035).
+    Mounted (by build_server) at Drive: the operator raises the level from the
+    Agent chip (FIB-1035).
     """
     router = APIRouter(prefix="/app")
 
@@ -649,8 +649,8 @@ def build_app_suggest_router(context: AppContext) -> APIRouter:
 
 
 def build_app_stop_router(context: AppContext) -> APIRouter:
-    """Stopping the run. Mounted (by build_server) behind the ``stop`` scope:
-    at Assist and Drive the agent stops without asking (FIB-1283); a watching
+    """Stopping the run. Mounted (by build_server) at Assist: at Assist and
+    Drive the agent stops without asking (FIB-1283); a watching
     agent stops nothing (FIB-1035)."""
     router = APIRouter(prefix="/app")
 
@@ -664,12 +664,8 @@ def build_app_stop_router(context: AppContext) -> APIRouter:
 
 
 def build_app_config_router(context: AppContext) -> APIRouter:
-    """Routes that edit configuration — the ``configure`` scope's own router.
-
-    Deliberately not on the control router: answering a question with
-    geometry (control) and editing protocols (configure) are different
-    grants, and the arming dialog shows them as separate rungs (FIB-864).
-    """
+    """Routes that edit configuration (protocols, item configs, schedules,
+    run options). Mounted at Drive, like the control router (FIB-864)."""
     router = APIRouter(prefix="/app")
 
     def _validated(body: Dict[str, Any]):
@@ -708,8 +704,8 @@ def build_app_config_router(context: AppContext) -> APIRouter:
 
     @router.post("/workflow/schedule")
     def set_task_schedule(body: Dict[str, Any]):
-        # Workflow structure, not a config document: a verb like /app/supervision,
-        # on the configure scope. scheduled_at is ISO-8601 or null to clear.
+        # Workflow structure, not a config document: a verb like
+        # /app/supervision. scheduled_at is ISO-8601 or null to clear.
         task_name = body.get("task_name")
         scheduled_at = body.get("scheduled_at")
         if not isinstance(task_name, str) or (
@@ -745,8 +741,7 @@ def build_app_config_router(context: AppContext) -> APIRouter:
 
     @router.post("/workflow/options")
     def set_workflow_options(body: Dict[str, Any]):
-        # The workflow's run options, on the configure scope like the
-        # schedule. One so far: whether the run summary dialog opens.
+        # The workflow's run options, beside the schedule. One so far: whether the run summary dialog opens.
         show_run_summary = body.get("show_run_summary")
         if not isinstance(show_run_summary, bool):
             raise HTTPException(

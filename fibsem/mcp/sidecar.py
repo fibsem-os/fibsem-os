@@ -247,15 +247,13 @@ def build_sidecar(client, capabilities):
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
     its router is mounted (an app tool exists only when the server hosts an
-    application), whatever the agent's level; on a bench server, which has no
-    level, hardware tools only when the hardware scope is armed. The server
-    enforces regardless.
+    application), whatever the agent's level. The server enforces the level.
     """
     from mcp.server.mcpserver import Image, MCPServer
 
     mcp = MCPServer("fibsem")
     _name_the_client(mcp, client)
-    armed = {t.name for t in tools_for_capabilities(capabilities)}
+    offered = {t.name for t in tools_for_capabilities(capabilities)}
     by_name = {t.name: t for t in CATALOG}
 
     def _json_tool(name, payload_fn=None):
@@ -831,7 +829,7 @@ def build_sidecar(client, capabilities):
         raise RuntimeError(f"sidecar is missing implementations for: {sorted(missing)}")
 
     for name, fn in implementations.items():
-        if name in armed:
+        if name in offered:
             mcp.add_tool(fn, name=name, description=by_name[name].full_description)
     return mcp
 
