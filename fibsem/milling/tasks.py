@@ -20,6 +20,7 @@ from fibsem.cancellation import (
     ended_by,
     raise_if_cancelled,
 )
+from fibsem.display import Display
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -30,6 +31,7 @@ from fibsem.structures import (
     ImageSettings,
     MillingAlignment,
     Point,
+    field_meta,
 )
 from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp_v3
@@ -41,26 +43,26 @@ class MillingTaskAcquisitionSettings:
 
     acquire_sem: bool = field(
         default=False,
-        metadata={
-            "label": "Acquire SEM Image",
-            "tooltip": "Whether to acquire SEM images between the milling task stages.",
-        },
+        metadata=field_meta(
+            doc="Whether to acquire SEM images between the milling task stages.",
+            display=Display("Acquire SEM Image"),
+        ),
     )
     acquire_fib: bool = field(
         default=False,
-        metadata={
-            "label": "Acquire FIB Image",
-            "tooltip": "Whether to acquire FIB images between the milling task stages.",
-        },
+        metadata=field_meta(
+            doc="Whether to acquire FIB images between the milling task stages.",
+            display=Display("Acquire FIB Image"),
+        ),
     )
     acquire_final_image: bool = field(
         default=True,
-        metadata={
-            "label": "Acquire Final Image",
-            "tooltip": "Refresh the FIB view with a single image once the task finishes. "
+        metadata=field_meta(
+            doc="Refresh the FIB view with a single image once the task finishes. "
             "Disable for low-kV polishing, where imaging the lamella with a "
             "higher-voltage beam undoes the polish.",
-        },
+            display=Display("Acquire Final Image"),
+        ),
     )
     imaging: ImageSettings = field(default_factory=ImageSettings)
 
