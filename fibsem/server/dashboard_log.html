@@ -446,7 +446,7 @@ async function loadEarlier() {
 
 async function refreshHeader() {
   let status;
-  try { status = await api("/app/status"); } catch (e) { return; }
+  try { status = await api("/app/workflow/status"); } catch (e) { return; }
   const exp = status.experiment, wf = status.workflow || {};
   const state = wf.running
     ? `<span class="ok">&#9679; running</span>${wf.current_task ? ` · ${esc(wf.current_task)} · ${esc(wf.current_item || "")}` : ""}`
