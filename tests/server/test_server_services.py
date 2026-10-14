@@ -178,7 +178,8 @@ def test_the_device_reads_are_queries(read_client, microscope):
 def test_the_view_corrected_movements_are_queries(read_client, microscope):
     def ask(query, **kwargs):
         resp = read_client.post(
-            f"/services/stage_movement/queries/{query}", json={"kwargs": kwargs}
+            f"/microscope/services/stage_movement/queries/{query}",
+            json={"kwargs": kwargs},
         )
         assert resp.status_code == 200, resp.text
         return resp.json()["result"]
