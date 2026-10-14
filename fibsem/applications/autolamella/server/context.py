@@ -143,12 +143,17 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
         from fibsem.fm.preview import is_fluorescence_image, load_projection
         from fibsem.server.images import preview_jpeg_bytes
 
+        metadata = None
         if is_fluorescence_image(path):
             data, _ = load_projection(path)
         elif filename.lower().endswith((".tif", ".tiff")):
-            import tifffile
+            from fibsem.server.images import image_metadata
+            from fibsem.structures import FibsemImage
 
-            data = np.squeeze(np.asarray(tifffile.imread(path)))
+            image = FibsemImage.load(path)
+            data = np.squeeze(np.asarray(image.data))
+            if image.metadata is not None:  # a beam image: its scale and state
+                metadata = image_metadata(image, path)
         else:
             from PIL import Image
 
@@ -161,6 +166,11 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
         if data.ndim == 3 and data.shape[-1] == 4:
             data = data[..., :3]
         jpeg, width, height = preview_jpeg_bytes(data, max_width=max_width)
+        if metadata is not None and metadata["pixel_size"] and width:
+            # metres per PREVIEW pixel, as image answers carry it.
+            metadata["preview_pixelsize"] = (
+                metadata["pixel_size"] * data.shape[1] / width
+            )
     except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
         return {
             "available": True,
@@ -173,6 +183,7 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
         "width": width,
         "height": height,
         "filename": filename,
+        "metadata": metadata,
     }
 
 
@@ -275,6 +286,34 @@ class AutoLamellaAppContext:
         """The open experiment's folder, or None: where an agent may save."""
         experiment = self._experiment
         return str(experiment.path) if experiment is not None else None
+
+    def image_metadata(self, path: str) -> Dict[str, Any]:
+        """A saved beam image's full metadata, as its file records it, for a
+        path inside the open experiment only (the agent's drill-down behind
+        the short block every image answer carries)."""
+        import os
+
+        from fibsem.structures import FibsemImage
+
+        root = self.experiment_path
+        if root is None:
+            return {"error_type": "not_found", "message": "No experiment is open."}
+        root = os.path.realpath(root)
+        target = os.path.realpath(path)
+        if os.path.commonpath([root, target]) != root:
+            return {
+                "error_type": "not_allowed",
+                "message": f"Only images inside the open experiment ({root}).",
+            }
+        if not os.path.isfile(target):
+            return {"error_type": "not_found", "message": f"No file at {path}."}
+        image = FibsemImage.load(target)
+        if image.metadata is None:
+            return {
+                "error_type": "not_found",
+                "message": f"{path} carries no beam image metadata.",
+            }
+        return {"path": path, "metadata": image.metadata.to_dict()}
 
     @property
     def _manager(self):
