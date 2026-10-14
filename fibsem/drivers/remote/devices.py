@@ -104,6 +104,8 @@ if TYPE_CHECKING:
 
 READ_TIMEOUT = 5.0
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
+# Commands that stop something, which carry a reason (fibsem.server.server).
+_STOPS = frozenset(("stop", "stop_live", "cancel"))
 WRITE_TIMEOUT = 60.0  # a plasma gas change takes a while
 UNTIL_DONE = (READ_TIMEOUT, None)
 """For a move, a pump or a vent: it takes as long as it takes, and ends by answering
@@ -461,6 +463,9 @@ class RemoteDevice(Device):
         requests timeout: seconds, or (connect, read)."""
         path = f"devices/{self.name}/commands/{command}"
         body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        if command in _STOPS:
+            # The App Server records why with every stop; a device server ignores it.
+            body["reason"] = f"{self.name} {command} from a remote microscope"
         answer = self.client.request("POST", path, timeout, json=body)
         if isinstance(answer, (np.ndarray, Frame, list)):
             return answer

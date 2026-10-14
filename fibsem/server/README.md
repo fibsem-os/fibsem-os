@@ -23,13 +23,17 @@ The Swagger UI is available at `http://<host>:8001/docs`.
 
 Every request needs the server's bearer token, sent as an
 `Authorization: Bearer <token>` header. What the token may do is the agent
-level the operator sets from the Agent chip: reads at Watch, stops at Assist,
-acting at Drive; at Off everything is refused. A refusal is a structured 403
+level the operator sets from the Agent chip: reads at Watch, acting at Drive;
+at Off everything is refused. A refusal is a structured 403
 naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`). A hardware
 command takes control of the microscope while it runs: when a run, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
-A stop (`POST /microscope/services/milling/commands/stop`, or a device's `stop`
-or `stop_live`) needs Assist and never takes control. `GET /capabilities` reports the
+A stop (`POST /microscope/services/milling/commands/stop`, a device's `stop`,
+`stop_live` or `cancel`, or `POST /app/workflow/stop`) never takes control. The
+agent stops its own action (its command holds control) at any level; anything
+else needs Drive, or a request approved at Assist. Every stop needs a `reason`
+in its body (`422 missing_reason` without one), recorded as an `agent_stop`
+event. `GET /capabilities` reports the
 level.
 
 The server binds `127.0.0.1` by default. Exposing it on the LAN is an
@@ -180,8 +184,8 @@ from one `values` read, and written parameter by parameter. Stage moves and
 milling go through the `stage_movement` and `milling` services.
 
 Reads work at Watch. Parameter writes and commands need Drive and take control
-of the microscope, except the `stop` and `stop_live` commands, which need
-Assist and never take control.
+of the microscope, except the stops (`stop`, `stop_live`, `cancel`), which follow
+the stop rule above and never take control.
 
 ---
 

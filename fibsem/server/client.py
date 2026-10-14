@@ -560,8 +560,12 @@ class FibsemClient:
     def start_milling(self) -> None:
         self._milling("start")
 
-    def stop_milling(self) -> None:
-        self._milling("stop")
+    def stop_milling(self, reason: str = "stopped from a script") -> None:
+        """Stop the mill. The App Server records the reason with the stop."""
+        self._post(
+            f"{MICROSCOPE}/services/{MILLING}/commands/stop",
+            {"kwargs": {}, "reason": reason},
+        )
 
     def pause_milling(self) -> None:
         self._milling("pause")

@@ -76,7 +76,7 @@ def test_each_description_names_the_level_it_needs(armed_sidecar):
     listed = asyncio.run(armed_sidecar.list_tools())
     described = {t.name: t.description for t in getattr(listed, "tools", listed)}
     assert described["get_stage_position"].endswith("Works at Watch, Assist and Drive.")
-    assert "Assist and Drive without asking" in described["stop_milling"]
+    assert "started itself it can stop at any level" in described["stop_milling"]
     assert "Needs the agent at Drive" in described["move_stage_relative"]
     assert "request_actions" in described["move_stage_relative"]
     assert "(409)" in described["move_stage_relative"]

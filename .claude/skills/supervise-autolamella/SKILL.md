@@ -294,9 +294,11 @@ The argument selects a variation on the same loop:
 
 - `POST /app/workflow/start {"task_names": [...], "item_names": [...]}` —
   items omitted = all. Say what you are starting before you start it.
-- `POST /app/workflow/stop` — if you believe the run is doing damage, stop
-  first and explain second. At Watch you cannot stop it: tell the operator
-  at once, plainly, what you see and that they should press Stop.
+- `POST /app/workflow/stop {"reason": "..."}` — at Drive, if you believe the
+  run is doing damage, stop first; the reason is what the operator reads. At
+  Assist, file it as a request (the assist skill). At Watch you cannot stop
+  it: tell the operator at once, plainly, what you see and that they should
+  press Stop.
 - `POST /app/agent/supervision {"task_name", "supervise"}` — takes effect at the
   next decision point. A supervised task's questions go to the operator and
   to you alike; the first answer wins, and the operator can always answer

@@ -144,7 +144,7 @@ function gate(message) {
 const GROUPS = [
   ["questions", "questions", k => k.startsWith("prompt_") || k.startsWith("question_")
     || k.startsWith("proposal_") || k === "review_decided"],
-  ["notes", "notes", k => k === "agent_note"],
+  ["notes", "notes & stops", k => k === "agent_note" || k === "agent_stop"],
   ["requests", "requests", k => k.startsWith("request_")],
   ["workflow", "workflow", k => k.startsWith("task_") || k.startsWith("workflow_")
     || k === "item_completed" || k === "experiment_completed"],
@@ -266,6 +266,8 @@ function describe(e) {
     case "proposal_decided": return ["decided", esc([p.field || p.kind, p.outcome].filter(Boolean).join(" · "))];
     case "review_decided": return ["reviewed", esc([p.field, p.outcome || p.decision].filter(Boolean).join(" · "))];
     case "agent_note": return ["note", esc(p.text)];
+    case "agent_stop":
+      return ["stopped", `${esc(p.action)}${p.own ? " (its own)" : ""} <span class="muted">${esc(p.reason)}</span>`];
     case "request_raised": {
       const tools = (p.actions || []).map(a => a.tool).join(", ");
       return ["requested", `${esc(tools)}${p.reason ? ` <span class="muted">${esc(p.reason)}</span>` : ""}`];
