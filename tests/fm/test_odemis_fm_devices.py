@@ -422,11 +422,9 @@ def _part_cases():
             "ERROR": "Error",
         }[s.name],
     )
-    for name, value in (
-        ("magnification", 50.0),
-        ("numerical_aperture", 0.9),
-        ("limit_position", 5.0e-3),
-    ):
+    # The magnification and numerical aperture are the objective's hardware
+    # description: read only.
+    for name, value in (("limit_position", 5.0e-3),):
         add(
             f"objective set {name} {value}",
             lambda fm, n=name, v=value: setattr(fm.objective, n, v),
