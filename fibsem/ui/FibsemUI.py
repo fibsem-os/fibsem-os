@@ -35,6 +35,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
+from fibsem.tools.app_identity import set_app_identity
+from fibsem.tools.apps import FIBSEM_UI
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
@@ -313,16 +315,18 @@ class FibsemUI(QMainWindow):
         self._overview_placeholder.show()
 
 
-def main(splash: Optional[QSplashScreen] = None):
+def main(argv: Optional[List[str]] = None, splash: Optional[QSplashScreen] = None):
     """Run the fibsemOS UI.
 
-    ``splash`` is the launcher's splash screen (fibsem.tools.launcher), closed once
-    the main window is up.
+    ``argv`` is accepted for the launcher's common signature; the UI takes no
+    flags. ``splash`` is the launcher's splash screen (fibsem.tools.launcher),
+    closed once the main window is up.
     """
     # Fully viewer-less: the quad-view controller is the display, and the overview is a
     # tab beside it rather than a napari viewer of its own.
+    set_app_identity(FIBSEM_UI.name, windows_app_id=FIBSEM_UI.app_id)
     app = QApplication.instance() or QApplication([])
-    app.setApplicationName("fibsemOS")
+    app.setApplicationName(FIBSEM_UI.name)
     app.setStyle("Fusion")
     app.setWindowIcon(fibsemos_icon())
     fibsem_ui = FibsemUI()

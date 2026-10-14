@@ -1,9 +1,10 @@
 """Start the desktop apps behind a splash screen.
 
-The ``fibsem-autolamella-ui`` and ``fibsem_ui`` entry points. Importing either
-app takes seconds (most of it ``fibsem.ui``, which builds every widget module),
-and until then a launch shows nothing, so people click the shortcut again. This
-module puts the app's icon and name on screen first, then imports the app.
+The ``fibsem-autolamella-ui`` and ``fibsem_ui`` entry points, and the way into
+any app registered in fibsem.tools.apps. Importing an app takes seconds (most of
+it ``fibsem.ui``, which builds every widget module), and until then a launch
+shows nothing, so people click the shortcut again. This module puts the app's
+icon and name on screen first, then imports the app.
 
 It must stay cheap to import: the standard library, ``fibsem`` itself and
 Qt-free modules only. Qt is imported inside the functions, as everywhere outside
@@ -13,7 +14,7 @@ the splash screen appears and defeat it; tests/ui/test_launcher.py checks that.
 
 from __future__ import annotations
 
-import importlib.resources
+import importlib
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional
@@ -26,13 +27,11 @@ from fibsem.theme.tokens import (
     TEXT_STRONG_COLOR,
 )
 from fibsem.tools.app_identity import set_app_identity
+from fibsem.tools.apps import App, apps
 
 if TYPE_CHECKING:
     from PyQt5.QtGui import QPixmap
     from PyQt5.QtWidgets import QSplashScreen
-
-# The drawings fibsem.ui.icon renders, found without importing fibsem.ui.
-ICONS_DIR = Path(str(importlib.resources.files("fibsem"))) / "ui" / "icons"
 
 SPLASH_WIDTH = 440
 SPLASH_HEIGHT = 240
@@ -83,52 +82,45 @@ def splash_pixmap(
     return pixmap
 
 
-def show_splash(
-    name: str, windows_app_id: str, icon: Path, caption: str
-) -> QSplashScreen:
+def show_splash(app: App) -> QSplashScreen:
     """Name the process, create the QApplication and put the splash on screen.
 
     The app identity goes before the QApplication exists, as the OS reads it then.
     """
     from PyQt5.QtWidgets import QApplication, QSplashScreen
 
-    set_app_identity(name, windows_app_id=windows_app_id)
-    app = QApplication.instance() or QApplication(sys.argv)
-    splash = QSplashScreen(splash_pixmap(icon, name, caption, app.devicePixelRatio()))
+    set_app_identity(app.name, windows_app_id=app.app_id)
+    qapp = QApplication.instance() or QApplication(sys.argv)
+    version = fibsem.__version__
+    caption = version if app.name == "fibsemOS" else f"fibsemOS {version}"
+    splash = QSplashScreen(
+        splash_pixmap(app.icon, app.name, caption, qapp.devicePixelRatio())
+    )
     splash.show()
-    app.processEvents()  # paint it now: the app's import blocks the event loop
+    qapp.processEvents()  # paint it now: the app's import blocks the event loop
     return splash
 
 
-def autolamella(argv: Optional[List[str]] = None) -> None:
-    """Show the AutoLamella splash screen, then import and run the UI."""
+def launch(key: str, argv: Optional[List[str]] = None) -> None:
+    """Run the app registered as ``key`` (see fibsem.tools.apps) behind its splash."""
+    app = apps()[key]
     argv = sys.argv[1:] if argv is None else argv
-    if "-h" in argv or "--help" in argv:
-        # Print the usage and exit; no window, so no splash screen either.
-        from fibsem.applications.autolamella.ui.AutoLamellaMainUI import run_ui
-
-        run_ui(argv)
-        return
-
-    splash = show_splash(
-        "AutoLamella",
-        "fibsemOS.AutoLamella",
-        ICONS_DIR / "autolamella.svg",
-        f"fibsemOS {fibsem.__version__}",
-    )
-    from fibsem.applications.autolamella.ui.AutoLamellaMainUI import run_ui
-
-    run_ui(argv, splash=splash)
+    # --help prints and exits without a window, so it gets no splash screen.
+    splash = None if "-h" in argv or "--help" in argv else show_splash(app)
+    module, function = app.target.split(":")
+    run = getattr(importlib.import_module(module), function)
+    if splash is None:
+        run(argv)
+    else:
+        run(argv, splash=splash)
 
 
-def fibsem_ui() -> None:
-    """Show the fibsemOS splash screen, then import and run the fibsemOS UI."""
-    splash = show_splash(
-        "fibsemOS",
-        "fibsemOS.FibsemUI",
-        ICONS_DIR / "fibsemos.svg",
-        fibsem.__version__,
-    )
-    from fibsem.ui.FibsemUI import main
+# The console commands. Their names are what existing installs' scripts call.
+def autolamella(argv: Optional[List[str]] = None) -> None:
+    """``fibsem-autolamella-ui``."""
+    launch("autolamella", argv)
 
-    main(splash=splash)
+
+def fibsem_ui(argv: Optional[List[str]] = None) -> None:
+    """``fibsem_ui``."""
+    launch("fibsem-ui", argv)

@@ -13,6 +13,7 @@ from PyQt5.QtGui import QColor
 
 import fibsem
 from fibsem.tools import launcher
+from fibsem.tools.apps import ICONS_DIR
 
 
 def test_importing_the_launcher_does_not_load_fibsem_ui():
@@ -42,7 +43,7 @@ def test_importing_the_launcher_does_not_load_fibsem_ui():
 )
 def test_splash_draws_the_app_icon_on_the_surface(qapp, drawing, tile):
     image = launcher.splash_pixmap(
-        launcher.ICONS_DIR / drawing, "Name", "caption", device_pixel_ratio=2.0
+        ICONS_DIR / drawing, "Name", "caption", device_pixel_ratio=2.0
     ).toImage()
 
     assert (image.width(), image.height()) == (
