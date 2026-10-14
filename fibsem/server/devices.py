@@ -81,6 +81,7 @@ from fastapi.responses import Response
 from fibsem.cancellation import OperationCancelledError
 from fibsem.devices.core import (
     Device,
+    DeviceFault,
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
@@ -115,6 +116,7 @@ ERROR_STATUS = {
     TypeError: 422,
     ValueError: 422,  # an argument that does not decode names its parameter
     NotImplementedError: 501,  # a command this driver has no hook for (a needle's stop)
+    DeviceFault: 502,  # the hardware or its controller refused
 }
 
 
@@ -130,8 +132,20 @@ def refusal(error: Exception, what: str) -> HTTPException:
     parameter = getattr(error, "parameter", None)
     if parameter is not None:
         detail["parameter"] = parameter
+    device = getattr(error, "device", None) if isinstance(error, DeviceFault) else None
+    if device is not None:
+        detail["device"] = device
     logging.info(f"{what}: {status} {detail['error_type']}: {error}")
     return HTTPException(status, detail)
+
+
+def unexpected(error: Exception, what: str) -> HTTPException:
+    """The answer to any other error: 500, in the same shape as a refusal, so a
+    client reads every failure one way. The traceback goes to the server's log,
+    not the answer."""
+    logging.error(f"{what}: {type(error).__name__}: {error}", exc_info=error)
+    detail = {"error_type": type(error).__name__, "message": str(error)}
+    return HTTPException(500, detail)
 
 
 def _choices_to_wire(choices: Any) -> Any:
@@ -319,6 +333,8 @@ def build_device_router(
             raise
         except tuple(ERROR_STATUS) as error:
             raise refusal(error, what) from None
+        except Exception as error:
+            raise unexpected(error, what) from None
 
     @router.get(prefix, dependencies=list(read))
     def list_devices() -> Dict[str, Any]:
@@ -343,6 +359,8 @@ def build_device_router(
                 continue
             except tuple(ERROR_STATUS) as error:
                 raise refusal(error, f"{noun} {device}.{name}") from None
+            except Exception as error:
+                raise unexpected(error, f"{noun} {device}.{name}") from None
             values[name] = to_wire(value)
         return {"values": jsonable_encoder(values), "unavailable": unavailable}
 

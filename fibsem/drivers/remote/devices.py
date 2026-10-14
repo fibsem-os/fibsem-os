@@ -69,6 +69,7 @@ from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import (
     Device,
+    DeviceFault,
     ParameterMetadata,
     ParameterReadOnly,
     ParameterUnavailable,
@@ -245,8 +246,13 @@ class DeviceClient:
             # error_type and message; a server from before FIB-1377 sends error
             # and detail.
             kind = detail.get("error_type", detail.get("error"))
+            message = detail.get("message", detail.get("detail"))
+            if kind == "DeviceFault" or response.status_code == 502:
+                # the hardware refused on the far side: a driver's own subclass
+                # arrives as the fault it is
+                raise DeviceFault(message, device=detail.get("device"))
             if kind in _ERRORS:
-                raise _ERRORS[kind](detail.get("message", detail.get("detail")))
+                raise _ERRORS[kind](message)
         raise RemoteDeviceError(f"{method} {path}: {response.status_code} {detail}")
 
     def health(self) -> Dict[str, Any]:
