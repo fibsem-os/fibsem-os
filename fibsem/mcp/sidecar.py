@@ -373,6 +373,42 @@ def build_sidecar(client, capabilities):
         )
         return err if err else data
 
+    def stable_move(dx: float, dy: float, beam_type: str = "ELECTRON"):
+        data, err = _call(
+            client,
+            "POST",
+            "/stable_move",
+            {"dx": float(dx), "dy": float(dy), "beam_type": str(beam_type)},
+        )
+        return err if err else data
+
+    def vertical_move(dy: float, dx: float = 0.0):
+        data, err = _call(
+            client, "POST", "/vertical_move", {"dy": float(dy), "dx": float(dx)}
+        )
+        return err if err else data
+
+    def move_to_orientation(orientation: str):
+        data, err = _call(
+            client, "POST", "/move_to_orientation", {"orientation": str(orientation)}
+        )
+        return err if err else data
+
+    def safe_move_stage_absolute(x: float, y: float, z: float, r: float, t: float):
+        position = {
+            "name": None,
+            "x": x,
+            "y": y,
+            "z": z,
+            "r": r,
+            "t": t,
+            "coordinate_system": "RAW",
+        }
+        data, err = _call(
+            client, "POST", "/safe_absolute_stage_movement", {"position": position}
+        )
+        return err if err else data
+
     def move_to_milling_angle(milling_angle_deg: float):
         # The tool speaks degrees; the stage movement command takes radians (FIB-853).
         kwargs = {"milling_angle": math.radians(milling_angle_deg)}
@@ -708,6 +744,10 @@ def build_sidecar(client, capabilities):
             acquire_image_preview,
             move_stage_relative,
             move_stage_absolute,
+            stable_move,
+            vertical_move,
+            move_to_orientation,
+            safe_move_stage_absolute,
             move_to_milling_angle,
             list_devices,
             get_parameter,
