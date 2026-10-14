@@ -208,9 +208,9 @@ work unchanged.
   The record names the driver (`manufacturer`) and the other spellings it
   accepts (`aliases`), and the microscope class sets the same name as its
   `driver_name`. A manufacturer without one raises `NotImplementedError` at
-  connection time, not at import. The first-run wizard is still code:
-  `fibsem/guided_setup.py` (`MANUFACTURERS`, and a `MicroscopeModel` per
-  instrument).
+  connection time, not at import. To be offered by the first-run wizard,
+  the record names a `DriverSetup` (`setup`, see `fibsem/drivers/setup.py`):
+  its label, its vendor package, and a `SetupModel` per instrument.
 - **Configuration.** Instruments are described by a YAML file in
   `fibsem/config/`; the setup wizard creates one. For a manufacturer it
   does not know, start from a Demo configuration and edit it. The devices

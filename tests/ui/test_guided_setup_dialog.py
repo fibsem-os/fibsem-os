@@ -48,7 +48,7 @@ def isolated_state(tmp_path, monkeypatch):
     # the files these tests are about -- the fixture would then inherit a machine that
     # has already been set up, and every first-run assertion would fail on a working
     # tree and pass on a clean one.
-    for model in wizard.MICROSCOPE_MODELS:
+    for model in wizard.microscope_models():
         shutil.copy(model.path, tmp_path)
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path))
 
@@ -147,7 +147,7 @@ def test_the_compustage_is_shown_the_step_but_cannot_edit_it(dialog):
 
     # Derived from the data rather than listed, so a model added later is covered
     # without anyone remembering to add it here.
-    for model in wizard.MICROSCOPE_MODELS:
+    for model in wizard.microscope_models():
         if model.knows_stage:
             continue
         dialog._select_manufacturer(model.manufacturer_key)
@@ -176,9 +176,6 @@ def test_the_compustage_writes_its_shipped_values_untouched(dialog):
     assert configuration_device(config, "stage")["rotation_reference"] == 0
     assert config["calibration"]["shuttle_pre_tilt"] == 0
     assert "rotation" not in configuration_device(config, "stage")
-    # The wizard's own record of the mounting, which is what a simulated run reads to
-    # report a stage with no rotation axis.
-    assert wizard.get_model("tfs-arctis").is_compustage
 
 
 def test_the_stage_step_is_prefilled_from_the_chosen_model(dialog):
@@ -228,7 +225,7 @@ def test_back_walks_the_same_steps_as_forwards(dialog):
 
 def test_the_connection_step_is_never_skipped(dialog):
     """The address cannot be implied, and the stage step reads through it."""
-    for key in [model.key for model in wizard.MICROSCOPE_MODELS]:
+    for key in [model.key for model in wizard.microscope_models()]:
         dialog._select_model(key)
         assert not dialog._is_skipped(STEP_CONNECTION), key
 
@@ -253,41 +250,37 @@ def test_exactly_one_model_card_is_selected(dialog):
 
 
 def test_choosing_a_manufacturer_shows_only_its_instruments(dialog):
-    dialog._select_manufacturer(wizard.MANUFACTURER_TESCAN)
-    for model in wizard.MICROSCOPE_MODELS:
+    dialog._select_manufacturer("Tescan")
+    for model in wizard.microscope_models():
         shown = not dialog._model_cards[model.key].isHidden()
-        assert shown == (model.manufacturer_key == wizard.MANUFACTURER_TESCAN), (
-            model.key
-        )
+        assert shown == (model.manufacturer_key == "Tescan"), model.key
 
 
 def test_changing_manufacturer_lands_on_one_of_its_instruments(dialog):
     """Left alone, Next would carry a model belonging to the manufacturer just
     abandoned -- a Tescan configuration written as a ThermoFisher."""
-    dialog._select_manufacturer(wizard.MANUFACTURER_THERMO)
+    dialog._select_manufacturer("ThermoFisher")
     dialog._select_model("tfs-hydra")
-    dialog._select_manufacturer(wizard.MANUFACTURER_SIMULATOR)
-    assert dialog.choices.model.manufacturer_key == wizard.MANUFACTURER_SIMULATOR
+    dialog._select_manufacturer("Demo")
+    assert dialog.choices.model.manufacturer_key == "Demo"
 
 
 def test_an_instrument_survives_reselecting_its_own_manufacturer(dialog):
     """Only a *change* of manufacturer should move the instrument."""
-    dialog._select_manufacturer(wizard.MANUFACTURER_THERMO)
+    dialog._select_manufacturer("ThermoFisher")
     dialog._select_model("tfs-aquilos2")
-    dialog._select_manufacturer(wizard.MANUFACTURER_THERMO)
+    dialog._select_manufacturer("ThermoFisher")
     assert dialog.choices.model_key == "tfs-aquilos2"
 
 
 def test_the_api_note_says_what_is_missing_on_this_computer(dialog):
     """Said here rather than at connect time, three steps later."""
-    dialog._select_manufacturer(wizard.MANUFACTURER_SIMULATOR)
+    dialog._select_manufacturer("Demo")
     assert "nothing else to install" in dialog._api_note.text()
 
-    dialog._select_manufacturer(wizard.MANUFACTURER_THERMO)
+    dialog._select_manufacturer("ThermoFisher")
     note = dialog._api_note.text()
-    installed = wizard.api_is_installed(
-        wizard.get_manufacturer(wizard.MANUFACTURER_THERMO)
-    )
+    installed = wizard.api_is_installed(wizard.get_manufacturer("ThermoFisher"))
     assert "AutoScript" in note
     # Whichever way this machine answers, the note has to state it rather than warn in
     # general terms about software the user may already have.
@@ -309,7 +302,7 @@ def test_return_while_editing_does_not_leave_the_step(dialog, qapp):
     # on the spin box skips the propagation to the dialog that *is* the bug, so the
     # direct version passed with the fix reverted -- a harness friendlier than the
     # real thing, which is the only way this test could have been useless.
-    dialog._select_manufacturer(wizard.MANUFACTURER_THERMO)
+    dialog._select_manufacturer("ThermoFisher")
     dialog._select_model("tfs-hydra")
     dialog.show()
     dialog._show_step(STEP_STAGE)
@@ -391,7 +384,7 @@ def test_the_address_follows_the_computer_choice(dialog):
 
 def test_the_simulator_has_no_address_to_give(dialog):
     """Chosen in step 1, and step 2 has nothing left to ask."""
-    dialog._select_manufacturer(wizard.MANUFACTURER_SIMULATOR)
+    dialog._select_manufacturer("Demo")
     dialog._show_step(STEP_CONNECTION)
     assert dialog._address_edit.text() == ""
     assert not dialog._address_edit.isEnabled()
@@ -404,7 +397,7 @@ def test_the_simulator_has_no_address_to_give(dialog):
 
 def test_the_connection_step_is_shown_not_skipped_for_the_simulator(dialog):
     """An answered step reads as an answer; an absent one reads as an omission."""
-    dialog._select_manufacturer(wizard.MANUFACTURER_SIMULATOR)
+    dialog._select_manufacturer("Demo")
     dialog._show_step(STEP_CONNECTION)
     assert dialog._index == STEP_CONNECTION
     assert not dialog._is_skipped(STEP_CONNECTION)
@@ -412,10 +405,10 @@ def test_the_connection_step_is_shown_not_skipped_for_the_simulator(dialog):
 
 def test_leaving_the_simulator_gives_the_address_back(dialog):
     """The field is disabled rather than cleared, so going back has to re-enable it."""
-    dialog._select_manufacturer(wizard.MANUFACTURER_SIMULATOR)
+    dialog._select_manufacturer("Demo")
     dialog._show_step(STEP_CONNECTION)
     assert not dialog._address_edit.isEnabled()
-    dialog._select_manufacturer(wizard.MANUFACTURER_THERMO)
+    dialog._select_manufacturer("ThermoFisher")
     assert dialog._address_edit.isEnabled()
     assert dialog._address_edit.text() == cfg.DEFAULT_IP_ADDRESS
 

@@ -52,7 +52,7 @@ def isolated_registry(tmp_path, monkeypatch):
 
 def test_every_offered_model_ships_a_configuration_file():
     """A card that cannot be built from is a dead end at step one."""
-    for model in wizard.MICROSCOPE_MODELS:
+    for model in wizard.microscope_models():
         assert os.path.exists(model.path), f"{model.label} has no {model.filename}"
 
 
@@ -64,7 +64,7 @@ def test_every_model_carries_both_stage_values():
     """
     from fibsem import utils
 
-    for model in wizard.MICROSCOPE_MODELS:
+    for model in wizard.microscope_models():
         config = utils.load_yaml(model.path)
         assert "rotation_reference" in _device(config, "stage"), model.label
         assert "shuttle_pre_tilt" in config["calibration"], model.label
@@ -72,7 +72,7 @@ def test_every_model_carries_both_stage_values():
 
 def test_unknown_keys_fall_back_rather_than_raising():
     """Read while painting a dialog, where an exception is a dead window."""
-    assert wizard.get_model("no-such-model") is wizard.MICROSCOPE_MODELS[0]
+    assert wizard.get_model("no-such-model") == wizard.microscope_models()[0]
     assert wizard.get_location("no-such-place") is wizard.COMPUTER_LOCATIONS[0]
 
 
@@ -100,7 +100,6 @@ def test_only_the_compustage_is_shown_the_stage_step_read_only():
     """The Arctis reaches the other side by tilting, so there is no reference rotation
     to measure, and it has no pre-tilted shuttle. Both values are design facts."""
     assert wizard.SetupChoices(model_key="tfs-arctis").stage_is_readonly
-    assert wizard.get_model("tfs-arctis").is_compustage
 
 
 def test_a_pre_tilted_shuttle_system_still_has_to_ask():
@@ -142,7 +141,7 @@ def test_no_model_writes_a_rotation_180():
     a way that `rotation_angle_is_smaller` handles but a person reading the file does
     not.
     """
-    for model in wizard.MICROSCOPE_MODELS:
+    for model in wizard.microscope_models():
         config = wizard.build_configuration(wizard.SetupChoices(model_key=model.key))
         assert "rotation_180" not in _device(config, "stage"), model.key
 
@@ -165,64 +164,51 @@ def test_the_derived_opposite_matches_what_each_model_needs():
 
 def test_the_simulator_does_not_skip_the_stage_step():
     """A simulated instrument still has a pre-tilt, and should behave like the real one."""
-    choices = wizard.SetupChoices(
-        manufacturer_key=wizard.MANUFACTURER_SIMULATOR, model_key="sim-demo"
-    )
+    choices = wizard.SetupChoices(manufacturer_key="Demo", model_key="sim-demo")
     assert choices.is_simulator
     assert choices.stage_is_editable
 
 
 def test_the_simulator_closes_the_connection_question():
     """There is no address to reach, so the step explains instead of asking."""
-    simulated = wizard.SetupChoices(
-        manufacturer_key=wizard.MANUFACTURER_SIMULATOR, model_key="sim-demo"
-    )
+    simulated = wizard.SetupChoices(manufacturer_key="Demo", model_key="sim-demo")
     assert not simulated.connection_is_editable
-    real = wizard.SetupChoices(
-        manufacturer_key=wizard.MANUFACTURER_THERMO, model_key="tfs-hydra"
-    )
+    real = wizard.SetupChoices(manufacturer_key="ThermoFisher", model_key="tfs-hydra")
     assert real.connection_is_editable
 
 
 def test_every_manufacturer_offers_at_least_one_instrument():
     """Picking a manufacturer selects its first instrument, so an empty list would
     leave the step with nothing chosen and Next still enabled."""
-    for manufacturer in wizard.MANUFACTURERS:
+    for manufacturer in wizard.manufacturers():
         assert wizard.models_for(manufacturer.key), manufacturer.key
 
 
 def test_every_instrument_belongs_to_an_offered_manufacturer():
-    keys = {m.key for m in wizard.MANUFACTURERS}
-    for model in wizard.MICROSCOPE_MODELS:
+    keys = {m.key for m in wizard.manufacturers()}
+    for model in wizard.microscope_models():
         assert model.manufacturer_key in keys, model.key
 
 
 def test_each_manufacturer_names_its_own_control_software():
     """Naming both would name one piece of software the reader does not have."""
-    assert wizard.get_manufacturer(wizard.MANUFACTURER_THERMO).control_software == "xT"
-    assert (
-        wizard.get_manufacturer(wizard.MANUFACTURER_TESCAN).control_software
-        == "Essence"
-    )
+    assert wizard.get_manufacturer("ThermoFisher").control_software == "xT"
+    assert wizard.get_manufacturer("Tescan").control_software == "Essence"
     # The simulator has no vendor software, so it falls back to the generic phrase
     # rather than naming somebody else's product.
-    simulator = wizard.get_manufacturer(wizard.MANUFACTURER_SIMULATOR)
+    simulator = wizard.get_manufacturer("Demo")
     assert simulator.control_software == "the microscope control software"
 
 
 def test_the_microscope_pc_card_names_the_chosen_manufacturers_software():
     card = wizard.get_location(wizard.LOCATION_MICROSCOPE)
-    thermo = wizard.location_summary(
-        card, wizard.get_manufacturer(wizard.MANUFACTURER_THERMO)
-    )
-    tescan = wizard.location_summary(
-        card, wizard.get_manufacturer(wizard.MANUFACTURER_TESCAN)
-    )
+    thermo = wizard.location_summary(card, wizard.get_manufacturer("ThermoFisher"))
+    tescan = wizard.location_summary(card, wizard.get_manufacturer("Tescan"))
     assert "xT" in thermo and "Essence" not in thermo
     assert "Essence" in tescan and "xT" not in tescan
     # No placeholder should ever reach the screen as literal braces.
     for location in wizard.COMPUTER_LOCATIONS:
-        for manufacturer in wizard.MANUFACTURERS:
+        for manufacturer in wizard.manufacturers():
             assert "{" not in wizard.location_summary(location, manufacturer)
 
 
@@ -230,17 +216,17 @@ def test_the_raw_coordinate_caution_appears_only_where_it_is_true():
     """``microscope.py`` drives an ordinary ThermoFisher stage in RAW but a compustage
     in SPECIMEN, so the caution must not follow the manufacturer alone."""
     ordinary = wizard.SetupChoices(
-        manufacturer_key=wizard.MANUFACTURER_THERMO, model_key="tfs-hydra"
+        manufacturer_key="ThermoFisher", model_key="tfs-hydra"
     )
-    assert wizard.STAGE_COORDINATE_SYSTEM in ordinary.stage_coordinate_note
+    assert "Raw" in ordinary.stage_coordinate_note
     assert "xT" in ordinary.stage_coordinate_note
 
     compustage = wizard.SetupChoices(
-        manufacturer_key=wizard.MANUFACTURER_THERMO, model_key="tfs-arctis"
+        manufacturer_key="ThermoFisher", model_key="tfs-arctis"
     )
     assert compustage.stage_coordinate_note == ""
 
-    for manufacturer_key in (wizard.MANUFACTURER_TESCAN, wizard.MANUFACTURER_SIMULATOR):
+    for manufacturer_key in ("Tescan", "Demo"):
         model = wizard.models_for(manufacturer_key)[0]
         choices = wizard.SetupChoices(
             manufacturer_key=manufacturer_key, model_key=model.key
@@ -251,7 +237,7 @@ def test_the_raw_coordinate_caution_appears_only_where_it_is_true():
 def test_only_the_simulator_needs_no_vendor_api():
     """The label on the step is driven by this, so a manufacturer that quietly lost
     its module name would start claiming there is nothing to install."""
-    for manufacturer in wizard.MANUFACTURERS:
+    for manufacturer in wizard.manufacturers():
         needs_api = wizard.api_is_installed(manufacturer) is not None
         assert needs_api is not manufacturer.is_simulator, manufacturer.key
 
@@ -274,7 +260,7 @@ def test_the_wizard_writes_no_stage_capability():
     Asserted over every model, not only the compustages: the key going missing is the
     whole change, and a model that still wrote one would be the way it came back.
     """
-    for model in wizard.MICROSCOPE_MODELS:
+    for model in wizard.microscope_models():
         config = wizard.build_configuration(
             wizard.SetupChoices(model_key=model.key, name="Bay 2")
         )
@@ -283,20 +269,15 @@ def test_the_wizard_writes_no_stage_capability():
 
 
 def test_the_compustage_models_are_still_marked_as_such():
-    """The wizard's own record of which models are compustages is untouched.
-
-    It drives ``sim.is_compustage`` for a simulated run -- which is what the simulator
-    reads to report a stage with no rotation axis -- and it is why those two models do
-    not reach the stage question at all.
+    """The compustage models do not reach the stage question, and the simulated one
+    writes ``sim.is_compustage`` -- which is what the simulator reads to report a
+    stage with no rotation axis.
     """
     for key in ("tfs-arctis", "sim-arctis"):
-        assert wizard.get_model(key).is_compustage, key
         assert wizard.SetupChoices(model_key=key).stage_is_readonly, key
 
     config = wizard.build_configuration(
-        wizard.SetupChoices(
-            manufacturer_key=wizard.MANUFACTURER_SIMULATOR, model_key="sim-arctis"
-        )
+        wizard.SetupChoices(manufacturer_key="Demo", model_key="sim-arctis")
     )
     assert config["sim"]["is_compustage"] is True
 
@@ -320,7 +301,7 @@ def test_the_name_becomes_the_configurations_name():
 
 def test_the_simulator_manufacturer_writes_a_demo_configuration():
     choices = wizard.SetupChoices(
-        manufacturer_key=wizard.MANUFACTURER_SIMULATOR,
+        manufacturer_key="Demo",
         model_key="sim-demo",
         address="",
     )
@@ -332,7 +313,7 @@ def test_a_simulated_arctis_is_a_compustage():
     """The simulator overwrites ``info.model``, so only the flag survives to be read."""
     config = wizard.build_configuration(
         wizard.SetupChoices(
-            manufacturer_key=wizard.MANUFACTURER_SIMULATOR,
+            manufacturer_key="Demo",
             model_key="sim-arctis",
             address="",
         )
@@ -343,7 +324,7 @@ def test_a_simulated_arctis_is_a_compustage():
 def test_the_demo_microscope_is_not_a_compustage():
     config = wizard.build_configuration(
         wizard.SetupChoices(
-            manufacturer_key=wizard.MANUFACTURER_SIMULATOR,
+            manufacturer_key="Demo",
             model_key="sim-demo",
             address="",
         )
@@ -368,7 +349,7 @@ def test_the_generic_base_takes_its_manufacturer_from_the_first_step():
     """
     config = wizard.build_configuration(
         wizard.SetupChoices(
-            manufacturer_key=wizard.MANUFACTURER_THERMO,
+            manufacturer_key="ThermoFisher",
             model_key="tfs-other",
             name="Bench",
         )
@@ -386,7 +367,7 @@ def test_every_shipped_file_already_agrees_with_its_manufacturers_column_tilts()
     """
     from fibsem import utils
 
-    for model in wizard.MICROSCOPE_MODELS:
+    for model in wizard.microscope_models():
         shipped = utils.load_yaml(model.path)
         defaults = cfg.DEFAULT_CONFIGURATION_VALUES[model.manufacturer.config_value]
         built = wizard.build_configuration(
@@ -558,7 +539,7 @@ def test_the_written_configuration_loads_back_as_settings(isolated_registry):
 
     result = wizard.apply_setup(
         wizard.SetupChoices(
-            manufacturer_key=wizard.MANUFACTURER_SIMULATOR,
+            manufacturer_key="Demo",
             model_key="sim-arctis",
             address="",
             name="Sim Rig",
@@ -637,3 +618,53 @@ def test_dismissal_keeps_the_preferences_that_were_already_there(isolated_regist
     wizard.dismiss_first_run()
     assert cfg.load_user_preferences().experiment.user == "someone"
     assert cfg.load_user_preferences().display.guided_setup_dismissed
+
+
+def test_the_manufacturers_come_from_the_driver_registry(monkeypatch):
+    """Each driver with a setup is offered, in registry order, and a plugin driver can
+    offer itself and its instruments the same way."""
+    from fibsem.drivers import registry
+    from fibsem.drivers.registry import DriverEntry, register_driver
+
+    assert [m.key for m in wizard.manufacturers()][:3] == [
+        "ThermoFisher",
+        "Tescan",
+        "Demo",
+    ]
+
+    monkeypatch.setattr(
+        registry.DRIVER_PLUGINS, "registered", dict(registry.DRIVER_PLUGINS.registered)
+    )
+    register_driver(
+        DriverEntry(
+            manufacturer="Elsewhere",
+            microscope_class="elsewhere:Microscope",
+            setup=f"{__name__}:_ELSEWHERE_SETUP",
+        )
+    )
+    assert "Elsewhere" in [m.key for m in wizard.manufacturers()]
+    assert [m.key for m in wizard.models_for("Elsewhere")] == ["elsewhere-one"]
+    config = wizard.build_configuration(
+        wizard.SetupChoices(manufacturer_key="Elsewhere", model_key="elsewhere-one")
+    )
+    assert config["info"]["manufacturer"] == "Elsewhere"
+
+
+def _elsewhere_setup():
+    from fibsem.drivers.setup import DriverSetup, SetupModel
+
+    return DriverSetup(
+        label="Elsewhere",
+        summary="A plugin driver.",
+        models=(
+            SetupModel(
+                key="elsewhere-one",
+                label="One",
+                summary="The only one.",
+                filename="microscope-configuration.yaml",
+            ),
+        ),
+    )
+
+
+_ELSEWHERE_SETUP = _elsewhere_setup()

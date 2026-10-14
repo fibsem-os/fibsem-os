@@ -201,8 +201,8 @@ class FibsemMicroscope(ABC):
 
     # Where a half turn of this backend's stage is centred, raw (x, y) in metres: a
     # position p on one side of the stage is at 2c - p on the other. A property of the
-    # hardware, so the driver sets it (ThermoFisher adds the configured
-    # `rotation_centre_correction` to xT's centre). None means no rotating stage is
+    # hardware, so the driver sets it (adding the configured
+    # `rotation_centre_correction` to the centre its instrument reports). None means no rotating stage is
     # known: stage moves and image reprojection assume the stage origin (FIB-1081).
     rotation_centre: Optional[Tuple[float, float]] = None
 
@@ -908,22 +908,21 @@ class FibsemMicroscope(ABC):
         """Whether this site has said its instrument has a fluorescence microscope.
 
         The **flag decides**; the driver's own probe only confirms afterwards, and
-        that order matters. There is no `is_installed` for the FM in AutoScript --
-        every other subsystem has one -- so the only capability test available is to
-        select it and see whether the microscope throws. Running that on every system
-        would be autodetection, and an Aquilos or Helios with an iFLM fitted would
-        find half-built offset support appearing in its UI on upgrade: a fluorescence
-        tab that builds, a button that traverses 48 mm, pose derivation that is only
-        partly right. Probing also touches the shared imaging channel on machines that
-        have never had an FM.
+        that order matters. A driver may have no way to ask whether an FM is fitted
+        short of selecting it and seeing whether the microscope refuses. Running that
+        on every system would be autodetection, and an instrument with an FM on an
+        offset mount would find half-built support appearing in its UI on upgrade: a
+        fluorescence tab that builds, a button that traverses the offset, pose
+        derivation that is only partly right. Probing also touches the shared imaging
+        channel on machines that have never had an FM.
 
-        **A compustage keeps its answer.** The stage type is read from the
-        hardware (`compustage.is_installed`), not from configuration, and no shipped
-        Arctis configuration carries the flag -- `tfs-arctis-configuration.yaml` has
-        no `fm:` block at all. Replacing the old check rather than widening it would
-        take the FM away from every Arctis site on upgrade. So a configuration that
-        does not state the flag keeps the compustage exactly as it was, and an offset
-        mount must opt in. An explicit `false` turns the FM off on either.
+        **A stage that reaches the FM by re-posing keeps its answer.** The stage type
+        is read from the hardware, not from configuration, and the shipped
+        configurations for such stages carry no `fm:` block at all. Replacing the old
+        check rather than widening it would take the FM away from every such site on
+        upgrade. So a configuration that does not state the flag keeps a re-posing
+        stage exactly as it was, and an offset mount must opt in. An explicit `false`
+        turns the FM off on either.
         """
         if self.system.fm.enabled is None:
             return self._fluorescence_default()
@@ -1503,8 +1502,8 @@ class FibsemMicroscope(ABC):
         beam_type = beam_settings.beam_type
         setters = (
             (self.set_working_distance, beam_settings.working_distance),
-            # voltage before current: on some instruments (ThermoFisher FIB) the
-            # available currents are calibrated per voltage.
+            # voltage before current: on some instruments the available currents
+            # are calibrated per voltage.
             (self.set_beam_voltage, beam_settings.voltage),
             (self.set_beam_current, beam_settings.beam_current),
             (self.set_field_of_view, beam_settings.hfw),
@@ -2718,9 +2717,9 @@ class FibsemMicroscope(ABC):
         if not self._fm_is_a_pose() and devices == DEFAULT_STAGE_DEVICES:
             logging.warning(
                 "A fluorescence microscope is enabled but its device entry declares "
-                "no `origin`, so the FM defaults to the beams' origin. An offset "
-                "mount (METEOR, iFLM) must declare where it is -- see "
-                "sim-iflm-configuration.yaml."
+                "no `origin`, so the FM defaults to the beams' origin. An FM on an "
+                "offset mount must declare where it is, as the `origin` of its "
+                "stage device entry."
             )
 
     def move_to_device(self, device: str, orientation: Optional[str] = None) -> None:

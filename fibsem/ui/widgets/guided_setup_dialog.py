@@ -41,10 +41,10 @@ from fibsem import guided_setup as wizard
 from fibsem.guided_setup import (
     COMPUTER_LOCATIONS,
     MANUFACTURER_ICON,
-    MANUFACTURERS,
-    MICROSCOPE_MODELS,
     MODEL_ICON,
     SetupChoices,
+    manufacturers,
+    microscope_models,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon
@@ -1021,7 +1021,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         # neither of which the instrument list alone could decide.
         column.addWidget(_label("Manufacturer", 11, TEXT_COLOR))
         self._manufacturer_cards = {}
-        for manufacturer in MANUFACTURERS:
+        for manufacturer in manufacturers():
             card = ChoiceCard(
                 manufacturer.label, manufacturer.summary, MANUFACTURER_ICON
             )
@@ -1040,7 +1040,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         # click means destroying widgets a signal may still be in the middle of, which
         # is a crash rather than a glitch; hiding is the boring option.
         self._model_cards = {}
-        for model in MICROSCOPE_MODELS:
+        for model in microscope_models():
             card = ChoiceCard(model.label, model.summary, MODEL_ICON)
             card.clicked.connect(lambda key=model.key: self._select_model(key))
             self._model_cards[model.key] = card
