@@ -48,9 +48,13 @@ import dataclasses
 import logging
 import threading
 import time
+import uuid
+from contextlib import contextmanager
 from typing import (
     Any,
     Dict,
+    Iterator,
+    List,
     Optional,
     Sequence,
     Tuple,
@@ -59,12 +63,15 @@ from typing import (
     Union,
 )
 
+from psygnal import Signal
+
 # At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
 # from its type hints (a FibsemMillingSettings sent as a dict).
 from fibsem.cancellation import (
     CANCELLED,
     COMPLETED,
     AnyStopEvent,
+    ended_by,
     raise_if_cancelled,
 )
 from fibsem.devices.beam import Beam
@@ -85,6 +92,7 @@ from fibsem.structures import (
     MillingState,
     get_fields_with_metadata,
 )
+from fibsem.util.timestamps import now_iso
 
 # The beam conditions milling changes and `restore` puts back, in the order they are
 # written back: a preset first, since it sets the others on a column that has one,
@@ -140,6 +148,11 @@ class Milling(Service):
     # total and remaining time. The task and stage fields are a task's to fill.
     progress = Parameter(MillingProgress, doc="The run's state and times; read-only.")
 
+    # The patterns the next run mills, as drawn: the list so far after each
+    # ``draw``, and empty when setup, ``clear`` or the end of a run removes them.
+    # The app draws an agent's mill from it (FIB-1375), which it has no config of.
+    patterns_changed = Signal(object)
+
     # How often `run` looks at the instrument, in seconds.
     poll_interval: float = 1.0
     # How long after the start an idle instrument still means "not running yet"
@@ -165,8 +178,25 @@ class Milling(Service):
         # The run and stage the last task or stage start named, for the stage
         # updates that follow it; empty outside a milling task.
         self._run_context: Dict[str, Any] = {}
+        self._drawn: List[FibsemPatternSettings] = []
         # Set by ``stop`` while a run is on, so the run can say it was stopped.
         self._stop_requested = threading.Event()
+        # The name the last setup was given, for a run outside a task to go by.
+        self._name: Optional[str] = None
+        # Inside ``part_of``: a run there is part of something with its own record.
+        self._part_of = threading.local()
+
+    @property
+    def drawn_patterns(self) -> List[FibsemPatternSettings]:
+        """What ``draw`` has drawn since the patterns were last removed."""
+        return list(self._drawn)
+
+    def _set_drawn(self, patterns: Sequence[FibsemPatternSettings]) -> None:
+        self._drawn = list(patterns)
+        try:
+            self.patterns_changed.emit(list(self._drawn))
+        except Exception:  # noqa: BLE001 - showing them must not cost the mill
+            logging.debug("could not announce the drawn patterns", exc_info=True)
 
     def connect(self: _M) -> _M:
         super().connect()
@@ -297,7 +327,10 @@ class Milling(Service):
         """
         if self._saved is None:
             self._save(self.beam(settings.milling_channel))
+        self._name = name
         self._setup(settings, name)
+        if self._drawn:
+            self._set_drawn([])
 
     @command
     def draw(self, patterns: Sequence[FibsemPatternSettings]) -> None:
@@ -308,8 +341,12 @@ class Milling(Service):
         """
         patterns = list(patterns)
         hooks = [self._hook_for(pattern) for pattern in patterns]
-        for pattern, hook in zip(patterns, hooks):
-            self._draw(pattern, hook)
+        try:
+            for pattern, hook in zip(patterns, hooks):
+                self._draw(pattern, hook)
+                self._drawn.append(pattern)
+        finally:
+            self._set_drawn(self._drawn)
 
     def _hook_for(self, pattern: FibsemPatternSettings) -> str:
         """The draw hook for *pattern*, or a raise when this instrument can't draw it."""
@@ -370,8 +407,55 @@ class Milling(Service):
         `OperationCancelledError`; ``stop`` from another thread ends it, and it
         answers ``cancelled`` rather than ``completed`` (FIB-1377). A failure stops
         the beam before it is raised.
+
+        Outside a milling task, the run is on the record as one ``milling`` event,
+        with the name ``setup`` was given and how it ended.
         """
         self._stop_requested.clear()
+        if self._run_context or getattr(self._part_of, "depth", 0):
+            # A task's run, or a spot burn's: that records the whole.
+            return self._run(stop_event)
+        return self._run_on_the_record(stop_event)
+
+    @contextmanager
+    def part_of(self) -> Iterator[None]:
+        """Runs in the block, on this thread, are part of something that records
+        itself (a spot burn), so they record no ``milling`` event of their own."""
+        self._part_of.depth = getattr(self._part_of, "depth", 0) + 1
+        try:
+            yield
+        finally:
+            self._part_of.depth -= 1
+
+    def _run_on_the_record(
+        self, stop_event: Optional[Union[threading.Event, AnyStopEvent]]
+    ) -> str:
+        """A run outside a milling task (an agent's ``prepare`` and ``run``, or a
+        script's): its stage updates carry the name it was set up with, and it
+        records one ``milling`` event with how it ended, as a task's run does
+        (FIB-1257, FIB-1377)."""
+        payload: Dict[str, Any] = {
+            "milling_run_id": str(uuid.uuid4()),
+            "milling_task_name": self._name,
+            "started_at": now_iso(),
+        }
+        self._run_context = {
+            name: value for name, value in payload.items() if name in _RUN_CONTEXT
+        }
+        try:
+            status = self._run(stop_event)
+        except BaseException as error:
+            payload.update(ended_by(error))
+            raise
+        else:
+            payload["status"] = status
+        finally:
+            self._run_context = {}
+            payload["ended_at"] = now_iso()
+            self.session.record("milling", payload)
+        return status
+
+    def _run(self, stop_event: Optional[Union[threading.Event, AnyStopEvent]]) -> str:
         self._before_run()
         try:
             total = float(self._estimate() or 0.0)
@@ -385,6 +469,7 @@ class Milling(Service):
                 self._after_run()
             finally:
                 self._clear()
+                self._set_drawn([])
         raise_if_cancelled(stop_event, "Milling stopped.")
         return CANCELLED if self._stop_requested.is_set() else COMPLETED
 
@@ -462,6 +547,7 @@ class Milling(Service):
     def clear(self) -> None:
         """Remove every drawn pattern."""
         self._clear()
+        self._set_drawn([])
 
     @command
     def restore(self) -> None:

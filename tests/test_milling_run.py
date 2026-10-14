@@ -86,6 +86,9 @@ class Scripted(Milling):
     def _wait(self, seconds):
         self.clock.now += 1.0
 
+    def _setup(self, settings, name):
+        pass
+
     def _before_run(self):
         self.steps.append("before")
 
@@ -138,6 +141,7 @@ def test_the_demo_mills_for_its_estimate_and_reports_as_it_goes(microscope):
         start_time=reports[0].start_time,
         estimated_time=10,
         remaining_time=0,
+        milling_run_id=reports[0].milling_run_id,  # a run outside a task's own
     )
     # the stage updates the milling widget and AutoLamella have always had
     assert updates == reports
@@ -262,3 +266,76 @@ def test_a_stop_event_the_beam_ignores_gives_up(scripted):
         service.run(stop_event=stop)
     assert service.steps.count("stop") == 1
     assert service.steps.count("poll") == 4
+
+
+def _milling_events(microscope):
+    events = []
+    microscope.record_signal.connect(
+        lambda kind, payload: events.append(payload) if kind == "milling" else None
+    )
+    return events
+
+
+def test_a_mill_outside_a_task_is_on_the_record_with_its_name(microscope):
+    """An agent's prepare and run left no milling event, and the name it was
+    prepared with appeared nowhere (FIB-1377)."""
+    events = _milling_events(microscope)
+    updates = []
+    microscope.milling.progress.changed.connect(updates.append)
+    microscope.milling.prepare(
+        FibsemMillingSettings(milling_current=1e-9, milling_voltage=30e3),
+        [
+            FibsemRectangleSettings(
+                width=1e-6, height=1e-6, depth=1e-7, centre_x=0, centre_y=0
+            )
+        ],
+        name="agent trench",
+    )
+
+    assert microscope.milling.run() == "completed"
+
+    [event] = events
+    assert event["milling_task_name"] == "agent trench"
+    assert event["status"] == "completed"
+    assert event["started_at"] and event["ended_at"]
+    assert {u.milling_task_name for u in updates} == {"agent trench"}
+    assert {u.milling_run_id for u in updates} == {event["milling_run_id"]}
+
+
+def test_a_stopped_or_failed_mill_outside_a_task_records_how_it_ended(scripted):
+    service = scripted([RUNNING, RUNNING, RUNNING])
+    events = _milling_events(service.parent)
+    service.setup(FibsemMillingSettings(), name="stopped")
+    service._wait = lambda seconds: service.stop()
+    assert service.run() == "cancelled"
+
+    def broken():
+        raise RuntimeError("lost")
+
+    service._poll = broken
+    with pytest.raises(RuntimeError):
+        service.run()
+
+    assert [(e["milling_task_name"], e["status"]) for e in events] == [
+        ("stopped", "cancelled"),
+        ("stopped", "failed"),
+    ]
+    assert events[1]["error"] == "RuntimeError: lost"
+
+
+def test_a_mill_inside_a_task_or_a_spot_burn_is_not_recorded_twice(scripted):
+    """The task, or the spot burn, records the whole."""
+    service = scripted([])
+    events = _milling_events(service.parent)
+    service.report(
+        MillingProgress(
+            status=MillingProgressStatus.TASK_STARTED, milling_run_id="task-run"
+        )
+    )
+    service.run()
+    service.report(MillingProgress(status=MillingProgressStatus.TASK_FINISHED))
+    with service.part_of():
+        service.run()
+    assert events == []
+    service.run()
+    assert len(events) == 1

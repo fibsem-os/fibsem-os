@@ -121,6 +121,16 @@ def test_set_parameter_takes_a_number_sent_as_text(armed_sidecar):
     )
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert json.loads(text)["value"] == pytest.approx(120e-6)
+def test_stable_move_tool_round_trip(armed_sidecar):
+    before = asyncio.run(armed_sidecar.call_tool("get_stage_position", {}))
+    before = json.loads("".join(getattr(c, "text", "") for c in _contents(before)))
+    result = asyncio.run(
+        armed_sidecar.call_tool(
+            "stable_move", {"dx": 5e-6, "dy": 0.0, "beam_type": "ELECTRON"}
+        )
+    )
+    after = json.loads("".join(getattr(c, "text", "") for c in _contents(result)))
+    assert after["position"]["x"] != pytest.approx(before["position"]["x"])
 
 
 def test_image_tool_returns_image_content(armed_sidecar):
@@ -169,6 +179,24 @@ def test_service_query_tool_round_trip(armed_sidecar):
     )
     answer = json.loads("".join(getattr(c, "text", "") for c in _contents(result)))
     assert answer["result"]["x"] == pytest.approx(position["position"]["x"])
+
+
+def _call_json(sidecar, tool, arguments):
+    result = asyncio.run(sidecar.call_tool(tool, arguments))
+    return json.loads("".join(getattr(c, "text", "") for c in _contents(result)))
+
+
+def test_the_milling_angle_tools_speak_degrees(armed_sidecar):
+    """The tools speak degrees; the stage movement command they call takes
+    radians (FIB-853). Moving to 15 deg must read back as ~15 deg, not ~859."""
+    moved = _call_json(
+        armed_sidecar, "move_to_milling_angle", {"milling_angle_deg": 15.0}
+    )
+    assert moved == {"success": True}
+    angle = _call_json(armed_sidecar, "get_milling_angle", {})
+    assert angle["milling_angle_deg"] == pytest.approx(15.0, abs=0.5)
+    orientation = _call_json(armed_sidecar, "get_stage_orientation", {})
+    assert orientation == {"orientation": "MILLING"}
 
 
 def _contents(result):

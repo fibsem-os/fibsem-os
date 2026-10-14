@@ -89,9 +89,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_stage_orientation",
-        description="Named stage orientation (e.g. SEM, FIB, MILLING, UNKNOWN).",
-        method="GET",
-        path="/stage_orientation",
+        description="Named stage orientation (SEM, FIB, MILLING, FM or NONE).",
+        method="POST",
+        path="/services/stage_movement/queries/stage_orientation",
         scope="read",
     ),
     ToolSpec(
@@ -125,9 +125,9 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="get_milling_angle",
-        description="Current milling angle in degrees.",
-        method="GET",
-        path="/milling_angle",
+        description="Current milling angle in degrees, from the stage tilt.",
+        method="POST",
+        path="/services/stage_movement/queries/current_milling_angle",
         scope="read",
     ),
     ToolSpec(
@@ -162,8 +162,90 @@ CATALOG: Tuple[ToolSpec, ...] = (
         params={"beam_type": "ELECTRON or ION"},
     ),
     ToolSpec(
+        name="stable_move",
+        description=(
+            "Move the stage so a feature seen in a beam image comes to the centre "
+            "of that image: the way to move to what you see. dx and dy are the "
+            "feature's offset from the image centre in metres, x to the right and "
+            "y up (from a preview: (pixel - width/2) * hfw/width, and y with the "
+            "sign flipped, since pixel rows count down). The server turns the "
+            "offset into stage x, y and z for the beam's viewing angle, the stage "
+            "tilt and rotation and the scan rotation, so the sample slides along "
+            "its own surface and stays at the same height: the feature stays in "
+            "focus and, at the coincidence point, stays in the other beam's view "
+            "too. Prefer it to move_stage_relative whenever the move comes from an "
+            "image. Take a fresh image afterwards to check where the feature "
+            "landed."
+        ),
+        method="POST",
+        path="/stable_move",
+        scope="hardware",
+        params={
+            "dx": "the feature's offset from the image centre along x, metres, right positive",
+            "dy": "the feature's offset from the image centre along y, metres, up positive",
+            "beam_type": "the beam whose image the offset was measured in: ELECTRON or ION",
+        },
+    ),
+    ToolSpec(
+        name="vertical_move",
+        description=(
+            "Restore coincidence: with a feature centred in the electron image, "
+            "move the stage along the chamber vertical so the same feature comes "
+            "to the centre of the ion image. dy (and dx) are the feature's offset "
+            "from the centre of the ION image, in metres, x right and y up. The "
+            "electron beam sees no change. Use it after a stable_move in the "
+            "electron image when the ion image is off; never a plain z move."
+        ),
+        method="POST",
+        path="/vertical_move",
+        scope="hardware",
+        params={
+            "dy": "the feature's offset from the ion image centre along y, metres, up positive",
+            "dx": "the offset along x, metres, right positive (usually 0)",
+        },
+    ),
+    ToolSpec(
+        name="move_to_orientation",
+        description=(
+            "Move the stage to a named orientation (SEM, FIB, MILLING, and FM "
+            "where fitted): its rotation and tilt, by the safe move "
+            "(safe_move_stage_absolute). x, y and z stay, except that a half turn "
+            "carries x and y round the rotation centre where the instrument "
+            "reports one, so the same spot comes back under the beam."
+        ),
+        method="POST",
+        path="/move_to_orientation",
+        scope="hardware",
+        params={"orientation": "SEM, FIB, MILLING or FM"},
+    ),
+    ToolSpec(
+        name="safe_move_stage_absolute",
+        description=(
+            "Move the stage to an absolute position (metres and radians) safely: "
+            "for a large rotation it tilts flat first, and it rotates before "
+            "moving the other axes, so a tilted sample isn't swung round. Use "
+            "it, not move_stage_absolute, to return to a saved position."
+        ),
+        method="POST",
+        path="/safe_absolute_stage_movement",
+        scope="hardware",
+        params={
+            "x": "x in metres",
+            "y": "y in metres",
+            "z": "z in metres",
+            "r": "rotation in radians",
+            "t": "tilt in radians",
+        },
+    ),
+    ToolSpec(
         name="move_stage_relative",
-        description="Move the stage by a relative offset (metres and radians).",
+        description=(
+            "Move the stage axes by a raw offset (metres), in stage coordinates. "
+            "It knows nothing of the image: at any tilt a y move also changes "
+            "the sample's height, so the feature drifts out of focus and out of "
+            "the other beam. To move to something seen in an image, use "
+            "stable_move instead."
+        ),
         method="POST",
         path="/move_stage_relative",
         scope="hardware",
@@ -175,7 +257,11 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="move_stage_absolute",
-        description="Move the stage to an absolute position (metres and radians).",
+        description=(
+            "Move every stage axis straight to an absolute position (metres and "
+            "radians), with no safety ordering. For a position with a different "
+            "rotation or tilt, use safe_move_stage_absolute instead."
+        ),
         method="POST",
         path="/move_stage_absolute",
         scope="hardware",
@@ -191,7 +277,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
         name="move_to_milling_angle",
         description="Tilt the stage to a milling angle, in degrees.",
         method="POST",
-        path="/milling_angle/move",
+        path="/services/stage_movement/commands/move_to_milling_angle",
         scope="hardware",
         params={"milling_angle_deg": "target milling angle in degrees"},
     ),

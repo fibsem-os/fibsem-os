@@ -317,6 +317,32 @@ a script may have moved it since you last looked. Before a move, read
 image (`acquire_image_preview`) rather than trusting the last one. Say what
 you read when you act on it.
 
+**Move with `stable_move`.** To bring something you see to the centre of
+an image, call `stable_move` with its offset from the image centre in
+metres, x to the right and y up, and the beam the image came from. From a
+preview: `dx = (px - width/2) * hfw / width`, `dy = (height/2 - py) * hfw /
+width` (pixel rows count down, so y flips). The server turns that into the
+stage x, y and z for that beam's viewing angle and the stage tilt, rotation
+and scan rotation, so the sample slides along its own surface at the same
+height. The feature stays in focus, and at the coincidence point it stays in
+view of the other beam too. `move_stage_relative` moves the raw stage axes:
+on a tilted stage a y move there also changes the sample's height, so the
+feature goes out of focus and drifts out of the other beam, and you have no
+way to tell from the numbers where it will land. Use it only when the
+operator gives you stage coordinates.
+
+The rest of the moves, by when to use them:
+- `vertical_move`: the feature is centred in the electron image but off in
+  the ion image. Pass its offset in the ion image; it moves the stage along
+  the chamber vertical, which the electron beam doesn't see.
+- `move_to_orientation` (SEM, FIB, MILLING) and `move_to_milling_angle`:
+  change the stage's rotation and tilt.
+- `safe_move_stage_absolute`: go back to a saved position. It tilts flat
+  before a large rotation; `move_stage_absolute` moves every axis at once.
+
+After every move, take a fresh image and check where the feature landed
+before the next one.
+
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)
 and what. Treat it as a person would: say who has the microscope and what you
