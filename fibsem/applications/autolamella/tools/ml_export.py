@@ -37,7 +37,6 @@ See FIB-305.
 """
 
 import argparse
-import glob
 import json
 import logging
 import os
@@ -49,6 +48,7 @@ import numpy as np
 import tifffile
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella
+from fibsem.applications.autolamella.task_outputs import latest_final_reference_images
 from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.structures import FibsemImage
 
@@ -72,7 +72,6 @@ SOURCE_TASK_TYPES = (
 # res_02, ... sorted largest FOV to smallest -- so the highest suffix is the most
 # zoomed. That is the image the task itself treats as its result (it takes images[-1]
 # to display), and the one the targeting pipeline is equivalent to.
-FINAL_FIB_IMAGE_GLOB = "ref_{task_name}_final_res_*_ib.tif"
 _RES_SUFFIX = re.compile(r"_res_(\d+)_ib\.tif$")
 
 # radius of the disc stamped into labels/, in metres. Specified as a physical size
@@ -165,8 +164,12 @@ def find_final_fib_image(lamella: Lamella) -> Optional[Tuple[str, str]]:
     for task_type in SOURCE_TASK_TYPES:
         candidates: List[str] = []
         for task_name in task_names_for_type(lamella, task_type):
-            pattern = FINAL_FIB_IMAGE_GLOB.format(task_name=task_name)
-            candidates.extend(glob.glob(os.path.join(str(lamella.path), pattern)))
+            # the latest run's, wherever it saved them (FIB-1275)
+            candidates.extend(
+                path
+                for path in latest_final_reference_images(lamella, task_name)
+                if path.endswith("_ib.tif")
+            )
         if candidates:
             return _most_zoomed(candidates), task_type
 

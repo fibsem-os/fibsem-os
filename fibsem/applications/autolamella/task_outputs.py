@@ -95,16 +95,35 @@ def final_reference_images(
     )
 
 
+def latest_final_reference_images(lamella: Lamella, task_name: str) -> List[str]:
+    """The final reference images of the latest run of ``task_name`` that left
+    any: the task's images as they stand now.
+
+    Each run of a task keeps its own images (FIB-1275), so the union over every
+    run -- what :func:`final_reference_images` gives -- is every set the task
+    ever made; a reader showing the task's result wants the newest. A task none
+    of whose runs recorded outputs is from before outputs existed, and is found
+    by the filename convention, as before.
+    """
+    runs = [run for run in lamella.task_history if run.name == task_name]
+    for run in reversed(runs):
+        found = final_reference_images(lamella, run, fallback=False)
+        if found:
+            return found
+    if any(run.outputs for run in runs):
+        return []  # its runs record what they make, and none made final images
+    return final_reference_images(lamella, AutoLamellaTaskState(name=task_name))
+
+
 def images_by_task(lamella: Lamella) -> List[Tuple[str, List[str], List[str]]]:
     """Each task's final reference images and fluorescence stacks, in the order the
     tasks last ran: ``(task name, final images, fluorescence stacks)``.
 
     What a workflow animation is made of: a frame per task. One entry per task name,
-    because reference images are rewritten to the same filename on every run -- an
-    earlier run's files *are* the later run's -- so the entry sits where the task last
-    ran. Fluorescence stacks are uniquely named and accumulate across runs, oldest
-    first. A run that recorded nothing (cancelled, or failed before saving) adds
-    nothing, and a task none of whose runs left an image has no entry.
+    sitting where the task last ran, with the latest run's reference images (each
+    run keeps its own, FIB-1275). Fluorescence stacks accumulate across runs,
+    oldest first. A run that recorded nothing (cancelled, or failed before saving)
+    adds nothing, and a task none of whose runs left an image has no entry.
     """
     runs: Dict[str, List[AutoLamellaTaskState]] = {}
     last: Dict[str, int] = {}
@@ -113,7 +132,7 @@ def images_by_task(lamella: Lamella) -> List[Tuple[str, List[str], List[str]]]:
         last[run.name] = index
     steps = []
     for name in sorted(last, key=last.__getitem__):
-        finals = final_reference_images(lamella, *runs[name])
+        finals = latest_final_reference_images(lamella, name)
         stacks = fluorescence_images(lamella, *runs[name])
         if finals or stacks:
             steps.append((name, finals, stacks))
