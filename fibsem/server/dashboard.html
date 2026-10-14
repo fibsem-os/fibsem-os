@@ -389,6 +389,10 @@ async function refreshQueue() {
 
 /* ── event feed ────────────────────────────────────────────────────── */
 
+// How a run can end (fibsem.hooks.HookEvent).
+const RUN_ENDS = new Set(
+  ["workflow_completed", "workflow_cancelled", "workflow_stalled", "workflow_failed"]);
+
 function eventLine(e) {
   const k = e.kind, p = e.payload || {}, ts = ep(e.timestamp);
   if (k === "prompt_answered") {
@@ -403,13 +407,15 @@ function eventLine(e) {
     return `<span class="ts">${ts}</span><span class="who-agent">note</span> ${esc(p.text)}${p.item_name ? ` · ${esc(p.item_name)}` : ""}`;
   if (k === "prompt_cancelled")
     return `<span class="ts">${ts}</span><span class="muted">withdrawn</span> ${esc(p.type)}`;
-  if (["task_started", "task_completed", "task_failed", "task_skipped"].includes(k)) {
+  if (["task_started", "task_completed", "task_failed", "task_cancelled", "task_skipped"].includes(k)) {
     const verb = k.split("_")[1];
     const cls = { failed: "err", completed: "ok" }[verb] || "muted";
     return `<span class="ts">${ts}</span><span class="${cls}">${verb}</span> ${esc(p.task_name)} · ${esc(p.item_name)}`;
   }
-  if (["workflow_started", "workflow_completed", "workflow_stopped"].includes(k))
-    return `<span class="ts">${ts}</span><span class="kind">${k.replace("_", " ")}</span>`;
+  if (k === "workflow_started" || RUN_ENDS.has(k)) {
+    const cls = k === "workflow_failed" || k === "workflow_stalled" ? "err" : "kind";
+    return `<span class="ts">${ts}</span><span class="${cls}">${k.replace("_", " ")}</span>`;
+  }
   return null;
 }
 
@@ -487,7 +493,7 @@ async function liveLoop() {
           await throttled("cards", refreshCards);
           await throttled("queue", refreshQueue);
         }
-        if (events.some(e => e.kind === "workflow_completed" || e.kind === "workflow_stopped"))
+        if (events.some(e => RUN_ENDS.has(e.kind)))
           // The event lands before the worker clears its running flag; a
           // status read right now races it, so read again once it has settled.
           setTimeout(() => throttled("top", refreshTop), 2500);
