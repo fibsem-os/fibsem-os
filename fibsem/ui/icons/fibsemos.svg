@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect class="tile" width="32" height="32" rx="7" fill="#262930"/>
+  <rect class="dark" x="4" y="22" width="24" height="6" rx="1" fill="#5A626C"/>
+  <path class="accent" d="M5 6 L15 20" stroke="#007ACC" stroke-width="4" stroke-linecap="butt"/>
+  <rect class="light" x="14" y="4" width="4" height="18" fill="#FFFFFF"/>
+</svg>

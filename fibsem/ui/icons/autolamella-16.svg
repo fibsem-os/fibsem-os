@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="#007ACC"/>
-  <rect x="4" y="4" width="24" height="10" rx="1" fill="#0B3A63"/>
-  <rect x="4" y="14" width="24" height="2" fill="#FFFFFF"/>
-  <rect x="4" y="16" width="24" height="12" rx="1" fill="#0B3A63"/>
+  <rect class="tile" width="32" height="32" rx="7" fill="#007ACC"/>
+  <rect class="dark" x="4" y="4" width="24" height="10" rx="1" fill="#0B3A63"/>
+  <rect class="light glyph-hide" x="4" y="14" width="24" height="2" fill="#FFFFFF"/>
+  <rect class="dark" x="4" y="16" width="24" height="12" rx="1" fill="#0B3A63"/>
 </svg>

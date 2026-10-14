@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSplashScreen,
     QSplitter,
     QStackedWidget,
     QTabWidget,
@@ -4430,8 +4431,12 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_ui(argv: Optional[List[str]] = None):
-    """Run the AutoLamella embedded example."""
+def run_ui(argv: Optional[List[str]] = None, splash: Optional[QSplashScreen] = None):
+    """Run the AutoLamella UI.
+
+    ``splash`` is the launcher's splash screen (fibsem.tools.launcher), closed once the
+    main window is up.
+    """
     import faulthandler
     import signal
 
@@ -4464,6 +4469,8 @@ def run_ui(argv: Optional[List[str]] = None):
     gc_collector = install_main_thread_gc(parent=app)  # noqa: F841 — kept alive for app lifetime
     window = AutoLamellaSingleWindowUI()
     window.show()
+    if splash is not None:
+        splash.finish(window)
     _start_update_check()
     if args.quickstart or args.quickload:
         # Once the event loop is running, not inline here: connecting blocks for

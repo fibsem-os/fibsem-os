@@ -120,27 +120,40 @@ def drag_handle_pixmap(
     )
 
 
-# The AutoLamella application icon. The main drawing sits on a 32-unit grid, so
-# it lands on whole pixels at 32 px and above; at 16 px its 2-unit lamella would
-# straddle two pixel rows and blur, so 16 px has its own drawing with the
-# lamella moved onto a whole row.
+# The application icons. Each drawing sits on a 32-unit grid, so it lands on
+# whole pixels at 32 px and above; at 16 px a 2-unit lamella would straddle two
+# pixel rows and blur, and a diagonal beam steps unevenly, so 16 px has its own
+# drawing snapped to whole pixels. The build script and the other variants are
+# in scripts/build_icons.py.
 APP_ICON_PATH = os.path.join(ICONS_DIR, "autolamella.svg")
 APP_ICON_16_PATH = os.path.join(ICONS_DIR, "autolamella-16.svg")
+FIBSEMOS_ICON_PATH = os.path.join(ICONS_DIR, "fibsemos.svg")
+FIBSEMOS_ICON_16_PATH = os.path.join(ICONS_DIR, "fibsemos-16.svg")
 APP_ICON_SIZES = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
 
 
 def autolamella_icon() -> QIcon:
-    """Return the AutoLamella application icon, one pixmap per standard size.
+    """Return the AutoLamella application icon, one pixmap per standard size."""
+    return _application_icon(APP_ICON_PATH, APP_ICON_16_PATH)
+
+
+def fibsemos_icon() -> QIcon:
+    """Return the fibsemOS application icon, one pixmap per standard size."""
+    return _application_icon(FIBSEMOS_ICON_PATH, FIBSEMOS_ICON_16_PATH)
+
+
+def _application_icon(path: str, path_16: str) -> QIcon:
+    """Render ``path`` at every standard size, and ``path_16`` at 16 px.
 
     Pixmaps rather than ``QIcon(path)``: Qt's SVG icon engine keeps one file per
     mode and state, so it cannot take the separate 16 px drawing.
     """
     icon = QIcon()
     for size in APP_ICON_SIZES:
-        path = APP_ICON_16_PATH if size == 16 else APP_ICON_PATH
-        renderer = QSvgRenderer(path)
+        source = path_16 if size == 16 else path
+        renderer = QSvgRenderer(source)
         if not renderer.isValid():
-            logging.warning("application icon missing or unreadable: %s", path)
+            logging.warning("application icon missing or unreadable: %s", source)
             continue
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)
