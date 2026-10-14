@@ -929,6 +929,12 @@ def _kwargs(**values: Any) -> dict:
     return {"kwargs": values}
 
 
+def _preview(kwargs: dict) -> dict:
+    """A generic command's body: an image it returns comes back as the agent's
+    answer (summary, saved path, preview), not as data it can't read."""
+    return {"kwargs": kwargs, "answer": "preview"}
+
+
 # Tools whose arguments are not their route's path and body as they stand: each
 # gives (path values, body).
 _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict]]]] = {
@@ -972,15 +978,15 @@ _CALLS: Dict[str, Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict
     ),
     "call_command": lambda a: (
         {"device": a.get("device"), "command": a.get("command")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _preview(dict(a.get("kwargs") or {})),
     ),
     "call_service_command": lambda a: (
         {"service": a.get("service"), "command": a.get("command")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _preview(dict(a.get("kwargs") or {})),
     ),
     "call_service_query": lambda a: (
         {"service": a.get("service"), "query": a.get("query")},
-        {"kwargs": dict(a.get("kwargs") or {})},
+        _preview(dict(a.get("kwargs") or {})),
     ),
 }
 

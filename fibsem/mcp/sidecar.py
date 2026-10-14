@@ -208,8 +208,7 @@ def _call(client, method, path, payload=None):
     try:
         return resp.json(), None
     except ValueError:
-        # An image or array from a device command: nothing an agent can read as
-        # text. The preview tools are how an agent looks at an image.
+        # Data no tool asked for as a preview: nothing an agent can read as text.
         return None, (
             f"answered {len(resp.content)} bytes that are not JSON; "
             "use acquire_image_preview to see images"
@@ -275,11 +274,12 @@ def build_sidecar(client, capabilities):
         return _call(client, method, path, body)
 
     def _routed(name, key=None, **arguments):
-        """A routed tool's answer, its route's result under *key* when given."""
+        """A routed tool's answer, its route's result under *key* when given; an
+        image in it (a command answered with a preview) as MCP image content."""
         data, err = _route(name, **arguments)
         if err:
             return err
-        return {key: data["result"]} if key else data
+        return _with_images({key: data["result"]} if key else data)
 
     def _with_images(data):
         """Move every base64 preview in *data* out into MCP image content.
@@ -350,10 +350,7 @@ def build_sidecar(client, capabilities):
         data, err = _route(
             "acquire_image_preview", beam_type=beam_type, image_settings=image_settings
         )
-        if err:
-            return err
-        jpeg = base64.b64decode(data.pop("image_b64_jpeg"))
-        return [json.dumps(data), Image(data=jpeg, format="jpeg")]
+        return err if err else _with_images(data["result"])
 
     def move_stage_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0):
         return _routed("move_stage_relative", "position", dx=dx, dy=dy, dz=dz)

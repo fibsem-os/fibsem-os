@@ -98,3 +98,100 @@ def tiff_bytes(image) -> bytes:
     metadata = image.metadata.to_dict() if image.metadata is not None else None
     tff.imwrite(buf, image.data, metadata=metadata)
     return buf.getvalue()
+
+
+# --- The answer an agent gets for a command that returns an image -------------
+
+
+def _viewable(data: "np.ndarray") -> "np.ndarray":
+    """A 2-D frame of *data* to preview: a stack (z or channels) as its maximum
+    projection; an RGB frame as it is."""
+    data = np.asarray(data)
+    while data.ndim > 2 and not (data.ndim == 3 and data.shape[-1] in (3, 4)):
+        data = data.max(axis=0)
+    return data
+
+
+def _array_preview(data: "np.ndarray", max_width: int = 768) -> dict:
+    jpeg, width, height = preview_jpeg_bytes(_viewable(data), max_width=max_width)
+    return {
+        "image_b64_jpeg": base64.b64encode(jpeg).decode(),
+        "width": width,
+        "height": height,
+    }
+
+
+def image_answer(result) -> dict:
+    """What a command that returned an image answers an agent: a summary, the
+    saved path (None when the command saved nothing), and a small JPEG preview
+    with its scale. The same shape for a beam's image, a camera frame, an array
+    and a z-stack, so an agent reads them all one way.
+
+    The full data is for programs, which ask for it (the TIFF or npy answer);
+    the agent works from the preview and, when it needs the file, the path.
+    """
+    from fibsem.devices.wire import Frame
+    from fibsem.structures import FibsemImage
+
+    if isinstance(result, FibsemImage):
+        preview = preview_payload(result)
+        summary = {
+            "kind": "image",
+            "shape": list(result.data.shape),
+            "dtype": str(result.data.dtype),
+            "beam_type": preview["beam_type"],
+            "hfw": preview["hfw"],
+            "pixelsize": preview["pixelsize"],
+        }
+        md = result.metadata
+        acquired = getattr(md, "acquisition_datetime", None)
+        if acquired:
+            summary["acquired_at"] = str(acquired)
+        return {"summary": summary, "path": result.filepath, "preview": preview}
+    if (
+        isinstance(result, list)
+        and result
+        and all(isinstance(item, Frame) for item in result)
+    ):
+        frames = [np.asarray(frame.data) for frame in result]
+        shapes = {frame.shape for frame in frames}
+        data = np.stack(frames) if len(shapes) == 1 else frames[0]
+        return {
+            "summary": {
+                "kind": "frames",
+                "count": len(result),
+                "shape": list(frames[0].shape),
+                "dtype": str(frames[0].dtype),
+                "metadata": [frame.metadata for frame in result],
+                "preview_of": "maximum projection"
+                if len(shapes) == 1
+                else "the first frame",
+            },
+            "path": None,
+            "preview": _array_preview(data),
+        }
+    metadata = None
+    if isinstance(result, Frame):
+        metadata = result.metadata
+        result = result.data
+    data = np.asarray(result)
+    summary = {"kind": "array", "shape": list(data.shape), "dtype": str(data.dtype)}
+    if metadata is not None:
+        summary.update(kind="frame", metadata=metadata)
+    if data.ndim > 2 and _viewable(data).ndim != data.ndim:
+        summary["preview_of"] = "maximum projection"
+    return {"summary": summary, "path": None, "preview": _array_preview(data)}
+
+
+def is_image_result(result) -> bool:
+    """Whether a command's *result* is an image an agent should get as
+    :func:`image_answer`: a FibsemImage, a frame, frames, or an array of 2 or
+    more dimensions."""
+    from fibsem.devices.wire import Frame
+    from fibsem.structures import FibsemImage
+
+    if isinstance(result, (FibsemImage, Frame)):
+        return True
+    if isinstance(result, list) and result:
+        return all(isinstance(item, Frame) for item in result)
+    return isinstance(result, np.ndarray) and result.ndim >= 2
