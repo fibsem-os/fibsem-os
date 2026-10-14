@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 import numpy as np
 
 import fibsem.constants as constants
-from fibsem.devices.beam import Beam
+from fibsem.devices.beam import UNBOUNDED_SHIFT_LIMITS, Beam
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import AXIS_UNITS, UNLIMITED, Stage
 from fibsem.drivers.tescan import images
@@ -247,6 +247,10 @@ class TescanBeam(Beam):
             )
             beam.Optics.SetImageShift(point.x, point.y)
             logging.debug(f"{self.beam_type.name} beam shift set to {value}.")
+
+    def metadata_shift(self) -> ParameterMetadata:
+        # the TESCAN API doesn't report an image-shift range
+        return ParameterMetadata(limits=UNBOUNDED_SHIFT_LIMITS)
 
     def _shift_by(self, dx: float, dy: float) -> None:
         # invert direction for scan rotated images...
