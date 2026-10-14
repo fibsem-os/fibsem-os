@@ -80,3 +80,25 @@ def test_preview_needs_the_token(armed_client):
     # endpoint rejects a missing token so it is provably gated.
     resp = armed_client.post(PREVIEW, json={"answer": "preview"})
     assert resp.status_code == 401
+
+
+def test_the_preview_tool_images_through_the_imaging_service(armed_client):
+    """FIB-1261: acquire_image_preview calls imaging.acquire, with the agent's
+    image settings when it gives them."""
+    from fibsem.server.catalog import CATALOG, route_call
+
+    spec = next(t for t in CATALOG if t.name == "acquire_image_preview")
+    method, path, body = route_call(
+        spec,
+        {
+            "beam_type": "ION",
+            "image_settings": {"hfw": 80e-6, "resolution": [384, 256]},
+        },
+    )
+    assert path == "/microscope/services/imaging/commands/acquire"
+    resp = armed_client.request(method, path, headers=AUTH, json=body)
+    assert resp.status_code == 200, resp.text
+    preview = resp.json()
+    assert preview["beam_type"] == "ION"
+    assert preview["full_width"] == 384
+    assert preview["hfw"] == pytest.approx(80e-6)

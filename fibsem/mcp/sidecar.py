@@ -344,8 +344,12 @@ def build_sidecar(client, capabilities):
         data, err = _route("stop_milling")
         return err if err else {"status": "ok"}
 
-    def acquire_image_preview(beam_type: str = "ELECTRON"):
-        data, err = _route("acquire_image_preview", beam_type=beam_type)
+    def acquire_image_preview(
+        beam_type: str = "ELECTRON", image_settings: Optional[dict] = None
+    ):
+        data, err = _route(
+            "acquire_image_preview", beam_type=beam_type, image_settings=image_settings
+        )
         if err:
             return err
         jpeg = base64.b64decode(data.pop("image_b64_jpeg"))
@@ -404,6 +408,9 @@ def build_sidecar(client, capabilities):
 
     def autocontrast(beam_type: str = "ELECTRON"):
         return _routed("autocontrast", beam_type=beam_type)
+
+    def auto_focus(beam_type: str = "ELECTRON"):
+        return _routed("auto_focus", "result", beam_type=beam_type)
 
     def _app_get(path):
         data, err = _call(client, "GET", path)
@@ -721,6 +728,7 @@ def build_sidecar(client, capabilities):
             call_service_command,
             call_service_query,
             autocontrast,
+            auto_focus,
             get_app_status,
             get_app_queue,
             get_experiment_summary,
