@@ -111,6 +111,18 @@ def test_move_tool_round_trip(armed_sidecar):
     assert '"position"' in text
 
 
+def test_set_parameter_takes_a_number_sent_as_text(armed_sidecar):
+    """The value's schema names no type, so a client may send 120e-6 as text."""
+    result = asyncio.run(
+        armed_sidecar.call_tool(
+            "set_parameter",
+            {"device": "electron", "parameter": "hfw", "value": "120e-6"},
+        )
+    )
+    text = "".join(getattr(c, "text", "") for c in _contents(result))
+    assert json.loads(text)["value"] == pytest.approx(120e-6)
+
+
 def test_image_tool_returns_image_content(armed_sidecar):
     result = asyncio.run(
         armed_sidecar.call_tool("acquire_image_preview", {"beam_type": "ION"})

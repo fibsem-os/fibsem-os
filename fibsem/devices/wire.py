@@ -87,7 +87,17 @@ def from_wire(type_: type, value: Any) -> Any:
 
     A ``Sequence[X]``, ``List[X]`` or ``Tuple[X, ...]`` decodes each element as X, so
     a list of pattern dicts arrives as patterns.
+
+    A number or bool may arrive as its text, ``"4.0"``: an agent's MCP client sends a
+    value whose schema names no type as a string. It is read as the declared type,
+    and a whole float (``4.0``) as an int where the type is int. Text that doesn't
+    parse passes as it came, for the parameter's own check to refuse.
     """
+    if type_ in (int, float, bool) and not isinstance(value, bool):
+        if isinstance(value, str):
+            return _scalar_from_text(type_, value)
+        if type_ is int and isinstance(value, float) and value.is_integer():
+            return int(value)
     if type_ is tuple and isinstance(value, list):
         return tuple(value)
     origin = typing.get_origin(type_)
@@ -102,6 +112,20 @@ def from_wire(type_: type, value: Any) -> Any:
     if isinstance(value, dict) and hasattr(type_, "from_dict"):
         return type_.from_dict(value)
     return value
+
+
+def _scalar_from_text(type_: type, text: str) -> Any:
+    """``text`` read as an int, float or bool, or ``text`` itself if it isn't one."""
+    word = text.strip()
+    if type_ is bool:
+        return {"true": True, "false": False}.get(word.lower(), text)
+    try:
+        number = float(word)
+    except ValueError:
+        return text
+    if type_ is float:
+        return number
+    return int(number) if number.is_integer() else text
 
 
 def _enum_member(type_: type, value: Any) -> Any:
