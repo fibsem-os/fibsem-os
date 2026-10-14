@@ -83,17 +83,19 @@ def test_an_agent_at_drive_moves_the_stage_and_the_window_follows(window, qapp):
     def _post():
         # Off the GUI thread, which keeps pumping, as a real agent's request is.
         out["response"] = client.post(
-            "/move_stage_relative",
+            "/microscope/services/stage_movement/commands/move_relative",
             headers=AGENT,
             json={
-                "position": {
-                    "name": None,
-                    "x": STEP,
-                    "y": 0.0,
-                    "z": 0.0,
-                    "r": 0.0,
-                    "t": 0.0,
-                    "coordinate_system": "RAW",
+                "kwargs": {
+                    "delta": {
+                        "name": None,
+                        "x": STEP,
+                        "y": 0.0,
+                        "z": 0.0,
+                        "r": 0.0,
+                        "t": 0.0,
+                        "coordinate_system": "RAW",
+                    }
                 }
             },
         )

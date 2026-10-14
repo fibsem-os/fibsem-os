@@ -14,6 +14,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.devices.core import UNLIMITED, ParameterMetadata
 from fibsem.devices.manipulator import Manipulator
 from fibsem.drivers import registry
 from fibsem.drivers.registry import DeviceBuilder, DriverEntry, register_driver
@@ -48,8 +49,8 @@ class ToyManipulator(Manipulator):
     def named_positions(self):
         return ["PARK"]
 
-    def axes(self):
-        return ("x", "y", "z", "r")
+    def metadata_position(self):
+        return ParameterMetadata(limits={a: UNLIMITED for a in ("x", "y", "z", "r")})
 
     def saved_position(self, name):
         if name != "PARK":
@@ -168,7 +169,7 @@ def test_the_demo_needle_stops_where_it_is():
     microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
     needle = microscope.manipulator_device
 
-    assert needle.axes() == ("x", "y", "z")
+    assert list(needle.axes) == ["x", "y", "z"]
     assert microscope.is_available("manipulator_rotation") is False
     position = needle.insert("PARK")
     assert needle.stop() == position

@@ -2,12 +2,11 @@
 
 > New to the agent? Start with the guide: [docs/app-server.md](../../docs/app-server.md) — what the agent can see and do at each level, and the security model.
 
-The MCP sidecar lets Claude (Code or Desktop) drive a fibsem server: acquire
-and *look at* images, read state, move the stage, and stop a mill. The server
-is the security boundary: the sidecar registers every tool the server's mounted
-routers serve (on the bench server, hardware tools only when that scope is
-armed), whatever the agent's level, and the server refuses what the level
-doesn't allow with a 403 that says so. Each tool's description names the level it needs. If the server
+The MCP sidecar lets Claude (Code or Desktop) work through AutoLamella's App
+Server: acquire and *look at* images, read state, move the stage, and stop a
+mill. The server is the security boundary: the sidecar registers every tool the
+server's mounted routers serve, whatever the agent's level, and the server
+refuses what the level doesn't allow with a 403 that says so. Each tool's description names the level it needs. If the server
 restarts with a new token, the sidecar re-reads the discovery file and carries
 on.
 
@@ -17,25 +16,18 @@ on.
 pip install -e ".[server,mcp]"
 ```
 
-## 1. Start the bench server
+## 1. Start the App Server
 
-On the machine with the microscope connection (or anywhere, with the Demo
-simulator):
+In AutoLamella, turn the App Server on in Preferences → App Server (the guide,
+[docs/app-server.md](../../docs/app-server.md), walks through it). *Serve the
+microscope* there adds the microscope tools; the Agent chip sets what
+the agent may do with them.
 
-```bash
-python -m fibsem.server.server --manufacturer Demo --arm-hardware
-```
-
-- The bearer token is generated and **logged at startup**; pass `--token <t>`
-  to choose your own.
-- Without `--arm-hardware` the server is read-only: state and stop-milling
-  work, anything that commands the hardware is refused with a structured 403.
-- Binds `127.0.0.1` by default. `--host 0.0.0.0` exposes it on the LAN —
-  an explicit choice; the token then travels as cleartext HTTP.
 - While running, the server writes `~/.fibsem/app-server.json`
   (url + token) so local clients connect without copying anything, and
   refuses to start if another live server owns that file.
-- `--ip-address` / `--config` select a real microscope instead of Demo.
+- It binds `127.0.0.1` by default; exposing it on the LAN is an explicit
+  choice, and the token then travels as cleartext HTTP.
 
 ## 2. Register the sidecar
 
@@ -118,10 +110,8 @@ same thing.
 ## Safety model, in one paragraph
 
 Loopback bind keeps everything off the network by default; the per-session
-bearer token keeps other users on the same machine out; the `hardware` scope
-must be armed before anything moves or images; one hardware command runs at a
-time (a second gets `409 microscope_busy`); `stop_milling` needs `control` or
-`hardware` and never waits. **Never run this beside a running AutoLamella
-session** — one commander per microscope; agent access to a live AutoLamella
-session goes *through* the app (its App Server, where the operator sets the
-agent's level), not around it.
+bearer token keeps other users on the same machine out; the agent level the
+operator sets from the Agent chip decides what the agent may do, and nothing
+moves or images below Drive; one hardware command runs at a time (a second gets
+`409 microscope_busy`); `stop_milling` works at Assist and Drive and never
+waits.

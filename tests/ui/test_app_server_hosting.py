@@ -53,7 +53,7 @@ def app_server_enabled(monkeypatch, tmp_path):
             ui_object,
             port=port,
             discovery_path=tmp_path / "agent-server.json",
-            devices=kwargs.get("devices", False),
+            serve_microscope=kwargs.get("serve_microscope", False),
         )
 
     monkeypatch.setattr(hosting, "AppServerHost", confined)
@@ -72,7 +72,7 @@ def test_connect_starts_a_live_read_only_server(ui, app_server_enabled):
         timeout=10,
     ).json()
     assert body["routers"]["app"] is True
-    assert body["scopes"]["hardware"] is False
+    assert body["level"] == "watch"
 
     # The feed is the recorder's, which a run finds and registers for itself
     # (FIB-1044): not registered a second time by the app's own hooks.
@@ -102,7 +102,7 @@ def _confine_and_control_preferences(monkeypatch, tmp_path):
             ui_object,
             port=port,
             discovery_path=tmp_path / "agent-server.json",
-            devices=kwargs.get("devices", False),
+            serve_microscope=kwargs.get("serve_microscope", False),
         ),
     )
     return preferences
@@ -140,7 +140,7 @@ def _routers(host) -> dict:
     ).json()["routers"]
 
 
-def test_the_devices_service_is_off_by_default_and_restarts_when_changed(
+def test_the_microscope_is_off_by_default_and_restarts_when_changed(
     ui, monkeypatch, tmp_path
 ):
     preferences = _confine_and_control_preferences(monkeypatch, tmp_path)
@@ -149,24 +149,24 @@ def test_the_devices_service_is_off_by_default_and_restarts_when_changed(
     ui.connect_to_microscope()
     first = ui._app_server_host
     assert first is not None and first.running
-    assert _routers(first) == {"microscope": False, "devices": False, "app": True}
+    assert _routers(first) == {"microscope": False, "app": True}
 
-    # Turning devices on in Tools → App Server rebuilds the server with the
+    # Turning the microscope on in Tools → App Server rebuilds the server with the
     # instrument routes, keeping the agent's token (FIB-1359).
-    ui.set_app_server_devices(True)
+    ui.set_app_server_microscope(True)
     second = ui._app_server_host
     assert second is not first and not first.running and second.running
     assert second.auth is first.auth
-    assert _routers(second) == {"microscope": True, "devices": True, "app": True}
+    assert _routers(second) == {"microscope": True, "app": True}
 
     # Unchanged: no restart.
-    ui.set_app_server_devices(True)
+    ui.set_app_server_microscope(True)
     assert ui._app_server_host is second and second.running
 
     # The preference is only the start-up default: saving it changes nothing now.
-    preferences.app_server.devices = False
+    preferences.app_server.microscope = False
     ui.sync_app_server_with_preference()
-    assert ui._app_server_host is second and second.devices
+    assert ui._app_server_host is second and second.serve_microscope
 
     ui.disconnect_from_microscope()
     assert not second.running

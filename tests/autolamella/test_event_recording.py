@@ -21,6 +21,7 @@ from fibsem.applications.autolamella.event_recording import (
     EventFileWriter,
     EventRecorder,
     read_events,
+    read_events_before,
     read_new_events,
 )
 from fibsem.applications.autolamella.server.events import EventBuffer
@@ -206,6 +207,36 @@ def test_reading_some_kinds_returns_only_those(tmp_path):
     found, offset = read_new_events(path, kinds=("alignment", "autofocus"))
     assert [r["n"] for r in found] == [2, 4, 5]
     assert offset == path.stat().st_size
+
+
+def test_reading_back_from_the_end_pages_the_whole_file_newest_last(
+    tmp_path, monkeypatch
+):
+    # Chunks smaller than a line, so every page crosses the seams.
+    monkeypatch.setattr(event_recording, "_CHUNK", 13)
+    path = tmp_path / EVENTS_FILENAME
+    kinds = ["task_started", "milling_progress", "agent_note"]
+    records = [{"n": n, "kind": kinds[n % 3], "pad": "x" * (n % 17)} for n in range(60)]
+    path.write_text(
+        "".join(json.dumps(r) + "\n" for r in records) + '{"n": 99, "cut',
+        encoding="utf-8",
+    )
+    pages, before = [], None
+    while before != 0:
+        page, before = read_events_before(
+            path, before, limit=7, skip_kinds=["milling_progress"]
+        )
+        pages.append([r["n"] for r in page])
+    assert pages[0] == [r["n"] for r in records if r["n"] % 3 != 1][-7:]
+    assert sum(reversed(pages), []) == [r["n"] for r in records if r["n"] % 3 != 1]
+
+
+def test_reading_back_keeps_only_what_keep_says(tmp_path):
+    path = tmp_path / EVENTS_FILENAME
+    path.write_text("".join(json.dumps({"n": n}) + "\n" for n in range(5)))
+    found, before = read_events_before(path, keep=lambda r: r["n"] < 3)
+    assert [r["n"] for r in found] == [0, 1, 2]
+    assert before == 0
 
 
 # ── the recorder ──────────────────────────────────────────────────────────────
@@ -467,21 +498,21 @@ def test_a_request_to_the_app_server_is_the_agent_s(tmp_path, microscope):
     from fibsem.acting import OPERATOR
     from fibsem.server import AuthConfig, build_server
 
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token="t")
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token="t"))
     recorder = EventRecorder(
         microscope, experiment_path=tmp_path, default_actor=OPERATOR
     )
     try:
         with TestClient(app, raise_server_exceptions=False) as client:
             response = client.post(
-                "/move_stage_relative",
+                "/microscope/services/stage_movement/commands/move_relative",
                 headers={"Authorization": "Bearer t"},
                 json={
-                    "position": FibsemStagePosition(
-                        x=1e-6, y=0, z=0, r=0, t=0, coordinate_system="RAW"
-                    ).to_dict()
+                    "kwargs": {
+                        "delta": FibsemStagePosition(
+                            x=1e-6, y=0, z=0, r=0, t=0, coordinate_system="RAW"
+                        ).to_dict()
+                    }
                 },
             )
         assert response.status_code == 200, response.text

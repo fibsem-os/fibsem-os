@@ -39,11 +39,15 @@ from typing import Any, Dict, Iterator, Mapping, Optional
 
 from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.core import (
+    AXIS_UNITS,
+    UNLIMITED,  # noqa: F401  (re-exported: drivers import it from here)
     Axes,
-    Axis,
+    AxisLimitError,
     Device,
     Parameter,
     Session,
+    axes_outside_limits,
+    build_axes,
     command,
     plain,
 )
@@ -57,11 +61,6 @@ from fibsem.structures import (
 )
 
 STAGE_RESOURCE = "stage"
-AXIS_UNITS: Dict[str, str] = {"x": "m", "y": "m", "z": "m", "r": "rad", "t": "rad"}
-"""Every axis a ``FibsemStagePosition`` can carry, and its unit."""
-
-UNLIMITED = RangeLimit(min=-math.inf, max=math.inf)
-"""The limits a driver gives an axis it has but cannot bound."""
 
 
 def rotating_stage_poses(
@@ -153,8 +152,8 @@ def axis_limits_to_degrees(limits: Mapping[str, RangeLimit]) -> Dict[str, RangeL
     return converted
 
 
-class StageLimitError(ValueError):
-    """A move whose target is outside an axis's limits. Nothing moved."""
+class StageLimitError(AxisLimitError):
+    """A stage move whose target is outside an axis's limits. Nothing moved."""
 
 
 class Stage(Device):
@@ -188,15 +187,7 @@ class Stage(Device):
 
     def _build_axes(self) -> None:
         """An axis for each one the driver gives ``position`` limits for."""
-        limits = self.position.limits or {}
-        axes = {
-            name: Axis(self, name, AXIS_UNITS[name])
-            for name in AXIS_UNITS
-            if name in limits
-        }
-        for axis in axes.values():
-            self.position.changed.connect(axis._position_changed)
-        self.axes = Axes(axes)
+        self.axes = build_axes(self)
 
     def facts(self) -> Dict[str, Any]:
         """The frame, the shuttle, and the device each orientation puts the stage at:
@@ -265,13 +256,7 @@ class Stage(Device):
 
     def check_limits(self, position: FibsemStagePosition) -> None:
         """Raise ``StageLimitError`` naming every axis of *position* out of limits."""
-        outside = []
-        for name in self.axes:
-            limit = self.axes[name].limits
-            low, high = limit.min, limit.max
-            value = getattr(position, name, None)
-            if value is not None and not low <= value <= high:
-                outside.append(f"{name}={value:g} not in [{low:g}, {high:g}]")
+        outside = axes_outside_limits(self.axes, position)
         if outside:
             raise StageLimitError(
                 f"{self.name}: target outside the stage limits: {', '.join(outside)}"

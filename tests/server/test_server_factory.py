@@ -15,10 +15,14 @@ pytest.importorskip("httpx")  # TestClient transport
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import utils  # noqa: E402
-from fibsem.server import AuthConfig, FibsemServer, Scope, build_server  # noqa: E402
+from fibsem.server import AgentLevel, AuthConfig, build_server  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
+POSITION = "/microscope/devices/stage/position"
+MOVE_RELATIVE = "/microscope/services/stage_movement/commands/move_relative"
+STOP_MILLING = "/microscope/services/milling/commands/stop"
+ORIENTATION = "/microscope/services/stage_movement/commands/move_to_orientation"
 
 
 def _pos(x=0.0, y=0.0, z=0.0, r=0.0, t=0.0):
@@ -55,9 +59,7 @@ def read_client(microscope):
 
 @pytest.fixture(scope="module")
 def armed_client(microscope):
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token=TOKEN)
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
@@ -77,6 +79,13 @@ def test_dashboard_page_is_served_open_like_health(read_client):
     assert "AutoLamella Dashboard" in resp.text
 
 
+def test_event_log_page_is_served_open_like_the_dashboard(read_client):
+    resp = read_client.get("/dashboard/log")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "AutoLamella Event Log" in resp.text
+
+
 def test_missing_token_is_401(read_client):
     resp = read_client.get("/capabilities")
     assert resp.status_code == 401
@@ -88,76 +97,84 @@ def test_wrong_token_is_401(read_client):
     assert resp.status_code == 401
 
 
-def test_capabilities_reports_scopes_and_routers(read_client):
+def test_capabilities_reports_the_level_and_routers(read_client):
     resp = read_client.get("/capabilities", headers=AUTH)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["routers"] == {"microscope": True, "devices": True, "app": False}
-    assert body["scopes"] == {
-        "read": True,
-        "control": False,
-        "configure": False,
-        "hardware": False,
-        "stop": False,
-    }
+    assert body["routers"] == {"microscope": True, "app": False}
+    assert body["level"] == "watch"
+    assert "manufacturer" not in body  # the microscope's own: GET /microscope
+
+
+def test_the_microscope_says_who_it_is(read_client):
+    body = read_client.get("/microscope", headers=AUTH).json()
     assert body["manufacturer"] == "Demo"
+    assert body["serial_number"] == "123456"
+    assert "manipulator" in body["fitted"]
+    assert "hardware" in body["system"]
+
+
+def test_a_device_reads_every_value_in_one_call(read_client):
+    body = read_client.get("/microscope/devices/electron/values", headers=AUTH).json()
+    assert body["values"]["voltage"] > 0
+    assert isinstance(body["unavailable"], list)
 
 
 def test_read_route_with_token(read_client):
-    resp = read_client.get("/stage_position", headers=AUTH)
+    resp = read_client.get(POSITION, headers=AUTH)
     assert resp.status_code == 200
-    assert "x" in resp.json()["position"]
+    assert "x" in resp.json()["value"]
 
 
-def test_hardware_route_refused_when_not_armed(read_client):
+def test_hardware_route_refused_below_drive(read_client):
     resp = read_client.post(
-        "/move_stage_relative", headers=AUTH, json={"position": _pos(0)}
+        MOVE_RELATIVE, headers=AUTH, json={"kwargs": {"delta": _pos(0)}}
     )
     assert resp.status_code == 403
     detail = resp.json()["detail"]
-    assert detail["error_type"] == "scope_not_armed"
-    assert detail["scope"] == "hardware"
+    assert detail["error_type"] == "level"
+    assert detail["level"] == "watch"
 
 
-def test_stop_milling_needs_a_scope_that_acts(read_client):
-    # Read alone is watching, and a watching agent stops nothing (FIB-1035).
-    resp = read_client.post("/stop_milling", headers=AUTH)
+def test_stop_milling_needs_assist(read_client):
+    # Watch and a watching agent stops nothing (FIB-1035).
+    resp = read_client.post(STOP_MILLING, headers=AUTH)
     assert resp.status_code == 403
 
 
 def test_valid_requests_stamp_last_seen(microscope):
     """The presence signal: any request bearing the valid token marks the
-    agent as heard from — including a scope refusal, which is still the agent
+    agent as heard from — including a level refusal, which is still the agent
     talking. An invalid token marks nothing."""
     auth = AuthConfig(token=TOKEN)
     app = build_server(microscope, auth=auth)
     with TestClient(app, raise_server_exceptions=False) as client:
         assert auth.seconds_since_seen() is None
 
-        client.get("/stage_position", headers=AUTH)
+        client.get(POSITION, headers=AUTH)
         age = auth.seconds_since_seen()
         assert age is not None and age < 5.0
 
         auth.last_seen_monotonic = None
         refused = client.post(
-            "/move_stage_relative", headers=AUTH, json={"dx": 0, "dy": 0, "dz": 0}
+            MOVE_RELATIVE, headers=AUTH, json={"kwargs": {"delta": _pos()}}
         )
         assert refused.status_code == 403  # hardware not armed
         assert auth.seconds_since_seen() is not None
 
         auth.last_seen_monotonic = None
-        client.get("/stage_position", headers={"Authorization": "Bearer wrong"})
+        client.get(POSITION, headers={"Authorization": "Bearer wrong"})
         assert auth.seconds_since_seen() is None
 
 
 def test_hardware_route_works_when_armed(armed_client):
-    resp = armed_client.get("/stage_position", headers=AUTH)
-    start = resp.json()["position"]
+    resp = armed_client.get(POSITION, headers=AUTH)
+    start = resp.json()["value"]
     resp = armed_client.post(
-        "/move_stage_relative", headers=AUTH, json={"position": _pos(x=10e-6)}
+        MOVE_RELATIVE, headers=AUTH, json={"kwargs": {"delta": _pos(x=10e-6)}}
     )
     assert resp.status_code == 200
-    assert resp.json()["position"]["x"] == pytest.approx(start["x"] + 10e-6, abs=1e-9)
+    assert resp.json()["result"]["x"] == pytest.approx(start["x"] + 10e-6, abs=1e-9)
 
 
 def test_hardware_command_while_someone_is_in_control_is_409(armed_client, microscope):
@@ -165,7 +182,7 @@ def test_hardware_command_while_someone_is_in_control_is_409(armed_client, micro
     # command at once, naming who, rather than interleaving with it.
     with microscope.control.take("workflow", "a lamellae run"):
         resp = armed_client.post(
-            "/move_stage_relative", headers=AUTH, json={"position": _pos(x=1e-6)}
+            MOVE_RELATIVE, headers=AUTH, json={"kwargs": {"delta": _pos(x=1e-6)}}
         )
     assert resp.status_code == 409
     detail = resp.json()["detail"]
@@ -179,13 +196,13 @@ def test_hardware_command_takes_control_as_the_agent(armed_client, microscope):
     microscope.control.changed.connect(seen.append)
     try:
         resp = armed_client.post(
-            "/move_stage_relative", headers=AUTH, json={"position": _pos(x=1e-6)}
+            MOVE_RELATIVE, headers=AUTH, json={"kwargs": {"delta": _pos(x=1e-6)}}
         )
     finally:
         microscope.control.changed.disconnect(seen.append)
     assert resp.status_code == 200
     assert seen[0].by == "agent"
-    assert seen[0].action == "move stage relative"
+    assert seen[0].action == "move relative"
     assert seen[-1] is None  # released when the command ended
     assert microscope.control.current is None
 
@@ -195,32 +212,31 @@ def test_hardware_command_takes_control_as_the_agent(armed_client, microscope):
     [
         (
             "POST",
-            "/services/imaging/commands/focus_sweep",
+            "/microscope/services/imaging/commands/focus_sweep",
             {"device": "imaging", "command": "focus_sweep"},
             "focus sweep",
         ),
         (
             "POST",
-            "/services/milling/commands/run",
+            "/microscope/services/milling/commands/run",
             {"device": "milling", "command": "run"},
             "milling run",
         ),
         (
             "POST",
-            "/services/spot_burn/commands/run",
+            "/microscope/services/spot_burn/commands/run",
             {"device": "spot_burn", "command": "run"},
             "spot burn run",
         ),
-        ("POST", "/move_stage_relative", {}, "move stage relative"),
         (
-            "PUT",
-            "/beams/electron/imaging_settings",
-            {"beam": "electron"},
-            "set electron imaging settings",
+            "POST",
+            MOVE_RELATIVE,
+            {"device": "stage_movement", "command": "move_relative"},
+            "move relative",
         ),
         (
             "PUT",
-            "/devices/electron/voltage",
+            "/microscope/devices/electron/voltage",
             {"device": "electron", "parameter": "voltage"},
             "set electron voltage",
         ),
@@ -252,7 +268,7 @@ def test_hardware_command_borrows_control_a_run_has_lent(armed_client, microscop
     with microscope.control.take("workflow", "a lamellae run"):
         with microscope.control.lend():
             resp = armed_client.post(
-                "/move_stage_relative", headers=AUTH, json={"position": _pos(x=1e-6)}
+                MOVE_RELATIVE, headers=AUTH, json={"kwargs": {"delta": _pos(x=1e-6)}}
             )
     assert resp.status_code == 200
 
@@ -260,7 +276,7 @@ def test_hardware_command_borrows_control_a_run_has_lent(armed_client, microscop
 def test_stop_milling_is_allowed_whoever_is_in_control(armed_client, microscope):
     # The stop must interrupt an in-flight command, so it never takes control.
     with microscope.control.take("workflow", "a lamellae run"):
-        resp = armed_client.post("/stop_milling", headers=AUTH)
+        resp = armed_client.post(STOP_MILLING, headers=AUTH)
     assert resp.status_code == 200
 
 
@@ -268,64 +284,53 @@ def test_microscope_exception_becomes_structured_500(microscope, monkeypatch):
     app = build_server(microscope, auth=AuthConfig(token=TOKEN))
     monkeypatch.setattr(
         type(microscope),
-        "get_stage_position",
+        "get_microscope_state",
         lambda self: (_ for _ in ()).throw(RuntimeError("vendor fell over")),
     )
     with TestClient(app, raise_server_exceptions=False) as client:
-        resp = client.get("/stage_position", headers=AUTH)
+        resp = client.get("/microscope/state", headers=AUTH)
     assert resp.status_code == 500
     detail = resp.json()["detail"]
     assert detail["error_type"] == "RuntimeError"
     assert "vendor fell over" in detail["message"]
 
 
-def test_fibsem_server_defaults_to_localhost(microscope):
-    server = FibsemServer(microscope)
-    assert server.host == "127.0.0.1"
-    assert server.auth.is_armed(Scope.READ)
-    assert not server.auth.is_armed(Scope.HARDWARE)
-
-
-def test_arming_mid_session_takes_effect_without_a_new_token(microscope):
-    """The arming dialog's contract: flip the live AuthConfig, next request obeys."""
-    from fastapi.testclient import TestClient
-
-    from fibsem.server import AuthConfig, build_server
-    from fibsem.server.auth import Scope
-
-    auth = AuthConfig.generate(token="live-arm-token")
+def test_a_level_change_takes_effect_without_a_new_token(microscope):
+    """The Agent chip's contract: change the live AuthConfig, next request obeys."""
+    auth = AuthConfig.generate(token="live-level-token")
     app = build_server(microscope, auth=auth)
-    headers = {"Authorization": "Bearer live-arm-token"}
+    headers = {"Authorization": "Bearer live-level-token"}
     with TestClient(app, raise_server_exceptions=False) as client:
         refused = client.post(
-            "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
+            "/microscope/devices/electron/commands/autocontrast", headers=headers
         )
         assert refused.status_code == 403
 
-        auth.set_armed(Scope.HARDWARE, True)
+        auth.set_level(AgentLevel.DRIVE)
         allowed = client.post(
-            "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
+            "/microscope/devices/electron/commands/autocontrast", headers=headers
         )
         assert allowed.status_code == 200
 
-        auth.set_armed(Scope.HARDWARE, False)
+        auth.set_level(AgentLevel.WATCH)
         refused_again = client.post(
-            "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
+            "/microscope/devices/electron/commands/autocontrast", headers=headers
         )
         assert refused_again.status_code == 403
 
 
 def test_move_to_orientation_over_http(armed_client, microscope):
-    """The remote replacement for the removed `/move_flat_to_beam`."""
+    """The remote replacement for the removed `/move_flat_to_beam`, through the
+    stage movement service."""
     resp = armed_client.post(
-        "/move_to_orientation", headers=AUTH, json={"orientation": "FIB"}
+        ORIENTATION, headers=AUTH, json={"kwargs": {"orientation": "FIB"}}
     )
     assert resp.status_code == 200
     assert microscope.get_stage_orientation() == "FIB"
 
     resp = armed_client.post(
-        "/move_to_orientation", headers=AUTH, json={"orientation": "SEM"}
+        ORIENTATION, headers=AUTH, json={"kwargs": {"orientation": "SEM"}}
     )
     assert resp.status_code == 200
     assert microscope.get_stage_orientation() == "SEM"
-    assert "r" in resp.json()["position"]
+    assert "r" in resp.json()["result"]

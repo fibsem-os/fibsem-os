@@ -42,9 +42,7 @@ def microscope():
 @pytest.fixture(scope="module")
 def port(microscope):
     """The App Server over the Demo microscope, hardware armed, on a free port."""
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token=TOKEN)
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
     )
@@ -102,9 +100,9 @@ def test_the_devices_send_the_token(client, port):
     client.devices["electron"].parameters["current"].get_value()
     session = client._device_client._session
     assert session.headers["Authorization"] == f"Bearer {TOKEN}"
-    url = f"http://127.0.0.1:{port}/devices/electron/current"
+    url = f"http://127.0.0.1:{port}/microscope/devices/electron/current"
     assert requests.get(url, timeout=5).status_code == 401
-    tokenless = DeviceClient("127.0.0.1", port, events=False)
+    tokenless = DeviceClient("127.0.0.1", port, events=False, root="/microscope")
     try:
         with pytest.raises(RemoteDeviceError, match="401"):
             tokenless.describe()

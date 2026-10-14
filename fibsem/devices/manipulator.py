@@ -8,8 +8,13 @@ axes follow the stage tilt (Thermo), the driver reads the tilt from the device i
 ``stage`` role, which the microscope fills with its stage.
 
 Named positions are the instrument's, so the driver answers ``named_positions()``
-and ``saved_position(name)``, and ``move_to_offset`` moves relative to one. ``axes()`` says which axes the arm has, so
-whether it rotates or tilts is the device's to say, not the backend's.
+and ``saved_position(name)``, and ``move_to_offset`` moves relative to one.
+
+Which axes the arm has is the driver's to say, the same way as for the stage: they
+are the keys of the per-axis limits in ``position``'s metadata, and
+``needle.axes.r`` is a view of one of them. A move outside the limits is refused
+with ``ManipulatorLimitError``, never clipped. A driver that gives no limits has x,
+y and z, unbounded.
 
 A backend implements the parameters with ``read_position``/``read_state`` and
 the commands with four hooks: ``_insert``, ``_retract``, ``_move_absolute`` and
@@ -17,15 +22,27 @@ the commands with four hooks: ``_insert``, ``_retract``, ``_move_absolute`` and
 ``manipulator`` resource and reads the position and state back, which updates
 their caches and emits their change signals. A backend that can stop a move
 implements ``_stop``, and one that can make a corrected move implements
-``_move_corrected``; ``axes()`` defaults to x, y and z.
+``_move_corrected``, and one whose arm has other axes or bounds implements
+``metadata_position``.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from fibsem.devices.core import Device, Parameter, Role, command
+from fibsem.devices.core import (
+    UNLIMITED,
+    Axes,
+    AxisLimitError,
+    Device,
+    Parameter,
+    ParameterMetadata,
+    Role,
+    axes_outside_limits,
+    build_axes,
+    command,
+)
 from fibsem.devices.stage import Stage
 from fibsem.structures import (
     BeamType,
@@ -34,6 +51,10 @@ from fibsem.structures import (
 )
 
 MANIPULATOR_RESOURCE = "manipulator"
+
+
+class ManipulatorLimitError(AxisLimitError):
+    """A needle move whose target is outside an axis's limits. Nothing moved."""
 
 
 class Manipulator(Device):
@@ -47,6 +68,25 @@ class Manipulator(Device):
 
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="manipulator", parent=parent, **kwargs)
+        self.axes = Axes({})
+
+    def connect(self) -> Manipulator:
+        """Bind the parameters, then build an axis for each one the driver reports."""
+        super().connect()
+        self._build_axes()
+        return self
+
+    def _build_axes(self) -> None:
+        self.axes = build_axes(self) if "position" in self.parameters else Axes({})
+
+    def check_limits(self, position: FibsemManipulatorPosition) -> None:
+        """Raise ``ManipulatorLimitError`` naming every axis of *position* out of
+        limits."""
+        outside = axes_outside_limits(self.axes, position)
+        if outside:
+            raise ManipulatorLimitError(
+                f"{self.name}: target outside the needle limits: {', '.join(outside)}"
+            )
 
     @command
     def insert(self, name: Optional[str] = None) -> FibsemManipulatorPosition:
@@ -70,6 +110,7 @@ class Manipulator(Device):
         self, position: FibsemManipulatorPosition
     ) -> FibsemManipulatorPosition:
         """Move to a position. Returns where it is afterwards."""
+        self.check_limits(position)
         with self.resources.claim(MANIPULATOR_RESOURCE):
             self._move_absolute(position)
             return self.position.get_value()
@@ -80,6 +121,7 @@ class Manipulator(Device):
     ) -> FibsemManipulatorPosition:
         """Move by an offset. Returns where it is afterwards."""
         with self.resources.claim(MANIPULATOR_RESOURCE):
+            self.check_limits(self.position.get_value() + delta)
             self._move_relative(delta)
             return self.position.get_value()
 
@@ -114,7 +156,8 @@ class Manipulator(Device):
         return self.position.get_value()
 
     def facts(self) -> Dict[str, Any]:
-        """The arm's axes, and its named positions with where each one is now."""
+        """The arm's named positions with where each one is now. Its axes travel
+        as the limits of ``position``."""
         saved = {}
         for name in self.named_positions():
             try:
@@ -122,7 +165,6 @@ class Manipulator(Device):
             except Exception as error:  # one unreadable name hides only itself
                 logging.warning(f"{self.name}: saved position {name}: {error}")
         return {
-            "axes": list(self.axes()),
             "named_positions": self.named_positions(),
             "saved_positions": saved,
             "is_installed": self._installed_or_none(),
@@ -158,10 +200,11 @@ class Manipulator(Device):
         names = self.named_positions()
         return names[0] if names else None
 
-    def axes(self) -> Tuple[str, ...]:
-        """The axes the arm moves on, of ``x``, ``y``, ``z``, ``r`` (rotation) and
-        ``t`` (tilt)."""
-        return ("x", "y", "z")
+    def metadata_position(self) -> ParameterMetadata:
+        """The arm's axes and their limits: x, y and z, unbounded, unless the driver
+        says otherwise. Add ``r`` (rotation) or ``t`` (tilt) for an arm that has
+        them."""
+        return ParameterMetadata(limits={axis: UNLIMITED for axis in ("x", "y", "z")})
 
     def saved_position(self, name: str) -> FibsemManipulatorPosition:
         """The instrument's named position. Raises ValueError for an unknown name."""

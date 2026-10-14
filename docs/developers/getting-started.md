@@ -28,7 +28,7 @@ fibsem/                     the instrument library (no application logic)
   segmentation/             segmentation models
   ui/                       shared Qt widgets, stylesheets, canvases
   theme/                    the palette (tokens.py), importable without Qt
-  server/                   the agent/bench HTTP server (build_server)
+  server/                   the App Server for agents (build_server)
   mcp/                      the fibsem-mcp sidecar (MCP to HTTP)
   plugins/                  entry-point loading: fibsem.patterns,
                             fibsem.strategies, fibsem.tasks

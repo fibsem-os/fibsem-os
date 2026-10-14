@@ -541,6 +541,34 @@ class LamellaTaskImageWidget(QWidget):
         self._filter_button.changed.connect(self._on_filter_changed)
         self._filter_button.hide()
 
+        # What can be done with the lamella's history, behind "...": open its
+        # folder, and export the workflow GIF made of the runs and images this tab
+        # shows (FIB-1311). Kept by the widget and moved into each header, as the
+        # filter is; the menu is unparented for the same reason as the filter's.
+        self._actions_button = QToolButton(self)
+        self._actions_button.setFixedSize(QSize(26, 26))
+        self._actions_button.setStyleSheet(
+            stylesheets.TOOLBUTTON_ICON_STYLESHEET
+            + " QToolButton::menu-indicator { image: none; }"
+        )
+        self._actions_button.setPopupMode(QToolButton.InstantPopup)
+        self._actions_button.setFocusPolicy(Qt.NoFocus)
+        self._actions_button.setIcon(
+            fibsem_icon("mdi:dots-horizontal", color=GRAY_ICON_COLOR)
+        )
+        self._actions_button.setToolTip("Actions")
+        self._actions_menu = QMenu()
+        self._action_open_folder = self._actions_menu.addAction(
+            fibsem_icon("mdi:folder", color=GRAY_ICON_COLOR), "Open Lamella Folder"
+        )
+        self._action_open_folder.triggered.connect(self._on_open_folder)
+        self._action_export_gif = self._actions_menu.addAction(
+            fibsem_icon("mdi:file-gif-box", color=GRAY_ICON_COLOR), "Export GIF..."
+        )
+        self._action_export_gif.triggered.connect(self._on_export_gif)
+        self._actions_button.setMenu(self._actions_menu)
+        self._actions_button.hide()
+
         self._empty_label = QLabel("Select a lamella card to view task images.")
         self._empty_label.setStyleSheet(f"color: {NEUTRAL_550}; font-size: 12px;")
         self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -616,6 +644,8 @@ class LamellaTaskImageWidget(QWidget):
         """
         self._filter_button.hide()
         self._filter_button.setParent(self)
+        self._actions_button.hide()
+        self._actions_button.setParent(self)
         while self._content_layout.count():
             item = self._content_layout.takeAt(0)
             w = item.widget()
@@ -691,6 +721,7 @@ class LamellaTaskImageWidget(QWidget):
 
         if self._lamella is None:
             self._filter_button.hide()
+            self._actions_button.hide()
             label = QLabel("Select a lamella card to view task images.")
             label.setStyleSheet(f"color: {NEUTRAL_550}; font-size: 12px;")
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -750,7 +781,8 @@ class LamellaTaskImageWidget(QWidget):
             self._worker.start()
 
     def _header(self, name: str, runs: List[HistoryRun], flt: HistoryFilter) -> QWidget:
-        """The lamella's name, a line about its runs, and the filter at the right."""
+        """The lamella's name, a line about its runs, and the filter and the
+        actions at the right."""
         header = QWidget()
         header.setStyleSheet("background: transparent;")
         layout = QHBoxLayout(header)
@@ -778,8 +810,57 @@ class LamellaTaskImageWidget(QWidget):
         text.addWidget(self._subtitle)
         layout.addLayout(text, 1)
         layout.addWidget(self._filter_button, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(self._actions_button, 0, Qt.AlignmentFlag.AlignTop)
         self._filter_button.show()
+        self._actions_button.show()
         return header
+
+    def _on_open_folder(self) -> None:
+        """The lamella's folder in the system's file browser."""
+        lamella = self._lamella
+        if lamella is None:
+            return
+        path = os.fspath(lamella.path)
+        if not os.path.isdir(path):
+            from fibsem.ui import notification_service
+
+            notification_service.show_toast(f"Folder not found: {path}", "error")
+            return
+        _open_path(path)
+
+    def _on_export_gif(self) -> None:
+        """Open the workflow GIF export on the images the lamella's tasks saved:
+        each task's latest run, whatever the filter shows.
+
+        Needs no microscope: it reads the files the task history recorded.
+        """
+        from PyQt5.QtWidgets import QApplication
+
+        from fibsem.applications.autolamella.task_outputs import images_by_task
+        from fibsem.imaging.animation import AnimationStep, load_frames
+        from fibsem.ui import notification_service
+        from fibsem.ui.widgets.animation_export_dialog import AnimationExportDialog
+
+        lamella = self._lamella
+        if lamella is None:
+            return
+        steps = [
+            AnimationStep(title=name, paths=finals, fluorescence=stacks)
+            for name, finals, stacks in images_by_task(lamella)
+        ]
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            frames = load_frames(steps)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not frames:
+            notification_service.show_toast(
+                f"{lamella.name} has no task images to animate yet", "info"
+            )
+            return
+        AnimationExportDialog(
+            frames, lamella.name, os.fspath(lamella.path), self
+        ).exec_()
 
     def _nothing_matches(self, flt: HistoryFilter) -> QWidget:
         box = QWidget()

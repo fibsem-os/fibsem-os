@@ -6,7 +6,7 @@ The App Server is the API inside AutoLamella that the agent, the dashboard and
 and connecting one is the chip's "Connect an agent…" (``connect_agent_dialog``).
 
 Whether it runs lives in Preferences → App Server. Whether this session
-serves the microscope's devices is chosen here (FIB-1359), per session like the
+serves the microscope is chosen here (FIB-1359), per session like the
 agent level; Preferences keeps only the start-up default.
 """
 
@@ -29,8 +29,8 @@ from fibsem.ui.tokens import OK_COLOR, TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
 
 __all__ = ["AppServerDialog"]
 
-DEVICES_LABEL = "Serve the microscope's devices"
-DEVICES_TIP = (
+MICROSCOPE_LABEL = "Serve the microscope"
+MICROSCOPE_TIP = (
     "Also serve the routes that reach the instrument: its devices, stage, beams "
     "and milling state, reads included. Off, clients see the session but cannot "
     "query the microscope. Moving it still needs the agent at Drive. Changing "
@@ -65,14 +65,14 @@ class AppServerDialog(QDialog):
         self,
         host_provider: Callable[[], Optional[object]],
         parent=None,
-        set_devices: Optional[Callable[[bool], None]] = None,
+        set_microscope: Optional[Callable[[bool], None]] = None,
     ):
         super().__init__(parent)
         self.setWindowTitle("App Server")
         self.setMinimumWidth(440)
         self._host_provider = host_provider
-        # Serves or stops serving the devices this session; restarts the server.
-        self._set_devices = set_devices
+        # Serves or stops serving the microscope this session; restarts the server.
+        self._set_microscope = set_microscope
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 12)
@@ -89,11 +89,11 @@ class AppServerDialog(QDialog):
         layout.addLayout(status_row)
         self._services_label = note("")
         layout.addWidget(self._services_label)
-        self._chk_devices = QCheckBox(DEVICES_LABEL)
-        self._chk_devices.setToolTip(DEVICES_TIP)
-        self._chk_devices.setVisible(set_devices is not None)
-        self._chk_devices.toggled.connect(self._on_devices_toggled)
-        layout.addWidget(self._chk_devices)
+        self._chk_microscope = QCheckBox(MICROSCOPE_LABEL)
+        self._chk_microscope.setToolTip(MICROSCOPE_TIP)
+        self._chk_microscope.setVisible(set_microscope is not None)
+        self._chk_microscope.toggled.connect(self._on_microscope_toggled)
+        layout.addWidget(self._chk_microscope)
 
         layout.addSpacing(6)
 
@@ -168,8 +168,8 @@ class AppServerDialog(QDialog):
 
     @staticmethod
     def services_text(host) -> str:
-        devices = "on" if getattr(host, "devices", False) else "off"
-        return f"Services: monitoring · devices {devices}"
+        served = "on" if getattr(host, "serve_microscope", False) else "off"
+        return f"Services: monitoring · microscope {served}"
 
     @staticmethod
     def agent_text(host) -> str:
@@ -198,7 +198,7 @@ class AppServerDialog(QDialog):
             )
             self._status_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._services_label.setText("")
-            self._chk_devices.setEnabled(False)
+            self._chk_microscope.setEnabled(False)
             self._agent_label.setText("No clients while the App Server is off.")
             self._agent_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             return
@@ -206,19 +206,19 @@ class AppServerDialog(QDialog):
         self._status_label.setText(self._status_text(host))
         self._status_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
         self._services_label.setText(self.services_text(host))
-        self._chk_devices.setEnabled(True)
-        self._chk_devices.blockSignals(True)
-        self._chk_devices.setChecked(bool(getattr(host, "devices", False)))
-        self._chk_devices.blockSignals(False)
+        self._chk_microscope.setEnabled(True)
+        self._chk_microscope.blockSignals(True)
+        self._chk_microscope.setChecked(bool(getattr(host, "serve_microscope", False)))
+        self._chk_microscope.blockSignals(False)
         self._agent_label.setText(self.agent_text(host))
         self._agent_label.setStyleSheet(f"color: {TEXT_STRONG_COLOR};")
 
     # --- actions --------------------------------------------------------------
 
-    def _on_devices_toggled(self, checked: bool) -> None:
-        if self._set_devices is None:
+    def _on_microscope_toggled(self, checked: bool) -> None:
+        if self._set_microscope is None:
             return
-        self._set_devices(checked)
+        self._set_microscope(checked)
         self.refresh()
 
     @staticmethod

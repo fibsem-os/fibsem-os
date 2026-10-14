@@ -75,7 +75,7 @@ from fibsem.cancellation import (
     raise_if_cancelled,
 )
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Parameter, ParameterMetadata, Role, command
+from fibsem.devices.core import Parameter, ParameterMetadata, Role, command, query
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.core import Service, forward_to, save_beam_conditions
@@ -526,9 +526,10 @@ class Milling(Service):
         except Exception as e:
             logging.warning(f"Error stopping milling after a failure: {e}")
 
-    @command
+    @query
     def estimate(self) -> float:
-        """How long milling what is drawn takes, in seconds."""
+        """How long milling what is drawn takes, in seconds. Moves nothing, so a
+        query."""
         return self._estimate()
 
     @classmethod

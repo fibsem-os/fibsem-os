@@ -1,24 +1,22 @@
-"""Authentication and scope gating for the fibsem server (FIB-852).
+"""Authentication and the agent level gate for the App Server (FIB-852, FIB-1035).
 
-One bearer token per server instance, and these scopes:
+One bearer token per server instance, and one gate: the agent level the
+operator sets from the Agent chip. Each route needs a level:
 
-- ``read``: granted to every valid token. Observation only.
-- ``control``: app-level workflow control. Armed by the hosting (GUI toggle in
-  the embedded app; unused in bench hosting until an app router exists).
-- ``configure``: editing task parameters (protocol and per-item task configs).
-  Its own rung, deliberately separate from ``control``: answering a question
-  with geometry and editing protocols are different grants (FIB-864).
-- ``hardware``: anything that commands or mutates the microscope. In the App
-  Server, armed at Drive (FIB-1267); on the bench, by ``--arm-hardware``.
-- ``stop``: stopping what is running (the workflow, a mill). Armed at Assist and
-  Drive (FIB-1283): stopping never waits for approval.
+- ``watch``: reads, and adding notes. Every valid token at Watch or above.
+- ``assist``: stopping what is running, and suggesting an answer: at Assist
+  and Drive, with no request (FIB-1283).
+- ``drive``: acting on the session and the microscope. At Assist the agent
+  asks first, and an approved request lends Drive to its calls
+  (:func:`lending_drive`).
 
 Fail closed: a server always has a token (generated when the hosting does not
-supply one), and only ``read`` is armed unless the hosting says otherwise.
+supply one), and starts at Watch unless the hosting says otherwise. Off
+refuses everything, reads included.
 
 A second, read-only **dashboard token** (FIB-1035) reaches the monitoring
 routes -- /capabilities and GETs of the app's read routes -- and nothing else:
-not the microscope, not a POST, whatever is armed. It is carried in the
+not the microscope, not a POST, whatever the level. It is carried in the
 dashboard link and never written to the discovery file, so the dashboard and
 the agent are told apart, and what governs the agent never cuts off the
 dashboard.
@@ -32,8 +30,7 @@ import weakref
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Callable, FrozenSet, Iterable, Iterator, List, Optional
+from typing import Callable, Iterator, List, Optional
 
 from fastapi import HTTPException, Request
 
@@ -43,53 +40,34 @@ from fibsem.control import MicroscopeBusy
 # Re-exported: AgentLevel lives where the GUI can import it without FastAPI.
 from fibsem.server.levels import AgentLevel
 
-
-class Scope(str, Enum):
-    READ = "read"
-    CONTROL = "control"
-    CONFIGURE = "configure"
-    HARDWARE = "hardware"
-    STOP = "stop"
-
-
-LEVEL_SCOPES = {
-    AgentLevel.OFF: frozenset(),
-    AgentLevel.WATCH: frozenset(),
-    # Assist acts only by asking (FIB-1283): every action is a request the
-    # operator approves. Stopping needs no approval.
-    AgentLevel.ASSIST: frozenset({Scope.STOP}),
-    # Hardware routes are mounted only with the devices setting on, and take
-    # control of the microscope, so a run or script refuses them (FIB-1267).
-    AgentLevel.DRIVE: frozenset(
-        {Scope.CONTROL, Scope.CONFIGURE, Scope.HARDWARE, Scope.STOP}
-    ),
+# What each level reaches, in order: a route needing a level is open at it and
+# every level above.
+_LEVEL_RANK = {
+    AgentLevel.OFF: 0,
+    AgentLevel.WATCH: 1,
+    AgentLevel.ASSIST: 2,
+    AgentLevel.DRIVE: 3,
 }
 
 
 @dataclass
 class AuthConfig:
-    """Token + armed scopes for one server instance.
+    """Token and agent level for one server instance.
 
-    ``read`` is implicitly armed for any valid token and need not be listed.
-
-    The token is fixed for the instance's lifetime; the armed set is the one
-    mutable thing, and only through :meth:`set_armed` — the arming dialog's
-    seam. Mutating it live (rather than rebuilding the server) keeps the
-    token stable, so connected agents gain or lose a scope without being
-    disconnected. Arming is deliberately never persisted: every session
-    starts read-only and arming is a fresh, deliberate act.
+    The token is fixed for the instance's lifetime; the level is the one
+    mutable thing, through :meth:`set_level` and :meth:`stop_agent` -- the
+    Agent chip's seam. Changing it live (rather than rebuilding the server)
+    keeps the token stable, so connected agents gain or lose reach without
+    being disconnected.
     """
 
     token: str
-    armed: FrozenSet[Scope] = field(default_factory=frozenset)
     # The dashboard's own token: monitoring reads only (require_monitoring).
     # None means no dashboard access, which is what a bare AuthConfig(token=...)
     # gets; generate() always makes one.
     dashboard_token: Optional[str] = None
-    # The agent level (FIB-1035), set by the App Server through set_level. None
-    # is a server with no level model -- the bench and headless hostings --
-    # where the armed scopes alone decide.
-    level: Optional[AgentLevel] = None
+    # The agent level (FIB-1035): the only gate.
+    level: AgentLevel = AgentLevel.WATCH
     # Set by stop_agent, cleared by the next set_level: the operator braked, so a
     # refusal says so rather than only naming the level.
     stopped: bool = False
@@ -129,10 +107,7 @@ class AuthConfig:
         return max(0.0, time.monotonic() - seen)
 
     def set_level(self, level: AgentLevel) -> None:
-        """Set the agent level, effective for the next request.
-
-        Rewrites the armed scopes to the level's, hardware included: the
-        level alone decides (FIB-1267)."""
+        """Set the agent level, effective for the next request."""
         self._set_level(AgentLevel(level), stopped=False)
 
     def stop_agent(self) -> None:
@@ -153,7 +128,6 @@ class AuthConfig:
     def _set_level(self, level: AgentLevel, stopped: bool) -> None:
         changed = level is not self.level or stopped
         # Atomic rebinds, read independently by requests.
-        self.armed = LEVEL_SCOPES[level]
         self.level = level
         self.stopped = stopped
         if not changed:
@@ -170,44 +144,19 @@ class AuthConfig:
                 logging.exception("Agent level listener failed")
         self._listeners[:] = live
 
-    def set_armed(self, scope: Scope, armed: bool) -> None:
-        """Arm or disarm one scope, effective for the next request."""
-        if scope is Scope.READ:
-            return  # read is unconditional; there is nothing to disarm
-        current = set(self.armed)
-        if armed:
-            current.add(scope)
-        else:
-            current.discard(scope)
-        # One atomic rebind (reads never see a half-edited set).
-        self.armed = frozenset(current)
+    def reaches(self, needed: AgentLevel) -> bool:
+        """Whether the current level opens a route that needs *needed*."""
+        return _LEVEL_RANK[self.level] >= _LEVEL_RANK[needed]
 
     @classmethod
     def generate(
-        cls,
-        arm_control: bool = False,
-        arm_configure: bool = False,
-        arm_hardware: bool = False,
-        token: Optional[str] = None,
+        cls, level: AgentLevel = AgentLevel.WATCH, token: Optional[str] = None
     ) -> "AuthConfig":
-        armed = set()
-        if arm_control:
-            armed.add(Scope.CONTROL)
-        if arm_configure:
-            armed.add(Scope.CONFIGURE)
-        if arm_hardware:
-            armed.add(Scope.HARDWARE)
         return cls(
             token=token or secrets.token_urlsafe(32),
-            armed=frozenset(armed),
             dashboard_token=secrets.token_urlsafe(32),
+            level=AgentLevel(level),
         )
-
-    def is_armed(self, scope: Scope) -> bool:
-        return scope is Scope.READ or scope in self.armed
-
-    def armed_scopes(self) -> Iterable[Scope]:
-        return (s for s in Scope if self.is_armed(s))
 
 
 def client_from_user_agent(user_agent: Optional[str]) -> Optional[str]:
@@ -224,23 +173,21 @@ def client_from_user_agent(user_agent: Optional[str]) -> Optional[str]:
     return products[1]
 
 
-# Scopes lent to the calls an approved request makes (FIB-1283), for those calls
+# Drive, lent to the calls an approved request makes (FIB-1283), for those calls
 # only. A context variable: set by the request's worker around each call it
 # makes into the app, so nothing arriving over the network can carry it.
-_granted: "ContextVar[FrozenSet[Scope]]" = ContextVar(
-    "fibsem_granted_scopes", default=frozenset()
-)
+_lent: "ContextVar[bool]" = ContextVar("fibsem_drive_lent", default=False)
 
 
 @contextmanager
-def granting(scopes: Iterable[Scope]) -> Iterator[None]:
-    """Lend *scopes* to the calls made inside this block: an action the operator
-    approved runs as if its scope were armed. Off still refuses everything."""
-    token = _granted.set(frozenset(scopes))
+def lending_drive() -> Iterator[None]:
+    """Lend Drive to the calls made inside this block: an action the operator
+    approved runs as if the agent were at Drive. Off still refuses everything."""
+    token = _lent.set(True)
     try:
         yield
     finally:
-        _granted.reset(token)
+        _lent.reset(token)
 
 
 def _bearer_token(request: Request) -> Optional[str]:
@@ -278,42 +225,39 @@ def _dashboard_refused() -> HTTPException:
     )
 
 
-def _not_armed_detail(auth: AuthConfig, scope: Scope) -> dict:
-    detail = {"error_type": "scope_not_armed", "scope": scope.value}
-    if auth.level is AgentLevel.ASSIST and not auth.stopped:
-        detail["error_type"] = "ask_first"
-        detail["level"] = AgentLevel.ASSIST.value
-        detail["message"] = (
-            "At Assist the agent asks before it acts: put this call in a request "
-            "(request_actions, POST /app/agent/requests) with your reason, and "
-            "the operator approves or rejects it in AutoLamella."
-        )
-    elif auth.stopped:
-        detail["error_type"] = "agent_stopped"
-        detail["level"] = AgentLevel.WATCH.value
-        detail["message"] = (
-            "The operator stopped the agent and set it to Watch: it can look and "
-            "add notes, but not act, until they raise the level."
-        )
-    elif auth.level is None:
-        detail["message"] = f"The '{scope.value}' scope is not armed on this server."
-    else:
-        detail["level"] = auth.level.value
-        detail["message"] = (
-            f"Not allowed while the agent level is {auth.level.value.title()}: "
-            "the operator sets the level from the Agent chip in AutoLamella."
-        )
-    return detail
+def _level_detail(auth: AuthConfig, needed: AgentLevel) -> dict:
+    if auth.stopped:
+        return {
+            "error_type": "agent_stopped",
+            "level": AgentLevel.WATCH.value,
+            "message": "The operator stopped the agent and set it to Watch: it "
+            "can look and add notes, but not act, until they raise the level.",
+        }
+    if auth.level is AgentLevel.ASSIST and needed is AgentLevel.DRIVE:
+        return {
+            "error_type": "ask_first",
+            "level": AgentLevel.ASSIST.value,
+            "message": "At Assist the agent asks before it acts: put this call "
+            "in a request (request_actions, POST /app/agent/requests) with your "
+            "reason, and the operator approves or rejects it in AutoLamella.",
+        }
+    return {
+        "error_type": "level",
+        "level": auth.level.value,
+        "message": f"Not allowed while the agent level is "
+        f"{auth.level.value.title()}: the operator sets the level from the "
+        "Agent chip in AutoLamella.",
+    }
 
 
-def require_scope(scope: Scope, *alternatives: Scope):
-    """Build a FastAPI dependency enforcing a valid token + an armed scope (any
-    one of ``scope`` and ``alternatives``), and refusing everything while the
-    agent level is Off.
+def require_level(needed: AgentLevel):
+    """Build a FastAPI dependency enforcing a valid token and an agent level of
+    at least *needed*, and refusing everything while the level is Off.
 
     The agent token only: the dashboard token is refused here (403), so it
     reaches nothing beyond the routes guarded by :func:`require_monitoring`.
     """
+    needed = AgentLevel(needed)
 
     def dependency(request: Request) -> None:
         auth: AuthConfig = request.app.state.auth
@@ -322,11 +266,11 @@ def require_scope(scope: Scope, *alternatives: Scope):
             if _matches(token, auth.dashboard_token):
                 raise _dashboard_refused()
             raise _unauthorized()
-        granted = _granted.get()
-        # A valid token is proof of life whatever happens next — a scope
+        lent = _lent.get()
+        # A valid token is proof of life whatever happens next -- a level
         # refusal below is still the agent talking. An approved request's call
         # is the app's doing, not the agent's.
-        if not granted:
+        if not lent:
             auth.mark_seen(request.headers.get("User-Agent"))
         if auth.level is AgentLevel.OFF:
             raise HTTPException(
@@ -338,41 +282,17 @@ def require_scope(scope: Scope, *alternatives: Scope):
                     "agent level to Off in AutoLamella.",
                 },
             )
-        if not any(auth.is_armed(s) or s in granted for s in (scope, *alternatives)):
-            raise HTTPException(
-                status_code=403,
-                detail=_not_armed_detail(auth, scope),
-            )
-
-    return dependency
-
-
-def require_acting_level():
-    """A dependency for what the agent may do at Assist and Drive alike, with no
-    request: a suggestion (FIB-1283). Refused at Watch and Off as an action
-    would be; on a server with no level, the control scope decides. Use after
-    ``require_scope(Scope.READ)``, which checks the token."""
-
-    def dependency(request: Request) -> None:
-        auth: AuthConfig = request.app.state.auth
-        if auth.level is None:
-            allowed = auth.is_armed(Scope.CONTROL)
-        else:
-            allowed = auth.level in (AgentLevel.ASSIST, AgentLevel.DRIVE)
-            allowed = allowed and not auth.stopped
-        if not allowed:
-            raise HTTPException(
-                status_code=403, detail=_not_armed_detail(auth, Scope.CONTROL)
-            )
+        if not (auth.reaches(needed) or lent):
+            raise HTTPException(status_code=403, detail=_level_detail(auth, needed))
 
     return dependency
 
 
 def require_monitoring():
-    """The monitoring routes' dependency: the agent token as ``read``, or the
+    """The monitoring routes' dependency: the agent token at Watch, or the
     dashboard token for a GET. The dashboard is not the agent, so it does not
     count as the agent being heard from."""
-    as_agent = require_scope(Scope.READ)
+    as_agent = require_level(AgentLevel.WATCH)
 
     def dependency(request: Request) -> None:
         auth: AuthConfig = request.app.state.auth
@@ -403,7 +323,7 @@ def action_name(request: Request) -> str:
     words = [
         part.replace("_", " ")
         for part in request.url.path.split("/")
-        if part and part not in ("beams", "devices", "services")
+        if part and part not in ("microscope", "beams", "devices", "services")
     ]
     if request.method == "PUT":
         return " ".join(["set", *words])

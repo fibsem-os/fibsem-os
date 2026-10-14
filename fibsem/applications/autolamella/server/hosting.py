@@ -71,12 +71,12 @@ class AppServerHost:
         host: str = "127.0.0.1",
         port: int = 8001,
         discovery_path=None,
-        devices: bool = False,
+        serve_microscope: bool = False,
     ):
         self._ui = ui
-        # The devices service (FIB-1035): whether the instrument routes are
-        # served. Fixed for the host's life; a changed preference builds a new one.
-        self.devices = devices
+        # Whether the /microscope routes are served (FIB-1035). Fixed for the
+        # host's life; a change builds a new one.
+        self.serve_microscope = serve_microscope
         self._host = host
         self._port = port
         self._discovery_path = discovery_path
@@ -175,7 +175,7 @@ class AppServerHost:
         if self.running:
             return True
 
-        # One server per microscope/machine; a live bench server wins.
+        # One server per microscope/machine; a live one wins.
         existing = read_discovery_file(self._discovery_path)
         if existing is not None:
             logging.error(
@@ -184,25 +184,26 @@ class AppServerHost:
             )
             return False
 
-        # Read-only until scopes are armed; proper arming arrives with the GUI
-        # dialog. FIBSEM_AGENT_ARM_CONTROL=1 is the developer override until
-        # then: set by whoever launches the app, never by a config file, and
-        # loudly logged. Drive arms hardware too, when devices is on (FIB-1267).
+        # Watch until the operator raises the level from the Agent chip.
+        # FIBSEM_AGENT_ARM_CONTROL=1 is a developer override to start at Drive:
+        # set by whoever launches the app, never by a config file, and loudly
+        # logged.
         arm_control = os.environ.get("FIBSEM_AGENT_ARM_CONTROL") == "1"
         if arm_control:
             logging.warning(
                 "App Server: agent level DRIVE via FIBSEM_AGENT_ARM_CONTROL "
-                "(developer override; the agent chip replaces this)"
+                "(developer override)"
             )
         # One AuthConfig per app session, kept on the window across server
-        # restarts (a microscope reconnect, a devices toggle): the agent's
+        # restarts (a microscope reconnect, a microscope toggle): the agent's
         # token stays valid, so a connected sidecar carries on, and the level
         # the operator set stands. It starts at Watch at every launch and is
         # never written to disk (FIB-1035). The override is Drive.
         self.auth = getattr(self._ui, "_app_server_auth", None)
         if self.auth is None:
-            self.auth = AuthConfig.generate()
-            self.auth.set_level(AgentLevel.DRIVE if arm_control else AgentLevel.WATCH)
+            self.auth = AuthConfig.generate(
+                level=AgentLevel.DRIVE if arm_control else AgentLevel.WATCH
+            )
             try:
                 self._ui._app_server_auth = self.auth
             except AttributeError:
@@ -219,7 +220,7 @@ class AppServerHost:
             # The question-lifecycle feed: prompt_raised / prompt_answered /
             # prompt_cancelled straight from the responder into the buffer, so a
             # supervising agent can sleep on the events long-poll instead of
-            # polling /app/prompt, and answers carry who answered them.
+            # polling /app/workflow/prompt, and answers carry who answered them.
             responder = getattr(self._ui, "ui_responder", None)
             if responder is not None:
                 self._disposers.append(
@@ -230,7 +231,7 @@ class AppServerHost:
             microscope,
             app_context=AutoLamellaAppContext(self._ui, event_buffer=self.event_buffer),
             auth=self.auth,
-            devices=self.devices,
+            serve_microscope=self.serve_microscope,
         )
         self._app = app
         config = uvicorn.Config(

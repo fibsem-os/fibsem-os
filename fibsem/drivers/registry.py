@@ -52,6 +52,7 @@ from fibsem.plugins.loader import PluginRegistry, PluginRejected
 
 if TYPE_CHECKING:
     from fibsem.devices.core import Device
+    from fibsem.drivers.setup import DriverSetup
     from fibsem.microscope import FibsemMicroscope
     from fibsem.plugins.loader import PluginRecord
     from fibsem.structures import DeviceEntry, SystemSettings
@@ -91,6 +92,12 @@ class DriverEntry:
     configuration files, image headers and the command line carry them.
     :func:`normalize_name` maps each to :attr:`manufacturer`, ignoring case; the name
     itself matches in any case without being listed."""
+
+    setup: Optional[str] = None
+    """What the first-run guided setup offers for this driver, as
+    ``"module:attribute"`` naming a ``fibsem.drivers.setup.DriverSetup``, imported
+    when the wizard lists the drivers (:func:`driver_setups`). ``None`` for a driver
+    the wizard does not offer."""
 
     @property
     def builds_microscope(self) -> bool:
@@ -314,6 +321,18 @@ def registered_manufacturers() -> List[str]:
         if manufacturer not in names and entry.builds_microscope:
             names.append(manufacturer)
     return names
+
+
+def driver_setups() -> List[Tuple[str, "DriverSetup"]]:
+    """Each driver the guided setup offers, as (manufacturer, its ``DriverSetup``),
+    in ``registered_manufacturers`` order. Imports every built-in driver's record, and
+    each setup's module."""
+    entries = [get_driver(m) for m in registered_manufacturers()]
+    return [
+        (entry.manufacturer, _import(entry.setup))
+        for entry in entries
+        if entry.setup is not None
+    ]
 
 
 def default_configuration_values() -> Dict[str, Dict[str, Any]]:

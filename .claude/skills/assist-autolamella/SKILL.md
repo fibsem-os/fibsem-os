@@ -30,9 +30,9 @@ Read `get_capabilities` first:
 
 - `level: "assist"` is the level this skill is for. Tell the operator in a
   sentence what that means: you read and suggest, you ask before acting,
-  and you stop without asking only if something is going wrong. `scopes`
-  shows `control`, `configure` and `hardware` false at Assist. That is
-  what you can call directly, not what you can ask for.
+  and you stop without asking only if something is going wrong. A direct
+  call that needs Drive is refused with `ask_first`; that is what you can
+  call directly, not what you can ask for.
 - `level: "watch"`: you can read and add notes, and suggest nothing. Work
   as the observe skill says (`.claude/skills/observe-autolamella`). If they
   want your help acting, they raise you to Assist from the Agent chip.
@@ -46,9 +46,9 @@ The tools this skill uses, with their routes for plain HTTP:
 |---|---|
 | `request_actions` | `POST /app/agent/requests` |
 | `get_request` | `GET /app/agent/requests/{request_id}` |
-| `suggest_answer` | `POST /app/prompt/suggest` |
+| `suggest_answer` | `POST /app/workflow/prompt/suggest` |
 | `add_note` | `POST /app/agent/notes` |
-| `stop_workflow`, `stop_milling` | `POST /app/workflow/stop`, `POST /stop_milling` |
+| `stop_workflow`, `stop_milling` | `POST /app/workflow/stop`, `POST /microscope/services/milling/commands/stop` |
 
 In a request, `tool` is the tool's name without the `mcp__fibsem__`
 prefix (`set_task_supervision`, `move_stage_relative`, `requeue_task`), and

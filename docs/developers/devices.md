@@ -257,14 +257,18 @@ chamber.pressure.get_value()  # Pa, where the instrument reports it
 needle = microscope.manipulator_device
 needle.state.get_value()      # InsertableDeviceState
 needle.named_positions()      # the named positions the driver reports
-needle.axes()                 # ("x", "y", "z"), with "r" or "t" if the arm rotates or tilts
+list(needle.axes)             # ["x", "y", "z"], with "r" or "t" if the arm rotates or tilts
+needle.axes.x.limits          # RangeLimit, from the position limits the driver gives
 ```
 
 The chamber's commands are `pump()` and `vent()`. The manipulator's are
 `insert(name)`, `retract()`, `move_absolute`, `move_relative`, `move_to_offset` and
 `stop()`. `stop` does not wait for the move it stops; a driver that cannot stop its
-needle raises `NotImplementedError`. Whether the arm rotates
-(`is_available("manipulator_rotation")`) comes from `axes()`.
+needle raises `NotImplementedError`. As on the stage, the arm's axes are the keys of
+the per-axis limits its driver gives `position` (`metadata_position`; x, y and z
+unbounded by default), and a move outside them raises `ManipulatorLimitError`.
+Whether the arm rotates (`is_available("manipulator_rotation")`) comes from its
+axes.
 
 ## The fluorescence microscope
 
@@ -358,10 +362,10 @@ coordinates devices or runs steps over time is a service. The base class is
 
 `microscope.services` maps each service the microscope built to its name (`milling`,
 `stage_movement`, `spot_burn`, `sample_handling`, `imaging`); one the backend didn't
-build is left out. The App Server serves them as it serves devices, under `/services`: `GET
-/services` describes each one's parameters and commands, `GET
-/services/{service}/{parameter}` reads one, and `POST
-/services/{service}/commands/{command}` runs one, behind the same token, scopes and
+build is left out. The App Server serves them as it serves devices, under `/microscope/services`: `GET
+/microscope/services` describes each one's parameters and commands, `GET
+/microscope/services/{service}/{parameter}` reads one, and `POST
+/microscope/services/{service}/commands/{command}` runs one, behind the same token, level and
 control of the microscope. A service's `stop` needs only the token and is never
 refused by whoever is in control, like a device's.
 
