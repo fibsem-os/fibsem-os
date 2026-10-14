@@ -12,14 +12,14 @@ import pytest
 
 from fibsem import cli, utils
 from fibsem import config as cfg
-from fibsem.hardware_check import (
+from fibsem.structures import RangeLimit
+from fibsem.tools.hardware_check import (
     Level,
     Result,
     out_of_range,
     run_hardware_check,
     same,
 )
-from fibsem.structures import RangeLimit
 
 
 @pytest.fixture
@@ -227,7 +227,7 @@ def test_a_pixel_size_that_catches_up_is_a_note_with_how_long(microscope, monkey
 
 
 def test_a_pixel_size_that_never_follows_fails(microscope, monkeypatch):
-    from fibsem.fm import hardware_check as fm_check
+    from fibsem.tools.hardware_check import fm as fm_check
 
     monkeypatch.setattr(fm_check, "FOLLOW_WAIT", 0.05)
     _lagging_pixel_size(microscope, monkeypatch, stale_reads=10**6)
@@ -239,7 +239,7 @@ def test_a_pixel_size_that_never_follows_fails(microscope, monkeypatch):
 
 
 def test_lengths_read_in_the_unit_that_suits_them():
-    from fibsem.hardware_check import with_unit
+    from fibsem.tools.hardware_check import with_unit
 
     assert str(with_unit(1.69e-3, "m")) == "1.69 mm"
     assert str(with_unit((1.19e-7, 1.19e-7), "m")) == "119 × 119 nm"
