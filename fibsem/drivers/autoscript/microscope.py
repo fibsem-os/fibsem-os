@@ -480,8 +480,8 @@ class ThermoMicroscope(FibsemMicroscope):
         run_milling(self, stop_event=None):
             Mill what is drawn and return when the mill ends.
 
-        finish_milling(self, imaging_current: float):
-            Finalises the milling process by clearing the microscope of any patterns and returning the current to the imaging current.
+        finish_milling(self):
+            Finalises the milling process by clearing the microscope of any patterns and putting the beam back as setup_milling found it.
 
         set_microscope_state(self, microscope_state: MicroscopeState) -> None:
             Reset the microscope state to the provided state.

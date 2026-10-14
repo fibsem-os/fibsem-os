@@ -194,10 +194,6 @@ def facts():
     finish = B.run(lambda: new.finish_milling())
     after = _conditions(new)
 
-    given = make()
-    given.setup_milling(RECIPE)
-    given.finish_milling(imaging_current=1e-10, imaging_voltage=30e3)
-
     no_ion = B.make(plasma=False, ion=False)
     no_ion._build_beams()
     no_ion._build_milling()
@@ -237,7 +233,6 @@ def facts():
         "during": during,
         "after": after,
         "finish": finish,
-        "given": _conditions(given),
         "no_ion": no_ion.milling is None,
         "used": used,
     }

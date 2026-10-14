@@ -238,10 +238,6 @@ class FibsemMillingTask:
         )
         self.output_dir: Optional[str] = None
         self.initial_beam_shift: Optional[Point] = None
-        # Imaging current/voltage captured before milling starts, so cleanup restores the
-        # exact pre-milling state (not a config default) even if the task is cancelled.
-        self.initial_imaging_current: Optional[float] = None
-        self.initial_imaging_voltage: Optional[float] = None
         # Set to cancel: checked between stages, and passed to the strategy, whose
         # run_milling stops the beam when it is set.
         self._stop_event: Optional[threading.Event] = stop_event
@@ -274,23 +270,6 @@ class FibsemMillingTask:
                 milling_task_name=self.name,
                 **fields,
             ),
-        )
-
-    def _imaging_conditions(self) -> Tuple[float, float]:
-        """The (current, voltage) the user was imaging at before milling started.
-
-        Falls back to the system defaults only if the task failed before it could
-        capture them. Every restore path must go through here: reading
-        ``system.ion.beam.*`` directly picks up the *config* default, which bounces
-        the column back to 30 kV whenever a stage mills at some other voltage.
-        """
-        current = self.initial_imaging_current
-        voltage = self.initial_imaging_voltage
-        return (
-            current
-            if current is not None
-            else self.microscope.system.ion.beam.beam_current,
-            voltage if voltage is not None else self.microscope.system.ion.beam.voltage,
         )
 
     def _configure_path(self) -> None:
@@ -343,14 +322,6 @@ class FibsemMillingTask:
             self.initial_beam_shift = self.microscope.get_beam_shift(
                 beam_type=self.config.channel
             )
-            # Capture the live imaging current/voltage BEFORE setup_milling switches to the
-            # milling current, so cleanup restores exactly what the user was imaging at.
-            self.initial_imaging_current = self.microscope.get_beam_current(
-                self.config.channel
-            )
-            self.initial_imaging_voltage = self.microscope.get_beam_voltage(
-                self.config.channel
-            )
 
             # configure acquisition filepaths
             self._configure_path()
@@ -386,12 +357,8 @@ class FibsemMillingTask:
             # Before the cleanup, which can raise: the record of how the run ended
             # must not depend on restoring the beam afterwards.
             self._record_run(started_at)
-            # restore the captured pre-milling imaging current/voltage
-            imaging_current, imaging_voltage = self._imaging_conditions()
-            self.microscope.finish_milling(
-                imaging_current=imaging_current,
-                imaging_voltage=imaging_voltage,
-            )
+            # put the beam back as the first setup_milling found it, even when cancelled
+            self.microscope.finish_milling()
             # restore initial beam shift
             if self.initial_beam_shift is not None:
                 self.microscope.set_beam_shift(
@@ -632,10 +599,7 @@ class FibsemMillingTask:
             stage_name (str): Name of the milling stage
             tag (str): Tag to append to the filename
         """
-        imaging_current, imaging_voltage = self._imaging_conditions()
-        self.microscope.finish_milling(
-            imaging_current=imaging_current, imaging_voltage=imaging_voltage
-        )
+        self.microscope.finish_milling()
 
         acq_date = current_timestamp_v3(timeonly=True)
         self.config.acquisition.imaging.filename = (

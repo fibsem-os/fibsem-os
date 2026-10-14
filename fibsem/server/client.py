@@ -574,12 +574,9 @@ class FibsemClient:
     def resume_milling(self) -> None:
         self._milling("resume")
 
-    def finish_milling(self, imaging_current: float, imaging_voltage: float) -> None:
-        """Clear the patterns, put the milling beam back as setup found it, then
-        the imaging voltage and current given, on the milling channel."""
-        self._milling(
-            "finish", imaging_current=imaging_current, imaging_voltage=imaging_voltage
-        )
+    def finish_milling(self) -> None:
+        """Clear the patterns and put the milling beam back as setup found it."""
+        self._milling("finish")
 
     def clear_patterns(self) -> None:
         self._milling("clear")

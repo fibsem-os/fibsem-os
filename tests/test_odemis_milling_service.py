@@ -128,10 +128,10 @@ def test_the_state_is_read_on_the_milling_channel(odemis_cls):
 WRITES = ("set_high_voltage", "set_beam_current", "set_field_of_view")
 
 
-def _finish(microscope, **overrides):
+def _finish(microscope):
     """The odemis calls ``finish_milling`` makes after a setup, without the reads."""
     microscope.setup_milling(SETTINGS)
-    calls = run(microscope, lambda m: m.finish_milling(**overrides))["calls"]
+    calls = run(microscope, lambda m: m.finish_milling())["calls"]
     return [
         c[:2]
         for c in calls
@@ -150,16 +150,6 @@ def test_finish_milling_puts_the_beam_back(odemis_cls):
         ["set_patterning_mode", ["Serial"]],
     ]
     assert microscope.milling._saved is None
-
-
-def test_an_imaging_current_and_voltage_given_win(odemis_cls):
-    calls = _finish(make(odemis_cls), imaging_current=2e-11, imaging_voltage=16e3)
-    # after what milling found is put back and the mode reset
-    assert calls[-3:] == [
-        ["set_patterning_mode", ["Serial"]],
-        ["set_high_voltage", [16e3, "ion"]],
-        ["set_beam_current", [2e-11, "ion"]],
-    ]
 
 
 def test_odemis_mills_with_the_settings_it_says(odemis_cls, monkeypatch):

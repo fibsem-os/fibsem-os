@@ -1068,16 +1068,10 @@ class FibsemMicroscope(ABC):
         logging.debug("running milling now...")
         self._milling_service().run(stop_event=stop_event)
 
-    def finish_milling(
-        self,
-        imaging_current: Optional[float] = None,
-        imaging_voltage: Optional[float] = None,
-    ) -> None:
+    def finish_milling(self) -> None:
         """Clear the patterns and put the milling beam back as ``setup_milling`` found
-        it. An imaging current or voltage given wins over what was saved."""
-        self._milling_service().finish(
-            imaging_current=imaging_current, imaging_voltage=imaging_voltage
-        )
+        it."""
+        self._milling_service().finish()
 
     def clear_patterns(self) -> None:
         self._milling_service().clear()

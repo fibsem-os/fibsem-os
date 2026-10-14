@@ -172,8 +172,6 @@ class Milling(Service):
         # The beam conditions the first setup found, until restore puts them back.
         self._saved: Optional[Dict[str, Any]] = None
         self._saved_beam: Optional[Beam] = None
-        # The channel the last setup milled on, which finish puts imaging back on.
-        self._channel: BeamType = BeamType.ION
         # What the driver says about its own fields, asked once.
         self._driver_settings: Dict[str, ParameterMetadata] = {}
         self._progress = progress_update(state=MillingState.IDLE)
@@ -329,7 +327,6 @@ class Milling(Service):
         """
         if self._saved is None:
             self._save(self.beam(settings.milling_channel))
-        self._channel = settings.milling_channel
         self._name = name
         self._setup(settings, name)
         if self._drawn:
@@ -569,28 +566,10 @@ class Milling(Service):
         self._restore()
 
     @command
-    def finish(
-        self,
-        imaging_current: Optional[float] = None,
-        imaging_voltage: Optional[float] = None,
-    ) -> None:
-        """Clear the patterns and put the milling beam back as ``setup`` found it
-        (``clear`` then ``restore``). An imaging current or voltage given wins over
-        what was saved, where the beam can set it: a Tescan ion column takes both from
-        its preset."""
+    def finish(self) -> None:
+        """Clear the patterns and put the milling beam back as ``setup`` found it."""
         self.clear()
         self.restore()
-        beam = self.beam(self._channel)
-        for name, value in (("voltage", imaging_voltage), ("current", imaging_current)):
-            if value is not None and _settable(beam, name):
-                getattr(beam, name).write_through(value)
-        logging.debug(
-            {
-                "msg": "finish_milling",
-                "imaging_current": imaging_current,
-                "imaging_voltage": imaging_voltage,
-            }
-        )
 
     def _save(self, beam: Beam) -> None:
         """Keep the beam's conditions that it has, can set, and reports."""
