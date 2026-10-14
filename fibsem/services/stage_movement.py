@@ -80,20 +80,6 @@ def _moves(translation: FibsemStagePosition) -> bool:
 ROTATION_FRAME_DEVICE = "FIBSEM"
 
 
-def _distance_from_origin(
-    origin: FibsemStagePosition, position: FibsemStagePosition
-) -> float:
-    """How far `position` is from a device's `origin`, over the axes the origin sets."""
-    return (
-        sum(
-            (getattr(position, axis) - getattr(origin, axis)) ** 2
-            for axis in DEVICE_AXES
-            if getattr(origin, axis) is not None and getattr(position, axis) is not None
-        )
-        ** 0.5
-    )
-
-
 class StageMovement(Service):
     """The stage, moved by what a view of the sample shows.
 
@@ -392,10 +378,9 @@ class StageMovement(Service):
             return None
         return min(
             containing,
-            key=lambda name: _distance_from_origin(
-                self._resolved_origin(self.parent.system.stage.devices[name]),
-                stage_position,
-            ),
+            key=lambda name: self._resolved_origin(
+                self.parent.system.stage.devices[name]
+            ).euclidean_distance(stage_position),
         )
 
     def _device_at_position_pose(
