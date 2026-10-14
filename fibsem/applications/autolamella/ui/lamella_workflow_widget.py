@@ -327,12 +327,14 @@ class LamellaWorkflowWidget(QWidget):
 
     def _refresh_settings_button(self) -> None:
         """The ⚙ in the accent colour while something in it is set, so a workflow
-        name or "turn beams off" is not hidden by the popover."""
+        name, "turn beams off" or a summary turned off is not hidden by the
+        popover."""
         info = self.info
         changed = bool(
             info.name_edit.text()
             or info.desc_edit.text()
             or info.turn_beams_off_cb.isChecked()
+            or not info.show_run_summary_cb.isChecked()
         )
         self.btn_settings.setIcon(
             fibsem_icon(

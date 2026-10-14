@@ -106,7 +106,10 @@ from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
-from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
+from fibsem.ui.widgets.workflow_summary_dialog import (
+    WorkflowSummaryDialog,
+    run_counts_text,
+)
 
 if TYPE_CHECKING:
     from concurrent.futures import Future
@@ -281,11 +284,11 @@ class AutoLamellaUI(QMainWindow):
         # server reads it when it runs; None only while disconnected.
         self._event_recorder = None
         self._last_run_summary: Optional["pd.DataFrame"] = None
-        # Why the last run ended short of done, for the summary dialog's
+        # Why the last run ended short of done, for the run summary's
         # headline: a run that gave up waiting for a review must not read as
         # a finish. Empty when it finished or was stopped.
         self._last_run_note: str = ""
-        # The summary the dialog has already shown (by identity): the dialog is
+        # The summary already toasted (by identity): the run-end toast is
         # once-per-run, while _last_run_summary itself must survive as the
         # record remote readers see.
         self._shown_run_summary: Optional["pd.DataFrame"] = None
@@ -3081,14 +3084,22 @@ class AutoLamellaUI(QMainWindow):
         self._show_workflow_summary()
 
     def _show_workflow_summary(self) -> None:
-        """Show a modal summary dialog of the tasks run in the last workflow.
+        """Toast the end of the last workflow, and open its summary unless the
+        workflow's "Show summary after completion" is off.
+
+        The toast always comes, with a Show summary link, and stays in the
+        notification bell, so any run's summary is a click away after it
+        fades. The dialog opens without blocking the window (FIB-1376): as a
+        modal it held the window at the end of every run, which an agent
+        starting many short runs, or a run ending overnight, left standing
+        over the app. That is also when to turn it off.
 
         Show-once, but never consume: ``_last_run_summary`` is also the
         record the App Server's ``run_summary`` endpoint reads after the
         worker nulls the manager — nulling it here meant the record lived
         only for the milliseconds between the worker's capture and this
         handler, and every remote read found nothing. The record stays until
-        the next run's capture overwrites it; only the dialog is once-only.
+        the next run's capture overwrites it; only the toast is once-only.
         """
         summary = self._last_run_summary
         if summary is None or summary is self._shown_run_summary:
@@ -3096,11 +3107,29 @@ class AutoLamellaUI(QMainWindow):
         self._shown_run_summary = summary
         if summary.empty:
             return
+        note = self._last_run_note
+        failed = (
+            "task_status" in summary.columns
+            and (summary["task_status"] == "Failed").any()
+        )
+        notification_service.show(
+            f"Run ended: {run_counts_text(summary)}",
+            "warning" if note or failed else "success",
+            action=(
+                "Show summary",
+                lambda: self._open_workflow_summary(summary, note),
+            ),
+        )
+        protocol = self.protocol
+        if protocol is None or protocol.options.show_run_summary:
+            self._open_workflow_summary(summary, note)
+
+    def _open_workflow_summary(self, summary: "pd.DataFrame", note: str) -> None:
+        """Open a run's summary dialog, without blocking the window."""
         try:
-            dialog = WorkflowSummaryDialog(
-                summary, note=self._last_run_note, parent=self
-            )
-            dialog.exec_()
+            dialog = WorkflowSummaryDialog(summary, note=note, parent=self)
+            dialog.setAttribute(Qt.WA_DeleteOnClose)
+            dialog.show()
         except Exception as e:
             logging.warning(f"Failed to show workflow summary dialog: {e}")
 

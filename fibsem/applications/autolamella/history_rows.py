@@ -6,6 +6,11 @@ failed and cancelled ones included) and the operation events in ``events.jsonl``
 (an ``alignment``, an ``autofocus``...), which carry the run's ``task.id``. The run
 still going, when there is one, is a row too.
 
+Operations outside any task -- an agent's autofocus or mill between runs, or the
+operator's from the Microscope tab -- have no ``task.id`` (FIB-1375). Each session's
+are one more row, "Outside a task", placed among the runs by when they started.
+They belong to no lamella, so every lamella's History shows them.
+
 Deliberately free of UI imports, like ``task_outputs``: what a row says is policy,
 and keeping it here lets it be tested without Qt and read by other consumers. The
 widget only draws rows and keeps the filter.
@@ -38,6 +43,12 @@ from fibsem.util.timestamps import to_datetime
 OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
 
 _BEAM = {"ELECTRON": "SEM", "ION": "FIB"}
+
+# The row holding a session's operations that ran outside any task.
+OUTSIDE_A_TASK = "Outside a task"
+
+# Who an operation outside a task was done by, as its line names them.
+_ACTORS = {"agent": "agent", "operator": "you"}
 
 # The figure each kind of run saves into its folder: AlignmentResult.save and
 # AutoFocusResult.save, which the FM autofocus saves with too.
@@ -112,6 +123,9 @@ class HistoryRun:
     # The later run that wrote over images this one recorded, when one did:
     # reference images are rewritten under the same name (FIB-1275).
     images_replaced_by: Optional[str] = None
+    # A session's operations outside any task, not a run: it has no status and
+    # no images of its own.
+    outside_task: bool = False
 
     @property
     def duration(self) -> Optional[float]:
@@ -202,12 +216,24 @@ def history_rows(
         runs.append(current)
 
     operations: Dict[str, List[HistoryOperation]] = {}
+    outside: Dict[str, List[HistoryOperation]] = {}
     for record in events:
         if record.get("kind") not in OPERATION_KINDS:
             continue
         item = record.get("item") or {}
         task = record.get("task") or {}
-        if item.get("id") != lamella.id or not task.get("id"):
+        if not task.get("id"):
+            # another lamella's, though no task ran it, stays with that lamella
+            if item.get("id") in (None, lamella.id):
+                operation = _operation(record, lamella.name)
+                actor = _ACTORS.get(record.get("actor"))
+                if actor:
+                    operation.label = f"{operation.label} ({actor})"
+                outside.setdefault(str(record.get("session") or ""), []).append(
+                    operation
+                )
+            continue
+        if item.get("id") != lamella.id:
             continue
         operations.setdefault(task["id"], []).append(_operation(record, lamella.name))
     # In the order they started: a mill ends after the drift corrections it ran,
@@ -218,7 +244,7 @@ def history_rows(
         operations[task_id] = _fold_drift(ops)
 
     images, replaced_by = _images_by_run(lamella, runs)
-    return [
+    rows = [
         HistoryRun(
             task_id=run.task_id,
             task_name=run.name,
@@ -233,6 +259,45 @@ def history_rows(
         )
         for run in runs
     ]
+    for session, ops in outside.items():
+        ops.sort(key=_started)
+        ops = _fold_drift(ops)
+        row = HistoryRun(
+            task_id=f"session:{session}",
+            task_name=OUTSIDE_A_TASK,
+            task_type="",
+            status=AutoLamellaTaskStatus.Completed,
+            status_message="",
+            started_at=ops[0].started_at or ops[0].ended_at,
+            ended_at=max(
+                (op.ended_at for op in ops if op.ended_at is not None), default=None
+            ),
+            images=[],
+            operations=ops,
+            outside_task=True,
+        )
+        _insert_by_start(rows, row)
+    return rows
+
+
+def _insert_by_start(rows: List[HistoryRun], row: HistoryRun) -> None:
+    """Put *row* before the first row that started after it: the runs keep the
+    order they ran in, and one with no start is never stepped over."""
+    when = _when(row.started_at)
+    if when is None:
+        rows.append(row)
+        return
+    at = len(rows)
+    for index in range(len(rows) - 1, -1, -1):
+        started = _when(rows[index].started_at)
+        if started is None or started <= when:
+            break
+        at = index
+    rows.insert(at, row)
+
+
+def _when(moment: Optional[datetime]) -> Optional[float]:
+    return moment.timestamp() if moment is not None else None
 
 
 def operations_need_a_look(run: HistoryRun) -> bool:

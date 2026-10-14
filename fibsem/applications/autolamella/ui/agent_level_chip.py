@@ -390,13 +390,16 @@ class RequestBlock(QWidget):
         self.adjustSize()
 
 
-def last_heard_text(seconds: Optional[float]) -> str:
-    """The menu's bottom line, from seconds since the agent's token was last used."""
+def last_heard_text(seconds: Optional[float], client: Optional[str] = None) -> str:
+    """The menu's bottom line, from seconds since the agent's token was last
+    used, led by the client the sidecar named ("claude-code/2.1.3" reads
+    "claude-code") if any."""
+    who = client.split("/", 1)[0] if client else "Agent"
     if seconds is None:
-        return "Agent · not heard from yet"
+        return f"{who} · not heard from yet"
     if seconds < 60:
-        return f"Agent · last heard {int(seconds)} s ago"
-    return f"Agent · last heard {int(seconds // 60)} min ago"
+        return f"{who} · last heard {int(seconds)} s ago"
+    return f"{who} · last heard {int(seconds // 60)} min ago"
 
 
 class AgentLevelChip(QPushButton):
@@ -412,9 +415,11 @@ class AgentLevelChip(QPushButton):
         self,
         last_heard: Callable[[], Optional[float]] = lambda: None,
         parent: Optional[QWidget] = None,
+        agent_client: Callable[[], Optional[str]] = lambda: None,
     ) -> None:
         super().__init__(parent)
         self._last_heard = last_heard
+        self._agent_client = agent_client
         self._level: Optional[AgentLevel] = None
         self.setCursor(Qt.PointingHandCursor)  # type: ignore
 
@@ -543,7 +548,11 @@ class AgentLevelChip(QPushButton):
             seconds = self._last_heard()
         except Exception:
             seconds = None
-        self.last_heard_action.setText(last_heard_text(seconds))
+        try:
+            client = self._agent_client()
+        except Exception:
+            client = None
+        self.last_heard_action.setText(last_heard_text(seconds, client))
 
     def _on_chosen(self, level: AgentLevel) -> None:
         if level is not self._level:

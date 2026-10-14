@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 import sys
 import weakref
-from typing import Optional
+from typing import Callable, Optional, Tuple
 
 try:
     sys.modules.pop("PySide6.QtCore")
@@ -36,6 +37,38 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
     TEXT_COLOR,
 )
+
+# A link on a toast or a history entry: (text, callback), e.g. ("Show summary", ...).
+ToastAction = Tuple[str, Callable[[], None]]
+
+# Styled like the history popup's "Clear All": a plain accent-coloured link.
+_LINK_BUTTON_STYLE = f"""
+    QPushButton {{
+        background-color: transparent;
+        color: {ACCENT_COLOR};
+        border: none;
+        font-size: 12px;
+        padding: 0px;
+    }}
+    QPushButton:hover {{
+        color: #7bc0ff;
+    }}
+"""
+
+
+def _link_button(text: str) -> QPushButton:
+    button = QPushButton(text)
+    button.setStyleSheet(_LINK_BUTTON_STYLE)
+    button.setCursor(Qt.PointingHandCursor)
+    return button
+
+
+def _run_action(callback: Callable[[], None]) -> None:
+    """Run a toast's link. Chrome: a failure is logged, never raised into Qt."""
+    try:
+        callback()
+    except Exception:
+        logging.exception("toast action failed")
 
 
 class ToastNotification(QWidget):
@@ -75,7 +108,19 @@ class ToastNotification(QWidget):
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
         self.message_label.setMaximumWidth(400)
-        layout.addWidget(self.message_label, 1)
+
+        # Optional link (show_toast's ``action``) under the message, as on the
+        # bell's history entry; hidden unless given one
+        self._action_callback: Optional[Callable[[], None]] = None
+        self.action_btn = _link_button("")
+        self.action_btn.clicked.connect(self._on_action_clicked)
+        self.action_btn.hide()
+
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(4)
+        text_layout.addWidget(self.message_label)
+        text_layout.addWidget(self.action_btn, 0, Qt.AlignLeft)
+        layout.addLayout(text_layout, 1)
 
         # Close button
         self.close_btn = QToolButton()
@@ -162,11 +207,24 @@ class ToastNotification(QWidget):
         """)
 
     def show_toast(
-        self, message: str, notification_type: str = "info", duration: int = 3000
+        self,
+        message: str,
+        notification_type: str = "info",
+        duration: int = 3000,
+        action: Optional[ToastAction] = None,
     ):
         """Show the toast notification."""
         self.message_label.setText(message)
         self._apply_style(notification_type)
+        # A word-wrapped label sizes itself narrower than its text, which broke
+        # short messages onto two lines; wrap only past the 400 px maximum.
+        self.message_label.setMinimumWidth(
+            min(self.message_label.fontMetrics().horizontalAdvance(message) + 2, 400)
+        )
+        if action is not None:
+            self.action_btn.setText(action[0])
+            self._action_callback = action[1]
+            self.action_btn.show()
 
         # Adjust size to content
         self.adjustSize()
@@ -191,6 +249,12 @@ class ToastNotification(QWidget):
         hide_duration = duration if duration is not None else self.duration
         if hide_duration > 0:
             self.hide_timer.start(hide_duration)
+
+    def _on_action_clicked(self):
+        """Follow the link, and the toast has done its job: hide it."""
+        if self._action_callback is not None:
+            _run_action(self._action_callback)
+        self.hide_toast()
 
     def hide_toast(self):
         """Hide the toast with fade animation."""
@@ -308,8 +372,14 @@ class NotificationHistoryPopup(QWidget):
         # their opaque colour via higher-specificity id selectors.
         self.setStyleSheet("QWidget { background-color: transparent; }")
 
-    def add_notification(self, message: str, notification_type: str, timestamp: str):
-        """Add a notification to the history."""
+    def add_notification(
+        self,
+        message: str,
+        notification_type: str,
+        timestamp: str,
+        action: Optional[ToastAction] = None,
+    ):
+        """Add a notification to the history, with its toast's link if it had one."""
         self.empty_label.hide()
 
         # Create notification item
@@ -339,7 +409,23 @@ class NotificationHistoryPopup(QWidget):
 
         time_label = QLabel(timestamp)
         time_label.setStyleSheet(f"color: {DISABLED_TEXT_COLOR}; font-size: 11px;")
-        text_layout.addWidget(time_label)
+        if action is None:
+            text_layout.addWidget(time_label)
+        else:
+            text, callback = action
+            link = _link_button(text)
+
+            def follow(_checked=False, callback=callback):
+                self.hide()
+                _run_action(callback)
+
+            link.clicked.connect(follow)
+            footer = QHBoxLayout()
+            footer.setSpacing(10)
+            footer.addWidget(time_label)
+            footer.addWidget(link)
+            footer.addStretch()
+            text_layout.addLayout(footer)
 
         item_layout.addLayout(text_layout, 1)
 
@@ -425,7 +511,12 @@ class NotificationBell(QWidget):
             }
         """)
 
-    def add_notification(self, message: str, notification_type: str):
+    def add_notification(
+        self,
+        message: str,
+        notification_type: str,
+        action: Optional[ToastAction] = None,
+    ):
         """Add a notification and increment counter."""
         self.count += 1
         self.badge.setText(str(min(self.count, 99)))
@@ -433,7 +524,7 @@ class NotificationBell(QWidget):
 
         # Add to popup history
         timestamp = datetime.now().strftime(TIME_DISPLAY)
-        self.popup.add_notification(message, notification_type, timestamp)
+        self.popup.add_notification(message, notification_type, timestamp, action)
 
     def _on_clicked(self):
         """Show the notification popup."""
@@ -529,8 +620,9 @@ class ToastManager:
         notification_type: str = "info",
         duration: int = 5000,
         temporary: bool = False,
+        action: Optional[ToastAction] = None,
     ):
-        """Show a toast notification."""
+        """Show a toast notification, with an optional (text, callback) link."""
         toast = ToastNotification(self._anchor(), duration)
         self.toasts.append(toast)
 
@@ -545,14 +637,14 @@ class ToastManager:
 
         toast._cleanup_callback = on_hidden
 
-        toast.show_toast(message, notification_type, duration)
+        toast.show_toast(message, notification_type, duration, action=action)
 
         # Reposition all toasts
         self._reposition_toasts()
 
         # Add to notification bell history — skip if temporary
         if self.notification_bell and not temporary:
-            self.notification_bell.add_notification(message, notification_type)
+            self.notification_bell.add_notification(message, notification_type, action)
 
     def _remove_toast(self, toast: ToastNotification):
         """Remove a toast from the list."""

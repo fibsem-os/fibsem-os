@@ -165,3 +165,57 @@ def test_a_prompt_image_travels_as_mcp_image_content():
     assert len(images) == 1 and base64.b64decode(images[0].data) == jpeg
     body = json.loads(texts[0])
     assert body["request"]["image"] == {"width": 4, "image_index": 0}
+
+
+def test_the_user_agent_names_the_mcp_client():
+    from types import SimpleNamespace
+
+    from fibsem import __version__
+
+    assert sidecar._user_agent() == f"fibsem-mcp/{__version__}"
+    info = SimpleNamespace(name="Claude Desktop", version="1.2 (beta)")
+    assert sidecar._user_agent(info).endswith(" Claude-Desktop/1.2-beta")
+
+
+def test_the_client_is_named_once_initialize_says_who_it_is():
+    import asyncio
+    from types import SimpleNamespace
+
+    class _Named(_FakeClient):
+        headers = None
+
+        def __init__(self):
+            super().__init__([])
+            self.headers = {}
+
+    live = _Named()
+    client = sidecar._ReconnectingClient(None, None, None, live, ("http://x", "t"))
+    mcp = sidecar.build_sidecar(client, {"routers": {}, "scopes": {"read": True}})
+    name_client = mcp.middleware[-1]
+    info = SimpleNamespace(name="claude-code", version="2.1.3")
+    ctx = SimpleNamespace(
+        session=SimpleNamespace(client_params=SimpleNamespace(client_info=info))
+    )
+
+    async def call_next(ctx):
+        return "handled"
+
+    assert asyncio.run(name_client(ctx, call_next)) == "handled"
+    assert live.headers["User-Agent"].endswith(" claude-code/2.1.3")
+
+
+def test_the_named_user_agent_survives_a_reconnect(monkeypatch):
+    class _Named(_FakeClient):
+        def __init__(self, responses):
+            super().__init__(responses)
+            self.headers = {}
+
+    monkeypatch.setattr(sidecar, "_try_resolve", lambda url, token: ("http://y", "t"))
+    gone = _Named([ConnectionError("refused")])
+    moved = _Named([_FakeResponse(200, {"ok": True})])
+    client = sidecar._ReconnectingClient(
+        lambda url, token: moved, None, None, gone, ("http://x", "t")
+    )
+    client.set_user_agent("fibsem-mcp/0.6 claude-code/2.1.3")
+    client.request("GET", "/app/status")
+    assert moved.headers["User-Agent"] == "fibsem-mcp/0.6 claude-code/2.1.3"
