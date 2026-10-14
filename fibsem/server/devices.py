@@ -168,6 +168,7 @@ def describe_device(device: Device) -> Dict[str, Any]:
     return {
         "name": device.name,
         "class": type(device).__name__,
+        "driver": getattr(device, "driver", None),
         "parameters": {
             name: {
                 **info,

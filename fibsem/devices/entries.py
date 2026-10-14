@@ -27,6 +27,7 @@ from typing import (
     Sequence,
 )
 
+from fibsem.devices.core import Device
 from fibsem.drivers.registry import REMOTE_DRIVER, normalize_name
 from fibsem.structures import DeviceEntry, read_device_entries
 
@@ -187,6 +188,8 @@ def build_device_entries(
             _not_built(item, microscope, f"building it failed: {e}", e)
             continue
         if device is not None:
+            if getattr(device, "driver", None) is None and isinstance(device, Device):
+                device.driver = item.driver
             built[item.name] = device
     return built
 

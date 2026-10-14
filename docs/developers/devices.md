@@ -553,6 +553,12 @@ metadata. `needs_channel` names the parameters whose reads and writes claim the
 imaging channel. The vendor-neutral classes live in `fibsem/devices/` and never import
 a driver; each driver's classes live in `fibsem/drivers/<driver>/devices.py`.
 
+A plugin imports only from `fibsem.devices` (`Device`, `Parameter`,
+`ParameterMetadata`, `Display`, `Role`, `command`, `query`, `Resources`, and the
+interfaces such as `Scanner`) and `fibsem.drivers.registry`; the submodules may move.
+A parameter's `Display` crosses to clients in its description (`describe()`, and the
+device server's `GET /devices`), so an agent shows it as a form does.
+
 ## Adding a driver
 
 A driver is a `DriverEntry` in the registry (`fibsem/drivers/registry.py`). Its
@@ -593,7 +599,8 @@ The builder is imported only when an entry needs it. A builder that raises fails
 connect, since the file lists the device, unless the entry says `required: false`;
 then the device is left out.
 `BuildContext.shared` is scratch space the builders of one connect share, such as one
-connection per address.
+connection per address. Each device built from an entry records its driver's
+registry name in `device.driver`, which the device server's description carries.
 
 A driver like this one, that only builds devices, has no `microscope_class`. It is
 never offered as a manufacturer, and connecting with it as `info.manufacturer` is
