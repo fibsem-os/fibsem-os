@@ -275,6 +275,10 @@ def test_numbers_sent_as_text_decode_as_the_declared_type():
     assert from_wire(float, "fast") == "fast"
     assert from_wire(float, True) is True
     assert from_wire(str, "4.0") == "4.0"
+    assert from_wire(BeamType, "1") is BeamType.ELECTRON
+    assert from_wire(BeamType, "ION") is BeamType.ION
+    with pytest.raises(ValueError):
+        from_wire(BeamType, "9")
 
 
 def test_a_pattern_dict_names_its_shape():

@@ -130,12 +130,19 @@ def _scalar_from_text(type_: type, text: str) -> Any:
 
 def _enum_member(type_: type, value: Any) -> Any:
     """The member with this value, or with this name: an agent reading
-    ``<BeamType.ELECTRON: 1>`` in a signature sends ``"ELECTRON"``."""
+    ``<BeamType.ELECTRON: 1>`` in a signature sends ``"ELECTRON"``, or its value as
+    text, ``"1"``."""
     try:
         return type_(value)
     except ValueError:
         if isinstance(value, str) and value in type_.__members__:
             return type_.__members__[value]
+        number = _scalar_from_text(int, value) if isinstance(value, str) else value
+        if isinstance(number, int):
+            try:
+                return type_(number)
+            except ValueError:
+                pass
         raise
 
 
