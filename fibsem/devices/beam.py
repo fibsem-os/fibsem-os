@@ -229,25 +229,19 @@ class Beam(Device):
 
     def _shift_by(self, dx: float, dy: float) -> None:
         """Add (dx, dy) to the shift, unvalidated, clipped to the limits the driver
-        reports for it, with a warning when the asked shift is outside them. A driver
-        that reports none is not clipped: the declared default is what the beam panel
-        allows, not what the instrument enforces. A driver whose instrument needs more
-        (a flipped scan) overrides this."""
+        reports for it. A driver that reports none is not clipped: the declared default
+        is what the beam panel allows, not what the instrument enforces. A driver whose
+        instrument needs more (a flipped scan) overrides this."""
         shift = self.shift
         shift.refresh_metadata(emit=False)  # the limits as the instrument has them now
         target = shift.get_value() + Point(dx, dy)
         limits = shift.reported_limits
         if limits is not None:
             x, y = limits.get("x"), limits.get("y")
-            clipped = Point(
+            target = Point(
                 x=x.clamp(target.x) if x is not None else target.x,
                 y=y.clamp(target.y) if y is not None else target.y,
             )
-            if (clipped.x, clipped.y) != (target.x, target.y):
-                logging.warning(
-                    f"Beam shift {target} is out of bounds {limits}: clipped to {clipped}"
-                )
-            target = clipped
         shift.write_through(target)
 
     # The scan area. Each command changes scanning_mode; a backend implements
