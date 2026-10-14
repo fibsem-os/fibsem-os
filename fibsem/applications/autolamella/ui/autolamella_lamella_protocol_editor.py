@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import datetime
-import glob
 import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
@@ -35,6 +34,10 @@ from fibsem.applications.autolamella.image_positions import (
 )
 from fibsem.applications.autolamella.structures import (
     Lamella,
+)
+from fibsem.applications.autolamella.task_outputs import (
+    lamella_images,
+    latest_final_reference_images,
 )
 from fibsem.applications.autolamella.ui.autolamella_apply_protocol_dialog import (
     ApplyLamellaConfigDialog,
@@ -125,6 +128,14 @@ OVERLAY_EDIT_ALIGNMENT = "edit_alignment"
 _REFERENCE_SUFFIXES = ("_ib.tif", "_eb.tif")
 
 
+def _picker_label(relpath: str, task_names: Iterable[str]) -> str:
+    """A reference image's picker label, with its run's time when it sits in a
+    run's own folder."""
+    return _with_run_time(
+        reference_image_label(os.path.basename(relpath), task_names), relpath
+    )
+
+
 def reference_image_label(filename: str, task_names: Iterable[str]) -> str:
     """What to call a reference image in a picker: ``Task · stage``, not its filename.
 
@@ -166,6 +177,19 @@ def fm_stack_label(filename: str) -> str:
         if len(parts) == 3 and all(p.isdigit() for p in parts):
             return "Z-stack " + ":".join(parts)
     return stem
+
+
+def _with_run_time(label: str, relpath: str) -> str:
+    """``label`` with the time of the run whose folder holds ``relpath``
+    (``<task>/<YYYYMMDD-HHMMSS>/...``, FIB-1275), so two runs' images of the same
+    name read apart. A file in the lamella's own folder keeps its label."""
+    for part in reversed(os.path.normpath(os.path.dirname(relpath)).split(os.sep)):
+        try:
+            when = datetime.datetime.strptime(part, "%Y%m%d-%H%M%S")
+        except ValueError:
+            continue
+        return f"{label} · {when:%d %b %H:%M}"
+    return label
 
 
 def _fill_picker(combo: QComboBox, filenames: List[str], labels: List[str]) -> None:
@@ -692,15 +716,16 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         self.listWidget_selected_task.set_tasks(task_names)
         self._refresh_task_states()
 
-        # load fluorescence image
-        filenames = sorted(glob.glob(os.path.join(selected_lamella.path, "*.ome.tiff")))
+        # load fluorescence image: the lamella folder's, then each run's own
+        # folder's (FIB-1275), as paths relative to the lamella folder
+        filenames = lamella_images(selected_lamella, ".ome.tiff")
         task_names = list(selected_lamella.task_config.keys())
-        fm_basenames = [os.path.basename(f) for f in filenames]
+        fm_basenames = filenames
         self.combobox_fm_filenames.blockSignals(True)
         _fill_picker(
             self.combobox_fm_filenames,
             fm_basenames,
-            [fm_stack_label(f) for f in fm_basenames],
+            [fm_stack_label(os.path.basename(f)) for f in fm_basenames],
         )
         self.combobox_fm_filenames.setCurrentIndex(
             len(filenames) - 1
@@ -712,34 +737,22 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         # load fib reference image
         self.combobox_fib_filenames.blockSignals(True)
-        fib_filenames = sorted(
-            glob.glob(os.path.join(selected_lamella.path, "*_ib.tif"))
-        )
         fib_filenames = [
-            f for f in fib_filenames if "alignment" not in f
+            f
+            for f in lamella_images(selected_lamella, "_ib.tif")
+            if "alignment" not in f
         ]  # show all non-alignment images
 
         # remember selected fib filename
         selected_fib_filename = self.combobox_fib_filenames.currentData() or ""
-        base_filenames = [os.path.basename(f) for f in fib_filenames]
+        base_filenames = fib_filenames
         _fill_picker(
             self.combobox_fib_filenames,
             base_filenames,
-            [reference_image_label(f, task_names) for f in base_filenames],
+            [_picker_label(f, task_names) for f in base_filenames],
         )
 
-        latest_task_filename = ""
-        if selected_lamella.last_completed_task is not None:
-            last_task_name = selected_lamella.last_completed_task.name
-            reference_image_filename = f"ref_{last_task_name}_final_res_*_ib.tif"
-            matching_filenames = glob.glob(
-                os.path.join(selected_lamella.path, reference_image_filename)
-            )
-            if len(matching_filenames) > 0:
-                # pick the latest by modification time
-                latest_task_filename = os.path.basename(
-                    sorted(matching_filenames, key=os.path.getmtime)[-1]
-                )
+        latest_task_filename = self._latest_task_image(selected_lamella, "_ib.tif")
 
         _select_filename(
             self.combobox_fib_filenames,
@@ -750,30 +763,21 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         # load sem reference image
         self.combobox_sem_filenames.blockSignals(True)
-        sem_filenames = sorted(
-            glob.glob(os.path.join(selected_lamella.path, "*_eb.tif"))
-        )
-        sem_filenames = [f for f in sem_filenames if "alignment" not in f]
+        sem_filenames = [
+            f
+            for f in lamella_images(selected_lamella, "_eb.tif")
+            if "alignment" not in f
+        ]
 
         selected_sem_filename = self.combobox_sem_filenames.currentData() or ""
-        sem_base_filenames = [os.path.basename(f) for f in sem_filenames]
+        sem_base_filenames = sem_filenames
         _fill_picker(
             self.combobox_sem_filenames,
             sem_base_filenames,
-            [reference_image_label(f, task_names) for f in sem_base_filenames],
+            [_picker_label(f, task_names) for f in sem_base_filenames],
         )
 
-        latest_sem_task_filename = ""
-        if selected_lamella.last_completed_task is not None:
-            last_task_name = selected_lamella.last_completed_task.name
-            reference_sem_filename = f"ref_{last_task_name}_final_res_*_eb.tif"
-            matching_sem_filenames = glob.glob(
-                os.path.join(selected_lamella.path, reference_sem_filename)
-            )
-            if len(matching_sem_filenames) > 0:
-                latest_sem_task_filename = os.path.basename(
-                    sorted(matching_sem_filenames, key=os.path.getmtime)[-1]
-                )
+        latest_sem_task_filename = self._latest_task_image(selected_lamella, "_eb.tif")
 
         default_sem_filename = sem_filenames[-1] if sem_filenames else ""
         if latest_sem_task_filename in sem_base_filenames:
@@ -1519,6 +1523,22 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if previous_selection in base_filenames:
             return previous_selection
         return base_filenames[-1] if base_filenames else ""
+
+    @staticmethod
+    def _latest_task_image(lamella: Lamella, suffix: str) -> str:
+        """The last completed task's most zoomed final image ending in
+        ``suffix``, from its latest run, relative to the lamella folder; empty
+        when it left none. The run's record says which, wherever it saved
+        them (FIB-1275)."""
+        task = lamella.last_completed_task
+        if task is None:
+            return ""
+        finals = [
+            f
+            for f in latest_final_reference_images(lamella, task.name)
+            if f.endswith(suffix)
+        ]
+        return os.path.relpath(finals[-1], lamella.path) if finals else ""
 
     @staticmethod
     def _image_path(lamella: Lamella, filename: str) -> str:

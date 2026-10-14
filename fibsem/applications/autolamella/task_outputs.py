@@ -115,6 +115,33 @@ def latest_final_reference_images(lamella: Lamella, task_name: str) -> List[str]
     return final_reference_images(lamella, AutoLamellaTaskState(name=task_name))
 
 
+def lamella_images(lamella: Lamella, suffix: str) -> List[str]:
+    """The lamella's image files ending in ``suffix``, relative to its folder:
+    those in the folder itself (every image of an experiment from before task
+    run folders, and the lamella's shared state), then each run's recorded images
+    kept in its own folder (FIB-1275), oldest run first.
+
+    What a picker offers: everything that is the lamella's, wherever its run put
+    it, without walking the folder tree.
+    """
+    flat = sorted(
+        os.path.basename(path)
+        for path in glob.glob(os.path.join(lamella.path, f"*{suffix}"))
+    )
+    elsewhere: List[str] = []
+    for run in lamella.task_history:
+        for relpaths in run.outputs.values():
+            for relpath in relpaths:
+                if (
+                    relpath.endswith(suffix)
+                    and os.path.dirname(relpath)
+                    and relpath not in elsewhere
+                    and os.path.isfile(os.path.join(lamella.path, relpath))
+                ):
+                    elsewhere.append(relpath)
+    return flat + elsewhere
+
+
 def images_by_task(lamella: Lamella) -> List[Tuple[str, List[str], List[str]]]:
     """Each task's final reference images and fluorescence stacks, in the order the
     tasks last ran: ``(task name, final images, fluorescence stacks)``.

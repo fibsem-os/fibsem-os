@@ -74,6 +74,18 @@ def test_the_question_sits_on_the_image_the_mill_left_behind(microscope, tmp_pat
         == "Fiducial-Milling_finished_12-00-00_ib.tif"
     )
 
+    # where the milling saves it: its imaging path, the run's Milling folder.
+    # Only the lamella's folder used to be searched, so this was never found.
+    saved = Path(lamella.path, "Milling", "Fiducial-Milling")
+    saved.mkdir(parents=True)
+    milling.acquisition.imaging.filename = "Fiducial-Milling_finished_12-30-00"
+    milling.acquisition.imaging.path = str(saved)
+    (saved / "Fiducial-Milling_finished_12-30-00_ib.tif").touch()
+
+    assert task._milling_result_image_file(milling) == os.path.join(
+        "Milling", "Fiducial-Milling", "Fiducial-Milling_finished_12-30-00_ib.tif"
+    )
+
 
 def test_with_no_finished_image_the_task_takes_one_frame_to_ask_on(
     microscope, tmp_path, monkeypatch

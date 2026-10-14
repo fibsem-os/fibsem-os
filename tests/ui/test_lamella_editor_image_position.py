@@ -227,3 +227,37 @@ def test_a_lamella_with_no_position_shows_nothing(scene):
     assert _fib(editor) == OLD_IB  # nothing to compare with, so nothing switched
     assert editor.position_notice.isHidden()
     assert _hint(editor) is None
+
+
+def test_a_run_s_images_in_its_own_folder_are_offered_and_chosen(scene):
+    """Each run keeps its images in its own folder (FIB-1275): the pickers list
+    them with the run's time, and land on the last completed task's latest run."""
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskState,
+        AutoLamellaTaskStatus,
+    )
+
+    lamella = scene["lamella"]
+    folder = os.path.join("Rough Milling", "20261014-093012")
+    os.makedirs(os.path.join(lamella.path, folder))
+    scene["acquire_new"]()  # into the lamella folder, then moved into the run's
+    for name in (NEW_IB, NEW_EB):
+        os.replace(
+            os.path.join(lamella.path, name), os.path.join(lamella.path, folder, name)
+        )
+    run_ib, run_eb = os.path.join(folder, NEW_IB), os.path.join(folder, NEW_EB)
+    lamella.task_history.append(
+        AutoLamellaTaskState(
+            name="Rough Milling",
+            status=AutoLamellaTaskStatus.Completed,
+            outputs={"final_fib": [run_ib], "final_sem": [run_eb]},
+        )
+    )
+
+    editor = scene["editor"]()
+
+    assert _shown(editor) == (run_ib, run_eb)
+    picker = editor.combobox_fib_filenames
+    assert picker.findData(OLD_IB) >= 0, "the lamella folder's own images stay"
+    assert picker.itemText(picker.findData(run_ib)).endswith("· 14 Oct 09:30")
+    assert editor.image is not None  # loaded from the run's folder
