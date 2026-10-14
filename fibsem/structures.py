@@ -15,6 +15,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     Literal,
@@ -507,8 +508,205 @@ class AutoContrastMode(Enum):
     EACH_TILE = "each_tile"
 
 
+_DISTANCE_METRICS = ("euclidean", "manhattan", "max")
+
+
 @dataclass
-class FibsemStagePosition:
+class FibsemAxesPosition:
+    """The maths shared by stage and manipulator positions (FIB-1247).
+
+    A subclass declares its axes as dataclass fields and lists them in ``AXES``; the
+    ones in ``ANGULAR_AXES`` are angles in radians, the rest lengths in metres. An axis
+    that is None is unknown, or "don't move" in an absolute move. Serialisation stays
+    on each subclass, so the dict formats do not change.
+    """
+
+    AXES: ClassVar[Tuple[str, ...]] = ()
+    LINEAR_AXES: ClassVar[Tuple[str, ...]] = ()
+    ANGULAR_AXES: ClassVar[Tuple[str, ...]] = ()
+
+    def __post_init__(self) -> None:
+        for axis in self.AXES:
+            setattr(self, axis, _plain_number(getattr(self, axis)))
+
+    def _require_same_type(self, other: object) -> None:
+        if type(other) is not type(self):
+            raise TypeError(
+                f"{type(self).__name__} cannot be combined with {type(other).__name__}"
+            )
+
+    def _validated_axes(self, axes: Optional[Sequence[str]]) -> Tuple[str, ...]:
+        if axes is None:
+            return tuple(self.AXES)
+        unknown = [axis for axis in axes if axis not in self.AXES]
+        if unknown:
+            raise ValueError(
+                f"Invalid axes: {list(axes)}. Must be one of: {list(self.AXES)}"
+            )
+        return tuple(axes)
+
+    def __add__(self, other: "FibsemAxesPosition") -> "FibsemAxesPosition":
+        """Each axis of *other* added to this one; an axis None on *other* keeps this
+        one's value, and an axis None here stays None."""
+        self._require_same_type(other)
+        values = {}
+        for axis in self.AXES:
+            mine, theirs = getattr(self, axis), getattr(other, axis)
+            values[axis] = mine if mine is None or theirs is None else mine + theirs
+        return type(self)(**values, coordinate_system=self.coordinate_system)
+
+    def __sub__(self, other: "FibsemAxesPosition") -> "FibsemAxesPosition":
+        """Each axis of *other* taken from this one; None where either is None."""
+        self._require_same_type(other)
+        values = {}
+        for axis in self.AXES:
+            mine, theirs = getattr(self, axis), getattr(other, axis)
+            values[axis] = None if mine is None or theirs is None else mine - theirs
+        return type(self)(**values, coordinate_system=self.coordinate_system)
+
+    def axis_differences(
+        self, other: "FibsemAxesPosition", axes: Optional[Sequence[str]] = None
+    ) -> Dict[str, Optional[float]]:
+        """The unsigned difference on each axis, angles wrapped; None where either
+        side is None."""
+        from fibsem.geometry.angles import angle_difference
+
+        self._require_same_type(other)
+        differences: Dict[str, Optional[float]] = {}
+        for axis in self._validated_axes(axes):
+            mine, theirs = getattr(self, axis), getattr(other, axis)
+            if mine is None or theirs is None:
+                differences[axis] = None
+            elif axis in self.ANGULAR_AXES:
+                differences[axis] = float(angle_difference(mine, theirs))
+            else:
+                differences[axis] = float(abs(mine - theirs))
+        return differences
+
+    def distance(
+        self,
+        other: "FibsemAxesPosition",
+        axes: Optional[Sequence[str]] = None,
+        metric: str = "euclidean",
+    ) -> float:
+        """The distance to *other* over *axes* (default: the linear axes).
+
+        Axes that are None on either side are skipped. Angular axes are compared
+        wrapped, so 359.9 and 0.1 degrees are 0.2 degrees apart. Mixing linear and
+        angular axes adds metres to radians, so pick one kind unless that is meant.
+        *metric* is "euclidean", "manhattan" (sum) or "max" (largest single axis).
+        """
+        if metric not in _DISTANCE_METRICS:
+            raise ValueError(
+                f"Invalid metric: {metric}. Must be one of: {_DISTANCE_METRICS}"
+            )
+        if axes is None:
+            axes = self.LINEAR_AXES
+        known = [
+            d for d in self.axis_differences(other, axes).values() if d is not None
+        ]
+        if not known:
+            return 0.0
+        if metric == "manhattan":
+            return float(sum(known))
+        if metric == "max":
+            return float(max(known))
+        return float(np.linalg.norm(known))
+
+    def euclidean_distance(self, other: "FibsemAxesPosition") -> float:
+        """The straight-line distance over the linear axes, skipping None axes."""
+        return self.distance(other)
+
+    def is_close2(
+        self,
+        pos2: "FibsemAxesPosition",
+        tol: float = 1e-6,
+        axes: Optional[List[str]] = None,
+    ) -> bool:
+        """Whether every axis in *axes* (default all) is within *tol* of *pos2*.
+
+        Angles are compared wrapped. An axis None on either side is not close.
+        """
+        differences = self.axis_differences(pos2, axes)
+        if any(d is None for d in differences.values()):
+            return False
+        return self.distance(pos2, axes=list(differences), metric="max") < tol
+
+    def is_close(self, pos2: "FibsemAxesPosition", tol: float = 1e-6) -> bool:
+        """Whether every axis is within *tol* of *pos2*."""
+        return self.is_close2(pos2, tol=tol)
+
+    def is_within_limits(
+        self, limits: Dict[str, "RangeLimit"], axes: Optional[List[str]] = None
+    ) -> bool:
+        """Check if the position is within the specified limits.
+
+        Args:
+            limits: Dictionary mapping axis names to RangeLimit objects.
+            axes: List of axes to check. If None, checks all axes present in limits.
+
+        Returns:
+            True if position is within limits for all specified axes, False otherwise.
+        """
+        if axes is None:
+            axes = list(limits.keys())
+
+        for axis in axes:
+            if axis not in limits:
+                continue
+
+            pos_val = getattr(self, axis, None)
+            if pos_val is None:
+                continue
+
+            limit = limits[axis]
+            if pos_val < limit.min or pos_val > limit.max:
+                return False
+
+        return True
+
+    def _scale_repr(self, scale: float, precision: int = 2):
+        return f"x:{self.x * scale:.{precision}f}, y:{self.y * scale:.{precision}f}, z:{self.z * scale:.{precision}f}"
+
+    def _pretty_axes(self, axes: Sequence[str], units: bool) -> str:
+        from fibsem import constants
+
+        parts = []
+        for axis in axes:
+            value = getattr(self, axis)
+            label = axis.upper()
+            if value is None:
+                parts.append(f"{label}:None")
+            elif axis in self.ANGULAR_AXES:
+                unit = "°" if units else ""
+                parts.append(
+                    f"{label}:{value * constants.RADIANS_TO_DEGREES:.1f}{unit}"
+                )
+            else:
+                unit = "mm" if units else ""
+                parts.append(
+                    f"{label}:{value * constants.METRE_TO_MILLIMETRE:.2f}{unit}"
+                )
+        return ", ".join(parts)
+
+    @property
+    def pretty_string(self) -> str:
+        """Returns a pretty string representation of the position."""
+        return self._pretty_axes(self.AXES, units=False)
+
+    @property
+    def pretty_orientation(self) -> str:
+        """Returns a pretty string representation of the orientation."""
+        return self._pretty_axes(self.ANGULAR_AXES, units=False)
+
+    @property
+    def pretty(self) -> str:
+        """Returns a pretty string representation of the position including units."""
+        return self._pretty_axes(self.AXES, units=True)
+
+
+@dataclass
+class FibsemStagePosition(FibsemAxesPosition):
     """Data class for storing stage position data.
 
     Attributes:
@@ -525,6 +723,10 @@ class FibsemStagePosition:
         See fibsem.drivers.autoscript.microscope for AutoScript conversion utilities (stage_position_to_autoscript, stage_position_from_autoscript).
     """
 
+    AXES: ClassVar[Tuple[str, ...]] = ("x", "y", "z", "r", "t")
+    LINEAR_AXES: ClassVar[Tuple[str, ...]] = ("x", "y", "z")
+    ANGULAR_AXES: ClassVar[Tuple[str, ...]] = ("r", "t")
+
     name: Optional[str] = None
     x: Optional[float] = None
     y: Optional[float] = None
@@ -532,10 +734,6 @@ class FibsemStagePosition:
     r: Optional[float] = None
     t: Optional[float] = None
     coordinate_system: Optional[str] = None
-
-    def __post_init__(self) -> None:
-        for axis in ("x", "y", "z", "r", "t"):
-            setattr(self, axis, _plain_number(getattr(self, axis)))
 
     def to_dict(self) -> dict:
         position_dict = {}
@@ -569,184 +767,9 @@ class FibsemStagePosition:
             coordinate_system=data["coordinate_system"],
         )
 
-    def __add__(self, other: "FibsemStagePosition") -> "FibsemStagePosition":
-        return FibsemStagePosition(
-            x=self.x + other.x if other.x is not None else self.x,
-            y=self.y + other.y if other.y is not None else self.y,
-            z=self.z + other.z if other.z is not None else self.z,
-            r=self.r + other.r if other.r is not None else self.r,
-            t=self.t + other.t if other.t is not None else self.t,
-            coordinate_system=self.coordinate_system,
-        )
-
-    def __sub__(self, other: "FibsemStagePosition") -> "FibsemStagePosition":
-        return FibsemStagePosition(
-            x=self.x - other.x,
-            y=self.y - other.y,
-            z=self.z - other.z,
-            r=self.r - other.r,
-            t=self.t - other.t,
-            coordinate_system=self.coordinate_system,
-        )
-
-    def _scale_repr(self, scale: float, precision: int = 2):
-        return f"x:{self.x * scale:.{precision}f}, y:{self.y * scale:.{precision}f}, z:{self.z * scale:.{precision}f}"
-
-    def is_close(self, pos2: "FibsemStagePosition", tol: float = 1e-6) -> bool:
-        """Check if two positions are close to each other."""
-        return (
-            (abs(self.x - pos2.x) < tol)
-            and (abs(self.y - pos2.y) < tol)
-            and (abs(self.z - pos2.z) < tol)
-            and (abs(self.t - pos2.t) < tol)
-            and (abs(self.r - pos2.r) < tol)
-        )
-
-    def is_close2(
-        self,
-        pos2: "FibsemStagePosition",
-        tol: float = 1e-6,
-        axes: Optional[List[str]] = None,
-    ) -> bool:
-        """Check if two positions are close to each other."""
-        VALID_AXES = ["x", "y", "z", "t", "r"]
-        if axes is None:
-            axes = VALID_AXES
-
-        if any(axis not in VALID_AXES for axis in axes):
-            raise ValueError(f"Invalid axes: {axes}. Must be one of: {VALID_AXES}")
-        for axis in axes:
-            pos1_val = getattr(self, axis)
-            pos2_val = getattr(pos2, axis)
-
-            if pos1_val is None or pos2_val is None:
-                return False
-
-            if abs(pos1_val - pos2_val) >= tol:
-                return False
-
-        return True
-
-    def is_within_limits(
-        self, limits: Dict[str, "RangeLimit"], axes: Optional[List[str]] = None
-    ) -> bool:
-        """Check if the position is within the specified limits.
-
-        Args:
-            limits: Dictionary mapping axis names to RangeLimit objects.
-            axes: List of axes to check. If None, checks all axes present in limits.
-
-        Returns:
-            True if position is within limits for all specified axes, False otherwise.
-        """
-        if axes is None:
-            axes = list(limits.keys())
-
-        for axis in axes:
-            if axis not in limits:
-                continue
-
-            pos_val = getattr(self, axis, None)
-            if pos_val is None:
-                continue
-
-            limit = limits[axis]
-            if pos_val < limit.min or pos_val > limit.max:
-                return False
-
-        return True
-
-    @property
-    def pretty_string(self) -> str:
-        """Returns a pretty string representation of the stage position."""
-        from fibsem import constants
-
-        xstr = (
-            f"X:{self.x * constants.METRE_TO_MILLIMETRE:.2f}"
-            if self.x is not None
-            else "X:None"
-        )
-        ystr = (
-            f"Y:{self.y * constants.METRE_TO_MILLIMETRE:.2f}"
-            if self.y is not None
-            else "Y:None"
-        )
-        zstr = (
-            f"Z:{self.z * constants.METRE_TO_MILLIMETRE:.2f}"
-            if self.z is not None
-            else "Z:None"
-        )
-        rstr = (
-            f"R:{self.r * constants.RADIANS_TO_DEGREES:.1f}"
-            if self.r is not None
-            else "R:None"
-        )
-        tstr = (
-            f"T:{self.t * constants.RADIANS_TO_DEGREES:.1f}"
-            if self.t is not None
-            else "T:None"
-        )
-        return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
-
-    @property
-    def pretty_orientation(self) -> str:
-        """Returns a pretty string representation of the stage orientation."""
-        from fibsem import constants
-
-        rstr = (
-            f"R:{self.r * constants.RADIANS_TO_DEGREES:.1f}"
-            if self.r is not None
-            else "R:None"
-        )
-        tstr = (
-            f"T:{self.t * constants.RADIANS_TO_DEGREES:.1f}"
-            if self.t is not None
-            else "T:None"
-        )
-        return f"{rstr}, {tstr}"
-
-    @property
-    def pretty(self) -> str:
-        """Returns a pretty string representation of the stage position including units."""
-        from fibsem import constants
-
-        xstr = (
-            f"X:{self.x * constants.METRE_TO_MILLIMETRE:.2f}mm"
-            if self.x is not None
-            else "X:None"
-        )
-        ystr = (
-            f"Y:{self.y * constants.METRE_TO_MILLIMETRE:.2f}mm"
-            if self.y is not None
-            else "Y:None"
-        )
-        zstr = (
-            f"Z:{self.z * constants.METRE_TO_MILLIMETRE:.2f}mm"
-            if self.z is not None
-            else "Z:None"
-        )
-        rstr = (
-            f"R:{self.r * constants.RADIANS_TO_DEGREES:.1f}°"
-            if self.r is not None
-            else "R:None"
-        )
-        tstr = (
-            f"T:{self.t * constants.RADIANS_TO_DEGREES:.1f}°"
-            if self.t is not None
-            else "T:None"
-        )
-        return f"{xstr}, {ystr}, {zstr}, {rstr}, {tstr}"
-
-    def euclidean_distance(self, other: "FibsemStagePosition") -> float:
-        """Calculate the euclidean distance between two stage positions."""
-        dx = (self.x - other.x) if self.x is not None and other.x is not None else 0.0
-        dy = (self.y - other.y) if self.y is not None and other.y is not None else 0.0
-        dz = (self.z - other.z) if self.z is not None and other.z is not None else 0.0
-        return float(np.linalg.norm([dx, dy, dz]))
-
 
 @dataclass
-class FibsemManipulatorPosition:
+class FibsemManipulatorPosition(FibsemAxesPosition):
     """Data class for storing manipulator position data.
 
     Attributes:
@@ -765,16 +788,16 @@ class FibsemManipulatorPosition:
         from_tescan_position(): Create a new FibsemManipulatorPosition object from a Tescan-compatible manipulator position.
     """
 
+    AXES: ClassVar[Tuple[str, ...]] = ("x", "y", "z", "r", "t")
+    LINEAR_AXES: ClassVar[Tuple[str, ...]] = ("x", "y", "z")
+    ANGULAR_AXES: ClassVar[Tuple[str, ...]] = ("r", "t")
+
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
     r: float = 0.0
     t: float = 0.0
     coordinate_system: Optional[str] = None
-
-    def __post_init__(self):
-        for axis in ("x", "y", "z", "r", "t"):
-            setattr(self, axis, _plain_number(getattr(self, axis)))
 
     def to_dict(self) -> dict:
         position_dict = {}
@@ -805,18 +828,6 @@ class FibsemManipulatorPosition:
             r=data["r"],
             t=data["t"],
             coordinate_system=data.get("coordinate_system"),
-        )
-
-    def __add__(
-        self, other: "FibsemManipulatorPosition"
-    ) -> "FibsemManipulatorPosition":
-        return FibsemManipulatorPosition(
-            self.x + other.x,
-            self.y + other.y,
-            self.z + other.z,
-            self.r + other.r,
-            self.t + other.t,
-            self.coordinate_system,
         )
 
 
