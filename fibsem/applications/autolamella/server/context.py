@@ -147,13 +147,10 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
         if is_fluorescence_image(path):
             data, _ = load_projection(path)
         elif filename.lower().endswith((".tif", ".tiff")):
-            from fibsem.server.images import image_metadata
-            from fibsem.structures import FibsemImage
+            import tifffile
 
-            image = FibsemImage.load(path)
-            data = np.squeeze(np.asarray(image.data))
-            if image.metadata is not None:  # a beam image: its scale and state
-                metadata = image_metadata(image, path)
+            data = np.squeeze(np.asarray(tifffile.imread(path)))
+            metadata = _beam_image_metadata(path)
         else:
             from PIL import Image
 
@@ -185,6 +182,21 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
         "filename": filename,
         "metadata": metadata,
     }
+
+
+def _beam_image_metadata(path: str) -> Optional[Dict[str, Any]]:
+    """A saved beam image's metadata block (images.image_metadata), or None for a
+    TIFF that is not one: a plain array, a stack, a file that will not load."""
+    from fibsem.server.images import image_metadata
+    from fibsem.structures import FibsemImage
+
+    try:
+        image = FibsemImage.load(path)
+    except Exception:  # noqa: BLE001 - no metadata is an answer, not a failure
+        return None
+    if image.metadata is None:
+        return None
+    return image_metadata(image, path)
 
 
 def _overview_projector(path: str):
