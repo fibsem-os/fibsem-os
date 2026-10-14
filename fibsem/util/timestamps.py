@@ -16,8 +16,8 @@ and lets a timeline read it on the instrument's clock (FIB-1196).
 Files written before this carry one of three other forms, and stay readable:
 
 - a POSIX float, which is what most drivers wrote into ``microscope_state.timestamp``;
-- AutoScript's ``acquisition_datetime`` string, ``07/16/2026 11:07:27``, which the
-  ThermoFisher driver wrote into the same field;
+- a month/day/year string, ``07/16/2026 11:07:27``, the instrument PC's local time,
+  which one driver wrote into the same field;
 - a naive ISO string, the acquiring machine's local clock with no offset, which is
   what fluorescence images wrote into ``acquisition_date``.
 
@@ -33,9 +33,9 @@ import numbers
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Optional
 
-# AutoScript's acquisition_datetime as the ThermoFisher driver saved it: the instrument
-# PC's local time, to the second.
-THERMOFISHER_FORMAT = "%m/%d/%Y %H:%M:%S"
+# The month/day/year form older files carry: the instrument PC's local time, to the
+# second. Read only; nothing writes it.
+LEGACY_DATETIME_FORMAT = "%m/%d/%Y %H:%M:%S"
 
 DISPLAY_FORMAT = "%Y-%m-%d %H:%M"
 
@@ -77,7 +77,7 @@ def to_datetime(value) -> Optional[datetime]:
     """Read a recorded time, or None if it cannot be read.
 
     Accepts a POSIX number or numeric string, an ISO string with or without an offset,
-    the ThermoFisher form, or a datetime. An aware value keeps the offset it was
+    the month/day/year form, or a datetime. An aware value keeps the offset it was
     written with; a POSIX one is given this machine's; a naive one stays naive.
     """
     if isinstance(value, datetime):
@@ -95,7 +95,7 @@ def to_datetime(value) -> Optional[datetime]:
         except ValueError:
             pass
         try:
-            return datetime.strptime(text, THERMOFISHER_FORMAT)
+            return datetime.strptime(text, LEGACY_DATETIME_FORMAT)
         except ValueError:
             return None
     return None
@@ -120,7 +120,7 @@ def acquisition_datetime_of(metadata) -> Optional[datetime]:
 
     ``acquisition_datetime`` when the image records it. Older images fall back to what
     they carried instead: a beam image's ``microscope_state.timestamp`` (a POSIX float,
-    or the ThermoFisher string), a fluorescence image's ``acquisition_date``. Nothing is
+    or the month/day/year string), a fluorescence image's ``acquisition_date``. Nothing is
     rewritten, so an image read this way is never "upgraded" to an instant it did not
     record. None when nothing readable is there.
     """

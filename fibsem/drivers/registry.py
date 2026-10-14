@@ -92,6 +92,12 @@ class DriverEntry:
     :func:`normalize_name` maps each to :attr:`manufacturer`, ignoring case; the name
     itself matches in any case without being listed."""
 
+    image_reader: Optional[str] = None
+    """How to read an image the instrument's own software saved, as
+    ``"module:function"``, imported when first used: ``read(filename)`` returns the
+    image and its pixel size in metres (or ``None``), and raises for a file that is
+    not in its format. See :func:`image_readers`."""
+
     @property
     def builds_microscope(self) -> bool:
         """Whether the driver connects a microscope, not only devices."""
@@ -314,6 +320,18 @@ def registered_manufacturers() -> List[str]:
         if manufacturer not in names and entry.builds_microscope:
             names.append(manufacturer)
     return names
+
+
+def image_readers() -> List[Tuple[str, Callable[[str], Tuple[Any, Optional[float]]]]]:
+    """Each driver's image reader, as (manufacturer, function), in
+    ``registered_manufacturers`` order, for the drivers that have one. Imports every
+    built-in driver's record, and each reader's module."""
+    entries = [get_driver(m) for m in registered_manufacturers()]
+    return [
+        (entry.manufacturer, _import(entry.image_reader))
+        for entry in entries
+        if entry.image_reader is not None
+    ]
 
 
 def default_configuration_values() -> Dict[str, Dict[str, Any]]:
