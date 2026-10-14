@@ -139,12 +139,6 @@ def test_an_unknown_key_fails_the_build(tmp_path):
         _connect(tmp_path, _config({**ENTRY, "adress": "10.0.0.2"}))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: a driver: nothing is registered as reads 'has no builder for a "
-    "scan_generator device', not 'no driver FakeScanner is installed' "
-    "(fibsem/devices/entries.py _builder swallows NotImplementedError)",
-)
 def test_a_missing_plugin_says_it_is_not_installed(tmp_path):
     with pytest.raises(DeviceBuildError, match="not installed|no driver"):
         _connect(tmp_path, _config({**ENTRY, "driver": "FakeScanner"}))
@@ -327,12 +321,6 @@ def test_the_device_server_serves_a_standalone_scanner():
         server.stop()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="GAP: a hardware fault a plugin raises (its SDK's own exception) is a "
-    "500 with a traceback; ERROR_STATUS in fibsem/server/devices.py knows only "
-    "fibsem's exception types, and there is no device-fault base class to raise",
-)
 def test_a_hardware_fault_is_a_clean_refusal():
     requests = pytest.importorskip("requests")
     from fibsem.server.devices import DeviceServer
@@ -343,7 +331,9 @@ def test_a_hardware_fault_is_a_clean_refusal():
             f"http://127.0.0.1:{_wait(server)}/devices/fake_scanner/commands/acquire",
             json={"kwargs": {"resolution": [16, 8], "dwell_time": 1e-9}},
         )
-        assert r.status_code != 500
+        # the unit's refusal is a device fault: 502, naming the device
+        assert r.status_code == 502
+        assert r.json()["detail"]["device"] == "fake_scanner"
     finally:
         server.stop()
 

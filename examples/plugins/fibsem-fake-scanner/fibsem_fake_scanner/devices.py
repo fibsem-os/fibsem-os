@@ -12,12 +12,23 @@ from typing import TYPE_CHECKING, Any, Dict, Tuple
 
 import numpy as np
 
-from fibsem.devices import Parameter, ParameterMetadata, Resources, command
+from fibsem.devices import (
+    DeviceFault,
+    Parameter,
+    ParameterMetadata,
+    Resources,
+    command,
+)
 from fibsem.devices.display import Display
 from fibsem.devices.scanner import Scanner
 from fibsem.structures import RangeLimit
 from fibsem_fake_scanner import MANUFACTURER
-from fibsem_fake_scanner.sdk import INPUTS, PATTERNS, FakeScanController
+from fibsem_fake_scanner.sdk import (
+    INPUTS,
+    PATTERNS,
+    ControllerError,
+    FakeScanController,
+)
 
 if TYPE_CHECKING:
     from fibsem.drivers.registry import BuildContext
@@ -63,7 +74,11 @@ class FakeScanner(Scanner):
     # -- the Scanner interface
 
     def _acquire(self, resolution: Tuple[int, int], dwell_time: float) -> np.ndarray:
-        return self._controller.scan(resolution[0], resolution[1], dwell_time)
+        try:
+            return self._controller.scan(resolution[0], resolution[1], dwell_time)
+        except ControllerError as e:
+            # the unit refused: say so as a device fault, not the SDK's own error
+            raise DeviceFault(str(e), device=self.name) from e
 
     def _stop(self) -> None:
         self._controller.abort()
