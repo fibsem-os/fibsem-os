@@ -186,7 +186,7 @@ def cmd_acquire(microscope, settings, args) -> int:
 
     for beam_type in beams:
         image_settings.beam_type = beam_type
-        image = acquire.new_image(microscope, image_settings)
+        image = acquire.acquire_image(microscope, image_settings)
         _print_image_result(image, beam_type)
 
     return 0

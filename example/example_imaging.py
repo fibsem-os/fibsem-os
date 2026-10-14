@@ -30,11 +30,11 @@ def main():
 
     # take an image with the electron beam
     settings.image.beam_type = BeamType.ELECTRON
-    eb_image = acquire.new_image(microscope, settings.image)
+    eb_image = acquire.acquire_image(microscope, settings.image)
 
     # take an image with the ion beam
     settings.image.beam_type = BeamType.ION
-    ib_image = acquire.new_image(microscope, settings.image)
+    ib_image = acquire.acquire_image(microscope, settings.image)
 
     # take an image with both beams with increased hfw
     settings.image.hfw = 400e-6       

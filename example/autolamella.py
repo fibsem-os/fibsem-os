@@ -56,7 +56,7 @@ def main():
 
             lamella = Lamella(
                 state=microscope.get_microscope_state(),
-                reference_image=acquire.new_image(microscope, settings.image),
+                reference_image=acquire.acquire_image(microscope, settings.image),
                 path=path,
                 num=lamella_no
             )
@@ -99,7 +99,7 @@ def main():
             # retake reference image
             settings.image.path = lamella.path
             settings.image.filename = f"ref_mill_stage_{stage_no:02d}"
-            lamella.reference_image = acquire.new_image(microscope, settings.image)
+            lamella.reference_image = acquire.acquire_image(microscope, settings.image)
 
             if stage_no == len(workflow_stages) - 1:
                 # take final reference images

@@ -22,11 +22,6 @@ def acquire_image(microscope: FibsemMicroscope, settings: ImageSettings) -> Fibs
     return microscope.imaging.acquire_image(settings)
 
 
-def new_image(microscope: FibsemMicroscope, settings: ImageSettings) -> FibsemImage:
-    """The old name for :func:`acquire_image`."""
-    return acquire_image(microscope, settings)
-
-
 def acquire_current_image(
     microscope: FibsemMicroscope, beam_type: BeamType, path: Optional[str] = None
 ) -> FibsemImage:
