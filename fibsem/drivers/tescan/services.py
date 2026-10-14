@@ -109,7 +109,7 @@ class TescanMilling(Milling):
         self._clear()
         microscope.milling_channel = settings.milling_channel
         # QUERY: do we need to set this here as it is also set in IEtching?
-        self._write_condition(BeamType.ION, "preset", settings.preset)
+        self.ion.preset.write_through(settings.preset)
         layer_settings = tescan.IEtching(
             syncWriteField=False,
             writeFieldSize=settings.hfw,

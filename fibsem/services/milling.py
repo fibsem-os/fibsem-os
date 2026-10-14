@@ -570,17 +570,6 @@ class Milling(Service):
         self._saved_beam = beam
         self._saved = save_beam_conditions(beam, SAVED_BEAM_CONDITIONS)
 
-    def _write_condition(self, channel: BeamType, name: str, value: Any) -> None:
-        """Write one of the recipe's beam conditions to the beam that mills on
-        ``channel``, as the old API does (no new checks), or nothing where that beam
-        has no such parameter (absent = unsupported)."""
-        beam = self.beam(channel)
-        param = None if beam is None else beam.parameters.get(name)
-        if param is None:
-            logging.debug(f"{name} is not supported here ({channel}).")
-            return
-        param.write_through(value)
-
     def _write_back(self, beam: Beam, name: str, value: Any) -> None:
         """Write one saved condition back to the beam, as the old API would."""
         getattr(beam, name).write_through(value)

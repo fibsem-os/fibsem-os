@@ -89,9 +89,10 @@ class DemoMilling(Milling):
         system.default_application_file = settings.application_file
         system.patterning_mode = settings.patterning_mode
         # the recipe's beam conditions go through the beam devices
-        self._write_condition(channel, "hfw", settings.hfw)
-        self._write_condition(channel, "current", settings.milling_current)
-        self._write_condition(channel, "voltage", settings.milling_voltage)
+        beam = self.beam(channel)
+        beam.hfw.write_through(settings.hfw)
+        beam.current.write_through(settings.milling_current)
+        beam.voltage.write_through(settings.milling_voltage)
         self._clear()
         logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
 
