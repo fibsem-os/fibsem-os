@@ -314,3 +314,20 @@ if __name__ == "__main__":
     import sys
 
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+def test_patterns_drawn_on_their_own_have_no_crosshair(axes):
+    """An agent's mill (FIB-1375) is drawn from its patterns, with no stage pattern
+    placed at a point: the shapes and the legend, and no crosshair."""
+    from fibsem.applications.autolamella.ui.agent_activity import _DrawnStage
+    from fibsem.structures import FibsemRectangleSettings
+
+    rectangle = FibsemRectangleSettings(
+        width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0
+    )
+    overlay = _overlay(axes)
+    overlay.set_stages([_DrawnStage([rectangle, rectangle])], _image())
+
+    kinds = [type(a).__name__ for a in overlay._artists]
+    assert kinds == ["Polygon", "Polygon"], kinds
+    assert [t.get_text() for t in overlay._legend.get_texts()] == ["Agent"]
