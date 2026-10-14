@@ -7,10 +7,12 @@ it prints wakes the agent. It must never be the actor: run in the foreground,
 it would block the agent from acting on what it prints.
 
     fibsem-mcp watch
+    fibsem-mcp watch --since 42          # resume after event 42
     python -m fibsem.mcp.sidecar watch   # where fibsem-mcp is not on PATH
 
 The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``QUESTION``,
-``QUESTION RELEASED``, task ``EVENT`` lines, ``GAP`` and ``RUN ENDED``.
+``QUESTION RELEASED``, ``REQUEST`` (the agent's request decided, finished or
+cancelled, FIB-1283), task ``EVENT`` lines, ``GAP`` and ``RUN ENDED``.
 Exits 0 when the run ends, 1 when the server cannot be watched. A run that
 stops without an end event still ends the watch: ``RUN ENDED (stopped
 without an end event)``, once ``/app/status`` says nothing is running.
@@ -140,12 +142,18 @@ def _print_events(events, since, out):
         elif kind == "prompt_raised":
             out(f"PROMPT question={data.get('question_id')} type={data.get('type')}")
         elif kind == "prompt_answered":
-            out(
+            line = (
                 f"ANSWERED question={data.get('question_id')} by={data.get('answered_by')} "
                 f"response={data.get('response')}"
             )
+            # The operator took the agent's suggestion (FIB-1283).
+            if data.get("suggested_by"):
+                line += f" suggested_by={data['suggested_by']}"
+            out(line)
         elif kind == "prompt_cancelled":
             out(f"PROMPT WITHDRAWN question={data.get('question_id')}")
+        elif kind in ("request_decided", "request_finished", "request_cancelled"):
+            out(_request_line(kind, data))
         elif kind in TERMINAL:
             detail = data.get("error") or _counts(data.get("task_counts"))
             out(f"RUN ENDED ({kind}: {detail})" if detail else f"RUN ENDED ({kind})")
@@ -157,6 +165,22 @@ def _print_events(events, since, out):
             reason = _skip_reason(data) if kind == "task_skipped" else None
             out(f"{line} ({reason})" if reason else line)
     return since, run_ended
+
+
+def _request_line(kind, data):
+    """The agent's request moved on (FIB-1283): decided, finished, cancelled."""
+    head = f"REQUEST {data.get('request_id')}"
+    if kind == "request_cancelled":
+        return f"{head} cancelled: {data.get('why')}"
+    if kind == "request_finished":
+        return (
+            f"{head} {data.get('status')} "
+            f"({data.get('applied')} of {data.get('of')} applied)"
+        )
+    if data.get("outcome") == "rejected":
+        reason = data.get("reason")
+        return f"{head} rejected" + (f": {reason}" if reason else "")
+    return f"{head} approved"
 
 
 def _skip_reason(data):
@@ -194,8 +218,11 @@ def _run_is_live(client):
         return None
 
 
-def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None):
+def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None):
     """Watch until the run ends (0) or the server cannot be watched (1).
+
+    ``since`` resumes after that event seq, so a watch restarted after the
+    last one returned misses nothing in between; None starts at the tail.
 
     ``client`` is httpx-style (``request(method, path, timeout=...)``), in
     practice the sidecar's reconnecting client: a 401 or a lost connection
@@ -219,7 +246,8 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None):
             "watch. Is an application hosted, not only a bench server?"
         )
         return 1
-    since = snapshot.get("latest_seq") or 0
+    if since is None:
+        since = snapshot.get("latest_seq") or 0
     # A run can end without an end event: one that dies outside a task fires
     # none (FIB-1331). So while a run is live, /app/status is the backstop.
     run_live = _run_is_live(client) is True
@@ -306,6 +334,12 @@ def main(argv=None):
     )
     parser.add_argument("--url", default=None, help="Server URL")
     parser.add_argument("--token", default=None, help="Bearer token")
+    parser.add_argument(
+        "--since",
+        type=int,
+        default=None,
+        help="Print events after this seq (default: only new ones)",
+    )
     args = parser.parse_args(argv)
 
     # Item names can carry operator-typed text; never let an exotic character
@@ -320,6 +354,6 @@ def main(argv=None):
         _print_line(f"NO SERVER: {_NO_SERVER_MSG}")
         return 1
     try:
-        return watch(client)
+        return watch(client, since=args.since)
     except KeyboardInterrupt:
         return 1

@@ -45,11 +45,14 @@ from fibsem.server.app_routes import (
     build_app_config_router,
     build_app_control_router,
     build_app_router,
+    build_app_stop_router,
+    build_app_suggest_router,
 )
 from fibsem.server.auth import (
     AuthConfig,
     Scope,
     action_name,
+    require_acting_level,
     require_monitoring,
     require_scope,
     take_control,
@@ -79,6 +82,7 @@ from fibsem.server.models import (
     StagePositionResponse,
     VerticalMoveRequest,
 )
+from fibsem.server.requests import RequestStore, build_request_router
 from fibsem.structures import (
     BeamSettings,
     BeamSystemSettings,
@@ -260,11 +264,13 @@ def build_server(
     read = APIRouter(
         dependencies=[Depends(require_scope(Scope.READ))], route_class=_RefusingRoute
     )
-    # The always-allowed stop, for whoever can act: control (the App Server at
-    # Drive) or hardware (the bench). Never takes control: a stop must not be
-    # refused by the mill it stops.
+    # The always-allowed stop: the stop scope (the App Server at Assist and
+    # Drive), or control or hardware where a server has no level (the bench).
+    # Never takes control: a stop must not be refused by the mill it stops.
     stop = APIRouter(
-        dependencies=[Depends(require_scope(Scope.CONTROL, Scope.HARDWARE))],
+        dependencies=[
+            Depends(require_scope(Scope.STOP, Scope.CONTROL, Scope.HARDWARE))
+        ],
         route_class=_RefusingRoute,
     )
     # Hardware routes also take control, so a command never interleaves with a
@@ -511,7 +517,7 @@ def build_server(
         microscope.start_milling()
         return {"status": "ok"}
 
-    # Whoever can act (control or hardware), and no control taken: a stop must
+    # Whoever may stop (stop, control or hardware), and no control taken: a stop must
     # never be refused by the in-flight command it exists to interrupt.
     @stop.post("/stop_milling")
     def stop_milling():
@@ -601,6 +607,32 @@ def build_server(
             build_app_config_router(app_context),
             dependencies=[Depends(require_scope(Scope.CONFIGURE))],
         )
+        # Stopping the workflow: the stop scope (Assist and Drive), or control
+        # on a server with no level. Never waits for approval.
+        app.include_router(
+            build_app_stop_router(app_context),
+            dependencies=[Depends(require_scope(Scope.STOP, Scope.CONTROL))],
+        )
+        # Suggesting an answer to the run's question: Assist and Drive, with no
+        # request, since the operator's click is what answers.
+        app.include_router(
+            build_app_suggest_router(app_context),
+            dependencies=[
+                Depends(require_scope(Scope.READ)),
+                Depends(require_acting_level()),
+            ],
+        )
+        # The agent's requests (FIB-1283): actions the operator approves in the
+        # app, run through the routes above. The app decides them through
+        # app.state.requests.
+        mounted = {"base", "app"} | ({"microscope", "devices"} if devices else set())
+        app.state.requests = RequestStore(
+            app,
+            auth,
+            frozenset(mounted),
+            emit=getattr(app_context, "record_event", None),
+        )
+        app.include_router(build_request_router(app.state.requests))
     return app
 
 

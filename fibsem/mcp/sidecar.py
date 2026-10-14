@@ -373,6 +373,42 @@ def build_sidecar(client, capabilities):
         )
         return err if err else data
 
+    def stable_move(dx: float, dy: float, beam_type: str = "ELECTRON"):
+        data, err = _call(
+            client,
+            "POST",
+            "/stable_move",
+            {"dx": float(dx), "dy": float(dy), "beam_type": str(beam_type)},
+        )
+        return err if err else data
+
+    def vertical_move(dy: float, dx: float = 0.0):
+        data, err = _call(
+            client, "POST", "/vertical_move", {"dy": float(dy), "dx": float(dx)}
+        )
+        return err if err else data
+
+    def move_to_orientation(orientation: str):
+        data, err = _call(
+            client, "POST", "/move_to_orientation", {"orientation": str(orientation)}
+        )
+        return err if err else data
+
+    def safe_move_stage_absolute(x: float, y: float, z: float, r: float, t: float):
+        position = {
+            "name": None,
+            "x": x,
+            "y": y,
+            "z": z,
+            "r": r,
+            "t": t,
+            "coordinate_system": "RAW",
+        }
+        data, err = _call(
+            client, "POST", "/safe_absolute_stage_movement", {"position": position}
+        )
+        return err if err else data
+
     def move_to_milling_angle(milling_angle_deg: float):
         # The tool speaks degrees; the stage movement command takes radians (FIB-853).
         kwargs = {"milling_angle": math.radians(milling_angle_deg)}
@@ -510,6 +546,18 @@ def build_sidecar(client, capabilities):
             {"text": str(text), "item_name": item_name},
         )
         return err if err else data
+
+    def request_actions(actions: list, reason: str):
+        data, err = _call(
+            client,
+            "POST",
+            "/app/agent/requests",
+            {"actions": list(actions), "reason": str(reason)},
+        )
+        return err if err else data
+
+    def get_request(request_id: str):
+        return _app_get(f"/app/agent/requests/{request_id}")
 
     def apply_protocol_to_item(item_name: str, task_names=None):
         data, err = _call(
@@ -686,6 +734,19 @@ def build_sidecar(client, capabilities):
         data, err = _call(client, "POST", "/app/decide", body)
         return err if err else data
 
+    def suggest_answer(
+        response: bool, question_id: int, reason: str, value: Optional[dict] = None
+    ):
+        body = {
+            "response": bool(response),
+            "question_id": int(question_id),
+            "reason": str(reason),
+        }
+        if value is not None:
+            body["value"] = dict(value)
+        data, err = _call(client, "POST", "/app/prompt/suggest", body)
+        return err if err else data
+
     def answer_prompt(response: bool, question_id: int, value: Optional[dict] = None):
         body = {"response": bool(response), "question_id": int(question_id)}
         if value is not None:
@@ -708,6 +769,10 @@ def build_sidecar(client, capabilities):
             acquire_image_preview,
             move_stage_relative,
             move_stage_absolute,
+            stable_move,
+            vertical_move,
+            move_to_orientation,
+            safe_move_stage_absolute,
             move_to_milling_angle,
             list_devices,
             get_parameter,
@@ -739,6 +804,8 @@ def build_sidecar(client, capabilities):
             set_task_schedule,
             apply_protocol_to_item,
             add_note,
+            request_actions,
+            get_request,
             reorder_item_milling_stages,
             reorder_protocol_milling_stages,
             list_recent_experiments,
@@ -748,6 +815,7 @@ def build_sidecar(client, capabilities):
             get_pending_reviews,
             decide_review,
             answer_prompt,
+            suggest_answer,
             stop_workflow,
             plan_grid_workflow,
             start_grid_workflow,

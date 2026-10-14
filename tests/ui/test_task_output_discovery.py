@@ -57,8 +57,17 @@ def test_the_coincidence_viewer_records_what_the_panel_will_find(tmp_path, monke
     assert task.name == viewer.COINCIDENCE_REVIEW_TASK_NAME
 
     recorded = task.outputs["final_fib"]
-    assert recorded == [os.path.basename(recorded[0])], "path must be relative"
+    assert not os.path.isabs(recorded[0]), "path must be relative"
+    # in the recorded run's own folder, <task>/<YYYYMMDD-HHMMSS>/ (FIB-1275)
+    assert Path(recorded[0]).parts[0] == viewer.COINCIDENCE_REVIEW_TASK_NAME
+    assert len(Path(recorded[0]).parts) == 3
 
     found = final_reference_images(lamella, task)
     assert found == [str(Path(lamella.path, recorded[0]))]
     assert os.path.isfile(found[0])
+
+    # recording again keeps the earlier image
+    widget._record_coincidence_result()
+    again = lamella.task_history[-1].outputs["final_fib"][0]
+    assert again != recorded[0]
+    assert os.path.isfile(found[0]) and os.path.isfile(Path(lamella.path, again))

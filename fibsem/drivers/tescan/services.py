@@ -496,7 +496,8 @@ class TescanSpotBurn(SpotBurn):
         quiet = signal.blocked() if signal is not None else contextlib.nullcontext()
         milling.progress.changed.connect(report)
         try:
-            with quiet:
+            # A spot burn records itself, not a mill.
+            with quiet, milling.part_of():
                 milling.run(
                     stop_event=AnyStopEvent(self._stop_requested, *_events(stop_event))
                 )

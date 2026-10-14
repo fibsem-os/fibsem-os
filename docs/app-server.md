@@ -46,15 +46,14 @@ One knob, on the Agent chip in the status bar, set in two clicks:
 |---|---|
 | **Off** | nothing: every request is refused |
 | **Watch** | see everything below and add notes; never act |
+| **Assist** | also stop a run or a mill, suggest answers to the run's questions, and ask you to approve anything else it wants done |
 | **Drive** | also answer, start and stop, change supervision, re-queue, and edit configuration; with the devices service on, use the microscope too |
-
-*Assist* — asking before every action — is not offered yet.
 
 Every launch starts at **Watch**. The level lasts the session: nothing in any
 file raises it. Changing it is recorded on the event stream, with you as the
 actor.
 
-While the agent is at Drive the chip's menu leads with **Stop agent**. It drops
+While the agent is at Assist or Drive the chip's menu leads with **Stop agent**. It drops
 the agent to Watch at once, with no confirmation, and the agent is told it was
 stopped. If the agent is using the microscope, Stop agent also stops what it
 is doing: a mill, a spot burn, an auto focus or live imaging. A stage move
@@ -62,7 +61,30 @@ already under way finishes. A running workflow keeps running; its own Stop is
 beside the chip.
 
 Using the microscope directly (moving the stage, acquiring, milling) needs
-Drive and *Serve the microscope's devices*.
+Drive and *Serve the microscope's devices*. At Assist the agent asks for it.
+
+## Approving the agent's requests (Assist)
+
+At Assist the agent asks before it acts. When it does, the Agent chip turns
+amber and says how many actions it is asking for ("Agent asks · 3"). Click
+the chip: the request is at the top of its menu. Each action is shown with
+what it acts on and what it changes (a setting shows old → new). These
+lines are written by the app from the actions themselves, not by the agent.
+Under them is the agent's reason.
+
+- **Approve** runs the actions in order, each checked as if the agent had
+  made the call at Drive. The block shows each one's progress. If one is
+  refused (a run has the microscope, a setting changed since the agent read
+  it), the rest are not run, and the status bar's failure line says how far
+  it got and why.
+- **Reject…** runs nothing. You can tell the agent why; it gets your words.
+
+One request waits at a time. Changing the level or pressing Stop agent
+cancels a waiting request, and stops an approved one before its next action.
+
+When a run asks a question, the agent can suggest an answer. The prompt
+shows "Agent suggests: Continue" with the agent's reason under it. Clicking
+it answers as you; answering any other way ignores it.
 
 ## What the agent can see (Watch and above)
 

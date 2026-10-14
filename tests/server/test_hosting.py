@@ -61,6 +61,7 @@ def test_start_serves_read_only_with_the_app_router(host, microscope):
         "control": False,
         "configure": False,
         "hardware": False,
+        "stop": False,
     }
     assert body["level"] == "watch"  # every launch starts watching (FIB-1035)
     # idempotent: a second start is a no-op, not a second server

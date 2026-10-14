@@ -103,6 +103,7 @@ from fibsem.applications.autolamella.ui.autolamella_load_task_protocol_widget im
 from fibsem.applications.autolamella.ui.autolamella_overview_image_widget import (
     create_overview_image_widget,
 )
+from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import HookManager
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
@@ -340,6 +341,17 @@ class AutoLamellaUI(QMainWindow):
 
         self.pushButton_yes = QPushButton("Yes")
         self.pushButton_no = QPushButton("No")
+        # The agent's suggested answer (FIB-1283): a button the operator may take,
+        # and the agent's reason under it. Hidden while there is none.
+        self.pushButton_suggestion = QPushButton("")
+        self.pushButton_suggestion.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
+        self.pushButton_suggestion.setVisible(False)
+        self.label_suggestion = QLabel("")
+        self.label_suggestion.setWordWrap(True)
+        self.label_suggestion.setStyleSheet(f"color: {stylesheets.TEXT_MUTED_COLOR};")
+        self.label_suggestion.setVisible(False)
 
         # Who answered what, under the buttons: fed by the responder's
         # question-lifecycle feed, hidden until the first answer.
@@ -354,7 +366,9 @@ class AutoLamellaUI(QMainWindow):
         self.gridLayout.addWidget(self.label_instructions, 3, 0, 1, 2)
         self.gridLayout.addWidget(self.pushButton_yes, 4, 0)
         self.gridLayout.addWidget(self.pushButton_no, 4, 1)
-        self.gridLayout.addWidget(self.question_timeline, 5, 0, 1, 2)
+        self.gridLayout.addWidget(self.pushButton_suggestion, 5, 0, 1, 2)
+        self.gridLayout.addWidget(self.label_suggestion, 6, 0, 1, 2)
+        self.gridLayout.addWidget(self.question_timeline, 7, 0, 1, 2)
 
         self.setCentralWidget(self.centralwidget)
         self.tabWidget.setCurrentIndex(0)
@@ -417,6 +431,7 @@ class AutoLamellaUI(QMainWindow):
         # workflow interaction
         self.pushButton_yes.clicked.connect(self.push_interaction_button)
         self.pushButton_no.clicked.connect(self.push_interaction_button)
+        self.pushButton_suggestion.clicked.connect(self._take_suggestion)
 
         # signals
         self.workflow_status_signal.connect(self.handle_workflow_status)
@@ -1376,6 +1391,14 @@ class AutoLamellaUI(QMainWindow):
                     "reason": f"unknown items: {missing!r}",
                     "item_names": known_items,
                 }
+        names = list(item_names) if item_names is not None else known_items
+        # The Run click's grid gate: a lamella whose grid is not on the stage
+        # is refused by name, with no override, before anything moves.
+        refused = self.lamella_run_refusal(
+            [p for p in experiment.positions if p.name in names]
+        )
+        if refused:
+            return {"started": False, "reason": refused}
         # The chrome the Run click supplies around the shared start. Guarded:
         # the standalone window has no parent to decorate.
         parent = self.parent_widget
@@ -1386,9 +1409,7 @@ class AutoLamellaUI(QMainWindow):
                 parent.lamella_widget.flush_pending_save()
             except Exception:
                 logging.exception("flush before agent start failed; continuing")
-        self._start_run_workflow_thread(
-            task_names, list(item_names) if item_names is not None else known_items
-        )
+        self._start_run_workflow_thread(task_names, names)
         started = self.is_workflow_running
         if started and parent is not None:
             try:
@@ -1402,6 +1423,18 @@ class AutoLamellaUI(QMainWindow):
             except Exception:
                 logging.exception("window chrome after agent start failed")
         return {"started": started}
+
+    def lamella_run_refusal(self, lamellae) -> str:
+        """Why these lamellae cannot run now, or "": a lamella linked to a grid
+        that is not on the stage. Reads the inventory first; see `grid_gate`.
+
+        The one gate for the Run click, Add to queue and the agent's start and
+        requeue, so none of them can run a lamella on the wrong grid.
+        """
+        stage = getattr(self.microscope, "sample_handling", None)
+        if self.experiment is None or stage is None:
+            return ""
+        return run_refusal(self.experiment, stage, lamellae)
 
     def request_start_grid_workflow(
         self,
@@ -2892,6 +2925,23 @@ class AutoLamellaUI(QMainWindow):
         if msg is not None:
             self.label_workflow_information.setText(msg)
         self.label_workflow_information.setVisible(show)
+
+    def show_suggestion(self, label: Optional[str], reason: str = "") -> None:
+        """The agent's suggested answer under the prompt's buttons, or None to
+        take it down. Shown by the responder, which owns when it stands."""
+        self.pushButton_suggestion.setVisible(label is not None)
+        self.label_suggestion.setVisible(label is not None and bool(reason))
+        if label is None:
+            return
+        self.pushButton_suggestion.setText(f"Agent suggests: {label}")
+        self.pushButton_suggestion.setEnabled(True)
+        self.label_suggestion.setText(f"Why: {reason}")
+
+    def _take_suggestion(self) -> None:
+        """The operator takes the agent's suggestion: their answer, suggested by
+        the agent."""
+        self.pushButton_suggestion.setEnabled(False)
+        self.ui_responder.take_suggestion()
 
     def push_interaction_button(self):
         """Handle the user interaction with the workflow."""

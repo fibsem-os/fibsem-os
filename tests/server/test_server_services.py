@@ -153,6 +153,29 @@ def test_the_orientation_reads_are_queries(read_client, microscope):
     )
 
 
+def test_the_device_reads_are_queries(read_client, microscope):
+    sem = microscope.get_orientation("SEM")
+    at_sem = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=sem.r, t=sem.t)
+    position = {"stage_position": to_wire(at_sem)}
+
+    def ask(query, **kwargs):
+        resp = read_client.post(
+            f"/services/stage_movement/queries/{query}", json={"kwargs": kwargs}
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["result"]
+
+    device = microscope.get_current_device(at_sem)
+    assert ask("current_device", **position) == device
+    assert ask("is_at_device", device=device, **position) is True
+    state = microscope.get_device_imaging_state(device, at_sem)
+    assert ask("device_imaging_state", device=device, **position) == to_wire(state)
+    target = microscope.get_target_position(at_sem, target_orientation="FIB")
+    answer = ask("target_position", target_orientation="FIB", **position)
+    assert answer["x"] == pytest.approx(target.x)
+    assert answer["r"] == pytest.approx(target.r)
+
+
 def test_the_milling_angle_is_a_parameter_that_moves_milling(armed_client, microscope):
     before = microscope.system.stage.milling_angle
     try:
@@ -258,6 +281,27 @@ def test_sequences_decode_each_element():
     assert from_wire(List[Point], points) == [Point(1.0, 2.0), Point(3.0, 4.0)]
     assert from_wire(Tuple[Point, ...], points) == (Point(1.0, 2.0), Point(3.0, 4.0))
     assert from_wire(Tuple[BeamType, float], [1, 2.0]) == (BeamType.ELECTRON, 2.0)
+
+
+def test_numbers_sent_as_text_decode_as_the_declared_type():
+    """An agent's MCP client sends a value whose schema names no type as text."""
+    from fibsem.devices.wire import from_wire
+
+    assert from_wire(float, "4.0") == 4.0 and isinstance(from_wire(float, "4"), float)
+    assert from_wire(float, " 1.2e-6 ") == pytest.approx(1.2e-6)
+    assert from_wire(int, "4.0") == 4 and isinstance(from_wire(int, "4.0"), int)
+    assert from_wire(int, 4.0) == 4 and isinstance(from_wire(int, 4.0), int)
+    assert from_wire(bool, "true") is True and from_wire(bool, "False") is False
+    # Not a number of that type: left for the parameter's own check to refuse.
+    assert from_wire(int, "4.5") == "4.5"
+    assert from_wire(int, 4.5) == 4.5
+    assert from_wire(float, "fast") == "fast"
+    assert from_wire(float, True) is True
+    assert from_wire(str, "4.0") == "4.0"
+    assert from_wire(BeamType, "1") is BeamType.ELECTRON
+    assert from_wire(BeamType, "ION") is BeamType.ION
+    with pytest.raises(ValueError):
+        from_wire(BeamType, "9")
 
 
 def test_a_pattern_dict_names_its_shape():

@@ -93,9 +93,10 @@ def test_a_server_with_a_level_offers_hardware_tools_at_watch():
 def test_each_description_names_the_level_it_needs(armed_sidecar):
     listed = asyncio.run(armed_sidecar.list_tools())
     described = {t.name: t.description for t in getattr(listed, "tools", listed)}
-    assert described["get_stage_position"].endswith("Works at Watch and Drive.")
-    assert "Needs the agent at Drive" in described["stop_milling"]
+    assert described["get_stage_position"].endswith("Works at Watch, Assist and Drive.")
+    assert "Assist and Drive without asking" in described["stop_milling"]
     assert "Needs the agent at Drive" in described["move_stage_relative"]
+    assert "request_actions" in described["move_stage_relative"]
     assert "(409)" in described["move_stage_relative"]
 
 
@@ -109,6 +110,28 @@ def test_move_tool_round_trip(armed_sidecar):
     result = asyncio.run(armed_sidecar.call_tool("move_stage_relative", {"dx": 1e-6}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert '"position"' in text
+
+
+def test_set_parameter_takes_a_number_sent_as_text(armed_sidecar):
+    """The value's schema names no type, so a client may send 120e-6 as text."""
+    result = asyncio.run(
+        armed_sidecar.call_tool(
+            "set_parameter",
+            {"device": "electron", "parameter": "hfw", "value": "120e-6"},
+        )
+    )
+    text = "".join(getattr(c, "text", "") for c in _contents(result))
+    assert json.loads(text)["value"] == pytest.approx(120e-6)
+def test_stable_move_tool_round_trip(armed_sidecar):
+    before = asyncio.run(armed_sidecar.call_tool("get_stage_position", {}))
+    before = json.loads("".join(getattr(c, "text", "") for c in _contents(before)))
+    result = asyncio.run(
+        armed_sidecar.call_tool(
+            "stable_move", {"dx": 5e-6, "dy": 0.0, "beam_type": "ELECTRON"}
+        )
+    )
+    after = json.loads("".join(getattr(c, "text", "") for c in _contents(result)))
+    assert after["position"]["x"] != pytest.approx(before["position"]["x"])
 
 
 def test_image_tool_returns_image_content(armed_sidecar):

@@ -29,8 +29,9 @@ item details, at any level, even when you could. If you're asked to:
 
 1. Say what you'd do and why, from what you've read.
 2. Say who can do it: the operator, from AutoLamella; or an agent at
-   **Drive**, which the operator sets from the Agent chip in the status bar.
-   (**Assist**, where the agent asks before each action, is not offered yet.)
+   **Assist** (it asks the operator to approve each action; see the
+   assist-autolamella skill) or **Drive**, which the operator sets from the
+   Agent chip in the status bar.
 3. Stop there. Don't call the action to see whether it works.
 
 One exception to staying quiet about it: if the run looks like it is doing
@@ -53,8 +54,9 @@ curl -s "http://127.0.0.1:8001/capabilities" -H "Authorization: Bearer $TOKEN"
 Read `/capabilities` (`get_capabilities`) before anything else, and tell the
 operator in a sentence what that means for this session:
 
-- `level: "watch"` or `"drive"`: you can read everything and add notes. At
-  Drive you still don't act; that is this skill's rule, not the server's.
+- `level: "watch"`, `"assist"` or `"drive"`: you can read everything and add
+  notes. At Assist and Drive you still don't act, ask or suggest; that is
+  this skill's rule, not the server's.
 - `403 agent_off`: the agent is Off. Say so once and stop; there is nothing to
   read. Offline reading still works if they give you a folder.
 - `routers.app` false: no application is hosted (a bench server). There's no

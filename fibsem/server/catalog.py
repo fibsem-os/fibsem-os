@@ -24,7 +24,7 @@ class ToolSpec:
     description: str
     method: str  # "GET" | "POST" | "PUT"
     path: str
-    scope: str  # "read" | "control" | "configure" | "hardware"
+    scope: str  # "read" | "control" | "configure" | "hardware" | "stop"
     params: Dict[str, str] = field(default_factory=dict)  # name -> description
     # Which router serves it: "microscope" unless the App Server's devices
     # service is off (FIB-1035); "app" only when the server was built with an
@@ -33,6 +33,8 @@ class ToolSpec:
     # Further scopes, any of which also allows it (stop_milling: control or
     # hardware), matching the route's require_scope.
     also: Tuple[str, ...] = ()
+    # The level note, where the scope alone does not say it (request_actions).
+    level: str = ""
 
     def allowed(self, armed: Dict[str, bool]) -> bool:
         return any(armed.get(s, False) for s in (self.scope, *self.also))
@@ -45,18 +47,24 @@ class ToolSpec:
 
     @property
     def level_note(self) -> str:
-        """What the tool needs, in the agent's terms (FIB-1035)."""
+        """What the tool needs, in the agent's terms (FIB-1035, FIB-1283)."""
+        if self.level:
+            return self.level
+        if self.scope == "read":
+            return "Works at Watch, Assist and Drive."
+        if self.scope == "stop":
+            return "Works at Assist and Drive without asking; refused (403) at Watch."
+        note = (
+            "Needs the agent at Drive; at Assist, ask first: put the call in "
+            "request_actions and the operator approves it (a direct call is "
+            "refused, 403 ask_first). Refused (403) at Watch."
+        )
         if self.hardware_only:
             return (
-                "Needs the agent at Drive: refused (403) at Watch; refused (409) "
-                "while a run or script is in control of the microscope."
+                f"{note} Refused (409) while a run or script is in control of "
+                "the microscope."
             )
-        if self.scope == "read":
-            return "Works at Watch and Drive."
-        return (
-            "Needs the agent at Drive: refused (403) at Watch; the operator "
-            "sets the level from the Agent chip in AutoLamella."
-        )
+        return f"{note} The operator sets the level from the Agent chip in AutoLamella."
 
     @property
     def full_description(self) -> str:
@@ -67,7 +75,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     # --- read ---
     ToolSpec(
         name="get_capabilities",
-        description="Server capabilities: API version, manufacturer, mounted routers, armed scopes, and the agent's level (off / watch / drive). Read it first: the level says what the other tools will do.",
+        description="Server capabilities: API version, manufacturer, mounted routers, armed scopes, and the agent's level (off / watch / assist / drive). Read it first: the level says what the other tools will do. At Assist, act by asking: request_actions.",
         method="GET",
         path="/capabilities",
         scope="read",
@@ -146,11 +154,11 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_milling",
-        description="Emergency stop for an in-progress mill. Allowed whenever the agent can act (Drive; on a bench server, hardware too), and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
+        description="Emergency stop for an in-progress mill. Allowed at Assist and Drive without asking (on a bench server, with hardware armed), and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/stop_milling",
-        scope="control",
-        also=("hardware",),
+        scope="stop",
+        also=("control", "hardware"),
     ),
     # --- hardware ---
     ToolSpec(
@@ -162,8 +170,90 @@ CATALOG: Tuple[ToolSpec, ...] = (
         params={"beam_type": "ELECTRON or ION"},
     ),
     ToolSpec(
+        name="stable_move",
+        description=(
+            "Move the stage so a feature seen in a beam image comes to the centre "
+            "of that image: the way to move to what you see. dx and dy are the "
+            "feature's offset from the image centre in metres, x to the right and "
+            "y up (from a preview: (pixel - width/2) * hfw/width, and y with the "
+            "sign flipped, since pixel rows count down). The server turns the "
+            "offset into stage x, y and z for the beam's viewing angle, the stage "
+            "tilt and rotation and the scan rotation, so the sample slides along "
+            "its own surface and stays at the same height: the feature stays in "
+            "focus and, at the coincidence point, stays in the other beam's view "
+            "too. Prefer it to move_stage_relative whenever the move comes from an "
+            "image. Take a fresh image afterwards to check where the feature "
+            "landed."
+        ),
+        method="POST",
+        path="/stable_move",
+        scope="hardware",
+        params={
+            "dx": "the feature's offset from the image centre along x, metres, right positive",
+            "dy": "the feature's offset from the image centre along y, metres, up positive",
+            "beam_type": "the beam whose image the offset was measured in: ELECTRON or ION",
+        },
+    ),
+    ToolSpec(
+        name="vertical_move",
+        description=(
+            "Restore coincidence: with a feature centred in the electron image, "
+            "move the stage along the chamber vertical so the same feature comes "
+            "to the centre of the ion image. dy (and dx) are the feature's offset "
+            "from the centre of the ION image, in metres, x right and y up. The "
+            "electron beam sees no change. Use it after a stable_move in the "
+            "electron image when the ion image is off; never a plain z move."
+        ),
+        method="POST",
+        path="/vertical_move",
+        scope="hardware",
+        params={
+            "dy": "the feature's offset from the ion image centre along y, metres, up positive",
+            "dx": "the offset along x, metres, right positive (usually 0)",
+        },
+    ),
+    ToolSpec(
+        name="move_to_orientation",
+        description=(
+            "Move the stage to a named orientation (SEM, FIB, MILLING, and FM "
+            "where fitted): its rotation and tilt, by the safe move "
+            "(safe_move_stage_absolute). x, y and z stay, except that a half turn "
+            "carries x and y round the rotation centre where the instrument "
+            "reports one, so the same spot comes back under the beam."
+        ),
+        method="POST",
+        path="/move_to_orientation",
+        scope="hardware",
+        params={"orientation": "SEM, FIB, MILLING or FM"},
+    ),
+    ToolSpec(
+        name="safe_move_stage_absolute",
+        description=(
+            "Move the stage to an absolute position (metres and radians) safely: "
+            "for a large rotation it tilts flat first, and it rotates before "
+            "moving the other axes, so a tilted sample isn't swung round. Use "
+            "it, not move_stage_absolute, to return to a saved position."
+        ),
+        method="POST",
+        path="/safe_absolute_stage_movement",
+        scope="hardware",
+        params={
+            "x": "x in metres",
+            "y": "y in metres",
+            "z": "z in metres",
+            "r": "rotation in radians",
+            "t": "tilt in radians",
+        },
+    ),
+    ToolSpec(
         name="move_stage_relative",
-        description="Move the stage by a relative offset (metres and radians).",
+        description=(
+            "Move the stage axes by a raw offset (metres), in stage coordinates. "
+            "It knows nothing of the image: at any tilt a y move also changes "
+            "the sample's height, so the feature drifts out of focus and out of "
+            "the other beam. To move to something seen in an image, use "
+            "stable_move instead."
+        ),
         method="POST",
         path="/move_stage_relative",
         scope="hardware",
@@ -175,7 +265,11 @@ CATALOG: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="move_stage_absolute",
-        description="Move the stage to an absolute position (metres and radians).",
+        description=(
+            "Move every stage axis straight to an absolute position (metres and "
+            "radians), with no safety ordering. For a position with a different "
+            "rotation or tilt, use safe_move_stage_absolute instead."
+        ),
         method="POST",
         path="/move_stage_absolute",
         scope="hardware",
@@ -450,6 +544,28 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
+        name="request_actions",
+        description="At Assist, ask the operator to approve one or more actions: each is {tool, arguments}, the tool you would call and the arguments you would give it, run in order once approved. Give the reason the operator reads before deciding. One request waits at a time (409 request_pending names it). Answers the request, status pending; follow it with get_request or the request_* events (request_decided, request_applied per action, request_finished). Approved actions run through their own routes, so each is checked and can be refused as a direct call would be; the first refusal stops the batch. A rejection carries the operator's reason. Changing the level or Stop agent cancels a waiting request. Reads need no request, nor does stopping (stop_workflow, stop_milling): call those directly.",
+        method="POST",
+        path="/app/agent/requests",
+        scope="read",
+        router="app",
+        params={
+            "actions": "list of {tool, arguments}, at most 20",
+            "reason": "why: what you saw and what the actions will do, for the operator",
+        },
+        level="Works at Assist only: at Drive make the calls yourself (403 not_assist); refused (403) at Watch.",
+    ),
+    ToolSpec(
+        name="get_request",
+        description="One request you filed with request_actions: its status (pending, applying, applied, failed, rejected, cancelled), who decided it, the operator's reason on a reject, and each action's result or the route's error.",
+        method="GET",
+        path="/app/agent/requests/{request_id}",
+        scope="read",
+        router="app",
+        params={"request_id": "the request_id request_actions answered"},
+    ),
+    ToolSpec(
         name="apply_protocol_to_item",
         description="Re-copy protocol task configs onto an existing item (protocol-level edits only reach items created after them; this brings an existing item up to date). Wholesale replace of that item's copies for the named tasks — omit task_names for all. Running tasks are refused.",
         method="POST",
@@ -567,10 +683,11 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stop_workflow",
-        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed whenever the agent can act (Drive), and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
+        description="Stop the running workflow — the same path as the GUI's Stop button; the mill halts too. Allowed at Assist and Drive without asking, and is never refused for someone else being in control of the microscope. Not at Watch: a watching agent stops nothing.",
         method="POST",
         path="/app/workflow/stop",
-        scope="control",
+        scope="stop",
+        also=("control",),
         router="app",
     ),
     ToolSpec(
@@ -690,6 +807,21 @@ APP_TOOLS: Tuple[ToolSpec, ...] = (
             "question_id": "the question_id from get_pending_prompt, naming the question being answered",
             "value": "optional adjusted geometry: {left, top, width, height} (fractions of the frame, origin top-left) for EditAlignmentArea, or {x, y} (metres, microscope image coordinates, origin centre, +y up) for PickPOI",
         },
+    ),
+    ToolSpec(
+        name="suggest_answer",
+        description="Suggest an answer to the pending supervision question, for the operator to take or not. Nothing is answered: the prompt shows 'Agent suggests: <the button>' with your reason under it, and the operator's click on it answers as theirs, recorded with you as the one who suggested it (prompt_suggested, then prompt_answered with suggested_by). Answering any other way ignores it; a new posting of the question drops it. Echo the question_id from get_pending_prompt (409 stale_prompt if it has gone). value is as for answer_prompt, and is placed in the widget only when the operator takes the suggestion. Not for a question whose prompt says answer_via: \"decide\" (409 not_suggestible): at Assist, decide it through request_actions.",
+        method="POST",
+        path="/app/prompt/suggest",
+        scope="read",
+        router="app",
+        params={
+            "response": "true for the positive option, false for the negative",
+            "question_id": "the question_id from get_pending_prompt",
+            "reason": "why: shown under the suggestion for the operator",
+            "value": "optional geometry, as for answer_prompt",
+        },
+        level="Works at Assist and Drive; refused (403) at Watch. At Drive you may answer_prompt directly instead.",
     ),
     ToolSpec(
         name="list_recent_experiments",

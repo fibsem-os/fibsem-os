@@ -359,11 +359,34 @@ def test_supervision_sets_attention_and_names_no_supervisor(experiment):
     assert applied == {
         "available": True,
         "applied": True,
+        "saved": True,
         "task_name": "Rough Milling",
         "supervise": True,
     }
     task = experiment.task_protocol.workflow_config.tasks[-1]
     assert task.attention is Attention.supervised
+
+
+def test_supervision_is_saved_with_the_protocol(experiment):
+    # As the Workflow tab's chip saves it: a reload keeps the agent's change.
+    from fibsem.applications.autolamella.structures import (
+        AutoLamellaTaskDescription,
+    )
+
+    experiment.task_protocol.workflow_config.tasks.append(
+        AutoLamellaTaskDescription(
+            name="Rough Milling", attention=Attention.automated, required=True
+        )
+    )
+    host = Host()
+    host.experiment = experiment
+    ctx = AutoLamellaAppContext(host)
+
+    assert ctx.set_supervision("Rough Milling", True)["saved"] is True
+    protocol = AutoLamellaTaskProtocol.load(
+        os.path.join(experiment.path, "protocol.yaml")
+    )
+    assert protocol.get_attention("Rough Milling") is Attention.supervised
 
 
 def test_requeue_task_reruns_a_completed_pair(experiment, microscope):

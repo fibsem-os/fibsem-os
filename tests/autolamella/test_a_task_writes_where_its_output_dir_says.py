@@ -118,11 +118,33 @@ def test_everything_a_task_writes_follows_the_output_folder(
     assert not any(name.startswith(f"ref_{ROUGH}_") for name in in_lamella)
 
 
-def test_the_output_folder_is_the_lamella_folder_for_now(microscope, experiment):
+def test_the_output_folder_is_the_run_s_own(microscope, experiment):
+    """``<lamella>/<task name>/<YYYYMMDD-HHMMSS>/`` (FIB-1275): each task object
+    is one run, with its own folder, so a re-run overwrites nothing."""
+    from pathlib import Path
+
     lamella = experiment.positions[0]
     task = MillRoughTask(microscope, lamella.task_config[ROUGH], lamella)
 
-    assert task.output_dir == str(lamella.path)
+    folder = Path(task.output_dir)
+    assert folder.parent == Path(lamella.path) / ROUGH
+    assert len(folder.name) == len("20261014-093012") and folder.name[8] == "-"
+    assert task.config.imaging.path == task.output_dir  # its images follow
+    assert not folder.exists(), "made by the first save, not before"
+
+    os.makedirs(task.output_dir)  # the run saved something
+    again = MillRoughTask(microscope, lamella.task_config[ROUGH], lamella)
+    assert again.output_dir != task.output_dir, "a second run in the same second"
+
+
+def test_a_task_name_a_folder_cannot_hold_is_made_safe(microscope, experiment):
+    from fibsem.applications.autolamella.task_outputs import run_folder
+    from fibsem.util.timestamps import now
+
+    lamella = experiment.positions[0]
+    folder = run_folder(lamella, 'Rough: 1/2 "fast"', now())
+
+    assert os.path.basename(os.path.dirname(folder)) == "Rough- 1-2 -fast-"
 
 
 def test_the_wrappers_return_what_they_measured(microscope, experiment):

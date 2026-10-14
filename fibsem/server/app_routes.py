@@ -26,6 +26,8 @@ __all__ = [
     "build_app_config_router",
     "build_app_control_router",
     "build_app_router",
+    "build_app_stop_router",
+    "build_app_suggest_router",
 ]
 
 
@@ -537,13 +539,6 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         task_names, grid_names, screen_all = _grid_run_body(body)
         return context.start_grid_workflow(task_names, grid_names, screen_all)
 
-    @router.post("/workflow/stop")
-    def stop_workflow():
-        # The same path as the GUI's Stop button. On the control router since
-        # FIB-1035 -- a watching agent stops nothing -- and still never waits
-        # on the command lock. The operator's own Stop is never gated.
-        return context.stop_workflow()
-
     @router.post("/supervision")
     def set_supervision(body: Dict[str, Any]):
         task_name = body.get("task_name")
@@ -573,6 +568,97 @@ def build_app_control_router(context: AppContext) -> APIRouter:
         return context.requeue_task(
             item_name, task_name, front=bool(body.get("front", False))
         )
+
+    return router
+
+
+def build_app_suggest_router(context: AppContext) -> APIRouter:
+    """The agent's suggested answer to the run's question (FIB-1283). Mounted
+    (by build_server) for Assist and Drive: a suggestion answers nothing, so it
+    needs no request."""
+    router = APIRouter(prefix="/app")
+
+    @router.post("/prompt/suggest")
+    def suggest_answer(body: Dict[str, Any]):
+        try:
+            question_id = int(body["question_id"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_question_id",
+                    "message": "Echo the integer question_id from GET /app/prompt; "
+                    "a suggestion must name the question it is for.",
+                },
+            )
+        reason = body.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "missing_field",
+                    "message": "Pass a reason: it is shown under the suggestion, "
+                    "for the operator deciding whether to take it.",
+                },
+            )
+        value = body.get("value")
+        if value is not None and not isinstance(value, dict):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_value",
+                    "message": "value, when given, must be a JSON object: "
+                    "{left, top, width, height} for EditAlignmentArea, "
+                    "{x, y} for PickPOI.",
+                },
+            )
+        suggest = getattr(context, "suggest_answer", None)
+        if suggest is None:
+            return {"available": False, "suggested": False, "stale": False}
+        result = suggest(
+            bool(body.get("response", False)),
+            question_id,
+            reason.strip(),
+            value=value,
+        )
+        if result.get("stale"):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error_type": "stale_prompt",
+                    "message": f"That question is no longer pending (question "
+                    f"{question_id}); re-read /app/prompt.",
+                },
+            )
+        if result.get("invalid_value"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid_value",
+                    "message": result["invalid_value"],
+                },
+            )
+        if result.get("error"):
+            raise HTTPException(
+                status_code=409,
+                detail={"error_type": "not_suggestible", "message": result["error"]},
+            )
+        return result
+
+    return router
+
+
+def build_app_stop_router(context: AppContext) -> APIRouter:
+    """Stopping the run. Mounted (by build_server) behind the ``stop`` scope:
+    at Assist and Drive the agent stops without asking (FIB-1283); a watching
+    agent stops nothing (FIB-1035)."""
+    router = APIRouter(prefix="/app")
+
+    @router.post("/workflow/stop")
+    def stop_workflow():
+        # The same path as the GUI's Stop button, and never waits on the
+        # command lock. The operator's own Stop is never gated.
+        return context.stop_workflow()
 
     return router
 

@@ -59,8 +59,10 @@ status bar. Every launch starts at Watch; nothing in a file raises it.
   What you would answer goes on the record too (see *Write down why*).
 - **Drive** — you may answer questions, start and stop workflows, change
   supervision, re-queue, and edit configuration and schedules.
-- **Assist** is not offered yet. **Off** refuses everything, `/capabilities`
-  included (`403 agent_off`).
+- **Assist** — you ask before each action and the operator approves it on
+  the Agent chip; you suggest answers rather than answering. That is the
+  assist-autolamella skill's job: use it at Assist. **Off** refuses
+  everything, `/capabilities` included (`403 agent_off`).
 
 At Drive, with the microscope's devices served, you can also use the
 microscope directly (see *Using the microscope*). Supervising doesn't need
@@ -76,6 +78,8 @@ A refusal names its reason in `detail.error_type`:
   to continue.
 - `agent_off` — you are off. Report that once and stop; there is nothing to
   watch.
+- `ask_first` — you are at Assist: the operator wants to approve each
+  action. Switch to the assist-autolamella skill and ask through a request.
 
 If `level` drops from Drive to Watch mid-session for any reason, the rule is
 the same as `agent_stopped`: report and stop acting. Never treat a 403 as an
@@ -113,7 +117,8 @@ If your harness cannot keep a background process alive while you are idle
 line will ever wake you), do not go idle expecting one. Hold the watch in
 the foreground of a single bounded command instead: run the watcher with
 your tool timeout as the cap, act on whatever lines it printed when the
-command returns, and run it again. A stalled watch looks exactly like a
+command returns, and run it again with `--since <the last seq you saw>`
+(`latest_seq` from `get_events`) so the gap between runs is not lost. A stalled watch looks exactly like a
 quiet run — when in doubt, read `/app/prompt` directly.
 
 ## Answer — the rules that are never optional
@@ -316,6 +321,32 @@ a script may have moved it since you last looked. Before a move, read
 `get_stage_position`; before judging what is under the beam, take a fresh
 image (`acquire_image_preview`) rather than trusting the last one. Say what
 you read when you act on it.
+
+**Move with `stable_move`.** To bring something you see to the centre of
+an image, call `stable_move` with its offset from the image centre in
+metres, x to the right and y up, and the beam the image came from. From a
+preview: `dx = (px - width/2) * hfw / width`, `dy = (height/2 - py) * hfw /
+width` (pixel rows count down, so y flips). The server turns that into the
+stage x, y and z for that beam's viewing angle and the stage tilt, rotation
+and scan rotation, so the sample slides along its own surface at the same
+height. The feature stays in focus, and at the coincidence point it stays in
+view of the other beam too. `move_stage_relative` moves the raw stage axes:
+on a tilted stage a y move there also changes the sample's height, so the
+feature goes out of focus and drifts out of the other beam, and you have no
+way to tell from the numbers where it will land. Use it only when the
+operator gives you stage coordinates.
+
+The rest of the moves, by when to use them:
+- `vertical_move`: the feature is centred in the electron image but off in
+  the ion image. Pass its offset in the ion image; it moves the stage along
+  the chamber vertical, which the electron beam doesn't see.
+- `move_to_orientation` (SEM, FIB, MILLING) and `move_to_milling_angle`:
+  change the stage's rotation and tilt.
+- `safe_move_stage_absolute`: go back to a saved position. It tilts flat
+  before a large rotation; `move_stage_absolute` moves every axis at once.
+
+After every move, take a fresh image and check where the feature landed
+before the next one.
 
 **`409 microscope_busy` is someone else working.** Its
 `detail.in_control` names who (`workflow`, `script`, or another command)

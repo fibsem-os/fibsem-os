@@ -63,6 +63,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskStatus,
     Lamella,
 )
+from fibsem.applications.autolamella.task_outputs import run_folder
 from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
@@ -201,6 +202,8 @@ class AutoLamellaTask(ABC):
         self.microscope = microscope
         self.config = config
         self.lamella = lamella
+        # This task object is one run: its folder is fixed as it starts (FIB-1275).
+        self._output_dir = run_folder(lamella, config.task_name, now())
         # Every task's reference images are acquired with its config's imaging
         # settings; they are saved under its output folder. Set here, once, for
         # the run this task object is, rather than by hand at the top of each
@@ -236,11 +239,13 @@ class AutoLamellaTask(ABC):
 
     @property
     def output_dir(self) -> str:
-        """Where this task's run writes what it makes: its alignment and
-        autofocus runs, its milling. Every save path a run hands on starts here,
-        so where a task writes is decided once rather than at each call
-        (FIB-1253). The lamella's folder, for now."""
-        return str(self.lamella.path)
+        """Where this task's run writes what it makes: its reference images, its
+        alignment and autofocus runs, its milling. Every save path a run hands on
+        starts here, so where a task writes is decided once rather than at each
+        call (FIB-1253): the run's own folder, ``<lamella>/<task name>/
+        <YYYYMMDD-HHMMSS>/`` (FIB-1275), so a re-run overwrites nothing. The
+        lamella's shared state is written to the lamella's folder instead."""
+        return self._output_dir
 
     @property
     def validate(self) -> bool:
@@ -1208,6 +1213,9 @@ class AutoLamellaTask(ABC):
         alignment_image_settings.beam_type = BeamType.ION
         alignment_image_settings.save = True
         alignment_image_settings.hfw = field_of_view
+        # Lamella state, read by later tasks (FIB-1258): in the lamella's folder
+        # and overwritten each time, not in this run's own folder (FIB-1275).
+        alignment_image_settings.path = str(self.lamella.path)
         alignment_image_settings.filename = "ref_alignment"
         alignment_image_settings.resolution = self._alignment_resolution()
         alignment_image_settings.dwell_time = 1e-6
@@ -1242,15 +1250,24 @@ class AutoLamellaTask(ABC):
 
     def _milling_result_image_file(self, config: FibsemMillingTaskConfig) -> str:
         """The FIB image a milling session left behind (the ``finished``
-        acquisition it saves in the lamella's folder, when its config
-        acquires one), relative to that folder; empty when it saved none."""
+        acquisition, when its config acquires one), relative to the lamella's
+        folder; empty when it saved none.
+
+        Looked for where the milling saved it -- its config's imaging path, the
+        run's ``Milling/<task>`` folder -- then in the lamella's folder. Only the
+        lamella's folder was searched, where the milling task never saves, so a
+        Fiducial that acquired after milling still took an extra frame to ask
+        its alignment area on."""
         imaging = getattr(getattr(config, "acquisition", None), "imaging", None)
         filename = str(getattr(imaging, "filename", "") or "")
         if filename:
-            for candidate in sorted(
-                glob.glob(os.path.join(str(self.lamella.path), f"{filename}*_ib.tif"))
-            ):
-                return os.path.relpath(candidate, self.lamella.path)
+            for folder in (getattr(imaging, "path", None), self.lamella.path):
+                if not folder:
+                    continue
+                for candidate in sorted(
+                    glob.glob(os.path.join(str(folder), f"{filename}*_ib.tif"))
+                ):
+                    return os.path.relpath(candidate, self.lamella.path)
         return ""
 
     def _validate_alignment_area(

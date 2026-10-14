@@ -51,7 +51,19 @@ def test_the_action_lives_in_the_tools_menu(main_ui):
         if a.menu() is not None and a.text() == "Tools"
     ]
     assert len(tools) == 1
-    assert main_ui.action_create_desktop_shortcut in tools[0].actions()
+    submenus = [
+        a.menu()
+        for a in tools[0].actions()
+        if a.menu() is not None and a.text() == "Create Desktop Shortcut"
+    ]
+    assert len(submenus) == 1
+    assert main_ui.action_create_desktop_shortcut in submenus[0].actions()
+
+
+def test_the_submenu_offers_every_registered_app(main_ui):
+    from fibsem.tools.apps import apps
+
+    assert set(main_ui.shortcut_actions) == set(apps())
 
 
 def test_triggering_the_action_writes_the_shortcut_to_the_chosen_directory(
@@ -89,3 +101,16 @@ def test_declining_the_overwrite_question_leaves_the_file(
     )
     main_ui.action_create_desktop_shortcut.trigger()
     assert str(desktop_shortcut.find_entry_point()) in existing.read_text()
+
+
+def test_the_fibsemos_entry_writes_a_fibsemos_shortcut(main_ui, chosen_directory):
+    from fibsem.tools import desktop_shortcut
+    from fibsem.tools.apps import FIBSEM_UI
+
+    main_ui.shortcut_actions["fibsem-ui"].trigger()
+
+    created = desktop_shortcut.shortcut_path(chosen_directory, FIBSEM_UI)
+    assert created.name.startswith("fibsemOS")
+    assert (
+        str(desktop_shortcut.find_entry_point(FIBSEM_UI.command)) in created.read_text()
+    )

@@ -193,6 +193,24 @@ def test_the_autofocus_saves_under_the_task_s_folder_and_records_where(
     assert event["position"] == pytest.approx(result.working_distance)
 
 
+def test_the_z_stack_is_saved_in_the_run_s_folder(
+    fm_microscope: FibsemMicroscope, tmp_path: Path
+) -> None:
+    """The run's own folder, not the lamella's (FIB-1275): a re-run keeps the
+    earlier stack beside its other images."""
+    lamella = _make_lamella(tmp_path, CONFIGURED_OBJECTIVE)
+    lamella.path.mkdir(parents=True, exist_ok=True)
+    task = _acquire_task(fm_microscope, lamella)
+    task.config.autofocus_settings.passes = []  # no autofocus: the stack is the point
+    task.lamella.task_state.outputs = {}
+
+    task._run()
+
+    (stack,) = lamella.task_state.outputs["fluorescence"]
+    assert Path(lamella.path, stack).parent == Path(task.output_dir)
+    assert Path(lamella.path, stack).is_file()
+
+
 def test_mill_coincident_requires_objective_position(
     fm_microscope: FibsemMicroscope, tmp_path: Path
 ) -> None:

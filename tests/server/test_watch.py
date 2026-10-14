@@ -120,14 +120,16 @@ class _Steered(watch_mod._UrllibClient):
         return super().request(method, path, json=json, timeout=timeout)
 
 
-def _watch(steps, sleeps=None):
+def _watch(steps, sleeps=None, since=None):
     """Watch the discovered server, running ``steps[n]`` before request n."""
     client_type = type("Steered", (_Steered,), {"steps": steps, "requests": 0})
     client = watch_mod.connect(client_factory=client_type)
     assert client is not None
     lines = []
     sleep_fn = sleeps.append if sleeps is not None else (lambda s: None)
-    code = watch_mod.watch(client, out=lines.append, sleep_fn=sleep_fn, poll_s=POLL_S)
+    code = watch_mod.watch(
+        client, out=lines.append, sleep_fn=sleep_fn, poll_s=POLL_S, since=since
+    )
     return code, lines
 
 
@@ -154,6 +156,70 @@ def test_seeds_at_the_tail_and_ends_with_the_run(app):
         "PROMPT question=2 type=Confirm",
         "ANSWERED question=2 by=operator response=None",
         "RUN ENDED (workflow_completed)",
+    ]
+
+
+def test_since_resumes_where_the_last_watch_left_off(app):
+    # A bounded watch returned at seq 1; what landed before the next one
+    # started is still printed, and nothing from before seq 1 is.
+    app.buffer.append("prompt_raised", {"question_id": 1, "type": "Confirm"})
+    app.buffer.append("request_decided", {"request_id": "ab12", "outcome": "approved"})
+    app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({}, since=1)
+
+    assert code == 0
+    assert lines == ["REQUEST ab12 approved", "RUN ENDED (workflow_completed)"]
+
+
+def test_an_answer_says_when_it_took_the_agent_s_suggestion(app):
+    def run():
+        app.buffer.append(
+            "prompt_answered",
+            {
+                "question_id": 3,
+                "answered_by": "operator",
+                "response": True,
+                "suggested_by": "agent",
+            },
+        )
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[0] == (
+        "ANSWERED question=3 by=operator response=True suggested_by=agent"
+    )
+
+
+def test_the_agent_s_request_is_followed_to_its_end(app):
+    def run():
+        app.buffer.append(
+            "request_decided",
+            {"request_id": "ab12", "outcome": "approved", "decided_by": "operator"},
+        )
+        app.buffer.append("request_applied", {"request_id": "ab12", "index": 0})
+        app.buffer.append(
+            "request_finished",
+            {"request_id": "ab12", "status": "failed", "applied": 1, "of": 2},
+        )
+        app.buffer.append(
+            "request_decided",
+            {"request_id": "cd34", "outcome": "rejected", "reason": "not now"},
+        )
+        app.buffer.append(
+            "request_cancelled",
+            {"request_id": "ef56", "why": "the operator stopped the agent"},
+        )
+        app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({2: run})
+
+    assert lines[:4] == [
+        "REQUEST ab12 approved",
+        "REQUEST ab12 failed (1 of 2 applied)",
+        "REQUEST cd34 rejected: not now",
+        "REQUEST ef56 cancelled: the operator stopped the agent",
     ]
 
 

@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSplashScreen,
     QSplitter,
     QStackedWidget,
     QTabWidget,
@@ -51,7 +52,10 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.ui.agent_activity import AgentActivity
-from fibsem.applications.autolamella.ui.agent_level_chip import AgentLevelChip
+from fibsem.applications.autolamella.ui.agent_level_chip import (
+    AgentLevelChip,
+    request_failure_text,
+)
 from fibsem.applications.autolamella.ui.autolamella_lamella_protocol_editor import (
     AutoLamellaProtocolEditorWidget,
 )
@@ -94,7 +98,6 @@ from fibsem.applications.autolamella.ui.workflow_preflight_dialog import (
 from fibsem.applications.autolamella.ui.workflow_timeline_widget import (
     WorkflowProgressWidget,
 )
-from fibsem.applications.autolamella.workflows.grid_gate import run_refusal
 from fibsem.applications.autolamella.workflows.tasks.grid.manager import (
     LOAD_ENTRY_NAME as GRID_LOAD_STEP,
 )
@@ -121,6 +124,7 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
 from fibsem.server.levels import AgentLevel
 from fibsem.structures import BeamType
 from fibsem.tools.app_identity import set_app_identity
+from fibsem.tools.apps import AUTOLAMELLA, App, apps
 from fibsem.ui import notification_service
 from fibsem.ui.icon import autolamella_icon, fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
@@ -445,6 +449,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
     # CoincidenceProgress from the align-loop worker, delivered on the GUI thread
     coincidence_progress = pyqtSignal(object)
+    # The agent's request changed (FIB-1283): emitted from the request's worker
+    # thread, delivered on the GUI thread.
+    agent_request_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -737,17 +744,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_show_plugins.triggered.connect(self._on_show_plugins)
         tools_menu.addAction(self.action_show_plugins)
 
-        self.action_create_desktop_shortcut = QAction(
-            "Create Desktop Shortcut...", self
-        )
-        self.action_create_desktop_shortcut.setToolTip(
-            "Place a shortcut on your desktop that launches AutoLamella from this "
-            "environment"
-        )
-        self.action_create_desktop_shortcut.triggered.connect(
-            self._on_create_desktop_shortcut
-        )
-        tools_menu.addAction(self.action_create_desktop_shortcut)
+        # One entry per app the launcher knows (fibsem.tools.apps), plugins included.
+        shortcut_menu = tools_menu.addMenu("Create Desktop Shortcut")
+        self.shortcut_actions = {}
+        for key, app in apps().items():
+            action = QAction(f"{app.name}...", self)
+            action.setToolTip(
+                f"Place a shortcut on your desktop that launches {app.name} from "
+                "this environment"
+            )
+            action.triggered.connect(
+                lambda _checked=False, app=app: self._on_create_desktop_shortcut(app)
+            )
+            shortcut_menu.addAction(action)
+            self.shortcut_actions[key] = action
+        self.action_create_desktop_shortcut = self.shortcut_actions["autolamella"]
 
         # add help menu
         help_menu = menu_bar.addMenu("Help")
@@ -1146,8 +1157,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         PluginsDialog(parent=self).exec_()
 
-    def _on_create_desktop_shortcut(self):
-        """Create a launcher shortcut for the AutoLamella UI, confirming overwrites.
+    def _on_create_desktop_shortcut(self, app: App = AUTOLAMELLA):
+        """Create a launcher shortcut for ``app``, confirming overwrites.
 
         The location is chosen by the user, defaulting to the Desktop.
         """
@@ -1166,7 +1177,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         directory = Path(chosen)
         try:
-            path = desktop_shortcut.create_desktop_shortcut(directory=directory)
+            path = desktop_shortcut.create_desktop_shortcut(
+                directory=directory, app=app
+            )
         except FileExistsError as exc:
             reply = QMessageBox.question(
                 self,
@@ -1179,7 +1192,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 return
             try:
                 path = desktop_shortcut.create_desktop_shortcut(
-                    overwrite=True, directory=directory
+                    overwrite=True, directory=directory, app=app
                 )
             except Exception as exc2:
                 self._show_shortcut_error(exc2)
@@ -1574,7 +1587,15 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.agent_chip.level_chosen.connect(self._on_agent_level_chosen)
         self.agent_chip.connect_clicked.connect(self._on_connect_agent_dialog)
         self.agent_chip.stop_clicked.connect(self._on_stop_agent)
+        self.agent_chip.approve_clicked.connect(self._on_approve_agent_request)
+        self.agent_chip.reject_clicked.connect(self._on_reject_agent_request)
         self.status_bar.add_action(self.agent_chip)
+        # The agent's requests (FIB-1283): the store being watched, and the
+        # requests whose outcome the status bar has already said.
+        self._agent_requests = None
+        self._agent_requests_unsubscribe = None
+        self._agent_requests_reported: set = set()
+        self.agent_request_changed.connect(self._refresh_agent_chip)
         # What the agent is doing on the microscope, on the line (FIB-1375).
         self.agent_activity = AgentActivity(
             self.status_bar,
@@ -1743,10 +1764,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Why these lamellae cannot run now, or "": a lamella linked to a grid
         that is not on the stage. Reads the inventory first; see `grid_gate`."""
         ui = self.autolamella_ui
-        stage = getattr(getattr(ui, "microscope", None), "sample_handling", None)
-        if ui is None or ui.experiment is None or stage is None:
+        if ui is None:
             return ""
-        return run_refusal(ui.experiment, stage, lamellae)
+        return ui.lamella_run_refusal(lamellae)
 
     def _grid_workflow_active(self) -> bool:
         """Whether the Workflow tab's Grids view is the one showing: Run acts on it."""
@@ -3725,12 +3745,89 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         """Show the chip while the App Server runs, at the level its auth holds."""
         host = self._running_app_server()
         if host is None:
+            self._watch_agent_requests(None)
             self.agent_chip.hide()
             return
         level = host.auth.level or AgentLevel.WATCH
         if self.agent_chip.level is not level:
             self.agent_chip.set_level(level)
+        store = getattr(host, "requests", None)
+        self._watch_agent_requests(store)
+        self._show_agent_request(store)
         self.agent_chip.show()
+
+    def _watch_agent_requests(self, store) -> None:
+        """Follow *store*'s changes, so the chip moves as a request is filed and
+        applied rather than on the next poll."""
+        if store is self._agent_requests:
+            return
+        if self._agent_requests_unsubscribe is not None:
+            self._agent_requests_unsubscribe()
+            self._agent_requests_unsubscribe = None
+        self._agent_requests = store
+        if store is None:
+            self.agent_chip.set_request(None)
+            return
+
+        def changed(_request, signal=self.agent_request_changed):
+            try:
+                signal.emit()
+            except RuntimeError:  # the window has gone
+                pass
+
+        self._agent_requests_unsubscribe = store.subscribe(changed)
+
+    def _show_agent_request(self, store) -> None:
+        """The chip shows a request waiting or being applied; a refused one leaves
+        its failure on the status bar, once."""
+        current = None
+        for request in store.recent() if store is not None else []:
+            if request.status in ("pending", "applying"):
+                current = request
+                break
+            if (
+                request.status == "failed"
+                and request.id not in self._agent_requests_reported
+            ):
+                self._agent_requests_reported.add(request.id)
+                self.status_bar.show_failure(
+                    "Agent's request", request_failure_text(request.to_dict())
+                )
+        shown = current.to_dict() if current is not None else None
+        if shown != self.agent_chip.request:
+            self.agent_chip.set_request(shown)
+
+    def _on_approve_agent_request(self, request_id: str) -> None:
+        """GUI thread, from the chip: run the request. Its actions run on their
+        own worker thread, so this returns at once."""
+        self._decide_agent_request(request_id, approve=True)
+
+    def _on_reject_agent_request(self, request_id: str, reason: str) -> None:
+        """GUI thread, from the chip: run none of it; the agent gets the reason."""
+        self._decide_agent_request(request_id, approve=False, reason=reason)
+
+    def _decide_agent_request(
+        self, request_id: str, approve: bool, reason: str = ""
+    ) -> None:
+        from fibsem.server.requests import RequestRefused
+
+        host = self._running_app_server()
+        store = getattr(host, "requests", None) if host is not None else None
+        if store is None:
+            return
+        try:
+            if approve:
+                store.approve(request_id)
+            else:
+                store.reject(request_id, reason=reason)
+        except RequestRefused as refused:
+            self.status_bar.show_failure("Agent's request", str(refused))
+        logging.info(
+            "Agent's request %s %s by the operator",
+            request_id,
+            "approved" if approve else "rejected",
+        )
+        self._refresh_agent_chip()
 
     def _on_agent_level_chosen(self, level: AgentLevel) -> None:
         """GUI thread, from the chip's menu: set the agent's level, effective for
@@ -4339,8 +4436,12 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_ui(argv: Optional[List[str]] = None):
-    """Run the AutoLamella embedded example."""
+def run_ui(argv: Optional[List[str]] = None, splash: Optional[QSplashScreen] = None):
+    """Run the AutoLamella UI.
+
+    ``splash`` is the launcher's splash screen (fibsem.tools.launcher), closed once the
+    main window is up.
+    """
     import faulthandler
     import signal
 
@@ -4362,9 +4463,9 @@ def run_ui(argv: Optional[List[str]] = None):
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
     init_sentry()  # inert unless crash reporting is enabled in preferences
-    set_app_identity("AutoLamella", windows_app_id="fibsemOS.AutoLamella")
+    set_app_identity(AUTOLAMELLA.name, windows_app_id=AUTOLAMELLA.app_id)
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("AutoLamella")
+    app.setApplicationName(AUTOLAMELLA.name)
     app.setStyle("Fusion")
     app.setWindowIcon(autolamella_icon())
     # Cyclic garbage must only ever be collected on this thread: worker-thread GC
@@ -4373,6 +4474,8 @@ def run_ui(argv: Optional[List[str]] = None):
     gc_collector = install_main_thread_gc(parent=app)  # noqa: F841 — kept alive for app lifetime
     window = AutoLamellaSingleWindowUI()
     window.show()
+    if splash is not None:
+        splash.finish(window)
     _start_update_check()
     if args.quickstart or args.quickload:
         # Once the event loop is running, not inline here: connecting blocks for

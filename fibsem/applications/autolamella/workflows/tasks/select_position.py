@@ -408,7 +408,8 @@ class SelectMillingPositionTask(AutoLamellaTask):
         from fibsem.alignment.plotting import save_coincidence_diagnostics
         from fibsem.transformations import get_stage_tilt_from_milling_angle
 
-        diagnostics_path = os.path.join(self.lamella.path, ALIGNMENT_SUBDIR)
+        # the run's, beside its other alignments (FIB-1275)
+        diagnostics_path = os.path.join(self.output_dir, ALIGNMENT_SUBDIR)
 
         def on_progress(progress) -> None:
             self.update_status_ui(progress.describe())
