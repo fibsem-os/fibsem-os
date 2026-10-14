@@ -18,7 +18,7 @@ Rules the taps live by:
   the images themselves are fetched through the preview endpoints on demand.
   The acquisition signals fire only from the streaming live-view worker. A
   one-shot acquisition reaches the stream as ``image_acquired`` (on
-  ``record_signal``) when it goes through ``acquire.new_image``, as workflow
+  ``record_signal``) when it goes through ``acquire.acquire_image``, as workflow
   reference images do; a direct ``microscope.acquire_image`` call still does not.
 
 Sequence numbers make polling honest: a client asks for everything after seq

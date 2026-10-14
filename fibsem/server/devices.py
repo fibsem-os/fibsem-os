@@ -13,7 +13,9 @@ The far side of a remote device (the METEOR PC, say). It wraps any
                                                TIFF for a beam's FibsemImage,
                                                or np.save bytes for an array, with a
                                                frame's metadata as JSON in the
-                                               X-Frame-Metadata header
+                                               X-Frame-Metadata header; with
+                                               "answer": "preview", any image as
+                                               {"result": {summary, path, preview}}
     POST /devices/{device}/queries/{query}     {"kwargs": {...}} -> {"result": ...},
                                                a read that moves nothing
     WS   /events                               {"device", "parameter", "kind", "value"},
@@ -96,7 +98,13 @@ from fibsem.devices.wire import (
     from_wire,
     to_wire,
 )
-from fibsem.server.images import TIFF_MEDIA_TYPE, preview_payload, tiff_bytes
+from fibsem.server.images import (
+    TIFF_MEDIA_TYPE,
+    image_answer,
+    is_image_list,
+    is_image_result,
+    tiff_bytes,
+)
 from fibsem.structures import FibsemImage
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
@@ -382,13 +390,17 @@ def build_device_router(
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
         result = run(lambda: method(**kwargs), what)
         headers = {}
-        if isinstance(result, FibsemImage):  # a beam's image: TIFF, or a preview
-            if on_image is not None:
-                on_image(result)
-            # "answer": "preview" asks for an agent-sized JPEG with its scale,
-            # as JSON, instead of the full TIFF.
-            if body.get("answer") == "preview":
-                return preview_payload(result)
+        if on_image is not None:
+            for image in _images_in(result):
+                on_image(image)
+        # "answer": "preview" asks for what an agent reads: any image as a
+        # summary, its saved path and a small JPEG (image_answer). Otherwise the
+        # data itself, for programs.
+        if (
+            body.get("answer") == "preview" and is_image_result(result)
+        ) or is_image_list(result):
+            return {"result": image_answer(result)}
+        if isinstance(result, FibsemImage):  # a beam's image: TIFF
             return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
         if (
             isinstance(result, list)
@@ -422,6 +434,15 @@ def build_device_router(
         return {"result": jsonable_encoder(to_wire(result))}
 
     return router
+
+
+def _images_in(result: Any) -> List[FibsemImage]:
+    """Every FibsemImage a command returned: one, or the ones in its lists."""
+    if isinstance(result, FibsemImage):
+        return [result]
+    if isinstance(result, (list, tuple)):
+        return [image for item in result for image in _images_in(item)]
+    return []
 
 
 def build_device_app(devices: Iterable[Device]) -> FastAPI:

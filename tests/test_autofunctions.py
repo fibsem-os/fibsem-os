@@ -532,9 +532,11 @@ def test_auto_charge_neutralisation():
     image_settings = MagicMock(spec=ImageSettings)
     image_settings.hfw = 150e-6
 
-    with patch("fibsem.acquire.new_image", return_value=make_image()) as mock_new_image:
+    with patch(
+        "fibsem.acquire.acquire_image", return_value=make_image()
+    ) as mock_acquire_image:
         auto_charge_neutralisation(m, image_settings, n_iterations=3)
-        assert mock_new_image.call_count == 4  # 3 discharge + 1 final
+        assert mock_acquire_image.call_count == 4  # 3 discharge + 1 final
 
 
 # ── run_auto_focus: skip-don't-fake on unsupported backends (FIB-508) ─────────

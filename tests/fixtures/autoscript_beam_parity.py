@@ -60,6 +60,8 @@ def routed(plasma):
     """The same microscope, its beam keys routed as connect routes them."""
     microscope = make(plasma)
     microscope._build_beams()
+    # As connect does next: the microscope images through its imaging service.
+    microscope._build_imaging()
     return microscope
 
 
