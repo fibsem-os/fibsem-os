@@ -946,7 +946,7 @@ class StageMovement(Service):
             dx=dx,
             dy=dy,
             scan_rotation=scan_rotation,
-            fib_column_tilt=self.parent.system.ion.column_tilt,
+            column_tilt=np.deg2rad(self.parent.system.ion.column_tilt),
             stage_tilt=stage_tilt,
             turned_over=self.stage.turned_over(stage_tilt),
             relaxation=relaxation,

@@ -195,7 +195,7 @@ def test_vertical_move_goes_straight_up_as_today(stage):
             dx=0.0,
             dy=1e-6,
             scan_rotation=0.0,
-            fib_column_tilt=geometry.fib_column_tilt,
+            column_tilt=column,
             stage_tilt=t,
             turned_over=turned_over,
         )

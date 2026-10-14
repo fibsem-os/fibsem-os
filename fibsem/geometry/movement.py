@@ -217,7 +217,7 @@ def vertical_move_delta(
     dx: float,
     dy: float,
     scan_rotation: float,
-    fib_column_tilt: float,
+    column_tilt: float,
     stage_tilt: float,
     turned_over: bool,
     relaxation: float = 1.0,
@@ -239,7 +239,7 @@ def vertical_move_delta(
         dx: offset along the displayed FIB image x-axis, in metres; moved as is.
         dy: offset along the displayed FIB image y-axis, in metres.
         scan_rotation: the ion beam's scan rotation, in radians.
-        fib_column_tilt: the ion column tilt, in degrees.
+        column_tilt: the ion column tilt, in radians.
         stage_tilt: stage tilt, in radians.
         turned_over: whether the stage has the sample turned over at this tilt.
         relaxation: under-relaxation of the correction; 1.0 is geometrically exact.
@@ -252,7 +252,7 @@ def vertical_move_delta(
     if turned_over:
         dy *= -1.0
 
-    z_move = dy / np.sin(np.deg2rad(fib_column_tilt)) * relaxation
+    z_move = dy / np.sin(column_tilt) * relaxation
 
     return FibsemStagePosition(
         x=dx,
