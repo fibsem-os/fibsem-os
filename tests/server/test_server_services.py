@@ -153,6 +153,29 @@ def test_the_orientation_reads_are_queries(read_client, microscope):
     )
 
 
+def test_the_device_reads_are_queries(read_client, microscope):
+    sem = microscope.get_orientation("SEM")
+    at_sem = FibsemStagePosition(x=0.0, y=0.0, z=0.0, r=sem.r, t=sem.t)
+    position = {"stage_position": to_wire(at_sem)}
+
+    def ask(query, **kwargs):
+        resp = read_client.post(
+            f"/services/stage_movement/queries/{query}", json={"kwargs": kwargs}
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["result"]
+
+    device = microscope.get_current_device(at_sem)
+    assert ask("current_device", **position) == device
+    assert ask("is_at_device", device=device, **position) is True
+    state = microscope.get_device_imaging_state(device, at_sem)
+    assert ask("device_imaging_state", device=device, **position) == to_wire(state)
+    target = microscope.get_target_position(at_sem, target_orientation="FIB")
+    answer = ask("target_position", target_orientation="FIB", **position)
+    assert answer["x"] == pytest.approx(target.x)
+    assert answer["r"] == pytest.approx(target.r)
+
+
 def test_the_milling_angle_is_a_parameter_that_moves_milling(armed_client, microscope):
     before = microscope.system.stage.milling_angle
     try:

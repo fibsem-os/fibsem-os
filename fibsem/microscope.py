@@ -31,16 +31,12 @@ from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.geometry.movement import image_to_stage_delta
 from fibsem.geometry.orientations import (
-    classify_orientation,
     compucentric_rotation,
-    milling_angle_from_tilt,
-    repose,
 )
 from fibsem.imaging.spot import SpotBurnProgress
 from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.milling.progress import MillingProgress
 from fibsem.structures import (
-    BEAMS_STAGE_DEVICE,
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
     STAGE_FRAME_FIBSEM,
@@ -72,7 +68,6 @@ from fibsem.structures import (
     SystemSettings,
 )
 from fibsem.transformations import (
-    get_stage_tilt_from_milling_angle,
     inverse_view_corrected_dy,
 )
 
@@ -84,13 +79,6 @@ if TYPE_CHECKING:
     from fibsem.services.sample_handling import SampleHandling
     from fibsem.services.spot_burn import SpotBurn
     from fibsem.services.stage_movement import StageMovement
-
-
-# The device the orientation transform is defined at. `_get_compucentric_rotation_position`
-# is a half turn about a chamber-fixed centre, and the beams are the only place it has
-# ever been applied on any instrument -- so `get_target_position` carries a position
-# into this device's frame before re-posing it, and back out afterwards.
-ROTATION_FRAME_DEVICE = "FIBSEM"
 
 
 # The beam parameters a wrapper may ask for without a beam type; any other needs one.
@@ -114,20 +102,6 @@ def _plain_value(value: Any) -> Any:
 def _moves(translation: FibsemStagePosition) -> bool:
     """Whether a relative move moves anything: an axis set and non-zero."""
     return any(getattr(translation, axis) for axis in DEVICE_AXES)
-
-
-def _distance_from_origin(
-    origin: FibsemStagePosition, position: FibsemStagePosition
-) -> float:
-    """How far `position` is from a device's `origin`, over the axes the origin sets."""
-    return (
-        sum(
-            (getattr(position, axis) - getattr(origin, axis)) ** 2
-            for axis in DEVICE_AXES
-            if getattr(origin, axis) is not None and getattr(position, axis) is not None
-        )
-        ** 0.5
-    )
 
 
 class RequiredDeviceUnavailable(RuntimeError):
@@ -2203,165 +2177,6 @@ class FibsemMicroscope(ABC):
             return position
         return compucentric_rotation(position, self._compucentric_centre())
 
-    def _apply_device_translation(
-        self, stage_position: FibsemStagePosition, source: str, target: str
-    ) -> FibsemStagePosition:
-        """`stage_position`, moved from one device to another. Mutates and returns it."""
-        translation = self._device_translation(source, target)
-        for axis in DEVICE_AXES:
-            delta = getattr(translation, axis)
-            if not delta:
-                continue
-            value = getattr(stage_position, axis)
-            if value is None:
-                raise ValueError(
-                    f"Cannot convert between devices {source} and {target}: the "
-                    f"position has no {axis}, and the two differ along it."
-                )
-            setattr(stage_position, axis, value + delta)
-        return stage_position
-
-    def get_target_position(
-        self,
-        stage_position: FibsemStagePosition,
-        target_orientation: Optional[str] = None,
-        target_device: Optional[str] = None,
-    ) -> FibsemStagePosition:
-        """Convert a stage position across the orientation axis, the device axis, or both.
-
-        Where the objective is offset the two are independent -- the device is a place
-        the stage travels to, the orientation is the pose it is held in once there --
-        so either may be asked for alone:
-
-            (p, "FIB")                        re-pose, stay put
-            (p, target_device="FM")           relocate, keep the pose
-            (p, "MILLING", target_device="FM") both -- this is FM-MILLING, which is
-                                              a pair rather than a fifth orientation
-
-        **Asking for an orientation snaps the pose.** An orientation *is* a canonical
-        r and t, so a position a degree or two off nominal is written to nominal
-        rather than carried across. That is right for a conversion and wrong for a
-        relocation, which is why the second form exists: the traverse must not discard
-        a milling angle somebody dialled in on the way to the FM.
-
-        Note `target_orientation="FM"` means something on a compustage, where the FM
-        really is an orientation -- a flip to `t = -180`. On an offset mount it is
-        refused: the FM is a device there, and `orientations["FM"]` is a copy of the
-        FIB entry carrying no positional term.
-        """
-
-        currrent_orientation = self.get_stage_orientation(stage_position)
-        logging.debug(
-            f"Getting target position for {target_orientation} from {currrent_orientation}"
-        )
-
-        if target_orientation is None and target_device is None:
-            return stage_position
-
-        if currrent_orientation == target_orientation and target_device is None:
-            return stage_position
-
-        if currrent_orientation == "NONE":
-            raise ValueError("Unknown orientation. Cannot convert stage position.")
-
-        # The FM is an orientation only where the objective is under the grid. On an
-        # offset mount it is a *place*, reached by translating rather than re-posing,
-        # and `orientations["FM"]` there is a copy of the FIB entry carrying no
-        # positional term -- so converting into it would return a position under the
-        # beam wearing the FM's rotation and tilt. Ask for it as a device instead:
-        # `target_device="FM"`, with whichever orientation the sample should be in.
-        if "FM" in (currrent_orientation, target_orientation) and (
-            not self._fm_is_a_pose()
-        ):
-            raise ValueError(
-                "Cannot move to the FM position: this stage reaches the FM by "
-                "travelling, not by re-posing."
-            )
-
-        # Which device the stage is at, read *before* either leg runs. The orientation
-        # leg below can move x and y most of the way across the grid, so asking
-        # afterwards would sometimes name a different device, or none.
-        source_device = self.get_current_device(stage_position)
-
-        # Where a pose puts the stage at a device, asking for the pose is asking for
-        # the device: on a compustage, MILLING from the FM is back at the beams, and
-        # FM from the beams is at the FM, offset by its origin.
-        if target_device is None and target_orientation is not None:
-            target_device = self._device_at_pose(target_orientation)
-
-        if target_device is not None and source_device is None:
-            raise ValueError(
-                f"The stage is not at any configured device "
-                f"({sorted(self.system.stage.devices)}), so there is nothing to "
-                f"convert from. Position: {stage_position}."
-            )
-
-        stage_position = deepcopy(stage_position)
-        orientation = (
-            self.get_orientation(target_orientation)
-            if target_orientation is not None
-            else None
-        )
-
-        # The device legs **bracket** the orientation leg rather than following it,
-        # so that the re-pose always happens at the beams. Written out, that is the
-        # order an operator would use:
-        #
-        #   leaving the beams:  re-pose first, then traverse to the device
-        #   returning:          traverse back to the beams first, then re-pose
-        #
-        # Both come out of one expression, `f(p) = rotate(p - source) + target`.
-        # Leaving, `source` is zero and the rotation happens before the traverse;
-        # returning, `target` is zero and the traverse happens before the rotation.
-        #
-        # **The stage must not be re-posed while it is parked at the FM.** The
-        # objective is inserted over the sample there, and a half turn swings the
-        # sample about a centre ~48.8 mm away. Bracketing is what keeps the rotation
-        # out of that pose; the arrangement that re-poses wherever the stage happens
-        # to be would compute a target that commands exactly that move.
-        #
-        # It is also the only arrangement that round-trips, which is how the wrong one
-        # was caught rather than reasoned about: re-posing at the FM and translating
-        # afterwards sends `(SEM, beams) -> (FIB, FM) -> (SEM, beams)` back to
-        # -97.6 mm instead of 0. `rotate` is an involution, so `f` inverts by swapping
-        # source and target -- which is exactly what the reverse call does.
-        #
-        # This computes a target; it does not order the moves. Nothing yet stops a
-        # caller re-posing while at the FM -- see FIB-841, a prerequisite for opening
-        # the connection gate.
-        #
-        # A compustage brackets with a zero translation, so it takes this path and
-        # gets its old answer untouched.
-        if source_device is not None:
-            stage_position = self._apply_device_translation(
-                stage_position, source_device, ROTATION_FRAME_DEVICE
-            )
-
-        # The re-pose, at the beams: r and t become the target's, and x and y are
-        # carried round the compucentric centre only when the rotation between the two
-        # *poses* is a half turn (fibsem.geometry.orientations.repose says why).
-        # Relocating alone changes no rotation, so with no pose asked for the bracket
-        # collapses to a plain translation from one device to the other.
-        if orientation is not None:
-            stage_position = repose(
-                stage_position,
-                current=self.get_orientation(currrent_orientation),
-                target=orientation,
-                rotation_centre=self._compucentric_centre(),
-                has_rotation=bool(self.system.stage.rotation),
-            )
-
-        # ... and back out, to whichever device was asked for. `target_device` of None
-        # means the one it started at, so an orientation-only conversion at the FM is
-        # still re-posed about the right centre rather than about wherever it is
-        # parked.
-        if source_device is not None:
-            stage_position = self._apply_device_translation(
-                stage_position, ROTATION_FRAME_DEVICE, target_device or source_device
-            )
-
-        return stage_position
-
     # The orientation reads are the stage movement service's
     # (`StageMovement.orientation`, `stage_orientation`, `current_milling_angle`, ...);
     # these keep their names and signatures. Without a stage there is no service, no
@@ -2761,197 +2576,67 @@ class FibsemMicroscope(ABC):
         """
         return self._movement_service().fm_stable_move(dx=dx, dy=dy)
 
+    # The device reads are the stage movement service's (`StageMovement.current_device`,
+    # `is_at_device`, `target_position`, ...); these keep their names and signatures.
+
     def _get_device(self, device: str) -> StageDeviceSettings:
-        """The configuration for `device`, or a refusal naming the ones there are."""
-        try:
-            return self.system.stage.devices[device]
-        except KeyError:
-            raise ValueError(
-                f"Microscope {device} not supported. "
-                f"Configured devices: {sorted(self.system.stage.devices)}."
-            ) from None
+        """The configuration for `device`. See `StageMovement._device`."""
+        return self._movement_service()._device(device)
 
     def get_device_origin(self, device: str) -> FibsemStagePosition:
-        """Where the stage travels for `device` to see the sample.
-
-        The device's *origin*, not a position expressed at it -- for that, ask
-        `get_target_position(position, target_device=...)`.
-
-        Partial: an offset fluorescence microscope is an x location and leaves y, z, r
-        and t free, so the axes it does not constrain come back `None`.
-        """
-        return deepcopy(self._get_device(device).origin)
+        """Where the stage travels for `device` to see the sample. See
+        `StageMovement.device_origin`."""
+        return self._movement_service().device_origin(device)
 
     def is_at_device(
         self, device: str, stage_position: Optional[FibsemStagePosition] = None
     ) -> bool:
-        """Is the stage at `device`?
-
-        The question nothing could ask before. `get_stage_orientation` cannot answer
-        it on an offset mount -- the FM orientation there is byte-identical to the FIB
-        one -- because it is not a question about orientation at all.
-
-        Only meaningful for a device the stage goes to. A device whose entry gives no
-        origin has no stage position to be at, and is refused: `False` would read as
-        "not there yet".
-
-        Where every device shares one origin -- the objective under the grid, which
-        is also what a configuration that declares no devices describes -- there is
-        nowhere else to travel to, and the answer is `True` wherever the stage is.
-        A device's `range` exists to tell places apart; with one place it tells
-        nothing, and reading it literally refused a lamella 25 mm along an Arctis grid
-        as "needs travel".
-
-        Each device has its own range, and the beams' is unbounded, so the stage can be
-        within more than one; it is at the one `get_current_device` picks, the nearest
-        origin. Within the beams' range but nearer the FM's origin is at the FM. Where
-        the stage device says a pose puts it at a device (`Stage.device_at_pose`), the
-        pose decides and no range is checked.
-        """
-        target = self._get_device(device)
-        if all(getattr(target.origin, axis) is None for axis in DEVICE_AXES):
-            raise ValueError(
-                f"The {device} device has no stage position (its entry gives no "
-                "origin), so the stage cannot be at it."
-            )
-        if self._is_the_only_place(target):
-            return True
-        if stage_position is None:
-            stage_position = self.get_stage_position()
-        # Where the pose says, the range does not: a compustage's FM reaches the whole
-        # grid by moving the stage, so its stage limits bound it, not a window.
-        by_pose = self._device_at_position_pose(stage_position)
-        if by_pose is not None:
-            return by_pose == device
-        if not target.contains(stage_position):
-            return False
-        return self.get_current_device(stage_position) == device
-
-    def _is_the_only_place(self, target: StageDeviceSettings) -> bool:
-        """Does every device sit at *target*'s origin, so there is nowhere to travel?"""
-        if all(getattr(target.origin, axis) is None for axis in DEVICE_AXES):
-            return False
-        origin = self._resolved_origin(target)
-        return all(
-            getattr(self._resolved_origin(device), axis) == getattr(origin, axis)
-            for device in self.system.stage.devices.values()
-            for axis in DEVICE_AXES
-        )
-
-    def _resolved_origin(self, device: StageDeviceSettings) -> FibsemStagePosition:
-        """*device*'s origin, with each axis it leaves unset taken from the beams'.
-
-        An FM declared at `{x: 48.8 mm}` is at the beams' y, so a y offset on another
-        device is travelled along from it rather than skipped.
-        """
-        beams = self.system.stage.devices.get(BEAMS_STAGE_DEVICE)
-        origin = deepcopy(device.origin)
-        if beams is None:
-            return origin
-        for axis in DEVICE_AXES:
-            if getattr(origin, axis) is None:
-                setattr(origin, axis, getattr(beams.origin, axis))
-        return origin
+        """Is the stage at `device`? See `StageMovement.is_at_device`."""
+        return self._movement_service().is_at_device(device, stage_position)
 
     def get_current_device(
         self, stage_position: Optional[FibsemStagePosition] = None
     ) -> Optional[str]:
-        """Which device the stage is at, or `None` if it is at no configured device.
-
-        Every device has its own range and the beams' is unbounded, so more than one
-        can contain a position: an offset FM's window lies inside the beams'. Then the
-        device with the **nearest origin** wins -- the stage at the FM is nearer the
-        FM's origin than the beams' -- and a tie goes to the first configured. `None`
-        means no device contains the position, which with the beams unbounded only a
-        position missing an axis an origin sets can be.
-
-        A stage that reaches a device by re-posing rather than travelling says so
-        (`Stage.device_at_pose`), and then the pose decides: a compustage is at the FM
-        in the FM pose and at the beams in any other, wherever x and y are.
-        """
-        if stage_position is None:
-            stage_position = self.get_stage_position()
-
-        by_pose = self._device_at_position_pose(stage_position)
-        if by_pose is not None:
-            return by_pose
-
-        containing = [
-            name
-            for name, device in self.system.stage.devices.items()
-            if self._is_the_only_place(device) or device.contains(stage_position)
-        ]
-        if not containing:
-            return None
-        return min(
-            containing,
-            key=lambda name: _distance_from_origin(
-                self._resolved_origin(self.system.stage.devices[name]), stage_position
-            ),
-        )
-
-    def _device_at_position_pose(
-        self, stage_position: FibsemStagePosition
-    ) -> Optional[str]:
-        """`_device_at_pose` for the pose a position is in. A partial position (no r
-        or t) has no pose to ask about."""
-        if stage_position.r is None or stage_position.t is None:
-            return None
-        return self._device_at_pose(self.get_stage_orientation(stage_position))
-
-    def _device_at_pose(self, orientation: str) -> Optional[str]:
-        """The configured device the stage device says a pose puts it at, or None
-        when its position decides (`Stage.device_at_pose`)."""
-        if self.stage_device is None:
-            return None
-        device = self.stage_device.device_at_pose(orientation)
-        return device if device in self.system.stage.devices else None
+        """Which device the stage is at, or None. See `StageMovement.current_device`."""
+        return self._movement_service().current_device(stage_position)
 
     def get_device_imaging_state(
         self, device: str, stage_position: Optional[FibsemStagePosition] = None
     ) -> DeviceImagingState:
-        """Can `device` see the sample from where the stage is -- and if not, why not.
+        """Can `device` see the sample from where the stage is, and if not, why not.
+        See `StageMovement.device_imaging_state`."""
+        return self._movement_service().device_imaging_state(device, stage_position)
 
-        One question, answered the same way on both mountings, with the mounting
-        expressed entirely in configuration (FIB-839). Two terms:
+    def _device_translation(self, source: str, target: str) -> FibsemStagePosition:
+        """The relative stage move from one device to another. See
+        `StageMovement._device_translation`."""
+        return self._movement_service()._device_translation(source, target)
 
-        * **place** -- `is_at_device`, against the device's declared origin
-        * **pose** -- `get_stage_orientation`, against the device's declared
-          `available_orientations`; an empty list constrains nothing and the term
-          is vacuously true
-
-        Each mounting makes a *different* term trivially true. A compustage FM shares
-        the beams' origin, so the place carries nothing and the pose carries it all;
-        an offset FM images from the pose the sample was carried out in, so the pose
-        carries nothing and the place carries it all. Which is why the same
-        conjunction discriminates on both -- and why the failing term names the
-        remedy: a wrong place means travel, a wrong pose means re-pose.
-
-        Callers act on the value by policy, not uniformly -- see
-        `DeviceImagingState`. Pass `stage_position` to ask about a stored pose rather
-        than the current one; both workflow tasks do.
-        """
-        # The fluorescence microscope is the one device whose instrument can be
-        # absent -- the beams always exist, and there is no third device yet. `fm` is
-        # an object or None (a present-but-faulted state is not modelled; noted on
-        # FIB-839), so this is the whole of the "no device" test.
-        if device == "FM" and self.fm is None:
-            return DeviceImagingState.NO_DEVICE
-
-        at_device = self.is_at_device(device, stage_position)
-        orientations = self._get_device(device).available_orientations
-        in_orientation = (
-            not orientations
-            or self.get_stage_orientation(stage_position) in orientations
+    def get_target_position(
+        self,
+        stage_position: FibsemStagePosition,
+        target_orientation: Optional[str] = None,
+        target_device: Optional[str] = None,
+    ) -> FibsemStagePosition:
+        """A stage position converted across the orientation axis, the device axis, or
+        both. See `StageMovement.target_position`."""
+        return self._movement_service().target_position(
+            stage_position,
+            target_orientation=target_orientation,
+            target_device=target_device,
         )
 
-        if at_device and in_orientation:
-            return DeviceImagingState.READY
-        if in_orientation:
-            return DeviceImagingState.NEEDS_TRAVEL
-        if at_device:
-            return DeviceImagingState.NEEDS_REPOSE
-        return DeviceImagingState.NEEDS_REPOSE_THEN_TRAVEL
+    def to_device(
+        self,
+        stage_position: FibsemStagePosition,
+        device: str,
+        orientation: Optional[str] = None,
+    ) -> FibsemStagePosition:
+        """*stage_position* as `device` sees it: where `move_to_device` would arrive.
+        See `StageMovement.to_device`."""
+        return self._movement_service().to_device(
+            stage_position, device, orientation=orientation
+        )
 
     def describe_device_imaging_state(
         self,
@@ -3036,80 +2721,6 @@ class FibsemMicroscope(ABC):
                 "mount (METEOR, iFLM) must declare where it is -- see "
                 "sim-iflm-configuration.yaml."
             )
-
-    def _device_translation(self, source: str, target: str) -> FibsemStagePosition:
-        """The relative stage move from one device to another.
-
-        A difference of two configured places rather than a constant, so the traverse
-        and the "am I already there" windows can no longer drift apart. Relative
-        rather than absolute on purpose: the devices constrain x only, and a relative
-        move carries y, z, r and t across unchanged.
-
-        The same where the FM is a pose (a compustage): the stage turns the grid over
-        to face the objective, and the FM's origin is the offset between the beams'
-        coincidence point and the objective's centre, in stage coordinates at the FM
-        pose. Zero unless one is configured.
-        """
-        source_origin = self._resolved_origin(self._get_device(source))
-        target_origin = self._resolved_origin(self._get_device(target))
-
-        translation = FibsemStagePosition()
-        for axis in DEVICE_AXES:
-            start, end = getattr(source_origin, axis), getattr(target_origin, axis)
-            if start is not None and end is not None:
-                setattr(translation, axis, end - start)
-        return translation
-
-    def _arrival_orientation(
-        self,
-        device: str,
-        stage_position: FibsemStagePosition,
-        orientation: Optional[str] = None,
-    ) -> Optional[str]:
-        """The orientation a position has to be re-posed into for `device`, or None.
-
-        One rule, shared by the move (`move_to_device`) and the conversion
-        (`to_device`) so the stage arrives where the conversion said it would. An
-        explicit ask is honoured as asked. Otherwise the pose is kept whenever the
-        device can image from it -- a traverse must not discard a tilt somebody
-        dialled in -- and the device's first declared acquisition orientation stands
-        in when it cannot. None means "keep the pose".
-        """
-        if orientation is not None:
-            return orientation
-        allowed = self._get_device(device).available_orientations
-        if allowed and self.get_stage_orientation(stage_position) not in allowed:
-            return allowed[0]
-        return None
-
-    def to_device(
-        self,
-        stage_position: FibsemStagePosition,
-        device: str,
-        orientation: Optional[str] = None,
-    ) -> FibsemStagePosition:
-        """*stage_position* as `device` sees it: where `move_to_device` would arrive.
-
-        The one spelling of "this piece of sample, at that instrument" -- a lamella's
-        fluorescence pose from its milling pose, a grid slot on the FM canvas, a
-        milling pose from a target found in fluorescence. The same on both mountings:
-        a compustage flips and travels by its FM origin (zero unless configured), an
-        offset mount gets the traverse.
-
-        `orientation` names the pose to arrive in; omitted, `_arrival_orientation`
-        decides -- kept if the device images from it, else the first it declares.
-
-        Raises:
-            ValueError: from `get_target_position` -- a position in no supported
-                orientation (`"NONE"`), or at no configured device, has no conversion.
-        """
-        return self.get_target_position(
-            deepcopy(stage_position),
-            target_orientation=self._arrival_orientation(
-                device, stage_position, orientation
-            ),
-            target_device=device,
-        )
 
     def move_to_device(self, device: str, orientation: Optional[str] = None) -> None:
         """Travel to `device`, re-posing on the way when the pose has to change.
