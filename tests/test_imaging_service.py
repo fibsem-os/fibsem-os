@@ -216,8 +216,8 @@ def test_the_microscope_images_through_the_service(microscope, monkeypatch):
     assert calls == [(BeamType.ELECTRON, None)]
 
 
-def test_new_image_saves_and_records(microscope, tmp_path):
-    """FIB-1261: acquire.new_image moved onto the service."""
+def test_acquire_image_saves_and_records(microscope, tmp_path):
+    """FIB-1261: acquire.py's image (new_image, now acquire_image) moved onto the service."""
     from fibsem.structures import ImageSettings
 
     recorded = []
@@ -233,7 +233,7 @@ def test_new_image_saves_and_records(microscope, tmp_path):
         path=str(tmp_path),
         filename="trench",
     )
-    image = microscope.imaging.new_image(settings)
+    image = microscope.imaging.acquire_image(settings)
     assert image.filepath == str(tmp_path / "trench_ib.tif")
     assert os.path.exists(image.filepath)
     kind, data = recorded[-1]

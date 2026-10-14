@@ -16,18 +16,15 @@ from fibsem.structures import (
 )
 
 
-def new_image(
-    microscope: FibsemMicroscope,
-    settings: ImageSettings,
-) -> FibsemImage:
-    """Apply the given image settings and acquire a new image: autocontrast when
-    asked, acquire, save when asked, record (`microscope.imaging.new_image`)."""
-    return microscope.imaging.new_image(settings)
-
-
 def acquire_image(microscope: FibsemMicroscope, settings: ImageSettings) -> FibsemImage:
-    """passthrough for new_image to match internal api"""
-    return new_image(microscope, settings)
+    """Apply the given image settings and acquire a new image: autocontrast when
+    asked, acquire, save when asked, record (`microscope.imaging.acquire_image`)."""
+    return microscope.imaging.acquire_image(settings)
+
+
+def new_image(microscope: FibsemMicroscope, settings: ImageSettings) -> FibsemImage:
+    """The old name for :func:`acquire_image`."""
+    return acquire_image(microscope, settings)
 
 
 def acquire_current_image(
@@ -37,9 +34,9 @@ def acquire_current_image(
 
     For a frame whose point is the beam's current field and resolution -- after
     milling, around a milling strategy -- rather than a protocol's settings,
-    which :func:`new_image` applies. ``path`` is saved to as given (``.tif``
+    which :func:`acquire_image` applies. ``path`` is saved to as given (``.tif``
     added if it has no suffix), without the ``_eb``/``_ib`` suffix
-    :func:`new_image` adds; None saves nothing.
+    :func:`acquire_image` adds; None saves nothing.
     """
     image = microscope.acquire_image(image_settings=None, beam_type=beam_type)
     written = image.save(path=path) if path is not None else None

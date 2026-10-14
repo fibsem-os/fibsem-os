@@ -43,7 +43,7 @@ _I = TypeVar("_I", bound="Imaging")
 class Imaging(Service):
     """Imaging over the beams: the beam commands by ``beam_type`` (``acquire``,
     ``autocontrast``, ``start_live``, ``stop_live``); a saved, recorded image
-    (``new_image``) and reference images of both beams (``reference_images``,
+    (``acquire_image``) and reference images of both beams (``reference_images``,
     ``reference_image_sets``); ``auto_focus`` (the instrument's own where the
     beam has one, else the sweep), ``focus_sweep`` and ``stop``."""
 
@@ -101,7 +101,7 @@ class Imaging(Service):
     # -- images for the record -----------------------------------------------------
 
     @command
-    def new_image(self, image_settings: ImageSettings) -> FibsemImage:
+    def acquire_image(self, image_settings: ImageSettings) -> FibsemImage:
         """An image as a task takes one: autocontrast first when the settings ask,
         acquire with the settings, save to ``<path>/<filename>_eb`` (or ``_ib``)
         when ``save`` is set, and record it as ``image_acquired``. The saved file
@@ -128,7 +128,7 @@ class Imaging(Service):
         electron: bool = True,
         ion: bool = True,
     ) -> List[Optional[FibsemImage]]:
-        """A `new_image` from each beam asked for, with the same settings:
+        """An `acquire_image` from each beam asked for, with the same settings:
         ``[electron, ion]``, None for a beam not asked for. The settings given
         are not changed."""
         images: List[Optional[FibsemImage]] = []
@@ -138,7 +138,7 @@ class Imaging(Service):
                 continue
             settings = copy.copy(image_settings)
             settings.beam_type = beam_type
-            images.append(self.new_image(settings))
+            images.append(self.acquire_image(settings))
         return images
 
     @command
