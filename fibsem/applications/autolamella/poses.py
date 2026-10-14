@@ -225,3 +225,100 @@ def _to_fluorescence(
     except ValueError as e:
         logging.debug(f"Could not derive a fluorescence pose for {position}: {e}")
         return None
+
+
+# -- adding a lamella and setting its poses, without the window ----------------------
+#
+# What the Lamella tab's buttons do, minus the dialogs and the redraw, so the App
+# Server runs the very same steps for an agent (FIB-1261 step 6). The window calls
+# these and then refreshes itself; the server calls them on the GUI thread too.
+
+
+def grid_id_at(experiment, microscope: "FibsemMicroscope", position) -> Optional[str]:
+    """The record id of the grid a lamella at *position* is on, or None.
+
+    Resolved the way the rest of the system finds a grid, by name: with a loader the
+    one grid on the stage, on a fixed holder the calibrated slot the position falls
+    in. Then the experiment's record of that name. None whenever any step has no
+    answer: nothing loaded, an uncalibrated slot, a grid on the hardware with no
+    record. Never a guess, and never a record created as a side effect of marking a
+    lamella.
+    """
+    stage = getattr(microscope, "sample_handling", None)
+    if experiment is None or stage is None:
+        return None
+    try:
+        if stage.magazine is not None:
+            loaded = stage.loaded_grids
+            grid = loaded[0] if len(loaded) == 1 else None
+        else:
+            grid = stage.grid_at_position(position)
+    except Exception as e:  # noqa: BLE001 - a lamella is never refused for this
+        logging.debug(f"Could not resolve the grid for a new lamella: {e}")
+        return None
+    if grid is None:
+        return None
+    record = experiment.get_grid_by_name(grid.name)
+    return record.id if record is not None else None
+
+
+def add_lamella(
+    experiment,
+    microscope: "FibsemMicroscope",
+    stage_position: Optional[FibsemStagePosition] = None,
+    name: Optional[str] = None,
+    objective_position: Optional[float] = None,
+    marked_at: Optional[str] = None,
+    grid_id: Optional[str] = None,
+):
+    """Add a lamella to *experiment* and save it; returns the new lamella.
+
+    `AutoLamellaUI.add_new_lamella` without the redraw: see it for the arguments.
+    The current stage position when *stage_position* is None.
+    """
+    poses = build_lamella_poses(
+        microscope=microscope,
+        position=stage_position,
+        objective_position=objective_position,
+        marked_at=marked_at,
+    )
+    # Both poses go on at creation -- see `Experiment.add_new_lamella`. Assigning the
+    # fluorescence pose after the append left every listener that redraws on
+    # `inserted` deciding the new lamella had none.
+    experiment.add_new_lamella(
+        microscope_state=poses.milling,
+        task_config=experiment.task_protocol.task_config,
+        name=name,
+        fluorescence_pose=poses.fluorescence,
+        grid_id=(
+            grid_id
+            if grid_id is not None
+            else grid_id_at(experiment, microscope, poses.milling.stage_position)
+        ),
+    )
+    lamella = experiment.positions[-1]
+    lamella.update_milling_angle(microscope)  # from the milling-pose stage tilt
+    experiment.save()
+    return lamella
+
+
+def set_lamella_pose(
+    microscope: "FibsemMicroscope", lamella, pose_name: str, state: MicroscopeState
+) -> bool:
+    """Set *state* as the lamella's pose *pose_name*. Returns whether the
+    fluorescence pose was moved to follow it (only ever for MILLING).
+
+    The objective position of an existing pose is kept: the microscope state does
+    not capture it, so replacing the pose outright would wipe its focus. Replacing
+    the milling pose moves the lamella, so what derives from it follows: the
+    milling angle, and the fluorescence pose of the same piece of sample. The
+    caller saves.
+    """
+    existing = lamella.poses.get(pose_name)
+    if existing is not None and existing.objective_position is not None:
+        state.objective_position = existing.objective_position
+    lamella.poses[pose_name] = state
+    if pose_name != "MILLING":
+        return False
+    lamella.update_milling_angle(microscope)
+    return sync_fluorescence_pose(microscope, lamella)

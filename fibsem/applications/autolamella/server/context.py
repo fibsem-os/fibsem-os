@@ -176,6 +176,51 @@ def _rendered_preview(path: str, filename: str, max_width: int) -> Dict[str, Any
     }
 
 
+def _overview_point_to_stage(path: str, px=None, fraction=None):
+    """The stage position under a point of a recorded overview: the inverse of
+    :func:`_overview_projector`'s projector, from the image's own metadata."""
+    from fibsem.fm.preview import is_fluorescence_image
+
+    if (px is None) == (fraction is None):
+        raise ValueError("Give exactly one of px ([x, y] source pixels) or fraction.")
+    point = px if px is not None else fraction
+    if not (isinstance(point, (list, tuple)) and len(point) == 2):
+        raise ValueError("The point is [x, y].")
+    x, y = float(point[0]), float(point[1])
+
+    if is_fluorescence_image(path):
+        from fibsem.fm.structures import FluorescenceImage
+        from fibsem.geometry.projection import FMStageProjection
+
+        image = FluorescenceImage.load(path)
+        height, width = image.data.shape[-2:]
+        metadata = image.metadata
+        pixel_size = getattr(metadata, "pixel_size_x", None)
+        base = getattr(metadata, "stage_position", None)
+        projection = FMStageProjection.from_image(image)
+    else:
+        from fibsem.geometry.projection import BeamStageProjection
+        from fibsem.structures import FibsemImage
+
+        image = FibsemImage.load(path)
+        height, width = image.data.shape[:2]
+        metadata = image.metadata
+        pixel_size = metadata.pixel_size.x if metadata else None
+        state = getattr(metadata, "microscope_state", None) if metadata else None
+        base = state.stage_position if state is not None else None
+        projection = BeamStageProjection.from_image(image)
+    if projection is None or pixel_size is None or base is None:
+        raise ValueError("The overview has no stage geometry to convert from.")
+    if fraction is not None:
+        x, y = x * width, y * height
+    if not (0 <= x <= width and 0 <= y <= height):
+        raise ValueError(f"The point is outside the {width} x {height} image.")
+    # The plane is metres from the image centre, +y down: pixel rows' way.
+    return projection.from_plane(
+        (x - width / 2) * pixel_size, (y - height / 2) * pixel_size, base
+    )
+
+
 def _overview_projector(path: str):
     """Open a recorded overview and return its scale block plus a projector.
 
@@ -846,6 +891,255 @@ class AutoLamellaAppContext:
             ),
             None,
         )
+
+    # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
+
+    def _agent_call(self, call, select_latest: bool = False, timeout: float = 30.0):
+        """``call()`` on the GUI thread through the host, or inline where the host
+        has no GUI thread to offer (a test host, a headless session)."""
+        request = getattr(self._host, "request_agent_call", None)
+        if request is None:
+            return call()
+        return request(call, select_latest=select_latest).result(timeout=timeout)
+
+    def _editable(self):
+        """The experiment and microscope an edit needs, or a refusal."""
+        experiment = self._experiment
+        if experiment is None or experiment.task_protocol is None:
+            return (
+                None,
+                None,
+                {"error_type": "not_found", "error": "No experiment is loaded."},
+            )
+        microscope = self._microscope
+        if microscope is None:
+            return (
+                None,
+                None,
+                {"error_type": "not_found", "error": "No microscope is connected."},
+            )
+        return experiment, microscope, None
+
+    def _lamella_or_refusal(self, experiment, item_name: str):
+        lamella = experiment.get_lamella_by_name(item_name)
+        if lamella is None:
+            return None, {
+                "error_type": "not_found",
+                "error": f"No item named {item_name!r} in this experiment.",
+                "item_names": [p.name for p in experiment.positions],
+            }
+        return lamella, None
+
+    def overview_stage_position(
+        self, grid_name: str, filename: str, px=None, fraction=None
+    ) -> Dict[str, Any]:
+        """The stage position under a point of a recorded grid overview.
+
+        The inverse of :meth:`grid_markers`, through the same projection the
+        overview canvases use, built from the image's own metadata: a saved
+        overview converts as it was taken, wherever the stage is now. ``px`` is
+        [x, y] in source-image pixels (origin top-left, +y down, as the markers
+        give them); ``fraction`` is [x, y] from 0 to 1 across the image, for a
+        point read off a preview.
+        """
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        grid = experiment.get_grid_by_name(grid_name)
+        if grid is None:
+            refusal = self._no_such_grid(experiment, grid_name)
+            return {"error_type": "not_found", **refusal}
+        path = self._recorded_grid_file(experiment, grid, filename)
+        if path is None:
+            return {
+                "error_type": "not_found",
+                "error": f"No output named {filename!r} for grid {grid_name!r}.",
+                "filenames": self._recorded_grid_basenames(experiment, grid),
+            }
+        try:
+            position = _overview_point_to_stage(path, px=px, fraction=fraction)
+        except ValueError as exc:
+            return {"error_type": "invalid", "error": str(exc)}
+        return {
+            "grid_name": grid_name,
+            "grid_id": grid.id,
+            "filename": filename,
+            "stage_position": position.to_dict(),
+        }
+
+    def add_item(
+        self,
+        name: Optional[str] = None,
+        stage_position: Optional[Dict[str, Any]] = None,
+        overview: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Add a lamella as the Lamella tab's Add does: at the stage position now,
+        at a given stage position, or under a point of a grid overview (which
+        also puts it on that grid). Its poses, milling angle and grid are worked
+        out as for a click; it is saved."""
+        from fibsem.applications.autolamella.poses import add_lamella
+        from fibsem.structures import FibsemStagePosition
+
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        if name is not None and experiment.get_lamella_by_name(name) is not None:
+            return {"error_type": "invalid", "error": f"An item named {name!r} exists."}
+        position, grid_id = None, None
+        if overview is not None:
+            converted = self.overview_stage_position(
+                overview.get("grid_name", ""),
+                overview.get("filename", ""),
+                px=overview.get("px"),
+                fraction=overview.get("fraction"),
+            )
+            if "error_type" in converted:
+                return converted
+            position = FibsemStagePosition.from_dict(converted["stage_position"])
+            grid_id = converted["grid_id"]
+        elif stage_position is not None:
+            position = FibsemStagePosition.from_dict(stage_position)
+
+        def add():
+            lamella = add_lamella(
+                experiment,
+                microscope,
+                stage_position=position,
+                name=name,
+                grid_id=grid_id,
+            )
+            return lamella.name
+
+        try:
+            added = self._agent_call(add, select_latest=True)
+        except ValueError as exc:
+            return {"error_type": "invalid", "error": str(exc)}
+        return {"applied": True, "item": self.item_detail(added)}
+
+    def remove_item(self, item_name: str) -> Dict[str, Any]:
+        """Remove a lamella from the experiment, as its row's Remove does. Its
+        files stay on disk. Refused while a workflow runs."""
+        experiment, _, refusal = self._editable()
+        if refusal:
+            return refusal
+        lamella, refusal = self._lamella_or_refusal(experiment, item_name)
+        if refusal:
+            return refusal
+        if getattr(self._host, "is_workflow_running", False):
+            return {
+                "error_type": "task_running",
+                "error": "A workflow is running; remove items when it has stopped.",
+            }
+
+        def remove():
+            experiment.positions.remove(lamella)
+            experiment.save()
+
+        self._agent_call(remove)
+        return {"applied": True, "item_name": item_name}
+
+    def move_to_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
+        """Move the stage to one of a lamella's poses, as the tab's Move to does,
+        through the safe absolute move (flat before a large rotation). Runs on
+        the caller's thread, which holds control of the microscope."""
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        lamella, refusal = self._lamella_or_refusal(experiment, item_name)
+        if refusal:
+            return refusal
+        pose = dict(lamella.poses).get(pose_name)
+        if pose is None or pose.stage_position is None:
+            return {
+                "error_type": "not_found",
+                "error": f"{item_name} has no {pose_name!r} pose with a position.",
+                "pose_names": [
+                    name
+                    for name, p in dict(lamella.poses).items()
+                    if p is not None and p.stage_position is not None
+                ],
+            }
+        microscope.safe_absolute_stage_movement(pose.stage_position)
+        return {
+            "applied": True,
+            "item_name": item_name,
+            "pose": pose_name,
+            "stage_position": microscope.get_stage_position().to_dict(),
+        }
+
+    def set_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
+        """Set the stage position now as one of a lamella's poses, as the tab's
+        Set pose does. Setting MILLING moves the lamella: its milling angle and
+        fluorescence pose follow. Saved."""
+        from fibsem.applications.autolamella.poses import set_lamella_pose
+
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        lamella, refusal = self._lamella_or_refusal(experiment, item_name)
+        if refusal:
+            return refusal
+        known = list(dict(lamella.poses))
+        if pose_name not in known:
+            return {
+                "error_type": "not_found",
+                "error": f"{item_name} has no pose named {pose_name!r}.",
+                "pose_names": known,
+            }
+        state = microscope.get_microscope_state()
+
+        def set_pose():
+            moved = set_lamella_pose(microscope, lamella, pose_name, state)
+            experiment.save()
+            return moved
+
+        followed = self._agent_call(set_pose)
+        return {
+            "applied": True,
+            "item_name": item_name,
+            "pose": pose_name,
+            "fluorescence_pose_followed": bool(followed),
+            "item": self.item_detail(item_name),
+        }
+
+    def set_item_objective_position(self, item_name: str) -> Dict[str, Any]:
+        """Store the FM objective's position now on a lamella's fluorescence pose,
+        as the tab's Use current does: where it is if inserted, else its focus
+        position. Saved."""
+        experiment, microscope, refusal = self._editable()
+        if refusal:
+            return refusal
+        lamella, refusal = self._lamella_or_refusal(experiment, item_name)
+        if refusal:
+            return refusal
+        fm = getattr(microscope, "fm", None)
+        if fm is None:
+            return {"error_type": "not_found", "error": "This microscope has no FM."}
+        if lamella.fluorescence_pose is None:
+            return {
+                "error_type": "not_found",
+                "error": f"{item_name} has no fluorescence pose.",
+            }
+        from fibsem.structures import InsertableDeviceState
+
+        objective = fm.objective
+        value = (
+            objective.position
+            if objective.state is InsertableDeviceState.INSERTED
+            else objective.focus_position
+        )
+        if value is None:
+            return {
+                "error_type": "not_found",
+                "error": "The objective position is unavailable.",
+            }
+
+        def store():
+            lamella.fluorescence_pose.objective_position = value
+            experiment.save()
+
+        self._agent_call(store)
+        return {"applied": True, "item_name": item_name, "objective_position": value}
 
     def item_detail(self, item_name: str) -> Dict[str, Any]:
         """The durable facts about one item, as a curated snapshot.

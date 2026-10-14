@@ -80,7 +80,9 @@ import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.hook_defaults import build_hook_manager
 from fibsem.applications.autolamella.poses import (
-    build_lamella_poses,
+    add_lamella,
+    grid_id_at,
+    set_lamella_pose,
     sync_fluorescence_pose,
 )
 from fibsem.applications.autolamella.structures import (
@@ -1332,6 +1334,42 @@ class AutoLamellaUI(QMainWindow):
         """GUI thread. Run a call :meth:`_marshal` sent."""
         call()
 
+    def request_agent_call(self, call, select_latest: bool = False) -> "Future":
+        """Run ``call()`` on the GUI thread for an agent; any thread.
+
+        For the App Server's edits to the experiment (adding a lamella, setting a
+        pose): the experiment's listeners redraw widgets, so it is changed where
+        they live. Resolves to ``call``'s result, or its exception; the views are
+        refreshed afterwards, as after the Lamella tab's own buttons, selecting the
+        newest lamella when ``select_latest``.
+        """
+        from concurrent.futures import Future as _Future
+
+        outcome: "_Future" = _Future()
+        self._marshal(self._apply_agent_call, call, select_latest, outcome)
+        return outcome
+
+    def _apply_agent_call(self, call, select_latest: bool, outcome: "Future") -> None:
+        """GUI thread. Complete ``outcome`` with ``call()`` and redraw."""
+        try:
+            result = call()
+        except Exception as exc:  # noqa: BLE001 - the requester owns the failure
+            outcome.set_exception(exc)
+            return
+        try:
+            self.update_lamella_combobox(latest=select_latest)
+            self.update_ui()
+            lamella = self.get_selected_lamella()
+            if lamella is not None:
+                self.selected_lamella_widget.set_lamella(lamella)
+            if self.experiment is not None:
+                # The FM overview draws positions itself; it hears of a moved pose
+                # only by being told.
+                self.experiment.positions.events.changed.emit()
+        except Exception:
+            logging.exception("redraw after an agent's experiment edit failed")
+        outcome.set_result(result)
+
     def request_start_workflow(
         self, task_names: List[str], item_names: Optional[List[str]] = None
     ) -> "Future":
@@ -2386,32 +2424,9 @@ class AutoLamellaUI(QMainWindow):
     def _grid_id_for_new_lamella(
         self, position: Optional[FibsemStagePosition]
     ) -> Optional[str]:
-        """The record id of the grid a lamella at *position* is on, or None.
-
-        Resolved the way the rest of the system finds a grid, by name: with a
-        loader the one grid on the stage, on a fixed holder the calibrated slot
-        the position falls in. Then the experiment's record of that name. None
-        whenever any step has no answer: nothing loaded, an uncalibrated slot, a
-        grid on the hardware with no record. Never a guess, and never a record
-        created as a side effect of marking a lamella.
-        """
-        experiment = self.experiment
-        stage = getattr(self.microscope, "sample_handling", None)
-        if experiment is None or stage is None:
-            return None
-        try:
-            if stage.magazine is not None:
-                loaded = stage.loaded_grids
-                grid = loaded[0] if len(loaded) == 1 else None
-            else:
-                grid = stage.grid_at_position(position)
-        except Exception as e:  # noqa: BLE001 - a lamella is never refused for this
-            logging.debug(f"Could not resolve the grid for a new lamella: {e}")
-            return None
-        if grid is None:
-            return None
-        record = experiment.get_grid_by_name(grid.name)
-        return record.id if record is not None else None
+        """The record id of the grid a lamella at *position* is on, or None
+        (`fibsem.applications.autolamella.poses.grid_id_at`)."""
+        return grid_id_at(self.experiment, self.microscope, position)
 
     def add_new_lamella(
         self,
@@ -2448,34 +2463,15 @@ class AutoLamellaUI(QMainWindow):
                 "No microscope connected. Please connect a microscope first."
             )
 
-        poses = build_lamella_poses(
-            microscope=self.microscope,
-            position=stage_position,
+        lamella = add_lamella(
+            self.experiment,
+            self.microscope,
+            stage_position=stage_position,
+            name=name,
             objective_position=objective_position,
             marked_at=marked_at,
+            grid_id=grid_id,
         )
-
-        # create the lamella, with both poses already on it -- see
-        # `Experiment.add_new_lamella`. Assigning the fluorescence pose after the append
-        # left every listener that redraws on `inserted` deciding the new lamella had
-        # none, which is how each newly marked lamella went missing from the FM overview.
-        self.experiment.add_new_lamella(
-            microscope_state=poses.milling,
-            task_config=self.experiment.task_protocol.task_config,
-            name=name,
-            fluorescence_pose=poses.fluorescence,
-            grid_id=(
-                grid_id
-                if grid_id is not None
-                else self._grid_id_for_new_lamella(poses.milling.stage_position)
-            ),
-        )
-        lamella = self.experiment.positions[-1]
-
-        # derive the milling angle from the milling-pose stage tilt
-        lamella.update_milling_angle(self.microscope)
-
-        self.experiment.save()
         self.update_lamella_combobox(latest=True)
         self.update_ui()
 
@@ -2619,25 +2615,10 @@ class AutoLamellaUI(QMainWindow):
         if ret != QMessageBox.Yes:
             return
 
-        # preserve the configured objective (focus) position of the existing pose:
-        # get_microscope_state() does not capture the objective position, so replacing
-        # the pose outright would wipe the fluorescence pose's focus setting.
-        existing_pose = lamella.poses.get(pose_name)
-        if existing_pose is not None and existing_pose.objective_position is not None:
-            state.objective_position = existing_pose.objective_position
-
-        lamella.poses[pose_name] = state
-
-        # Replacing the milling pose moves the lamella, so what is derived from it has to
-        # follow: the milling angle, and the fluorescence pose, which describes the same
-        # piece of sample from the other side. Left behind, that pose would go on naming
-        # where this lamella used to be -- and nothing about a stale pose looks wrong.
-        if pose_name == "MILLING":
-            lamella.update_milling_angle(self.microscope)
-            if sync_fluorescence_pose(self.microscope, lamella):
-                self.selected_lamella_widget.refresh_pose(
-                    "FLUORESCENCE", lamella.fluorescence_pose
-                )
+        if set_lamella_pose(self.microscope, lamella, pose_name, state):
+            self.selected_lamella_widget.refresh_pose(
+                "FLUORESCENCE", lamella.fluorescence_pose
+            )
 
         self.experiment.save()
         self.selected_lamella_widget.refresh_pose(pose_name, state)
