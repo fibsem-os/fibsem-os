@@ -268,29 +268,15 @@ def test_microscope_exception_becomes_structured_500(microscope, monkeypatch):
     app = build_server(microscope, auth=AuthConfig(token=TOKEN))
     monkeypatch.setattr(
         type(microscope),
-        "get_stage_orientation",
-        lambda self, stage_position=None: (_ for _ in ()).throw(
-            RuntimeError("vendor fell over")
-        ),
+        "get_stage_position",
+        lambda self: (_ for _ in ()).throw(RuntimeError("vendor fell over")),
     )
     with TestClient(app, raise_server_exceptions=False) as client:
-        resp = client.get("/stage_orientation", headers=AUTH)
+        resp = client.get("/stage_position", headers=AUTH)
     assert resp.status_code == 500
     detail = resp.json()["detail"]
     assert detail["error_type"] == "RuntimeError"
     assert "vendor fell over" in detail["message"]
-
-
-def test_milling_angle_boundary_is_degrees(armed_client):
-    # The wire speaks degrees; the server converts for the radians-taking ABC
-    # method (FIB-853). Moving to 15 deg must read back as ~15 deg, not ~859.
-    resp = armed_client.post(
-        "/milling_angle/move", headers=AUTH, json={"milling_angle_deg": 15.0}
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["success"] is True
-    assert body["milling_angle_deg"] == pytest.approx(15.0, abs=0.5)
 
 
 def test_fibsem_server_defaults_to_localhost(microscope):

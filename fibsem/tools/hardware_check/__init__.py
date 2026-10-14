@@ -16,7 +16,8 @@ Levels, each including the one before:
 
 No level moves the objective or the stage.
 
-The FM's steps are in :mod:`fibsem.fm.hardware_check`. Only the FM is checked so far.
+The FM's steps are in :mod:`fibsem.tools.hardware_check.fm`. Only the FM is checked so
+far.
 """
 
 from __future__ import annotations
@@ -156,7 +157,7 @@ def run_hardware_check(
 ) -> Report:
     """Check *microscope*'s devices at *level*. *on_frame* receives the image the
     ``ACQUIRE`` level takes, to save or show it."""
-    from fibsem.fm.hardware_check import check_fm
+    from fibsem.tools.hardware_check.fm import check_fm
 
     report = Report(level=Level(level), instrument=_instrument(microscope))
     fm = getattr(microscope, "fm", None)
