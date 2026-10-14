@@ -101,6 +101,7 @@ from fibsem.devices.wire import (
 from fibsem.server.images import (
     TIFF_MEDIA_TYPE,
     image_answer,
+    is_image_list,
     is_image_result,
     tiff_bytes,
 )
@@ -389,12 +390,15 @@ def build_device_router(
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
         result = run(lambda: method(**kwargs), what)
         headers = {}
-        if isinstance(result, FibsemImage) and on_image is not None:
-            on_image(result)
+        if on_image is not None:
+            for image in _images_in(result):
+                on_image(image)
         # "answer": "preview" asks for what an agent reads: any image as a
         # summary, its saved path and a small JPEG (image_answer). Otherwise the
         # data itself, for programs.
-        if body.get("answer") == "preview" and is_image_result(result):
+        if (
+            body.get("answer") == "preview" and is_image_result(result)
+        ) or is_image_list(result):
             return {"result": image_answer(result)}
         if isinstance(result, FibsemImage):  # a beam's image: TIFF
             return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
@@ -430,6 +434,15 @@ def build_device_router(
         return {"result": jsonable_encoder(to_wire(result))}
 
     return router
+
+
+def _images_in(result: Any) -> List[FibsemImage]:
+    """Every FibsemImage a command returned: one, or the ones in its lists."""
+    if isinstance(result, FibsemImage):
+        return [result]
+    if isinstance(result, (list, tuple)):
+        return [image for item in result for image in _images_in(item)]
+    return []
 
 
 def build_device_app(devices: Iterable[Device]) -> FastAPI:

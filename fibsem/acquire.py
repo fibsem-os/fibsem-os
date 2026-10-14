@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import copy
-import logging
 import os
-from typing import Any, Dict, Optional, Tuple
+from typing import Optional
 
 from fibsem.autofunctions.acb import run_auto_contrast_brightness
 from fibsem.microscope import FibsemMicroscope
+from fibsem.services.imaging import acquisition_record
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -20,73 +20,9 @@ def new_image(
     microscope: FibsemMicroscope,
     settings: ImageSettings,
 ) -> FibsemImage:
-    """Apply the given image settings and acquire a new image.
-
-    Args:
-        microscope (FibsemMicroscope): The FibsemMicroscope instance used to acquire the image.
-        settings (ImageSettings): The image settings used to acquire the image.
-
-    Returns:
-        FibsemImage: The acquired image.
-    """
-
-    # set filename
-    if settings.beam_type is BeamType.ELECTRON:
-        filename = f"{settings.filename}_eb"
-
-    if settings.beam_type is BeamType.ION:
-        filename = f"{settings.filename}_ib"
-
-    # run autocontrast
-    if settings.autocontrast:
-        microscope.autocontrast(
-            beam_type=settings.beam_type, reduced_area=settings.reduced_area
-        )
-
-    # acquire the image
-    image = microscope.acquire_image(
-        image_settings=settings,
-    )
-
-    # save image
-    path = None
-    if settings.save:
-        filename = os.path.join(settings.path, filename)  # type: ignore
-        path = image.save(path=filename)
-
-    microscope.record_event("image_acquired", _acquisition_record(image, path))
-
-    return image
-
-
-def _acquisition_record(image: FibsemImage, path: Optional[str]) -> Dict[str, Any]:
-    """What the experiment's record says about an acquisition: how, and where it went.
-
-    ``path`` is the file actually written -- suffix and extension included, which
-    the log's ``filename`` never had -- or None when this acquisition was not
-    saved here, which is most of them. None does not mean no copy exists: the
-    alignment and autofocus diagnostics save their own images, outside this path.
-    Not the pixels, and not the full metadata: a saved file embeds that.
-    """
-    record: Dict[str, Any] = {"path": path, "shape": list(image.data.shape)}
-    try:
-        settings = image.metadata.image_settings
-        record.update(
-            beam_type=settings.beam_type.name,
-            filename=settings.filename,
-            hfw=settings.hfw,
-            dwell_time=settings.dwell_time,
-            reduced_area=(
-                settings.reduced_area.to_dict()
-                if settings.reduced_area is not None
-                else None
-            ),
-            pixel_size=image.metadata.pixel_size.x,
-            stage_position=image.metadata.microscope_state.stage_position.to_dict(),
-        )
-    except Exception:  # noqa: BLE001 - an image without full metadata still says where it went
-        logging.debug("recording an acquisition without its metadata", exc_info=True)
-    return record
+    """Apply the given image settings and acquire a new image: autocontrast when
+    asked, acquire, save when asked, record (`microscope.imaging.new_image`)."""
+    return microscope.imaging.new_image(settings)
 
 
 def acquire_image(microscope: FibsemMicroscope, settings: ImageSettings) -> FibsemImage:
@@ -107,38 +43,16 @@ def acquire_current_image(
     """
     image = microscope.acquire_image(image_settings=None, beam_type=beam_type)
     written = image.save(path=path) if path is not None else None
-    microscope.record_event("image_acquired", _acquisition_record(image, written))
+    microscope.record_event("image_acquired", acquisition_record(image, written))
     return image
 
 
 def take_reference_images(
     microscope: FibsemMicroscope, image_settings: ImageSettings
 ) -> tuple[FibsemImage, FibsemImage]:
-    """
-    Acquires a pair of electron and ion reference images using the specified imaging settings and
-    a FibsemMicroscope instance.
-
-    Args:
-        microscope (FibsemMicroscope): A FibsemMicroscope instance for imaging.
-        image_settings (ImageSettings): An ImageSettings object with the desired imaging parameters.
-
-    Returns:
-        A tuple containing a pair of FibsemImage objects, representing the electron and ion reference
-        images acquired using the specified microscope and image settings.
-
-    """
-
-    tmp_beam_type = image_settings.beam_type
-
-    # acquire electron image
-    image_settings.beam_type = BeamType.ELECTRON
-    eb_image = acquire_image(microscope, image_settings)
-
-    # acquire ion image
-    image_settings.beam_type = BeamType.ION
-    ib_image = acquire_image(microscope, image_settings)
-    image_settings.beam_type = tmp_beam_type  # reset to original beam type
-
+    """An electron and an ion image with the same settings
+    (`microscope.imaging.reference_images`)."""
+    eb_image, ib_image = microscope.imaging.reference_images(image_settings)
     return eb_image, ib_image
 
 
@@ -148,48 +62,18 @@ def take_set_of_reference_images(
     hfws: tuple[float, float],
     filename: str = "ref_image",
 ) -> ReferenceImages:
-    """
-    Takes a set of reference images at low and high magnification using a FibsemMicroscope.
-    The image settings and half-field widths for the low- and high-resolution images are
-    specified using an ImageSettings object and a tuple of two floats, respectively.
-    The optional filename parameter can be used to customize the image labels.
-
-    Args:
-        microscope (FibsemMicroscope): A FibsemMicroscope object to acquire the images from.
-        image_settings (ImageSettings): An ImageSettings object with the desired imaging parameters.
-        hfws (Tuple[float, float]): A tuple of two floats specifying the horizontal field widths (in microns)
-            for the low- and high-resolution images, respectively.
-        filename (str, optional): A filename to be included in the image filenames. Defaults to "ref_image".
-
-    Returns:
-        A ReferenceImages object containing the low- and high-resolution electron and ion beam images.
-
-    Notes:
-        This function sets image_settings.save to True before taking the images.
-        The returned ReferenceImages object contains the electron and ion beam images as FibsemImage objects.
-    """
-    # force save
-    image_settings.save = True
-
-    image_settings.hfw = hfws[0]
-    image_settings.filename = f"{filename}_low_res"
-    low_eb, low_ib = take_reference_images(microscope, image_settings)
-
-    image_settings.hfw = hfws[1]
-    image_settings.filename = f"{filename}_high_res"
-    high_eb, high_ib = take_reference_images(microscope, image_settings)
-
-    reference_images = ReferenceImages(low_eb, high_eb, low_ib, high_ib)
-
-    # more flexible version
-    # reference_images = []
-    # for i, hfw in enumerate(hfws):
-    #     image_settings.hfw = hfw
-    #     image_settings.filename = f"{filename}_res_{i:02d}"
-    #     eb_image, ib_image = take_reference_images(microscope, image_settings)
-    #     reference_images.append([eb_image, ib_image])
-
-    return reference_images
+    """Reference images of both beams at a low and a high field of view
+    (``hfws``), saved as ``<filename>_low_res`` and ``<filename>_high_res``. The
+    settings given are not changed."""
+    settings = copy.deepcopy(image_settings)
+    settings.save = True
+    pairs = []
+    for hfw, label in zip(hfws, ("low_res", "high_res")):
+        settings.hfw = hfw
+        settings.filename = f"{filename}_{label}"
+        pairs.append(microscope.imaging.reference_images(settings))
+    (low_eb, low_ib), (high_eb, high_ib) = pairs
+    return ReferenceImages(low_eb, high_eb, low_ib, high_ib)
 
 
 def acquire_channels(
@@ -198,25 +82,11 @@ def acquire_channels(
     acquire_sem: bool = True,
     acquire_fib: bool = True,
 ) -> tuple[Optional[FibsemImage], Optional[FibsemImage]]:
-    """Acquire SEM and/or FIB images based on the specified flags.
-    Args:
-        microscope (FibsemMicroscope): The microscope instance to use for image acquisition.
-        image_settings (ImageSettings): The settings to use for image acquisition.
-        acquire_sem (bool, optional): Whether to acquire an SEM image. Defaults to True.
-        acquire_fib (bool, optional): Whether to acquire a FIB image. Defaults to True.
-    Returns:
-        tuple[Optional[FibsemImage], Optional[FibsemImage]]: A tuple containing the acquired SEM and FIB images.
-            If a particular image type was not acquired, its corresponding value will be None.
-    """
-
-    sem_image: Optional[FibsemImage] = None
-    fib_image: Optional[FibsemImage] = None
-    if acquire_sem:
-        image_settings.beam_type = BeamType.ELECTRON
-        sem_image = acquire_image(microscope, image_settings)
-    if acquire_fib:
-        image_settings.beam_type = BeamType.ION
-        fib_image = acquire_image(microscope, image_settings)
+    """An SEM and/or FIB image with the same settings, None for one not asked for
+    (`microscope.imaging.reference_images`)."""
+    sem_image, fib_image = microscope.imaging.reference_images(
+        image_settings, electron=acquire_sem, ion=acquire_fib
+    )
     return sem_image, fib_image
 
 
@@ -228,36 +98,12 @@ def acquire_set_of_channels(
     acquire_sem: bool = True,
     acquire_fib: bool = True,
 ) -> list[tuple[Optional[FibsemImage], Optional[FibsemImage]]]:
-    """Acquire a set of SEM and/or FIB images at different horizontal field widths (hfws).
-    Args:
-        microscope (FibsemMicroscope): The microscope instance to use for image acquisition.
-        image_settings (ImageSettings): The settings to use for image acquisition.
-        hfws (list[float]): A list containing the horizontal field widths for the images.
-        acquire_sem (bool, optional): Whether to acquire SEM images. Defaults to True.
-        acquire_fib (bool, optional): Whether to acquire FIB images. Defaults to True.
-    Returns:
-        list[tuple[Optional[FibsemImage], Optional[FibsemImage]]]: A list of tuples containing the acquired SEM and FIB images
-            for each horizontal field width. If a particular image type was not acquired, its corresponding value will be None.
-    """
-    images = []
-
-    image_settings = copy.deepcopy(image_settings)
-    image_settings.save = True  # ensure saving
-
-    # extend suffexes if more hfws are provided than suffixes
-    suffixes = []
-    while len(suffixes) < len(hfws):
-        suffixes.append(f"res_{len(suffixes) + 1:02d}")
-
-    for hfw, suffix in zip(hfws, suffixes):
-        image_settings.hfw = hfw
-        image_settings.filename = f"{filename}_{suffix}"
-        # image_settings.filename = f"{filename}_{int(hfw*1e6)}um"
-        sem_image, fib_image = acquire_channels(
-            microscope, image_settings, acquire_sem, acquire_fib
-        )
-        images.append((sem_image, fib_image))
-    return images
+    """SEM and/or FIB images at each field of view in ``hfws``, saved as
+    ``<filename>_res_01``, ``_res_02`` ... (`microscope.imaging.reference_image_sets`)."""
+    sets = microscope.imaging.reference_image_sets(
+        image_settings, hfws, filename=filename, electron=acquire_sem, ion=acquire_fib
+    )
+    return [(sem, fib) for sem, fib in sets]
 
 
 ##### FOCUS STACKING

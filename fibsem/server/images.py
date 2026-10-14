@@ -133,6 +133,8 @@ def image_answer(result) -> dict:
     from fibsem.devices.wire import Frame
     from fibsem.structures import FibsemImage
 
+    if is_image_list(result):  # reference images: each in its place, None kept
+        return [None if item is None else image_answer(item) for item in result]
     if isinstance(result, FibsemImage):
         preview = preview_payload(result)
         summary = {
@@ -190,8 +192,27 @@ def is_image_result(result) -> bool:
     from fibsem.devices.wire import Frame
     from fibsem.structures import FibsemImage
 
-    if isinstance(result, (FibsemImage, Frame)):
+    if isinstance(result, (FibsemImage, Frame)) or is_image_list(result):
         return True
     if isinstance(result, list) and result:
         return all(isinstance(item, Frame) for item in result)
     return isinstance(result, np.ndarray) and result.ndim >= 2
+
+
+def is_image_list(result) -> bool:
+    """Whether *result* is a list of FibsemImages (or lists of them), None in
+    places, with at least one image: what the reference image commands return.
+    No program format carries it, so it always answers as :func:`image_answer`."""
+    from fibsem.structures import FibsemImage
+
+    if not isinstance(result, (list, tuple)) or not result:
+        return False
+    found = False
+    for item in result:
+        if item is None:
+            continue
+        if isinstance(item, FibsemImage) or is_image_list(item):
+            found = True
+        else:
+            return False
+    return found
