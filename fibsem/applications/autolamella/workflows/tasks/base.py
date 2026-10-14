@@ -1208,6 +1208,9 @@ class AutoLamellaTask(ABC):
         alignment_image_settings.beam_type = BeamType.ION
         alignment_image_settings.save = True
         alignment_image_settings.hfw = field_of_view
+        # Lamella state, read by later tasks (FIB-1258): in the lamella's folder
+        # and overwritten each time, not in this run's own folder (FIB-1275).
+        alignment_image_settings.path = str(self.lamella.path)
         alignment_image_settings.filename = "ref_alignment"
         alignment_image_settings.resolution = self._alignment_resolution()
         alignment_image_settings.dwell_time = 1e-6

@@ -209,8 +209,12 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             # 3. the FIB frame the boxes are drawn against, and one FM frame so the
             # viewer opens with something to draw on. Recorded under its own name so
             # the conventional reference sets are not polluted (see _acquire_channels).
+            # Lamella state, read by Mill Coincident (FIB-1258): in the lamella's
+            # folder, not in this run's own folder (FIB-1275).
+            state_settings = deepcopy(image_settings)
+            state_settings.path = str(self.lamella.path)
             self._acquire_channels(
-                image_settings,
+                state_settings,
                 filename=COINCIDENCE_SETUP_REFERENCE_STEM,
                 field_of_view=self.config.field_of_view,
                 acquire_sem=False,
