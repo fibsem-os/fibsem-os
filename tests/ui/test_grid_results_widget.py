@@ -17,6 +17,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.grid_results_widget import (
     GridResultsWidget,
+    image_for,
     latest_runs,
     thumbnail_for,
 )
@@ -93,6 +94,20 @@ def test_thumbnail_is_read_off_the_recorded_outputs(experiment, grid):
     sem = latest_runs(grid)["overview_sem"]
     assert thumbnail_for(experiment, grid, sem).endswith("overview-thumbnail.png")
     assert thumbnail_for(experiment, grid, latest_runs(grid)["overview_fm"]) is None
+
+
+def test_the_image_is_the_stitch_not_a_tile(experiment, grid):
+    """The task records the stitch, then its tiles, then the thumbnail."""
+    root = experiment.grid_path(grid)
+    (root / "overview_sem" / "overview").mkdir()
+    (root / "overview_sem" / "overview" / "tile_0_0.tif").write_bytes(b"")
+    sem = latest_runs(grid)["overview_sem"]
+    thumbnail = sem.outputs.pop("overview_sem_thumbnail")
+    sem.outputs["overview_sem_tiles"] = ["overview_sem/overview/tile_0_0.tif"]
+    sem.outputs["overview_sem_thumbnail"] = thumbnail
+
+    assert image_for(experiment, grid, sem).endswith("overview.tif")
+    assert thumbnail_for(experiment, grid, sem).endswith("overview-thumbnail.png")
 
 
 def test_nothing_selected(qapp, experiment):
