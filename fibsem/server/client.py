@@ -11,7 +11,6 @@ Usage:
 """
 
 import io
-import math
 import threading
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
@@ -39,6 +38,10 @@ from fibsem.structures import (
 if TYPE_CHECKING:
     from fibsem.devices.core import Device
     from fibsem.drivers.remote.devices import DeviceClient
+
+
+#: The service the stage reads and moves go through.
+STAGE_MOVEMENT = "stage_movement"
 
 
 def _beam(beam_type: BeamType) -> str:
@@ -149,7 +152,7 @@ class FibsemClient:
         return FibsemStagePosition.from_dict(self._get("stage_position")["position"])
 
     def get_stage_orientation(self) -> str:
-        return self._get("stage_orientation")["orientation"]
+        return self.call_service_query(STAGE_MOVEMENT, "stage_orientation")
 
     def move_stage_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         result = self._post("move_stage_absolute", {"position": position.to_dict()})
@@ -174,16 +177,15 @@ class FibsemClient:
         beam_type: BeamType,
         base_position: FibsemStagePosition,
     ) -> FibsemStagePosition:
-        result = self._post(
+        result = self.call_service_query(
+            STAGE_MOVEMENT,
             "project_stable_move",
-            {
-                "dx": dx,
-                "dy": dy,
-                "beam_type": beam_type.name,
-                "base_position": base_position.to_dict(),
-            },
+            dx=dx,
+            dy=dy,
+            beam_type=beam_type,
+            base_position=base_position,
         )
-        return FibsemStagePosition.from_dict(result["position"])
+        return FibsemStagePosition.from_dict(result)
 
     def vertical_move(self, dy: float, dx: float = 0.0) -> FibsemStagePosition:
         result = self._post("vertical_move", {"dy": dy, "dx": dx})
@@ -283,6 +285,13 @@ class FibsemClient:
         """Ask a device a query: a read that takes arguments and moves nothing."""
         body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
         return self._post(f"devices/{device}/queries/{query}", body)["result"]
+
+    def call_service_command(self, service: str, command: str, **kwargs: Any) -> Any:
+        """Run a service command, e.g. ``stage_movement``'s ``move_to_orientation``."""
+        body = {"kwargs": {name: to_wire(value) for name, value in kwargs.items()}}
+        return self._post(f"services/{service}/commands/{command}", body, timeout=60)[
+            "result"
+        ]
 
     def call_service_query(self, service: str, query: str, **kwargs: Any) -> Any:
         """Ask a service a query, e.g. ``stage_movement``'s ``project_stable_move``."""
@@ -430,38 +439,46 @@ class FibsemClient:
         return Point.from_dict(self.set_parameter(_beam(beam_type), "shift", shift))
 
     # --- Milling angle ---
+    # The stage movement service's: the stored milling angle is its parameter, in
+    # degrees; the reads are its queries. move_to_milling_angle takes radians, as
+    # the FibsemMicroscope method does (FIB-853).
 
     def get_current_milling_angle(
         self, stage_position: Optional[FibsemStagePosition] = None
     ) -> float:
-        """Get the current milling angle in degrees. Pass a stage_position to calculate from a specific position."""
-        if stage_position is None:
-            return self._get("milling_angle")["milling_angle_deg"]
-        body = {"stage_position": stage_position.to_dict()}
-        return self._post("milling_angle/from_position", body)["milling_angle_deg"]
+        """The milling angle, in degrees, a stage position gives (the current one
+        when None)."""
+        return self.call_service_query(
+            STAGE_MOVEMENT, "current_milling_angle", position=stage_position
+        )
 
     def set_milling_angle(self, milling_angle: float) -> None:
-        """Set the stored milling angle in degrees."""
-        self._post("milling_angle/set", {"milling_angle_deg": milling_angle})
+        """Set the stored milling angle, in degrees."""
+        self._put(f"services/{STAGE_MOVEMENT}/milling_angle", {"value": milling_angle})
 
     def move_to_milling_angle(
         self, milling_angle: float, rotation: Optional[float] = None
     ) -> bool:
-        """Move the stage to the specified milling angle (RADIANS, matching the
-        FibsemMicroscope ABC — FIB-853). The wire speaks degrees; converted here."""
-        body = {"milling_angle_deg": math.degrees(milling_angle)}
-        if rotation is not None:
-            body["rotation_deg"] = math.degrees(rotation)
-        return self._post("milling_angle/move", body)["success"]
+        """Move the stage to a milling angle, in radians; the rotation reference
+        when ``rotation`` is None."""
+        return self.call_service_command(
+            STAGE_MOVEMENT,
+            "move_to_milling_angle",
+            milling_angle=milling_angle,
+            rotation=rotation,
+        )
 
     def is_close_to_milling_angle(
         self, milling_angle: float, atol: float = 2.0
     ) -> bool:
-        """Check if the current milling angle (degrees) is within atol degrees of the target."""
-        return self._post(
-            "milling_angle/is_close",
-            {"milling_angle_deg": milling_angle, "atol_deg": atol},
-        )["is_close"]
+        """Whether the current milling angle is within ``atol`` of ``milling_angle``,
+        both in degrees."""
+        return self.call_service_query(
+            STAGE_MOVEMENT,
+            "is_close_to_milling_angle",
+            milling_angle=milling_angle,
+            atol=atol,
+        )
 
     # --- Milling ---
 
