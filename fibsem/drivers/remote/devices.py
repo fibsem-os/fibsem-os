@@ -76,7 +76,7 @@ from fibsem.devices.core import (
 )
 from fibsem.devices.entries import REMOTE_DRIVER
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
-from fibsem.devices.manipulator import Manipulator
+from fibsem.devices.manipulator import Manipulator, ManipulatorLimitError
 from fibsem.devices.stage import Stage, StageLimitError
 from fibsem.devices.wire import (
     FRAME_METADATA_HEADER,
@@ -125,6 +125,7 @@ _ERRORS: Dict[str, Callable[[str], Exception]] = {
     "ValueError": ValueError,
     "NotImplementedError": NotImplementedError,
     "StageLimitError": StageLimitError,
+    "ManipulatorLimitError": ManipulatorLimitError,
     "OperationCancelledError": OperationCancelledError,
 }
 
@@ -707,24 +708,20 @@ class RemoteChamberCamera(RemoteDevice, ChamberCamera):
 
 
 class RemoteManipulator(RemoteDevice, Manipulator):
-    """A needle on another computer. Its axes and named positions are read when it
-    binds; a saved position is read from the server each time, since where a named
+    """A needle on another computer. Its axes come from the limits of the server's
+    ``position``, and its named positions are read when it binds; a saved position is read from the server each time, since where a named
     position is can change (Thermo gives it in stage coordinates)."""
 
-    _axes: Tuple[str, ...] = ("x", "y", "z")
     _named: Tuple[str, ...] = ()
     _installed: Optional[bool] = None
 
     def _apply_facts(self, facts: Dict[str, Any]) -> None:
-        self._axes = tuple(facts.get("axes", self._axes))
         self._named = tuple(facts.get("named_positions", ()))
         self._installed = facts.get("is_installed")
+        self._build_axes()
 
     def is_installed(self) -> Optional[bool]:
         return self._installed
-
-    def axes(self) -> Tuple[str, ...]:
-        return self._axes
 
     def named_positions(self) -> List[str]:
         return list(self._named)

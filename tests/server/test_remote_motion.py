@@ -153,7 +153,9 @@ def test_a_remote_chamber_pumps_and_vents_on_the_server(served):
 def test_a_remote_needle_has_the_local_axes_and_named_positions(served):
     local, remote = served
     needle, here = remote["manipulator"], local["manipulator"]
-    assert needle.axes() == here.axes()
+    assert list(needle.axes) == list(here.axes)
+    for axis in here.axes:
+        assert needle.axes[axis].limits == here.axes[axis].limits
     assert needle.named_positions() == here.named_positions()
     for name in here.named_positions():
         assert needle.saved_position(name) == here.saved_position(name)
