@@ -79,6 +79,7 @@ def test_parameters_describe_themselves(beams):
         "limits": None,
         "choices": [2000, 5000, 10000, 20000, 30000],
         "settable": True,
+        "display": {"label": "Beam Voltage", "advanced": True},
     }
 
 
