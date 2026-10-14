@@ -234,9 +234,11 @@ class MillingPatternOverlay(CanvasOverlay):
             ):
                 self._ax.add_artist(artist)
                 self._artists.append(artist)
-        self._draw_crosshair(
-            stage.pattern.point, shape, pixelsize, colour, zorder + 0.5
-        )
+        # A stage's pattern has a point it is placed at; patterns drawn on their own
+        # (an agent's mill, FIB-1375) have none to mark.
+        pattern = getattr(stage, "pattern", None)
+        if pattern is not None:
+            self._draw_crosshair(pattern.point, shape, pixelsize, colour, zorder + 0.5)
 
     def _shape_to_artists(
         self, ps, shape, pixelsize: float, colour: str, linewidth: float, zorder: float

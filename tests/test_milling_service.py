@@ -279,3 +279,18 @@ def test_autoscript_draws_polygons_from_4_12(monkeypatch, version, polygons):
     types = AutoScriptMilling.supported_pattern_types()
     assert (FibsemPolygonSettings in types) is polygons
     assert set(types) | {FibsemPolygonSettings} == set(DRAW_HOOKS)
+
+
+def test_the_drawn_patterns_are_announced_until_they_are_removed(microscope):
+    # FIB-1375: the app draws an agent's mill from these; it has no config of it.
+    milling = microscope.milling
+    seen = []
+    milling.patterns_changed.connect(lambda patterns: seen.append(len(patterns)))
+    milling.prepare(_recipe(), _patterns()[:2])
+    milling.draw([_rectangle()])
+    assert len(milling.drawn_patterns) == 3
+    milling.run()
+    assert milling.drawn_patterns == []
+    milling.prepare(_recipe(), [_rectangle()])
+    microscope.clear_patterns()
+    assert seen == [2, 3, 0, 1, 0]

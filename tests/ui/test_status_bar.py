@@ -206,6 +206,40 @@ def test_milling_in_a_run_sits_under_the_task(slot):
     assert slot.text == "lamella-02 › Rough Milling · 3 of 5"
 
 
+def test_the_agents_action_is_the_line_while_it_is_in_control(slot):
+    # FIB-1375: what the agent does on the microscope reads like a run's step,
+    # over the run's own line (it acts while a run's question waits) and over a
+    # failure left from before.
+    slot.set_run("lamella-02 › Polishing", None, "3 of 4")
+    slot.show_failure("Run finished", "1 of 4 failed")
+    slot.set_agent_action("focus sweep")
+    assert slot.showing == "agent"
+    assert slot.text == "Agent focus sweep · 0s"
+    slot.set_agent_action(None)
+    assert slot.showing == "failure"
+
+
+def test_the_agents_clock_keeps_running_while_its_action_is_set_again(
+    slot, monkeypatch
+):
+    from fibsem.ui.widgets import status_bar
+
+    now = [100.0]
+    monkeypatch.setattr(status_bar.time, "monotonic", lambda: now[0])
+    slot.set_agent_action("focus sweep")
+    now[0] = 112.0
+    slot.set_agent_action("focus sweep")
+    assert slot.text == "Agent focus sweep · 12s"
+    slot.set_agent_action("move stage relative")
+    assert slot.text == "Agent move stage relative · 0s"
+
+
+def test_milling_during_the_agents_action_sits_under_the_agent(slot):
+    slot.set_agent_action("run")
+    slot._on_milling_progress(_stage_started())
+    assert slot.text.startswith("Agent Preparing: Rough Mill · stage 2 of 3")
+
+
 def test_a_stage_move_outranks_milling_and_hides_its_bar(slot):
     slot._on_milling_progress(_tick())
     slot.set_stage_activity("Moving the stage…")

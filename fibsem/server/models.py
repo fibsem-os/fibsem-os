@@ -36,13 +36,6 @@ class StableMoveRequest(BaseModel):
     beam_type: str
 
 
-class ProjectStableMoveRequest(BaseModel):
-    dx: float
-    dy: float
-    beam_type: str
-    base_position: Dict[str, Any]  # FibsemStagePosition.to_dict()
-
-
 class VerticalMoveRequest(BaseModel):
     dy: float
     dx: float = 0.0
@@ -90,29 +83,3 @@ class FinishMillingRequest(BaseModel):
 class DrawPatternsRequest(BaseModel):
     # Each pattern dict must include a "type" key: "Rectangle", "Line", "Circle", "Bitmap", "Polygon"
     patterns: List[Dict[str, Any]]
-
-
-# The HTTP boundary speaks degrees everywhere (fields named *_deg); the server
-# converts for the one ABC method that takes radians (FIB-853).
-
-
-class MillingAngleRequest(BaseModel):
-    milling_angle_deg: float
-
-
-class MillingAngleFromPositionRequest(BaseModel):
-    stage_position: Optional[Dict[str, Any]] = (
-        None  # FibsemStagePosition.to_dict(); if None uses current position
-    )
-
-
-class MoveToMillingAngleRequest(BaseModel):
-    milling_angle_deg: float
-    rotation_deg: Optional[float] = (
-        None  # if None uses rotation_reference from system settings
-    )
-
-
-class IsCloseToMillingAngleRequest(BaseModel):
-    milling_angle_deg: float
-    atol_deg: float = 2.0
