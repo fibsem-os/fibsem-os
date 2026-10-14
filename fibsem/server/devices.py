@@ -273,6 +273,7 @@ def build_device_router(
     command: Sequence[Any] = (),
     prefix: str = "/devices",
     noun: str = "device",
+    on_image: Optional[Callable[[FibsemImage], None]] = None,
 ) -> APIRouter:
     """The ``/devices`` routes over whatever *devices* returns, by name.
 
@@ -283,6 +284,8 @@ def build_device_router(
     dependencies for the reads, the parameter writes and the commands: the device
     server passes none, the App Server its token, scopes and hardware lock. A query
     moves nothing, so it takes the *read* dependencies, not the hardware lock.
+    *on_image* is given each image a command acquired, before it is answered: the
+    App Server shows it in the app's views (FIB-1375).
     """
     router = APIRouter()
 
@@ -351,6 +354,8 @@ def build_device_router(
         result = run(lambda: method(**kwargs), what)
         headers = {}
         if isinstance(result, FibsemImage):  # a beam's image: TIFF, as /acquire_image
+            if on_image is not None:
+                on_image(result)
             return Response(tiff_bytes(result), media_type=TIFF_MEDIA_TYPE)
         if (
             isinstance(result, list)
