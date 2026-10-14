@@ -9,8 +9,9 @@ variant below is a colour per role, so a change to a drawing reaches every
 variant.
 
 Writes:
-- fibsem/ui/icons/autolamella.ico, the one generated file the repo keeps:
-  Windows shortcuts need it at runtime (fibsem.tools.desktop_shortcut).
+- fibsem/ui/icons/<app>.ico for each app whose drawing is shipped there, the
+  only generated files the repo keeps: Windows shortcuts need them at runtime
+  (fibsem.tools.desktop_shortcut).
 - docs/brand/icons/build/ (gitignored): per icon and variant an SVG and PNGs,
   an .ico for the colour variant, and contact-sheet.png with all of them.
 
@@ -163,8 +164,8 @@ def build_icon(name: str, variant: str) -> dict:
     if variant == "colour":
         ico = ico_bytes({s: png_bytes(renders[s]) for s in ICO_SIZES})
         (out / f"{name}.ico").write_bytes(ico)
-        if name == "autolamella":
-            (APP_ICONS / "autolamella.ico").write_bytes(ico)
+        if main.parent == APP_ICONS:  # a shipped app: its shortcut needs the .ico
+            (APP_ICONS / f"{name}.ico").write_bytes(ico)
     return renders
 
 
@@ -201,7 +202,7 @@ def main() -> None:
     app = QGuiApplication(sys.argv[:1])  # noqa: F841 — must outlive the renders
     renders = {(n, v): build_icon(n, v) for n in ICONS for v in VARIANTS}
     contact_sheet(renders).save(str(BUILD / "contact-sheet.png"))
-    print(f"wrote {APP_ICONS / 'autolamella.ico'} and {BUILD}")
+    print(f"wrote the shipped apps' .ico files in {APP_ICONS}, and {BUILD}")
 
 
 if __name__ == "__main__":

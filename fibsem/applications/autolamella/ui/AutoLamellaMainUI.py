@@ -122,6 +122,7 @@ from fibsem.applications.autolamella.workflows.workflow_estimate import (
 from fibsem.server.levels import AgentLevel
 from fibsem.structures import BeamType
 from fibsem.tools.app_identity import set_app_identity
+from fibsem.tools.apps import AUTOLAMELLA, App, apps
 from fibsem.ui import notification_service
 from fibsem.ui.icon import autolamella_icon, fibsem_icon
 from fibsem.ui.qt.gc import install_main_thread_gc
@@ -738,17 +739,21 @@ class AutoLamellaSingleWindowUI(QMainWindow):
         self.action_show_plugins.triggered.connect(self._on_show_plugins)
         tools_menu.addAction(self.action_show_plugins)
 
-        self.action_create_desktop_shortcut = QAction(
-            "Create Desktop Shortcut...", self
-        )
-        self.action_create_desktop_shortcut.setToolTip(
-            "Place a shortcut on your desktop that launches AutoLamella from this "
-            "environment"
-        )
-        self.action_create_desktop_shortcut.triggered.connect(
-            self._on_create_desktop_shortcut
-        )
-        tools_menu.addAction(self.action_create_desktop_shortcut)
+        # One entry per app the launcher knows (fibsem.tools.apps), plugins included.
+        shortcut_menu = tools_menu.addMenu("Create Desktop Shortcut")
+        self.shortcut_actions = {}
+        for key, app in apps().items():
+            action = QAction(f"{app.name}...", self)
+            action.setToolTip(
+                f"Place a shortcut on your desktop that launches {app.name} from "
+                "this environment"
+            )
+            action.triggered.connect(
+                lambda _checked=False, app=app: self._on_create_desktop_shortcut(app)
+            )
+            shortcut_menu.addAction(action)
+            self.shortcut_actions[key] = action
+        self.action_create_desktop_shortcut = self.shortcut_actions["autolamella"]
 
         # add help menu
         help_menu = menu_bar.addMenu("Help")
@@ -1147,8 +1152,8 @@ class AutoLamellaSingleWindowUI(QMainWindow):
 
         PluginsDialog(parent=self).exec_()
 
-    def _on_create_desktop_shortcut(self):
-        """Create a launcher shortcut for the AutoLamella UI, confirming overwrites.
+    def _on_create_desktop_shortcut(self, app: App = AUTOLAMELLA):
+        """Create a launcher shortcut for ``app``, confirming overwrites.
 
         The location is chosen by the user, defaulting to the Desktop.
         """
@@ -1167,7 +1172,9 @@ class AutoLamellaSingleWindowUI(QMainWindow):
             return
         directory = Path(chosen)
         try:
-            path = desktop_shortcut.create_desktop_shortcut(directory=directory)
+            path = desktop_shortcut.create_desktop_shortcut(
+                directory=directory, app=app
+            )
         except FileExistsError as exc:
             reply = QMessageBox.question(
                 self,
@@ -1180,7 +1187,7 @@ class AutoLamellaSingleWindowUI(QMainWindow):
                 return
             try:
                 path = desktop_shortcut.create_desktop_shortcut(
-                    overwrite=True, directory=directory
+                    overwrite=True, directory=directory, app=app
                 )
             except Exception as exc2:
                 self._show_shortcut_error(exc2)
@@ -4367,9 +4374,9 @@ def run_ui(argv: Optional[List[str]] = None, splash: Optional[QSplashScreen] = N
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
     init_sentry()  # inert unless crash reporting is enabled in preferences
-    set_app_identity("AutoLamella", windows_app_id="fibsemOS.AutoLamella")
+    set_app_identity(AUTOLAMELLA.name, windows_app_id=AUTOLAMELLA.app_id)
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("AutoLamella")
+    app.setApplicationName(AUTOLAMELLA.name)
     app.setStyle("Fusion")
     app.setWindowIcon(autolamella_icon())
     # Cyclic garbage must only ever be collected on this thread: worker-thread GC
