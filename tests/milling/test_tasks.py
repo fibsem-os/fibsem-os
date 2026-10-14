@@ -195,7 +195,8 @@ def test_final_image_flag_round_trips():
 def test_every_restore_uses_the_captured_voltage(tmp_path):
     """Regression: _acquire_milling_task_images restored system.ion.beam.voltage — the
     config default — while run()'s finally correctly used the captured value. A task
-    milling at 8 kV therefore bounced the column to 30 kV between stages."""
+    milling at 8 kV therefore bounced the column to 30 kV between stages. Every
+    restore now puts back what setup_milling found."""
     polish_stage = FibsemMillingStage(
         name="polish", milling=FibsemMillingSettings(milling_voltage=8e3)
     )
@@ -208,15 +209,20 @@ def test_every_restore_uses_the_captured_voltage(tmp_path):
         "guard: config default must differ"
     )
 
-    restored = _spy(microscope, "finish_milling")
+    voltages = []
+    finish = microscope.finish_milling
+
+    def restore_and_read():
+        finish()
+        voltages.append(microscope.get_beam_voltage(BeamType.ION))
+
+    microscope.finish_milling = restore_and_read
     task.run()
 
-    assert restored, "finish_milling should have run"
-    voltages = [call[1]["imaging_voltage"] for call in restored]
+    assert voltages, "finish_milling should have run"
     assert all(v == 2e3 for v in voltages), (
         f"expected every restore at 2 kV, got {voltages}"
     )
-    assert microscope.get_beam_voltage(BeamType.ION) == 2e3
 
 
 # ── an unset save path is not a directory called "None" ──────────────────────
@@ -318,18 +324,6 @@ def test_the_run_folder_is_not_saved_with_the_stage():
 
     assert "output_dir" not in data
     assert FibsemMillingStage.from_dict(data).output_dir is None
-
-
-def test_imaging_conditions_falls_back_before_capture(tmp_path):
-    """If the task failed before it could capture the live conditions, fall back to the
-    system defaults rather than passing None to the column."""
-    microscope, task = _task(tmp_path)
-    assert task.initial_imaging_current is None and task.initial_imaging_voltage is None
-
-    current, voltage = task._imaging_conditions()
-
-    assert current == microscope.system.ion.beam.beam_current
-    assert voltage == microscope.system.ion.beam.voltage
 
 
 # ── a stage that raises fails the task (FIB-1112) ────────────────────────────

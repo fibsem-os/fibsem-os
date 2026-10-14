@@ -151,7 +151,7 @@ microscope.draw_patterns([rect])
 microscope.run_milling(milling_current=20e-12, milling_voltage=30000)
 
 # 4. Restore imaging conditions
-microscope.finish_milling(imaging_current=1e-12, imaging_voltage=2000)
+microscope.finish_milling()                 # clear, put the beam back as setup found it
 
 # --- Control ---
 microscope.start_milling()           # start without blocking
