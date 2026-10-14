@@ -56,7 +56,9 @@ def _client(ui, arm_control):
     app = build_server(
         ui.microscope,
         app_context=AutoLamellaAppContext(ui),
-        auth=AuthConfig.generate(arm_control=arm_control, token=TOKEN),
+        auth=AuthConfig.generate(
+            level="drive" if arm_control else "watch", token=TOKEN
+        ),
     )
     return TestClient(app, raise_server_exceptions=False)
 
@@ -334,7 +336,7 @@ def test_prompt_lifecycle_reaches_the_event_stream_with_attribution(ui, qapp):
     app = build_server(
         ui.microscope,
         app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
-        auth=AuthConfig.generate(arm_control=True, token=TOKEN),
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     dispose = ui.ui_responder.add_question_observer(buffer.append)
     try:
@@ -464,7 +466,7 @@ def test_start_workflow_requires_control_and_a_valid_body(ui, qapp):
             "/app/workflow/start", headers=AUTH, json={"task_names": ["x"]}
         )
         assert refused.status_code == 403
-        assert refused.json()["detail"]["scope"] == "control"
+        assert refused.json()["detail"]["level"] == "watch"
     with _client(ui, arm_control=True) as client:
         rejected = client.post("/app/workflow/start", headers=AUTH, json={})
         assert rejected.status_code == 422
@@ -479,7 +481,7 @@ def test_supervision_and_requeue_require_the_control_scope(ui, qapp):
         ):
             refused = client.post(path, headers=AUTH, json=payload)
             assert refused.status_code == 403
-            assert refused.json()["detail"]["scope"] == "control"
+            assert refused.json()["detail"]["level"] == "watch"
     with _client(ui, arm_control=True) as client:
         for path in ("/app/supervision", "/app/queue/requeue"):
             rejected = client.post(path, headers=AUTH, json={})
@@ -497,13 +499,13 @@ def test_answering_requires_the_control_scope(ui, qapp):
             json={"response": True, "question_id": 1},
         )
         assert refused.status_code == 403
-        assert refused.json()["detail"]["scope"] == "control"
+        assert refused.json()["detail"]["level"] == "watch"
 
 
-def test_capabilities_reflect_the_armed_control_scope(ui, qapp):
+def test_capabilities_reflect_the_level(ui, qapp):
     with _client(ui, arm_control=True) as client:
-        scopes = client.get("/capabilities", headers=AUTH).json()["scopes"]
-        assert scopes["control"] is True
+        level = client.get("/capabilities", headers=AUTH).json()["level"]
+        assert level == "drive"
         from fibsem.server.catalog import tools_for_capabilities
 
         names = {

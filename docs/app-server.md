@@ -253,7 +253,7 @@ bearer token — the sidecar is convenience, not a requirement.
 - **Localhost by default.** Out of the box, only processes on the same
   machine — running as someone who can read your files anyway — can even
   attempt to connect.
-- **One server per machine.** A second AutoLamella (or a bench server) refuses
+- **One server per machine.** A second AutoLamella refuses
   to start its own while one is alive.
 - **Everything is attributed.** Answers carry who gave them; the event stream
   and the log keep the record.
@@ -267,7 +267,7 @@ bearer token — the sidecar is convenience, not a requirement.
   never appeared; start AutoLamella (with the feature on) first, or pass
   `--url`/`--token` explicitly.
 - *The agent says it can't act* — it is at Watch. Raise it to Drive from the
-  Agent chip if you want it to; refusals name the level (`scope_not_armed`),
+  Agent chip if you want it to; refusals name the level (`level`, or `ask_first` at Assist),
   a stop (`agent_stopped`) or Off (`agent_off`).
 - *An agent's answer is refused with `stale_prompt`* — the question changed
   between the agent reading it and answering (often: you answered first).

@@ -246,9 +246,7 @@ def test_the_run_lends_control_while_the_question_stands(window, qapp):
     lamella = ui.experiment.positions[0]
     control = ui.microscope.control
     client = TestClient(
-        build_server(
-            ui.microscope, auth=AuthConfig.generate(arm_hardware=True, token="t")
-        ),
+        build_server(ui.microscope, auth=AuthConfig.generate(level="drive", token="t")),
         raise_server_exceptions=False,
     )
 

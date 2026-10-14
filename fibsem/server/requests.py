@@ -2,8 +2,8 @@
 
 At Assist the agent acts by asking. It files a request -- one or more of its
 own tool calls, and why -- and the operator approves or rejects it in the app.
-Approve runs each action through the App Server's own route, in order, with the
-scope that action needs lent for that call only (``auth.granting``). So an
+Approve runs each action through the App Server's own route, in order, with
+Drive lent for that call only (``auth.lending_drive``). So an
 approved action is validated, versioned, takes control of the microscope and is
 refused exactly as the same call made at Drive would be, and a refusal comes
 back as the route's own error.
@@ -30,12 +30,9 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.acting import AGENT, acting
-from fibsem.server.auth import AgentLevel, AuthConfig, Scope, granting, require_scope
+from fibsem.server.auth import AgentLevel, AuthConfig, lending_drive, require_level
 from fibsem.server.catalog import CATALOG, ToolSpec
 from fibsem.server.request_text import describe_action
-
-# The scopes a request may carry: every acting scope. Reads need no request.
-REQUEST_SCOPES = frozenset((Scope.CONTROL, Scope.CONFIGURE, Scope.HARDWARE))
 
 PENDING = "pending"
 APPLYING = "applying"
@@ -96,7 +93,6 @@ class Action:
 
     tool: str
     arguments: Dict[str, Any]
-    scope: Scope
     method: str
     path: str
     body: Optional[Dict[str, Any]]
@@ -362,15 +358,14 @@ class RequestStore:
                 raise RequestRefused(
                     422, "unknown_tool", f"Action {index + 1}: no tool named {tool!r}."
                 )
-            scope = Scope(spec.scope)
-            if scope is Scope.STOP:
+            if spec.level == "assist":
                 raise RequestRefused(
                     422,
                     "not_an_action",
-                    f"Action {index + 1}: {tool} stops; stopping needs no "
-                    "approval, so call it directly.",
+                    f"Action {index + 1}: {tool} needs no approval at Assist, "
+                    "so call it directly.",
                 )
-            if scope not in REQUEST_SCOPES:
+            if spec.level != "drive":
                 raise RequestRefused(
                     422,
                     "not_an_action",
@@ -395,7 +390,7 @@ class RequestStore:
                 raise RequestRefused(
                     422, "invalid_arguments", f"Action {index + 1}: {exc}"
                 ) from None
-            resolved.append(Action(tool, dict(arguments), scope, method, path, body))
+            resolved.append(Action(tool, dict(arguments), method, path, body))
         return resolved
 
     # --- the operator decides ---
@@ -491,7 +486,7 @@ class RequestStore:
                 if request._abort is not None or not self._assisting():
                     status = CANCELLED
                     break
-                with granting({action.scope}):
+                with lending_drive():
                     try:
                         code, answer = asyncio.run(
                             _asgi_call(
@@ -602,7 +597,7 @@ class RequestStore:
 def build_request_router(store: RequestStore) -> APIRouter:
     """The agent's side of requests: file one, read them back."""
     router = APIRouter(
-        prefix="/app/agent", dependencies=[Depends(require_scope(Scope.READ))]
+        prefix="/app/agent", dependencies=[Depends(require_level(AgentLevel.WATCH))]
     )
 
     def _refused(refusal: RequestRefused) -> HTTPException:
@@ -612,12 +607,11 @@ def build_request_router(store: RequestStore) -> APIRouter:
     def create_request(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
         if auth.level is not AgentLevel.ASSIST:
-            level = auth.level.value if auth.level is not None else None
             raise HTTPException(
                 status_code=403,
                 detail={
-                    "error_type": "not_assist",
-                    "level": level,
+                    "error_type": "level",
+                    "level": auth.level.value,
                     "message": "Requests are how the agent acts at Assist. "
                     + (
                         "At Drive, make the call itself."

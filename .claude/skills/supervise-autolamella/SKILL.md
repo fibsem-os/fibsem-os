@@ -40,7 +40,7 @@ denial exactly like a server 403 — stop and ask; never repackage the call
 to slip past it.
 
 Check the capabilities response before doing anything else:
-- `routers.app` must be true (an application is hosted, not just a bench server);
+- `routers.app` must be true (an application is hosted);
 - `level` is what the operator lets you do (next section). Tell them, in a
   sentence, what that level means you can and can't do this session.
 
@@ -70,7 +70,7 @@ it.
 
 A refusal names its reason in `detail.error_type`:
 
-- `scope_not_armed` with `level` — the action needs a higher level. Say what
+- `level` — the action needs a higher level. Say what
   you wanted to do and that it needs Drive; ask once, then carry on watching.
 - `agent_stopped` — the operator pressed *Stop agent* and you are at Watch.
   Stop acting at once: abandon what you were doing, report where you left

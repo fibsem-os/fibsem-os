@@ -201,9 +201,7 @@ def test_the_server_move_endpoint_answers_with_where_a_tescan_stage_went():
     from fibsem.server import AuthConfig, build_server
 
     microscope, _ = _tescan()
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token="t")
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token="t"))
     with TestClient(app, raise_server_exceptions=False) as client:
         resp = client.post(
             "/move_stage_absolute",

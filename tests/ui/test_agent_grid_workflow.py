@@ -76,7 +76,9 @@ def _client(ui, arm_control):
     app = build_server(
         ui.microscope,
         app_context=AutoLamellaAppContext(ui),
-        auth=AuthConfig.generate(arm_control=arm_control, token=TOKEN),
+        auth=AuthConfig.generate(
+            level="drive" if arm_control else "watch", token=TOKEN
+        ),
     )
     return TestClient(app, raise_server_exceptions=False)
 
@@ -198,7 +200,7 @@ def test_grid_start_requires_control_and_a_valid_body(ui, qapp):
             "/app/workflow/grids/start", headers=AUTH, json={"task_names": ["x"]}
         )
         assert refused.status_code == 403
-        assert refused.json()["detail"]["scope"] == "control"
+        assert refused.json()["detail"]["level"] == "watch"
         # The plan is a read: it needs no arming.
         plan = client.post(
             "/app/workflow/grids/plan",

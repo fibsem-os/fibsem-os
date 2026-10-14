@@ -72,7 +72,7 @@ def test_connect_starts_a_live_read_only_server(ui, app_server_enabled):
         timeout=10,
     ).json()
     assert body["routers"]["app"] is True
-    assert body["scopes"]["hardware"] is False
+    assert body["level"] == "watch"
 
     # The feed is the recorder's, which a run finds and registers for itself
     # (FIB-1044): not registered a second time by the app's own hooks.

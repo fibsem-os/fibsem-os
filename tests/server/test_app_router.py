@@ -346,7 +346,7 @@ def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buff
     armed = build_server(
         microscope,
         app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
-        auth=AuthConfig.generate(arm_configure=True, token=TOKEN),
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     with TestClient(armed, raise_server_exceptions=False) as client:
         when = "2026-09-04T06:00:00"
@@ -396,7 +396,7 @@ def test_workflow_options_verb_sets_and_refuses(microscope, host, event_buffer):
     armed = build_server(
         microscope,
         app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
-        auth=AuthConfig.generate(arm_configure=True, token=TOKEN),
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     with TestClient(armed, raise_server_exceptions=False) as client:
         resp = client.post(
@@ -440,7 +440,7 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
     armed = build_server(
         microscope,
         app_context=AutoLamellaAppContext(host, event_buffer=event_buffer),
-        auth=AuthConfig.generate(arm_control=True, token=TOKEN),
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     with TestClient(armed, raise_server_exceptions=False) as client:
         item = host.experiment.positions[0].name

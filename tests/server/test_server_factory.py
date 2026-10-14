@@ -15,7 +15,7 @@ pytest.importorskip("httpx")  # TestClient transport
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem import utils  # noqa: E402
-from fibsem.server import AuthConfig, FibsemServer, Scope, build_server  # noqa: E402
+from fibsem.server import AgentLevel, AuthConfig, build_server  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -55,9 +55,7 @@ def read_client(microscope):
 
 @pytest.fixture(scope="module")
 def armed_client(microscope):
-    app = build_server(
-        microscope, auth=AuthConfig.generate(arm_hardware=True, token=TOKEN)
-    )
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
@@ -88,18 +86,12 @@ def test_wrong_token_is_401(read_client):
     assert resp.status_code == 401
 
 
-def test_capabilities_reports_scopes_and_routers(read_client):
+def test_capabilities_reports_the_level_and_routers(read_client):
     resp = read_client.get("/capabilities", headers=AUTH)
     assert resp.status_code == 200
     body = resp.json()
     assert body["routers"] == {"microscope": True, "devices": True, "app": False}
-    assert body["scopes"] == {
-        "read": True,
-        "control": False,
-        "configure": False,
-        "hardware": False,
-        "stop": False,
-    }
+    assert body["level"] == "watch"
     assert body["manufacturer"] == "Demo"
 
 
@@ -109,25 +101,25 @@ def test_read_route_with_token(read_client):
     assert "x" in resp.json()["position"]
 
 
-def test_hardware_route_refused_when_not_armed(read_client):
+def test_hardware_route_refused_below_drive(read_client):
     resp = read_client.post(
         "/move_stage_relative", headers=AUTH, json={"position": _pos(0)}
     )
     assert resp.status_code == 403
     detail = resp.json()["detail"]
-    assert detail["error_type"] == "scope_not_armed"
-    assert detail["scope"] == "hardware"
+    assert detail["error_type"] == "level"
+    assert detail["level"] == "watch"
 
 
-def test_stop_milling_needs_a_scope_that_acts(read_client):
-    # Read alone is watching, and a watching agent stops nothing (FIB-1035).
+def test_stop_milling_needs_assist(read_client):
+    # Watch and a watching agent stops nothing (FIB-1035).
     resp = read_client.post("/stop_milling", headers=AUTH)
     assert resp.status_code == 403
 
 
 def test_valid_requests_stamp_last_seen(microscope):
     """The presence signal: any request bearing the valid token marks the
-    agent as heard from — including a scope refusal, which is still the agent
+    agent as heard from — including a level refusal, which is still the agent
     talking. An invalid token marks nothing."""
     auth = AuthConfig(token=TOKEN)
     app = build_server(microscope, auth=auth)
@@ -279,36 +271,24 @@ def test_microscope_exception_becomes_structured_500(microscope, monkeypatch):
     assert "vendor fell over" in detail["message"]
 
 
-def test_fibsem_server_defaults_to_localhost(microscope):
-    server = FibsemServer(microscope)
-    assert server.host == "127.0.0.1"
-    assert server.auth.is_armed(Scope.READ)
-    assert not server.auth.is_armed(Scope.HARDWARE)
-
-
-def test_arming_mid_session_takes_effect_without_a_new_token(microscope):
-    """The arming dialog's contract: flip the live AuthConfig, next request obeys."""
-    from fastapi.testclient import TestClient
-
-    from fibsem.server import AuthConfig, build_server
-    from fibsem.server.auth import Scope
-
-    auth = AuthConfig.generate(token="live-arm-token")
+def test_a_level_change_takes_effect_without_a_new_token(microscope):
+    """The Agent chip's contract: change the live AuthConfig, next request obeys."""
+    auth = AuthConfig.generate(token="live-level-token")
     app = build_server(microscope, auth=auth)
-    headers = {"Authorization": "Bearer live-arm-token"}
+    headers = {"Authorization": "Bearer live-level-token"}
     with TestClient(app, raise_server_exceptions=False) as client:
         refused = client.post(
             "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
         )
         assert refused.status_code == 403
 
-        auth.set_armed(Scope.HARDWARE, True)
+        auth.set_level(AgentLevel.DRIVE)
         allowed = client.post(
             "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
         )
         assert allowed.status_code == 200
 
-        auth.set_armed(Scope.HARDWARE, False)
+        auth.set_level(AgentLevel.WATCH)
         refused_again = client.post(
             "/autocontrast", headers=headers, json={"beam_type": "ELECTRON"}
         )

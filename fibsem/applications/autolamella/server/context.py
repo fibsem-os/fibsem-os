@@ -1418,7 +1418,7 @@ class AutoLamellaAppContext:
         an event, and halting the mill/burn is an event plus the same hardware
         stop call the core server's ``stop_milling`` route already issues from
         this thread. Stopping is the safety action, so like ``stop_milling`` it
-        rides the read scope and never waits on the command lock.
+        never waits on the command lock.
         """
         host = self._host
         if not hasattr(host, "stop_task_workflow"):
@@ -1443,8 +1443,8 @@ class AutoLamellaAppContext:
         Marshalled to the GUI thread (which owns worker creation and window
         chrome); validation refusals come back structured with the valid
         names. ``item_names`` of None means every item in the experiment.
-        Control-scope arming is the consent that stands in for the Run
-        click's confirm dialog.
+        The agent at Drive is the consent that stands in for the Run click's
+        confirm dialog.
         """
         host = self._host
         if not hasattr(host, "request_start_workflow"):
@@ -1544,7 +1544,7 @@ class AutoLamellaAppContext:
 
         Marshalled to the GUI thread like :meth:`start_workflow`; shares its
         worker slot, so it is refused while any workflow — lamella or grid —
-        is running. Control-scope arming stands in for the preflight dialog's
+        is running. The agent at Drive stands in for the preflight dialog's
         Run click; :meth:`grid_workflow_plan` is that dialog's content.
         """
         host = self._host

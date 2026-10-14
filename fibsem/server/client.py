@@ -211,7 +211,7 @@ class FibsemClient:
         over this server's ``/devices`` routes, with this client's token, built on
         first access. A read is live, a write is checked here and again on the
         server, and a command runs on the server; writes and commands need the
-        hardware scope armed.
+        agent at Drive.
 
         The App Server has no event stream, so no change made elsewhere (the
         microscope's own UI, another client) is signalled: ``changed`` fires only

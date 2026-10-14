@@ -74,7 +74,9 @@ def _client(ui, buffer=None, arm_configure=True):
     app = build_server(
         ui.microscope,
         app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
-        auth=AuthConfig.generate(arm_configure=arm_configure, token=TOKEN),
+        auth=AuthConfig.generate(
+            level="drive" if arm_configure else "watch", token=TOKEN
+        ),
     )
     return TestClient(app, raise_server_exceptions=False)
 
@@ -200,7 +202,7 @@ def test_the_configure_scope_gates_the_route(ui, qapp):
             json={"patch": {DEPTH: 2e-6}, "version": doc["version"]},
         )
         assert resp.status_code == 403
-        assert resp.json()["detail"]["scope"] == "configure"
+        assert resp.json()["detail"]["level"] == "watch"
 
 
 def test_a_protocol_level_patch_lands_and_is_recorded(ui, qapp):

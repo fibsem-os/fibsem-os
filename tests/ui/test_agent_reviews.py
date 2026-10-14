@@ -129,7 +129,7 @@ def _client(ui, buffer=None):
     app = build_server(
         ui.microscope,
         app_context=AutoLamellaAppContext(ui, event_buffer=buffer),
-        auth=AuthConfig.generate(arm_control=True, token=TOKEN),
+        auth=AuthConfig.generate(level="drive", token=TOKEN),
     )
     return TestClient(app, raise_server_exceptions=False)
 

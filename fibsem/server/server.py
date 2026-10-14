@@ -1,43 +1,23 @@
-"""The fibsem server: one server codebase per microscope, hosted two ways (FIB-852).
+"""The App Server: the fibsem server, embedded in the AutoLamella app (FIB-852).
 
 ``build_server`` constructs the FastAPI app around an already-connected
-``FibsemMicroscope``:
+``FibsemMicroscope``: the app passes its live microscope and an ``app_context``
+that additionally mounts the app-level router.
 
-- **Bench hosting** (this module's CLI): the server process owns the microscope
-  connection and mounts the microscope router only.
-- **Embedded hosting** (the AutoLamella app): the app passes its live microscope
-  and, once FIB-846 lands, an ``app_context`` that additionally mounts the
-  app-level router.
-
-Every route requires a bearer token. Routes are split into two scopes: ``read``
-(observation; granted to any valid token) and ``hardware`` (commands and
-mutations; armed explicitly by the hosting). A hardware command also takes
-control of the microscope (FIB-1270) for as long as it runs; when a run, a
-script or another command is in control it is refused with a structured
-``409 microscope_busy`` naming who, rather than interleaved or queued.
-
-Usage:
-
-    from fibsem.server import FibsemServer
-    server = FibsemServer.from_session(manufacturer="Demo", ip_address="localhost")
-    server.run()   # token is generated and logged; read-only unless armed
-
-Or as a script:
-
-    python -m fibsem.server.server --manufacturer Demo --arm-hardware
+Every route requires a bearer token, and an agent level (``auth``): reads at
+Watch, stops at Assist, acting at Drive. A hardware command also takes control
+of the microscope (FIB-1270) for as long as it runs; when a run, a script or
+another command is in control it is refused with a structured ``409
+microscope_busy`` naming who, rather than interleaved or queued.
 """
 
-import atexit
 import logging
-import os
 from typing import Optional
 
-import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 
-from fibsem import utils
 from fibsem.acting import AGENT, acting
 from fibsem.devices.chamber import Chamber
 from fibsem.microscope import FibsemMicroscope
@@ -49,21 +29,14 @@ from fibsem.server.app_routes import (
     build_app_suggest_router,
 )
 from fibsem.server.auth import (
+    AgentLevel,
     AuthConfig,
-    Scope,
     action_name,
-    require_acting_level,
+    require_level,
     require_monitoring,
-    require_scope,
     take_control,
 )
 from fibsem.server.devices import ERROR_STATUS, build_device_router, refusal
-from fibsem.server.discovery import (
-    DISCOVERY_FILE,
-    read_discovery_file,
-    remove_discovery_file,
-    write_discovery_file,
-)
 from fibsem.server.images import TIFF_MEDIA_TYPE, preview_payload, tiff_bytes
 from fibsem.server.models import (
     AcquireImageRequest,
@@ -171,11 +144,11 @@ class _RefusingRoute(APIRoute):
 
 
 # Device and service commands that stop something. Like POST /stop_milling,
-# stopping is always allowed: read scope, and no control taken, so never refused
-# by the running move.
+# no control taken, so never refused by the running move.
 STOP_COMMANDS = frozenset(("stop", "stop_live"))
 
-_read_scope = require_scope(Scope.READ)
+_watch = require_level(AgentLevel.WATCH)
+_drive = require_level(AgentLevel.DRIVE)
 
 
 def _served_devices(microscope: FibsemMicroscope) -> dict:
@@ -188,17 +161,14 @@ def _served_devices(microscope: FibsemMicroscope) -> dict:
     }
 
 
-_hardware_scope = require_scope(Scope.HARDWARE)
-
-
 def _device_command_gate(request: Request, command: str):
-    """A device command's gate: a stop needs only a token, anything else the
-    hardware scope and control of the microscope."""
+    """A device command's gate: a stop needs only a token, anything else Drive
+    and control of the microscope."""
     if command in STOP_COMMANDS:
-        _read_scope(request)
+        _watch(request)
         yield
         return
-    _hardware_scope(request)
+    _drive(request)
     yield from take_control(request)
 
 
@@ -229,7 +199,7 @@ def build_server(
 ) -> FastAPI:
     """Build the server app around an already-connected microscope.
 
-    ``auth`` defaults to a generated token with only the ``read`` scope armed.
+    ``auth`` defaults to a generated token at Watch.
     ``app_context`` is anything satisfying app_routes.AppContext (structurally
     -- the application's AutoLamellaAppContext in practice); passing one mounts the
     app-level router and flips ``routers.app`` in /capabilities.
@@ -238,8 +208,8 @@ def build_server(
     that reaches the instrument -- the microscope routes here and the
     ``/devices/...`` router, reads included, since a read can reach the
     instrument too. False leaves them unregistered (404), and /capabilities
-    reports both routers off. The bench server keeps the default; the App
-    Server passes its preference, which is off by default.
+    reports both routers off. The App Server passes its preference, which is
+    off by default.
     """
     if auth is None:
         auth = AuthConfig.generate()
@@ -261,22 +231,17 @@ def build_server(
     # /capabilities, which every client reads first, whatever is mounted, the
     # dashboard included.
     base = APIRouter(dependencies=[Depends(require_monitoring())])
-    read = APIRouter(
-        dependencies=[Depends(require_scope(Scope.READ))], route_class=_RefusingRoute
-    )
-    # The always-allowed stop: the stop scope (the App Server at Assist and
-    # Drive), or control or hardware where a server has no level (the bench).
-    # Never takes control: a stop must not be refused by the mill it stops.
+    read = APIRouter(dependencies=[Depends(_watch)], route_class=_RefusingRoute)
+    # Stopping: at Assist and Drive, with no request. Never takes control: a
+    # stop must not be refused by the mill it stops.
     stop = APIRouter(
-        dependencies=[
-            Depends(require_scope(Scope.STOP, Scope.CONTROL, Scope.HARDWARE))
-        ],
+        dependencies=[Depends(require_level(AgentLevel.ASSIST))],
         route_class=_RefusingRoute,
     )
     # Hardware routes also take control, so a command never interleaves with a
     # run, a script or another command.
     hw = APIRouter(
-        dependencies=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)],
+        dependencies=[Depends(_drive), Depends(take_control)],
         route_class=_RefusingRoute,
     )
 
@@ -313,9 +278,8 @@ def build_server(
                 "devices": devices,
                 "app": app_context is not None,
             },
-            "scopes": {s.value: auth.is_armed(s) for s in Scope},
-            # The agent level (FIB-1035); None on a server without one.
-            "level": auth.level.value if auth.level is not None else None,
+            # The agent level (FIB-1035): what the agent may do right now.
+            "level": auth.level.value,
         }
 
     @read.get("/system")
@@ -561,13 +525,13 @@ def build_server(
         app.include_router(stop)
         app.include_router(hw)
         # Every device's parameters and commands but the chamber's, as the
-        # device server serves them: reads are read scope, writes and commands
-        # hardware scope and control of the microscope.
+        # device server serves them: reads at Watch, writes and commands at
+        # Drive with control of the microscope.
         app.include_router(
             build_device_router(
                 lambda: _served_devices(microscope),
-                read=[Depends(require_scope(Scope.READ))],
-                write=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)],
+                read=[Depends(_watch)],
+                write=[Depends(_drive), Depends(take_control)],
                 command=[Depends(_device_command_gate)],
                 on_image=lambda image: _show_in_app(microscope, image),
             )
@@ -578,8 +542,8 @@ def build_server(
         app.include_router(
             build_device_router(
                 lambda: microscope.services,
-                read=[Depends(require_scope(Scope.READ))],
-                write=[Depends(require_scope(Scope.HARDWARE)), Depends(take_control)],
+                read=[Depends(_watch)],
+                write=[Depends(_drive), Depends(take_control)],
                 command=[Depends(_device_command_gate)],
                 prefix="/services",
                 noun="service",
@@ -590,37 +554,31 @@ def build_server(
         # "Not Found" reads as a wrong path, not as the operator's choice.
         app.include_router(_devices_off_router(read, stop, hw))
     if app_context is not None:
-        # Read scope applied here so auth stays in one place; the router itself
+        # The gate applied here so auth stays in one place; the router itself
         # is a thin pass-through over the context's JSON-able snapshots. These
         # are the monitoring routes, so the dashboard token may GET them too.
         app.include_router(
             build_app_router(app_context),
             dependencies=[Depends(require_monitoring())],
         )
-        # Acting on the session (answering prompts) is control scope — armed by
-        # the hosting, never by default; unarmed callers get 403 scope_not_armed.
+        # Acting on the session (answering prompts, editing configuration):
+        # Drive, or an approved request at Assist.
         app.include_router(
-            build_app_control_router(app_context),
-            dependencies=[Depends(require_scope(Scope.CONTROL))],
+            build_app_control_router(app_context), dependencies=[Depends(_drive)]
         )
         app.include_router(
-            build_app_config_router(app_context),
-            dependencies=[Depends(require_scope(Scope.CONFIGURE))],
+            build_app_config_router(app_context), dependencies=[Depends(_drive)]
         )
-        # Stopping the workflow: the stop scope (Assist and Drive), or control
-        # on a server with no level. Never waits for approval.
+        # Stopping the workflow: Assist and Drive. Never waits for approval.
         app.include_router(
             build_app_stop_router(app_context),
-            dependencies=[Depends(require_scope(Scope.STOP, Scope.CONTROL))],
+            dependencies=[Depends(require_level(AgentLevel.ASSIST))],
         )
         # Suggesting an answer to the run's question: Assist and Drive, with no
         # request, since the operator's click is what answers.
         app.include_router(
             build_app_suggest_router(app_context),
-            dependencies=[
-                Depends(require_scope(Scope.READ)),
-                Depends(require_acting_level()),
-            ],
+            dependencies=[Depends(require_level(AgentLevel.ASSIST))],
         )
         # The agent's requests (FIB-1283): actions the operator approves in the
         # app, run through the routes above. The app decides them through
@@ -652,7 +610,7 @@ def _devices_off(request: Request) -> None:
 def _devices_off_router(*routers: APIRouter) -> APIRouter:
     """The instrument routes' paths, each answering a 404 that says the devices
     are off. Behind the token like the routes they stand in for."""
-    off = APIRouter(dependencies=[Depends(require_scope(Scope.READ))])
+    off = APIRouter(dependencies=[Depends(_watch)])
     paths = {route.path for router in routers for route in router.routes}
     for prefix in ("/devices", "/services"):
         paths.update((prefix, prefix + "/{rest:path}"))
@@ -664,112 +622,3 @@ def _devices_off_router(*routers: APIRouter) -> APIRouter:
             include_in_schema=False,
         )
     return off
-
-
-class FibsemServer:
-    """Bench hosting: own the microscope connection and serve it.
-
-    Binds localhost by default; exposing on the LAN is an explicit choice.
-    """
-
-    def __init__(
-        self,
-        microscope: FibsemMicroscope,
-        host: str = "127.0.0.1",
-        port: int = 8001,
-        auth: Optional[AuthConfig] = None,
-    ):
-        self.microscope = microscope
-        self.host = host
-        self.port = port
-        self.auth = auth or AuthConfig.generate()
-        self.app = build_server(microscope, auth=self.auth)
-
-    def run(self):
-        # One server per microscope/machine: the discovery file is the guard.
-        existing = read_discovery_file()
-        if existing is not None and existing.get("pid") != os.getpid():
-            raise RuntimeError(
-                f"A fibsem server already appears to be running "
-                f"(pid {existing.get('pid')}, {existing.get('url')}). "
-                "One server per microscope: stop it first, or delete "
-                f"{DISCOVERY_FILE} if it is stale."
-            )
-        armed = ", ".join(s.value for s in self.auth.armed_scopes())
-        logging.info(
-            "fibsem server on http://%s:%s — scopes armed: %s",
-            self.host,
-            self.port,
-            armed,
-        )
-        logging.info("bearer token: %s", self.auth.token)
-        write_discovery_file(self.host, self.port, self.auth)
-        atexit.register(remove_discovery_file)
-        try:
-            uvicorn.run(self.app, host=self.host, port=self.port)
-        finally:
-            remove_discovery_file()
-
-    @classmethod
-    def from_session(
-        cls,
-        manufacturer: Optional[str] = None,
-        ip_address: Optional[str] = None,
-        config_path: Optional[str] = None,
-        host: str = "127.0.0.1",
-        port: int = 8001,
-        auth: Optional[AuthConfig] = None,
-    ) -> "FibsemServer":
-        microscope, _ = utils.setup_session(
-            manufacturer=manufacturer, ip_address=ip_address, config_path=config_path
-        )
-        return cls(microscope, host=host, port=port, auth=auth)
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Start a fibsem microscope server (bench hosting)"
-    )
-    parser.add_argument(
-        "--manufacturer",
-        default=None,
-        help="Microscope manufacturer (default: from config)",
-    )
-    parser.add_argument(
-        "--ip-address",
-        default=None,
-        help="Microscope IP address (default: from config)",
-    )
-    parser.add_argument(
-        "--config", default=None, help="Path to a microscope configuration file"
-    )
-    parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Bind address (default: 127.0.0.1; use 0.0.0.0 to expose on the LAN)",
-    )
-    parser.add_argument(
-        "--port", type=int, default=8001, help="Server port (default: 8001)"
-    )
-    parser.add_argument(
-        "--token", default=None, help="Bearer token (default: generated and logged)"
-    )
-    parser.add_argument(
-        "--arm-hardware",
-        action="store_true",
-        help="Arm the hardware scope (moves, acquisition, milling)",
-    )
-    args = parser.parse_args()
-
-    logging.basicConfig(level=logging.INFO)
-    server = FibsemServer.from_session(
-        manufacturer=args.manufacturer,
-        ip_address=args.ip_address,
-        config_path=args.config,
-        host=args.host,
-        port=args.port,
-        auth=AuthConfig.generate(arm_hardware=args.arm_hardware, token=args.token),
-    )
-    server.run()

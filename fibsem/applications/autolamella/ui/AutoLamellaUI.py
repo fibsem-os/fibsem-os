@@ -770,7 +770,7 @@ class AutoLamellaUI(QMainWindow):
     def _start_app_server(self) -> None:
         """Host the App Server over this session, if the preference asks for it.
 
-        Read-only until scopes are armed; never raises — an optional observer
+        The agent starts at Watch; never raises — an optional observer
         must not be able to take the session down (see hosting.py).
         """
         preference = fibsem_cfg.load_user_preferences().app_server
@@ -1340,7 +1340,7 @@ class AutoLamellaUI(QMainWindow):
         The agent-facing start: marshalled to the GUI thread (which owns the
         worker creation and the window chrome), resolving to a plain dict —
         ``{"started": True}`` or a structured refusal with the valid names.
-        Control-scope arming is the consent that replaces the Run click's
+        The agent at Drive is the consent that replaces the Run click's
         confirm dialog.
         """
         from concurrent.futures import Future as _Future
@@ -1557,7 +1557,7 @@ class AutoLamellaUI(QMainWindow):
         Marshalled to the GUI thread — the thread that owns the editor and the
         experiment's writer seat — resolving to a plain dict: the applied
         changes, or a structured refusal (stale version, invalid patch,
-        unknown names). Configure-scope arming is the consent.
+        unknown names). The agent at Drive is the consent.
         """
         from concurrent.futures import Future as _Future
 

@@ -1,6 +1,8 @@
-# FibsemMicroscope Server
+# The App Server
 
-A simple HTTP server that exposes a `FibsemMicroscope` instance over the network, allowing remote control from any Python client.
+The HTTP server AutoLamella hosts for agents and the dashboard (the App
+Server), and `FibsemClient`, a `FibsemMicroscope` that talks to it. The user
+guide is [docs/app-server.md](../../docs/app-server.md).
 
 ## Installation
 
@@ -10,39 +12,30 @@ pip install -e .[server]
 
 ## Starting the Server
 
-On the machine connected to the microscope:
-
-```python
-from fibsem.server import FibsemServer
-
-server = FibsemServer.from_session(manufacturer="ThermoFisher", ip_address="192.168.1.1", port=8001)
-server.run()   # logs the bearer token; read-only unless scopes are armed
-```
-
-Or with the Demo microscope for development:
-
-```bash
-python -m fibsem.server.server --manufacturer Demo --arm-hardware
-```
+The App Server runs inside AutoLamella: turn it on in Preferences → App
+Server, and Tools → App Server shows its address and the dashboard. With
+*Serve the microscope's devices* on, it also serves the microscope
+routes below. While it runs it writes `~/.fibsem/app-server.json` (url and
+token), so local clients connect without copying anything.
 
 The Swagger UI is available at `http://<host>:8001/docs`.
 
-### Authentication and scopes
+### Authentication and the agent level
 
-Every request needs the server's bearer token (generated at startup and logged,
-or supplied with `--token`), sent as an `Authorization: Bearer <token>` header.
-A valid token grants the `read` scope (observation). The `hardware` scope —
-moves, acquisition, milling — must be armed explicitly (`--arm-hardware`);
-unarmed hardware calls are refused with a structured `403 scope_not_armed`.
-A hardware command takes control of the microscope while it runs: when a run, a
-script or another command is in control it gets `409 microscope_busy`, naming who.
-`POST /stop_milling` never takes control — stopping is always allowed.
-`GET /capabilities` reports the armed scopes.
+Every request needs the server's bearer token, sent as an
+`Authorization: Bearer <token>` header. What the token may do is the agent
+level the operator sets from the Agent chip: reads at Watch, stops at Assist,
+acting at Drive; at Off everything is refused. A refusal is a structured 403
+naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`). A hardware
+command takes control of the microscope while it runs: when a run, a script or
+another command is in control it gets `409 microscope_busy`, naming who.
+`POST /stop_milling` never takes control. `GET /capabilities` reports the
+level.
 
-The server binds `127.0.0.1` by default. Exposing it on the LAN
-(`--host 0.0.0.0`) is an explicit choice: the token then travels in cleartext
-HTTP, which keeps strangers out but is not sniff-proof — see the AutoLamella
-App Server design doc for the trust model.
+The server binds `127.0.0.1` by default. Exposing it on the LAN is an
+explicit choice: the token then travels in cleartext HTTP, which keeps
+strangers out but is not sniff-proof — see the AutoLamella App Server design
+doc for the trust model.
 
 ### App route naming
 
@@ -63,7 +56,7 @@ well and deprecate the short forms.
 ```python
 from fibsem.server import FibsemClient
 
-microscope = FibsemClient(host="192.168.1.100", port=8001, token="<token from the server log>")
+microscope = FibsemClient(host="192.168.1.100", port=8001, token="<token from Connect an agent…>")
 ```
 
 ### Image Acquisition
@@ -177,9 +170,9 @@ microscope.set_beam_current(1e-9, BeamType.ION)         # PUT /devices/ion/curre
 microscope.get_beam_settings(BeamType.ION)              # GET /beams/ion/beam_settings
 ```
 
-Reads are `read` scope. Parameter writes and commands are `hardware` scope and
-take control of the microscope, except the `stop` and `stop_live` commands,
-which like `/stop_milling` are always allowed.
+Reads work at Watch. Parameter writes and commands need Drive and take control
+of the microscope, except the `stop` and `stop_live` commands, which like
+`/stop_milling` never take control.
 
 ---
 

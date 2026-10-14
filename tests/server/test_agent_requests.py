@@ -111,7 +111,7 @@ def test_only_assist_files_requests(client, auth):
         auth.set_level(level)
         refused = _file(client, NUDGE)
         assert refused.status_code == 403
-        assert _detail(refused)["error_type"] == "not_assist"
+        assert _detail(refused)["error_type"] == "level"
     auth.set_level(AgentLevel.OFF)
     assert _detail(_file(client, NUDGE))["error_type"] == "agent_off"
 
@@ -352,7 +352,7 @@ def test_an_expiring_request_lapses_as_it_says(app):
 
 def test_every_acting_tool_resolves_to_its_route():
     for spec in CATALOG:
-        if spec.scope == "read":
+        if spec.level != "drive":
             continue
         arguments = {name: "x" for name in spec.params if "{" + name + "}" in spec.path}
         if spec.name == "move_stage_absolute":

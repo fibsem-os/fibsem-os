@@ -365,7 +365,7 @@ coordinates devices or runs steps over time is a service. The base class is
 build is left out. The App Server serves them as it serves devices, under `/services`: `GET
 /services` describes each one's parameters and commands, `GET
 /services/{service}/{parameter}` reads one, and `POST
-/services/{service}/commands/{command}` runs one, behind the same token, scopes and
+/services/{service}/commands/{command}` runs one, behind the same token, level and
 control of the microscope. A service's `stop` needs only the token and is never
 refused by whoever is in control, like a device's.
 

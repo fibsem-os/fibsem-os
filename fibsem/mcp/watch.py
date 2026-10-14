@@ -241,10 +241,7 @@ def watch(client, out=None, sleep_fn=None, poll_s=POLL_S, clock=None, since=None
         out(f"SERVER UNAVAILABLE: /app/events gave {failure}. Is the app running?")
         return 1
     if not snapshot.get("available"):
-        out(
-            "NO EVENTS: the server has no event stream, so there is nothing to "
-            "watch. Is an application hosted, not only a bench server?"
-        )
+        out("NO EVENTS: the server has no event stream, so there is nothing to watch.")
         return 1
     if since is None:
         since = snapshot.get("latest_seq") or 0

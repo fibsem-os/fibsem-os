@@ -175,7 +175,7 @@ class AppServerHost:
         if self.running:
             return True
 
-        # One server per microscope/machine; a live bench server wins.
+        # One server per microscope/machine; a live one wins.
         existing = read_discovery_file(self._discovery_path)
         if existing is not None:
             logging.error(
@@ -184,15 +184,15 @@ class AppServerHost:
             )
             return False
 
-        # Read-only until scopes are armed; proper arming arrives with the GUI
-        # dialog. FIBSEM_AGENT_ARM_CONTROL=1 is the developer override until
-        # then: set by whoever launches the app, never by a config file, and
-        # loudly logged. Drive arms hardware too, when devices is on (FIB-1267).
+        # Watch until the operator raises the level from the Agent chip.
+        # FIBSEM_AGENT_ARM_CONTROL=1 is a developer override to start at Drive:
+        # set by whoever launches the app, never by a config file, and loudly
+        # logged.
         arm_control = os.environ.get("FIBSEM_AGENT_ARM_CONTROL") == "1"
         if arm_control:
             logging.warning(
                 "App Server: agent level DRIVE via FIBSEM_AGENT_ARM_CONTROL "
-                "(developer override; the agent chip replaces this)"
+                "(developer override)"
             )
         # One AuthConfig per app session, kept on the window across server
         # restarts (a microscope reconnect, a devices toggle): the agent's
@@ -201,8 +201,9 @@ class AppServerHost:
         # never written to disk (FIB-1035). The override is Drive.
         self.auth = getattr(self._ui, "_app_server_auth", None)
         if self.auth is None:
-            self.auth = AuthConfig.generate()
-            self.auth.set_level(AgentLevel.DRIVE if arm_control else AgentLevel.WATCH)
+            self.auth = AuthConfig.generate(
+                level=AgentLevel.DRIVE if arm_control else AgentLevel.WATCH
+            )
             try:
                 self._ui._app_server_auth = self.auth
             except AttributeError:
