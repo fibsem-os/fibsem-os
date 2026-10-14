@@ -111,6 +111,18 @@ def test_move_tool_round_trip(armed_sidecar):
     assert '"position"' in text
 
 
+def test_stable_move_tool_round_trip(armed_sidecar):
+    before = asyncio.run(armed_sidecar.call_tool("get_stage_position", {}))
+    before = json.loads("".join(getattr(c, "text", "") for c in _contents(before)))
+    result = asyncio.run(
+        armed_sidecar.call_tool(
+            "stable_move", {"dx": 5e-6, "dy": 0.0, "beam_type": "ELECTRON"}
+        )
+    )
+    after = json.loads("".join(getattr(c, "text", "") for c in _contents(result)))
+    assert after["position"]["x"] != pytest.approx(before["position"]["x"])
+
+
 def test_image_tool_returns_image_content(armed_sidecar):
     result = asyncio.run(
         armed_sidecar.call_tool("acquire_image_preview", {"beam_type": "ION"})
