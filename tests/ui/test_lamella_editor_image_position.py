@@ -261,3 +261,20 @@ def test_a_run_s_images_in_its_own_folder_are_offered_and_chosen(scene):
     assert picker.findData(OLD_IB) >= 0, "the lamella folder's own images stay"
     assert picker.itemText(picker.findData(run_ib)).endswith("· 14 Oct 09:30")
     assert editor.image is not None  # loaded from the run's folder
+
+
+def test_the_pickers_list_images_in_the_order_they_were_taken(scene):
+    """By name a run's ``final_res`` images come before its ``start`` image; the
+    pickers list them as they were taken, oldest first (FIB-1275)."""
+    lamella = scene["lamella"]
+    start = "ref_Rough Milling_start_ib.tif"
+    os.rename(os.path.join(lamella.path, OLD_IB), os.path.join(lamella.path, start))
+    os.remove(os.path.join(lamella.path, OLD_EB))
+    scene["acquire_new"]()  # final_res_01, taken after start
+
+    editor = scene["editor"]()
+
+    picker = editor.combobox_fib_filenames
+    listed = [picker.itemData(i) for i in range(picker.count())]
+    assert listed == [start, NEW_IB]
+    assert sorted(listed) == [NEW_IB, start], "by name it would be the other way"

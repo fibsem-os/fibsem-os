@@ -735,21 +735,37 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         )
         self.combobox_fm_filenames.blockSignals(False)
 
-        # load fib reference image
-        self.combobox_fib_filenames.blockSignals(True)
+        # Each reference image's header, read once -- a fraction of a millisecond
+        # each -- for where it was taken and when. The pickers list them in the
+        # order they were taken, so a run's images sit together and in order; the
+        # default below still falls back to the last image found, as it did.
         fib_filenames = [
             f
             for f in lamella_images(selected_lamella, "_ib.tif")
             if "alignment" not in f
         ]  # show all non-alignment images
+        sem_filenames = [
+            f
+            for f in lamella_images(selected_lamella, "_eb.tif")
+            if "alignment" not in f
+        ]
+        positions = {
+            f: read_image_position(self._image_path(selected_lamella, f))
+            for f in fib_filenames + sem_filenames
+        }
+        fib_listed = sorted(fib_filenames, key=lambda f: positions[f].timestamp)
+        sem_listed = sorted(sem_filenames, key=lambda f: positions[f].timestamp)
+
+        # load fib reference image
+        self.combobox_fib_filenames.blockSignals(True)
 
         # remember selected fib filename
         selected_fib_filename = self.combobox_fib_filenames.currentData() or ""
         base_filenames = fib_filenames
         _fill_picker(
             self.combobox_fib_filenames,
-            base_filenames,
-            [_picker_label(f, task_names) for f in base_filenames],
+            fib_listed,
+            [_picker_label(f, task_names) for f in fib_listed],
         )
 
         latest_task_filename = self._latest_task_image(selected_lamella, "_ib.tif")
@@ -763,18 +779,13 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         # load sem reference image
         self.combobox_sem_filenames.blockSignals(True)
-        sem_filenames = [
-            f
-            for f in lamella_images(selected_lamella, "_eb.tif")
-            if "alignment" not in f
-        ]
 
         selected_sem_filename = self.combobox_sem_filenames.currentData() or ""
         sem_base_filenames = sem_filenames
         _fill_picker(
             self.combobox_sem_filenames,
-            sem_base_filenames,
-            [_picker_label(f, task_names) for f in sem_base_filenames],
+            sem_listed,
+            [_picker_label(f, task_names) for f in sem_listed],
         )
 
         latest_sem_task_filename = self._latest_task_image(selected_lamella, "_eb.tif")
@@ -787,15 +798,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         _select_filename(self.combobox_sem_filenames, default_sem_filename)
 
-        # Where each image was taken, from its header -- a fraction of a millisecond
-        # each. The default above is chosen by filename; unless it was taken where the
-        # lamella is now, it gives way to the newest image that was, if there is one.
-        # Only here, where the editor chose the image: a pick from the picker is never
-        # replaced, only described.
-        self._image_positions = {
-            f: read_image_position(self._image_path(selected_lamella, f))
-            for f in base_filenames + sem_base_filenames
-        }
+        # The default above is the last task's image, else the last found; unless it
+        # was taken where the lamella is now, it gives way to the newest image that
+        # was, if there is one. Only here, where the editor chose the image: a pick
+        # from the picker is never replaced, only described.
+        self._image_positions = positions
         switched_before = (
             self._switched_to if self._switched_for == selected_lamella.id else None
         )
