@@ -33,6 +33,7 @@ from typing import (
     Dict,
     FrozenSet,
     Iterator,
+    List,
     Mapping,
     Optional,
     Sequence,
@@ -965,6 +966,50 @@ class Axes:
 
     def __repr__(self) -> str:
         return f"<Axes {list(self._axes)}>"
+
+
+AXIS_UNITS: Dict[str, str] = {"x": "m", "y": "m", "z": "m", "r": "rad", "t": "rad"}
+"""Every axis a stage or manipulator position can carry, and its unit."""
+
+UNLIMITED = RangeLimit(min=-math.inf, max=math.inf)
+"""The limits a driver gives an axis it has but cannot bound."""
+
+
+class AxisLimitError(ValueError):
+    """A move whose target is outside an axis's limits. Nothing moved."""
+
+
+def build_axes(device: Device, parameter: str = "position") -> Axes:
+    """An axis for each one the driver gives *parameter* limits for.
+
+    Which axes a device has is the driver's to say, by the keys of its per-axis
+    limits (``UNLIMITED`` for an axis it has but cannot bound).
+    """
+    position = getattr(device, parameter)
+    limits = position.limits or {}
+    axes = {
+        name: Axis(device, name, unit, parameter)
+        for name, unit in AXIS_UNITS.items()
+        if name in limits
+    }
+    for axis in axes.values():
+        position.changed.connect(axis._position_changed)
+    return Axes(axes)
+
+
+def axes_outside_limits(axes: Axes, position: Any) -> List[str]:
+    """Each axis of *position* outside its limits, as ``"t=1.2 not in [0, 1]"``.
+
+    Axes that are None on *position*, or that the device does not have, are skipped.
+    """
+    outside = []
+    for name in axes:
+        limit = axes[name].limits
+        low, high = limit.min, limit.max
+        value = getattr(position, name, None)
+        if value is not None and not low <= value <= high:
+            outside.append(f"{name}={value:g} not in [{low:g}, {high:g}]")
+    return outside
 
 
 def _describe(p: BoundParameter) -> Dict[str, Any]:

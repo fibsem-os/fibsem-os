@@ -20,6 +20,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.devices.core import Axes
 from fibsem.structures import BeamType, MicroscopeSettings, SystemSettings
 from tests.test_configuration_schema import SHIPPED
 
@@ -380,7 +381,7 @@ def test_the_arm_s_axes_are_its_device_s(microscope, monkeypatch):
     device = microscope.manipulator_device
     assert microscope.is_available("manipulator_rotation") is False
 
-    monkeypatch.setattr(device, "axes", lambda: ("x", "y", "z", "r"))
+    monkeypatch.setattr(device, "axes", Axes({a: None for a in ("x", "y", "z", "r")}))
     assert microscope.is_available("manipulator_rotation") is True
     assert microscope.is_available("manipulator_tilt") is False
 

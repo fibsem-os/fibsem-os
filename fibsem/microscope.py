@@ -1764,7 +1764,7 @@ class FibsemMicroscope(ABC):
     def _manipulator_axes(self) -> Tuple[str, ...]:
         """The axes the manipulator device moves on; none without one."""
         axes = getattr(self._devices.get("manipulator"), "axes", None)
-        return tuple(axes()) if axes is not None else ()
+        return tuple(axes) if axes is not None else ()
 
     def apply_configuration(
         self, system_settings: Optional[SystemSettings] = None
